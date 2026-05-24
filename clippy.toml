@@ -1,0 +1,2 @@
+# db/sync helpers take 8-11 args driven by SQL row shape or per-page state; default 7 too aggressive.
+too-many-arguments-threshold = 12

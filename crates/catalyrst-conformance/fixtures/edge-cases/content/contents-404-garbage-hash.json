@@ -1,0 +1,18 @@
+{
+  "description": "Even a clearly-malformed hash returns 404, not 400 - the handler treats every string as a candidate key and lets storage report 'not found'.",
+  "request": {
+    "method": "GET",
+    "path": "/content/contents/!!not-a-hash!!",
+    "query": {},
+    "headers": {},
+    "body": null
+  },
+  "response": {
+    "status": 404,
+    "headers": {"content-type": "application/json"},
+    "body_json": {"error": "Not Found", "message": "No content found with hash !!not-a-hash!!"}
+  },
+  "captured_from": "hand-authored from handler source (get_content.rs) - no format validation by design",
+  "captured_at": "2026-05-23T20:00:00Z",
+  "volatile_paths": []
+}

@@ -1,0 +1,61 @@
+# Per-section volatility rules for the conformance runner.
+#
+# Each table name is a section as the runner knows it (the strings passed
+# to should_run() in main.rs). Within a section:
+#   ignore                = ["dot.path", "with[].array.wildcard", ...]
+#   ignore_whole_response = true   # short-circuit the section as a skip
+#
+# Path syntax:
+#   - dots separate object keys: configurations.realmName
+#   - [] matches any array index: deployments[].localTimestamp
+#   - * matches one whole segment: configurations.*
+#
+# Only add entries you have evidence are legitimately host-specific or
+# time-drifting — anything else risks hiding real bugs.
+
+[about]
+ignore = [
+    "configurations.realmName",
+    "configurations.networkId",
+    "content.publicUrl",
+    "lambdas.publicUrl",
+    "comms.publicUrl",
+    "comms.adapter",
+    "bff.publicUrl",
+]
+
+[status]
+ignore = [
+    "lastSyncWithDAO",
+    "lastDeploymentAt",
+    "synchronizationStatus.lastSyncWithOtherServers[].lastSyncTimestamp",
+    "synchronizationStatus.lastSyncWithOtherServers[].lastDeploymentTimestamp",
+    "synchronizationStatus.lastSyncWithOtherServers[].url",
+    "synchronizationStatus.otherServers[]",
+]
+
+[challenge]
+# Challenge text is server-instance-specific by design.
+ignore = ["challengeText"]
+
+[snapshots]
+# Snapshot hashes and timestamps are state-dependent across regions/instances.
+ignore_whole_response = true
+
+[failed-deployments]
+# The failure log is host-local and drifts constantly.
+ignore_whole_response = true
+
+[deployments]
+ignore = [
+    "deployments[].localTimestamp",
+    "pagination.next",
+    "pagination.self",
+]
+
+[lambdas-status]
+ignore = [
+    "version",
+    "currentTime",
+    "commitHash",
+]

@@ -1,0 +1,21 @@
+{
+  "description": "Providing both ids and pointers must also 400 - mutually exclusive set.",
+  "request": {
+    "method": "GET",
+    "path": "/content/entities/scene",
+    "query": {
+      "pointer": ["0,0"],
+      "id": ["bafkreieexampleexampleexample0000000000000000000000"]
+    },
+    "headers": {},
+    "body": null
+  },
+  "response": {
+    "status": 400,
+    "headers": {"content-type": "application/json"},
+    "body_json": {"error": "Bad request", "message": "ids or pointers must be present, but not both"}
+  },
+  "captured_from": "hand-authored from handler source (get_entities.rs)",
+  "captured_at": "2026-05-23T20:00:00Z",
+  "volatile_paths": []
+}

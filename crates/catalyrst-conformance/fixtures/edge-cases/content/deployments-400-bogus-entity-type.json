@@ -1,0 +1,18 @@
+{
+  "description": "GET /content/deployments with an unrecognized entityType param must 400 - validation runs before any DB call.",
+  "request": {
+    "method": "GET",
+    "path": "/content/deployments",
+    "query": {"entityType": ["totallybogus"]},
+    "headers": {},
+    "body": null
+  },
+  "response": {
+    "status": 400,
+    "headers": {"content-type": "application/json"},
+    "body_json": {"error": "Bad request", "message": "Found an unrecognized entity type"}
+  },
+  "captured_from": "hand-authored from handler source (get_deployments.rs)",
+  "captured_at": "2026-05-23T20:00:00Z",
+  "volatile_paths": []
+}

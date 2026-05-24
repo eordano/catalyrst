@@ -1,0 +1,18 @@
+{
+  "description": "Plural 'scenes' must be canonicalized to 'scene' and accepted (then 404 for the unknown id) - proves the trailing-'s' strip happens, and the result is treated as the singular type.",
+  "request": {
+    "method": "GET",
+    "path": "/content/audit/scenes/bafkreieexamplescenethatdoesnotexistinanycatalyst000",
+    "query": {},
+    "headers": {},
+    "body": null
+  },
+  "response": {
+    "status": 404,
+    "headers": {"content-type": "application/json"},
+    "body_json": {"error": "Not Found", "message": "No deployment found"}
+  },
+  "captured_from": "hand-authored from handler source (get_audit.rs) + reference parity notes",
+  "captured_at": "2026-05-23T20:00:00Z",
+  "volatile_paths": []
+}

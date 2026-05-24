@@ -1,0 +1,18 @@
+{
+  "description": "GET /lambdas/parcels/{x}/{y}/operators on a valid-but-unowned coordinate returns 404 with a quirky body shape: error key is 'Bad Request' (capital R!) NOT 'Not Found' - this is the lamb2 historical quirk preserved by parcel_or_estate_not_found().",
+  "request": {
+    "method": "GET",
+    "path": "/lambdas/parcels/0/0/operators",
+    "query": {},
+    "headers": {},
+    "body": null
+  },
+  "response": {
+    "status": 404,
+    "headers": {"content-type": "application/json"},
+    "body_json": {"error": "Bad Request", "message": "Parcel or estate rights not found for x: 0, y: 0"}
+  },
+  "captured_from": "hand-authored from handler source (lambdas_land.rs::parcel_or_estate_not_found) - status is 404 but the body says 'Bad Request' for parity",
+  "captured_at": "2026-05-23T20:00:00Z",
+  "volatile_paths": []
+}

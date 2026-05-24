@@ -1,0 +1,33 @@
+{
+  "description": "Origin-less request must NOT receive CORS headers (lamb2 parity — tower_http::CorsLayer would emit them; catalyrst's hand-rolled middleware omits them).",
+  "request": {
+    "method": "GET",
+    "path": "/content/status",
+    "query": {},
+    "headers": {},
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body_json": {
+      "name": "<<VOLATILE>>",
+      "version": "<<VOLATILE>>",
+      "currentTime": 0,
+      "synchronizationStatus": {
+        "synchronizationState": "Syncing",
+        "lastSyncWithDAO": 0
+      }
+    }
+  },
+  "captured_from": "hand-authored from crates/catalyrst-server/src/cors.rs (no Origin → no headers reflected)",
+  "captured_at": "2026-05-23T20:30:00Z",
+  "volatile_paths": [
+    "name",
+    "version",
+    "currentTime",
+    "synchronizationStatus.lastSyncWithDAO"
+  ]
+}

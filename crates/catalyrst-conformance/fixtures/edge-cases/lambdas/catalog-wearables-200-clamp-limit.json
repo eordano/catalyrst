@@ -1,0 +1,22 @@
+{
+  "description": "GET /lambdas/collections/wearables with limit=10000 must clamp to the MAX_LIMIT of 500; pagination.limit echoes the clamped value.",
+  "request": {
+    "method": "GET",
+    "path": "/lambdas/collections/wearables",
+    "query": {"textSearch": ["abc"], "limit": ["10000"]},
+    "headers": {},
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "headers": {"content-type": "application/json"},
+    "body_json": {
+      "wearables": [],
+      "filters": {"textSearch": "abc"},
+      "pagination": {"limit": 500}
+    }
+  },
+  "captured_from": "hand-authored from handler source (lambdas_catalog.rs::clamp_limit, MAX_LIMIT=500)",
+  "captured_at": "2026-05-23T20:00:00Z",
+  "volatile_paths": []
+}

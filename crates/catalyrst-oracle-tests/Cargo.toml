@@ -1,0 +1,38 @@
+[package]
+name = "catalyrst-oracle-tests"
+version = "0.1.0"
+edition = "2021"
+description = "Oracle tests: extract real vectors from the live Catalyst DB and verify the Rust crates match"
+
+[[bin]]
+name = "extract"
+path = "src/bin/extract.rs"
+
+[dependencies]
+# workspace crates under test
+catalyrst-hashing = { workspace = true }
+catalyrst-crypto = { workspace = true }
+catalyrst-storage = { workspace = true }
+catalyrst-validator = { workspace = true }
+
+# database
+sqlx = { workspace = true }
+
+# serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# async
+tokio = { workspace = true }
+
+# encoding
+base64 = "0.22"
+
+# time
+chrono = { workspace = true }
+
+# error handling
+anyhow = { workspace = true }
+
+# hex prefix computation (matches catalyrst-storage)
+sha1 = "0.10"

@@ -1,0 +1,18 @@
+{
+  "description": "GET /lambdas/collections/wearables with more than 500 wearableId values must 400 (it would be replaced by an actual list of 501 entries by the replay runner).",
+  "request": {
+    "method": "GET",
+    "path": "/lambdas/collections/wearables",
+    "query": {"wearableId": ["FIXTURE_PLACEHOLDER_501_VALUES"]},
+    "headers": {},
+    "body": null
+  },
+  "response": {
+    "status": 400,
+    "headers": {"content-type": "application/json"},
+    "body_json": {"error": "Bad request", "message": "You can't ask for more than 500 wearables"}
+  },
+  "captured_from": "hand-authored from handler source (lambdas_catalog.rs::parse_catalog_query, MAX_LIMIT=500)",
+  "captured_at": "2026-05-23T20:00:00Z",
+  "volatile_paths": ["request.query"]
+}

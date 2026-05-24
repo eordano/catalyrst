@@ -1,0 +1,18 @@
+{
+  "description": "GET /content/entities/{type} must reject 'outfit' with 400 (mirrors the /audit endpoint).",
+  "request": {
+    "method": "GET",
+    "path": "/content/entities/outfit",
+    "query": {"pointer": ["0x0000000000000000000000000000000000000000"]},
+    "headers": {},
+    "body": null
+  },
+  "response": {
+    "status": 400,
+    "headers": {"content-type": "application/json"},
+    "body_json": {"error": "Bad request", "message": "Unrecognized type: outfit"}
+  },
+  "captured_from": "hand-authored from handler source (get_entities.rs) + reference parity notes",
+  "captured_at": "2026-05-23T20:00:00Z",
+  "volatile_paths": []
+}
