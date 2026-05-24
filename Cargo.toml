@@ -30,7 +30,7 @@ serde = { version = "1", features = ["derive"] }
 # float_roundtrip: re-serialized numbers must match stored bytes exactly (content-addressed CIDs; lamb2 /profiles colors).
 serde_json = { version = "1", features = ["float_roundtrip"] }
 alloy = { version = "1", features = ["full"] }
-sha2 = "0.10"
+sha2 = "0.11"
 multihash = "0.19"
 cid = "0.11"
 bs58 = "0.5"
