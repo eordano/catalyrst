@@ -9,7 +9,7 @@ catalyrst-storage = { path = "../catalyrst-storage" }
 catalyrst-db = { path = "../catalyrst-db" }
 catalyrst-deployer = { path = "../catalyrst-deployer" }
 tokio = { workspace = true }
-rand = "0.8"
+rand = "0.9"
 bytes = { workspace = true }
 serde_json = { workspace = true }
 async-trait = { workspace = true }
