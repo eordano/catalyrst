@@ -41,7 +41,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 anyhow = "1"
 thiserror = "2"
 clap = { version = "4", features = ["derive"] }
-colored = "2"
+colored = "3"
 url = { version = "2", features = ["serde"] }
 futures = "0.3"
 async-trait = "0.1"
