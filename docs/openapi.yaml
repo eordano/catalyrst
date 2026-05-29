@@ -1,0 +1,1735 @@
+openapi: 3.1.0
+info:
+  title: Decentraland Catalyst (catalyrst)
+  version: 0.1.0
+  description: |
+    Catalyrst is an open-source Rust port of the Decentraland Catalyst node. A single
+    process serves three distinct URL surfaces that mirror the reference TypeScript
+    catalyst's behavior:
+
+      * `/content/*` — content server (entities, deployments, snapshots, audit info,
+        pointer changes, raw content blobs).
+      * `/lambdas/*` — lambdas server (profiles, collections, owned items, land, NFTs).
+      * `/about` and `/metrics` — about/health endpoint and Prometheus scrape endpoint.
+
+    Content routes also mount at the root (`/entities/{type}`, `/snapshots`, ...) for
+    legacy clients; this spec documents only the canonical `/content/*` form that
+    production nginx proxies. The behavior is identical on both prefixes.
+
+    Error bodies follow the shape `{ "error": "<short label>", "message": "<detail>" }`
+    (the `message` field is optional). The `*` fallback returns `text/plain "Not found"`
+    instead of the JSON error body, matching reference parity.
+  license:
+    name: Apache-2.0 OR MIT
+servers:
+  - url: http://127.0.0.1:5141
+    description: Local catalyrst (default dev port)
+  - url: https://peer.decentraland.org
+    description: Decentraland Foundation public peer
+  - url: https://peer-eu1.decentraland.org
+    description: Decentraland Foundation public peer (EU)
+tags:
+  - name: about
+    description: Realm + health information consumed by the explorer.
+  - name: content
+    description: Content server — entities, deployments, audit info, snapshots, blobs.
+  - name: lambdas
+    description: Lambdas server — profiles, collections, owned items, land, NFTs.
+paths:
+  /about:
+    get:
+      tags: [about]
+      summary: Realm "about" document
+      description: |
+        Returns the realm descriptor used by the Decentraland explorer to bootstrap
+        into a world: content/lambdas health and public URLs, comms protocol,
+        map/minimap configuration, and the `acceptingUsers` flag. Returns 503 if
+        content sync state is not `Syncing` or comms is unhealthy.
+      responses:
+        '200':
+          description: Realm is healthy and accepting users.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AboutResponse'
+        '503':
+          description: Realm is unhealthy (content not syncing or comms down).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AboutResponse'
+
+  /content/status:
+    get:
+      tags: [content]
+      summary: Content server status + cluster sync state
+      description: |
+        Snapshot of content server identity (version, commitHash, ethNetwork) plus
+        the synchronization state of this node within the catalyst cluster.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [version, commitHash, ethNetwork, synchronizationStatus]
+                properties:
+                  version:
+                    type: string
+                    description: Catalyrst content-server version.
+                  commitHash:
+                    type: string
+                    description: Git commit hash this binary was built from.
+                  ethNetwork:
+                    type: string
+                    example: mainnet
+                  synchronizationStatus:
+                    type: object
+                    additionalProperties: true
+                    properties:
+                      synchronizationState:
+                        type: string
+                        enum: [Bootstrapping, Syncing, "Partially synced", Failed]
+                      lastSyncWithDAO:
+                        type: integer
+                        format: int64
+                        description: Unix ms timestamp of last DAO sync.
+        '503':
+          description: Synchronization state is `Failed`.
+          content:
+            application/json:
+              schema: { type: object }
+
+  /content/snapshots:
+    get:
+      tags: [content]
+      summary: Current snapshot manifest
+      description: |
+        Returns the metadata for the snapshot files this node currently advertises
+        (used by other catalysts for bootstrap). 503 until the first snapshot has
+        been generated.
+      responses:
+        '200':
+          description: Snapshots available.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    hash:
+                      type: string
+                      description: IPFS CID of the snapshot file.
+                    timeRange:
+                      type: object
+                      properties:
+                        initTimestamp:
+                          type: integer
+                          format: int64
+                        endTimestamp:
+                          type: integer
+                          format: int64
+                    replacedSnapshotHashes:
+                      type: array
+                      items: { type: string }
+                    numberOfEntities:
+                      type: integer
+                    generationTimestamp:
+                      type: integer
+                      format: int64
+                  additionalProperties: true
+        '503':
+          description: No snapshot has been generated yet.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: New Snapshots not yet created
+
+  /content/deployments:
+    get:
+      tags: [content]
+      summary: Query deployments with filters + pagination
+      description: |
+        Returns deployments matching the supplied filters. The response is cached
+        for 5 seconds (`cache-control: max-age=5`, `x-cache: HIT|MISS`). For
+        deep paging follow `pagination.next`; raw `offset` is capped at 5000.
+      parameters:
+        - in: query
+          name: entityType
+          description: Filter by entity type. Repeatable. `scenes` is accepted and canonicalized to `scene`.
+          schema:
+            type: array
+            items: { $ref: '#/components/schemas/EntityType' }
+          style: form
+          explode: true
+        - in: query
+          name: entityId
+          schema: { type: array, items: { type: string } }
+          style: form
+          explode: true
+        - in: query
+          name: pointer
+          schema: { type: array, items: { type: string } }
+          style: form
+          explode: true
+        - in: query
+          name: deployedBy
+          schema: { type: array, items: { type: string } }
+          style: form
+          explode: true
+        - in: query
+          name: onlyCurrentlyPointed
+          schema: { type: boolean }
+        - in: query
+          name: from
+          description: Lower bound timestamp (unix ms), inclusive, on the sorting field.
+          schema: { type: integer, format: int64 }
+        - in: query
+          name: to
+          description: Upper bound timestamp (unix ms), inclusive, on the sorting field.
+          schema: { type: integer, format: int64 }
+        - in: query
+          name: offset
+          schema: { type: integer, minimum: 0, maximum: 5000 }
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1 }
+        - in: query
+          name: lastId
+          description: Cursor entity id (for deep pagination via `pagination.next`).
+          schema: { type: string }
+        - in: query
+          name: fields
+          description: Comma-separated subset of `pointers,content,metadata,auditInfo` (defaults to `pointers,content,metadata`).
+          schema: { type: string }
+        - in: query
+          name: sortingField
+          schema:
+            type: string
+            enum: [local_timestamp, entity_timestamp, localTimestamp, entityTimestamp]
+        - in: query
+          name: sortingOrder
+          schema: { type: string, enum: [ASC, DESC] }
+      responses:
+        '200':
+          description: Page of deployments.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [deployments, filters, pagination]
+                properties:
+                  deployments:
+                    type: array
+                    items: { $ref: '#/components/schemas/Deployment' }
+                  filters:
+                    type: object
+                    additionalProperties: true
+                  pagination: { $ref: '#/components/schemas/Pagination' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /content/pointer-changes:
+    get:
+      tags: [content]
+      summary: Stream of pointer change deltas
+      description: |
+        Returns pointer-change records (delta events). Use `from`/`to` and
+        `pagination.next` to walk forward through the timeline. Denylisted
+        entities are filtered out of the response.
+      parameters:
+        - in: query
+          name: entityType
+          description: Filter by entity type. Repeatable. `scenes` accepted as alias for `scene`.
+          schema:
+            type: array
+            items: { $ref: '#/components/schemas/EntityType' }
+          style: form
+          explode: true
+        - in: query
+          name: from
+          schema: { type: integer, format: int64 }
+        - in: query
+          name: to
+          schema: { type: integer, format: int64 }
+        - in: query
+          name: offset
+          schema: { type: integer, minimum: 0, maximum: 5000 }
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1 }
+        - in: query
+          name: lastId
+          schema: { type: string }
+        - in: query
+          name: includeAuthChain
+          schema: { type: boolean, default: false }
+        - in: query
+          name: sortingField
+          schema: { type: string, enum: [local_timestamp, entity_timestamp, localTimestamp, entityTimestamp] }
+        - in: query
+          name: sortingOrder
+          schema: { type: string, enum: [ASC, DESC] }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [deltas, filters, pagination]
+                properties:
+                  deltas:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        entityType: { $ref: '#/components/schemas/EntityType' }
+                        entityId: { type: string }
+                        localTimestamp: { type: integer, format: int64 }
+                        pointers:
+                          type: array
+                          items: { type: string }
+                        authChain:
+                          description: Present when `includeAuthChain=true`.
+                          $ref: '#/components/schemas/AuthChain'
+                      additionalProperties: true
+                  filters:
+                    type: object
+                    additionalProperties: true
+                  pagination: { $ref: '#/components/schemas/Pagination' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /content/entities/active:
+    post:
+      tags: [content]
+      summary: Look up active entities by ids OR pointers
+      description: |
+        Resolves the currently-active entities for the given list of ids OR
+        pointers. Exactly one of `ids`/`pointers` must be provided and non-empty.
+        Denylisted entities are filtered out.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              oneOf:
+                - required: [ids]
+                  properties:
+                    ids:
+                      type: array
+                      items: { type: string }
+                      minItems: 1
+                - required: [pointers]
+                  properties:
+                    pointers:
+                      type: array
+                      items: { type: string }
+                      minItems: 1
+      responses:
+        '200':
+          description: Array of active entities (empty array if none matched).
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Entity' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /content/contents/{hashId}:
+    get:
+      tags: [content]
+      summary: Fetch a raw content blob by CID
+      description: |
+        Returns the raw bytes of the content addressed by `hashId`. Supports
+        `Range` requests (`206 Partial Content`) and `If-None-Match`/`If-Modified-Since`
+        conditional requests (`304 Not Modified`). When `includeMimeType=true`,
+        the response `Content-Type` is sniffed from the first bytes
+        (PNG/JPEG/WEBP/GLTF/OGG/JSON) instead of `application/octet-stream`.
+      parameters:
+        - in: path
+          name: hashId
+          required: true
+          description: IPFS CIDv1 or legacy SHA-1 hash of the file.
+          schema: { type: string }
+        - in: query
+          name: includeMimeType
+          description: When present (any value), sniff and return a more specific MIME type.
+          schema: { type: string }
+        - in: header
+          name: Range
+          schema: { type: string }
+        - in: header
+          name: If-None-Match
+          schema: { type: string }
+        - in: header
+          name: If-Modified-Since
+          schema: { type: string }
+      responses:
+        '200':
+          description: Full content.
+          content:
+            application/octet-stream:
+              schema: { type: string, format: binary }
+        '206':
+          description: Partial content (Range request).
+          content:
+            application/octet-stream:
+              schema: { type: string, format: binary }
+        '304':
+          description: Not modified.
+        '404':
+          description: No content with that hash.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorBody' }
+        '416':
+          description: Requested range not satisfiable.
+    head:
+      tags: [content]
+      summary: HEAD a content blob (status + headers, empty body)
+      parameters:
+        - in: path
+          name: hashId
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: Headers only. }
+        '404': { description: No content with that hash. }
+
+  /content/audit/{type}/{entityId}:
+    get:
+      tags: [content]
+      summary: Audit info for a single deployed entity
+      description: |
+        Returns the audit record (signer, deployment timestamp, auth chain, etc.)
+        for the deployment of the given entity. `type` accepts the plural form
+        `scenes` and canonicalizes to `scene`. **Note:** `outfit` and `outfits`
+        are intentionally rejected with 400 for reference parity — outfit
+        audit info is not exposed by catalyst.
+      parameters:
+        - in: path
+          name: type
+          required: true
+          description: Entity type. Accepts `scene|profile|wearable|emote|store`. `outfit`/`outfits` are rejected.
+          schema:
+            type: string
+            enum: [scene, profile, wearable, emote, store]
+        - in: path
+          name: entityId
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Audit record.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  version: { type: string, example: v3 }
+                  authChain: { $ref: '#/components/schemas/AuthChain' }
+                  localTimestamp:
+                    type: integer
+                    format: int64
+                  overwrittenBy: { type: string, nullable: true }
+                additionalProperties: true
+        '400':
+          description: Unrecognized entity type (includes `outfit`/`outfits`).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorBody' }
+        '404':
+          description: No deployment found for that id.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorBody' }
+
+  /content/available-content:
+    get:
+      tags: [content]
+      summary: Check which CIDs are stored locally
+      description: |
+        Given one or more `cid` query parameters, returns an availability map
+        for each. Denylisted CIDs are filtered out of the response entirely
+        (so a denylisted hash will simply not appear in the array).
+      parameters:
+        - in: query
+          name: cid
+          required: true
+          description: Repeatable. At least one `cid` must be present.
+          schema:
+            type: array
+            items: { type: string }
+            minItems: 1
+          style: form
+          explode: true
+      responses:
+        '200':
+          description: Per-CID availability.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  required: [cid, available]
+                  properties:
+                    cid: { type: string }
+                    available: { type: boolean }
+        '400':
+          description: No `cid` was provided.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorBody' }
+
+  /content/challenge:
+    get:
+      tags: [content]
+      summary: Cluster identity challenge
+      description: Returns the challenge text other catalysts use to verify this node's identity.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  challengeText: { type: string }
+
+  /content/entities/{type}:
+    get:
+      tags: [content]
+      summary: Active entities by type (id OR pointer)
+      description: |
+        Returns active entities of the given type. Provide exactly one of `id`
+        (entity-id lookup) or `pointer` (pointer lookup). `type` accepts the
+        plural form `scenes` and canonicalizes to `scene`. `outfit`/`outfits`
+        are intentionally rejected with 400 (parity with the reference catalyst).
+        `fields` is a comma-separated subset of the entity record to return.
+      parameters:
+        - in: path
+          name: type
+          required: true
+          schema:
+            type: string
+            enum: [scene, profile, wearable, emote, store]
+        - in: query
+          name: id
+          schema: { type: array, items: { type: string } }
+          style: form
+          explode: true
+        - in: query
+          name: pointer
+          schema: { type: array, items: { type: string } }
+          style: form
+          explode: true
+        - in: query
+          name: fields
+          schema: { type: string }
+      responses:
+        '200':
+          description: Array of entities (possibly masked).
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Entity' }
+        '400':
+          description: Both/neither of id+pointer, or rejected type (`outfit`/`outfits`).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorBody' }
+
+  /content/entities/active/collections/{collectionUrn}:
+    get:
+      tags: [content]
+      summary: Active entities under a collection URN
+      description: Returns all active entities whose pointers fall under the given collection URN prefix.
+      parameters:
+        - in: path
+          name: collectionUrn
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { type: object }
+
+  /content/contents/{hashId}/active-entities:
+    get:
+      tags: [content]
+      summary: Active entities that reference a given content hash
+      description: Returns the active entities (if any) whose content map references the given file CID.
+      parameters:
+        - in: path
+          name: hashId
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { type: object }
+
+  /content/failed-deployments:
+    get:
+      tags: [content]
+      summary: List of deployments that failed to sync
+      description: Returns the deployments this node tried and failed to apply (with failure reason).
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { type: object }
+
+  /content/queries/items/{pointer}/thumbnail:
+    get:
+      tags: [content]
+      summary: Wearable/emote thumbnail image
+      description: Convenience redirect/proxy to the thumbnail file of the wearable/emote pointed at by `pointer`.
+      parameters:
+        - in: path
+          name: pointer
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Thumbnail bytes.
+          content:
+            image/png:
+              schema: { type: string, format: binary }
+        '404': { description: No active entity for that pointer. }
+    head:
+      tags: [content]
+      summary: HEAD wearable thumbnail
+      parameters:
+        - in: path
+          name: pointer
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: Headers only. }
+
+  /content/queries/items/{pointer}/image:
+    get:
+      tags: [content]
+      summary: Wearable/emote full image
+      description: Convenience redirect/proxy to the full image file of the wearable/emote pointed at by `pointer`.
+      parameters:
+        - in: path
+          name: pointer
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Image bytes.
+          content:
+            image/png:
+              schema: { type: string, format: binary }
+        '404': { description: No active entity for that pointer. }
+    head:
+      tags: [content]
+      summary: HEAD wearable image
+      parameters:
+        - in: path
+          name: pointer
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: Headers only. }
+
+  /content/queries/erc721/{chainId}/{contract}/{option}:
+    get:
+      tags: [content]
+      summary: ERC-721 metadata for a Decentraland wearable
+      description: Returns OpenSea-style ERC-721 metadata for the given chain/contract/option.
+      parameters:
+        - in: path
+          name: chainId
+          required: true
+          schema: { type: integer }
+        - in: path
+          name: contract
+          required: true
+          schema: { type: string, pattern: '^0x[0-9a-fA-F]{40}$' }
+        - in: path
+          name: option
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { type: object }
+        '404': { description: No metadata found. }
+
+  /content/queries/erc721/{chainId}/{contract}/{option}/{emission}:
+    get:
+      tags: [content]
+      summary: ERC-721 metadata for a specific emission
+      description: Same as `/queries/erc721/{chainId}/{contract}/{option}` but selects a specific emission/edition.
+      parameters:
+        - in: path
+          name: chainId
+          required: true
+          schema: { type: integer }
+        - in: path
+          name: contract
+          required: true
+          schema: { type: string, pattern: '^0x[0-9a-fA-F]{40}$' }
+        - in: path
+          name: option
+          required: true
+          schema: { type: string }
+        - in: path
+          name: emission
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { type: object }
+        '404': { description: No metadata found. }
+
+  /content/entities:
+    post:
+      tags: [content]
+      summary: Deploy a new entity (write mode only)
+      description: |
+        Multipart upload to deploy a new entity (scene, profile, wearable, etc.).
+        Only available when the server is not in read-only mode. The request is
+        a `multipart/form-data` body containing the signed entity envelope plus
+        one part per content file referenced from the entity. Body size is capped
+        at `MAX_DEPLOYMENT_SIZE_BYTES` (default 200 MiB). Full request/response
+        schema is not fully expanded here; see the reference catalyst
+        documentation for the multipart layout.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                entityId:
+                  type: string
+                  description: CID of the entity envelope file.
+                authChain:
+                  description: Signed auth chain authorizing the deployment (JSON-encoded part).
+                  $ref: '#/components/schemas/AuthChain'
+              additionalProperties:
+                type: string
+                format: binary
+      responses:
+        '200':
+          description: Deployment accepted.
+          content:
+            application/json:
+              schema: { type: object }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '413': { description: Request body exceeded `MAX_DEPLOYMENT_SIZE_BYTES`. }
+
+  /lambdas/profiles:
+    post:
+      tags: [lambdas]
+      summary: Batch profile fetch by id
+      description: |
+        Returns the active profile entities for each id in the body. The `ids`
+        field is **required** — a missing body or missing `ids` field returns
+        400. An empty array (`{"ids":[]}`) is allowed and returns `[]`.
+        Honors `If-Modified-Since` (RFC 2822) — if every returned profile's
+        `timestamp` is older than the threshold, responds 304.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ids]
+              properties:
+                ids:
+                  type: array
+                  items:
+                    type: string
+                    pattern: '^0x[0-9a-fA-F]{40}$'
+      parameters:
+        - in: header
+          name: If-Modified-Since
+          schema: { type: string }
+      responses:
+        '200':
+          description: Array of profile metadata.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Profile' }
+        '304':
+          description: All requested profiles are older than `If-Modified-Since`.
+        '400':
+          description: Missing `ids` field.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorBody' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /lambdas/profiles/{id}:
+    get:
+      tags: [lambdas]
+      summary: Single profile by address
+      description: |
+        Returns the active profile metadata for the given Ethereum address.
+        404 if no profile is found.
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            pattern: '^0x[0-9a-fA-F]{40}$'
+      responses:
+        '200':
+          description: Profile metadata.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Profile' }
+        '404':
+          description: Profile not found.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorBody' }
+
+  /lambdas/profile/{id}:
+    get:
+      tags: [lambdas]
+      summary: Single profile by address (legacy alias)
+      description: |
+        Alias for `/lambdas/profiles/{id}`. If no profile is found, returns
+        `{ "avatars": [], "timestamp": 0 }` with a 200 status (does not 404,
+        unlike the canonical endpoint).
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            pattern: '^0x[0-9a-fA-F]{40}$'
+      responses:
+        '200':
+          description: Profile metadata or empty stub.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/Profile'
+                  - type: object
+                    properties:
+                      avatars:
+                        type: array
+                        items: {}
+                      timestamp:
+                        type: integer
+
+  /lambdas/users/{address}/wearables:
+    get:
+      tags: [lambdas]
+      summary: Wearables owned by a user
+      description: |
+        Returns the user's owned wearables, grouped by URN. Pagination uses
+        `pageNum`/`pageSize` (default page size 100, max 1000 — sizes above
+        the max are rejected with 400). Supports `category`, `rarity`, `name`
+        filters and `orderBy` (`rarity|name|date`) + `direction` sorting.
+        `includeDefinitions=true` attaches the wearable definition;
+        `includeEntities=true` attaches the full entity record. They cannot
+        be combined.
+      parameters:
+        - in: path
+          name: address
+          required: true
+          schema:
+            type: string
+            pattern: '^0x[0-9a-fA-F]{40}$'
+        - in: query
+          name: pageNum
+          schema: { type: integer, minimum: 1, default: 1 }
+        - in: query
+          name: pageSize
+          schema: { type: integer, minimum: 1, maximum: 1000, default: 100 }
+        - in: query
+          name: category
+          schema: { type: string }
+        - in: query
+          name: rarity
+          schema: { type: string }
+        - in: query
+          name: name
+          schema: { type: string }
+        - in: query
+          name: orderBy
+          schema: { type: string, enum: [rarity, name, date], default: rarity }
+        - in: query
+          name: direction
+          schema: { type: string, enum: [ASC, DESC] }
+        - in: query
+          name: includeDefinitions
+          schema: { type: boolean }
+        - in: query
+          name: includeEntities
+          schema: { type: boolean }
+      responses:
+        '200':
+          description: Page of owned wearables.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [elements, totalAmount, pageNum, pageSize]
+                properties:
+                  elements:
+                    type: array
+                    items:
+                      type: object
+                      required: [urn, amount, individualData, name, category, rarity]
+                      properties:
+                        urn: { type: string }
+                        amount: { type: integer }
+                        name: { type: string }
+                        category: { type: string }
+                        rarity: { type: string }
+                        individualData:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              id: { type: string }
+                              tokenId: { type: string }
+                              transferredAt: { type: string }
+                              price: { type: string }
+                        definition:
+                          description: Present when `includeDefinitions=true`.
+                          type: object
+                        entity:
+                          description: Present when `includeEntities=true`.
+                          type: object
+                  totalAmount: { type: integer }
+                  pageNum: { type: integer }
+                  pageSize: { type: integer }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  /lambdas/users/{address}/emotes:
+    get:
+      tags: [lambdas]
+      summary: Emotes owned by a user
+      description: Same shape as `/users/{address}/wearables` but for the `emote` category.
+      parameters:
+        - in: path
+          name: address
+          required: true
+          schema: { type: string, pattern: '^0x[0-9a-fA-F]{40}$' }
+        - in: query
+          name: pageNum
+          schema: { type: integer, minimum: 1 }
+        - in: query
+          name: pageSize
+          schema: { type: integer, minimum: 1, maximum: 1000 }
+        - in: query
+          name: category
+          schema: { type: string }
+        - in: query
+          name: rarity
+          schema: { type: string }
+        - in: query
+          name: name
+          schema: { type: string }
+        - in: query
+          name: orderBy
+          schema: { type: string, enum: [rarity, name, date] }
+        - in: query
+          name: direction
+          schema: { type: string, enum: [ASC, DESC] }
+        - in: query
+          name: includeDefinitions
+          schema: { type: boolean }
+        - in: query
+          name: includeEntities
+          schema: { type: boolean }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { type: object }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  /lambdas/users/{address}/third-party-wearables:
+    get:
+      tags: [lambdas]
+      summary: Third-party wearables owned by a user
+      description: Returns the user's owned third-party (off-chain) wearables, aggregated across registered providers.
+      parameters:
+        - in: path
+          name: address
+          required: true
+          schema: { type: string, pattern: '^0x[0-9a-fA-F]{40}$' }
+        - in: query
+          name: pageNum
+          schema: { type: integer, minimum: 1 }
+        - in: query
+          name: pageSize
+          schema: { type: integer, minimum: 1 }
+        - in: query
+          name: category
+          schema: { type: array, items: { type: string } }
+          style: form
+          explode: true
+        - in: query
+          name: name
+          schema: { type: string }
+        - in: query
+          name: orderBy
+          schema: { type: string, enum: [name] }
+        - in: query
+          name: direction
+          schema: { type: string, enum: [ASC, DESC] }
+        - in: query
+          name: includeDefinitions
+          schema: { type: boolean }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { type: object }
+        '400': { description: Invalid address or sort params. }
+
+  /lambdas/users/{address}/third-party-wearables/{collectionId}:
+    get:
+      tags: [lambdas]
+      summary: User's third-party wearables within one collection
+      description: Same as `/third-party-wearables` but restricted to a single collection URN.
+      parameters:
+        - in: path
+          name: address
+          required: true
+          schema: { type: string, pattern: '^0x[0-9a-fA-F]{40}$' }
+        - in: path
+          name: collectionId
+          required: true
+          description: A `urn:decentraland:*:collections-thirdparty:*` URN (first 5 segments).
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { type: object }
+        '400': { description: Invalid address or collection URN. }
+
+  /lambdas/users/{address}/names:
+    get:
+      tags: [lambdas]
+      summary: ENS names owned by a user
+      description: Returns the Decentraland-registered ENS names owned by `address`, paginated.
+      parameters:
+        - in: path
+          name: address
+          required: true
+          schema: { type: string, pattern: '^0x[0-9a-fA-F]{40}$' }
+        - in: query
+          name: pageNum
+          schema: { type: integer, minimum: 1 }
+        - in: query
+          name: pageSize
+          schema: { type: integer, minimum: 1, maximum: 1000, default: 100 }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { type: object }
+
+  /lambdas/users/{address}/lands:
+    get:
+      tags: [lambdas]
+      summary: Land parcels + estates owned by a user
+      description: |
+        Returns the LAND parcels and estates owned by `address`, paginated.
+        `pageSize` defaults to 100, max 1000.
+      parameters:
+        - in: path
+          name: address
+          required: true
+          schema: { type: string, pattern: '^0x[0-9a-fA-F]{40}$' }
+        - in: query
+          name: pageNum
+          schema: { type: integer, minimum: 1 }
+        - in: query
+          name: pageSize
+          schema: { type: integer, minimum: 1, maximum: 1000, default: 100 }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { type: object }
+
+  /lambdas/users/{address}/lands-permissions:
+    get:
+      tags: [lambdas]
+      summary: LAND parcels the user has update-operator rights on
+      description: Parcels where `address` is the configured update operator (LAND-as-operator).
+      parameters:
+        - in: path
+          name: address
+          required: true
+          schema: { type: string, pattern: '^0x[0-9a-fA-F]{40}$' }
+        - in: query
+          name: pageNum
+          schema: { type: integer, minimum: 1 }
+        - in: query
+          name: pageSize
+          schema: { type: integer, minimum: 1 }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { type: object }
+
+  /lambdas/users/{address}/parcels/{x}/{y}/permissions:
+    get:
+      tags: [lambdas]
+      summary: Permission flags for one address on one parcel
+      description: |
+        Returns whether `address` has each of the parcel-level permissions
+        (`owner`, `operator`, `updateOperator`, `updateManager`,
+        `approvedForAll`) on parcel (x, y).
+      parameters:
+        - in: path
+          name: address
+          required: true
+          schema: { type: string, pattern: '^0x[0-9a-fA-F]{40}$' }
+        - in: path
+          name: x
+          required: true
+          schema: { type: integer, minimum: -150, maximum: 150 }
+        - in: path
+          name: y
+          required: true
+          schema: { type: integer, minimum: -150, maximum: 150 }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  owner: { type: boolean }
+                  operator: { type: boolean }
+                  updateOperator: { type: boolean }
+                  updateManager: { type: boolean }
+                  approvedForAll: { type: boolean }
+        '400': { description: Invalid coords or address. }
+        '404': { description: Parcel or estate rights not found. }
+
+  /lambdas/parcels/{x}/{y}/operators:
+    get:
+      tags: [lambdas]
+      summary: Operators of a parcel
+      description: Owner + operator + updateOperator + updateManagers + approvedForAll for parcel (x, y).
+      parameters:
+        - in: path
+          name: x
+          required: true
+          schema: { type: integer, minimum: -150, maximum: 150 }
+        - in: path
+          name: y
+          required: true
+          schema: { type: integer, minimum: -150, maximum: 150 }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  owner: { type: string }
+                  operator: { type: string, nullable: true }
+                  updateOperator: { type: string, nullable: true }
+                  updateManagers:
+                    type: array
+                    items: { type: string }
+                  approvedForAll:
+                    type: array
+                    items: { type: string }
+        '400': { description: Invalid coords. }
+        '404': { description: Parcel or estate rights not found. }
+
+  /lambdas/names/{name}/owner:
+    get:
+      tags: [lambdas]
+      summary: Owner of a Decentraland name
+      description: |
+        Returns `{ "owner": "0x..." }` for the given Decentraland name (the
+        `.dcl.eth` suffix is stripped if present). **Quirk:** when the name is
+        not owned, responds **404 with an empty body** (no JSON envelope),
+        matching reference parity.
+      parameters:
+        - in: path
+          name: name
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [owner]
+                properties:
+                  owner: { type: string, pattern: '^0x[0-9a-fA-F]{40}$' }
+        '404':
+          description: Name is not owned. **Response body is empty** (no JSON).
+
+  /lambdas/collections/wearables:
+    get:
+      tags: [lambdas]
+      summary: Wearables catalog
+      description: Paginated catalog of wearables across registered collections.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { type: object }
+
+  /lambdas/collections/emotes:
+    get:
+      tags: [lambdas]
+      summary: Emotes catalog
+      description: Paginated catalog of emotes across registered collections.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { type: object }
+
+  /lambdas/collections/wearables-by-owner/{owner}:
+    get:
+      tags: [lambdas]
+      summary: Per-owner wearables (urn + amount)
+      description: |
+        Returns `{ urn, amount }` records for wearables owned by `owner`.
+        With `includeDefinitions=true`, attaches the wearable definition to each.
+      parameters:
+        - in: path
+          name: owner
+          required: true
+          schema: { type: string, pattern: '^0x[0-9a-fA-F]{40}$' }
+        - in: query
+          name: includeDefinitions
+          schema: { type: boolean }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { type: object }
+
+  /lambdas/collections/emotes-by-owner/{owner}:
+    get:
+      tags: [lambdas]
+      summary: Per-owner emotes (urn + amount)
+      description: Same as `wearables-by-owner` but for emotes.
+      parameters:
+        - in: path
+          name: owner
+          required: true
+          schema: { type: string, pattern: '^0x[0-9a-fA-F]{40}$' }
+        - in: query
+          name: includeDefinitions
+          schema: { type: boolean }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { type: object }
+
+  /lambdas/status:
+    get:
+      tags: [lambdas]
+      summary: Lambdas server status
+      description: Version + commit hash + current server time for the lambdas process.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  version: { type: string }
+                  currentTime: { type: integer, format: int64 }
+                  commitHash: { type: string }
+
+  /lambdas/contracts/servers:
+    get:
+      tags: [lambdas]
+      summary: Registered catalyst servers (DAO contract)
+      description: List of catalyst peers registered in the catalyst DAO contract.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { type: object }
+
+  /lambdas/contracts/pois:
+    get:
+      tags: [lambdas]
+      summary: Registered points of interest
+      description: List of POI parcels registered in the POIs contract.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { type: array, items: { type: integer } }
+
+  /lambdas/contracts/denylisted-names:
+    get:
+      tags: [lambdas]
+      summary: Denylisted Decentraland names
+      description: Names that cannot be claimed (DAO-managed denylist).
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { type: string }
+
+  /lambdas/third-party-integrations:
+    get:
+      tags: [lambdas]
+      summary: Registered third-party wearable integrations
+      description: List of third-party providers that can supply off-chain wearables.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { type: object }
+
+  /lambdas/explorer/{address}/wearables:
+    get:
+      tags: [lambdas]
+      summary: Wearables (explorer-shaped) owned by a user
+      description: Explorer-tailored wearables view (includes base wearables + on-chain + third-party).
+      parameters:
+        - in: path
+          name: address
+          required: true
+          schema: { type: string, pattern: '^0x[0-9a-fA-F]{40}$' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { type: object }
+
+  /lambdas/explorer/{address}/emotes:
+    get:
+      tags: [lambdas]
+      summary: Emotes (explorer-shaped) owned by a user
+      description: Explorer-tailored emotes view (includes base emotes + on-chain).
+      parameters:
+        - in: path
+          name: address
+          required: true
+          schema: { type: string, pattern: '^0x[0-9a-fA-F]{40}$' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { type: object }
+
+  /lambdas/nfts/collections:
+    get:
+      tags: [lambdas]
+      summary: NFT collections list
+      description: List of NFT collections aggregated for the explorer.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { type: object }
+
+  /lambdas/outfits/{id}:
+    get:
+      tags: [lambdas]
+      summary: Outfit entity by id
+      description: |
+        Returns the outfit entity for the given address. Note that
+        `/content/audit/outfit/...` and `/content/entities/outfit` are
+        intentionally **not** supported (400) — outfits are accessed only
+        through this lambdas endpoint.
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { type: object }
+
+  /metrics:
+    get:
+      tags: [about]
+      summary: Prometheus metrics scrape
+      description: |
+        Prometheus exposition format. In the deployment this endpoint is
+        firewalled to loopback only.
+      responses:
+        '200':
+          description: OK
+          content:
+            text/plain:
+              schema: { type: string }
+
+components:
+  responses:
+    BadRequest:
+      description: Bad request — invalid params or body.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorBody' }
+    InternalError:
+      description: Internal server error.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorBody' }
+  schemas:
+    ErrorBody:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+          description: Short error label (e.g. "Bad request", "Not Found", "Internal Server Error").
+        message:
+          type: string
+          description: Optional human-readable detail.
+
+    EntityType:
+      type: string
+      enum: [scene, profile, wearable, emote, store, outfit]
+      description: |
+        Canonical entity type. The query/path parsers also accept the trailing-`s`
+        plural form (e.g. `scenes`) and canonicalize. Note that `outfit`/`outfits`
+        are rejected at `/content/audit/{type}/{entityId}` and
+        `/content/entities/{type}` even though they're listed here for completeness.
+
+    Entity:
+      type: object
+      required: [version, id, type, pointers, timestamp]
+      properties:
+        version:
+          type: string
+          example: v3
+        id:
+          type: string
+          description: Entity id (CID of the entity envelope).
+        type: { $ref: '#/components/schemas/EntityType' }
+        pointers:
+          type: array
+          items: { type: string }
+        timestamp:
+          type: integer
+          format: int64
+          description: Entity timestamp (unix ms).
+        content:
+          type: array
+          items:
+            type: object
+            required: [file, hash]
+            properties:
+              file: { type: string }
+              hash: { type: string }
+        metadata:
+          description: Entity-type-specific metadata (scene.json, profile avatar, wearable definition, ...).
+
+    Deployment:
+      type: object
+      required: [entityType, entityId, entityTimestamp]
+      properties:
+        entityType: { $ref: '#/components/schemas/EntityType' }
+        entityId: { type: string }
+        entityTimestamp:
+          type: integer
+          format: int64
+        entityVersion:
+          type: string
+        deployedBy:
+          type: string
+        pointers:
+          type: array
+          items: { type: string }
+        content:
+          type: array
+          items:
+            type: object
+            properties:
+              key: { type: string }
+              hash: { type: string }
+        metadata: {}
+        auditInfo:
+          type: object
+          properties:
+            version: { type: string }
+            authChain: { $ref: '#/components/schemas/AuthChain' }
+            localTimestamp: { type: integer, format: int64 }
+            overwrittenBy: { type: string, nullable: true }
+        localTimestamp:
+          type: integer
+          format: int64
+
+    AuthChain:
+      type: array
+      items: { $ref: '#/components/schemas/AuthChainLink' }
+      description: Ordered chain of cryptographic signatures authorizing a deployment.
+
+    AuthChainLink:
+      oneOf:
+        - title: Signer
+          type: object
+          required: [type, payload]
+          properties:
+            type:
+              type: string
+              const: SIGNER
+            payload:
+              type: string
+              description: Signing address (`0x...`).
+            signature:
+              type: string
+              description: Empty string for the SIGNER link.
+        - title: EcdsaEphemeral
+          type: object
+          required: [type, payload, signature]
+          properties:
+            type:
+              type: string
+              const: ECDSA_EPHEMERAL
+            payload:
+              type: string
+              description: Ephemeral-key delegation message.
+            signature:
+              type: string
+        - title: EcdsaSignedEntity
+          type: object
+          required: [type, payload, signature]
+          properties:
+            type:
+              type: string
+              const: ECDSA_SIGNED_ENTITY
+            payload:
+              type: string
+              description: The entity id being signed.
+            signature:
+              type: string
+      discriminator:
+        propertyName: type
+        mapping:
+          SIGNER: '#/components/schemas/AuthChainLink/oneOf/0'
+          ECDSA_EPHEMERAL: '#/components/schemas/AuthChainLink/oneOf/1'
+          ECDSA_SIGNED_ENTITY: '#/components/schemas/AuthChainLink/oneOf/2'
+
+    Profile:
+      type: object
+      required: [avatars, timestamp]
+      properties:
+        timestamp:
+          type: integer
+          format: int64
+        avatars:
+          type: array
+          items:
+            type: object
+            properties:
+              userId: { type: string }
+              name: { type: string }
+              hasClaimedName: { type: boolean }
+              ethAddress: { type: string }
+              version: { type: integer }
+              description: { type: string }
+              tutorialStep: { type: integer }
+              email: { type: string }
+              avatar:
+                type: object
+                properties:
+                  bodyShape: { type: string }
+                  snapshots:
+                    type: object
+                    properties:
+                      face256: { type: string }
+                      body: { type: string }
+                  eyes:
+                    type: object
+                    properties:
+                      color: { type: object }
+                  hair:
+                    type: object
+                    properties:
+                      color: { type: object }
+                  skin:
+                    type: object
+                    properties:
+                      color: { type: object }
+                  wearables:
+                    type: array
+                    items: { type: string }
+                  emotes:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        slot: { type: integer }
+                        urn: { type: string }
+
+    Pagination:
+      type: object
+      required: [offset, limit, moreData]
+      properties:
+        offset:
+          type: integer
+        limit:
+          type: integer
+        moreData:
+          type: boolean
+        next:
+          type: string
+          description: Relative query-string for the next page (`?from=...&lastId=...`).
+        lastId:
+          type: string
+
+    AboutResponse:
+      type: object
+      required: [healthy, content, lambdas, configurations, acceptingUsers]
+      properties:
+        healthy: { type: boolean }
+        acceptingUsers: { type: boolean }
+        content:
+          type: object
+          required: [healthy, synchronizationStatus, publicUrl]
+          properties:
+            healthy: { type: boolean }
+            version: { type: string }
+            synchronizationStatus: { type: string }
+            commitHash: { type: string }
+            publicUrl: { type: string }
+        lambdas:
+          type: object
+          required: [healthy, publicUrl]
+          properties:
+            healthy: { type: boolean }
+            version: { type: string }
+            commitHash: { type: string }
+            publicUrl: { type: string }
+        configurations:
+          type: object
+          required: [networkId, globalScenesUrn, scenesUrn]
+          properties:
+            networkId: { type: integer }
+            globalScenesUrn:
+              type: array
+              items: { type: string }
+            scenesUrn:
+              type: array
+              items: { type: string }
+            realmName: { type: string }
+            map:
+              type: object
+              properties:
+                minimapEnabled: { type: boolean }
+                sizes:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      left: { type: integer }
+                      top: { type: integer }
+                      right: { type: integer }
+                      bottom: { type: integer }
+                satelliteView:
+                  type: object
+                  properties:
+                    version: { type: string }
+                    baseUrl: { type: string }
+                    suffixUrl: { type: string }
+                    topLeftOffset:
+                      type: object
+                      properties:
+                        x: { type: integer }
+                        y: { type: integer }
+                parcelView:
+                  type: object
+                  properties:
+                    version: { type: string }
+                    imageUrl: { type: string }
+        comms:
+          type: object
+          properties:
+            healthy: { type: boolean }
+            protocol: { type: string, example: v3 }
+            version: { type: string }
+            commitHash: { type: string }
+            usersCount: { type: integer }
+            adapter: { type: string }
+        bff:
+          type: object
+          properties:
+            healthy: { type: boolean }
+            protocolVersion: { type: string }
+            userCount: { type: integer }
+            publicUrl: { type: string }

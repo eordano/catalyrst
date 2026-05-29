@@ -1,0 +1,66 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/catalyrst-types",
+    "crates/catalyrst-hashing",
+    "crates/catalyrst-crypto",
+    "crates/catalyrst-storage",
+    "crates/catalyrst-db",
+    "crates/catalyrst-validator",
+    "crates/catalyrst-sync",
+    "crates/catalyrst-deployer",
+    "crates/catalyrst-server",
+    "crates/catalyrst-market",
+    "crates/catalyrst-conformance",
+    "crates/catalyrst-oracle-tests",
+    "crates/catalyrst-bench",
+    "crates/catalyrst-fuzz",
+]
+exclude = ["crates/catalyrst-fuzz/fuzz"]
+
+[workspace.dependencies]
+tokio = { version = "1", features = ["full"] }
+axum = { version = "0.8", features = ["multipart"] }
+tower = "0.5"
+tower-http = { version = "0.6", features = ["cors", "trace", "timeout"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls", "http2", "charset"] }
+sqlx = { version = "0.8", features = ["runtime-tokio", "postgres", "json", "chrono"] }
+# feruca: Unicode Collation Algorithm matches JS String.localeCompare() (lamb2 uses it for all name/urn sorts) byte-exactly.
+feruca = "0.11"
+serde = { version = "1", features = ["derive"] }
+# float_roundtrip: re-serialized numbers must match stored bytes exactly (content-addressed CIDs; lamb2 /profiles colors).
+serde_json = { version = "1", features = ["float_roundtrip"] }
+alloy = { version = "1", features = ["full"] }
+sha2 = "0.10"
+multihash = "0.19"
+cid = "0.11"
+bs58 = "0.5"
+ipfs-cid = "0.1"
+chrono = { version = "0.4", features = ["serde"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+anyhow = "1"
+thiserror = "2"
+clap = { version = "4", features = ["derive"] }
+colored = "2"
+url = { version = "2", features = ["serde"] }
+futures = "0.3"
+async-trait = "0.1"
+bytes = "1"
+uuid = { version = "1", features = ["v4"] }
+tokio-util = { version = "0.7", features = ["io"] }
+dashmap = "6"
+parking_lot = "0.12"
+metrics = "0.24"
+metrics-exporter-prometheus = { version = "0.16", default-features = false }
+ethers-core = "2.0.3"
+ethers-signers = "2.0.3"
+catalyrst-types = { path = "crates/catalyrst-types" }
+catalyrst-hashing = { path = "crates/catalyrst-hashing" }
+catalyrst-crypto = { path = "crates/catalyrst-crypto" }
+catalyrst-storage = { path = "crates/catalyrst-storage" }
+catalyrst-db = { path = "crates/catalyrst-db" }
+catalyrst-validator = { path = "crates/catalyrst-validator" }
+catalyrst-sync = { path = "crates/catalyrst-sync" }
+catalyrst-deployer = { path = "crates/catalyrst-deployer" }
+catalyrst-server = { path = "crates/catalyrst-server" }

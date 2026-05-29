@@ -1,0 +1,18 @@
+{
+  "description": "POST /content/entities with a non-multipart body must 400 - the handler expects a multipart/form-data submission.",
+  "request": {
+    "method": "POST",
+    "path": "/content/entities",
+    "query": {},
+    "headers": {"content-type": "application/json"},
+    "body": {"hello": "world"}
+  },
+  "response": {
+    "status": 400,
+    "headers": {"content-type": "application/json"},
+    "body_json": {"error": "Bad request", "message": "Failed to read multipart field: invalid content type"}
+  },
+  "captured_from": "hand-authored from handler source (create_entity.rs) - error message text follows from axum::extract::Multipart",
+  "captured_at": "2026-05-23T20:00:00Z",
+  "volatile_paths": ["response.body_json.message"]
+}

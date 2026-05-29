@@ -1,0 +1,63 @@
+{
+  "description": "Template fixture for GET /about against a public peer. Replace with a freshly captured response when wiring this up to a real peer; the data here is illustrative.",
+  "request": {
+    "method": "GET",
+    "path": "/about",
+    "headers": {
+      "accept": "application/json"
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body_json": {
+      "healthy": true,
+      "acceptingUsers": true,
+      "configurations": {
+        "networkId": 1,
+        "globalScenesUrn": [],
+        "scenesUrn": [],
+        "realmName": "loki"
+      },
+      "content": {
+        "healthy": true,
+        "publicUrl": "https://peer.decentraland.org/content",
+        "version": "7.5.0",
+        "commitHash": "abc1234"
+      },
+      "lambdas": {
+        "healthy": true,
+        "publicUrl": "https://peer.decentraland.org/lambdas",
+        "version": "7.5.0",
+        "commitHash": "abc1234"
+      },
+      "comms": {
+        "healthy": true,
+        "protocol": "v3",
+        "commitHash": "abc1234",
+        "usersCount": 42,
+        "adapter": "archipelago",
+        "fixedAdapter": "offline:offline"
+      },
+      "bff": {
+        "healthy": true,
+        "publicUrl": "https://peer.decentraland.org/bff",
+        "commitHash": "abc1234",
+        "userCount": 42,
+        "protocolVersion": "1.0_0"
+      }
+    }
+  },
+  "captured_from": "https://peer.decentraland.org",
+  "captured_at": "2026-05-23T20:00:00Z",
+  "volatile_paths": [
+    "configurations.realmName",
+    "content.publicUrl",
+    "lambdas.publicUrl",
+    "bff.publicUrl",
+    "comms.usersCount",
+    "bff.userCount"
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "description": "POST /content/entities with a body larger than the 200 MiB limit (DefaultBodyLimit::max) must return 413 Payload Too Large before the handler runs.",
+  "request": {
+    "method": "POST",
+    "path": "/content/entities",
+    "query": {},
+    "headers": {
+      "content-type": "multipart/form-data; boundary=fake",
+      "content-length": "209715201"
+    },
+    "body_bytes_b64": ""
+  },
+  "response": {
+    "status": 413,
+    "headers": {},
+    "body_bytes_b64": ""
+  },
+  "captured_from": "hand-authored from routes.rs (max_deployment_size_bytes default) - axum DefaultBodyLimit rejects before handler",
+  "captured_at": "2026-05-23T20:00:00Z",
+  "volatile_paths": ["response.body_bytes_b64"]
+}

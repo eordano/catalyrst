@@ -1,0 +1,18 @@
+{
+  "description": "GET /lambdas/collections/wearables with no textSearch/collectionId/wearableId must 400 - at least one filter is required.",
+  "request": {
+    "method": "GET",
+    "path": "/lambdas/collections/wearables",
+    "query": {},
+    "headers": {},
+    "body": null
+  },
+  "response": {
+    "status": 400,
+    "headers": {"content-type": "application/json"},
+    "body_json": {"error": "Bad request", "message": "You must use one of the filters: 'textSearch', 'collectionId' or 'wearableId'"}
+  },
+  "captured_from": "hand-authored from handler source (lambdas_catalog.rs::parse_catalog_query)",
+  "captured_at": "2026-05-23T20:00:00Z",
+  "volatile_paths": []
+}

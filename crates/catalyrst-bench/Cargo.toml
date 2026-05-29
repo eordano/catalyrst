@@ -1,0 +1,29 @@
+[package]
+name = "catalyrst-bench"
+version = "0.1.0"
+edition = "2021"
+
+[[bench]]
+name = "hotpath"
+harness = false
+
+[dependencies]
+catalyrst-hashing = { workspace = true }
+catalyrst-crypto = { workspace = true }
+catalyrst-storage = { workspace = true }
+catalyrst-server = { workspace = true }
+catalyrst-db = { workspace = true }
+criterion = { version = "0.5", features = ["html_reports"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+bytes = { workspace = true }
+tokio = { workspace = true }
+tokio-util = { workspace = true }
+ethers-core = { workspace = true }
+ethers-signers = { workspace = true }
+axum = { workspace = true }
+tower = { workspace = true }
+sqlx = { workspace = true }
+async-trait = { workspace = true }
+dashmap = { workspace = true }
+tracing = { workspace = true }

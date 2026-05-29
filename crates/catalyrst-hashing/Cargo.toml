@@ -1,0 +1,17 @@
+[package]
+name = "catalyrst-hashing"
+version = "0.1.0"
+edition = "2021"
+description = "Decentraland content-addressing: CIDv0 (Qm…) and CIDv1 (bafy…) hashing"
+
+[dependencies]
+sha2 = { workspace = true }
+bs58 = { workspace = true }
+thiserror = { workspace = true }
+data-encoding = "2"
+
+# NOTE: multihash-codetable 0.1.1 (used by bevy-explorer) has a yanked
+# transitive dep (core2 0.4.0). The multihash encoding is trivial enough
+# to do by hand (0x12 0x20 + 32 digest bytes), so we skip the dependency.
+
+[dev-dependencies]

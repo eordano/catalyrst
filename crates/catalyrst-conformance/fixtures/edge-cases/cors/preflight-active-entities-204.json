@@ -1,0 +1,27 @@
+{
+  "description": "CORS preflight for POST /content/entities/active. Must short-circuit to 204; Allow-Methods lists the actual methods the server accepts including OPTIONS for preflight.",
+  "request": {
+    "method": "OPTIONS",
+    "path": "/content/entities/active",
+    "query": {},
+    "headers": {
+      "origin": "https://play.decentraland.org",
+      "access-control-request-method": "POST",
+      "access-control-request-headers": "content-type"
+    },
+    "body": null
+  },
+  "response": {
+    "status": 204,
+    "headers": {
+      "access-control-allow-origin": "https://play.decentraland.org",
+      "access-control-allow-methods": "GET,HEAD,POST,PUT,DELETE,PATCH,OPTIONS",
+      "access-control-allow-headers": "content-type",
+      "vary": "Origin"
+    },
+    "body_bytes_b64": ""
+  },
+  "captured_from": "hand-authored from crates/catalyrst-server/src/cors.rs",
+  "captured_at": "2026-05-23T20:30:00Z",
+  "volatile_paths": []
+}

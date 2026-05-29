@@ -1,0 +1,18 @@
+{
+  "description": "GET /content/entities/outfits is also rejected (singularization yields 'outfit', not in the valid set).",
+  "request": {
+    "method": "GET",
+    "path": "/content/entities/outfits",
+    "query": {"pointer": ["0x0000000000000000000000000000000000000000"]},
+    "headers": {},
+    "body": null
+  },
+  "response": {
+    "status": 400,
+    "headers": {"content-type": "application/json"},
+    "body_json": {"error": "Bad request", "message": "Unrecognized type: outfits"}
+  },
+  "captured_from": "hand-authored from handler source (get_entities.rs)",
+  "captured_at": "2026-05-23T20:00:00Z",
+  "volatile_paths": []
+}

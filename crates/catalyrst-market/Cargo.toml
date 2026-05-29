@@ -1,0 +1,33 @@
+[package]
+name = "catalyrst-market"
+version = "0.1.0"
+edition = "2021"
+description = "Rust port of decentraland/marketplace-server REST API — reads from squid_marketplace schema"
+
+[[bin]]
+name = "catalyrst-market"
+path = "src/main.rs"
+
+[dependencies]
+axum = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sqlx = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true }
+chrono = { workspace = true }
+url = { workspace = true }
+catalyrst-server = { path = "../catalyrst-server" }
+catalyrst-db = { workspace = true }
+catalyrst-types = { workspace = true }
+catalyrst-crypto = { workspace = true }
+
+[dev-dependencies]
+ethers-signers = { workspace = true }
+ethers-core = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

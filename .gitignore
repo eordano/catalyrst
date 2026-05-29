@@ -1,0 +1,37 @@
+# Rust build artifacts
+/target
+**/*.rs.bk
+
+# Editor / OS
+.DS_Store
+*.swp
+
+# Local runtime data & logs
+*.log
+/data
+
+# Extracted oracle test vectors — regenerable from a real DB, may contain PII.
+# Regenerate with: cargo run -p catalyrst-oracle-tests --bin extract
+crates/catalyrst-oracle-tests/test-vectors/
+
+# Local environment files (may contain secrets)
+env/
+*.env
+
+# Host-specific NixOS files (generated per machine by nixos-infect / nixos-generate-config)
+nixos/hardware-configuration.nix
+nixos/networking.nix
+
+# Operator identity (SSH keys, ACME email) — copy operator.nix.example to operator.nix and fill in
+nixos/operator.nix
+
+# Python tooling caches
+__pycache__/
+*.pyc
+*.pyo
+
+# Schemathesis tooling venv (created on first run by scripts/schemathesis/run.sh)
+scripts/schemathesis/.venv/
+
+# Local bench results (per-endpoint p50/p99 history; regenerable)
+.bench/
