@@ -1,4 +1,21 @@
 //! HTTP handlers — one submodule per `controllers/handlers/*.ts`.
 
+pub mod accounts;
+pub mod activity;
+pub mod bids;
+pub mod catalog;
+pub mod collections;
 pub mod contracts;
+pub mod items;
+pub mod nfts;
+pub mod orders;
+pub mod owners;
 pub mod ping;
+pub mod prices;
+pub mod rankings;
+pub mod sales;
+pub mod stats;
+pub mod trades;
+pub mod trendings;
+pub mod user_assets;
+pub mod volume;
