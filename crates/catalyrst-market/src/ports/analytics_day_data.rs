@@ -1,5 +1,3 @@
-//! Direct port of `marketplace-server/src/ports/analyticsDayData/{component,types,utils}.ts`.
-
 use chrono::{Duration, Utc};
 use serde::Serialize;
 use sqlx::PgPool;
@@ -27,9 +25,6 @@ impl AnalyticsTimeframe {
     }
 }
 
-/// `getDateXDaysAgo(numOfDays).getTime()` — millis since epoch, with hours
-/// truncated to local-midnight. We approximate with UTC midnight; the upstream
-/// also used UTC for the parity tests.
 pub fn get_timestamp_from_timeframe(tf: AnalyticsTimeframe) -> i64 {
     let days = match tf {
         AnalyticsTimeframe::Day => 1,
@@ -66,8 +61,6 @@ impl AnalyticsDayDataComponent {
         Self { pool }
     }
 
-    /// Mirrors `component.fetch({ from, first })`.
-    /// If `from == 0` we run the totals-by-id query; otherwise the per-day query.
     pub async fn fetch(&self, from_ms: i64) -> Result<Vec<AnalyticsDayData>, ApiError> {
         let rows: Vec<AnalyticsDayData> = if from_ms == 0 {
             let sql = format!(

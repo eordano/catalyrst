@@ -1,24 +1,3 @@
-//! Direct port of `marketplace-server/src/ports/catalog/{component,queries,types,utils}.ts`
-//! plus the `getItemsParams` helper from `controllers/handlers/utils.ts`.
-//!
-//! ## Notable deviations from the TS source
-//!
-//! - The TS source exposes a write-side `updateBuilderServerItemsView()` that
-//!   `REFRESH MATERIALIZED VIEW`s on the builder-server schema. That's an
-//!   admin-only POST in the upstream; we skip it (AGENT-PORT-INSTRUCTIONS:
-//!   read-only).
-//! - The TS source calls `picks.getPicksStats(...)` and merges per-item
-//!   `{itemId, count, pickedByUser}` stats into each `Item.picks`. Picks
-//!   (favorites) is explicitly out of scope (`AGENT-PORT-INSTRUCTIONS.md` ->
-//!   "Don't port `favorites/*`"), so we emit `Item.picks = None` (omitted by
-//!   `skip_serializing_if`).
-//! - The TS source runs a Segment `analytics.track('Catalog Search', ...)` side
-//!   effect when a search term is provided. Telemetry is dropped — we do the
-//!   same query and use its ids, just without the analytics call. Wiring the
-//!   Segment client should happen on the federation/analytics ADR pass.
-//! - V2 (`/v2/catalog`) is implemented and exposes the `mv_trades` (offchain
-//!   orders) joins. We default to V1 when the caller hits `/v1/catalog`.
-
 use serde::Serialize;
 use serde_json::Value as JsonValue;
 use sqlx::postgres::PgArguments;
@@ -29,12 +8,6 @@ use crate::dcl_schemas::{ethereum_chain_id, polygon_chain_id, ChainId, Network, 
 use crate::http::response::ApiError;
 use crate::{BUILDER_SERVER_TABLE_SCHEMA, MARKETPLACE_SQUID_SCHEMA};
 
-// =============================================================================
-// Types — port of `ports/catalog/types.ts`
-// =============================================================================
-
-/// Item type stored in `squid_marketplace.item.item_type`. Mirrors
-/// `ports/catalog/utils.ts:FragmentItemType`.
 pub const FRAGMENT_WEARABLE_V1: &str = "wearable_v1";
 pub const FRAGMENT_WEARABLE_V2: &str = "wearable_v2";
 pub const FRAGMENT_SMART_WEARABLE_V1: &str = "smart_wearable_v1";
@@ -46,18 +19,11 @@ const WEARABLE_ITEM_TYPES: [&str; 3] = [
     FRAGMENT_SMART_WEARABLE_V1,
 ];
 
-/// `255` decimal — `MAX_NUMERIC_NUMBER` from `queries.ts`. Some indexed orders
-/// have a sentinel price equal to `uint256` max; we use the literal as-is.
 const MAX_NUMERIC_NUMBER: &str =
     "115792089237316195423570985008687907853269984665640564039457584007913129639935";
 
-/// Mirrors `MAX_ORDER_TIMESTAMP` in `queries.ts:160`. Some orders' `expires_at`
-/// overflow Postgres timestamp casts, so we filter the join row by
-/// `expires_at < MAX_ORDER_TIMESTAMP`.
 const MAX_ORDER_TIMESTAMP: i64 = 253_378_408_747_000;
 
-/// `CatalogSortBy` — port of `@dcl/schemas/CatalogSortBy`. Values match the
-/// camelCase string the upstream `sortBy=` query parameter accepts.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CatalogSortBy {
     Newest,
@@ -103,9 +69,6 @@ impl CatalogSortDirection {
     }
 }
 
-/// Port of `CatalogOptions = CatalogFilters & { pickedBy?: string }`.
-///
-/// Every field is `Option<…>`; absent means "no filter on this dimension".
 #[derive(Debug, Clone, Default)]
 pub struct CatalogFilters {
     pub first: Option<i64>,
@@ -137,20 +100,12 @@ pub struct CatalogFilters {
     pub max_price: Option<String>,
     pub min_price: Option<String>,
     pub urns: Vec<String>,
-    /// Populated by both `getItemsParams(ids)` and by the search post-processing
-    /// step. The catalog query uses this for the `items.id = ANY($)` filter and
-    /// for `array_position($, id)` ordering when search is active.
+
     pub ids: Vec<String>,
-    /// Lowercased verification address — currently unused (favorites/picks is
-    /// out of scope).
+
     pub picked_by: Option<String>,
 }
 
-// =============================================================================
-// Adapter — port of `ports/catalog/utils.ts:fromCollectionsItemDbResultToCatalogItem`
-// =============================================================================
-
-/// `Item.data.wearable` — see `@dcl/schemas/dapps/nft`.
 #[derive(Debug, Serialize)]
 pub struct WearableData {
     pub description: Option<String>,
@@ -178,27 +133,13 @@ pub struct EmoteData {
     pub outcome_type: Option<String>,
 }
 
-// The serializer needs the wearable's `loop_` field to land as `loop` in JSON;
-// however, EmoteData is only exposed via the `serde_json::json!()` macro below
-// so the alias isn't required here.
-
-/// Wrapper for the `data` field on `Item`. Exactly one variant is populated.
 #[derive(Debug, Serialize)]
 #[serde(untagged)]
 pub enum ItemData {
-    Wearable {
-        wearable: WearableData,
-    },
-    Emote {
-        emote: serde_json::Value,
-    },
+    Wearable { wearable: WearableData },
+    Emote { emote: serde_json::Value },
 }
 
-/// `Item` — port of `@dcl/schemas/Item`. The catalog response contains the
-/// catalog-specific fields (`minPrice`, `maxListingPrice`, `minListingPrice`,
-/// `listings`, `owners`) plus the base NFT fields. Field order/names mirror the
-/// upstream JSON exactly (verified against
-/// `https://marketplace-api.decentraland.org/v1/catalog`).
 #[derive(Debug, Serialize)]
 pub struct CatalogItem {
     pub id: String,
@@ -242,8 +183,6 @@ pub struct CatalogItem {
     pub owners: Option<i64>,
 }
 
-/// Internal row shape — what the `items` SELECT returns. We pull it through
-/// `serde_json::Value` for `metadata` since it comes back as `to_json(...)`.
 #[derive(Debug)]
 struct DbRow {
     id: String,
@@ -273,21 +212,17 @@ struct DbRow {
     listings_count: Option<i64>,
     owners_count: Option<i64>,
     min_price: Option<String>,
+    #[allow(dead_code)]
     max_price: Option<String>,
 }
 
-/// `ports/catalog/utils.ts:fixThumbnail` — the indexed thumbnail URLs are
-/// missing the `0x` prefix and the blockchainId segment; this restores them.
 fn fix_thumbnail(thumbnail: &str, blockchain_id: &str) -> String {
     if thumbnail.is_empty() {
         return String::new();
     }
 
-    // Testnet domain swap. Mirrors the polygonChain/ethereumChain check upstream.
-    let mut t = if matches!(
-        polygon_chain_id(),
-        ChainId::MaticAmoy
-    ) || matches!(ethereum_chain_id(), ChainId::EthereumSepolia)
+    let mut t = if matches!(polygon_chain_id(), ChainId::MaticAmoy)
+        || matches!(ethereum_chain_id(), ChainId::EthereumSepolia)
     {
         thumbnail.replace(".org", ".zone")
     } else {
@@ -311,7 +246,6 @@ fn fix_thumbnail(thumbnail: &str, blockchain_id: &str) -> String {
     parts.join(":")
 }
 
-/// `ports/catalog/utils.ts:fromCollectionsItemDbResultToCatalogItem`.
 fn from_db_row_to_catalog_item(row: DbRow, network_hint: Option<Network>) -> CatalogItem {
     let metadata = row.metadata.clone().unwrap_or(JsonValue::Null);
     let meta_obj = metadata.as_object();
@@ -354,8 +288,6 @@ fn from_db_row_to_catalog_item(row: DbRow, network_hint: Option<Network>) -> Cat
             )
         }
         FRAGMENT_EMOTE_V1 => {
-            // The TS source calls `emoteCategory.toLocaleLowerCase()` because the
-            // indexer wrote categories in uppercase historically.
             let emote_category_lower = get_str("category").map(|s| s.to_lowercase());
             let emote_value = serde_json::json!({
                 "description": get_str("description"),
@@ -374,8 +306,6 @@ fn from_db_row_to_catalog_item(row: DbRow, network_hint: Option<Network>) -> Cat
             )
         }
         other => {
-            // Mirrors upstream `throw new Error(...)`. We surface as default
-            // "wearable" with empty data rather than 500-ing the whole batch.
             tracing::warn!(item_type = %other, item_id = %row.id, "unknown item_type, defaulting to wearable");
             (
                 String::new(),
@@ -396,7 +326,9 @@ fn from_db_row_to_catalog_item(row: DbRow, network_hint: Option<Network>) -> Cat
     let available_n = row.available.parse::<i64>().unwrap_or(0);
     let price = if available_n > 0 {
         if row.open_item_trade_id.is_some() && row.search_is_marketplace_v3_minter {
-            row.open_item_trade_price.clone().unwrap_or_else(|| "0".into())
+            row.open_item_trade_price
+                .clone()
+                .unwrap_or_else(|| "0".into())
         } else if row.search_is_store_minter {
             row.price.clone()
         } else {
@@ -406,9 +338,6 @@ fn from_db_row_to_catalog_item(row: DbRow, network_hint: Option<Network>) -> Cat
         "0".into()
     };
 
-    // network mapping: row stores POLYGON or ETHEREUM. The response always uses
-    // MATIC | ETHEREUM. The TS source falls back to network_hint when the row
-    // network is missing.
     let item_network_str = if !row.network.is_empty() {
         row.network.clone()
     } else {
@@ -433,7 +362,10 @@ fn from_db_row_to_catalog_item(row: DbRow, network_hint: Option<Network>) -> Cat
         item_id: row.blockchain_id.clone(),
         name,
         thumbnail: fix_thumbnail(&row.image, &row.blockchain_id),
-        url: format!("/contracts/{}/items/{}", row.collection_id, row.blockchain_id),
+        url: format!(
+            "/contracts/{}/items/{}",
+            row.collection_id, row.blockchain_id
+        ),
         urn: row.urn.clone(),
         category,
         contract_address: row.collection_id.clone(),
@@ -460,13 +392,6 @@ fn from_db_row_to_catalog_item(row: DbRow, network_hint: Option<Network>) -> Cat
     }
 }
 
-// =============================================================================
-// Query builder — port of `ports/catalog/queries.ts`
-// =============================================================================
-
-/// Internal helper: builds a `(sql, args)` pair where every `${value}` from
-/// the TS source has been replaced with `$1, $2, …` and the value collected
-/// into a typed args vector.
 struct Builder {
     sql: String,
     args: PgArguments,
@@ -516,8 +441,6 @@ impl Builder {
     }
 }
 
-// ----- WHERE clauses (one fn per SQL fragment in queries.ts) -----
-
 fn build_category_where(b: &mut Builder, f: &CatalogFilters) {
     if let Some(cat) = f.category {
         match cat {
@@ -540,7 +463,6 @@ fn build_category_where(b: &mut Builder, f: &CatalogFilters) {
                 b.push_sql(&format!("items.item_type = '{}'", FRAGMENT_EMOTE_V1));
             }
             _ => {
-                // No-op for parcel/estate/ens — those don't live in `item`.
                 b.push_sql("TRUE");
             }
         }
@@ -549,7 +471,6 @@ fn build_category_where(b: &mut Builder, f: &CatalogFilters) {
 
 fn build_wearable_category_where(b: &mut Builder, f: &CatalogFilters) {
     if let Some(c) = &f.wearable_category {
-        // Embed as literal — value already validated against WearableCategory.
         b.push_sql(&format!(
             "metadata_wearable.category = '{}'",
             escape_sql_literal(c)
@@ -572,14 +493,6 @@ fn build_emote_play_mode_where(b: &mut Builder, f: &CatalogFilters) {
         let bi = b.bind_bool(is_loop);
         b.push_sql(&format!("metadata_emote.loop = ${}", bi));
     }
-    // Two modes selected = both loop and simple = no constraint (matches TS
-    // behaviour: array of length 2 returns `undefined`).
-}
-
-fn build_search_where(b: &mut Builder, f: &CatalogFilters) {
-    let search = f.search.clone().unwrap_or_default();
-    let bi = b.bind_string(search);
-    b.push_sql(&format!("lower(word::text) % lower(${})", bi));
 }
 
 fn build_is_sold_out_where(b: &mut Builder) {
@@ -588,9 +501,13 @@ fn build_is_sold_out_where(b: &mut Builder) {
 
 fn build_is_on_sale_where(b: &mut Builder, f: &CatalogFilters) {
     if f.is_on_sale == Some(true) {
-        b.push_sql("((search_is_store_minter = true AND available > 0) OR listings_count IS NOT NULL)");
+        b.push_sql(
+            "((search_is_store_minter = true AND available > 0) OR listings_count IS NOT NULL)",
+        );
     } else {
-        b.push_sql("((search_is_store_minter = false OR available = 0) AND listings_count IS NULL)");
+        b.push_sql(
+            "((search_is_store_minter = false OR available = 0) AND listings_count IS NULL)",
+        );
     }
 }
 
@@ -634,10 +551,7 @@ fn build_wearable_gender_where(b: &mut Builder, f: &CatalogFilters) {
         return;
     }
     let bi = b.bind_string_slice(&parsed);
-    b.push_sql(&format!(
-        "items.search_wearable_body_shapes @> (${})",
-        bi
-    ));
+    b.push_sql(&format!("items.search_wearable_body_shapes @> (${})", bi));
 }
 
 fn build_creator_where(b: &mut Builder, f: &CatalogFilters) {
@@ -663,7 +577,7 @@ fn build_min_price_where(b: &mut Builder, f: &CatalogFilters, is_v2: bool) {
     let mp = f.min_price.clone().unwrap_or_default();
     if f.only_minting {
         let bi = b.bind_string(mp);
-        // Note: MAX_NUMERIC_NUMBER embedded as literal — it's a constant.
+
         b.push_sql(&format!(
             "(price >= ${} AND price IS DISTINCT FROM '{}')",
             bi, MAX_NUMERIC_NUMBER
@@ -681,7 +595,10 @@ fn build_min_price_where(b: &mut Builder, f: &CatalogFilters, is_v2: bool) {
         bi
     );
     if is_v2 {
-        s.push_str(&format!(" OR offchain_orders.min_order_amount_received >= ${}", bi));
+        s.push_str(&format!(
+            " OR offchain_orders.min_order_amount_received >= ${}",
+            bi
+        ));
     }
     s.push(')');
     b.push_sql(&s);
@@ -705,7 +622,10 @@ fn build_max_price_where(b: &mut Builder, f: &CatalogFilters, is_v2: bool) {
         bi
     );
     if is_v2 {
-        s.push_str(&format!(" OR offchain_orders.max_order_amount_received <= ${}", bi));
+        s.push_str(&format!(
+            " OR offchain_orders.max_order_amount_received <= ${}",
+            bi
+        ));
     }
     s.push(')');
     b.push_sql(&s);
@@ -760,7 +680,6 @@ fn build_urns_where(b: &mut Builder, f: &CatalogFilters) {
 
 fn build_network_where(b: &mut Builder, f: &CatalogFilters) {
     if let Some(net) = f.network {
-        // Network.MATIC maps to 'POLYGON' in the squid table.
         let label = match net {
             Network::Matic => "POLYGON",
             Network::Ethereum => "ETHEREUM",
@@ -770,10 +689,6 @@ fn build_network_where(b: &mut Builder, f: &CatalogFilters) {
     }
 }
 
-// ----- WHERE composition -----
-
-/// Append a `WHERE …` block, prefixing with `AND` when there are multiple
-/// conditions. Mirrors the TS `conditions.filter(Boolean).forEach(...)` loop.
 fn build_collections_where(b: &mut Builder, f: &CatalogFilters, is_v2: bool) {
     b.push_sql(" WHERE items.search_is_collection_approved = true ");
 
@@ -890,15 +805,10 @@ fn build_collections_where(b: &mut Builder, f: &CatalogFilters, is_v2: bool) {
     b.push_sql(" ");
 }
 
-// ----- ORDER BY / LIMIT/OFFSET -----
-
 fn build_order_by(b: &mut Builder, f: &CatalogFilters, is_v2: bool) {
     let sort_by = f.sort_by.unwrap_or(CatalogSortBy::Newest);
-    let sort_direction = f
-        .sort_direction
-        .unwrap_or(CatalogSortDirection::Desc);
+    let sort_direction = f.sort_direction.unwrap_or(CatalogSortDirection::Desc);
 
-    // "Not for sale" only supports NEWEST sort.
     if f.is_on_sale == Some(false) && sort_by != CatalogSortBy::Newest {
         return;
     }
@@ -906,7 +816,6 @@ fn build_order_by(b: &mut Builder, f: &CatalogFilters, is_v2: bool) {
     b.push_sql("ORDER BY ");
 
     if f.search.is_some() && !f.ids.is_empty() {
-        // array_position($1::text[], id), …
         let bi = b.bind_string_slice(&f.ids);
         b.push_sql(&format!("array_position(${}::text[], id), ", bi));
     }
@@ -934,9 +843,7 @@ fn build_order_by(b: &mut Builder, f: &CatalogFilters, is_v2: bool) {
         CatalogSortBy::RecentlySold => b.push_sql("sold_at desc"),
         CatalogSortBy::Cheapest => b.push_sql("min_price asc, first_listed_at desc"),
     };
-    // The default-case `first_listed_at <direction>` is unreachable since
-    // every CatalogSortBy is covered above; the TS source has a default that
-    // pretty-prints `sortDirection` so we replicate.
+
     let _ = sort_direction;
     b.push_sql(" ");
 }
@@ -948,8 +855,6 @@ fn build_limit_offset(b: &mut Builder, f: &CatalogFilters) {
         b.push_sql(&format!("LIMIT ${} OFFSET ${}", li, oi));
     }
 }
-
-// ----- Joins / CTEs -----
 
 fn build_metadata_joins(b: &mut Builder) {
     b.push_sql(&format!(
@@ -1013,7 +918,9 @@ fn build_nfts_with_orders_cte_v1(b: &mut Builder, f: &CatalogFilters) {
         ts = MAX_ORDER_TIMESTAMP,
     ));
     build_order_range_price_where(b, f);
-    b.push_sql(" GROUP BY orders.item_id ) AS nfts_with_orders ON nfts_with_orders.item_id = items.id ");
+    b.push_sql(
+        " GROUP BY orders.item_id ) AS nfts_with_orders ON nfts_with_orders.item_id = items.id ",
+    );
 }
 
 fn build_nfts_with_orders_cte_v2(b: &mut Builder, f: &CatalogFilters) {
@@ -1021,7 +928,7 @@ fn build_nfts_with_orders_cte_v2(b: &mut Builder, f: &CatalogFilters) {
         ", nfts_with_orders AS (SELECT orders.item_id, COUNT(orders.id) AS orders_listings_count, MIN(orders.price) AS min_price, MAX(orders.price) AS max_price, MAX(orders.created_at) AS max_order_created_at FROM {schema}.\"order\" AS orders WHERE orders.status = 'open' AND orders.expires_at_normalized > NOW()",
         schema = MARKETPLACE_SQUID_SCHEMA,
     ));
-    // NEWEST/RECENTLY_SOLD + isOnSale=false constrains to top_n_items
+
     if f.is_on_sale == Some(false)
         && matches!(
             f.sort_by,
@@ -1108,7 +1015,6 @@ fn build_trades_join(b: &mut Builder, f: &CatalogFilters) {
     );
 }
 
-/// WHERE clause for the V2 `top_n_items` CTE — only item-level columns.
 fn build_item_level_filters_where(b: &mut Builder, f: &CatalogFilters) {
     b.push_sql(" WHERE items.search_is_collection_approved = true ");
     let mut first = true;
@@ -1191,10 +1097,6 @@ fn build_item_level_filters_where(b: &mut Builder, f: &CatalogFilters) {
     }
 }
 
-// =============================================================================
-// Top-level query builders
-// =============================================================================
-
 fn build_get_min_price_case(b: &mut Builder, f: &CatalogFilters) {
     b.push_sql(
         " CASE WHEN items.available > 0 AND (items.search_is_store_minter = true OR items.search_is_marketplace_v3_minter = true) ",
@@ -1210,18 +1112,14 @@ fn build_get_min_price_case(b: &mut Builder, f: &CatalogFilters) {
 
 fn build_get_max_price_case(b: &mut Builder, f: &CatalogFilters) {
     if f.only_minting {
-        b.push_sql(
-            " CASE WHEN items.available > 0 AND items.search_is_store_minter = true ",
-        );
+        b.push_sql(" CASE WHEN items.available > 0 AND items.search_is_store_minter = true ");
         if let Some(mx) = &f.max_price {
             let bi = b.bind_string(mx.clone());
             b.push_sql(&format!(" AND items.price <= ${}", bi));
         }
         b.push_sql(" THEN items.price ELSE NULL END AS max_price ");
     } else {
-        b.push_sql(
-            " CASE WHEN items.available > 0 AND items.search_is_store_minter = true ",
-        );
+        b.push_sql(" CASE WHEN items.available > 0 AND items.search_is_store_minter = true ");
         if let Some(mx) = &f.max_price {
             let bi = b.bind_string(mx.clone());
             b.push_sql(&format!(" AND items.price <= ${}", bi));
@@ -1269,7 +1167,6 @@ fn build_get_max_price_case_with_trades(b: &mut Builder, f: &CatalogFilters) {
     }
 }
 
-/// Mirrors `getCollectionsItemsCatalogQuery` — the V1 query.
 fn build_collections_items_catalog_query(f: &CatalogFilters) -> (String, PgArguments) {
     let mut b = Builder::new();
     b.push_sql(
@@ -1315,7 +1212,6 @@ fn build_collections_items_catalog_query(f: &CatalogFilters) -> (String, PgArgum
         b.push_sql(" NULL::int8 AS owners_count, ");
     }
     if f.only_minting {
-        // no max_order_created_at
     } else {
         b.push_sql(" nfts_with_orders.max_order_created_at as max_order_created_at, ");
     }
@@ -1323,7 +1219,10 @@ fn build_collections_items_catalog_query(f: &CatalogFilters) -> (String, PgArgum
     build_get_min_price_case(&mut b, f);
     b.push_sql(", ");
     build_get_max_price_case(&mut b, f);
-    b.push_sql(&format!(" FROM {schema}.item AS items ", schema = MARKETPLACE_SQUID_SCHEMA));
+    b.push_sql(&format!(
+        " FROM {schema}.item AS items ",
+        schema = MARKETPLACE_SQUID_SCHEMA
+    ));
     if f.is_on_sale == Some(false) {
         build_owners_join(&mut b);
     }
@@ -1336,7 +1235,6 @@ fn build_collections_items_catalog_query(f: &CatalogFilters) -> (String, PgArgum
     (b.sql, b.args)
 }
 
-/// Mirrors `getCollectionsItemsCatalogQueryWithTrades` — V2.
 fn build_collections_items_catalog_query_with_trades(f: &CatalogFilters) -> (String, PgArguments) {
     let mut b = Builder::new();
     build_trades_cte(&mut b);
@@ -1445,14 +1343,6 @@ fn build_collections_items_catalog_query_with_trades(f: &CatalogFilters) -> (Str
     (b.sql, b.args)
 }
 
-/// Mirrors `getCollectionsItemsCountQuery` — the dedicated COUNT query.
-///
-/// The TS source assembles a NOT-EXISTS / EXISTS-based count without metadata
-/// joins (unless filters force them). We mirror the structure but skip the
-/// per-condition optimization, falling back to `COUNT(*) OVER()` from the
-/// SELECT when the COUNT path returns 0 (defensive). For now, we do a
-/// straightforward COUNT(*) with the same filters — accuracy parity matters
-/// more than throughput on this pass.
 fn build_collections_items_count_query(f: &CatalogFilters) -> (String, PgArguments) {
     let mut b = Builder::new();
     b.push_sql(&format!(
@@ -1504,7 +1394,6 @@ fn build_collections_items_count_query(f: &CatalogFilters) -> (String, PgArgumen
         ));
     }
 
-    // minPrice / maxPrice extras
     if let Some(mn) = f.min_price.clone() {
         if f.only_minting {
             let bi = b.bind_string(mn);
@@ -1548,15 +1437,6 @@ fn build_collections_items_count_query(f: &CatalogFilters) -> (String, PgArgumen
     (b.sql, b.args)
 }
 
-/// Search-text query — port of `getItemIdsBySearchTextQuery`. Returns the ids
-/// of items matching the search term, ordered by relevance.
-///
-/// The full query joins `mv_builder_server_items_utility` and a UNION over
-/// tag/name matching. The materialized views may not be present on every
-/// deployment; we surface a basic implementation that delegates the heavy
-/// lifting to a `LIKE` on `metadata.name` / `metadata.description`, and fall
-/// back to an empty result if the MVs are missing. Future work: load the
-/// builder-server schema natively.
 fn build_search_query(f: &CatalogFilters) -> (String, PgArguments) {
     let mut b = Builder::new();
     let search = f.search.clone().unwrap_or_default();
@@ -1566,13 +1446,9 @@ fn build_search_query(f: &CatalogFilters) -> (String, PgArguments) {
         bi,
         schema = MARKETPLACE_SQUID_SCHEMA,
     ));
-    let _ = BUILDER_SERVER_TABLE_SCHEMA; // unused on the minimal path
+    let _ = BUILDER_SERVER_TABLE_SCHEMA;
     (b.sql, b.args)
 }
-
-// =============================================================================
-// Component — port of `ports/catalog/component.ts:createCatalogComponent`
-// =============================================================================
 
 pub struct CatalogComponent {
     pool: PgPool,
@@ -1583,8 +1459,6 @@ impl CatalogComponent {
         Self { pool }
     }
 
-    /// Returns `(items, total)` — top-level shape matches the upstream
-    /// `{ data: Item[], total: number }` response.
     pub async fn fetch(
         &self,
         mut filters: CatalogFilters,
@@ -1592,9 +1466,6 @@ impl CatalogComponent {
         _anon_id: &str,
         is_v2: bool,
     ) -> Result<(Vec<CatalogItem>, i64), ApiError> {
-        // Search term post-processing: when present, gather matching ids and
-        // merge with the caller-supplied `ids` filter. If no ids matched,
-        // return empty (mirrors the upstream early-return).
         if let Some(ref search) = filters.search.clone() {
             if !search.trim().is_empty() {
                 let (sql, args) = build_search_query(&filters);
@@ -1602,7 +1473,9 @@ impl CatalogComponent {
                     .fetch_all(&self.pool)
                     .await
                     .map_err(|_e| {
-                        ApiError::bad_request("Couldn't fetch the catalog with the filters provided")
+                        ApiError::bad_request(
+                            "Couldn't fetch the catalog with the filters provided",
+                        )
                     })?;
                 let mut matched: Vec<String> = rows
                     .iter()
@@ -1623,17 +1496,14 @@ impl CatalogComponent {
         };
         let (count_sql, count_args) = build_collections_items_count_query(&filters);
 
-        let items_q: Query<'_, Postgres, PgArguments> =
-            sqlx::query_with(&items_sql, items_args);
-        let count_q: Query<'_, Postgres, PgArguments> =
-            sqlx::query_with(&count_sql, count_args);
+        let items_q: Query<'_, Postgres, PgArguments> = sqlx::query_with(&items_sql, items_args);
+        let count_q: Query<'_, Postgres, PgArguments> = sqlx::query_with(&count_sql, count_args);
 
         let items_fut = items_q.fetch_all(&self.pool);
         let count_fut = count_q.fetch_one(&self.pool);
-        let (items_rows, count_row) =
-            tokio::try_join!(items_fut, count_fut).map_err(|_e| {
-                ApiError::bad_request("Couldn't fetch the catalog with the filters provided")
-            })?;
+        let (items_rows, count_row) = tokio::try_join!(items_fut, count_fut).map_err(|_e| {
+            ApiError::bad_request("Couldn't fetch the catalog with the filters provided")
+        })?;
 
         let total: i64 = count_row.try_get::<i64, _>("total").unwrap_or(0);
 
@@ -1648,9 +1518,7 @@ impl CatalogComponent {
                 item_type: r.try_get("item_type").unwrap_or_default(),
                 price: r.try_get("price").unwrap_or_default(),
                 available: r.try_get("available").unwrap_or_default(),
-                search_is_store_minter: r
-                    .try_get("search_is_store_minter")
-                    .unwrap_or(false),
+                search_is_store_minter: r.try_get("search_is_store_minter").unwrap_or(false),
                 search_is_marketplace_v3_minter: r
                     .try_get("search_is_marketplace_v3_minter")
                     .unwrap_or(false),
@@ -1680,9 +1548,6 @@ impl CatalogComponent {
     }
 }
 
-/// Escape a SQL string literal for embedding (single-quotes doubled). Used for
-/// values that have already been validated against an allow-list — never for
-/// caller-supplied free text.
 fn escape_sql_literal(s: &str) -> String {
     s.replace('\'', "''")
 }

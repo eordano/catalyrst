@@ -1,9 +1,3 @@
-//! Direct port of `marketplace-server/src/controllers/handlers/trending-handler.ts`.
-//! The handler emits a Cache-Control: public,max-age=3600,s-maxage=3600 header
-//! upstream — we leave the response wrapper as plain JSON since axum lets a
-//! layer add the header. Header parity with the Node server is part of the
-//! crate-level middleware setup (wired in lib.rs), not the per-handler module.
-
 use axum::extract::{Query, State};
 use axum::Json;
 use serde::Serialize;

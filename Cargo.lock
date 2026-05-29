@@ -477,6 +477,9 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "axum",
+ "catalyrst-db",
+ "catalyrst-server",
+ "catalyrst-types",
  "chrono",
  "serde",
  "serde_json",
@@ -584,10 +587,13 @@ dependencies = [
 name = "catalyrst-types"
 version = "0.1.0"
 dependencies = [
+ "axum",
  "chrono",
  "serde",
  "serde_json",
+ "sqlx",
  "thiserror 2.0.18",
+ "tracing",
 ]
 
 [[package]]

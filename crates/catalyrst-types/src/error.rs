@@ -1,3 +1,7 @@
+use axum::http::StatusCode;
+use axum::response::{IntoResponse, Response};
+use axum::Json;
+use serde_json::json;
 use thiserror::Error;
 
 use crate::entity::{EntityId, EntityType, Pointer};
@@ -69,6 +73,93 @@ impl std::fmt::Display for FailedDeploymentReason {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Marketplace HTTP API error envelope
+// ---------------------------------------------------------------------------
+//
+// The catalyrst-market crate (Rust port of decentraland/marketplace-server)
+// returns `{ok: false, message: ...}` from every failing endpoint. The
+// types below are the shared error envelope so any future HTTP-returning
+// crate in the workspace can reuse them. The content-server side
+// (catalyrst-server) uses a different shape (`{error, message}`) — that
+// shape is intentionally NOT merged into these types.
+
+#[derive(Debug, Error)]
+#[error("The value of the {parameter} parameter is invalid: {value}")]
+pub struct InvalidParameterError {
+    pub parameter: String,
+    pub value: String,
+}
+
+impl InvalidParameterError {
+    pub fn new(parameter: impl Into<String>, value: impl Into<String>) -> Self {
+        Self {
+            parameter: parameter.into(),
+            value: value.into(),
+        }
+    }
+}
+
+#[derive(Debug, Error)]
+#[error("{message}")]
+pub struct HttpError {
+    pub code: u16,
+    pub message: String,
+}
+
+impl HttpError {
+    pub fn new(code: u16, message: impl Into<String>) -> Self {
+        Self {
+            code,
+            message: message.into(),
+        }
+    }
+}
+
+#[derive(Debug, Error)]
+pub enum MarketplaceApiError {
+    #[error(transparent)]
+    Http(#[from] HttpError),
+
+    #[error(transparent)]
+    InvalidParameter(#[from] InvalidParameterError),
+
+    #[error("database error: {0}")]
+    Database(#[from] sqlx::Error),
+
+    #[error("{0}")]
+    Internal(String),
+}
+
+impl MarketplaceApiError {
+    pub fn bad_request(msg: impl Into<String>) -> Self {
+        MarketplaceApiError::Http(HttpError::new(400, msg))
+    }
+    pub fn not_found(msg: impl Into<String>) -> Self {
+        MarketplaceApiError::Http(HttpError::new(404, msg))
+    }
+    pub fn internal(msg: impl Into<String>) -> Self {
+        MarketplaceApiError::Internal(msg.into())
+    }
+}
+
+impl IntoResponse for MarketplaceApiError {
+    fn into_response(self) -> Response {
+        let (code, message) = match &self {
+            MarketplaceApiError::Http(HttpError { code, message }) => (*code, message.clone()),
+            MarketplaceApiError::InvalidParameter(e) => (400u16, e.to_string()),
+            MarketplaceApiError::Database(e) => {
+                tracing::error!(error = %e, "sqlx error");
+                (500, "database error".to_string())
+            }
+            MarketplaceApiError::Internal(s) => (500, s.clone()),
+        };
+        let status = StatusCode::from_u16(code).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
+        let body = json!({ "ok": false, "message": message });
+        (status, Json(body)).into_response()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -87,5 +178,31 @@ mod tests {
             FailedDeploymentReason::BlockchainAccessCheck.to_string(),
             "blockchain_access_check"
         );
+    }
+
+    #[test]
+    fn invalid_parameter_display() {
+        let err = InvalidParameterError::new("first", "abc");
+        assert_eq!(
+            err.to_string(),
+            "The value of the first parameter is invalid: abc"
+        );
+    }
+
+    #[test]
+    fn http_error_display() {
+        let err = HttpError::new(404, "missing");
+        assert_eq!(err.to_string(), "missing");
+        assert_eq!(err.code, 404);
+    }
+
+    #[test]
+    fn marketplace_api_error_helpers() {
+        let bad = MarketplaceApiError::bad_request("oops");
+        let nf = MarketplaceApiError::not_found("gone");
+        let int = MarketplaceApiError::internal("boom");
+        assert!(matches!(bad, MarketplaceApiError::Http(HttpError { code: 400, .. })));
+        assert!(matches!(nf, MarketplaceApiError::Http(HttpError { code: 404, .. })));
+        assert!(matches!(int, MarketplaceApiError::Internal(_)));
     }
 }

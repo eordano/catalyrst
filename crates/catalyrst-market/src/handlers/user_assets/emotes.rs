@@ -1,11 +1,3 @@
-//! Direct port of
-//! `marketplace-server/src/controllers/handlers/user-assets/emotes-handler.ts`.
-//!
-//! Three GET endpoints:
-//! - `/v1/users/:address/emotes`            → `get_user_emotes`
-//! - `/v1/users/:address/emotes/urn-token`  → `get_user_emotes_urn_token`
-//! - `/v1/users/:address/emotes/grouped`    → `get_user_grouped_emotes`
-
 use axum::extract::{Path, Query, State};
 use axum::Json;
 

@@ -1,5 +1,3 @@
-//! Direct port of `marketplace-server/src/controllers/handlers/owners-handler.ts`.
-
 use axum::extract::{Query, State};
 use axum::Json;
 
@@ -17,7 +15,6 @@ pub async fn get_owners(
     let contract_address = p.get_string("contractAddress", None);
     let item_id = p.get_string("itemId", None);
 
-    // Only the single allowed value, mirrors `params.getValue<OwnersSortBy>('sortBy', OwnersSortBy) || OwnersSortBy.ISSUED_ID`.
     let sort_by = match p.get_value("sortBy", &["issuedId"], Some("issuedId")) {
         Some(_) => Some(OwnersSortBy::IssuedId),
         None => Some(OwnersSortBy::IssuedId),

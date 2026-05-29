@@ -1,12 +1,3 @@
-//! Direct port of `marketplace-server/src/ports/bids/{component,queries,types}.ts`
-//! plus `adapters/bids/bids.ts:fromDBBidToBid`.
-//!
-//! Scope: read-only `GET /v1/bids`. The legacy bids table is queried directly;
-//! the trade-side `getTradesForTypeQuery(BID)` is collapsed into an inline SQL
-//! that mirrors the JSON-extraction pattern in the upstream while skipping the
-//! squid_trades signature-index materialised join (status falls back to OPEN).
-//! Federation ADR will revisit cancelled-bid status materialisation.
-
 use serde::Serialize;
 use sqlx::PgPool;
 use sqlx::Row;
@@ -64,7 +55,10 @@ pub struct Bid {
     pub item_id: Option<String>,
     #[serde(rename = "tradeId", skip_serializing_if = "Option::is_none")]
     pub trade_id: Option<String>,
-    #[serde(rename = "tradeContractAddress", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "tradeContractAddress",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub trade_contract_address: Option<String>,
     #[serde(rename = "bidAddress", skip_serializing_if = "Option::is_none")]
     pub bid_address: Option<String>,
@@ -121,21 +115,17 @@ impl BidsComponent {
             where_parts.push(format!("status = {}", next()));
             binds.push(v.clone());
         }
-        // Always exclude expired bids.
-        where_parts.push("expires_at > now()::timestamptz(3)".to_string());
+
+        // expires_at is float8 (epoch milliseconds) after the inner cast above
+        where_parts.push("expires_at > extract(epoch from now()) * 1000".to_string());
 
         let where_sql = format!("WHERE {}", where_parts.join(" AND "));
 
-        // The legacy schema has no item_id column; emulate FALSE if filtering by item_id.
         let legacy_item_id_clause = if f.item_id.is_some() { "AND FALSE" } else { "" };
 
         let limit_p = next();
         let offset_p = next();
 
-        // Note: the upstream materialises trade status via squid_trades. We omit
-        // that join here and surface 'open' for unsigned trade bids — the
-        // federation ADR will determine whether to backfill the materialised
-        // view in this crate.
         let sql = format!(
             r#"
 SELECT *, COUNT(*) OVER() AS bids_count FROM (
@@ -144,13 +134,13 @@ SELECT *, COUNT(*) OVER() AS bids_count FROM (
       NULL::text                AS trade_id,
       id::text                  AS legacy_bid_id,
       NULL::text                AS trade_contract_address,
-      '0x' || encode(bid_address, 'hex') AS bid_address,
+      bid_address               AS bid_address,
       blockchain_id::text       AS blockchain_id,
       block_number::text        AS block_number,
       '0x' || encode(bidder, 'hex') AS bidder,
-      EXTRACT(EPOCH FROM to_timestamp(created_at) AT TIME ZONE 'UTC') * 1000 AS created_at,
-      EXTRACT(EPOCH FROM to_timestamp(updated_at) AT TIME ZONE 'UTC') * 1000 AS updated_at,
-      EXTRACT(EPOCH FROM to_timestamp(expires_at/1000) AT TIME ZONE 'UTC') * 1000 AS expires_at,
+      (created_at * 1000)::float8 AS created_at,
+      (updated_at * 1000)::float8 AS updated_at,
+      expires_at::float8        AS expires_at,
       network                   AS network,
       NULL::int                 AS chain_id,
       price::text               AS price,
@@ -225,20 +215,31 @@ fn row_to_bid(r: &sqlx::postgres::PgRow) -> Bid {
         token_id: r.try_get::<Option<String>, _>("token_id").unwrap_or(None),
         item_id: r.try_get::<Option<String>, _>("item_id").unwrap_or(None),
         trade_id,
-        trade_contract_address: r.try_get::<Option<String>, _>("trade_contract_address").unwrap_or(None),
-        bid_address: r.try_get::<Option<String>, _>("bid_address").unwrap_or(None),
-        blockchain_id: r.try_get::<Option<String>, _>("blockchain_id").unwrap_or(None),
-        block_number: r.try_get::<Option<String>, _>("block_number").unwrap_or(None),
+        trade_contract_address: r
+            .try_get::<Option<String>, _>("trade_contract_address")
+            .unwrap_or(None),
+        bid_address: r
+            .try_get::<Option<String>, _>("bid_address")
+            .unwrap_or(None),
+        blockchain_id: r
+            .try_get::<Option<String>, _>("blockchain_id")
+            .unwrap_or(None),
+        block_number: r
+            .try_get::<Option<String>, _>("block_number")
+            .unwrap_or(None),
     }
 }
 
-/// Mirrors `controllers/handlers/bids-handler.ts`'s param parsing.
 pub fn parse_filters(pairs: &[(String, String)]) -> Result<BidFilters, InvalidParameterError> {
     let pg = get_pagination_params(pairs);
     let p = Params::new(pairs);
 
     let sort_by = p
-        .get_value("sortBy", &["recently_offered", "recently_updated", "most_expensive"], None)
+        .get_value(
+            "sortBy",
+            &["recently_offered", "recently_updated", "most_expensive"],
+            None,
+        )
         .map(|s| match s.as_str() {
             "recently_updated" => BidSortBy::RecentlyUpdated,
             "most_expensive" => BidSortBy::MostExpensive,
@@ -265,4 +266,3 @@ pub fn parse_filters(pairs: &[(String, String)]) -> Result<BidFilters, InvalidPa
         status: p.get_string("status", None),
     })
 }
-

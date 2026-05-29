@@ -1,5 +1,3 @@
-//! Direct port of `marketplace-server/src/controllers/handlers/bids-handler.ts`.
-
 use axum::extract::{Query, State};
 use axum::Json;
 
@@ -15,5 +13,7 @@ pub async fn get_bids(
     let pg = get_pagination_params(&pairs);
     let filters = parse_filters(&pairs)?;
     let (data, total) = state.bids.get_bids(&filters).await?;
-    Ok(Json(PaginatedResponse::new(data, total, pg.limit, pg.offset)))
+    Ok(Json(PaginatedResponse::new(
+        data, total, pg.limit, pg.offset,
+    )))
 }

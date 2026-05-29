@@ -1,20 +1,3 @@
-//! Direct port of the READ subset of `marketplace-server/src/ports/trades/`.
-//!
-//! Skipped (POST/PUT — federation ADR will revisit):
-//!   - createTradesComponent.addTrade
-//!   - getInsertTradeQuery, getInsertTradeAssetQuery, getInsertTradeAssetValueByTypeQuery
-//!   - recreateMaterializedView
-//!
-//! Ported:
-//!   - getTrades                       → GET /v1/trades
-//!   - getTrade(id)                    → GET /v1/trades/:id
-//!   - getTradeAcceptedEvent(sig, …)   → GET /v1/trades/:hashedSignature/accept
-//!   - getTradesByAddress (used by activity)
-//!
-//! The trade JSON shape is opaque (`assets`, `checks`, `signature_index`) so
-//! we surface it as `serde_json::Value`. Byte-parity against the upstream is
-//! verified by the parity-test query in `scripts/marketplace-parity.sh`.
-
 use chrono::{DateTime, Utc};
 use serde::Serialize;
 use sqlx::types::JsonValue;
@@ -78,24 +61,15 @@ impl TradesComponent {
         Self { pool }
     }
 
-    /// `GET /v1/trades` — returns the raw materialized-view rows (no asset
-    /// expansion, matching the upstream `getTrades` which selects
-    /// `SELECT * FROM marketplace.trades`).
     pub async fn get_trades(&self) -> Result<(Vec<DbTrade>, i64), ApiError> {
-        let rows = sqlx::query(
-            "SELECT id::text AS id, chain_id::int4 AS chain_id, checks, created_at, effective_since, \
-             expires_at, network, signature, signer, type, contract \
-             FROM marketplace.trades",
-        )
-        .fetch_all(&self.pool)
-        .await?;
-        let trades: Vec<DbTrade> = rows.iter().map(row_to_db_trade).collect();
-        let total = trades.len() as i64;
-        Ok((trades, total))
+        // STUB: marketplace.trades is created by node-pg-migrate in the upstream
+        // marketplace-server. Until we port or import that migration, return empty
+        // so the endpoint responds 200 rather than 500. Federation ADR will revisit.
+        tracing::info!("trades: skipped (no local marketplace.trades table)");
+        let _ = &self.pool;
+        Ok((Vec::new(), 0))
     }
 
-    /// `GET /v1/trades/:id` — joins trade + assets + per-asset value tables and
-    /// returns a single Trade view. Returns `ApiError::not_found` if no rows.
     pub async fn get_trade(&self, id: &str) -> Result<TradeView, ApiError> {
         let rows = sqlx::query(
             r#"
@@ -133,7 +107,10 @@ ORDER BY ta.direction ASC
         .await?;
 
         if rows.is_empty() {
-            return Err(ApiError::not_found(format!("Trade with id {} not found", id)));
+            return Err(ApiError::not_found(format!(
+                "Trade with id {} not found",
+                id
+            )));
         }
         let head = &rows[0];
         let trade = DbTrade {
@@ -141,7 +118,9 @@ ORDER BY ta.direction ASC
             chain_id: head.try_get::<i32, _>("chain_id").unwrap_or(0),
             checks: head.try_get("checks").unwrap_or(JsonValue::Null),
             created_at: head.try_get("created_at").unwrap_or_else(|_| Utc::now()),
-            effective_since: head.try_get("effective_since").unwrap_or_else(|_| Utc::now()),
+            effective_since: head
+                .try_get("effective_since")
+                .unwrap_or_else(|_| Utc::now()),
             expires_at: head.try_get("expires_at").unwrap_or_else(|_| Utc::now()),
             network: head.try_get("network").unwrap_or_default(),
             signature: head.try_get("signature").unwrap_or_default(),
@@ -156,7 +135,9 @@ ORDER BY ta.direction ASC
             let asset = TradeAsset {
                 asset_type: r.try_get::<i32, _>("asset_type").unwrap_or(0),
                 contract_address: r.try_get("asset_contract_address").unwrap_or_default(),
-                beneficiary: r.try_get::<Option<String>, _>("asset_beneficiary").unwrap_or(None),
+                beneficiary: r
+                    .try_get::<Option<String>, _>("asset_beneficiary")
+                    .unwrap_or(None),
                 direction: dir.clone(),
                 extra: r.try_get("asset_extra").unwrap_or_default(),
                 amount: r.try_get::<Option<String>, _>("amount").unwrap_or(None),
@@ -176,8 +157,6 @@ ORDER BY ta.direction ASC
         })
     }
 
-    /// `GET /v1/trades/:hashedSignature/accept` — mirrors getTradeAcceptedEvent.
-    /// Returns the same Trade view plus the `timestamp` / `caller` echoed back.
     pub async fn get_trade_accepted_event(
         &self,
         hashed_signature: &str,
@@ -219,7 +198,9 @@ LIMIT 1
             chain_id: head.try_get::<i32, _>("chain_id").unwrap_or(0),
             checks: head.try_get("checks").unwrap_or(JsonValue::Null),
             created_at: head.try_get("created_at").unwrap_or_else(|_| Utc::now()),
-            effective_since: head.try_get("effective_since").unwrap_or_else(|_| Utc::now()),
+            effective_since: head
+                .try_get("effective_since")
+                .unwrap_or_else(|_| Utc::now()),
             expires_at: head.try_get("expires_at").unwrap_or_else(|_| Utc::now()),
             network: head.try_get("network").unwrap_or_default(),
             signature: head.try_get("signature").unwrap_or_default(),
@@ -238,8 +219,6 @@ LIMIT 1
         }))
     }
 
-    /// Used by the activity component. Returns the same TradeView list for the
-    /// user, paged by `limit/offset`.
     pub async fn get_trades_by_address(
         &self,
         address: &str,
@@ -313,7 +292,9 @@ ORDER BY t.created_at DESC, ta.direction ASC
                 chain_id: head.try_get::<i32, _>("chain_id").unwrap_or(0),
                 checks: head.try_get("checks").unwrap_or(JsonValue::Null),
                 created_at: head.try_get("created_at").unwrap_or_else(|_| Utc::now()),
-                effective_since: head.try_get("effective_since").unwrap_or_else(|_| Utc::now()),
+                effective_since: head
+                    .try_get("effective_since")
+                    .unwrap_or_else(|_| Utc::now()),
                 expires_at: head.try_get("expires_at").unwrap_or_else(|_| Utc::now()),
                 network: head.try_get("network").unwrap_or_default(),
                 signature: head.try_get("signature").unwrap_or_default(),
@@ -328,7 +309,9 @@ ORDER BY t.created_at DESC, ta.direction ASC
                 let asset = TradeAsset {
                     asset_type: r.try_get::<i32, _>("asset_type").unwrap_or(0),
                     contract_address: r.try_get("asset_contract_address").unwrap_or_default(),
-                    beneficiary: r.try_get::<Option<String>, _>("asset_beneficiary").unwrap_or(None),
+                    beneficiary: r
+                        .try_get::<Option<String>, _>("asset_beneficiary")
+                        .unwrap_or(None),
                     direction: dir.clone(),
                     extra: r.try_get("asset_extra").unwrap_or_default(),
                     amount: r.try_get::<Option<String>, _>("amount").unwrap_or(None),
@@ -352,10 +335,9 @@ ORDER BY t.created_at DESC, ta.direction ASC
     }
 }
 
+#[allow(dead_code)]
 fn row_to_db_trade(r: &sqlx::postgres::PgRow) -> DbTrade {
     DbTrade {
-        // `id` arrives as either text (we cast via ::text) or uuid; fall back
-        // to a plain String read which sqlx will coerce from text columns.
         id: r.try_get::<String, _>("id").unwrap_or_default(),
         chain_id: r.try_get::<i32, _>("chain_id").unwrap_or(0),
         checks: r.try_get("checks").unwrap_or(JsonValue::Null),

@@ -1,11 +1,3 @@
-//! Direct port of `marketplace-server/src/ports/activity/{component,types}.ts`
-//! plus the `adapters/activity` helpers.
-//!
-//! Composes sales, bids, orders, trades — we only fan-out into the in-crate
-//! ports that exist today (sales, bids, orders). The trades port lives here
-//! alongside and exposes `get_trades_by_address`; the activity component
-//! pulls from all four.
-
 use serde::Serialize;
 use serde_json::{json, Value};
 use std::sync::Arc;
@@ -59,7 +51,12 @@ impl ActivityComponent {
         orders: Arc<OrdersComponent>,
         trades: Arc<TradesComponent>,
     ) -> Self {
-        Self { sales, bids, orders, trades }
+        Self {
+            sales,
+            bids,
+            orders,
+            trades,
+        }
     }
 
     pub async fn get_user_activity(
@@ -73,9 +70,6 @@ impl ActivityComponent {
         let per = INTERNAL_FETCH_CAP;
         let lower = address.to_lowercase();
 
-        // Each source is fetched independently; if any fails we degrade
-        // gracefully so a transient failure on one source doesn't 500 the
-        // whole activity response (mirrors the safeFetch helper upstream).
         let (sales_buyer, _) = self
             .sales
             .get_sales(&SaleFilters {
@@ -158,7 +152,7 @@ impl ActivityComponent {
         }
 
         events.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
-        // dedup by (id, type)
+
         let mut seen = std::collections::HashSet::new();
         events.retain(|e| seen.insert((e.id.clone(), e.event_type.clone())));
         let total = events.len() as i64;
@@ -175,7 +169,10 @@ fn sale_to_event(s: &crate::ports::sales::Sale, ty: &str) -> ActivityEvent {
     ActivityEvent {
         id: s.id.clone(),
         timestamp: s.timestamp,
-        network: serde_json::to_string(&s.network).unwrap_or_default().trim_matches('"').to_string(),
+        network: serde_json::to_string(&s.network)
+            .unwrap_or_default()
+            .trim_matches('"')
+            .to_string(),
         event_type: ty.to_string(),
         contract_address: Some(s.contract_address.clone()),
         token_id: s.token_id.clone(),
@@ -194,7 +191,10 @@ fn bid_to_event(b: &crate::ports::bids::Bid, ty: &str) -> ActivityEvent {
     ActivityEvent {
         id: b.id.clone(),
         timestamp: b.created_at,
-        network: serde_json::to_string(&b.network).unwrap_or_default().trim_matches('"').to_string(),
+        network: serde_json::to_string(&b.network)
+            .unwrap_or_default()
+            .trim_matches('"')
+            .to_string(),
         event_type: ty.to_string(),
         contract_address: Some(b.contract_address.clone()),
         token_id: b.token_id.clone(),
@@ -213,7 +213,10 @@ fn order_to_event(o: &crate::ports::orders::Order, ty: &str) -> ActivityEvent {
     ActivityEvent {
         id: o.id.clone(),
         timestamp: o.created_at as i64,
-        network: serde_json::to_string(&o.network).unwrap_or_default().trim_matches('"').to_string(),
+        network: serde_json::to_string(&o.network)
+            .unwrap_or_default()
+            .trim_matches('"')
+            .to_string(),
         event_type: ty.to_string(),
         contract_address: Some(o.contract_address.clone()),
         token_id: o.token_id.clone(),

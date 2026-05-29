@@ -1,10 +1,3 @@
-//! Direct port of `marketplace-server/src/ports/stats/{component,queries,types,utils}.ts`.
-//!
-//! Currently only `category=estate, stat=size` is implemented upstream; we
-//! mirror that exact surface. The query rides on top of the nfts port (out of
-//! scope for this agent), so the SQL is inlined to pull `size` directly from
-//! `estate` rows without going through the full NFT filter pipeline.
-
 use serde::Serialize;
 use sqlx::PgPool;
 use std::collections::BTreeMap;
@@ -36,8 +29,6 @@ pub struct StatsResourceFilters {
     pub max_price: Option<String>,
 }
 
-/// `Record<number, number>` — keyed by size (the int comes back as a JSON
-/// string when serialised, matching the upstream).
 pub type StatsResponse = BTreeMap<String, i64>;
 
 pub struct StatsComponent {
@@ -70,7 +61,8 @@ impl StatsComponent {
         let mut where_parts: Vec<String> = vec!["nft.category = 'estate'".to_string()];
         if filters.is_on_sale {
             where_parts.push("nft.search_order_status = 'open'".to_string());
-            where_parts.push("nft.search_order_expires_at > EXTRACT(EPOCH FROM NOW()) * 1000".to_string());
+            where_parts
+                .push("nft.search_order_expires_at > EXTRACT(EPOCH FROM NOW()) * 1000".to_string());
         }
         if filters.adjacent_to_road {
             where_parts.push("estate.adjacent_to_road = true".to_string());
@@ -131,7 +123,9 @@ pub fn parse_stat(s: &str) -> Option<ResourceStats> {
     }
 }
 
-pub fn parse_filters(pairs: &[(String, String)]) -> Result<StatsResourceFilters, InvalidParameterError> {
+pub fn parse_filters(
+    pairs: &[(String, String)],
+) -> Result<StatsResourceFilters, InvalidParameterError> {
     let p = Params::new(pairs);
     Ok(StatsResourceFilters {
         is_on_sale: p.get_boolean("isOnSale"),

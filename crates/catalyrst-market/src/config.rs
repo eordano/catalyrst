@@ -1,10 +1,3 @@
-//! Runtime configuration — pulled from env vars at startup.
-//!
-//! Mirrors the upstream `components.ts` initial config block: HTTP server
-//! host/port, three Postgres connection strings (favorites / dapps / dapps_read),
-//! plus the schema names. CORS, Wert, Transak, Segment, Snapshot are omitted —
-//! none are needed on the read-only path.
-
 use anyhow::{anyhow, Context, Result};
 use std::env;
 

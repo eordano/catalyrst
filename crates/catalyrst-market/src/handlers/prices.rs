@@ -1,5 +1,3 @@
-//! Direct port of `marketplace-server/src/controllers/handlers/prices-handler.ts`.
-
 use axum::extract::{Query, State};
 use axum::Json;
 

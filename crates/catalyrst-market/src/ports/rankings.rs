@@ -1,22 +1,15 @@
-//! Direct port of `marketplace-server/src/ports/rankings/{component,queries,types}.ts`.
-//!
-//! The TS source builds different SQL per (entity, timeframe) — items vs
-//! creators vs collectors, all-time vs day-data. The Rust port preserves that
-//! structure but pre-formats the WHERE/ORDER fragments as strings (avoiding
-//! the JS template-literal builder).
-
 use serde::Serialize;
 use sqlx::PgPool;
 
 use crate::http::errors::InvalidParameterError;
 use crate::http::params::Params;
 use crate::http::response::ApiError;
+use crate::logic::numeric::bn_cmp;
 use crate::logic::rankings::{
     get_unique_collectors_from_collectors_day_data, get_unique_creators_from_creators_day_data,
     get_unique_items_from_items_day_data, CollectorRank, CollectorsDayDataFragment, CreatorRank,
     CreatorsDayDataFragment, ItemRank, ItemsDayDataFragment,
 };
-use crate::logic::numeric::bn_cmp;
 use crate::MARKETPLACE_SQUID_SCHEMA;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -209,7 +202,11 @@ ORDER BY {order_by} DESC
         &self,
         f: &RankingsFilters,
     ) -> Result<Vec<CreatorsDayDataFragment>, ApiError> {
-        let table = if f.from == 0 { "accounts" } else { "accounts_day_data" };
+        let table = if f.from == 0 {
+            "accounts"
+        } else {
+            "accounts_day_data"
+        };
         let order_by = match f.sort_by {
             Some(RankingsSortBy::MostSales) if f.from == 0 => "primary_sales",
             Some(RankingsSortBy::MostSales) => "sales",
@@ -221,7 +218,11 @@ ORDER BY {order_by} DESC
         } else {
             String::new()
         };
-        let coll_filter = if f.from == 0 { "AND collections > 0" } else { "" };
+        let coll_filter = if f.from == 0 {
+            "AND collections > 0"
+        } else {
+            ""
+        };
         let limit_clause = if let Some(first) = f.first {
             format!("LIMIT {}", first)
         } else {
@@ -266,7 +267,11 @@ ORDER BY {order_by} DESC
         &self,
         f: &RankingsFilters,
     ) -> Result<Vec<CollectorsDayDataFragment>, ApiError> {
-        let table = if f.from == 0 { "accounts" } else { "accounts_day_data" };
+        let table = if f.from == 0 {
+            "accounts"
+        } else {
+            "accounts_day_data"
+        };
         let order_by = match f.sort_by {
             Some(RankingsSortBy::MostSales) => "purchases",
             _ => "spent",
@@ -305,13 +310,15 @@ ORDER BY {order_by} DESC
             .await?;
         Ok(rows
             .into_iter()
-            .map(|(id, purchases, spent, uami, cst)| CollectorsDayDataFragment {
-                id,
-                purchases,
-                spent,
-                unique_and_mythic_items: uami,
-                creators_supported_total: cst,
-            })
+            .map(
+                |(id, purchases, spent, uami, cst)| CollectorsDayDataFragment {
+                    id,
+                    purchases,
+                    spent,
+                    unique_and_mythic_items: uami,
+                    creators_supported_total: cst,
+                },
+            )
             .collect())
     }
 }
@@ -337,7 +344,6 @@ fn sort_collectors(ranks: &mut Vec<CollectorRank>, sort_by: Option<RankingsSortB
     }
 }
 
-/// Parses `?first`, `?sortBy`, `?category`, `?rarity` per the handler.
 pub fn parse_filters(
     pairs: &[(String, String)],
     from: i64,

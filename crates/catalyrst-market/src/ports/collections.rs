@@ -1,17 +1,10 @@
-//! Direct port of `marketplace-server/src/ports/collections/{component,queries,types}.ts`
-//! plus `adapters/collections/index.ts:fromDBCollectionToCollection` and
-//! `logic/date.ts:fromSecondsToMilliseconds`.
-
 use serde::Serialize;
 use sqlx::PgPool;
 
-use crate::dcl_schemas::{
-    ethereum_chain_id, get_db_networks, polygon_chain_id, ChainId, Network,
-};
+use crate::dcl_schemas::{ethereum_chain_id, get_db_networks, polygon_chain_id, ChainId, Network};
 use crate::http::response::ApiError;
 use crate::MARKETPLACE_SQUID_SCHEMA;
 
-/// `types.ts:CollectionSortBy`.
 #[derive(Debug, Clone, Copy)]
 pub enum CollectionSortBy {
     Newest,
@@ -21,7 +14,6 @@ pub enum CollectionSortBy {
     RecentlyListed,
 }
 
-/// `types.ts:CollectionFilters`.
 #[derive(Debug, Clone, Default)]
 pub struct CollectionFilters {
     pub first: Option<i64>,
@@ -36,7 +28,6 @@ pub struct CollectionFilters {
     pub network: Option<Network>,
 }
 
-/// `types.ts:Collection` — the JSON shape returned by the handler.
 #[derive(Debug, Clone, Serialize)]
 pub struct Collection {
     pub urn: String,
@@ -60,7 +51,6 @@ pub struct Collection {
     pub first_listed_at: Option<i64>,
 }
 
-/// `types.ts:DBCollection` — only the columns the adapter consumes.
 #[derive(Debug, sqlx::FromRow)]
 struct DbCollection {
     id: String,
@@ -85,7 +75,6 @@ impl CollectionsComponent {
         Self { pool }
     }
 
-    /// `component.ts:getCollections`.
     pub async fn get_collections(
         &self,
         filters: &CollectionFilters,
@@ -97,11 +86,7 @@ impl CollectionsComponent {
         let mut where_clauses: Vec<String> = vec!["is_approved = true".to_string()];
         let mut bind_idx: usize = 0;
 
-        // Filters in the same order as `queries.ts:getCollectionsWhereStatement`.
-        let contract_address_lower = filters
-            .contract_address
-            .as_ref()
-            .map(|s| s.to_lowercase());
+        let contract_address_lower = filters.contract_address.as_ref().map(|s| s.to_lowercase());
         if contract_address_lower.is_some() {
             bind_idx += 1;
             where_clauses.push(format!("id = ${}", bind_idx));
@@ -223,12 +208,14 @@ impl CollectionsComponent {
         }
         let total = cq.fetch_one(&self.pool).await.unwrap_or(0);
 
-        let data = rows.into_iter().map(from_db_collection_to_collection).collect();
+        let data = rows
+            .into_iter()
+            .map(from_db_collection_to_collection)
+            .collect();
         Ok((data, total))
     }
 }
 
-/// `logic/date.ts:fromSecondsToMilliseconds`.
 fn from_seconds_to_milliseconds(time: i64) -> i64 {
     if time.abs().to_string().len() <= 10 {
         time.saturating_mul(1000)
@@ -237,10 +224,13 @@ fn from_seconds_to_milliseconds(time: i64) -> i64 {
     }
 }
 
-/// `adapters/collections/index.ts:fromDBCollectionToCollection`.
 fn from_db_collection_to_collection(c: DbCollection) -> Collection {
     let is_polygon = matches!(c.network.as_str(), "POLYGON" | "MATIC");
-    let network = if is_polygon { Network::Matic } else { Network::Ethereum };
+    let network = if is_polygon {
+        Network::Matic
+    } else {
+        Network::Ethereum
+    };
     let chain_id = if is_polygon {
         polygon_chain_id()
     } else {

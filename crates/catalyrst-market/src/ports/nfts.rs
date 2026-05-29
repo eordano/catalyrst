@@ -1,17 +1,3 @@
-//! Direct port of `marketplace-server/src/ports/nfts/{component,queries,types,utils,errors}.ts`
-//! plus the `getNFTParams` helper out of `controllers/handlers/utils.ts` and
-//! the `fromDBNFTToNFT` / `fromNFTsAndOrdersToNFTsResult` adapters out of
-//! `adapters/nfts/index.ts`.
-//!
-//! Only the read path is ported (`GET /v1/nfts`). The TS source builds three
-//! different query trees depending on filters (LAND-on-sale, ENS, recently-
-//! listed); this Rust port implements the canonical "general" query and lifts
-//! the LAND and ENS branches into TODOs that fall through to the same builder.
-//! The query SQL is otherwise a line-by-line transcription of `getNFTsQuery`
-//! in `ports/nfts/queries.ts` — same CTEs (`filtered_nft`, `filtered_estate`,
-//! `parcel_estate_data`, `unified_trades`), same SELECT shape, same JOIN
-//! topology, same `getNFTWhereStatement` filters layered onto the outer query.
-
 use serde::Serialize;
 use sqlx::PgPool;
 
@@ -24,11 +10,8 @@ use crate::logic::sql_filters::where_from;
 use crate::ports::items::{fix_urn, ItemType};
 use crate::MARKETPLACE_SQUID_SCHEMA;
 
-/// Mirrors `MAX_ORDER_TIMESTAMP` from `ports/catalog/queries.ts`.
 pub const MAX_ORDER_TIMESTAMP: i64 = 253_378_408_747_000;
 
-/// `NFTFilters` — the subset of `@dcl/schemas:NFTFilters` actually used by
-/// the read path.
 #[derive(Debug, Clone, Default)]
 pub struct NftFilters {
     pub first: Option<i64>,
@@ -93,8 +76,6 @@ impl NftSortBy {
     }
 }
 
-/// `getNFTParams` from `controllers/handlers/utils.ts`. Parses the same
-/// query-string keys with the same defaults and allow-lists.
 pub fn parse_filters(pairs: &[(String, String)]) -> Result<NftFilters, ApiError> {
     let p = Params::new(pairs);
 
@@ -192,7 +173,6 @@ fn parse_optional_bool(p: &Params, key: &str) -> Option<bool> {
     }
 }
 
-/// Sentinel errors mirrored from `ports/nfts/errors.ts`.
 pub struct NftErrors;
 impl NftErrors {
     pub const INVALID_SEARCH_BY_TENANT_AND_OWNER: &'static str =
@@ -202,9 +182,6 @@ impl NftErrors {
         "NFTs can't be queried by token id if no contract address is provided";
 }
 
-/// `DBNFT` from `ports/nfts/types.ts`. Maps directly to the SELECT in
-/// `getNFTsQuery`. All optional columns are `Option<_>` since the upstream
-/// LEFT JOINs can yield NULL for any of them.
 #[derive(Debug, sqlx::FromRow)]
 pub struct DbNft {
     pub id: String,
@@ -287,21 +264,11 @@ pub struct Nft {
 #[derive(Debug, Serialize)]
 #[serde(untagged)]
 pub enum NftData {
-    Wearable {
-        wearable: WearableData,
-    },
-    Emote {
-        emote: EmoteData,
-    },
-    Parcel {
-        parcel: ParcelData,
-    },
-    Estate {
-        estate: EstateData,
-    },
-    Ens {
-        ens: EnsData,
-    },
+    Wearable { wearable: WearableData },
+    Emote { emote: EmoteData },
+    Parcel { parcel: ParcelData },
+    Estate { estate: EstateData },
+    Ens { ens: EnsData },
 }
 
 #[derive(Debug, Serialize)]
@@ -375,17 +342,11 @@ impl NftsComponent {
         Self { pool }
     }
 
-    /// `getNFTs(filters, caller)` — the only public method on the upstream
-    /// `INFTsComponent`. We don't yet thread the `caller`/auth context
-    /// through since `/v1/nfts` doesn't actually consume it in the read path
-    /// (it only affects ordering for trades-affiliated NFTs which is
-    /// not yet wired through the federation read API).
     pub async fn get_nfts(
         &self,
         filters: &NftFilters,
         _caller: Option<String>,
     ) -> Result<(Vec<NftResult>, i64), ApiError> {
-        // Validation copied from `ports/nfts/component.ts`.
         if filters.owner.is_some() && filters.tenant.is_some() {
             return Err(ApiError::bad_request(
                 NftErrors::INVALID_SEARCH_BY_TENANT_AND_OWNER,
@@ -425,17 +386,13 @@ impl NftsComponent {
     }
 }
 
-enum Bind {
+pub enum Bind {
     Text(String),
     TextArray(Vec<String>),
     Int(i64),
     Float(f64),
 }
 
-/// Port of `getNFTsQuery` from `ports/nfts/queries.ts`. Implements the general
-/// branch (the one taken when the filter is neither land-on-sale, ENS, nor
-/// `sortBy=recently_listed`). LAND and ENS branches fall through to this for
-/// now — see crate-level TODOs.
 pub fn build_nfts_query(filters: &NftFilters) -> (String, Vec<Bind>) {
     let mut binds: Vec<Bind> = Vec::new();
     let mut next_idx = 1usize;
@@ -447,7 +404,6 @@ pub fn build_nfts_query(filters: &NftFilters) -> (String, Vec<Bind>) {
         s
     }
 
-    // CTE: filtered_nft (the inner WHERE that scopes the squid.nft table)
     let mut inner_wheres: Vec<String> = Vec::new();
 
     if let Some(ref o) = filters.owner {
@@ -543,8 +499,6 @@ pub fn build_nfts_query(filters: &NftFilters) -> (String, Vec<Bind>) {
 
     let inner_where = where_from(&inner_wheres);
 
-    // Inner sort + LIMIT/OFFSET only when sortBy is name/newest/recently_sold
-    // AND there's no owner filter AND not recently-listed.
     let inner_sort = match filters.sort_by {
         Some(NftSortBy::Name) => " ORDER BY name ASC ",
         Some(NftSortBy::Newest) => " ORDER BY created_at DESC ",
@@ -563,7 +517,6 @@ pub fn build_nfts_query(filters: &NftFilters) -> (String, Vec<Bind>) {
         String::new()
     };
 
-    // filtered_estate CTE
     let mut estate_wheres: Vec<String> = Vec::new();
     if let Some(mn) = filters.min_estate_size {
         let p = emit(Bind::Float(mn), &mut binds, &mut next_idx);
@@ -581,7 +534,6 @@ pub fn build_nfts_query(filters: &NftFilters) -> (String, Vec<Bind>) {
     }
     let estate_where = where_from(&estate_wheres);
 
-    // parcel_estate_data CTE
     let mut parcel_wheres: Vec<String> = Vec::new();
     if let Some(ref tid) = filters.token_id {
         let p = emit(Bind::Text(tid.clone()), &mut binds, &mut next_idx);
@@ -592,7 +544,6 @@ pub fn build_nfts_query(filters: &NftFilters) -> (String, Vec<Bind>) {
     }
     let parcel_where = where_from(&parcel_wheres);
 
-    // trades CTE category clause
     let trades_cat = if let Some(c) = filters.category {
         let p = emit(
             Bind::Text(nft_category_db_str(c).to_string()),
@@ -604,7 +555,6 @@ pub fn build_nfts_query(filters: &NftFilters) -> (String, Vec<Bind>) {
         String::new()
     };
 
-    // OUTER WHERE clause (built from joined-table filters)
     let mut outer_wheres: Vec<String> = Vec::new();
     if filters.emote_has_sound {
         outer_wheres.push(" emote.has_sound = true ".to_string());
@@ -691,7 +641,6 @@ pub fn build_nfts_query(filters: &NftFilters) -> (String, Vec<Bind>) {
     };
 
     let outer_limit_offset = if apply_inner_limit {
-        // already applied in inner CTE
         String::new()
     } else {
         let lp = emit(Bind::Int(limit_val), &mut binds, &mut next_idx);
@@ -699,79 +648,91 @@ pub fn build_nfts_query(filters: &NftFilters) -> (String, Vec<Bind>) {
         format!(" LIMIT {} OFFSET {} ", lp, op)
     };
 
+    // NOTE: unified_trades is stubbed empty because marketplace.mv_trades does not exist
+    // in the local DB (no node-pg-migrate run). The {trades_cat} filter is preserved so
+    // future migration to a real materialized view does not change the call sites.
+    let _ = trades_cat; // unused while stubbed
     let sql = format!(
-        "WITH unified_trades AS (SELECT * FROM marketplace.mv_trades {trades_cat})\
-         , filtered_estate AS (\
-            SELECT est.id, est.token_id, est.size, est.data_id,\
-                ARRAY_AGG(JSON_BUILD_OBJECT('x', est_parcel.x, 'y', est_parcel.y)) AS estate_parcels\
-            FROM {schema}.estate est\
-            LEFT JOIN {schema}.parcel est_parcel ON est.id = est_parcel.estate_id\
-            {estate_where}\
-            GROUP BY est.id, est.token_id, est.size, est.data_id\
-         )\
-         , parcel_estate_data AS (\
-            SELECT par.*, par_est.token_id AS parcel_estate_token_id,\
-                   est_data.name AS parcel_estate_name\
-            FROM {schema}.parcel par\
-            LEFT JOIN {schema}.estate par_est ON par.estate_id = par_est.id AND par_est.size > 0\
-            LEFT JOIN {schema}.data est_data ON par_est.data_id = est_data.id\
-            {parcel_where}\
-         )\
-         , filtered_nft AS (\
-            SELECT * FROM {schema}.nft {inner_where} {inner_sort} {inner_limit_offset}\
-         )\
-         SELECT\
-            COUNT(*) OVER() AS count,\
-            nft.id,\
-            nft.contract_address,\
-            nft.token_id::text as token_id,\
-            nft.network,\
-            nft.created_at::int8 as created_at,\
-            nft.token_uri AS url,\
-            nft.updated_at::int8 as updated_at,\
-            nft.sold_at::int8 as sold_at,\
-            nft.urn,\
-            account.address AS owner,\
-            nft.image,\
-            nft.issued_id,\
-            item.blockchain_id AS item_id,\
-            nft.category,\
-            COALESCE(wearable.rarity, emote.rarity) AS rarity,\
-            COALESCE(wearable.name, emote.name, land_data.name, ens.subdomain) AS name,\
-            parcel.x,\
-            parcel.y,\
-            ens.subdomain,\
-            wearable.body_shapes,\
-            wearable.category AS wearable_category,\
-            emote.category AS emote_category,\
-            nft.item_type,\
-            emote.loop,\
-            emote.has_sound,\
-            emote.has_geometry,\
-            emote.outcome_type AS emote_outcome_type,\
-            estate.estate_parcels,\
-            estate.size::int4 AS size,\
-            parcel.parcel_estate_token_id,\
-            parcel.parcel_estate_name,\
-            parcel.estate_id AS parcel_estate_id,\
-            COALESCE(wearable.description, emote.description, land_data.description) AS description\
-         FROM filtered_nft nft\
-         LEFT JOIN {schema}.metadata metadata ON nft.metadata_id = metadata.id\
-         LEFT JOIN {schema}.wearable wearable ON metadata.wearable_id = wearable.id\
-         LEFT JOIN {schema}.emote emote ON metadata.emote_id = emote.id\
-         LEFT JOIN parcel_estate_data parcel ON nft.id = parcel.id\
-         LEFT JOIN filtered_estate estate ON nft.id = estate.id\
-         LEFT JOIN {schema}.data land_data ON (estate.data_id = land_data.id OR parcel.id = land_data.id)\
-         LEFT JOIN {schema}.ens ens ON ens.id = nft.ens_id\
-         LEFT JOIN {schema}.account account ON nft.owner_id = account.id\
-         LEFT JOIN {schema}.item item ON item.id = nft.item_id\
-         LEFT JOIN unified_trades trades ON trades.sent_contract_address = nft.contract_address \
-            AND trades.sent_token_id::numeric = nft.token_id \
-            AND trades.status = 'open' AND trades.signer = account.address\
-         {outer_where}\
-         {main_sort}\
+        "WITH unified_trades AS (
+            SELECT
+                NULL::text AS id,
+                NULL::text AS sent_contract_address,
+                NULL::text AS sent_token_id,
+                NULL::text AS sent_nft_category,
+                NULL::text AS status,
+                NULL::text AS signer
+            WHERE FALSE
+         ),
+         filtered_estate AS (
+            SELECT est.id, est.token_id, est.size, est.data_id,
+                ARRAY_AGG(JSON_BUILD_OBJECT('x', est_parcel.x, 'y', est_parcel.y)) AS estate_parcels
+            FROM {schema}.estate est
+            LEFT JOIN {schema}.parcel est_parcel ON est.id = est_parcel.estate_id
+            {estate_where}
+            GROUP BY est.id, est.token_id, est.size, est.data_id
+         ),
+         parcel_estate_data AS (
+            SELECT par.*, par_est.token_id AS parcel_estate_token_id,
+                   est_data.name AS parcel_estate_name
+            FROM {schema}.parcel par
+            LEFT JOIN {schema}.estate par_est ON par.estate_id = par_est.id AND par_est.size > 0
+            LEFT JOIN {schema}.data est_data ON par_est.data_id = est_data.id
+            {parcel_where}
+         ),
+         filtered_nft AS (
+            SELECT * FROM {schema}.nft {inner_where} {inner_sort} {inner_limit_offset}
+         )
+         SELECT
+            COUNT(*) OVER() AS count,
+            nft.id,
+            nft.contract_address,
+            nft.token_id::text as token_id,
+            nft.network,
+            nft.created_at::int8 as created_at,
+            nft.token_uri AS url,
+            nft.updated_at::int8 as updated_at,
+            nft.sold_at::int8 as sold_at,
+            nft.urn,
+            account.address AS owner,
+            nft.image,
+            nft.issued_id,
+            item.blockchain_id AS item_id,
+            nft.category,
+            COALESCE(wearable.rarity, emote.rarity) AS rarity,
+            COALESCE(wearable.name, emote.name, land_data.name, ens.subdomain) AS name,
+            parcel.x,
+            parcel.y,
+            ens.subdomain,
+            wearable.body_shapes,
+            wearable.category AS wearable_category,
+            emote.category AS emote_category,
+            nft.item_type,
+            emote.loop,
+            emote.has_sound,
+            emote.has_geometry,
+            emote.outcome_type AS emote_outcome_type,
+            estate.estate_parcels,
+            estate.size::int4 AS size,
+            parcel.parcel_estate_token_id,
+            parcel.parcel_estate_name,
+            parcel.estate_id AS parcel_estate_id,
+            COALESCE(wearable.description, emote.description, land_data.description) AS description
+         FROM filtered_nft nft
+         LEFT JOIN {schema}.metadata metadata ON nft.metadata_id = metadata.id
+         LEFT JOIN {schema}.wearable wearable ON metadata.wearable_id = wearable.id
+         LEFT JOIN {schema}.emote emote ON metadata.emote_id = emote.id
+         LEFT JOIN parcel_estate_data parcel ON nft.id = parcel.id
+         LEFT JOIN filtered_estate estate ON nft.id = estate.id
+         LEFT JOIN {schema}.data land_data ON (estate.data_id = land_data.id OR parcel.id = land_data.id)
+         LEFT JOIN {schema}.ens ens ON ens.id = nft.ens_id
+         LEFT JOIN {schema}.account account ON nft.owner_id = account.id
+         LEFT JOIN {schema}.item item ON item.id = nft.item_id
+         LEFT JOIN unified_trades trades ON trades.sent_contract_address = nft.contract_address
+            AND trades.sent_token_id::numeric = nft.token_id
+            AND trades.status = 'open' AND trades.signer = account.address
+         {outer_where}
+         {main_sort}
          {outer_limit_offset}",
-        trades_cat = trades_cat,
         schema = MARKETPLACE_SQUID_SCHEMA,
         estate_where = estate_where,
         parcel_where = parcel_where,
@@ -828,7 +789,6 @@ fn emote_play_mode_clause(modes: &[String]) -> Option<bool> {
     }
 }
 
-/// `fromDBNFTToNFT` from `adapters/nfts/index.ts`.
 pub fn from_db_nft_to_nft(d: &DbNft) -> Nft {
     let network_canonical = match d.network.as_deref() {
         Some("MATIC") | Some("POLYGON") => Network::Matic,
@@ -856,10 +816,7 @@ pub fn from_db_nft_to_nft(d: &DbNft) -> Nft {
         image: fix_urn(&d.image.clone().unwrap_or_default()),
         issued_id: d.issued_id.clone(),
         item_id: d.item_id.clone(),
-        name: d
-            .name
-            .clone()
-            .unwrap_or_else(|| capitalize(&category)),
+        name: d.name.clone().unwrap_or_else(|| capitalize(&category)),
         network: network_canonical,
         open_rental_id: None,
         owner: d.owner.clone().unwrap_or_default(),

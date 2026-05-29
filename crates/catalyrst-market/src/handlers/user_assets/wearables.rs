@@ -1,17 +1,11 @@
-//! Direct port of
-//! `marketplace-server/src/controllers/handlers/user-assets/wearables-handler.ts`.
-//!
-//! Three GET endpoints:
-//! - `/v1/users/:address/wearables`         → `get_user_wearables`
-//! - `/v1/users/:address/wearables/urn-token` → `get_user_wearables_urn_token`
-//! - `/v1/users/:address/wearables/grouped` → `get_user_grouped_wearables`
-
 use axum::extract::{Path, Query, State};
 use axum::Json;
 
 use super::{create_paginated_response, AssetsHttpResponse};
 use crate::http::response::ApiError;
-use crate::ports::user_assets::{parse_user_assets_params, GroupedWearable, ProfileWearable, UrnToken};
+use crate::ports::user_assets::{
+    parse_user_assets_params, GroupedWearable, ProfileWearable, UrnToken,
+};
 use crate::AppState;
 
 pub async fn get_user_wearables(

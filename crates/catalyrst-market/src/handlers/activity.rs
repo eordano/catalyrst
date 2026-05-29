@@ -1,9 +1,3 @@
-//! Direct port of `marketplace-server/src/controllers/handlers/activity-handler.ts`.
-//! NOTE: in the upstream the address is derived from a signed auth header.
-//! Catalyrst's federation ADR has not landed yet — for now we accept the
-//! address as a query string (`?address=0x…`) so parity tests can exercise the
-//! aggregator. The signed-auth path will replace this once auth is wired.
-
 use axum::extract::{Query, State};
 use axum::Json;
 use serde::Serialize;

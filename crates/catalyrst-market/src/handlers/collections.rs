@@ -1,6 +1,3 @@
-//! Direct port of `marketplace-server/src/controllers/handlers/collections-handler.ts`
-//! and the `getCollectionsParams` helper out of `handlers/utils.ts`.
-
 use axum::extract::{Query, State};
 use axum::Json;
 
@@ -19,7 +16,6 @@ pub async fn get_collections(
     Ok(Json(DataTotal { data, total }))
 }
 
-/// `controllers/handlers/utils.ts:getCollectionsParams`.
 fn parse_filters(pairs: &[(String, String)]) -> CollectionFilters {
     let p = Params::new(pairs);
 

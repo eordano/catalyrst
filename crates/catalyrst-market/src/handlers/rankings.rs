@@ -1,5 +1,3 @@
-//! Direct port of `marketplace-server/src/controllers/handlers/rankings-handler.ts`.
-
 use axum::extract::{Path, Query, State};
 use axum::Json;
 use serde::Serialize;

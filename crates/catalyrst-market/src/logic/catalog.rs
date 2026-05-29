@@ -1,20 +1,12 @@
-//! Port of `controllers/handlers/utils.ts:getItemsParams` + the catalog
-//! handler's per-request parameter parsing. Returns a fully-populated
-//! `CatalogFilters` ready to feed into `ports::catalog::CatalogComponent::fetch`.
-
+use crate::dcl_schemas::{Network, NftCategory};
 use crate::http::params::Params;
 use crate::http::response::ApiError;
 use crate::ports::catalog::{CatalogFilters, CatalogSortBy, CatalogSortDirection};
-use crate::dcl_schemas::{Network, NftCategory};
 
-/// `DEFAULT_PAGE_SIZE` — `controllers/handlers/catalog-handler.ts:8`.
 const DEFAULT_PAGE_SIZE: i64 = 20;
 
-/// Accept-list for `category` — values are the snake_case JSON variants of
-/// `NFTCategory`. Mirrors `@dcl/schemas/NFTCategory`.
 const CATEGORY_VALUES: &[&str] = &["parcel", "estate", "wearable", "ens", "emote"];
 
-/// Accept-list for `wearableCategory` (`@dcl/schemas/WearableCategory`).
 const WEARABLE_CATEGORY_VALUES: &[&str] = &[
     "eyebrows",
     "eyes",
@@ -76,9 +68,6 @@ const SORT_BY_VALUES: &[&str] = &[
 
 const SORT_DIRECTION_VALUES: &[&str] = &["asc", "desc"];
 
-/// Parse `Vec<(String, String)>` (axum `Query`) into `CatalogFilters`.
-/// Mirrors `getItemsParams(params)` from `handlers/utils.ts` plus the handler
-/// wrapper in `catalog-handler.ts:createCatalogHandler`.
 pub fn parse_catalog_filters(
     pairs: &[(String, String)],
     is_v2: bool,
@@ -89,7 +78,6 @@ pub fn parse_catalog_filters(
     let only_listing = p.get_boolean("onlyListing");
     let only_minting = p.get_boolean("onlyMinting");
 
-    // sortBy / sortDirection — default CHEAPEST/ASC at the handler level.
     let sort_by = p
         .get_value("sortBy", SORT_BY_VALUES, Some("cheapest"))
         .and_then(|s| CatalogSortBy::parse(&s));
@@ -97,8 +85,6 @@ pub fn parse_catalog_filters(
         .get_value("sortDirection", SORT_DIRECTION_VALUES, Some("asc"))
         .and_then(|s| CatalogSortDirection::parse(&s));
 
-    // first / skip — note the handler uses 'first' and 'skip' as the
-    // pagination params, not 'limit'/'offset' (catalog is an outlier).
     let first = p
         .get_number("first", Some(DEFAULT_PAGE_SIZE as f64))
         .map(|n| n as i64);
@@ -112,8 +98,6 @@ pub fn parse_catalog_filters(
 
     let is_sold_out = p.get_boolean("isSoldOut");
 
-    // isOnSale: present-as-key-but-only-counts-true. Mirrors:
-    //   params.getBoolean('isOnSale') ? params.getString('isOnSale') === 'true' : undefined
     let is_on_sale = if p.get_boolean("isOnSale") {
         Some(p.get_string("isOnSale", None).as_deref() == Some("true"))
     } else {
@@ -143,9 +127,6 @@ pub fn parse_catalog_filters(
         .get_value("network", NETWORK_VALUES, None)
         .and_then(parse_network);
 
-    // min/max price are decimal strings in wei. The TS source runs them
-    // through `ethers.parseEther(...)`. We just trim — squid stores numeric
-    // strings of the same shape.
     let max_price = p
         .get_string("maxPrice", None)
         .filter(|s| !s.trim().is_empty());

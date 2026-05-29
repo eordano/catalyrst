@@ -1,6 +1,3 @@
-//! Components (the upstream calls them "ports") that handlers call into.
-//! Each submodule is a faithful port of `marketplace-server/src/ports/<name>/`.
-
 pub mod accounts;
 pub mod activity;
 pub mod analytics_day_data;

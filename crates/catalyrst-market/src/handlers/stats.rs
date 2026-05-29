@@ -1,5 +1,3 @@
-//! Direct port of `marketplace-server/src/controllers/handlers/stats-handler.ts`.
-
 use axum::extract::{Path, Query, State};
 use axum::Json;
 

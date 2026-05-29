@@ -1,12 +1,3 @@
-//! Direct port of `marketplace-server/src/controllers/handlers/nfts-handler.ts`.
-//!
-//! Endpoint: `GET /v1/nfts`.
-//!
-//! The `verification` middleware in the TS source only feeds an optional
-//! caller address into rental-listings lookup; the read path doesn't filter
-//! on it, so we accept the request without it. Authn/Z is enforced at the
-//! reverse proxy in catalyrst.
-
 use axum::extract::{Query, State};
 use axum::Json;
 use serde::Serialize;

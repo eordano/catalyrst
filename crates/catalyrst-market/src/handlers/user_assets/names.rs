@@ -1,10 +1,3 @@
-//! Direct port of
-//! `marketplace-server/src/controllers/handlers/user-assets/names-handler.ts`.
-//!
-//! Two GET endpoints:
-//! - `/v1/users/:address/names`            → `get_user_names`
-//! - `/v1/users/:address/names/names-only` → `get_user_names_only`
-
 use axum::extract::{Path, Query, State};
 use axum::Json;
 

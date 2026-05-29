@@ -1,19 +1,12 @@
-//! Direct port of `marketplace-server/src/logic/http/pagination.ts`.
-
 use super::errors::InvalidParameterError;
+
+// Re-export the shared input shape from catalyrst-types so existing imports
+// (`use crate::http::pagination::Pagination`) keep working unchanged.
+pub use catalyrst_types::PageInput as Pagination;
 
 const MAX_LIMIT: i64 = 100;
 const DEFAULT_PAGE: i64 = 0;
 
-pub struct Pagination {
-    pub limit: i64,
-    pub offset: i64,
-}
-
-/// `getPaginationParams(params)` — same precedence rules as the TS source:
-/// - `limit` is clamped to `[1, MAX_LIMIT]`; out-of-range falls back to `MAX_LIMIT`
-/// - `offset` wins over `page` if both present
-/// - `page * limit` computes the offset otherwise
 pub fn get_pagination_params(pairs: &[(String, String)]) -> Pagination {
     let mut limit_raw: Option<&str> = None;
     let mut offset_raw: Option<&str> = None;
@@ -48,8 +41,6 @@ pub fn get_pagination_params(pairs: &[(String, String)]) -> Pagination {
     Pagination { limit, offset }
 }
 
-/// `getParameter(name, params, values?)` — returns the raw string, or errors
-/// if the value isn't in the (optional) allow-list.
 pub fn get_parameter(
     name: &str,
     pairs: &[(String, String)],
@@ -68,7 +59,6 @@ pub fn get_parameter(
     Ok(parameter)
 }
 
-/// `getNumberParameter(name, params)` — parses an integer; raises on parse failure.
 pub fn get_number_parameter(
     name: &str,
     pairs: &[(String, String)],

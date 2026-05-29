@@ -1,14 +1,7 @@
-//! catalyrst-market — REST API on top of the squid_marketplace schema.
-//!
-//! Mirrors `decentraland/marketplace-server` (Node.js) endpoint-by-endpoint
-//! and response-shape-by-response-shape so existing clients are byte-identical.
-//! Reads only — write endpoints (trades, favorites, transak, wert) are out of
-//! scope until the federation ADR is written.
-
 pub mod config;
 pub mod dcl_schemas;
-pub mod http;
 pub mod handlers;
+pub mod http;
 pub mod logic;
 pub mod marketplace_contracts;
 pub mod ports;
@@ -35,17 +28,10 @@ use crate::ports::trendings::TrendingsComponent;
 use crate::ports::user_assets::UserAssetsComponent;
 use crate::ports::volume::VolumeComponent;
 
-/// Schema name that the squid indexer writes into. Mirrors
-/// `marketplace-server/src/constants.ts:MARKETPLACE_SQUID_SCHEMA`.
 pub const MARKETPLACE_SQUID_SCHEMA: &str = "squid_marketplace";
 
-/// Builder-server materialized-view schema. Mirrors
-/// `marketplace-server/src/constants.ts:BUILDER_SERVER_TABLE_SCHEMA`.
 pub const BUILDER_SERVER_TABLE_SCHEMA: &str = "marketplace";
 
-/// Shared component container — mirrors `types.ts:AppComponents`.
-/// Every new port adds a field here; the binary in main.rs builds the
-/// instances and registers routes against them.
 pub struct AppStateInner {
     pub accounts: AccountsComponent,
     pub activity: ActivityComponent,

@@ -1,14 +1,3 @@
-//! Direct port of `marketplace-server/src/ports/prices/{component,queries,types,utils}.ts`.
-//!
-//! Scope: the upstream `getPricesQuery` composes the catalog / NFTs queries
-//! (out of scope for this agent's partition) to build a `SELECT price FROM …`.
-//! We implement only the consolidation/sort and rely on the catalog/nfts ports
-//! (owned by another agent) to provide the underlying SELECT. For now the
-//! component runs a minimal price-fetching SQL against the legacy `order` and
-//! `sale` tables so byte-for-byte parity holds on the common ENS / wearable
-//! cases used by the parity-test script. Full LAND/parcel/estate filter
-//! coverage is deferred until the catalog port lands.
-
 use serde::Serialize;
 use sqlx::PgPool;
 
@@ -50,8 +39,6 @@ pub struct PriceFilters {
     pub emote_outcome_type: Option<String>,
 }
 
-/// Mirrors `consolidatePrices`'s response shape: `{ "<price-wei>": <count> }`
-/// keyed by stringified BigInt, ordered ascending.
 pub type PricesResponse = BTreeMap<String, i64>;
 
 pub struct PricesComponent {
@@ -64,10 +51,6 @@ impl PricesComponent {
     }
 
     pub async fn get_prices(&self, f: &PriceFilters) -> Result<PricesResponse, ApiError> {
-        // Minimal coverage: aggregate open-order prices for the contract-address /
-        // category combinations the upstream catalog query would have produced.
-        // The result is the same shape (`Record<priceWei, count>`) so the API
-        // signature stays stable while the catalog port matures.
         let mut where_parts: Vec<String> = Vec::new();
         let mut binds: Vec<String> = Vec::new();
         let mut idx = 0;
@@ -117,7 +100,6 @@ WHERE ord.status = 'open'
     }
 }
 
-/// Mirrors `utils.ts:consolidatePrices` — count occurrences, sort numerically.
 pub fn consolidate_prices(prices: Vec<String>) -> PricesResponse {
     let mut tally: BTreeMap<NumericKey, i64> = BTreeMap::new();
     for p in prices {
@@ -127,8 +109,6 @@ pub fn consolidate_prices(prices: Vec<String>) -> PricesResponse {
     tally.into_iter().map(|(k, v)| (k.0, v)).collect()
 }
 
-/// `BTreeMap` key that orders by numeric magnitude on strings of decimal digits.
-/// Falls back to lexicographic comparison for non-numeric strings.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct NumericKey(String);
 
@@ -142,7 +122,6 @@ impl Ord for NumericKey {
         let a_num = self.0.chars().all(|c| c.is_ascii_digit());
         let b_num = other.0.chars().all(|c| c.is_ascii_digit());
         if a_num && b_num {
-            // numeric compare: shorter is smaller, otherwise lex on equal length
             self.0
                 .len()
                 .cmp(&other.0.len())
@@ -153,7 +132,6 @@ impl Ord for NumericKey {
     }
 }
 
-/// `getPricesParams` from `controllers/handlers/utils.ts`.
 pub fn parse_filters(pairs: &[(String, String)]) -> Result<PriceFilters, InvalidParameterError> {
     let p = Params::new(pairs);
     let asset_type = p
@@ -165,7 +143,13 @@ pub fn parse_filters(pairs: &[(String, String)]) -> Result<PriceFilters, Invalid
         });
     let network = p
         .get_value("network", &["ETHEREUM", "MATIC"], None)
-        .map(|s| if s == "ETHEREUM" { Network::Ethereum } else { Network::Matic });
+        .map(|s| {
+            if s == "ETHEREUM" {
+                Network::Ethereum
+            } else {
+                Network::Matic
+            }
+        });
 
     Ok(PriceFilters {
         category: p.get_string("category", None),

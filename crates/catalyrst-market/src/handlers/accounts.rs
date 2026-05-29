@@ -1,6 +1,3 @@
-//! Direct port of `marketplace-server/src/controllers/handlers/accounts-handler.ts`
-//! and the `getAccountsParams` helper out of `handlers/utils.ts`.
-
 use axum::extract::{Query, State};
 use axum::Json;
 
@@ -19,7 +16,6 @@ pub async fn get_accounts(
     Ok(Json(DataTotal { data, total }))
 }
 
-/// `controllers/handlers/utils.ts:getAccountsParams`.
 fn parse_filters(pairs: &[(String, String)]) -> AccountFilters {
     let p = Params::new(pairs);
 

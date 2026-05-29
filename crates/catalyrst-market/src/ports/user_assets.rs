@@ -1,6 +1,3 @@
-//! Direct port of `marketplace-server/src/ports/user-assets/{component,queries,mappers,types}.ts`
-//! plus `ports/nfts/utils.ts:fixUrn` (used by the mappers).
-
 use serde::{Deserialize, Serialize};
 use sqlx::types::Json as SqlxJson;
 use sqlx::PgPool;
@@ -10,8 +7,6 @@ use crate::http::response::ApiError;
 pub const FIRST_DEFAULT: i64 = 100;
 pub const SKIP_DEFAULT: i64 = 0;
 
-/// `controllers/handlers/utils.ts:getUserAssetsParams` flattens orderBy/direction
-/// into the same object as the pagination params; we keep the same shape here.
 #[derive(Debug, Clone, Default)]
 pub struct UserAssetsFilters {
     pub first: i64,
@@ -24,7 +19,6 @@ pub struct UserAssetsFilters {
     pub item_type: Option<Vec<String>>,
 }
 
-/// `types.ts:ProfileWearable`. Field order mirrors the JS object literal.
 #[derive(Debug, Clone, Serialize)]
 pub struct ProfileWearable {
     pub urn: String,
@@ -40,7 +34,6 @@ pub struct ProfileWearable {
     pub price: Option<String>,
 }
 
-/// `types.ts:ProfileEmote`.
 #[derive(Debug, Clone, Serialize)]
 pub struct ProfileEmote {
     pub urn: String,
@@ -56,7 +49,6 @@ pub struct ProfileEmote {
     pub price: Option<String>,
 }
 
-/// `types.ts:ProfileName`.
 #[derive(Debug, Clone, Serialize)]
 pub struct ProfileName {
     pub name: String,
@@ -68,7 +60,6 @@ pub struct ProfileName {
     pub price: Option<String>,
 }
 
-/// `{ urn, tokenId }` — used by the `urn-token` endpoints.
 #[derive(Debug, Clone, Serialize)]
 pub struct UrnToken {
     pub urn: String,
@@ -76,13 +67,11 @@ pub struct UrnToken {
     pub token_id: String,
 }
 
-/// `{ name }` — used by `names-only`.
 #[derive(Debug, Clone, Serialize)]
 pub struct NameOnly {
     pub name: String,
 }
 
-/// `types.ts:GroupedWearable`.
 #[derive(Debug, Clone, Serialize)]
 pub struct GroupedWearable {
     pub urn: String,
@@ -100,7 +89,6 @@ pub struct GroupedWearable {
     pub item_type: String,
 }
 
-/// `types.ts:GroupedEmote`.
 #[derive(Debug, Clone, Serialize)]
 pub struct GroupedEmote {
     pub urn: String,
@@ -116,8 +104,6 @@ pub struct GroupedEmote {
     pub category: String,
 }
 
-/// One row of `individualData[]` inside a grouped item — the JSON shape produced
-/// by the SQL JSON_BUILD_OBJECT.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IndividualData {
     pub id: String,
@@ -137,7 +123,6 @@ impl UserAssetsComponent {
         Self { pool }
     }
 
-    /// `component.ts:getWearablesByOwner`.
     pub async fn get_wearables_by_owner(
         &self,
         owner: &str,
@@ -150,8 +135,8 @@ impl UserAssetsComponent {
               nft.contract_address, \
               nft.token_id::text AS token_id, \
               nft.network, \
-              nft.created_at, \
-              nft.updated_at, \
+              nft.created_at::int8 AS created_at, \
+              nft.updated_at::int8 AS updated_at, \
               nft.urn, \
               owner_address AS owner, \
               nft.image, \
@@ -203,7 +188,6 @@ impl UserAssetsComponent {
         Ok((data, total, total_items))
     }
 
-    /// `component.ts:getOwnedWearablesUrnAndTokenId`.
     pub async fn get_owned_wearables_urn_and_token_id(
         &self,
         owner: &str,
@@ -244,7 +228,6 @@ impl UserAssetsComponent {
         Ok((data, total))
     }
 
-    /// `component.ts:getEmotesByOwner`.
     pub async fn get_emotes_by_owner(
         &self,
         owner: &str,
@@ -257,8 +240,8 @@ impl UserAssetsComponent {
               nft.contract_address, \
               nft.token_id::text AS token_id, \
               nft.network, \
-              nft.created_at, \
-              nft.updated_at, \
+              nft.created_at::int8 AS created_at, \
+              nft.updated_at::int8 AS updated_at, \
               nft.urn, \
               owner_address AS owner, \
               nft.image, \
@@ -309,7 +292,6 @@ impl UserAssetsComponent {
         Ok((data, total, total_items))
     }
 
-    /// `component.ts:getOwnedEmotesUrnAndTokenId`.
     pub async fn get_owned_emotes_urn_and_token_id(
         &self,
         owner: &str,
@@ -350,7 +332,6 @@ impl UserAssetsComponent {
         Ok((data, total))
     }
 
-    /// `component.ts:getNamesByOwner`.
     pub async fn get_names_by_owner(
         &self,
         owner: &str,
@@ -363,13 +344,17 @@ impl UserAssetsComponent {
               nft.contract_address, \
               nft.token_id::text AS token_id, \
               nft.network, \
-              nft.created_at, \
-              nft.updated_at, \
+              nft.created_at::int8 AS created_at, \
+              nft.updated_at::int8 AS updated_at, \
               nft.urn, \
               owner_address AS owner, \
               nft.image, \
+              nft.item_id, \
               nft.category, \
+              NULL::text AS rarity, \
               ens.subdomain AS name, \
+              nft.item_type, \
+              NULL::text AS description, \
               transferred_at::int8 AS transferred_at, \
               orders.price::text AS price \
             FROM squid_marketplace.nft nft \
@@ -401,7 +386,6 @@ impl UserAssetsComponent {
         Ok((data, total))
     }
 
-    /// `component.ts:getOwnedNamesOnly`.
     pub async fn get_owned_names_only(
         &self,
         owner: &str,
@@ -443,18 +427,16 @@ impl UserAssetsComponent {
         Ok((data, total))
     }
 
-    /// `component.ts:getGroupedWearablesByOwner`.
     pub async fn get_grouped_wearables_by_owner(
         &self,
         owner: &str,
         filters: &UserAssetsFilters,
     ) -> Result<(Vec<GroupedWearable>, i64), ApiError> {
         let (order_clause, _) = build_order_by_clause(filters);
-        let mut bind_idx: usize = 1; // $1 is owner_address
+        let mut bind_idx: usize = 1;
         let mut inner_where = String::new();
         let mut binds: Vec<String> = Vec::new();
 
-        // itemType filter (applies inside CTE).
         let item_type_in = match &filters.item_type {
             Some(types) if !types.is_empty() => {
                 let mut placeholders = Vec::new();
@@ -486,7 +468,6 @@ impl UserAssetsComponent {
             binds.push(format!("%{}%", name));
         }
 
-        // Outer WHERE applied after CTE (matches TS code: "Add WHERE clause for name filter after grouping").
         let outer_where = if let Some(name) = &filters.name {
             bind_idx += 1;
             binds.push(format!("%{}%", name));
@@ -539,8 +520,6 @@ impl UserAssetsComponent {
         q = q.bind(filters.first).bind(filters.skip);
         let rows = q.fetch_all(&self.pool).await?;
 
-        // count query — same CTE filters but without outer WHERE/limit/offset and
-        // joining a subset that's enough for DISTINCT urn count.
         let mut count_bind_idx: usize = 1;
         let mut count_where = String::new();
         let mut count_binds: Vec<String> = Vec::new();
@@ -570,7 +549,8 @@ impl UserAssetsComponent {
                 }
                 format!(" AND nft.item_type IN ({})", placeholders.join(", "))
             }
-            _ => " AND nft.item_type IN ('wearable_v1', 'wearable_v2', 'smart_wearable_v1')".to_string(),
+            _ => " AND nft.item_type IN ('wearable_v1', 'wearable_v2', 'smart_wearable_v1')"
+                .to_string(),
         };
 
         let count_sql = format!(
@@ -590,14 +570,13 @@ impl UserAssetsComponent {
         Ok((data, total))
     }
 
-    /// `component.ts:getGroupedEmotesByOwner`.
     pub async fn get_grouped_emotes_by_owner(
         &self,
         owner: &str,
         filters: &UserAssetsFilters,
     ) -> Result<(Vec<GroupedEmote>, i64), ApiError> {
         let (order_clause, _) = build_order_by_clause(filters);
-        let mut bind_idx: usize = 1; // $1 is owner_address
+        let mut bind_idx: usize = 1;
         let mut inner_where = String::new();
         let mut binds: Vec<String> = Vec::new();
 
@@ -706,7 +685,6 @@ impl UserAssetsComponent {
     }
 }
 
-/// One row of either the wearable or emote `Profile*` queries.
 #[derive(Debug, sqlx::FromRow)]
 struct ProfileRow {
     id: String,
@@ -718,7 +696,7 @@ struct ProfileRow {
     created_at: Option<i64>,
     #[allow(dead_code)]
     updated_at: Option<i64>,
-    urn: String,
+    urn: Option<String>,
     #[allow(dead_code)]
     owner: Option<String>,
     #[allow(dead_code)]
@@ -769,12 +747,10 @@ struct GroupedEmoteRow {
     rarity_order: i32,
 }
 
-/// `ports/nfts/utils.ts:fixUrn`.
 pub fn fix_urn(urn: &str) -> String {
     urn.replace("mainnet", "ethereum")
 }
 
-/// `mappers.ts:fixIndividualData`.
 fn fix_individual_data(individual_data: Vec<IndividualData>) -> Vec<IndividualData> {
     individual_data
         .into_iter()
@@ -788,18 +764,15 @@ fn fix_individual_data(individual_data: Vec<IndividualData>) -> Vec<IndividualDa
 }
 
 fn from_db_row_to_wearable(row: ProfileRow) -> ProfileWearable {
-    // TS: `String(row.transferred_at) || null` — `String(undefined) === 'undefined'`
-    // which is truthy, so transferredAt is never actually null. We mirror that by
-    // serializing whatever is in the column (or "null" when the column is NULL).
     let transferred_at = Some(match row.transferred_at {
         Some(t) => t.to_string(),
         None => "null".to_string(),
     });
     ProfileWearable {
-        urn: fix_urn(&row.urn),
+        urn: fix_urn(&row.urn.clone().unwrap_or_default()),
         id: row.id,
         token_id: row.token_id,
-        // `(row.category as WearableCategory) || WearableCategory.EYEWEAR` — default to eyewear.
+
         category: row.category.unwrap_or_else(|| "eyewear".to_string()),
         transferred_at,
         name: row.name.unwrap_or_default(),
@@ -814,10 +787,10 @@ fn from_db_row_to_emote(row: ProfileRow) -> ProfileEmote {
         None => "null".to_string(),
     });
     ProfileEmote {
-        urn: fix_urn(&row.urn),
+        urn: fix_urn(&row.urn.clone().unwrap_or_default()),
         id: row.id,
         token_id: row.token_id,
-        // `(row.category as EmoteCategory) || EmoteCategory.DANCE`.
+
         category: row.category.unwrap_or_else(|| "dance".to_string()),
         transferred_at,
         name: row.name.unwrap_or_default(),
@@ -862,7 +835,6 @@ fn from_grouped_row_to_emote(row: GroupedEmoteRow) -> GroupedEmote {
     }
 }
 
-/// `queries.ts:buildOrderByClause`. Returns the literal SQL fragment.
 fn build_order_by_clause(filters: &UserAssetsFilters) -> (&'static str, ()) {
     let sort_field = filters
         .order_by
@@ -903,7 +875,6 @@ fn build_order_by_clause(filters: &UserAssetsFilters) -> (&'static str, ()) {
     (clause, ())
 }
 
-/// `controllers/handlers/utils.ts:getUserAssetsParams`.
 pub fn parse_user_assets_params(pairs: &[(String, String)]) -> UserAssetsFilters {
     use crate::http::params::Params;
     const MAX_LIMIT: i64 = 1000;
@@ -911,7 +882,6 @@ pub fn parse_user_assets_params(pairs: &[(String, String)]) -> UserAssetsFilters
 
     let p = Params::new(pairs);
 
-    // Both limit/offset (lamb2) and first/skip (legacy) are supported. limit/offset wins.
     let limit = p.get_number("limit", None).map(|n| n as i64);
     let offset = p.get_number("offset", None).map(|n| n as i64);
     let first = p.get_number("first", None).map(|n| n as i64);

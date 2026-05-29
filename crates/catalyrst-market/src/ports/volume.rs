@@ -1,13 +1,10 @@
-//! Direct port of `marketplace-server/src/ports/volume/{component,types}.ts`
-//! and the supporting `logic/volume.ts:getAccumulatedAnalyticsData`.
-
 use serde::Serialize;
 
 use crate::http::response::ApiError;
+use crate::logic::numeric::bn_add;
 use crate::ports::analytics_day_data::{
     get_timestamp_from_timeframe, AnalyticsDayDataComponent, AnalyticsTimeframe,
 };
-use crate::logic::numeric::bn_add;
 
 #[derive(Debug, Serialize)]
 pub struct VolumeData {

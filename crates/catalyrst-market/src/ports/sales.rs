@@ -1,6 +1,3 @@
-//! Direct port of `marketplace-server/src/ports/sales/{component,queries,types}.ts`
-//! plus `adapters/sales/index.ts:fromDBSaleToSale`.
-
 use serde::Serialize;
 use sqlx::PgPool;
 use sqlx::Row;
@@ -95,8 +92,8 @@ impl SalesComponent {
         let mut where_parts: Vec<String> = Vec::new();
         let mut bind_str: Vec<String> = Vec::new();
         let mut bind_i64: Vec<i64> = Vec::new();
-        // Mixed-binds: we track an ordered "kind" list to know what to bind.
-        let mut kinds: Vec<char> = Vec::new(); // 's' for str, 'i' for i64
+
+        let mut kinds: Vec<char> = Vec::new();
         let mut idx: usize = 0;
         let mut next = || {
             idx += 1;
@@ -243,7 +240,6 @@ LIMIT {limit_p} OFFSET {offset_p}
     }
 }
 
-/// Mirrors `controllers/handlers/utils.ts:getSalesParams`.
 pub fn parse_filters(pairs: &[(String, String)]) -> Result<SaleFilters, InvalidParameterError> {
     let p = Params::new(pairs);
 
@@ -262,7 +258,10 @@ pub fn parse_filters(pairs: &[(String, String)]) -> Result<SaleFilters, InvalidP
             _ => SaleType::Order,
         });
 
-    let categories = p.get_list("category", &["parcel", "estate", "wearable", "ens", "emote"]);
+    let categories = p.get_list(
+        "category",
+        &["parcel", "estate", "wearable", "ens", "emote"],
+    );
 
     let network = p
         .get_value("network", &["ETHEREUM", "MATIC"], None)

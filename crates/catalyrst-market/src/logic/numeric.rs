@@ -1,10 +1,3 @@
-//! Big-integer arithmetic on decimal strings — mirrors the `bn.js` shape the TS
-//! source uses. Marketplace volumes and Wei prices stay well below the practical
-//! limits of plain string-based addition, so this avoids pulling a full bignum
-//! crate just for `acc + day.volume` style reductions.
-
-/// Add two non-negative decimal integers represented as strings. Treats empty
-/// or non-numeric strings as 0 (matching `new BN('0')` fallback behaviour).
 pub fn bn_add(a: &str, b: &str) -> String {
     let a = sanitize(a);
     let b = sanitize(b);
@@ -29,7 +22,6 @@ pub fn bn_add(a: &str, b: &str) -> String {
     s
 }
 
-/// Compare two non-negative decimal integer strings. Returns Less / Equal / Greater.
 pub fn bn_cmp(a: &str, b: &str) -> std::cmp::Ordering {
     let a = sanitize(a);
     let b = sanitize(b);
@@ -41,7 +33,7 @@ fn sanitize(s: &str) -> String {
     if trimmed.is_empty() || !trimmed.chars().all(|c| c.is_ascii_digit()) {
         return "0".to_string();
     }
-    // strip leading zeros
+
     let no_lead = trimmed.trim_start_matches('0');
     if no_lead.is_empty() {
         "0".to_string()

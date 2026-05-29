@@ -1,6 +1,3 @@
-//! Direct port of `marketplace-server/src/controllers/handlers/contracts-handler.ts`
-//! and the `getContractsParams` helper out of `handlers/utils.ts`.
-
 use axum::extract::{Query, State};
 use axum::Json;
 

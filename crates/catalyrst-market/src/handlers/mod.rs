@@ -1,5 +1,3 @@
-//! HTTP handlers — one submodule per `controllers/handlers/*.ts`.
-
 pub mod accounts;
 pub mod activity;
 pub mod bids;

@@ -1,10 +1,8 @@
-//! Direct port of `marketplace-server/src/ports/contracts/{queries,component,types}.ts`
-//! plus `adapters/contracts/index.ts` and the relevant helpers in `logic/chainIds.ts`.
-
+use catalyrst_server::cache::ResponseCache;
 use serde::Serialize;
 use sqlx::PgPool;
+use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::Mutex;
 
 use crate::dcl_schemas::{
     ethereum_chain_id, get_db_networks, polygon_chain_id, Contract, Network, NftCategory,
@@ -27,7 +25,6 @@ pub enum ContractSortBy {
     Name,
 }
 
-/// `types.ts:DBCollection`.
 #[derive(Debug, sqlx::FromRow, Serialize)]
 pub struct DbCollection {
     pub id: String,
@@ -38,15 +35,16 @@ pub struct DbCollection {
 
 pub struct ContractsComponent {
     pool: PgPool,
-    /// One-hour TTL mirroring `inMemoryCache.set(..., 3600s)` in the TS source.
-    cache: Mutex<Option<(std::time::Instant, Vec<Contract>)>>,
+
+    cache: Arc<ResponseCache<(), Vec<Contract>>>,
 }
 
 impl ContractsComponent {
     pub fn new(pool: PgPool) -> Self {
+        const TTL: Duration = Duration::from_secs(60 * 60);
         Self {
             pool,
-            cache: Mutex::new(None),
+            cache: Arc::new(ResponseCache::new("contracts.all_collections", TTL, 1)),
         }
     }
 
@@ -67,7 +65,6 @@ impl ContractsComponent {
 
         let where_sql = build_where(networks.is_some());
 
-        // squid stores chain_id as NUMERIC; cast to int4 for binding.
         let select_sql = format!(
             "SELECT c.id, c.name, c.chain_id::int4 AS chain_id, c.network \
              FROM {schema}.collection c \
@@ -102,43 +99,35 @@ impl ContractsComponent {
     }
 
     pub async fn get_all_collection_contracts(&self) -> Result<Vec<Contract>, ApiError> {
-        const TTL: Duration = Duration::from_secs(60 * 60);
+        self.cache
+            .get_or_fetch((), || async {
+                let count_sql = format!(
+                    "SELECT COUNT(c.id) FROM {schema}.collection c WHERE c.is_approved = true",
+                    schema = MARKETPLACE_SQUID_SCHEMA
+                );
+                let total: i64 = sqlx::query_scalar(&count_sql)
+                    .fetch_one(&self.pool)
+                    .await
+                    .unwrap_or(0);
 
-        {
-            let g = self.cache.lock().await;
-            if let Some((set_at, ref cached)) = *g {
-                if set_at.elapsed() < TTL {
-                    return Ok(cached.clone());
+                let mut all: Vec<Contract> = Vec::with_capacity(total as usize);
+                const PAGE_SIZE: i64 = 500;
+                let mut skip: i64 = 0;
+                while skip < total {
+                    let (page, _) = self
+                        .get_collection_contracts(&ContractFilters {
+                            first: Some(PAGE_SIZE),
+                            skip: Some(skip),
+                            ..Default::default()
+                        })
+                        .await?;
+                    all.extend(page);
+                    skip += PAGE_SIZE;
                 }
-            }
-        }
 
-        let count_sql = format!(
-            "SELECT COUNT(c.id) FROM {schema}.collection c WHERE c.is_approved = true",
-            schema = MARKETPLACE_SQUID_SCHEMA
-        );
-        let total: i64 = sqlx::query_scalar(&count_sql)
-            .fetch_one(&self.pool)
+                Ok::<_, ApiError>(all)
+            })
             .await
-            .unwrap_or(0);
-
-        let mut all: Vec<Contract> = Vec::with_capacity(total as usize);
-        const PAGE_SIZE: i64 = 500;
-        let mut skip: i64 = 0;
-        while skip < total {
-            let (page, _) = self
-                .get_collection_contracts(&ContractFilters {
-                    first: Some(PAGE_SIZE),
-                    skip: Some(skip),
-                    ..Default::default()
-                })
-                .await?;
-            all.extend(page);
-            skip += PAGE_SIZE;
-        }
-
-        *self.cache.lock().await = Some((std::time::Instant::now(), all.clone()));
-        Ok(all)
     }
 
     pub async fn get_contracts(
@@ -153,7 +142,9 @@ impl ContractsComponent {
             marketplace.retain(|cn| cn.network == n);
         }
 
-        let should_fetch_all = filters.category.map_or(true, |c| c == NftCategory::Wearable)
+        let should_fetch_all = filters
+            .category
+            .map_or(true, |c| c == NftCategory::Wearable)
             && filters.network.map_or(true, |n| n == Network::Matic);
         let collections = if should_fetch_all {
             self.get_all_collection_contracts().await?
@@ -178,10 +169,6 @@ impl ContractsComponent {
     }
 }
 
-/// `adapters/contracts/index.ts:fromDBCollectionToContract`.
-/// The `network` and `chainId` on the response come from env-derived
-/// `getNetwork` / `getNetworkChainId` — NOT from `c.chain_id`. The DB column
-/// is loaded only so the row deserializes; we re-derive everything below.
 fn from_db_collection_to_contract(c: &DbCollection) -> Contract {
     let is_polygon = matches!(c.network.as_str(), "POLYGON" | "MATIC");
     let network = if is_polygon {
@@ -203,7 +190,6 @@ fn from_db_collection_to_contract(c: &DbCollection) -> Contract {
     }
 }
 
-/// Returns the ` WHERE … ` clause for the SELECT (network bind at `$3`).
 fn build_where(has_network_filter: bool) -> String {
     let mut parts = vec!["c.is_approved = true".to_string()];
     if has_network_filter {
@@ -212,7 +198,6 @@ fn build_where(has_network_filter: bool) -> String {
     format!(" WHERE {} ", parts.join(" AND "))
 }
 
-/// Same clause for the count query (network bind at `$1`).
 fn build_where_count(has_network_filter: bool) -> String {
     let mut parts = vec!["c.is_approved = true".to_string()];
     if has_network_filter {
@@ -221,20 +206,20 @@ fn build_where_count(has_network_filter: bool) -> String {
     format!(" WHERE {} ", parts.join(" AND "))
 }
 
-/// Mirrors the param parsing in `controllers/handlers/utils.ts:getContractsParams`.
-/// Called from the handler module.
 pub fn parse_filters(
     pairs: &[(String, String)],
 ) -> Result<ContractFilters, crate::http::errors::InvalidParameterError> {
     use crate::http::params::Params;
     let p = Params::new(pairs);
 
-    let first = p
-        .get_number("first", None)
-        .map(|f| f as i64);
+    let first = p.get_number("first", None).map(|f| f as i64);
     let skip = p.get_number("skip", None).map(|f| f as i64);
 
-    let category = match p.get_value("category", &["parcel", "estate", "wearable", "ens", "emote"], None) {
+    let category = match p.get_value(
+        "category",
+        &["parcel", "estate", "wearable", "ens", "emote"],
+        None,
+    ) {
         Some(s) => Some(match s.as_str() {
             "parcel" => NftCategory::Parcel,
             "estate" => NftCategory::Estate,

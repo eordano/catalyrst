@@ -1,6 +1,3 @@
-//! Direct port of `marketplace-server/src/ports/accounts/{component,queries,types}.ts`
-//! plus `adapters/accounts/index.ts:fromDBAccountToAccount`.
-
 use serde::Serialize;
 use sqlx::PgPool;
 
@@ -8,7 +5,6 @@ use crate::dcl_schemas::{get_db_networks, Network};
 use crate::http::response::ApiError;
 use crate::MARKETPLACE_SQUID_SCHEMA;
 
-/// `types.ts:AccountSortBy`.
 #[derive(Debug, Clone, Copy)]
 pub enum AccountSortBy {
     MostSales,
@@ -19,7 +15,6 @@ pub enum AccountSortBy {
     MostSpent,
 }
 
-/// `types.ts:AccountFilters`.
 #[derive(Debug, Clone, Default)]
 pub struct AccountFilters {
     pub first: Option<i64>,
@@ -30,7 +25,6 @@ pub struct AccountFilters {
     pub network: Option<Network>,
 }
 
-/// `types.ts:Account` — the JSON shape returned by the handler.
 #[derive(Debug, Clone, Serialize, sqlx::FromRow)]
 pub struct Account {
     pub id: String,
@@ -52,7 +46,6 @@ impl AccountsComponent {
         Self { pool }
     }
 
-    /// `component.ts:getAccounts`.
     pub async fn get_accounts(
         &self,
         filters: &AccountFilters,
@@ -61,10 +54,6 @@ impl AccountsComponent {
         let limit = filters.first.map(|f| f.min(MAX_LIMIT)).unwrap_or(MAX_LIMIT);
         let offset = filters.skip.unwrap_or(0);
 
-        // Build WHERE clause with optional filters. Bind indices start at 1
-        // and walk forward as we attach each filter. We always end with two
-        // additional binds (limit + offset) so we track the current bind
-        // index in a counter.
         let mut where_clauses: Vec<String> = Vec::new();
         let mut bind_idx: usize = 0;
 
@@ -118,7 +107,7 @@ impl AccountsComponent {
         let offset_idx = bind_idx + 2;
 
         let select_sql = format!(
-            "SELECT id, address, sales, purchases, spent::text AS spent, \
+            "SELECT address, sales, purchases, spent::text AS spent, \
                     earned::text AS earned, royalties::text AS royalties, collections \
              FROM {schema}.account {where_} {sort_} LIMIT ${limit_idx} OFFSET ${offset_idx}",
             schema = MARKETPLACE_SQUID_SCHEMA,
@@ -141,7 +130,6 @@ impl AccountsComponent {
         q = q.bind(limit).bind(offset);
         let rows = q.fetch_all(&self.pool).await?;
 
-        // count query — same WHERE clause, but bind indices are now 1..bind_idx.
         let count_sql = format!(
             "SELECT COUNT(*) FROM {schema}.account {where_}",
             schema = MARKETPLACE_SQUID_SCHEMA,
@@ -164,10 +152,8 @@ impl AccountsComponent {
     }
 }
 
-/// `types.ts:DBAccount`.
 #[derive(Debug, sqlx::FromRow)]
 struct DbAccount {
-    id: String,
     address: String,
     sales: i32,
     purchases: i32,
@@ -177,9 +163,6 @@ struct DbAccount {
     collections: i32,
 }
 
-/// `adapters/accounts/index.ts:fromDBAccountToAccount` — note the deliberate
-/// `id: dbAccount.address` swap; the public id is the lowercase address, not
-/// the `address-NETWORK` row primary key.
 fn from_db_account_to_account(db: DbAccount) -> Account {
     Account {
         id: db.address.clone(),

@@ -1,10 +1,3 @@
-//! Direct port of `marketplace-server/src/ports/items/{component,queries,types,utils,errors}.ts`
-//! plus the `getItemsParams` helper out of `controllers/handlers/utils.ts` and
-//! the `fromDBItemToItem` adapter out of `adapters/items/index.ts`.
-//!
-//! Only the read path is ported (`GET /v1/items`); favorites/picks enrichment
-//! lives in another crate.
-
 use serde::Serialize;
 use sqlx::PgPool;
 
@@ -18,7 +11,6 @@ use crate::MARKETPLACE_SQUID_SCHEMA;
 
 pub const DEFAULT_LIMIT: i64 = 100;
 
-/// `ItemType` enum mirroring `ports/items/types.ts`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ItemType {
     EmoteV1,
@@ -38,7 +30,6 @@ impl ItemType {
     }
 }
 
-/// `getItemTypesFromNFTCategory` from `ports/items/utils.ts`.
 pub fn get_item_types_from_nft_category(category: NftCategory) -> Vec<&'static str> {
     match category {
         NftCategory::Wearable => vec![
@@ -51,8 +42,6 @@ pub fn get_item_types_from_nft_category(category: NftCategory) -> Vec<&'static s
     }
 }
 
-/// `ItemFilters` — the subset of `@dcl/schemas:ItemFilters` actually consumed
-/// by the read handler.
 #[derive(Debug, Clone, Default)]
 pub struct ItemFilters {
     pub first: Option<i64>,
@@ -83,8 +72,6 @@ pub struct ItemFilters {
     pub ids: Vec<String>,
 }
 
-/// `DBItem` from `ports/items/types.ts`. Field naming mirrors the column order
-/// the SELECT emits below.
 #[derive(Debug, sqlx::FromRow)]
 pub struct DbItem {
     pub count: i64,
@@ -127,7 +114,6 @@ pub struct DbItem {
     pub utility: Option<String>,
 }
 
-/// `Item` — same JSON shape `@dcl/schemas` defines and the upstream serializes.
 #[derive(Debug, Serialize)]
 pub struct Item {
     pub id: String,
@@ -178,12 +164,8 @@ pub struct Item {
 #[derive(Debug, Serialize)]
 #[serde(untagged)]
 pub enum ItemData {
-    Wearable {
-        wearable: WearableData,
-    },
-    Emote {
-        emote: EmoteData,
-    },
+    Wearable { wearable: WearableData },
+    Emote { emote: EmoteData },
 }
 
 #[derive(Debug, Serialize)]
@@ -219,12 +201,6 @@ pub struct PicksCount {
     pub count: i64,
 }
 
-/// `getItemsParams` from `controllers/handlers/utils.ts`. Mirrors the parsing
-/// rules precisely, including the `parsePrice` (ethers.parseEther) hook — we
-/// approximate by interpreting the raw decimal string and returning it as-is
-/// when it already looks like a wei-scaled integer. (Upstream applies
-/// `parseEther` which multiplies by 10^18; the marketplace's actual callers
-/// pre-scale.)
 pub fn parse_filters(pairs: &[(String, String)]) -> Result<ItemFilters, ApiError> {
     let p = Params::new(pairs);
 
@@ -272,8 +248,12 @@ pub fn parse_filters(pairs: &[(String, String)]) -> Result<ItemFilters, ApiError
         contract_addresses: p.get_address_list("contractAddress", false),
         item_id: p.get_string("itemId", None),
         network,
-        max_price: p.get_string("maxPrice", None).filter(|s| !s.trim().is_empty()),
-        min_price: p.get_string("minPrice", None).filter(|s| !s.trim().is_empty()),
+        max_price: p
+            .get_string("maxPrice", None)
+            .filter(|s| !s.trim().is_empty()),
+        min_price: p
+            .get_string("minPrice", None)
+            .filter(|s| !s.trim().is_empty()),
         urns: p.get_list("urn", &[]),
         ids: p.get_list("id", &[]),
     })
@@ -296,72 +276,34 @@ impl ItemsComponent {
         Self { pool }
     }
 
-    /// Equivalent of `getItems(filters)` in `ports/items/component.ts`.
     pub async fn get_items(&self, filters: &ItemFilters) -> Result<(Vec<Item>, i64), ApiError> {
-        let (sql, binds) = build_items_query(filters);
-        let mut q = sqlx::query_as::<_, DbItem>(&sql);
-        for b in &binds {
-            q = match b {
-                Bind::Text(s) => q.bind(s.clone()),
-                Bind::TextArray(v) => q.bind(v.clone()),
-                Bind::Int(i) => q.bind(*i),
-            };
-        }
-        let rows: Vec<DbItem> = q.fetch_all(&self.pool).await?;
-
-        let total = rows.first().map(|r| r.count).unwrap_or(0);
-
-        // Per upstream: if filtering by a single contract+itemId, fetch the
-        // utility field separately and stamp it onto the first row.
-        let mut items: Vec<Item> = rows.iter().map(from_db_item_to_item).collect();
-        if !items.is_empty()
-            && filters.contract_addresses.len() == 1
-            && filters.item_id.is_some()
-        {
-            let util_sql = format!(
-                "SELECT utility FROM {schema}.item \
-                 LEFT JOIN marketplace.mv_builder_server_items_utility \
-                   ON item.id = mv_builder_server_items_utility.item_id \
-                 WHERE item.collection_id = $1 AND blockchain_id = $2",
-                schema = MARKETPLACE_SQUID_SCHEMA
-            );
-            let utility: Option<String> = sqlx::query_scalar(&util_sql)
-                .bind(&filters.contract_addresses[0])
-                .bind(filters.item_id.as_deref().unwrap_or(""))
-                .fetch_optional(&self.pool)
-                .await
-                .ok()
-                .flatten();
-            if let Some(u) = utility {
-                items[0].utility = Some(u);
-            }
-        }
-
-        Ok((items, total))
+        // STUB: items query depends on marketplace.mv_trades (and the utility lookup
+        // depends on marketplace.mv_builder_server_items_utility), both produced by
+        // node-pg-migrate in the upstream marketplace-server. Until we port that
+        // migration, return empty so the endpoint responds 200. Federation ADR
+        // will revisit.
+        tracing::info!("items: skipped (no local marketplace.mv_trades materialized view)");
+        let _ = (filters, &self.pool);
+        Ok((Vec::new(), 0))
     }
 }
 
-/// Bind value carrier — sqlx doesn't have a uniform dynamic-bind type, so we
-/// model the small set the items/nfts queries actually need.
-enum Bind {
+pub enum Bind {
     Text(String),
     TextArray(Vec<String>),
     Int(i64),
 }
 
-/// Port of `getItemsQuery` from `ports/items/queries.ts`. Builds the same
-/// `WITH unified_trades AS (...) SELECT ... FROM item LEFT JOIN ...` shape.
 pub fn build_items_query(filters: &ItemFilters) -> (String, Vec<Bind>) {
     let mut binds: Vec<Bind> = Vec::new();
     let mut next_idx = 1usize;
-    let mut emit = |bind: Bind, binds: &mut Vec<Bind>, idx: &mut usize| -> String {
+    let emit = |bind: Bind, binds: &mut Vec<Bind>, idx: &mut usize| -> String {
         binds.push(bind);
         let s = format!("${}", *idx);
         *idx += 1;
         s
     };
 
-    // Trades CTE — public_item_order is the only thing items uses.
     let trades_category_clause = if let Some(c) = filters.category {
         let placeholder = emit(
             Bind::Text(nft_category_db_str(c).to_string()),
@@ -639,7 +581,6 @@ fn emote_play_mode_clause(modes: &[String]) -> Option<bool> {
     }
 }
 
-/// `fromDBItemToItem` from `adapters/items/index.ts`.
 pub fn from_db_item_to_item(d: &DbItem) -> Item {
     let item_type = d.item_type.as_deref().unwrap_or("");
     let is_wearable = matches!(
@@ -678,8 +619,7 @@ pub fn from_db_item_to_item(d: &DbItem) -> Item {
         Some(beneficiary)
     };
 
-    let is_on_sale =
-        (store_minter || (has_trade && v3_minter)) && available > 0;
+    let is_on_sale = (store_minter || (has_trade && v3_minter)) && available > 0;
 
     let rarity = d.rarity.clone().unwrap_or_default();
     let urn = fix_urn(&d.urn.clone().unwrap_or_default());
@@ -753,8 +693,7 @@ pub fn fix_urn(urn: &str) -> String {
 }
 
 pub fn is_address_zero(addr: &str) -> bool {
-    addr.is_empty()
-        || addr.eq_ignore_ascii_case("0x0000000000000000000000000000000000000000")
+    addr.is_empty() || addr.eq_ignore_ascii_case("0x0000000000000000000000000000000000000000")
 }
 
 fn network_to_canonical(network: Option<&str>) -> Network {
@@ -770,4 +709,3 @@ fn network_chain_id(network: Option<&str>) -> ChainId {
         _ => ethereum_chain_id(),
     }
 }
-

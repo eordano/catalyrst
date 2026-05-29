@@ -1,24 +1,15 @@
-//! Handlers under `/v1/users/:address/...`.
-//!
-//! All three sub-handlers (wearables, emotes, names) share the same paginated
-//! response shape produced by `controllers/handlers/utils.ts:createPaginatedResponse`,
-//! defined here in `PaginatedAssetsBody`/`AssetsHttpResponse`.
-
 pub mod emotes;
 pub mod names;
 pub mod wearables;
 
 use serde::Serialize;
 
-/// Wrapper that mirrors `HTTPResponse<T>` from `types.ts` — `{ ok: true, data: T }`.
-/// The user-asset endpoints use this shape rather than `{ data, total }`.
 #[derive(Debug, Serialize)]
 pub struct AssetsHttpResponse<T> {
     pub ok: bool,
     pub data: PaginatedAssetsBody<T>,
 }
 
-/// Body produced by `createPaginatedResponse(elements, total, first, skip, totalItems?)`.
 #[derive(Debug, Serialize)]
 pub struct PaginatedAssetsBody<T> {
     pub elements: Vec<T>,
@@ -30,9 +21,6 @@ pub struct PaginatedAssetsBody<T> {
     pub total_items: Option<i64>,
 }
 
-/// `createPaginatedResponse(elements, total, first, skip, totalItems?)`. Note
-/// the special-case `limit = first || 1` and `page = floor(skip / limit) + 1`
-/// (1-indexed!) that differs from `PaginatedResponse::new` in `http::response`.
 pub fn create_paginated_response<T>(
     elements: Vec<T>,
     total: i64,

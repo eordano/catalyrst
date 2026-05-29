@@ -1,10 +1,3 @@
-//! Direct port of the GET subset of
-//! `marketplace-server/src/controllers/handlers/trades-handler.ts`.
-//!
-//! Skipped (POST/PUT — federation ADR will revisit):
-//!   - addTradeHandler                       (POST /v1/trades)
-//!   - recreateTradesMaterializedViewHandler (POST /v1/trades/materialized-view/recreate)
-
 use axum::extract::{Path, Query, State};
 use axum::Json;
 use serde::Serialize;
@@ -26,9 +19,7 @@ pub struct TradesEnvelopeBody {
     pub count: i64,
 }
 
-pub async fn get_trades(
-    State(state): State<AppState>,
-) -> Result<Json<TradesEnvelope>, ApiError> {
+pub async fn get_trades(State(state): State<AppState>) -> Result<Json<TradesEnvelope>, ApiError> {
     let (data, count) = state.trades.get_trades().await?;
     Ok(Json(TradesEnvelope {
         data: TradesEnvelopeBody { data, count },
@@ -58,9 +49,8 @@ pub async fn get_trade_accepted_event(
     Path(hashed_signature): Path<String>,
     Query(pairs): Query<Vec<(String, String)>>,
 ) -> Result<Json<TradeAcceptedEnvelope>, ApiError> {
-    let timestamp = get_number_parameter("timestamp", &pairs)?.unwrap_or_else(|| {
-        chrono::Utc::now().timestamp_millis()
-    });
+    let timestamp = get_number_parameter("timestamp", &pairs)?
+        .unwrap_or_else(|| chrono::Utc::now().timestamp_millis());
     let p = Params::new(&pairs);
     let caller = p.get_string("caller", Some("")).unwrap_or_default();
     let data = state

@@ -1,5 +1,3 @@
-//! Direct port of `marketplace-server/src/ports/owners/{component,queries,types}.ts`.
-
 use serde::Serialize;
 use sqlx::PgPool;
 
@@ -9,13 +7,11 @@ use crate::MARKETPLACE_SQUID_SCHEMA;
 pub const OWNERS_QUERY_DEFAULT_OFFSET: i64 = 0;
 pub const OWNERS_QUERY_DEFAULT_LIMIT: i64 = 20;
 
-/// `types.ts:OwnersSortBy`. The TS enum only has a single member.
 #[derive(Debug, Clone, Copy)]
 pub enum OwnersSortBy {
     IssuedId,
 }
 
-/// `types.ts:OwnersFilters` + the extension applied at the call site.
 #[derive(Debug, Clone, Default)]
 pub struct OwnersFilters {
     pub contract_address: String,
@@ -26,7 +22,6 @@ pub struct OwnersFilters {
     pub order_direction: Option<String>,
 }
 
-/// `types.ts:Owner` — the JSON shape returned by the handler.
 #[derive(Debug, Clone, Serialize)]
 pub struct Owner {
     #[serde(rename = "issuedId")]
@@ -46,14 +41,10 @@ impl OwnersComponent {
         Self { pool }
     }
 
-    /// `component.ts:fetchAndCount`.
     pub async fn fetch_and_count(
         &self,
         filters: &OwnersFilters,
     ) -> Result<(Vec<Owner>, i64), ApiError> {
-        // The TS query builder optionally injects each filter; we always have
-        // both (the handler returns 400 if either is missing) so the WHERE
-        // clause is always the same.
         let order_clause = match filters.sort_by {
             Some(OwnersSortBy::IssuedId) => {
                 let dir = filters.order_direction.as_deref().unwrap_or("desc");
@@ -70,10 +61,10 @@ impl OwnersComponent {
         let limit = filters.first.unwrap_or(OWNERS_QUERY_DEFAULT_LIMIT);
 
         let select_sql = format!(
-            "SELECT nft.issued_id, account.address AS owner, nft.token_id::text AS token_id \
+            "SELECT nft.issued_id::text AS issued_id, account.address AS owner, nft.token_id::text AS token_id \
              FROM {schema}.nft AS nft \
              LEFT JOIN {schema}.account AS account ON nft.owner_id = account.id \
-             WHERE nft.contract_address = $1 AND nft.item_blockchain_id = $2 \
+             WHERE nft.contract_address = $1 AND nft.item_blockchain_id = $2::numeric \
              {order_clause} \
              OFFSET $3 LIMIT $4",
             schema = MARKETPLACE_SQUID_SCHEMA,
@@ -91,7 +82,7 @@ impl OwnersComponent {
         let count_sql = format!(
             "SELECT COUNT(*) FROM {schema}.nft AS nft \
              LEFT JOIN {schema}.account AS account ON nft.owner_id = account.id \
-             WHERE nft.contract_address = $1 AND nft.item_blockchain_id = $2",
+             WHERE nft.contract_address = $1 AND nft.item_blockchain_id = $2::numeric",
             schema = MARKETPLACE_SQUID_SCHEMA,
         );
         let total: i64 = sqlx::query_scalar(&count_sql)

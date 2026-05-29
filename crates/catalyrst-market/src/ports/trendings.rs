@@ -1,12 +1,3 @@
-//! Direct port of `marketplace-server/src/ports/trendings/{component,queries,types,utils}.ts`.
-//!
-//! Scope: the upstream component composes the items port to enrich the
-//! `(contract_address, item_id)` pairs returned by `getTrendingSalesQuery` into
-//! full `Item` records. The items port is owned by a different agent; until it
-//! lands here we expose just the raw trending pairs, in the same Item-like
-//! envelope (`itemId`, `contractAddress`, `salesCount`) so the API surface
-//! stays stable.
-
 use chrono::{Duration, Utc};
 use serde::Serialize;
 use sqlx::PgPool;
@@ -54,7 +45,7 @@ impl TrendingsComponent {
         let sql = format!(
             r#"
 SELECT
-  search_item_id,
+  search_item_id::text AS search_item_id,
   search_contract_address,
   COUNT(*) AS sales_count
 FROM {schema}.sale

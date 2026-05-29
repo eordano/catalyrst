@@ -1,6 +1,3 @@
-//! Port of `marketplace-server/src/logic/rankings/utils.ts`. Consolidates
-//! day-level items / creators / collectors rows into ranking aggregates.
-
 use std::collections::HashMap;
 
 use serde::Serialize;
@@ -94,17 +91,20 @@ pub fn get_unique_creators_from_creators_day_data(
         } else {
             f.id.clone()
         };
-        let entry = acc.entry(address.clone()).or_insert_with(|| CreatorsDayDataFragment {
-            id: address.clone(),
-            sales: 0,
-            earned: "0".to_string(),
-            unique_collections_sales: 0,
-            unique_collectors_total: 0,
-        });
+        let entry = acc
+            .entry(address.clone())
+            .or_insert_with(|| CreatorsDayDataFragment {
+                id: address.clone(),
+                sales: 0,
+                earned: "0".to_string(),
+                unique_collections_sales: 0,
+                unique_collectors_total: 0,
+            });
         entry.sales += f.sales;
         entry.earned = bn_add(&entry.earned, &f.earned);
-        entry.unique_collections_sales =
-            entry.unique_collections_sales.max(f.unique_collections_sales);
+        entry.unique_collections_sales = entry
+            .unique_collections_sales
+            .max(f.unique_collections_sales);
         entry.unique_collectors_total =
             entry.unique_collectors_total.max(f.unique_collectors_total);
     }
@@ -129,19 +129,22 @@ pub fn get_unique_collectors_from_collectors_day_data(
         } else {
             f.id.clone()
         };
-        let entry = acc.entry(address.clone()).or_insert_with(|| CollectorsDayDataFragment {
-            id: address.clone(),
-            purchases: 0,
-            spent: "0".to_string(),
-            unique_and_mythic_items: 0,
-            creators_supported_total: 0,
-        });
+        let entry = acc
+            .entry(address.clone())
+            .or_insert_with(|| CollectorsDayDataFragment {
+                id: address.clone(),
+                purchases: 0,
+                spent: "0".to_string(),
+                unique_and_mythic_items: 0,
+                creators_supported_total: 0,
+            });
         entry.purchases += f.purchases;
         entry.spent = bn_add(&entry.spent, &f.spent);
         entry.unique_and_mythic_items =
             entry.unique_and_mythic_items.max(f.unique_and_mythic_items);
-        entry.creators_supported_total =
-            entry.creators_supported_total.max(f.creators_supported_total);
+        entry.creators_supported_total = entry
+            .creators_supported_total
+            .max(f.creators_supported_total);
     }
     acc.into_values()
         .map(|f| CollectorRank {
