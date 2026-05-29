@@ -10,6 +10,7 @@ members = [
     "crates/catalyrst-sync",
     "crates/catalyrst-deployer",
     "crates/catalyrst-server",
+    "crates/catalyrst-market",
     "crates/catalyrst-conformance",
     "crates/catalyrst-oracle-tests",
     "crates/catalyrst-bench",

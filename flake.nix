@@ -95,6 +95,21 @@
             buildInputs = [ pkgs.openssl ];
             env.OPENSSL_NO_VENDOR = "1";
           };
+
+          # Marketplace REST API in front of squid_marketplace (port of
+          # decentraland/marketplace-server). Loopback Postgres only —
+          # sqlx is built without a TLS feature so no openssl needed.
+          catalyrst-market = pkgs.rustPlatform.buildRustPackage {
+            pname = "catalyrst-market";
+            version = "0.1.0";
+            src = ./.;
+            cargoLock = {
+              lockFile = ./Cargo.lock;
+            };
+            cargoBuildFlags = [ "-p" "catalyrst-market" "--bin" "catalyrst-market" ];
+            doCheck = false;
+          };
+
           default = catalyrst;
         };
       }
