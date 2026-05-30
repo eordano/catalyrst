@@ -5,7 +5,11 @@ use axum::middleware::Next;
 use axum::response::Response;
 
 const ALLOW_METHODS: &str = "GET,HEAD,POST,PUT,DELETE,PATCH,OPTIONS";
-const ALLOW_HEADERS: &str = "Cache-Control,Content-Type,Origin,Accept,User-Agent,X-Upload-Origin";
+// Includes the signed-fetch identity headers so a browser explorer can perform
+// authenticated writes (deploys / lambdas writes) cross-origin — without them
+// the CORS preflight for a signed POST is rejected. `Range`/`If-None-Match`
+// let browsers issue conditional and partial content reads.
+const ALLOW_HEADERS: &str = "Cache-Control,Content-Type,Origin,Accept,User-Agent,X-Upload-Origin,Range,If-None-Match,If-Modified-Since,X-Identity-Timestamp,X-Identity-Metadata,X-Identity-Auth-Chain-0,X-Identity-Auth-Chain-1,X-Identity-Auth-Chain-2,X-Identity-Auth-Chain-3";
 const MAX_AGE: &str = "86400";
 
 fn append_vary_origin(resp: &mut Response) {

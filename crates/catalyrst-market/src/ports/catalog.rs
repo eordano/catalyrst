@@ -6,6 +6,7 @@ use sqlx::{Arguments, PgPool, Postgres, Row};
 
 use crate::dcl_schemas::{ethereum_chain_id, polygon_chain_id, ChainId, Network, NftCategory};
 use crate::http::response::ApiError;
+use crate::logic::sql_filters::{clamp_first, clamp_skip, MAX_PAGE_LIMIT};
 use crate::{BUILDER_SERVER_TABLE_SCHEMA, MARKETPLACE_SQUID_SCHEMA};
 
 pub const FRAGMENT_WEARABLE_V1: &str = "wearable_v1";
@@ -24,10 +25,6 @@ const MAX_NUMERIC_NUMBER: &str =
 
 const MAX_ORDER_TIMESTAMP: i64 = 253_378_408_747_000;
 
-// `marketplace.mv_trades` is not populated in our DB. Until the trades pipeline
-// lands, substitute every reference with an empty derived table that exposes the
-// columns used downstream (status, type, available, contract_address_sent,
-// assets, amount_received). All EXISTS / JOIN paths therefore yield no rows.
 const MV_TRADES_STUB: &str = "(SELECT \
     NULL::text       AS id, \
     NULL::timestamptz AS created_at, \
@@ -124,9 +121,7 @@ pub struct CatalogFilters {
     pub max_price: Option<String>,
     pub min_price: Option<String>,
     pub urns: Vec<String>,
-
     pub ids: Vec<String>,
-
     pub picked_by: Option<String>,
 }
 
@@ -214,7 +209,7 @@ pub struct CatalogItem {
     pub min_listing_price: Option<String>,
     pub listings: Option<i64>,
     pub owners: Option<i64>,
-    pub picks: PickStats,
+    pub picks: Option<PickStats>,
 }
 
 #[derive(Debug)]
@@ -423,11 +418,7 @@ fn from_db_row_to_catalog_item(row: DbRow, network_hint: Option<Network>) -> Cat
         min_listing_price: row.min_listing_price.clone(),
         listings: row.listings_count,
         owners: row.owners_count,
-        picks: PickStats {
-            count: 0,
-            item_id: row.id.clone(),
-            picked_by_user: None,
-        },
+        picks: None,
     }
 }
 
@@ -713,7 +704,10 @@ fn build_has_outcome_type_where(b: &mut Builder) {
 }
 
 fn build_urns_where(b: &mut Builder, f: &CatalogFilters) {
-    let bi = b.bind_string_slice(&f.urns);
+    // Match either ethereum network-token form; see
+    // `items::expand_urn_network_forms` (additive — preserves upstream parity).
+    let expanded = crate::ports::items::expand_urn_network_forms(&f.urns);
+    let bi = b.bind_string_slice(&expanded);
     b.push_sql(&format!("items.urn = ANY(${})", bi));
 }
 
@@ -888,9 +882,9 @@ fn build_order_by(b: &mut Builder, f: &CatalogFilters, is_v2: bool) {
 }
 
 fn build_limit_offset(b: &mut Builder, f: &CatalogFilters) {
-    if let (Some(limit), Some(offset)) = (f.first, f.skip) {
-        let li = b.bind_i64(limit);
-        let oi = b.bind_i64(offset);
+    if f.first.is_some() || f.skip.is_some() {
+        let li = b.bind_i64(clamp_first(f.first, MAX_PAGE_LIMIT));
+        let oi = b.bind_i64(clamp_skip(f.skip));
         b.push_sql(&format!("LIMIT ${} OFFSET ${}", li, oi));
     }
 }
@@ -981,8 +975,6 @@ fn build_nfts_with_orders_cte_v2(b: &mut Builder, f: &CatalogFilters) {
 }
 
 fn build_trades_cte(b: &mut Builder) {
-    // marketplace.mv_trades is not populated locally yet; emit a typed empty
-    // CTE so downstream LEFT JOINs still parse and yield NULL aggregates.
     b.push_sql(
         " WITH unified_trades AS (
             SELECT
@@ -1015,8 +1007,8 @@ fn build_top_n_items_cte(b: &mut Builder, f: &CatalogFilters) {
             Some(CatalogSortBy::Newest) | Some(CatalogSortBy::RecentlySold)
         )
     {
-        let limit = f.first.unwrap_or(10);
-        let offset = f.skip.unwrap_or(0);
+        let limit = clamp_first(f.first, 10);
+        let offset = clamp_skip(f.skip);
         b.push_sql(&format!(
             ", top_n_items AS ( SELECT * FROM {schema}.item AS items ",
             schema = MARKETPLACE_SQUID_SCHEMA,
@@ -1497,9 +1489,7 @@ fn build_collections_items_count_query(f: &CatalogFilters) -> (String, PgArgumen
             ));
         }
     }
-    // The `marketplace.mv_trades` matview is not populated locally yet;
-    // substitute every reference with a typed empty derived table so the
-    // EXISTS / NOT EXISTS branches still parse and behave as "no rows".
+
     let stubbed = b.sql.replace("marketplace.mv_trades", MV_TRADES_STUB);
     (stubbed, b.args)
 }

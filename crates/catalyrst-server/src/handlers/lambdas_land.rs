@@ -186,6 +186,18 @@ pub async fn user_lands(
     .await
     .unwrap_or_default();
 
+    // LAND/estate map-thumbnail `image` URLs are stored in squid as
+    // `https://api.decentraland.org/v1/...map.png`; rewrite that prod prefix to
+    // the local catalyrst-map so listings stay self-contained (the local map
+    // serves the same /v1/{parcels,estates}/... paths). See LAND_IMAGE_BASE_URL.
+    let land_base = state.land_image_base_url.trim_end_matches('/').to_string();
+    let rewrite_image = move |img: String| -> String {
+        match img.strip_prefix("https://api.decentraland.org") {
+            Some(rest) => format!("{land_base}{rest}"),
+            None => img,
+        }
+    };
+
     let elements: Vec<Value> = rows
         .into_iter()
         .map(
@@ -215,7 +227,7 @@ pub async fn user_lands(
                     obj["price"] = json!(p);
                 }
                 if let Some(img) = image {
-                    obj["image"] = json!(img);
+                    obj["image"] = json!(rewrite_image(img));
                 }
                 obj
             },

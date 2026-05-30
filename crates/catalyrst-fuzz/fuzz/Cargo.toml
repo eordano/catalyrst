@@ -9,7 +9,6 @@ cargo-fuzz = true
 
 [dependencies]
 libfuzzer-sys = "0.4"
-# Parent crates we fuzz:
 catalyrst-validator = { path = "../../catalyrst-validator" }
 catalyrst-crypto = { path = "../../catalyrst-crypto" }
 catalyrst-hashing = { path = "../../catalyrst-hashing" }

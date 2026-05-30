@@ -1,14 +1,3 @@
-//! Generic TTL'd in-memory response cache with single-flight coalescing.
-//!
-//! Public API: [`ResponseCache::new`] + [`ResponseCache::get_or_fetch`].
-//!
-//! On HIT, returns a clone of the cached value.
-//! On MISS, exactly one caller runs the supplied fetch closure; concurrent
-//! callers for the same key await its result via [`tokio::sync::Notify`].
-//! Errors are NOT cached — the next caller re-tries the closure. If the
-//! leader's future is cancelled mid-await, an RAII guard wakes waiters and
-//! clears the in-flight slot so a fresh leader can be elected.
-
 use std::hash::Hash;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -16,7 +5,6 @@ use std::time::{Duration, Instant};
 use dashmap::DashMap;
 use tokio::sync::Notify;
 
-/// A TTL'd in-memory result cache with single-flight coalescing.
 pub struct ResponseCache<K, V>
 where
     K: Eq + Hash + Clone + Send + Sync + 'static,
@@ -31,7 +19,7 @@ where
 
 struct Slot<V> {
     cached: Option<(Instant, V)>,
-    /// In-flight notify; if `Some`, a fetch is running for this key.
+
     notify: Option<Arc<Notify>>,
 }
 
@@ -44,9 +32,6 @@ impl<V> Slot<V> {
     }
 }
 
-/// RAII guard for the in-flight leader. If the leader's future is dropped
-/// (cancellation) before it publishes a value, the guard clears the in-flight
-/// notify and wakes waiters so one of them can become the new leader.
 struct LeaderGuard<'a, K, V>
 where
     K: Eq + Hash + Clone + Send + Sync + 'static,
@@ -55,8 +40,7 @@ where
     cache: &'a ResponseCache<K, V>,
     key: K,
     notify: Arc<Notify>,
-    /// Set to `true` by the leader on success; suppresses cleanup-on-drop
-    /// since the success path has already published + notified.
+
     finished: bool,
 }
 
@@ -69,11 +53,11 @@ where
         if self.finished {
             return;
         }
-        // Clear the in-flight slot so the next caller becomes the new leader.
+
         if let Some(mut slot) = self.cache.map.get_mut(&self.key) {
             slot.notify = None;
         }
-        // Wake any waiters; they will re-check and re-elect a leader.
+
         self.notify.notify_waiters();
     }
 }
@@ -92,18 +76,13 @@ where
         }
     }
 
-    /// Fetch-with-coalescing. The closure runs at most once per (key, TTL window)
-    /// even under high concurrency. Returns the cached or freshly-fetched value.
-    ///
-    /// On the closure's `Err` path, the failure is NOT cached — the next caller
-    /// re-tries (fail-open for transient errors).
     pub async fn get_or_fetch<F, Fut, E>(&self, key: K, fetch: F) -> Result<V, E>
     where
         F: FnOnce() -> Fut,
         Fut: std::future::Future<Output = Result<V, E>> + Send,
     {
         loop {
-            // Step 1: under shard lock, decide whether to return cached, await, or lead.
+
             let action = {
                 let mut entry = self.map.entry(key.clone()).or_insert_with(Slot::empty);
                 if let Some((at, v)) = entry.cached.as_ref() {
@@ -112,10 +91,10 @@ where
                     }
                 }
                 if let Some(notify) = entry.notify.as_ref() {
-                    // Someone else is fetching — wait on their notify.
+
                     Action::Wait(notify.clone())
                 } else {
-                    // Become leader.
+
                     let notify = Arc::new(Notify::new());
                     entry.notify = Some(notify.clone());
                     Action::Lead(notify)
@@ -125,9 +104,7 @@ where
             match action {
                 Action::Wait(notify) => {
                     notify.notified().await;
-                    // After being woken, loop and re-check the cache. The leader
-                    // may have published a value (HIT next iter) or been
-                    // cancelled (in which case we'll become the new leader).
+
                     continue;
                 }
                 Action::Lead(notify) => {
@@ -138,11 +115,9 @@ where
                         finished: false,
                     };
 
-                    // Evict if the cache has grown unbounded. Cheap and infrequent.
                     if self.map.len() > self.max_entries {
                         self.map.clear();
-                        // Re-insert our in-flight slot so waiters/late arrivals
-                        // can find the notify; the leader is still us.
+
                         self.map.insert(
                             key.clone(),
                             Slot {
@@ -155,13 +130,12 @@ where
                     let result = fetch().await;
                     match result {
                         Ok(value) => {
-                            // Publish under the shard lock, clear in-flight, notify.
+
                             if let Some(mut slot) = self.map.get_mut(&key) {
                                 slot.cached = Some((Instant::now(), value.clone()));
                                 slot.notify = None;
                             } else {
-                                // Entry got evicted between fetch start and end;
-                                // re-insert the fresh value.
+
                                 self.map.insert(
                                     key.clone(),
                                     Slot {
@@ -175,8 +149,7 @@ where
                             return Ok(value);
                         }
                         Err(e) => {
-                            // Error path: don't cache. Clear in-flight so the next
-                            // caller re-tries. Wake waiters so they retry too.
+
                             if let Some(mut slot) = self.map.get_mut(&key) {
                                 slot.notify = None;
                             }
@@ -190,7 +163,6 @@ where
         }
     }
 
-    /// Force-clear (for tests). Not used in handlers.
     #[cfg(test)]
     pub fn clear(&self) {
         self.map.clear();
@@ -231,7 +203,7 @@ mod tests {
             })
             .await
             .unwrap();
-        // Second call must HIT (closure never runs) — original value returned.
+
         assert_eq!(v2, 42);
         assert_eq!(counter.load(Ordering::SeqCst), 1);
     }
@@ -275,7 +247,7 @@ mod tests {
                 cache
                     .get_or_fetch("k", || async move {
                         counter.fetch_add(1, Ordering::SeqCst);
-                        // Hold the lead long enough that all 20 callers pile up.
+
                         sleep(Duration::from_millis(50)).await;
                         Ok::<_, ()>(7)
                     })
@@ -299,7 +271,6 @@ mod tests {
         let cache: Arc<ResponseCache<&'static str, i32>> =
             Arc::new(ResponseCache::new("test", Duration::from_secs(60), 100));
 
-        // Spawn the leader task; it sleeps forever inside the fetch closure.
         let cache_clone = cache.clone();
         let leader = tokio::spawn(async move {
             cache_clone
@@ -311,10 +282,8 @@ mod tests {
                 .unwrap()
         });
 
-        // Give the leader time to register itself as in-flight.
         sleep(Duration::from_millis(50)).await;
 
-        // Spawn a waiter that should pile up on the leader's Notify.
         let cache_clone = cache.clone();
         let counter = Arc::new(AtomicUsize::new(0));
         let counter_clone = counter.clone();
@@ -328,14 +297,11 @@ mod tests {
                 .unwrap()
         });
 
-        // Let the waiter actually park on the notify.
         sleep(Duration::from_millis(50)).await;
 
-        // Cancel the leader. Its RAII guard must wake waiters.
         leader.abort();
         let _ = leader.await;
 
-        // Waiter must be elected as the new leader, run its closure, and finish.
         let v = timeout(Duration::from_secs(5), waiter)
             .await
             .expect("waiter must not deadlock")

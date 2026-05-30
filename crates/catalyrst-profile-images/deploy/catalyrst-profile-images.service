@@ -1,0 +1,24 @@
+[Unit]
+Description=catalyrst-profile-images (Rust port of profile-images.decentraland.org — avatar face/body thumbnails, port 5152)
+# render backend resolves profiles from the local content core (catalyrst :5141)
+# and shells out to the headless godot avatar renderer.
+After=network.target catalyrst.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=exec
+WorkingDirectory=<WORKSPACE>
+EnvironmentFile=<WORKSPACE>/env/catalyrst-profile-images.env
+# Cache root + per-render scratch dir.
+ExecStartPre=/bin/sh -c 'mkdir -p <DATA_DIR>/profile-images/.render-tmp'
+ExecStart=<WORKSPACE>/bin/catalyrst-profile-images
+# The render backend spawns the godot client, which needs the GPU render node
+# (/dev/dri/renderD128) for a GL context. A user-mode service inherits the
+# user's group membership (the service user is in `render`/`video`), so no extra
+# DeviceAllow is required here; if you sandbox this unit later, grant
+# /dev/dri access explicitly.
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=default.target

@@ -35,3 +35,4 @@ scripts/schemathesis/.venv/
 
 # Local bench results (per-endpoint p50/p99 history; regenerable)
 .bench/
+.claude/

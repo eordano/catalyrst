@@ -12,8 +12,8 @@ future maintainer doesn't "tighten" them and break a service.
 `PrivateUsers=true` puts the service in a child user namespace. Postgres's
 `SO_PEERCRED` peer-auth check then cannot see the real UID of the client, so
 `catalyrst-sync` and the three `squid-*` services would fail authentication
-against the local cluster. `PrivateUsers` is added back as `noPgSandbox` for
-services that don't connect to postgres.
+against the local PostgreSQL instance. `PrivateUsers` is added back as
+`noPgSandbox` for services that don't connect to postgres.
 
 ## `~@resources` dropped from `SystemCallFilter`
 
@@ -35,19 +35,18 @@ W+X pages. With MDWE on they SIGTRAP on first JIT. Both run on
 
 ## No IPAddress filter on `catalyrst-sync`, LiveKit, Pulse
 
-- **catalyrst-sync:** `SYNC_SOURCE` includes non-Cloudflare peers
-  (some peers in the `SYNC_SOURCE` pool may not be behind Cloudflare) and
-  operators may rotate the pool.
+- **catalyrst-sync:** the `SYNC_SOURCE` pool may include peers that are not
+  behind a fixed-IP CDN, and operators may rotate the pool.
   An IP allowlist would silently break sync after the next pool change.
 - **LiveKit:** ICE/STUN candidates are arbitrary client IPs; an allowlist
   would break media.
 - **Pulse:** Public ENet/UDP game server; clients connect from anywhere.
 
-The archipelago services *do* have an IP allowlist (loopback + the two
-Cloudflare /13s) because their only external dependency is
-`comms-gatekeeper.decentraland.org`, which is CF-fronted.
+The archipelago services *do* have an IP allowlist (loopback + the CDN's
+published address ranges) because their only external dependency is a single
+upstream gatekeeper host fronted by that CDN.
 
 ## No IP-level egress allowlist on squid-eth / squid-polygon
 
 Operators may switch RPC providers. Pinning the upstream IPs is brittle
-across provider changes, key rotations, and CF-fronted RPC endpoints.
+across provider changes, key rotations, and CDN-fronted RPC endpoints.

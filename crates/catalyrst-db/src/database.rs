@@ -21,7 +21,7 @@ impl Default for DatabaseConfig {
     fn default() -> Self {
         Self {
             host: "127.0.0.1".into(),
-            port: 6432,
+            port: 5433,
             database: "content".into(),
             user: "postgres".into(),
             password: String::new(),

@@ -10,6 +10,7 @@ use crate::AppState;
 
 #[derive(Debug, Serialize)]
 pub struct TradesEnvelope {
+    pub ok: bool,
     pub data: TradesEnvelopeBody,
 }
 
@@ -22,12 +23,14 @@ pub struct TradesEnvelopeBody {
 pub async fn get_trades(State(state): State<AppState>) -> Result<Json<TradesEnvelope>, ApiError> {
     let (data, count) = state.trades.get_trades().await?;
     Ok(Json(TradesEnvelope {
+        ok: true,
         data: TradesEnvelopeBody { data, count },
     }))
 }
 
 #[derive(Debug, Serialize)]
 pub struct TradeEnvelope {
+    pub ok: bool,
     pub data: TradeView,
 }
 
@@ -36,11 +39,12 @@ pub async fn get_trade(
     Path(id): Path<String>,
 ) -> Result<Json<TradeEnvelope>, ApiError> {
     let data = state.trades.get_trade(&id).await?;
-    Ok(Json(TradeEnvelope { data }))
+    Ok(Json(TradeEnvelope { ok: true, data }))
 }
 
 #[derive(Debug, Serialize)]
 pub struct TradeAcceptedEnvelope {
+    pub ok: bool,
     pub data: serde_json::Value,
 }
 
@@ -57,5 +61,5 @@ pub async fn get_trade_accepted_event(
         .trades
         .get_trade_accepted_event(&hashed_signature, timestamp, &caller)
         .await?;
-    Ok(Json(TradeAcceptedEnvelope { data }))
+    Ok(Json(TradeAcceptedEnvelope { ok: true, data }))
 }

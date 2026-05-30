@@ -69,12 +69,11 @@ impl ExternalCalls for LiveExternalCalls {
     }
 
     async fn fetch_content_file_size(&self, hash: &str) -> Option<usize> {
-        self.storage
-            .retrieve_uncompressed(hash)
-            .await
-            .ok()
-            .flatten()
-            .map(|b| b.len())
+        // Read the size from storage metadata instead of retrieving the whole file into memory just
+        // to measure it. Content is stored uncompressed, so `content_size`/`size` (both `meta.len()`)
+        // are the true byte length.
+        let info = self.storage.file_info(hash).await.ok().flatten()?;
+        Some(info.content_size.unwrap_or(info.size) as usize)
     }
 
     async fn validate_signature(
@@ -116,18 +115,27 @@ impl ExternalCalls for LiveExternalCalls {
         &self,
         files: &HashMap<String, Vec<u8>>,
     ) -> HashMap<String, CalculatedHash> {
-        files
+        // Hash the files concurrently instead of one after another. Hashing is CPU-bound, so each
+        // file runs on the blocking thread pool; this runs on the deploy path over every uploaded
+        // file, where the serial loop was a bottleneck for multi-file entities (e.g. wearables).
+        let handles: Vec<_> = files
             .iter()
             .map(|(name, bytes)| {
-                (
-                    name.clone(),
-                    CalculatedHash {
-                        calculated_hash: catalyrst_hashing::hash_bytes_v1(bytes),
-                        buffer: bytes.clone(),
-                    },
-                )
+                let name = name.clone();
+                let bytes = bytes.clone();
+                tokio::task::spawn_blocking(move || {
+                    let calculated_hash = catalyrst_hashing::hash_bytes_v1(&bytes);
+                    (name, CalculatedHash { calculated_hash, buffer: bytes })
+                })
             })
-            .collect()
+            .collect();
+
+        let mut out = HashMap::with_capacity(handles.len());
+        for handle in handles {
+            let (name, calculated) = handle.await.expect("file-hash task panicked");
+            out.insert(name, calculated);
+        }
+        out
     }
 }
 
@@ -328,10 +336,20 @@ impl Deployer for WriteDeployer {
             .cloned()
             .ok_or_else(|| vec!["The entity file was not part of the uploaded files.".to_string()])?;
 
-        let entity: VEntity = serde_json::from_slice(&entity_bytes)
+        let mut entity: VEntity = serde_json::from_slice(&entity_bytes)
             .map_err(|e| vec![format!("There was a problem parsing the entity: {e}")])?;
 
-        if entity.id != entity_id {
+        // Entity-id reconciliation (reference content-server + DeploymentBuilder):
+        // the uploaded file is id-less in a standard catalyst-client deploy and
+        // its id IS the content hash (`entity_id` = `hashV1(idless_file)`, the
+        // key we just looked the bytes up by). Adopt that id when the file omits
+        // one; if the file declares an id it MUST equal `entity_id`, else the
+        // deploy is inconsistent/forged. This restores the validator's
+        // `entity.id == entity_id` invariant for standard deploys while keeping
+        // the mismatch check intact.
+        if entity.id.is_empty() {
+            entity.id = entity_id.to_string();
+        } else if entity.id != entity_id {
             return Err(vec!["Entity id does not match the uploaded entity file.".to_string()]);
         }
 
@@ -391,7 +409,16 @@ impl Deployer for WriteDeployer {
             } else {
                 v1
             };
-            vfiles.insert(key, f.to_vec());
+            // Identical bytes mapping to the same hash twice is harmless; two
+            // DIFFERENT payloads claiming one hash (v0/v1 aliasing or a forged
+            // collision) must not silently drop one of them.
+            if let Some(prev) = vfiles.insert(key.clone(), f.to_vec()) {
+                if prev != *f {
+                    return Err(vec![format!(
+                        "two different uploaded files map to the same content hash {key}"
+                    )]);
+                }
+            }
         }
 
         let auth_chain: VAuthChain = serde_json::from_value(auth_chain)
@@ -474,6 +501,36 @@ impl WriteDeployer {
 
         let mut tx = self.pool.begin().await.map_err(|e| e.to_string())?;
 
+        // Concurrency guard for the recency-conditional active_pointers upsert
+        // below. That upsert's `ON CONFLICT DO UPDATE ... WHERE NOT EXISTS
+        // (SELECT ... FROM deployments cur ...)` predicate is NOT race-safe on
+        // its own: when a *newer* concurrent deploy to the same pointer commits
+        // while this transaction is waiting on the ON CONFLICT row lock, the
+        // correlated subquery against `deployments` is re-evaluated under this
+        // statement's ORIGINAL (now-stale) MVCC snapshot during EvalPlanQual,
+        // so it cannot see the newer deployment row and wrongly "steals" the
+        // pointer back to the older entity — regressing the head. (Verified
+        // reproducible: a 3-way race left the head on the middle/older entity
+        // in ~1/6 runs.)
+        //
+        // Serialize all deploys that touch the same pointer with a
+        // transaction-scoped advisory lock per pointer, so same-pointer deploys
+        // commit one-at-a-time and the subquery always reads a committed,
+        // up-to-date `deployments`. Locks are taken in sorted order to avoid
+        // deadlocks between multi-pointer deploys with overlapping pointer sets.
+        {
+            let mut lock_keys: Vec<&String> = pointers.iter().collect();
+            lock_keys.sort();
+            lock_keys.dedup();
+            for p in lock_keys {
+                sqlx::query("SELECT pg_advisory_xact_lock(hashtext($1))")
+                    .bind(p)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(|e| format!("pointer advisory lock failed: {e}"))?;
+            }
+        }
+
         let overwrote: Vec<(i32, Vec<String>)> = sqlx::query_as(
             r#"
             SELECT dep1.id, dep1.entity_pointers
@@ -547,20 +604,70 @@ impl WriteDeployer {
         if !pointers.is_empty() {
             let entity_ids = vec![entity.id.clone(); pointers.len()];
             let entity_types = vec![entity.entity_type.as_str().to_string(); pointers.len()];
-            sqlx::query(
-                r#"
-                INSERT INTO active_pointers (pointer, entity_id, entity_type)
-                SELECT unnest($1::text[]), unnest($2::text[]), unnest($3::text[])
-                ON CONFLICT (pointer) DO UPDATE
-                    SET entity_id = EXCLUDED.entity_id, entity_type = EXCLUDED.entity_type
-                "#,
+
+            // The node-catalyst `content` schema has active_pointers(pointer,
+            // entity_id) while the Rust-native schema also carries entity_type —
+            // probe once per deploy (cheap; deploys are rare) and branch.
+            let has_type_col: bool = sqlx::query_scalar(
+                r#"SELECT EXISTS (
+                       SELECT 1 FROM information_schema.columns
+                       WHERE table_schema = current_schema()
+                         AND table_name = 'active_pointers'
+                         AND column_name = 'entity_type')"#,
             )
-            .bind(&pointers)
-            .bind(&entity_ids)
-            .bind(&entity_types)
-            .execute(&mut *tx)
+            .fetch_one(&mut *tx)
             .await
-            .map_err(|e| format!("active_pointers upsert failed: {e}"))?;
+            .map_err(|e| format!("active_pointers schema probe failed: {e}"))?;
+
+            // Recency-conditional upsert: only steal the pointer when the entity
+            // currently referenced is strictly OLDER (same tie-break as the
+            // overwrote computation above). The unconditional SET let a slower
+            // concurrent writer (the upstream sync replica shares this table)
+            // clobber a newer head depending on arrival order.
+            let upsert = if has_type_col {
+                sqlx::query(
+                    r#"
+                    INSERT INTO active_pointers (pointer, entity_id, entity_type)
+                    SELECT unnest($1::text[]), unnest($2::text[]), unnest($3::text[])
+                    ON CONFLICT (pointer) DO UPDATE
+                        SET entity_id = EXCLUDED.entity_id, entity_type = EXCLUDED.entity_type
+                        WHERE NOT EXISTS (
+                            SELECT 1 FROM deployments cur
+                            WHERE cur.entity_id = active_pointers.entity_id
+                              AND (cur.entity_timestamp > to_timestamp($4 / 1000.0)
+                                   OR (cur.entity_timestamp = to_timestamp($4 / 1000.0)
+                                       AND lower(cur.entity_id) > lower(EXCLUDED.entity_id)))
+                        )
+                    "#,
+                )
+                .bind(&pointers)
+                .bind(&entity_ids)
+                .bind(&entity_types)
+                .bind(entity.timestamp as f64)
+            } else {
+                sqlx::query(
+                    r#"
+                    INSERT INTO active_pointers (pointer, entity_id)
+                    SELECT unnest($1::text[]), unnest($2::text[])
+                    ON CONFLICT (pointer) DO UPDATE
+                        SET entity_id = EXCLUDED.entity_id
+                        WHERE NOT EXISTS (
+                            SELECT 1 FROM deployments cur
+                            WHERE cur.entity_id = active_pointers.entity_id
+                              AND (cur.entity_timestamp > to_timestamp($3 / 1000.0)
+                                   OR (cur.entity_timestamp = to_timestamp($3 / 1000.0)
+                                       AND lower(cur.entity_id) > lower(EXCLUDED.entity_id)))
+                        )
+                    "#,
+                )
+                .bind(&pointers)
+                .bind(&entity_ids)
+                .bind(entity.timestamp as f64)
+            };
+            upsert
+                .execute(&mut *tx)
+                .await
+                .map_err(|e| format!("active_pointers upsert failed: {e}"))?;
         }
 
         let new_set: HashSet<&str> = pointers.iter().map(|p| p.as_str()).collect();

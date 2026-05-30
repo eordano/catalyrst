@@ -161,7 +161,18 @@ pub async fn validate_ownership(
     }
 
     let owned = resolve_ownership_batch(pool, eth_address, &to_check).await;
+    filter_avatars_by_ownership(avatars, &owned);
+}
 
+/// Strip on-chain wearables/emotes the wallet does not own from each avatar
+/// (the second half of `validate_ownership`, factored out so the security-critical
+/// keep/drop decision is unit-testable without a DB). Base wearables/emotes and
+/// emotes without a URN are always kept; on-chain items are kept only when their
+/// normalized URN (token id removed) is in `owned`.
+fn filter_avatars_by_ownership(
+    avatars: &mut [Value],
+    owned: &std::collections::HashSet<String>,
+) {
     for avatar_val in avatars.iter_mut() {
         let avatar_obj = match avatar_val.get_mut("avatar") {
             Some(a) => a,
@@ -348,6 +359,80 @@ pub async fn process_profile(
 mod tests {
     use super::*;
     use serde_json::json;
+    use std::collections::HashSet;
+
+    fn owned_set(urns: &[&str]) -> HashSet<String> {
+        urns.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn split_urn_strips_token_id_for_7segment_collections_v2() {
+        // 7-segment tokenized URN -> (item urn, token id)
+        let (urn, tok) =
+            split_urn_and_token_id("urn:decentraland:matic:collections-v2:0xabc:0:42");
+        assert_eq!(urn, "urn:decentraland:matic:collections-v2:0xabc:0");
+        assert_eq!(tok, Some("42"));
+        // 6-segment item URN -> unchanged
+        let (urn, tok) = split_urn_and_token_id("urn:decentraland:matic:collections-v2:0xabc:0");
+        assert_eq!(urn, "urn:decentraland:matic:collections-v2:0xabc:0");
+        assert_eq!(tok, None);
+        // third-party (7 segments) is NOT split
+        let tp = "urn:decentraland:matic:collections-thirdparty:tp:coll:item";
+        assert_eq!(split_urn_and_token_id(tp).1, None);
+    }
+
+    #[test]
+    fn normalize_urn_maps_ethereum_to_mainnet() {
+        assert_eq!(
+            normalize_urn("urn:decentraland:ethereum:collections-v1:0xabc:hat"),
+            "urn:decentraland:mainnet:collections-v1:0xabc:hat"
+        );
+        // only the first occurrence is replaced (matches replacen(.., 1))
+        assert!(normalize_urn("a:mainnet:b").contains(":mainnet:"));
+    }
+
+    #[test]
+    fn ownership_filter_keeps_base_keeps_owned_drops_unowned() {
+        let owned = owned_set(&["urn:decentraland:matic:collections-v2:0xowned:0"]);
+        let mut avatars = vec![json!({
+            "avatar": {
+                "wearables": [
+                    "urn:decentraland:off-chain:base-avatars:eyebrows_00",   // base -> keep
+                    "urn:decentraland:matic:collections-v2:0xowned:0",        // owned -> keep
+                    "urn:decentraland:matic:collections-v2:0xowned:0:99",     // owned (tokenized) -> keep
+                    "urn:decentraland:matic:collections-v2:0xnope:0"          // unowned -> DROP
+                ]
+            }
+        })];
+        filter_avatars_by_ownership(&mut avatars, &owned);
+        let ws: Vec<&str> = avatars[0]["avatar"]["wearables"]
+            .as_array().unwrap().iter().map(|v| v.as_str().unwrap()).collect();
+        assert_eq!(ws.len(), 3, "unowned must be stripped, base+owned kept: {ws:?}");
+        assert!(ws.iter().all(|w| !w.contains("0xnope")), "unowned leaked: {ws:?}");
+        assert!(ws.contains(&"urn:decentraland:off-chain:base-avatars:eyebrows_00"));
+    }
+
+    #[test]
+    fn ownership_filter_handles_emotes_and_ethereum_normalization() {
+        // owned set is stored in :mainnet: form; a profile listing the :ethereum: form must still match
+        let owned = owned_set(&["urn:decentraland:mainnet:collections-v1:0xc:dance"]);
+        let mut avatars = vec![json!({
+            "avatar": {
+                "emotes": [
+                    {"slot": 0, "urn": "handsair"},                                  // no colon -> keep
+                    {"slot": 1, "urn": "urn:decentraland:off-chain:base-emotes:wave"},// base -> keep
+                    {"slot": 2, "urn": "urn:decentraland:ethereum:collections-v1:0xc:dance"}, // owned via normalize -> keep
+                    {"slot": 3, "urn": "urn:decentraland:matic:collections-v2:0xx:1"}        // unowned -> DROP
+                ]
+            }
+        })];
+        filter_avatars_by_ownership(&mut avatars, &owned);
+        let es = avatars[0]["avatar"]["emotes"].as_array().unwrap();
+        let urns: Vec<&str> = es.iter().map(|e| e["urn"].as_str().unwrap()).collect();
+        assert_eq!(es.len(), 3, "unowned emote must be stripped: {urns:?}");
+        assert!(urns.iter().all(|u| !u.contains("0xx")), "unowned emote leaked: {urns:?}");
+        assert!(urns.contains(&"handsair") && urns.contains(&"urn:decentraland:off-chain:base-emotes:wave"));
+    }
 
     #[test]
     fn test_is_base_wearable() {

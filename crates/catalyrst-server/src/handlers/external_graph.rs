@@ -404,7 +404,7 @@ pub async fn parcel_operators(
                         .map(|s| s.to_string()),
                 )
             } else {
-                // No estate or parcel — cache the negative result.
+
                 return Ok::<Option<ParcelOperators>, String>(None);
             };
 
@@ -549,6 +549,57 @@ pub async fn parcels_by_update_operator(
 const QUERY_COLLECTIONS: &str =
     "{ collections (first: 1000, orderBy: urn, orderDirection: asc) { urn name } }";
 
+/// Per-network page size used by both the subgraph (`first: 1000`) and the
+/// local-squid port, so the two paths truncate identically.
+pub const COLLECTIONS_PAGE_SIZE: i64 = 1000;
+
+/// Read the collection list from the local marketplace squid mirror instead of
+/// the external collections subgraphs.
+///
+/// Parity with the subgraph query (`{ collections(first:1000, orderBy:urn,
+/// orderDirection:asc) { urn name } }`, run once per network):
+///   - squid `collection` rows mirror the subgraph entities 1:1 (no
+///     `is_approved`/`is_completed` filter — the subgraph applies none either),
+///   - we take the first `COLLECTIONS_PAGE_SIZE` per network ordered by `urn`,
+///   - squid stores ethereum collection urns under the `:mainnet:` network
+///     token; the subgraph (and every downstream consumer) expects
+///     `:ethereum:`, so we rewrite it on the way out. Because the rewrite only
+///     swaps the network token, `ORDER BY urn` in squid yields the same order
+///     as the subgraph's `orderBy: urn` on the rewritten urns.
+///
+/// Verified against prod (`peer.decentraland.org/lambdas/collections`) and the
+/// live cached `:5141` response: exact urn-set, ordering, and name parity
+/// (1042 collections + 2 base). `squid_network` is the squid network token for
+/// the chain ("ETHEREUM" / "POLYGON"); `urn_network_rewrite` is the
+/// `(from, to)` network-token swap applied to each urn (empty for matic).
+pub async fn collections_from_squid(
+    pool: &sqlx::PgPool,
+    squid_network: &str,
+    urn_network_rewrite: Option<(&str, &str)>,
+) -> Result<Vec<(String, String)>, String> {
+    let rows: Vec<(String, Option<String>)> = sqlx::query_as(
+        "SELECT urn, name FROM squid_marketplace.collection \
+         WHERE network = $1 AND urn IS NOT NULL \
+         ORDER BY urn ASC LIMIT $2",
+    )
+    .bind(squid_network)
+    .bind(COLLECTIONS_PAGE_SIZE)
+    .fetch_all(pool)
+    .await
+    .map_err(|e| format!("local collections query failed: {e}"))?;
+
+    Ok(rows
+        .into_iter()
+        .map(|(urn, name)| {
+            let urn = match urn_network_rewrite {
+                Some((from, to)) => urn.replacen(from, to, 1),
+                None => urn,
+            };
+            (urn, name.unwrap_or_default())
+        })
+        .collect())
+}
+
 pub async fn collections(url: &str) -> Result<Vec<(String, String)>, String> {
     let data = graph_query(url, QUERY_COLLECTIONS, json!({})).await?;
     let arr = data
@@ -645,8 +696,6 @@ mod tests {
     use std::sync::Arc as StdArc;
     use std::time::Duration as StdDuration;
 
-    /// Parcel cache shape mirrors `parcel_operators`: second call to the same
-    /// (network, x, y) HITs and skips the upstream fetch.
     #[tokio::test]
     async fn parcel_operators_cache_second_call_is_a_hit() {
         let cache: ResponseCache<(String, i64, i64), Option<ParcelOperators>> =
@@ -681,7 +730,6 @@ mod tests {
         assert_eq!(counter.load(Ordering::SeqCst), 1);
     }
 
-    /// `None` (no estate/parcel found) is also a cacheable value.
     #[tokio::test]
     async fn parcel_operators_cache_caches_none() {
         let cache: ResponseCache<(String, i64, i64), Option<ParcelOperators>> =

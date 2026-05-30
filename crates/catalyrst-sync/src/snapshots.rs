@@ -10,7 +10,7 @@ use crate::{
     SyncDeployment, SyncError, Timestamp,
 };
 
-const MAX_BODY_BYTES: usize = 512 * 1024 * 1024;
+const MAX_BODY_BYTES: usize = 2 * 1024 * 1024 * 1024;
 
 pub async fn fetch_snapshots(
     client: &Client,
@@ -209,49 +209,132 @@ where
     let text_bytes = decompress_snapshot(&data);
     let text = String::from_utf8_lossy(&text_bytes);
 
-    let mut total: u64 = 0;
-    let mut num_scheduled: u64 = 0;
-    let mut num_skipped_by_filter: u64 = 0;
-    let mut num_parse_errors: u64 = 0;
+    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
-    for line in text.lines() {
-        if should_stop() {
-            return Err(SyncError::Stopped);
-        }
+    // Per-type concurrency. Non-scene entities (profile / wearable / emote /
+    // outfits / store) are single-pointer with disjoint keys → last-write-wins
+    // with no cross-entity pointer collisions, safe to deploy with high
+    // concurrency. Scenes are multi-pointer (LAND parcels) and carry heavy
+    // content, so they stay ~serial to bound memory. Correctness is guaranteed
+    // regardless by the deployer (sorted per-pointer advisory locks +
+    // recency-conditional active_pointers upsert + in-batch pointer dedup), so
+    // these knobs only trade throughput against memory, never correctness.
+    let nonscene_concurrency: usize = std::env::var("SYNC_NONSCENE_CONCURRENCY")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .filter(|&n| n > 0)
+        .unwrap_or(64);
+    let scene_concurrency: usize = std::env::var("SYNC_SCENE_CONCURRENCY")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .filter(|&n| n > 0)
+        .unwrap_or(1);
 
+    let total = AtomicU64::new(0);
+    let num_scheduled = AtomicU64::new(0);
+    let num_skipped_by_filter = AtomicU64::new(0);
+    let num_parse_errors = AtomicU64::new(0);
+    let stopped = AtomicBool::new(false);
+    let scenes: std::sync::Mutex<Vec<SyncDeployment>> = std::sync::Mutex::new(Vec::new());
+
+    // Parse + pre-filter one snapshot line into a deployable entity, or None.
+    let parse = |line: &str| -> Option<SyncDeployment> {
         let trimmed = line.trim();
         if !(trimmed.starts_with('{') && trimmed.ends_with('}')) {
-            continue;
+            return None;
         }
-
-        total += 1;
-
+        total.fetch_add(1, Ordering::Relaxed);
         let deployment: SyncDeployment = match serde_json::from_str(trimmed) {
             Ok(d) => d,
             Err(e) => {
-                num_parse_errors += 1;
-                if num_parse_errors <= 5 {
+                if num_parse_errors.fetch_add(1, Ordering::Relaxed) < 5 {
                     warn!(snapshot_hash, error = %e, "Skipping unparseable snapshot entry");
                 }
-                continue;
+                return None;
             }
         };
-
         if deployment.entity_timestamp < genesis_timestamp {
-            continue;
+            return None;
         }
         if let Some(filter) = entity_type_filter {
             if !filter.contains(&deployment.entity_type) {
-                num_skipped_by_filter += 1;
-                continue;
+                num_skipped_by_filter.fetch_add(1, Ordering::Relaxed);
+                return None;
             }
         }
+        Some(deployment)
+    };
 
-        deployer
-            .schedule_entity_deployment(deployment, &server_list)
-            .await?;
-        num_scheduled += 1;
+    // Captured-by-copy references so the concurrent futures stay Send and don't
+    // borrow `should_stop` (which need not be Sync — it's polled only on the
+    // sequential producer side below).
+    let server_list_ref: &[String] = &server_list;
+    let scheduled = &num_scheduled;
+    let stop_flag = &stopped;
+    let scenes_ref = &scenes;
+
+    // Lane 1: stream all entities, deploy non-scenes concurrently, defer scenes.
+    futures::stream::iter(text.lines())
+        .filter_map(|line| {
+            if should_stop() {
+                stop_flag.store(true, Ordering::Relaxed);
+            }
+            let parsed = if stop_flag.load(Ordering::Relaxed) {
+                None
+            } else {
+                parse(line)
+            };
+            async move { parsed }
+        })
+        .for_each_concurrent(nonscene_concurrency, |deployment| async move {
+            if stop_flag.load(Ordering::Relaxed) {
+                return;
+            }
+            if deployment.entity_type == "scene" {
+                scenes_ref.lock().unwrap().push(deployment);
+                return;
+            }
+            match deployer
+                .schedule_entity_deployment(deployment, server_list_ref)
+                .await
+            {
+                Ok(()) => {
+                    scheduled.fetch_add(1, Ordering::Relaxed);
+                }
+                Err(SyncError::Stopped) => stop_flag.store(true, Ordering::Relaxed),
+                Err(e) => warn!(snapshot_hash, error = %e, "Failed to schedule entity deployment"),
+            }
+        })
+        .await;
+
+    // Lane 2: scenes — ~serial (bounded by scene_concurrency) for memory safety.
+    let scene_batch = std::mem::take(&mut *scenes.lock().unwrap());
+    futures::stream::iter(scene_batch)
+        .for_each_concurrent(scene_concurrency, |deployment| async move {
+            if stop_flag.load(Ordering::Relaxed) {
+                return;
+            }
+            match deployer
+                .schedule_entity_deployment(deployment, server_list_ref)
+                .await
+            {
+                Ok(()) => {
+                    scheduled.fetch_add(1, Ordering::Relaxed);
+                }
+                Err(SyncError::Stopped) => stop_flag.store(true, Ordering::Relaxed),
+                Err(e) => warn!(snapshot_hash, error = %e, "Failed to schedule entity deployment"),
+            }
+        })
+        .await;
+
+    if stopped.load(Ordering::Relaxed) {
+        return Err(SyncError::Stopped);
     }
+
+    let total = total.load(Ordering::Relaxed);
+    let num_scheduled = num_scheduled.load(Ordering::Relaxed);
+    let num_skipped_by_filter = num_skipped_by_filter.load(Ordering::Relaxed);
+    let num_parse_errors = num_parse_errors.load(Ordering::Relaxed);
 
     if num_parse_errors > 0 {
         warn!(
@@ -266,6 +349,8 @@ where
         num_scheduled,
         num_skipped_by_filter,
         num_parse_errors,
+        nonscene_concurrency,
+        scene_concurrency,
         "Snapshot scheduled"
     );
 
@@ -295,11 +380,15 @@ async fn download_snapshot_file(
         let server = server_list[retry as usize % server_list.len()];
         let url = format!("{}/contents/{}", server, snapshot_hash);
 
+        // No per-request total timeout: snapshot files are large (100s of MB) and
+        // the shared client intentionally has no total cap — its read_timeout
+        // catches stalled connections without truncating a slow large download.
         match client.get(&url).send().await {
             Ok(resp) => {
                 if resp.status().is_success() {
 
-                    if let Some(len) = resp.content_length() {
+                    let expected_len = resp.content_length();
+                    if let Some(len) = expected_len {
                         if len as usize > MAX_BODY_BYTES {
                             warn!(
                                 snapshot_hash,
@@ -365,6 +454,30 @@ async fn download_snapshot_file(
                             tokio::time::sleep(std::time::Duration::from_millis(retry_wait_ms)).await;
                         }
                         continue;
+                    }
+
+                    // Explicit truncation signal: a short body (clean EOF before
+                    // Content-Length) would otherwise fail the hash check with an
+                    // opaque "hash verification failed". Report the real cause.
+                    if let Some(len) = expected_len {
+                        if (buf.len() as u64) < len {
+                            warn!(
+                                snapshot_hash,
+                                %server,
+                                retry,
+                                got = buf.len(),
+                                expected = len,
+                                "Snapshot download TRUNCATED (short read), trying next server"
+                            );
+                            last_error = Some(SyncError::Other(format!(
+                                "snapshot {} from {} truncated: got {} of {} bytes",
+                                snapshot_hash, server, buf.len(), len
+                            )));
+                            if retry + 1 < max_retries {
+                                tokio::time::sleep(std::time::Duration::from_millis(retry_wait_ms)).await;
+                            }
+                            continue;
+                        }
                     }
 
                     let bytes: bytes::Bytes = buf.into();

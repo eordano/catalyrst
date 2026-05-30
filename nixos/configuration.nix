@@ -231,7 +231,7 @@ in
       zramSwap.enable = true;
       networking.domain = lib.mkDefault "";
 
-      # PerSourcePenalties off: locked out the automation IP last time.
+      # PerSourcePenalties off: avoids locking out trusted automation sources.
       services.openssh = {
         enable = lib.mkDefault true;
         settings = {
@@ -689,7 +689,7 @@ in
         set_real_ip_from 2c0f:f248::/32;
       '';
       systemd.services.cloudflare-ips-seed = {
-        description = "Seed /var/lib/cloudflare/nginx-real-ip.conf on first boot";
+        description = "Seed the nginx real-ip include on first boot";
         wantedBy = [ "multi-user.target" ];
         before = [ "nginx.service" ];
         serviceConfig = { Type = "oneshot"; User = "root"; };
@@ -790,7 +790,7 @@ in
         # /rtc only — explicit `/` → 404 keeps the Twirp admin API off the internet
         # even if a default location is added later.
         locations."/rtc" = {
-          proxyPass = "http://127.0.0.1:7880";
+          proxyPass = "http://127.0.0.1:5880";
           proxyWebsockets = true;
           extraConfig = "proxy_read_timeout 3600s;\nproxy_send_timeout 3600s;";
         };
@@ -806,7 +806,7 @@ in
           Restart = "always"; RestartSec = 5; DynamicUser = true;
           MemoryMax = "512M";
           TasksMax = 128;
-          SocketBindAllow = [ "tcp:4222" "tcp:8222" ];
+          SocketBindAllow = [ "tcp:5222" "tcp:5223" ];
           SocketBindDeny = "any";
           IPAddressAllow = [ "localhost" ];
           IPAddressDeny = "any";
@@ -913,7 +913,7 @@ in
           Restart = "always"; RestartSec = 5;
           MemoryMax = "2G";
           TasksMax = 1024;
-          SocketBindAllow = [ "tcp:7880" "tcp:7881" "udp:7882" ];
+          SocketBindAllow = [ "tcp:5880" "tcp:5881" "udp:7882" ];
           SocketBindDeny = "any";
           # NO IPAddress filter: LiveKit ICE/STUN candidates are arbitrary; an
           # allowlist would break media.
@@ -926,7 +926,7 @@ in
         after = [ "nats.service" "livekit.service" ]; wants = [ "nats.service" "livekit.service" ];
         environment = {
           HTTP_SERVER_PORT = "5000"; HTTP_SERVER_HOST = "127.0.0.1";
-          NATS_URL = "nats://127.0.0.1:4222";
+          NATS_URL = "nats://127.0.0.1:5222";
           ARCHIPELAGO_FLUSH_FREQUENCY = "2.0";
           ARCHIPELAGO_JOIN_DISTANCE = "64";
           ARCHIPELAGO_LEAVE_DISTANCE = "80";
@@ -960,7 +960,7 @@ in
         after = [ "nats.service" ]; wants = [ "nats.service" ];
         environment = {
           HTTP_SERVER_PORT = "5001"; HTTP_SERVER_HOST = "127.0.0.1";
-          NATS_URL = "nats://127.0.0.1:4222";
+          NATS_URL = "nats://127.0.0.1:5222";
           ETH_NETWORK = "mainnet";
           COMMS_GATEKEEPER_URL = "https://comms-gatekeeper.decentraland.org";
         };
@@ -982,7 +982,7 @@ in
         after = [ "nats.service" ]; wants = [ "nats.service" ];
         environment = {
           HTTP_SERVER_PORT = "5002"; HTTP_SERVER_HOST = "127.0.0.1";
-          NATS_URL = "nats://127.0.0.1:4222";
+          NATS_URL = "nats://127.0.0.1:5222";
           CONTENT_URL = "${cfg.publicUrl}/content/";
         };
         serviceConfig = noPgSandbox // {

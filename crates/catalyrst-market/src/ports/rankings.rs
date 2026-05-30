@@ -142,13 +142,7 @@ impl RankingsComponent {
         } else {
             format!(" WHERE {}", where_parts.join(" AND "))
         };
-        // NOTE: `volume` is cast to text in the SELECT list, so referring to
-        // the alias in ORDER BY would sort lexicographically — that's the bug
-        // the prior implementation hit (highest first wins because "9..." > "8...").
-        // Use the raw numeric expression here so the sort is numeric.
-        // Tie-break by sales (DESC) and item id (ASC) for stability against
-        // upstream, mirroring the "ORDER BY volume DESC NULLS LAST, sales DESC, id ASC"
-        // contract called out in the parity report.
+
         let order_by = match f.sort_by {
             Some(RankingsSortBy::MostSales) => {
                 "COUNT(*) DESC, COALESCE(SUM(sale.price::numeric), 0) DESC NULLS LAST, nft.item_id ASC"

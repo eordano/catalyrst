@@ -1,12 +1,13 @@
 use serde::Serialize;
 use sqlx::PgPool;
+use sqlx::Row;
 
 use crate::dcl_schemas::{
     ethereum_chain_id, get_db_networks, polygon_chain_id, ChainId, Network, NftCategory,
 };
 use crate::http::params::Params;
 use crate::http::response::ApiError;
-use crate::logic::sql_filters::where_from;
+use crate::logic::sql_filters::{clamp_first, clamp_skip, where_from};
 use crate::ports::items::{fix_urn, ItemType};
 use crate::MARKETPLACE_SQUID_SCHEMA;
 
@@ -374,15 +375,78 @@ impl NftsComponent {
         let rows: Vec<DbNft> = q.fetch_all(&self.pool).await?;
 
         let total = rows.first().map(|r| r.count).unwrap_or(0);
+
+        let nft_ids: Vec<String> = rows.iter().map(|r| r.id.clone()).collect();
+        let orders_by_nft = if nft_ids.is_empty() {
+            std::collections::HashMap::new()
+        } else {
+            self.get_open_orders_by_nft_ids(&nft_ids, filters.owner.as_deref())
+                .await?
+        };
+
         let results = rows
             .iter()
-            .map(|r| NftResult {
-                nft: from_db_nft_to_nft(r),
-                order: None,
-                rental: None,
+            .map(|r| {
+                let order = orders_by_nft.get(&r.id);
+                let mut nft = from_db_nft_to_nft(r);
+                nft.active_order_id = order.map(|o| o.id.clone());
+                NftResult {
+                    nft,
+                    order: order.map(|o| serde_json::to_value(o).unwrap_or(serde_json::Value::Null)),
+                    rental: None,
+                }
             })
             .collect();
         Ok((results, total))
+    }
+
+    async fn get_open_orders_by_nft_ids(
+        &self,
+        nft_ids: &[String],
+        owner: Option<&str>,
+    ) -> Result<std::collections::HashMap<String, crate::ports::orders::Order>, ApiError> {
+        let mut sql = format!(
+            r#"
+SELECT
+  ord.id::text            AS id,
+  ''                      AS trade_id,
+  ord.marketplace_address AS marketplace_address,
+  ord.nft_address         AS nft_address,
+  ord.token_id::text      AS token_id,
+  ord.price::text         AS price,
+  nft.issued_id::text     AS issued_id,
+  ord.nft_id              AS nft_id,
+  ord.owner               AS owner,
+  ord.buyer               AS buyer,
+  ord.status              AS status,
+  ord.created_at::float8  AS created_at,
+  ord.updated_at::float8  AS updated_at,
+  ord.expires_at::float8  AS expires_at,
+  ord.network             AS network
+FROM {schema}."order" ord
+JOIN {schema}."nft" nft ON ord.nft_id = nft.id AND nft.owner_address = ord.owner
+WHERE ord.status = 'open'
+  AND ord.expires_at_normalized > NOW()
+  AND ord.nft_id = ANY($1)
+"#,
+            schema = MARKETPLACE_SQUID_SCHEMA,
+        );
+        if owner.is_some() {
+            sql.push_str(" AND LOWER(ord.owner) = LOWER($2)");
+        }
+
+        let mut q = sqlx::query(&sql).bind(nft_ids);
+        if let Some(o) = owner {
+            q = q.bind(o.to_string());
+        }
+        let db_rows = q.fetch_all(&self.pool).await?;
+
+        let mut map = std::collections::HashMap::new();
+        for row in &db_rows {
+            let nft_id: String = row.try_get("nft_id").unwrap_or_default();
+            map.insert(nft_id, crate::ports::orders::row_to_order(row));
+        }
+        Ok(map)
     }
 }
 
@@ -500,15 +564,21 @@ pub fn build_nfts_query(filters: &NftFilters) -> (String, Vec<Bind>) {
     let inner_where = where_from(&inner_wheres);
 
     let inner_sort = match filters.sort_by {
-        Some(NftSortBy::Name) => " ORDER BY name ASC ",
-        Some(NftSortBy::Newest) => " ORDER BY created_at DESC ",
-        Some(NftSortBy::RecentlySold) => " ORDER BY sold_at DESC ",
+        Some(NftSortBy::Name) => " ORDER BY name ASC, id ASC ",
+        Some(NftSortBy::Newest) => " ORDER BY created_at DESC, id ASC ",
+        Some(NftSortBy::RecentlySold) => " ORDER BY sold_at DESC, id ASC ",
+        // cheapest_parcel == upstream NFTSortBy.CHEAPEST (land price ASC).
+        // search_order_price is NUMERIC, so this is a numeric (not lexical)
+        // sort; NULLS LAST keeps unlisted parcels after listed ones.
+        Some(NftSortBy::CheapestParcel) => {
+            " ORDER BY search_order_price ASC NULLS LAST, id ASC "
+        }
         _ => "",
     };
     let apply_inner_limit =
         !matches!(filters.sort_by, Some(NftSortBy::RecentlyListed)) && filters.owner.is_none();
-    let limit_val = filters.first.unwrap_or(100);
-    let offset_val = filters.skip.unwrap_or(0);
+    let limit_val = clamp_first(filters.first, 100);
+    let offset_val = clamp_skip(filters.skip);
     let inner_limit_offset = if apply_inner_limit {
         let lp = emit(Bind::Int(limit_val), &mut binds, &mut next_idx);
         let op = emit(Bind::Int(offset_val), &mut binds, &mut next_idx);
@@ -632,11 +702,17 @@ pub fn build_nfts_query(filters: &NftFilters) -> (String, Vec<Bind>) {
 
     let outer_where = where_from(&outer_wheres);
 
+    // Every ORDER BY carries `, nft.id ASC` as a stable tie-breaker so
+    // LIMIT/OFFSET pages partition deterministically (no row appearing on two
+    // pages or being skipped when the primary key ties).
     let main_sort = match filters.sort_by {
-        Some(NftSortBy::RecentlyListed) => " ORDER BY order_created_at DESC ",
-        Some(NftSortBy::Name) => " ORDER BY name ASC ",
-        Some(NftSortBy::Newest) => " ORDER BY created_at DESC ",
-        Some(NftSortBy::RecentlySold) => " ORDER BY sold_at DESC ",
+        Some(NftSortBy::RecentlyListed) => " ORDER BY order_created_at DESC, nft.id ASC ",
+        Some(NftSortBy::Name) => " ORDER BY name ASC, nft.id ASC ",
+        Some(NftSortBy::Newest) => " ORDER BY created_at DESC, nft.id ASC ",
+        Some(NftSortBy::RecentlySold) => " ORDER BY sold_at DESC, nft.id ASC ",
+        Some(NftSortBy::CheapestParcel) => {
+            " ORDER BY order_price ASC NULLS LAST, nft.id ASC "
+        }
         _ => "",
     };
 
@@ -648,10 +724,7 @@ pub fn build_nfts_query(filters: &NftFilters) -> (String, Vec<Bind>) {
         format!(" LIMIT {} OFFSET {} ", lp, op)
     };
 
-    // NOTE: unified_trades is stubbed empty because marketplace.mv_trades does not exist
-    // in the local DB (no node-pg-migrate run). The {trades_cat} filter is preserved so
-    // future migration to a real materialized view does not change the call sites.
-    let _ = trades_cat; // unused while stubbed
+    let _ = trades_cat;
     let sql = format!(
         "WITH unified_trades AS (
             SELECT
@@ -660,19 +733,22 @@ pub fn build_nfts_query(filters: &NftFilters) -> (String, Vec<Bind>) {
                 NULL::text AS sent_token_id,
                 NULL::text AS sent_nft_category,
                 NULL::text AS status,
-                NULL::text AS signer
+                NULL::text AS signer,
+                NULL::timestamptz AS created_at
             WHERE FALSE
          ),
          filtered_estate AS (
             SELECT est.id, est.token_id, est.size, est.data_id,
-                ARRAY_AGG(JSON_BUILD_OBJECT('x', est_parcel.x, 'y', est_parcel.y)) AS estate_parcels
+                -- JSONB_AGG (one jsonb array), not ARRAY_AGG(JSON_BUILD_OBJECT)
+                -- which yields json[] and mismatches the Json<Vec<_>> decode.
+                JSONB_AGG(JSONB_BUILD_OBJECT('x', est_parcel.x, 'y', est_parcel.y)) AS estate_parcels
             FROM {schema}.estate est
             LEFT JOIN {schema}.parcel est_parcel ON est.id = est_parcel.estate_id
             {estate_where}
             GROUP BY est.id, est.token_id, est.size, est.data_id
          ),
          parcel_estate_data AS (
-            SELECT par.*, par_est.token_id AS parcel_estate_token_id,
+            SELECT par.*, par_est.token_id::text AS parcel_estate_token_id,
                    est_data.name AS parcel_estate_name
             FROM {schema}.parcel par
             LEFT JOIN {schema}.estate par_est ON par.estate_id = par_est.id AND par_est.size > 0
@@ -695,13 +771,13 @@ pub fn build_nfts_query(filters: &NftFilters) -> (String, Vec<Bind>) {
             nft.urn,
             account.address AS owner,
             nft.image,
-            nft.issued_id,
-            item.blockchain_id AS item_id,
+            nft.issued_id::text AS issued_id,
+            item.blockchain_id::text AS item_id,
             nft.category,
             COALESCE(wearable.rarity, emote.rarity) AS rarity,
             COALESCE(wearable.name, emote.name, land_data.name, ens.subdomain) AS name,
-            parcel.x,
-            parcel.y,
+            parcel.x::text AS x,
+            parcel.y::text AS y,
             ens.subdomain,
             wearable.body_shapes,
             wearable.category AS wearable_category,
@@ -716,7 +792,17 @@ pub fn build_nfts_query(filters: &NftFilters) -> (String, Vec<Bind>) {
             parcel.parcel_estate_token_id,
             parcel.parcel_estate_name,
             parcel.estate_id AS parcel_estate_id,
-            COALESCE(wearable.description, emote.description, land_data.description) AS description
+            COALESCE(wearable.description, emote.description, land_data.description) AS description,
+            -- Sort key for sortBy=recently_listed. search_order_created_at is a
+            -- NUMERIC unix-epoch on the nft row (NULL when not listed); upstream
+            -- coalesces it with the trade created_at. The unified_trades CTE is
+            -- the empty stub here, so trades.created_at is always NULL -- kept for
+            -- parity. Without this projection the ORDER BY references a column that
+            -- does not exist (column order_created_at does not exist) -> 500.
+            COALESCE(TO_TIMESTAMP(nft.search_order_created_at), trades.created_at) AS order_created_at,
+            -- Numeric listing price, projected so the outer ORDER BY for
+            -- sortBy=cheapest_parcel sorts numerically (NULL when unlisted).
+            nft.search_order_price AS order_price
          FROM filtered_nft nft
          LEFT JOIN {schema}.metadata metadata ON nft.metadata_id = metadata.id
          LEFT JOIN {schema}.wearable wearable ON metadata.wearable_id = wearable.id

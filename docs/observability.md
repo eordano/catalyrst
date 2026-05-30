@@ -1,14 +1,15 @@
 # Prometheus, blackbox, alerts
 
-All exporters and Prometheus itself bind loopback only. To explore:
-`ssh -L 9090:127.0.0.1:9090 <host>` then open `http://localhost:9090/`.
+All exporters and Prometheus itself bind loopback only. To explore,
+tunnel the Prometheus port to your workstation
+(`ssh -L 9090:127.0.0.1:9090 <host>`) then open `http://localhost:9090/`.
 
 ## Scrape targets
 
 - `node` (`:9100`) — node_exporter with `systemd` and `textfile`
-  collectors. The textfile dir (`/var/lib/node-exporter-textfile`) is how
-  the LiveKit-rotation and CF-IPs-refresh jobs publish their metrics
-  without running their own exporter.
+  collectors. The textfile dir (`<DATA_DIR>/node-exporter-textfile`) is how
+  periodic maintenance jobs (such as key-rotation or IP-refresh jobs)
+  publish their metrics without running their own exporter.
 - `catalyrst` (`:5141/metrics`) — the application.
 - `archipelago` (`:5000`, `:5001`, `:5002`) — core, ws-connector, stats.
 - `pulse` (`:5005/metrics`) — `Metrics__Type = "Prometheus"`.

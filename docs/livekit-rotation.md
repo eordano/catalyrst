@@ -16,8 +16,8 @@ Timer: `*-01,04,07,10-01 03:00:00` with `RandomizedDelaySec = 1h`,
    exit 1. (archipelago-core mints tokens against the LiveKit key, so it
    must restart against whichever key won.)
 6. On success: restart `archipelago-core.service` so it picks up the new key.
-7. Write a Prometheus metric to
-   `/var/lib/node-exporter-textfile/livekit_rotation.prom`:
+7. Write a Prometheus metric to your metrics directory
+   (`<DATA_DIR>/livekit_rotation.prom`):
    `livekit_rotation_timestamp_seconds <unix>`.
 
 ## Alert

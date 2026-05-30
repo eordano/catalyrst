@@ -15,8 +15,6 @@ const PROFILE_CACHE_TTL: Duration = Duration::from_secs(30);
 const PROFILE_CACHE_MAX_ENTRIES: usize = 50_000;
 const PROFILE_BATCH_MAX: usize = 50;
 
-/// Cache for `fetch_profile_for_id` keyed by lowercased address.
-/// Value is the processed profile JSON, or `Value::Null` to represent "not found".
 fn profile_cache() -> &'static Arc<ResponseCache<String, Value>> {
     static C: OnceLock<Arc<ResponseCache<String, Value>>> = OnceLock::new();
     C.get_or_init(|| {
@@ -28,7 +26,6 @@ fn profile_cache() -> &'static Arc<ResponseCache<String, Value>> {
     })
 }
 
-/// Cache for the batch `profiles` handler keyed by sorted-comma-joined ids.
 fn profiles_batch_cache() -> &'static Arc<ResponseCache<String, Value>> {
     static C: OnceLock<Arc<ResponseCache<String, Value>>> = OnceLock::new();
     C.get_or_init(|| {
@@ -40,10 +37,6 @@ fn profiles_batch_cache() -> &'static Arc<ResponseCache<String, Value>> {
     })
 }
 
-/// Shared profile-fetch helper used by `profile_by_id` and `profile_alias`.
-/// Returns `Some(Value)` with the hydrated profile JSON, or `None` if no
-/// entity exists for that pointer. Results are cached (TTL 30 s) keyed by
-/// the lowercased address, with single-flight coalescing.
 async fn fetch_profile_for_id(state: &AppState, id: &str) -> Option<Value> {
     let key = id.to_lowercase();
     let state_arc = state;
@@ -109,9 +102,6 @@ pub async fn profiles(
 
     let pointers: Vec<String> = ids.iter().map(|id| id.to_lowercase()).collect();
 
-    // If `if-modified-since` is set we cannot return the cached body verbatim:
-    // we may need to emit 304 Not Modified instead. Skip the cache on that path.
-    // Also skip the cache for huge batches to avoid bloating the keyspace.
     let cache_eligible = modified_since.is_none() && pointers.len() <= PROFILE_BATCH_MAX;
 
     if cache_eligible {
@@ -162,7 +152,7 @@ pub async fn profiles(
                 .unwrap_or(false)
         });
         if all_stale && !entities.is_empty() {
-            return (StatusCode::NOT_MODIFIED, Json(Value::Null)).into_response();
+            return StatusCode::NOT_MODIFIED.into_response();
         }
     }
 
@@ -364,9 +354,6 @@ mod tests {
     use std::sync::Arc;
     use std::time::Duration;
 
-    /// Exercises the cached-then-second-call-is-fast path with a mock fetcher.
-    /// We construct a fresh `ResponseCache` locally rather than poking the
-    /// process-wide static so tests don't see each other's state.
     #[tokio::test]
     async fn profile_cache_second_call_is_a_hit() {
         let cache: ResponseCache<String, Value> =
@@ -374,7 +361,7 @@ mod tests {
         let counter = Arc::new(AtomicUsize::new(0));
         let make_profile = |addr: String, c: Arc<AtomicUsize>| async move {
             c.fetch_add(1, Ordering::SeqCst);
-            // Simulate cost.
+
             Ok::<_, ()>(json!({ "id": addr, "avatars": [] }))
         };
 
@@ -398,8 +385,6 @@ mod tests {
             ResponseCache::new("profiles_batch_test", Duration::from_secs(60), 100);
         let counter = Arc::new(AtomicUsize::new(0));
 
-        // Two callers with the same id-set but different order produce the
-        // same cache key after sort+dedup, so the second one must HIT.
         let key_a = {
             let mut v = vec!["0xa".to_string(), "0xb".to_string()];
             v.sort();

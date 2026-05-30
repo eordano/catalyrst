@@ -51,8 +51,11 @@ impl AccountsComponent {
         filters: &AccountFilters,
     ) -> Result<(Vec<Account>, i64), ApiError> {
         const MAX_LIMIT: i64 = 1000;
-        let limit = filters.first.map(|f| f.min(MAX_LIMIT)).unwrap_or(MAX_LIMIT);
-        let offset = filters.skip.unwrap_or(0);
+        // Clamp to non-negative: a negative `first`/`skip` becomes a negative
+        // SQL LIMIT/OFFSET which Postgres rejects (500). Matches the clamp_first/
+        // clamp_skip guards on the other market list endpoints.
+        let limit = filters.first.map(|f| f.clamp(0, MAX_LIMIT)).unwrap_or(MAX_LIMIT);
+        let offset = filters.skip.unwrap_or(0).max(0);
 
         let mut where_clauses: Vec<String> = Vec::new();
         let mut bind_idx: usize = 0;
@@ -93,9 +96,6 @@ impl AccountsComponent {
             format!(" WHERE {}", where_clauses.join(" AND "))
         };
 
-        // Qualify each ORDER BY column with the `account` table name so
-        // Postgres binds to the underlying NUMERIC, not the text-aliased
-        // output column from the SELECT list (which would sort lexically).
         let sort_clause = match filters.sort_by {
             Some(AccountSortBy::MostSales) => " ORDER BY account.sales DESC ",
             Some(AccountSortBy::MostPurchases) => " ORDER BY account.purchases DESC ",

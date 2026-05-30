@@ -719,6 +719,14 @@ impl<E: ExternalCalls, B: BlockchainChecker> ContentValidator<E, B> {
         deployment: &DeploymentToValidate,
     ) -> ValidationResponse {
         if self.ignore_blockchain_access {
+            // The bypass skips CHAIN queries only. The pure-local pointer==signer
+            // gate (profile/store/outfits) must still hold, or any wallet could
+            // overwrite another user's entity on a node that also accepts writes.
+            let deployer = self.external_calls.owner_address(&deployment.audit_info);
+            let local = crate::checker::validate_local_pointer_ownership(deployment, &deployer);
+            if !matches!(local, ValidationResponse::Ok) {
+                return local;
+            }
             warn!(
                 entity_id = %deployment.entity.id,
                 entity_type = %deployment.entity.entity_type,

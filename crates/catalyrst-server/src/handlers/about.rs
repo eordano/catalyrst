@@ -126,22 +126,26 @@ pub struct AboutBff {
 }
 
 struct AboutEnvConfig {
+    configured: bool,
     ws_connector_status_url: String,
     stats_core_status_url: String,
     comms_protocol: String,
     comms_fixed_adapter: String,
     comms_version: Option<String>,
     comms_commit_hash: Option<String>,
+    max_users: Option<u64>,
 }
 
 fn about_env() -> &'static AboutEnvConfig {
     static ENV: OnceLock<AboutEnvConfig> = OnceLock::new();
     ENV.get_or_init(|| {
-        let ws_base = std::env::var("COMMS_WS_CONNECTOR_URL")
-            .unwrap_or_else(|_| "http://127.0.0.1:5001".to_string());
-        let stats_base = std::env::var("COMMS_STATS_URL")
-            .unwrap_or_else(|_| "http://127.0.0.1:5002".to_string());
+        let ws_env = std::env::var("COMMS_WS_CONNECTOR_URL").ok().filter(|s| !s.is_empty());
+        let stats_env = std::env::var("COMMS_STATS_URL").ok().filter(|s| !s.is_empty());
+        let configured = ws_env.is_some() || stats_env.is_some();
+        let ws_base = ws_env.unwrap_or_else(|| "http://127.0.0.1:5001".to_string());
+        let stats_base = stats_env.unwrap_or_else(|| "http://127.0.0.1:5002".to_string());
         AboutEnvConfig {
+            configured,
             ws_connector_status_url: format!("{}/status", ws_base.trim_end_matches('/')),
             stats_core_status_url: format!("{}/core-status", stats_base.trim_end_matches('/')),
             comms_protocol: std::env::var("COMMS_PROTOCOL")
@@ -152,8 +156,18 @@ fn about_env() -> &'static AboutEnvConfig {
             comms_commit_hash: std::env::var("COMMS_COMMIT_HASH")
                 .ok()
                 .filter(|s| !s.is_empty()),
+            max_users: std::env::var("MAX_USERS")
+                .ok()
+                .and_then(|s| s.trim().parse::<u64>().ok()),
         }
     })
+}
+
+fn env_url(key: &str, default: &str) -> String {
+    std::env::var(key)
+        .ok()
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| default.to_string())
 }
 
 fn network_id(eth_network: &str) -> u64 {
@@ -314,12 +328,22 @@ pub async fn get_about(
     let sync_state = state.synchronization_state.get_state();
     let content_healthy = content_is_healthy(&sync_state);
 
-    let comms_probe = probe_comms().await;
-    let comms = build_comms_config(comms_probe);
-    let comms_healthy = comms.healthy;
+    let mut healthy = content_healthy;
+    let mut accepting_users = healthy;
 
-    let healthy = content_healthy && comms_healthy;
-    let accepting_users = healthy;
+    let comms = if about_env().configured {
+        let comms_probe = probe_comms().await;
+        let comms = build_comms_config(comms_probe);
+        healthy = healthy && comms.healthy;
+        let under_capacity = match about_env().max_users {
+            Some(max) => comms_probe.user_count < max,
+            None => true,
+        };
+        accepting_users = accepting_users && under_capacity;
+        Some(comms)
+    } else {
+        None
+    };
 
     let content_public_url = state.content_public_url.clone();
     let lambdas_public_url = state.lambdas_public_url.clone();
@@ -353,17 +377,23 @@ pub async fn get_about(
                 ],
                 satellite_view: Some(AboutMapView {
                     version: "v1".to_string(),
-                    base_url: "https://genesis.city/map/latest".to_string(),
+                    base_url: env_url(
+                        "MAP_SATELLITE_BASE_URL",
+                        "https://genesis.city/map/latest",
+                    ),
                     suffix_url: ".jpg".to_string(),
                     top_left_offset: AboutMapOffset { x: -2, y: -6 },
                 }),
                 parcel_view: Some(AboutParcelView {
                     version: "v1".to_string(),
-                    image_url: "https://api.decentraland.org/v1/minimap.png".to_string(),
+                    image_url: env_url(
+                        "MAP_PARCEL_VIEW_URL",
+                        "https://api.decentraland.org/v1/minimap.png",
+                    ),
                 }),
             }),
         },
-        comms: Some(comms),
+        comms,
 
         bff: Some(AboutBff {
             healthy: true,

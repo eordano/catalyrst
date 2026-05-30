@@ -15,7 +15,7 @@ confirm the diff doesn't widen.
 
 ### Error body shape (`crates/catalyrst-server/src/errors.rs`)
 
-Verified against running lamb2 on `:5142`. Contract:
+Verified against a running lamb2 instance on `:5142`. Contract:
 
 ```json
 {"error": "<Class>", "message": "<details>"}

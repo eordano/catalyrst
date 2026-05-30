@@ -4,7 +4,7 @@ use sqlx::Row;
 
 use crate::dcl_schemas::{ChainId, Network};
 use crate::http::errors::InvalidParameterError;
-use crate::http::pagination::get_pagination_params;
+use crate::http::pagination::{get_pagination_params, get_parameter};
 use crate::http::params::Params;
 use crate::http::response::ApiError;
 use crate::MARKETPLACE_SQUID_SCHEMA;
@@ -27,6 +27,7 @@ pub struct BidFilters {
     pub token_id: Option<String>,
     pub item_id: Option<String>,
     pub network: Option<Network>,
+    pub network_db_filter: Option<Vec<String>>,
     pub status: Option<String>,
 }
 
@@ -80,7 +81,9 @@ impl BidsComponent {
     pub async fn get_bids(&self, f: &BidFilters) -> Result<(Vec<Bid>, i64), ApiError> {
         let order_by = match f.sort_by {
             Some(BidSortBy::RecentlyUpdated) => "updated_at DESC",
-            Some(BidSortBy::MostExpensive) => "price DESC",
+            // outer `price` alias is price::text — sort numerically (same lex bug
+            // as sales most_expensive). updated_at/created_at are numeric (ok).
+            Some(BidSortBy::MostExpensive) => "price::numeric DESC",
             _ => "created_at DESC",
         };
 
@@ -115,8 +118,18 @@ impl BidsComponent {
             where_parts.push(format!("status = {}", next()));
             binds.push(v.clone());
         }
+        if let Some(ref nets) = f.network_db_filter {
+            if nets.is_empty() {
+                where_parts.push("FALSE".to_string());
+            } else {
+                let placeholders: Vec<String> = nets.iter().map(|_| next()).collect();
+                where_parts.push(format!("network IN ({})", placeholders.join(", ")));
+                for n in nets {
+                    binds.push(n.clone());
+                }
+            }
+        }
 
-        // expires_at is float8 (epoch milliseconds) after the inner cast above
         where_parts.push("expires_at > extract(epoch from now()) * 1000".to_string());
 
         let where_sql = format!("WHERE {}", where_parts.join(" AND "));
@@ -234,24 +247,44 @@ pub fn parse_filters(pairs: &[(String, String)]) -> Result<BidFilters, InvalidPa
     let pg = get_pagination_params(pairs);
     let p = Params::new(pairs);
 
-    let sort_by = p
-        .get_value(
-            "sortBy",
-            &["recently_offered", "recently_updated", "most_expensive"],
-            None,
-        )
-        .map(|s| match s.as_str() {
-            "recently_updated" => BidSortBy::RecentlyUpdated,
-            "most_expensive" => BidSortBy::MostExpensive,
-            _ => BidSortBy::RecentlyOffered,
-        });
+    let sort_by = get_parameter(
+        "sortBy",
+        pairs,
+        Some(&["recently_offered", "recently_updated", "most_expensive"]),
+    )?
+    .map(|s| match s.as_str() {
+        "recently_updated" => BidSortBy::RecentlyUpdated,
+        "most_expensive" => BidSortBy::MostExpensive,
+        _ => BidSortBy::RecentlyOffered,
+    });
 
-    let network = p
-        .get_value("network", &["ETHEREUM", "MATIC"], None)
-        .map(|s| match s.as_str() {
-            "ETHEREUM" => Network::Ethereum,
-            _ => Network::Matic,
-        });
+    let network_raw = get_parameter(
+        "network",
+        pairs,
+        Some(&[
+            "ETHEREUM",
+            "MATIC",
+            "AVALANCHE",
+            "BINANCE SMART CHAIN",
+            "OPTIMISM",
+            "ARBITRUM",
+            "FANTOM",
+        ]),
+    )?;
+
+    let network = network_raw.as_deref().and_then(|s| match s {
+        "ETHEREUM" => Some(Network::Ethereum),
+        "MATIC" => Some(Network::Matic),
+        _ => None,
+    });
+
+    let network_db_filter = network_raw.as_deref().map(|s| match s {
+        "ETHEREUM" => vec!["ETHEREUM".to_string()],
+        "MATIC" => vec!["MATIC".to_string(), "POLYGON".to_string()],
+        _ => Vec::new(),
+    });
+
+    let status = get_parameter("status", pairs, Some(&["open", "sold", "cancelled"]))?;
 
     Ok(BidFilters {
         limit: pg.limit,
@@ -263,6 +296,7 @@ pub fn parse_filters(pairs: &[(String, String)]) -> Result<BidFilters, InvalidPa
         token_id: p.get_string("tokenId", None),
         item_id: p.get_string("itemId", None),
         network,
-        status: p.get_string("status", None),
+        network_db_filter,
+        status,
     })
 }

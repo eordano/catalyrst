@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use serde_json::Value;
 use sqlx::PgPool;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, Semaphore};
 
 use catalyrst_sync::{
     AuthChain, CatalystServerInfo, ContentStorage as SyncContentStorage,
@@ -128,11 +128,52 @@ fn parse_entity_for_deploy(
 const BATCH_SIZE: usize = 500;
 const BATCH_TIMEOUT_MS: u64 = 200;
 
+fn flush_concurrency() -> usize {
+    std::env::var("SYNC_FLUSH_CONCURRENCY")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .filter(|&n| n > 0)
+        .unwrap_or(8)
+}
+
 pub struct LiveSyncDeployer {
     pool: PgPool,
     batch: Arc<Mutex<Vec<ParsedEntity>>>,
-    flush_lock: Arc<Mutex<()>>,
-    flush_notify: Arc<tokio::sync::Notify>,
+    // Bounded-concurrent flushes (replaces the old single coarse flush lock).
+    flush_sem: Arc<Semaphore>,
+    in_flight: Arc<std::sync::atomic::AtomicUsize>,
+    idle_notify: Arc<tokio::sync::Notify>,
+}
+
+// Run a flush as an independent, bounded-concurrency task. The previous single
+// `flush_lock` serialized EVERY flush — even ones touching completely disjoint
+// pointers — capping write throughput as the DB grew (the bootstrap ceiling).
+// flush_batch already serializes correctly at *pointer* granularity (sorted
+// per-pointer advisory locks, deadlock-free, + a recency-conditional upsert), so
+// flushes are safe to run concurrently: same-pointer writes serialize, disjoint
+// ones (the common case — distinct profiles/wearables) commit in parallel. The
+// semaphore bounds concurrent transactions (well under the 40-conn sync pool);
+// in_flight + idle_notify let flush() drain everything before the orchestrator
+// marks snapshots processed, preserving completeness.
+fn spawn_flush(
+    pool: PgPool,
+    flush_sem: Arc<Semaphore>,
+    in_flight: Arc<std::sync::atomic::AtomicUsize>,
+    idle_notify: Arc<tokio::sync::Notify>,
+    entities: Vec<ParsedEntity>,
+) {
+    if entities.is_empty() {
+        return;
+    }
+    in_flight.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    tokio::spawn(async move {
+        let _permit = flush_sem.acquire().await;
+        if let Err(e) = flush_batch(&pool, entities).await {
+            tracing::error!(error = %e, "Batch flush failed");
+        }
+        in_flight.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+        idle_notify.notify_waiters();
+    });
 }
 
 impl LiveSyncDeployer {
@@ -140,27 +181,28 @@ impl LiveSyncDeployer {
         let deployer = Self {
             pool: pool.clone(),
             batch: Arc::new(Mutex::new(Vec::with_capacity(BATCH_SIZE))),
-            flush_lock: Arc::new(Mutex::new(())),
-            flush_notify: Arc::new(tokio::sync::Notify::new()),
+            flush_sem: Arc::new(Semaphore::new(flush_concurrency())),
+            in_flight: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            idle_notify: Arc::new(tokio::sync::Notify::new()),
         };
 
+        // Background timer: flush whatever has accumulated every BATCH_TIMEOUT_MS.
         let batch = deployer.batch.clone();
-        let flush_lock = deployer.flush_lock.clone();
-        let notify = deployer.flush_notify.clone();
-        let pool2 = pool.clone();
+        let pool2 = deployer.pool.clone();
+        let sem = deployer.flush_sem.clone();
+        let in_flight = deployer.in_flight.clone();
+        let idle = deployer.idle_notify.clone();
         tokio::spawn(async move {
             loop {
                 tokio::time::sleep(std::time::Duration::from_millis(BATCH_TIMEOUT_MS)).await;
                 let entities: Vec<ParsedEntity> = {
                     let mut buf = batch.lock().await;
-                    if buf.is_empty() { continue; }
+                    if buf.is_empty() {
+                        continue;
+                    }
                     std::mem::take(&mut *buf)
                 };
-                let _guard = flush_lock.lock().await;
-                if let Err(e) = flush_batch(&pool2, entities).await {
-                    tracing::error!(error = %e, "Batch flush failed");
-                }
-                notify.notify_waiters();
+                spawn_flush(pool2.clone(), sem.clone(), in_flight.clone(), idle.clone(), entities);
             }
         });
 
@@ -173,8 +215,42 @@ async fn flush_batch(pool: &PgPool, entities: Vec<ParsedEntity>) -> Result<(), S
         return Ok(());
     }
 
+    // Dedup by entity_id. With concurrent snapshot processing the same entity can
+    // be fed into one batch from two snapshots; the deployments insert handles it
+    // via ON CONFLICT (entity_id), but the content_files loop below would emit the
+    // same (deployment, key) twice → unique-constraint violation. entity_id is the
+    // content hash of the entity, so duplicates are byte-identical — keep one.
+    let entities: Vec<ParsedEntity> = {
+        let mut seen = std::collections::HashSet::with_capacity(entities.len());
+        entities
+            .into_iter()
+            .filter(|e| seen.insert(e.entity_id.clone()))
+            .collect()
+    };
+
     let count = entities.len();
     let mut tx = pool.begin().await.map_err(|e| SyncError::Storage(e.to_string()))?;
+
+    // Take per-pointer advisory locks up front — BEFORE inserting deployments —
+    // so this batch serializes against the user write-deployer path on every
+    // pointer it touches. See the detailed rationale at the active_pointers
+    // upsert below (the recency-conditional ON CONFLICT predicate is not
+    // EvalPlanQual-safe on its own). Acquiring the locks before any
+    // deployments/active_pointers row is touched, in sorted order, keeps the
+    // lock-acquisition order identical to write_deployer and avoids deadlocks.
+    {
+        let mut all_pointers: Vec<&String> =
+            entities.iter().flat_map(|e| e.entity_pointers.iter()).collect();
+        all_pointers.sort();
+        all_pointers.dedup();
+        for p in all_pointers {
+            sqlx::query("SELECT pg_advisory_xact_lock(hashtext($1))")
+                .bind(p)
+                .execute(&mut *tx)
+                .await
+                .map_err(|e| SyncError::Storage(e.to_string()))?;
+        }
+    }
 
     let mut deployer_addrs: Vec<String> = Vec::with_capacity(count);
     let mut versions: Vec<String> = Vec::with_capacity(count);
@@ -294,12 +370,35 @@ async fn flush_batch(pool: &PgPool, entities: Vec<ParsedEntity>) -> Result<(), S
     }
 
     if !ap_pointers.is_empty() {
+        // Per-pointer advisory locks for this batch were already taken at the
+        // top of the transaction (see the lock pass right after `tx.begin()`),
+        // serializing same-pointer writes against the user write-deployer path.
+        // Without that serialization the recency-conditional ON CONFLICT
+        // predicate below is not EvalPlanQual-safe: its correlated `deployments`
+        // subquery is re-evaluated under this statement's original (stale) MVCC
+        // snapshot and can miss a newer deployment committed by a concurrent
+        // path, regressing the active-pointer head to an older entity.
+        //
+        // Recency-conditional: only steal a pointer when the currently
+        // referenced entity is strictly older than the incoming one (same
+        // tie-break as the write deployer, which shares this table). An
+        // unconditional SET let a lagging sync batch clobber a newer local
+        // deployment depending on arrival order.
         sqlx::query(
             r#"
             INSERT INTO active_pointers (pointer, entity_id, entity_type)
             SELECT unnest($1::text[]), unnest($2::text[]), unnest($3::text[])
             ON CONFLICT (pointer) DO UPDATE
                 SET entity_id = EXCLUDED.entity_id, entity_type = EXCLUDED.entity_type
+                WHERE NOT EXISTS (
+                    SELECT 1
+                    FROM deployments cur, deployments incoming
+                    WHERE cur.entity_id = active_pointers.entity_id
+                      AND incoming.entity_id = EXCLUDED.entity_id
+                      AND (cur.entity_timestamp > incoming.entity_timestamp
+                           OR (cur.entity_timestamp = incoming.entity_timestamp
+                               AND lower(cur.entity_id) > lower(EXCLUDED.entity_id)))
+                )
             "#,
         )
         .bind(&ap_pointers)
@@ -339,9 +438,15 @@ impl SyncDeployer for LiveSyncDeployer {
         };
 
         if let Some(entities) = entities_to_flush {
-            let _guard = self.flush_lock.lock().await;
-            flush_batch(&self.pool, entities).await?;
-            self.flush_notify.notify_waiters();
+            // Non-blocking, bounded-concurrent flush — disjoint-pointer batches
+            // commit in parallel; same-pointer ones serialize via advisory locks.
+            spawn_flush(
+                self.pool.clone(),
+                self.flush_sem.clone(),
+                self.in_flight.clone(),
+                self.idle_notify.clone(),
+                entities,
+            );
         }
 
         Ok(())
@@ -352,12 +457,22 @@ impl SyncDeployer for LiveSyncDeployer {
             let mut buf = self.batch.lock().await;
             std::mem::take(&mut *buf)
         };
-        if !entities.is_empty() {
-            let _guard = self.flush_lock.lock().await;
-            flush_batch(&self.pool, entities).await?;
-            self.flush_notify.notify_waiters();
+        spawn_flush(
+            self.pool.clone(),
+            self.flush_sem.clone(),
+            self.in_flight.clone(),
+            self.idle_notify.clone(),
+            entities,
+        );
+        // Drain: wait for every in-flight flush to commit before returning, so
+        // the orchestrator's on_idle -> mark_processed sees a fully-written DB.
+        loop {
+            let notified = self.idle_notify.notified();
+            if self.in_flight.load(std::sync::atomic::Ordering::SeqCst) == 0 {
+                return Ok(());
+            }
+            notified.await;
         }
-        Ok(())
     }
 }
 

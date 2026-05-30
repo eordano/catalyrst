@@ -43,6 +43,15 @@ pub enum DeploymentContext {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Entity {
+    // The uploaded entity file is id-less in a standard catalyst-client deploy:
+    // the entity id is `hashV1(idless_file)`, computed by the *uploader* (the
+    // reference `DeploymentBuilder`) and supplied out-of-band as the multipart
+    // field / hash key — it is NOT a field inside the file. We therefore accept
+    // the id as optional on the wire (defaulting to empty) and derive/verify it
+    // from the content hash in the deployer (see `deploy_entity`). On
+    // re-serialisation the id is always present, matching the content-server's
+    // stored entity shape.
+    #[serde(default)]
     pub id: String,
     #[serde(rename = "type")]
     pub entity_type: EntityType,

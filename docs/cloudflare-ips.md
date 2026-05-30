@@ -1,41 +1,46 @@
 # Cloudflare IP range refresh
 
-nginx needs `set_real_ip_from` to span the current Cloudflare edge ranges
-so `$remote_addr` resolves to the client, not the CF POP. The list at
-`/var/lib/cloudflare/nginx-real-ip.conf` is refreshed daily.
+When running behind Cloudflare, your reverse proxy needs its trusted-proxy
+list (e.g. nginx `set_real_ip_from`) to span the current Cloudflare edge
+ranges so `$remote_addr` resolves to the real client, not the CF POP. Keep a
+dynamic include file (e.g. `<DATA_DIR>/cloudflare/nginx-real-ip.conf`) and
+refresh it on a schedule.
 
 ## Sources of truth
 
-- **nginx `real_ip` include** (`/var/lib/cloudflare/nginx-real-ip.conf`):
-  refreshed daily. Editable at runtime without a `nixos-rebuild`.
-- **Firewall `extraInputRules`** (hardcoded in `nixos/configuration.nix`):
-  static, refreshed only when someone edits the file. The
-  `CloudflareIpsStale` alert fires if the dynamic list and the firewall
-  list drift apart for too long.
+- **Proxy `real_ip` include** (`<DATA_DIR>/cloudflare/nginx-real-ip.conf`):
+  refreshed on a schedule (e.g. daily). Editable at runtime without
+  rebuilding the proxy config.
+- **Firewall input rules** (hardcoded in your host/firewall config):
+  static, refreshed only when someone edits the config. A staleness alert
+  can fire if the dynamic list and the firewall list drift apart for too
+  long.
 
-The two are deliberately decoupled because the firewall is part of the
-NixOS module set and must produce the same config every build, while the
-nginx include is dynamic state.
+The two are deliberately decoupled: the firewall is part of the declarative
+config and must produce the same output every build, while the proxy include
+is dynamic runtime state.
 
-## Seed (`cloudflare-ips-seed.service`)
+## Seed
 
-`before = [ "nginx.service" ]`. On first boot (or after the file is
-deleted) copies the hardcoded seed (`/etc/cf-nginx-real-ip-seed.conf`,
-identical to the firewall list) to `/var/lib/cloudflare/nginx-real-ip.conf`
-so nginx has something to include before the first refresh runs.
+Run a one-shot seed step before the proxy starts. On first boot (or after the
+include is deleted) it copies a hardcoded seed (identical to the firewall
+list) into the include path so the proxy has something to include before the
+first refresh runs.
 
-## Refresh (`cloudflare-ips-refresh.service` + `.timer`)
+## Refresh (scheduled job)
 
-Daily. Fetches `https://www.cloudflare.com/ips-v4` and `…/ips-v6`. **Fail-soft:**
-on any HTTP error or sanity-check failure, exit 0 — the previous snapshot stays
-intact, nginx keeps working, no empty include can ever be produced.
+Run on a schedule (e.g. daily). Fetch `https://www.cloudflare.com/ips-v4`
+and `https://www.cloudflare.com/ips-v6`. **Fail-soft:** on any HTTP error or
+sanity-check failure, exit 0 — the previous snapshot stays intact, the proxy
+keeps working, and no empty include can ever be produced.
 
 Sanity check: v4 lines must match `^[0-9].*/[0-9]+$`; v6 lines
 `^[0-9a-fA-F:].*/[0-9]+$`. On success: build the include atomically via
-`mktemp` + `mv`, reload nginx, write the
-`cloudflare_ips_refresh_timestamp_seconds` Prometheus textfile metric.
+`mktemp` + `mv`, reload the proxy, and write a refresh-timestamp metric for
+monitoring.
 
 ## Alert
 
-`CloudflareIpsStale`: `time() - cloudflare_ips_refresh_timestamp_seconds > 7*86400`
-for 1h, severity warning.
+Alert when the include goes stale, e.g.
+`time() - cloudflare_ips_refresh_timestamp_seconds > 7*86400` for 1h,
+severity warning.

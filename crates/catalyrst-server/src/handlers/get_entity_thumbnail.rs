@@ -24,8 +24,20 @@ pub async fn get_entity_thumbnail(
         .map_err(|e| AppError::Internal(e.to_string()))?
         .ok_or_else(|| NotFoundError::new("Entity not found."))?;
 
+    // Treat a denylisted entity as not found so its content (and its very existence) isn't exposed
+    // through the thumbnail endpoint, mirroring the listing endpoints that already filter the denylist.
+    let entity_id = entity.get("id").and_then(|id| id.as_str()).unwrap_or("");
+    if state.denylist.is_denylisted(entity_id) {
+        return Err(NotFoundError::new("Entity not found.").into());
+    }
+
     let hash = extract_thumbnail_hash(&entity)
         .ok_or_else(|| NotFoundError::new("Entity has no thumbnail."))?;
+
+    // Also guard against a specific content hash being denylisted independently of its entity.
+    if state.denylist.is_denylisted(&hash) {
+        return Err(NotFoundError::new("Entity has no thumbnail.").into());
+    }
 
     if let Some(not_modified_headers) = check_not_modified(&headers, &hash) {
         let mut response = StatusCode::NOT_MODIFIED.into_response();
@@ -137,9 +149,6 @@ pub(crate) async fn serve_content_blob(
             let mut base_headers = content_file_headers(hash, file_info.size, file_info.encoding.as_deref());
             set_content_type(&mut base_headers, detected);
 
-            // X-Accel-Redirect zero-copy: nginx serves the body. HEAD still
-            // matches today's behavior (headers + empty body); the redirect
-            // header is harmless on HEAD since nginx will just answer headers.
             if let Some(accel) = x_accel_base().and_then(|b| x_accel_redirect_path(Some(&b), hash)) {
                 base_headers.retain(|(n, _)| *n != "Content-Length");
                 let mut response = (StatusCode::OK, Body::empty()).into_response();

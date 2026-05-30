@@ -15,6 +15,15 @@ pub type Timestamp = i64;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Entity {
+    // A standard catalyst-client deploy uploads an *id-less* entity file: the
+    // entity id is `hashV1(idless_file)`, computed by the uploader and supplied
+    // out-of-band (it is not a field inside the file). Parse `id` as optional
+    // (defaulting to empty) so an id-less file deserialises; callers derive /
+    // verify the id from the content hash before validation (the write path in
+    // `catalyrst-server::write_deployer` and `entity_parser::parse_entity_from_bytes`).
+    // On re-serialise the id is always present, matching the content-server's
+    // stored entity shape.
+    #[serde(default)]
     pub id: EntityId,
 
     #[serde(rename = "type")]

@@ -18,7 +18,16 @@ use crate::state::AppState;
 const OUTFITS_CACHE_TTL: Duration = Duration::from_secs(60);
 const OUTFITS_CACHE_MAX_ENTRIES: usize = 50_000;
 
-/// `Value::Null` is the cached sentinel for a 404 (no outfits entity).
+// The full collection list comes from two external subgraph round-trips (~4s)
+// and changes slowly; without a cache every /nfts/collections hit paid that
+// cost. Cache the assembled response for a few minutes, keyed by network.
+const COLLECTIONS_CACHE_TTL: Duration = Duration::from_secs(300);
+
+fn collections_cache() -> &'static Arc<ResponseCache<String, Value>> {
+    static C: OnceLock<Arc<ResponseCache<String, Value>>> = OnceLock::new();
+    C.get_or_init(|| Arc::new(ResponseCache::new("nfts_collections", COLLECTIONS_CACHE_TTL, 8)))
+}
+
 fn outfits_cache() -> &'static Arc<ResponseCache<String, Value>> {
     static C: OnceLock<Arc<ResponseCache<String, Value>>> = OnceLock::new();
     C.get_or_init(|| {
@@ -522,24 +531,69 @@ pub async fn collections_emotes_catalog(
 }
 
 pub async fn nfts_collections(State(state): State<Arc<AppState>>) -> Response {
-    use crate::handlers::external_graph;
+    let network = state.eth_network.clone();
+    let pool = state.squid_pool.clone();
+    let cached = collections_cache()
+        .get_or_fetch(network.clone(), move || async move {
+            use crate::handlers::external_graph;
 
-    let mut collections: Vec<Value> = vec![
-        json!({ "id": BASE_AVATARS_COLLECTION_ID, "name": "Base Wearables" }),
-        json!({ "id": BASE_EMOTES_COLLECTION_ID, "name": "Base Emotes" }),
-    ];
+            let mut collections: Vec<Value> = vec![
+                json!({ "id": BASE_AVATARS_COLLECTION_ID, "name": "Base Wearables" }),
+                json!({ "id": BASE_EMOTES_COLLECTION_ID, "name": "Base Emotes" }),
+            ];
 
-    let urls = external_graph::subgraph_urls(&state.eth_network);
+            // Prefer the LOCAL marketplace squid (self-contained, instant) —
+            // verified urn-set/ordering parity with the subgraph. Fall back to
+            // the external collections subgraphs when no squid pool is wired or
+            // the local query yields nothing.
+            let local: Vec<(String, String)> = if let Some(pool) = pool.as_ref() {
+                let (eth, poly) = tokio::join!(
+                    external_graph::collections_from_squid(
+                        pool,
+                        "ETHEREUM",
+                        Some((":mainnet:", ":ethereum:")),
+                    ),
+                    external_graph::collections_from_squid(pool, "POLYGON", None),
+                );
+                eth.unwrap_or_default()
+                    .into_iter()
+                    .chain(poly.unwrap_or_default())
+                    .collect()
+            } else {
+                Vec::new()
+            };
 
-    let (l1, l2) = tokio::join!(
-        external_graph::collections(urls.eth_collections),
-        external_graph::collections(urls.matic_collections),
-    );
-    for (urn, name) in l1.unwrap_or_default().into_iter().chain(l2.unwrap_or_default()) {
-        collections.push(json!({ "id": urn, "name": name }));
+            let items = if !local.is_empty() {
+                local
+            } else {
+                let urls = external_graph::subgraph_urls(&network);
+                let (l1, l2) = tokio::join!(
+                    external_graph::collections(urls.eth_collections),
+                    external_graph::collections(urls.matic_collections),
+                );
+                l1.unwrap_or_default()
+                    .into_iter()
+                    .chain(l2.unwrap_or_default())
+                    .collect()
+            };
+            for (urn, name) in items {
+                collections.push(json!({ "id": urn, "name": name }));
+            }
+
+            Ok::<Value, ()>(json!({ "collections": collections }))
+        })
+        .await;
+
+    match cached {
+        Ok(v) => Json(v).into_response(),
+        // Cache helper is infallible here (closure returns Ok); fall back to the
+        // base collections if it ever errors.
+        Err(_) => Json(json!({ "collections": [
+            json!({ "id": BASE_AVATARS_COLLECTION_ID, "name": "Base Wearables" }),
+            json!({ "id": BASE_EMOTES_COLLECTION_ID, "name": "Base Emotes" }),
+        ] }))
+        .into_response(),
     }
-
-    Json(json!({ "collections": collections })).into_response()
 }
 
 pub async fn outfits(State(state): State<Arc<AppState>>, Path(id): Path<String>) -> Response {
@@ -772,7 +826,6 @@ mod tests {
     use std::sync::Arc as StdArc;
     use std::time::Duration as StdDuration;
 
-    /// Exercises the outfits cache HIT path with a mocked fetcher.
     #[tokio::test]
     async fn outfits_cache_second_call_is_a_hit() {
         let cache: ResponseCache<String, Value> =
@@ -799,7 +852,6 @@ mod tests {
         assert_eq!(counter.load(Ordering::SeqCst), 1);
     }
 
-    /// `Value::Null` sentinel for missing outfits is also cached.
     #[tokio::test]
     async fn outfits_cache_caches_not_found_sentinel() {
         let cache: ResponseCache<String, Value> =

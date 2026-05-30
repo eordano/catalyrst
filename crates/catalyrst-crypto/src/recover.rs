@@ -4,6 +4,7 @@ use crate::AuthError;
 
 pub fn recover_address(message: &[u8], signature: &str) -> Result<String, AuthError> {
     let sig_bytes = parse_signature_hex(signature)?;
+    reject_high_s(&sig_bytes)?;
     let sig = parse_ethers_signature(&sig_bytes)?;
 
     let recovered: H160 = sig
@@ -11,6 +12,48 @@ pub fn recover_address(message: &[u8], signature: &str) -> Result<String, AuthEr
         .map_err(|e| AuthError::RecoveryFailed(format!("ecrecover failed: {}", e)))?;
 
     Ok(format!("{:#x}", recovered))
+}
+
+/// secp256k1 group order n.
+const SECP256K1_N: [u8; 32] = [
+    0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xfe,
+    0xba, 0xae, 0xdc, 0xe6, 0xaf, 0x48, 0xa0, 0x3b, 0xbf, 0xd2, 0x5e, 0x8c, 0xd0, 0x36, 0x41, 0x41,
+];
+/// n/2 = 0x7fffffffffffffffffffffffffffffff5d576e7357a4501ddfe92f46681b20a0
+const SECP256K1_HALF_N: [u8; 32] = [
+    0x7f, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+    0x5d, 0x57, 0x6e, 0x73, 0x57, 0xa4, 0x50, 0x1d, 0xdf, 0xe9, 0x2f, 0x46, 0x68, 0x1b, 0x20, 0xa0,
+];
+
+/// Reject non-canonical (high-s) signatures (EIP-2 / strict ECDSA malleability
+/// guard). ethers-core's `recover()` silently normalizes a high-s value into
+/// low-s and flips the recovery id, so without this check the two malleable
+/// twins (s and n-s) both recover the same address — two byte-distinct, equally
+/// valid signatures for one message. We require `0 < s <= n/2` up front so the
+/// signature bytes that reach recovery (and any caller that keys on them) are
+/// canonical.
+fn reject_high_s(bytes: &[u8; 65]) -> Result<(), AuthError> {
+    let s = &bytes[32..64];
+    // s must be non-zero.
+    if s.iter().all(|&b| b == 0) {
+        return Err(AuthError::RecoveryFailed("signature s is zero".into()));
+    }
+    // s must be < n (a valid scalar).
+    if cmp_be(s, &SECP256K1_N) != std::cmp::Ordering::Less {
+        return Err(AuthError::RecoveryFailed("signature s >= group order n".into()));
+    }
+    // s must be <= n/2 (canonical, low-s).
+    if cmp_be(s, &SECP256K1_HALF_N) == std::cmp::Ordering::Greater {
+        return Err(AuthError::RecoveryFailed(
+            "non-canonical high-s signature rejected (malleability)".into(),
+        ));
+    }
+    Ok(())
+}
+
+/// Big-endian 32-byte unsigned comparison.
+fn cmp_be(a: &[u8], b: &[u8]) -> std::cmp::Ordering {
+    a.iter().cmp(b.iter())
 }
 
 fn parse_signature_hex(hex: &str) -> Result<[u8; 65], AuthError> {
@@ -80,6 +123,52 @@ mod tests {
     #[test]
     fn test_parse_signature_hex_wrong_length() {
         assert!(parse_signature_hex("0xdeadbeef").is_err());
+    }
+
+    #[tokio::test]
+    async fn test_high_s_malleated_signature_rejected() {
+        use ethers_signers::{LocalWallet, Signer};
+
+        // eth personal_sign over a signed-fetch-style payload.
+        let wallet: LocalWallet =
+            "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
+                .parse()
+                .unwrap();
+        let addr = format!("{:#x}", wallet.address());
+        let msg = b"get:/foo:1700000000000:{}";
+        let sig = wallet.sign_message(&msg[..]).await.unwrap();
+
+        // ethers always emits canonical low-s -> still recovers fine.
+        let sig_hex = format!("0x{}", sig);
+        let rec = recover_address(msg, &sig_hex).expect("low-s sig must verify");
+        assert_eq!(rec, addr, "canonical sig recovers signer");
+
+        // Malleate: s' = n - s, flip v (27<->28). Same signer mathematically,
+        // but non-canonical -> MUST be rejected now.
+        let mut raw = parse_signature_hex(&sig_hex).unwrap();
+        let s = ethers_core::types::U256::from_big_endian(&raw[32..64]);
+        let n = ethers_core::types::U256::from_big_endian(&SECP256K1_N);
+        let s2 = n - s;
+        let mut s2_be = [0u8; 32];
+        s2.to_big_endian(&mut s2_be);
+        raw[32..64].copy_from_slice(&s2_be);
+        raw[64] = if raw[64] == 27 { 28 } else if raw[64] == 28 { 27 } else { raw[64] ^ 1 };
+        let mall_hex = format!("0x{}", hex_encode(&raw));
+
+        let res = recover_address(msg, &mall_hex);
+        assert!(
+            res.is_err(),
+            "malleated high-s twin must be rejected, got {:?}",
+            res
+        );
+    }
+
+    fn hex_encode(b: &[u8]) -> String {
+        let mut s = String::with_capacity(b.len() * 2);
+        for x in b {
+            s.push_str(&format!("{:02x}", x));
+        }
+        s
     }
 
     #[test]

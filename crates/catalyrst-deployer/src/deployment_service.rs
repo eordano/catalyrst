@@ -128,7 +128,7 @@ impl DeploymentService {
             }
         };
 
-        let entity: Entity = match serde_json::from_slice(&entity_bytes) {
+        let mut entity: Entity = match serde_json::from_slice(&entity_bytes) {
             Ok(e) => e,
             Err(e) => {
                 warn!(entity_id, error = %e, "failed to parse entity JSON");
@@ -137,6 +137,30 @@ impl DeploymentService {
                 ]);
             }
         };
+
+        // Entity-id reconciliation (mirrors the reference content-server +
+        // `DeploymentBuilder`). A standard catalyst-client deploy uploads an
+        // id-less entity file; its id is `hashV1(idless_file)`, supplied
+        // out-of-band as the multipart `entityId` field — which is also the
+        // hash key (`entity_id`) under which the file bytes are stored here. So:
+        //   * if the file carries no `id`, adopt the deploy's `entity_id`;
+        //   * if it carries one, it MUST equal `entity_id` (a mismatched
+        //     embedded id is a forged/inconsistent deploy and is rejected).
+        // Either way `entity.id` ends up bound to the content hash, keeping the
+        // downstream validator's `entity.id == entity_id` invariant intact.
+        if entity.id.is_empty() {
+            entity.id = entity_id.to_string();
+        } else if entity.id != entity_id {
+            warn!(
+                entity_id,
+                embedded_id = %entity.id,
+                "entity file's embedded id does not match the deploy's entity id"
+            );
+            return DeploymentResult::Invalid(vec![format!(
+                "Entity id mismatch: the entity file declares id '{}' but was deployed as '{}'.",
+                entity.id, entity_id
+            )]);
+        }
 
         if entity.pointers.is_empty() {
             return DeploymentResult::Invalid(vec![
@@ -406,6 +430,34 @@ impl DeploymentService {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn entity_deserializes_without_id_field() {
+        // Standard catalyst-client deploys upload an id-less entity file; the
+        // id is hashV1(file), supplied out-of-band. The Entity struct must
+        // parse such a file (id defaults to empty, then the deployer binds it
+        // to the content hash). Previously this failed (no serde default).
+        let idless = r#"{
+            "type": "scene",
+            "pointers": ["0,0"],
+            "timestamp": 1700000000000,
+            "content": [{"file": "scene.json", "hash": "bafkreiaaaa"}]
+        }"#;
+        let e: Entity = serde_json::from_slice(idless.as_bytes()).expect("id-less parse");
+        assert_eq!(e.id, "");
+        assert_eq!(e.pointers, vec!["0,0".to_string()]);
+
+        // A file that DOES carry an id still parses (id preserved for the
+        // deployer's match-or-reject check).
+        let with_id = r#"{
+            "id": "bafkreitest",
+            "type": "scene",
+            "pointers": ["0,0"],
+            "timestamp": 1
+        }"#;
+        let e: Entity = serde_json::from_slice(with_id.as_bytes()).expect("with-id parse");
+        assert_eq!(e.id, "bafkreitest");
+    }
 
     #[test]
     fn pointer_lock_manager_basics() {

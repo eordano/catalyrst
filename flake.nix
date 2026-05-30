@@ -1,7 +1,7 @@
 {
   description = "catalyrst — Rust Decentraland catalyst (content + lambdas + write path)";
 
-  inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.11";
+  inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
   inputs.flake-utils.url = "github:numtide/flake-utils";
   inputs.archipelago = { url = "github:decentraland/archipelago-workers/537def15e2609cf0ecc8ba5bd7ad400702e455c8"; flake = false; };
   inputs.uws-node24 = { url = "github:uNetworking/uWebSockets.js/v20.67.0"; flake = false; };
@@ -94,6 +94,15 @@
             nativeBuildInputs = [ pkgs.pkg-config ];
             buildInputs = [ pkgs.openssl ];
             env.OPENSSL_NO_VENDOR = "1";
+            # Ship the content-DB schema so a deploy can create it on a fresh
+            # sync replica (catalyrst-server has no in-binary schema bootstrap;
+            # see crates/catalyrst-server/migrations/0001_content_schema.sql).
+            # Applied by a NixOS one-shot, not sqlx::migrate! (the content DB's
+            # _sqlx_migrations table is owned by catalyrst-media).
+            postInstall = ''
+              mkdir -p "$out/share/catalyrst-server"
+              cp -r crates/catalyrst-server/migrations "$out/share/catalyrst-server/migrations"
+            '';
           };
 
           # Marketplace REST API in front of squid_marketplace (port of
@@ -108,6 +117,94 @@
             };
             cargoBuildFlags = [ "-p" "catalyrst-market" "--bin" "catalyrst-market" ];
             doCheck = false;
+          };
+
+          catalyrst-places = pkgs.rustPlatform.buildRustPackage {
+            pname = "catalyrst-places";
+            version = "0.1.0";
+            src = ./.;
+            cargoLock = { lockFile = ./Cargo.lock; };
+            cargoBuildFlags = [ "-p" "catalyrst-places" "--bin" "catalyrst-places" ];
+            doCheck = false;
+          };
+
+          catalyrst-events = pkgs.rustPlatform.buildRustPackage {
+            pname = "catalyrst-events";
+            version = "0.1.0";
+            src = ./.;
+            cargoLock = { lockFile = ./Cargo.lock; };
+            cargoBuildFlags = [ "-p" "catalyrst-events" "--bin" "catalyrst-events" ];
+            doCheck = false;
+          };
+
+          catalyrst-communities = pkgs.rustPlatform.buildRustPackage {
+            pname = "catalyrst-communities";
+            version = "0.1.0";
+            src = ./.;
+            cargoLock = { lockFile = ./Cargo.lock; };
+            cargoBuildFlags = [ "-p" "catalyrst-communities" "--bin" "catalyrst-communities" ];
+            doCheck = false;
+          };
+
+          catalyrst-explorer-api = pkgs.rustPlatform.buildRustPackage {
+            pname = "catalyrst-explorer-api";
+            version = "0.1.0";
+            src = ./.;
+            cargoLock = { lockFile = ./Cargo.lock; };
+            cargoBuildFlags = [ "-p" "catalyrst-explorer-api" "--bin" "catalyrst-explorer-api" ];
+            doCheck = false;
+            nativeBuildInputs = [ pkgs.pkg-config ];
+            buildInputs = [ pkgs.openssl ];
+            env.OPENSSL_NO_VENDOR = "1";
+          };
+
+          catalyrst-comms = pkgs.rustPlatform.buildRustPackage {
+            pname = "catalyrst-comms";
+            version = "0.1.0";
+            src = ./.;
+            cargoLock = { lockFile = ./Cargo.lock; };
+            cargoBuildFlags = [ "-p" "catalyrst-comms" "--bin" "catalyrst-comms" ];
+            doCheck = false;
+            nativeBuildInputs = [ pkgs.pkg-config ];
+            buildInputs = [ pkgs.openssl ];
+            env.OPENSSL_NO_VENDOR = "1";
+          };
+
+          catalyrst-archipelago = pkgs.rustPlatform.buildRustPackage {
+            pname = "catalyrst-archipelago";
+            version = "0.1.0";
+            src = ./.;
+            cargoLock = { lockFile = ./Cargo.lock; };
+            cargoBuildFlags = [ "-p" "catalyrst-archipelago" "--bin" "catalyrst-archipelago" ];
+            doCheck = false;
+            nativeBuildInputs = [ pkgs.pkg-config pkgs.protobuf ];
+            buildInputs = [ pkgs.openssl ];
+            env.OPENSSL_NO_VENDOR = "1";
+          };
+
+          # Server-side SDK7 scene-state host (port of scene-state-server). This
+          # crate embeds V8 (the `v8`/rusty_v8 crate). rusty_v8's build.rs
+          # normally DOWNLOADS a prebuilt librusty_v8 archive, which is
+          # impossible in the offline Nix sandbox. We instead fetch that exact
+          # archive as a fixed-output derivation (see ./crates/catalyrst-scene-
+          # state/nix/librusty_v8.nix) and point the crate at it via
+          # RUSTY_V8_ARCHIVE — the rusty_v8 build then links the prebuilt static
+          # lib without any network access or a from-source V8 build.
+          librusty_v8 = pkgs.callPackage ./crates/catalyrst-scene-state/nix/librusty_v8.nix { };
+          catalyrst-scene-state = pkgs.rustPlatform.buildRustPackage {
+            pname = "catalyrst-scene-state";
+            version = "0.1.0";
+            src = ./.;
+            cargoLock = { lockFile = ./Cargo.lock; };
+            cargoBuildFlags = [ "-p" "catalyrst-scene-state" "--bin" "catalyrst-scene-state" ];
+            doCheck = false;
+            nativeBuildInputs = [ pkgs.pkg-config ];
+            buildInputs = [ pkgs.openssl ];
+            env = {
+              OPENSSL_NO_VENDOR = "1";
+              # The single env var that makes V8-under-Nix work offline.
+              RUSTY_V8_ARCHIVE = "${librusty_v8}";
+            };
           };
 
           default = catalyrst;

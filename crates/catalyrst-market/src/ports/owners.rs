@@ -2,6 +2,7 @@ use serde::Serialize;
 use sqlx::PgPool;
 
 use crate::http::response::ApiError;
+use crate::logic::sql_filters::{clamp_first, clamp_skip};
 use crate::MARKETPLACE_SQUID_SCHEMA;
 
 pub const OWNERS_QUERY_DEFAULT_OFFSET: i64 = 0;
@@ -57,8 +58,8 @@ impl OwnersComponent {
             None => "",
         };
 
-        let skip = filters.skip.unwrap_or(OWNERS_QUERY_DEFAULT_OFFSET);
-        let limit = filters.first.unwrap_or(OWNERS_QUERY_DEFAULT_LIMIT);
+        let skip = clamp_skip(filters.skip);
+        let limit = clamp_first(filters.first, OWNERS_QUERY_DEFAULT_LIMIT);
 
         let select_sql = format!(
             "SELECT nft.issued_id::text AS issued_id, account.address AS owner, nft.token_id::text AS token_id \

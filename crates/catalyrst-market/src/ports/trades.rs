@@ -1,10 +1,14 @@
 use chrono::{DateTime, Utc};
-use serde::Serialize;
+use serde::{Serialize, Serializer};
 use sqlx::types::JsonValue;
 use sqlx::PgPool;
 use sqlx::Row;
 
 use crate::http::response::ApiError;
+
+fn ms<S: Serializer>(dt: &DateTime<Utc>, s: S) -> Result<S::Ok, S::Error> {
+    s.serialize_i64(dt.timestamp_millis())
+}
 
 #[derive(Debug, Serialize)]
 pub struct DbTrade {
@@ -12,11 +16,11 @@ pub struct DbTrade {
     #[serde(rename = "chainId")]
     pub chain_id: i32,
     pub checks: JsonValue,
-    #[serde(rename = "createdAt")]
+    #[serde(rename = "createdAt", serialize_with = "ms")]
     pub created_at: DateTime<Utc>,
-    #[serde(rename = "effectiveSince")]
+    #[serde(rename = "effectiveSince", serialize_with = "ms")]
     pub effective_since: DateTime<Utc>,
-    #[serde(rename = "expiresAt")]
+    #[serde(rename = "expiresAt", serialize_with = "ms")]
     pub expires_at: DateTime<Utc>,
     pub network: String,
     pub signature: String,
@@ -34,6 +38,7 @@ pub struct TradeAsset {
     pub contract_address: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub beneficiary: Option<String>,
+    #[serde(skip_serializing)]
     pub direction: String,
     pub extra: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -56,71 +61,68 @@ pub struct TradesComponent {
     pool: PgPool,
 }
 
+fn is_missing_trades_table(e: &sqlx::Error) -> bool {
+    if let sqlx::Error::Database(db) = e {
+        match db.code().as_deref() {
+            Some("42P01") => {
+                return db.message().contains("marketplace.trades")
+                    || db.message().contains("trade_assets")
+                    || db.message().contains("trade_type")
+            }
+            Some("42501") | Some("3F000") => return db.message().contains("marketplace"),
+            _ => {}
+        }
+    }
+    false
+}
+
 impl TradesComponent {
     pub fn new(pool: PgPool) -> Self {
         Self { pool }
     }
 
     pub async fn get_trades(&self) -> Result<(Vec<DbTrade>, i64), ApiError> {
-        // STUB: marketplace.trades is created by node-pg-migrate in the upstream
-        // marketplace-server. Until we port or import that migration, return empty
-        // so the endpoint responds 200 rather than 500. Federation ADR will revisit.
-        tracing::info!("trades: skipped (no local marketplace.trades table)");
-        let _ = &self.pool;
-        Ok((Vec::new(), 0))
+        let rows = sqlx::query(
+            r#"
+SELECT id::text AS id, chain_id::int4 AS chain_id, checks, created_at,
+       effective_since, expires_at, network, signature, signer,
+       type::text AS type, contract
+FROM marketplace.trades
+"#,
+        )
+        .fetch_all(&self.pool)
+        .await
+        .or_else(|e| if is_missing_trades_table(&e) { Ok(Vec::new()) } else { Err(e) })?;
+
+        let count = rows.len() as i64;
+        let data = rows.iter().map(row_to_db_trade).collect();
+        Ok((data, count))
     }
 
     pub async fn get_trade(&self, id: &str) -> Result<TradeView, ApiError> {
-        let rows = sqlx::query(
+        let head_row = sqlx::query(
             r#"
-SELECT
-  t.id::text                  AS trade_id,
-  t.chain_id::int4            AS chain_id,
-  t.checks                    AS checks,
-  t.created_at                AS created_at,
-  t.effective_since           AS effective_since,
-  t.expires_at                AS expires_at,
-  t.network                   AS network,
-  t.signature                 AS signature,
-  t.signer                    AS signer,
-  t.type                      AS trade_type,
-  t.contract                  AS contract,
-  ta.asset_type::int4         AS asset_type,
-  ta.contract_address         AS asset_contract_address,
-  ta.beneficiary              AS asset_beneficiary,
-  ta.direction                AS asset_direction,
-  ta.extra                    AS asset_extra,
-  erc721.token_id             AS token_id,
-  erc20.amount::text          AS amount,
-  item.item_id                AS item_id
-FROM marketplace.trades AS t
-JOIN marketplace.trade_assets AS ta ON t.id = ta.trade_id
-LEFT JOIN marketplace.trade_assets_erc721 AS erc721 ON ta.id = erc721.asset_id
-LEFT JOIN marketplace.trade_assets_erc20  AS erc20  ON ta.id = erc20.asset_id
-LEFT JOIN marketplace.trade_assets_item   AS item   ON ta.id = item.asset_id
-WHERE t.id = $1::uuid
-ORDER BY ta.direction ASC
+SELECT id::text AS trade_id, chain_id::int4 AS chain_id, checks, created_at,
+       effective_since, expires_at, network, signature, signer,
+       type::text AS trade_type, contract
+FROM marketplace.trades
+WHERE id = $1::uuid
 "#,
         )
         .bind(id)
-        .fetch_all(&self.pool)
-        .await?;
+        .fetch_optional(&self.pool)
+        .await
+        .or_else(|e| if is_missing_trades_table(&e) { Ok(None) } else { Err(e) })?;
 
-        if rows.is_empty() {
-            return Err(ApiError::not_found(format!(
-                "Trade with id {} not found",
-                id
-            )));
-        }
-        let head = &rows[0];
+        let head = head_row.ok_or_else(|| {
+            ApiError::not_found(format!("Trade with id {} not found", id))
+        })?;
         let trade = DbTrade {
             id: head.try_get("trade_id").unwrap_or_default(),
             chain_id: head.try_get::<i32, _>("chain_id").unwrap_or(0),
             checks: head.try_get("checks").unwrap_or(JsonValue::Null),
             created_at: head.try_get("created_at").unwrap_or_else(|_| Utc::now()),
-            effective_since: head
-                .try_get("effective_since")
-                .unwrap_or_else(|_| Utc::now()),
+            effective_since: head.try_get("effective_since").unwrap_or_else(|_| Utc::now()),
             expires_at: head.try_get("expires_at").unwrap_or_else(|_| Utc::now()),
             network: head.try_get("network").unwrap_or_default(),
             signature: head.try_get("signature").unwrap_or_default(),
@@ -128,33 +130,43 @@ ORDER BY ta.direction ASC
             trade_type: head.try_get("trade_type").unwrap_or_default(),
             contract: head.try_get("contract").unwrap_or_default(),
         };
+
+        let asset_rows = sqlx::query(
+            r#"
+SELECT ta.asset_type::int4 AS asset_type, ta.contract_address AS asset_contract_address,
+       ta.beneficiary AS asset_beneficiary, ta.direction::text AS asset_direction,
+       ta.extra AS asset_extra,
+       erc721.token_id AS token_id, erc20.amount::text AS amount, item.item_id AS item_id
+FROM marketplace.trade_assets AS ta
+LEFT JOIN marketplace.trade_assets_erc721 AS erc721 ON ta.id = erc721.asset_id
+LEFT JOIN marketplace.trade_assets_erc20  AS erc20  ON ta.id = erc20.asset_id
+LEFT JOIN marketplace.trade_assets_item   AS item   ON ta.id = item.asset_id
+WHERE ta.trade_id = $1::uuid
+ORDER BY ta.direction ASC
+"#,
+        )
+        .bind(id)
+        .fetch_all(&self.pool)
+        .await
+        .or_else(|e| if is_missing_trades_table(&e) { Ok(Vec::new()) } else { Err(e) })?;
+
         let mut sent: Vec<TradeAsset> = Vec::new();
         let mut received: Vec<TradeAsset> = Vec::new();
-        for r in &rows {
+        for r in &asset_rows {
             let dir: String = r.try_get("asset_direction").unwrap_or_default();
             let asset = TradeAsset {
                 asset_type: r.try_get::<i32, _>("asset_type").unwrap_or(0),
                 contract_address: r.try_get("asset_contract_address").unwrap_or_default(),
-                beneficiary: r
-                    .try_get::<Option<String>, _>("asset_beneficiary")
-                    .unwrap_or(None),
+                beneficiary: r.try_get::<Option<String>, _>("asset_beneficiary").unwrap_or(None),
                 direction: dir.clone(),
                 extra: r.try_get("asset_extra").unwrap_or_default(),
                 amount: r.try_get::<Option<String>, _>("amount").unwrap_or(None),
                 token_id: r.try_get::<Option<String>, _>("token_id").unwrap_or(None),
                 item_id: r.try_get::<Option<String>, _>("item_id").unwrap_or(None),
             };
-            if dir == "sent" {
-                sent.push(asset);
-            } else {
-                received.push(asset);
-            }
+            if dir == "sent" { sent.push(asset); } else { received.push(asset); }
         }
-        Ok(TradeView {
-            trade,
-            sent,
-            received,
-        })
+        Ok(TradeView { trade, sent, received })
     }
 
     pub async fn get_trade_accepted_event(
@@ -175,7 +187,7 @@ SELECT
   t.network                   AS network,
   t.signature                 AS signature,
   t.signer                    AS signer,
-  t.type                      AS trade_type,
+  t.type::text                AS trade_type,
   t.contract                  AS contract
 FROM marketplace.trades AS t
 WHERE t.hashed_signature = $1
@@ -184,7 +196,8 @@ LIMIT 1
         )
         .bind(hashed_signature)
         .fetch_optional(&self.pool)
-        .await?;
+        .await
+        .or_else(|e| if is_missing_trades_table(&e) { Ok(None) } else { Err(e) })?;
 
         let head = rows.ok_or_else(|| {
             ApiError::not_found(format!(
@@ -238,12 +251,12 @@ SELECT
   t.network                   AS network,
   t.signature                 AS signature,
   t.signer                    AS signer,
-  t.type                      AS trade_type,
+  t.type::text                AS trade_type,
   t.contract                  AS contract,
   ta.asset_type::int4         AS asset_type,
   ta.contract_address         AS asset_contract_address,
   ta.beneficiary              AS asset_beneficiary,
-  ta.direction                AS asset_direction,
+  ta.direction::text          AS asset_direction,
   ta.extra                    AS asset_extra,
   erc721.token_id             AS token_id,
   erc20.amount::text          AS amount,
@@ -270,7 +283,8 @@ ORDER BY t.created_at DESC, ta.direction ASC
         .bind(limit)
         .bind(offset)
         .fetch_all(&self.pool)
-        .await?;
+        .await
+        .or_else(|e| if is_missing_trades_table(&e) { Ok(Vec::new()) } else { Err(e) })?;
 
         let mut grouped: std::collections::HashMap<String, Vec<sqlx::postgres::PgRow>> =
             std::collections::HashMap::new();
@@ -335,7 +349,6 @@ ORDER BY t.created_at DESC, ta.direction ASC
     }
 }
 
-#[allow(dead_code)]
 fn row_to_db_trade(r: &sqlx::postgres::PgRow) -> DbTrade {
     DbTrade {
         id: r.try_get::<String, _>("id").unwrap_or_default(),

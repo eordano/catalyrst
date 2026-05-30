@@ -1,36 +1,11 @@
-//! Shared pagination input + output envelope types.
-//!
-//! Two types live here:
-//!
-//! - [`PageInput`] — the minimal `{ limit, offset }` shape parsed off a
-//!   marketplace-style query string. Mirrors the input that
-//!   `catalyrst-market`'s `get_pagination_params` produces, kept here so any
-//!   future port (lambdas, places, events) can use the same envelope.
-//! - [`PaginatedResponse<T>`] — the marketplace-server JSON output envelope
-//!   (`{ results, total, page, pages, limit }`) plus a `new(results, total,
-//!   limit, offset)` constructor that derives `page` and `pages`.
-//!
-//! Note: a richer `Pagination` struct exists in `entity.rs` (the
-//! content-server flavour with `{ offset, limit, page_size, page_num }`) and
-//! is intentionally left alone — these two types serve different callers.
-
 use serde::Serialize;
 
-/// Minimal pagination input: just `limit` + `offset`. Marketplace-style.
-///
-/// This mirrors the shape `catalyrst-market`'s `get_pagination_params` parses
-/// out of a query string. Kept here so future ports can reuse the type.
 #[derive(Debug, Clone, Copy)]
 pub struct PageInput {
     pub limit: i64,
     pub offset: i64,
 }
 
-/// Marketplace-server JSON output envelope for paginated endpoints.
-///
-/// Shape: `{ results, total, page, pages, limit }`. Construct with
-/// [`PaginatedResponse::new`] which derives `page = offset / limit` and
-/// `pages = ceil(total / limit)`.
 #[derive(Debug, Serialize)]
 pub struct PaginatedResponse<T> {
     pub results: Vec<T>,

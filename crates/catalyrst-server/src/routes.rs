@@ -146,6 +146,12 @@ fn lambdas_routes() -> Router<Arc<AppState>> {
         .route("/lambdas/explorer/{address}/emotes", get(handlers::lambdas_explorer::explorer_emotes))
         .route("/lambdas/nfts/collections", get(handlers::lambdas_catalog::nfts_collections))
         .route("/lambdas/outfits/{id}", get(handlers::lambdas_catalog::outfits))
+        // Root-level aliases: the unity client builds these against the bare realm
+        // host (its lambdas base loses the /lambdas path on URL join), so the
+        // explorer/backpack endpoints must also answer without the prefix.
+        .route("/explorer/{address}/wearables", get(handlers::lambdas_explorer::explorer_wearables))
+        .route("/explorer/{address}/emotes", get(handlers::lambdas_explorer::explorer_emotes))
+        .route("/outfits/{id}", get(handlers::lambdas_catalog::outfits))
 }
 
 pub fn build_router(state: Arc<AppState>) -> Router {

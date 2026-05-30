@@ -772,7 +772,6 @@ fn from_db_row_to_wearable(row: ProfileRow) -> ProfileWearable {
         urn: fix_urn(&row.urn.clone().unwrap_or_default()),
         id: row.id,
         token_id: row.token_id,
-
         category: row.category.unwrap_or_else(|| "eyewear".to_string()),
         transferred_at,
         name: row.name.unwrap_or_default(),
@@ -790,7 +789,6 @@ fn from_db_row_to_emote(row: ProfileRow) -> ProfileEmote {
         urn: fix_urn(&row.urn.clone().unwrap_or_default()),
         id: row.id,
         token_id: row.token_id,
-
         category: row.category.unwrap_or_else(|| "dance".to_string()),
         transferred_at,
         name: row.name.unwrap_or_default(),
@@ -888,8 +886,9 @@ pub fn parse_user_assets_params(pairs: &[(String, String)]) -> UserAssetsFilters
     let skip = p.get_number("skip", None).map(|n| n as i64);
 
     let requested_limit = limit.or(first).unwrap_or(DEFAULT_LIMIT);
-    let requested_skip = offset.or(skip).unwrap_or(0);
-    let capped_limit = requested_limit.min(MAX_LIMIT);
+    let requested_skip = offset.or(skip).unwrap_or(0).max(0);
+    // clamp non-negative: a negative first/limit → negative SQL LIMIT → 500.
+    let capped_limit = requested_limit.clamp(0, MAX_LIMIT);
 
     let item_type_list = p.get_list("itemType", &[]);
     let item_type = if item_type_list.is_empty() {

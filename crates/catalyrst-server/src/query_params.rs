@@ -2,6 +2,12 @@ use std::collections::HashMap;
 
 pub const MAX_PAGE_SIZE: u32 = 1000;
 
+// Defense-in-depth cap on how many `key=value` pairs the parser will materialize from one query
+// string, mirroring qs's `parameterLimit`. Set above the per-endpoint array caps (1000) so a handler
+// still sees an oversized request (e.g. 1001 values) and rejects it with a clean 400, while a
+// pathological flood (tens of thousands of pairs) can't blow up parser memory/CPU.
+pub const MAX_QUERY_PARAMS: usize = 2000;
+
 pub type QueryParams = HashMap<String, Vec<String>>;
 
 pub fn parse_query_string(raw: &str) -> QueryParams {
@@ -9,7 +15,7 @@ pub fn parse_query_string(raw: &str) -> QueryParams {
     if raw.is_empty() {
         return map;
     }
-    for pair in raw.split('&') {
+    for pair in raw.split('&').take(MAX_QUERY_PARAMS) {
         let mut parts = pair.splitn(2, '=');
         let key = parts.next().unwrap_or("");
         let value = parts.next().unwrap_or("");
@@ -239,6 +245,28 @@ mod tests {
             qs_get_array(&params, "entityType"),
             vec!["scene", "profile"]
         );
+    }
+
+    #[test]
+    fn parse_just_over_endpoint_cap_is_visible_to_handlers() {
+        // 1001 repeated keys (just over the per-endpoint array cap) must all parse, so a handler can
+        // see the overage and reject it with a clean 400 rather than silently truncating.
+        let query: String = (0..1001)
+            .map(|i| format!("cid={}", i))
+            .collect::<Vec<_>>()
+            .join("&");
+        let params = parse_query_string(&query);
+        assert_eq!(qs_get_array(&params, "cid").len(), 1001);
+    }
+
+    #[test]
+    fn parse_bounds_pathological_flood_to_param_limit() {
+        let query: String = (0..3000)
+            .map(|i| format!("cid={}", i))
+            .collect::<Vec<_>>()
+            .join("&");
+        let params = parse_query_string(&query);
+        assert!(qs_get_array(&params, "cid").len() <= MAX_QUERY_PARAMS);
     }
 
     #[test]

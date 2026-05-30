@@ -23,6 +23,7 @@ pub fn hash_bytes_v1(data: &[u8]) -> String {
 
 struct TreeNode {
     cid_bytes: Vec<u8>,
+    file_size: u64,
     tsize: u64,
 }
 
@@ -34,6 +35,7 @@ fn hash_chunked(data: &[u8]) -> String {
             let cid_bytes = encode_cid_v1(0x55, &digest);
             TreeNode {
                 cid_bytes,
+                file_size: chunk.len() as u64,
                 tsize: chunk.len() as u64,
             }
         })
@@ -56,7 +58,7 @@ fn balanced_reduce(mut nodes: Vec<TreeNode>) -> TreeNode {
 }
 
 fn build_interior_node(children: &[TreeNode]) -> TreeNode {
-    let block_sizes: Vec<u64> = children.iter().map(|c| c.tsize).collect();
+    let block_sizes: Vec<u64> = children.iter().map(|c| c.file_size).collect();
     let total_file_size: u64 = block_sizes.iter().sum();
 
     let unixfs_data = unixfs::encode_file_node(total_file_size, &block_sizes);
@@ -77,7 +79,11 @@ fn build_interior_node(children: &[TreeNode]) -> TreeNode {
     let children_tsize_sum: u64 = children.iter().map(|c| c.tsize).sum();
     let tsize = pb_node.len() as u64 + children_tsize_sum;
 
-    TreeNode { cid_bytes, tsize }
+    TreeNode {
+        cid_bytes,
+        file_size: total_file_size,
+        tsize,
+    }
 }
 
 fn cid_v1_to_string_from_bytes(cid_bytes: &[u8]) -> String {
@@ -175,5 +181,32 @@ mod tests {
             hash_chunked.starts_with("bafy"),
             "CHUNK_SIZE+1 bytes should be dag-pb (chunked), got {hash_chunked}"
         );
+    }
+}
+
+#[cfg(test)]
+mod multilevel_tests {
+    use super::*;
+
+    #[test]
+    fn cidv1_multi_level_dag_golden() {
+        let n = 175 * CHUNK_SIZE + 7;
+        let data: Vec<u8> = (0..n).map(|i| (i % 251) as u8).collect();
+        let hash = hash_bytes_v1(&data);
+        assert!(hash.starts_with("bafy"), "175 chunks must be dag-pb, got {hash}");
+        assert_eq!(
+            hash, "bafybeihh7afuh5inawukv67gg6vxlpvb3zgw6rkpw7tymous2idoydpxpi",
+            "multi-level (>{MAX_CHILDREN} chunks) UnixFS CID regressed; interior nodes must use \
+             children file_size for blocksizes/filesize, not DAG tsize"
+        );
+    }
+
+    #[test]
+    fn single_vs_multi_level_boundary() {
+        let one_level = vec![7u8; MAX_CHILDREN * CHUNK_SIZE];
+        let two_level = vec![7u8; (MAX_CHILDREN + 1) * CHUNK_SIZE];
+        assert!(hash_bytes_v1(&one_level).starts_with("bafy"));
+        assert!(hash_bytes_v1(&two_level).starts_with("bafy"));
+        assert_ne!(hash_bytes_v1(&one_level), hash_bytes_v1(&two_level));
     }
 }

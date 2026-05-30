@@ -1,0 +1,15 @@
+[Unit]
+Description=catalyrst-ab-cdn (asset-bundle CDN over abgen output — port 5147)
+After=network.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=exec
+WorkingDirectory=<WORKSPACE>
+EnvironmentFile=<WORKSPACE>/env/catalyrst-ab-cdn.env
+ExecStart=<WORKSPACE>/bin/catalyrst/catalyrst-ab-cdn
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=default.target

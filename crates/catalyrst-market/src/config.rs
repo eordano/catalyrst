@@ -4,13 +4,10 @@ use std::env;
 pub struct Config {
     pub http_host: String,
     pub http_port: u16,
-
     pub dapps_database_url: String,
     pub dapps_schema: String,
-
     pub dapps_read_database_url: String,
     pub dapps_read_schema: String,
-
     pub favorites_database_url: String,
     pub favorites_schema: String,
 }
@@ -20,15 +17,12 @@ impl Config {
         Ok(Self {
             http_host: env::var("HTTP_SERVER_HOST").unwrap_or_else(|_| "127.0.0.1".to_string()),
             http_port: get_port("HTTP_SERVER_PORT", 5133)?,
-
             dapps_database_url: required("DAPPS_PG_COMPONENT_PSQL_CONNECTION_STRING")?,
             dapps_schema: env::var("DAPPS_PG_COMPONENT_PSQL_SCHEMA")
                 .unwrap_or_else(|_| "marketplace".to_string()),
-
             dapps_read_database_url: required("DAPPS_READ_PG_COMPONENT_PSQL_CONNECTION_STRING")?,
             dapps_read_schema: env::var("DAPPS_READ_PG_COMPONENT_PSQL_SCHEMA")
                 .unwrap_or_else(|_| "marketplace".to_string()),
-
             favorites_database_url: required("FAVORITES_PG_COMPONENT_PSQL_CONNECTION_STRING")?,
             favorites_schema: env::var("FAVORITES_PG_COMPONENT_PSQL_SCHEMA")
                 .unwrap_or_else(|_| "favorites".to_string()),

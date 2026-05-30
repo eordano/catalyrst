@@ -126,13 +126,59 @@ impl ProfileLru {
     }
 }
 
+struct PrefixIdsCache {
+    map: HashMap<String, (Instant, Arc<Vec<String>>)>,
+    order: VecDeque<String>,
+    max_entries: usize,
+    ttl: std::time::Duration,
+}
+
+impl PrefixIdsCache {
+    fn new(max_entries: usize, ttl: std::time::Duration) -> Self {
+        Self {
+            map: HashMap::with_capacity(max_entries),
+            order: VecDeque::with_capacity(max_entries),
+            max_entries,
+            ttl,
+        }
+    }
+
+    fn get(&self, prefix: &str) -> Option<Arc<Vec<String>>> {
+        let (inserted, ids) = self.map.get(prefix)?;
+        if inserted.elapsed() >= self.ttl {
+            return None;
+        }
+        Some(ids.clone())
+    }
+
+    fn insert(&mut self, prefix: String, ids: Arc<Vec<String>>) {
+        if self.map.contains_key(&prefix) {
+            self.map.insert(prefix.clone(), (Instant::now(), ids));
+            self.order.retain(|p| p != &prefix);
+            self.order.push_back(prefix);
+            return;
+        }
+
+        while self.map.len() >= self.max_entries {
+            if let Some(oldest) = self.order.pop_front() {
+                self.map.remove(&oldest);
+            } else {
+                break;
+            }
+        }
+
+        self.map.insert(prefix.clone(), (Instant::now(), ids));
+        self.order.push_back(prefix);
+    }
+}
+
 const CACHED_ENTITY_TYPES: &[&str] = &["scene", "wearable", "emote", "store", "outfits"];
 
 fn env_or(key: &str, default: &str) -> String {
     std::env::var(key).unwrap_or_else(|_| default.to_string())
 }
 
-fn _env_bool(key: &str, default: bool) -> bool {
+fn env_bool(key: &str, default: bool) -> bool {
     std::env::var(key)
         .map(|v| v == "true" || v == "1")
         .unwrap_or(default)
@@ -209,6 +255,7 @@ struct LiveDatabase {
     pool: PgPool,
     entity_cache: Arc<RwLock<EntityCache>>,
     profile_lru: Arc<Mutex<ProfileLru>>,
+    prefix_ids_cache: Arc<Mutex<PrefixIdsCache>>,
 }
 
 const NON_CANONICAL_INTERN_CAP: usize = 64;
@@ -815,12 +862,26 @@ impl Database for LiveDatabase {
         offset: i64,
         limit: i64,
     ) -> Result<PrefixQueryResult, DatabaseError> {
-        let entity_ids =
-            catalyrst_db::pointers_repository::get_item_entities_ids_matching_collection_urn_prefix(
-                &self.pool, prefix,
-            )
-            .await
-            .map_err(|e| DatabaseError::QueryFailed(e.to_string()))?;
+
+        let cached = {
+            let cache = self.prefix_ids_cache.lock().await;
+            cache.get(prefix)
+        };
+
+        let entity_ids: Arc<Vec<String>> = match cached {
+            Some(ids) => ids,
+            None => {
+                let ids = catalyrst_db::pointers_repository::get_item_entities_ids_matching_collection_urn_prefix(
+                    &self.pool, prefix,
+                )
+                .await
+                .map_err(|e| DatabaseError::QueryFailed(e.to_string()))?;
+                let ids = Arc::new(ids);
+                let mut cache = self.prefix_ids_cache.lock().await;
+                cache.insert(prefix.to_string(), ids.clone());
+                ids
+            }
+        };
 
         let total = entity_ids.len() as i64;
 
@@ -1017,6 +1078,14 @@ impl Database for LiveDatabase {
             conditions.push(format!("dep1.entity_pointers && ${}", param_idx));
             param_idx += 1;
         }
+        // deployedBy: filter by deployer. Was parsed (and disables the default
+        // time window) + echoed in the `filters` response, but never applied to
+        // the query, so ?deployedBy=X returned the whole table unfiltered. Uses
+        // the lower(deployer_address) index. deployed_by is already lowercased.
+        if !options.deployed_by.is_empty() {
+            conditions.push(format!("LOWER(dep1.deployer_address) = ANY(${})", param_idx));
+            param_idx += 1;
+        }
 
         if !conditions.is_empty() {
             sql.push_str(" WHERE ");
@@ -1107,6 +1176,10 @@ impl Database for LiveDatabase {
         }
         if !options.pointers.is_empty() {
             let lower: Vec<String> = options.pointers.iter().map(|p| p.to_lowercase()).collect();
+            query = query.bind(lower);
+        }
+        if !options.deployed_by.is_empty() {
+            let lower: Vec<String> = options.deployed_by.iter().map(|a| a.to_lowercase()).collect();
             query = query.bind(lower);
         }
 
@@ -1802,6 +1875,11 @@ async fn main() {
     let entity_cache = Arc::new(RwLock::new(EntityCache::new()));
     let profile_lru = Arc::new(Mutex::new(ProfileLru::new(10_000)));
 
+    let prefix_ids_cache = Arc::new(Mutex::new(PrefixIdsCache::new(
+        2_000,
+        std::time::Duration::from_secs(24 * 60 * 60),
+    )));
+
     let sync_enabled = std::env::var("SYNC_ENABLED")
         .map(|v| v == "true" || v == "1")
         .unwrap_or(false);
@@ -1841,6 +1919,7 @@ async fn main() {
         "PROFILE_CDN_BASE_URL",
         "https://profile-images.decentraland.org",
     );
+    let land_image_base_url = env_or("LAND_IMAGE_BASE_URL", "http://127.0.0.1:5143");
 
     let squid_pool = {
         let squid_host = env_or("SQUID_DB_HOST", &pg_host);
@@ -1989,7 +2068,12 @@ async fn main() {
             .tcp_nodelay(true)
             .connect_timeout(std::time::Duration::from_secs(8))
             .read_timeout(std::time::Duration::from_secs(25))
-            .timeout(std::time::Duration::from_secs(60))
+            // No total request timeout: this client streams large bodies
+            // (snapshot files reach 100s of MB, content blobs too). A total cap
+            // truncates slow large downloads → hash-verification failures and
+            // skipped snapshots. connect_timeout + read_timeout (idle detection)
+            // still catch hung/stalled connections. Callers that want a hard cap
+            // (e.g. the small /snapshots index fetch) set a per-request timeout.
             .redirect(reqwest::redirect::Policy::limited(2))
             .build()
             .expect("Failed to create HTTP client");
@@ -2173,6 +2257,7 @@ async fn main() {
             pool: pool.clone(),
             entity_cache: entity_cache.clone(),
             profile_lru: profile_lru.clone(),
+            prefix_ids_cache: prefix_ids_cache.clone(),
         }),
         deployer,
         denylist: Arc::new(EmptyDenylist),
@@ -2186,12 +2271,16 @@ async fn main() {
         commit_hash,
         eth_network,
         content_server_address,
-        read_only: false,
+        read_only: env_bool("READ_ONLY", false),
+        entities_cache_control_max_age: env_or("ENTITIES_CACHE_CONTROL_MAX_AGE", "10")
+            .parse()
+            .unwrap_or(10),
         content_public_url,
         lambdas_public_url,
         realm_name,
         squid_pool,
         profile_cdn_base_url,
+        land_image_base_url,
     });
 
     let app = build_router(state);
@@ -2300,5 +2389,16 @@ async fn main() {
         .await
         .expect("Failed to bind TCP listener");
 
-    axum::serve(listener, app).await.expect("Server error");
+    // Trim trailing slashes BEFORE routing (the layer must wrap the router, not
+    // sit inside it): the explorer POSTs `/content/entities/` (upstream
+    // EntitiesDeployment form) which otherwise 404s against the `/entities`
+    // route. Same fix as the explore bundle.
+    use tower::Layer as _;
+    let app = tower_http::normalize_path::NormalizePathLayer::trim_trailing_slash().layer(app);
+    axum::serve(
+        listener,
+        axum::ServiceExt::<axum::extract::Request>::into_make_service(app),
+    )
+    .await
+    .expect("Server error");
 }

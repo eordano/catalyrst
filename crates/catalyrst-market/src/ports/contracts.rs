@@ -8,6 +8,7 @@ use crate::dcl_schemas::{
     ethereum_chain_id, get_db_networks, polygon_chain_id, Contract, Network, NftCategory,
 };
 use crate::http::response::ApiError;
+use crate::logic::sql_filters::{clamp_first, clamp_skip};
 use crate::marketplace_contracts::get_marketplace_contracts;
 use crate::MARKETPLACE_SQUID_SCHEMA;
 
@@ -35,7 +36,6 @@ pub struct DbCollection {
 
 pub struct ContractsComponent {
     pool: PgPool,
-
     cache: Arc<ResponseCache<(), Vec<Contract>>>,
 }
 
@@ -56,8 +56,8 @@ impl ContractsComponent {
         &self,
         filters: &ContractFilters,
     ) -> Result<(Vec<Contract>, i64), ApiError> {
-        let limit = filters.first.unwrap_or(1000).min(1000);
-        let offset = filters.skip.unwrap_or(0);
+        let limit = clamp_first(filters.first, 1000);
+        let offset = clamp_skip(filters.skip);
 
         let networks: Option<Vec<String>> = filters
             .network
@@ -65,9 +65,6 @@ impl ContractsComponent {
 
         let where_sql = build_where(networks.is_some());
 
-        // Pin `COLLATE "C"` on the name sort to keep paginated results
-        // deterministic even if the underlying DB locale ever drifts. Same
-        // root cause as the `/v1/collections` divergence (see parity report).
         let select_sql = format!(
             "SELECT c.id, c.name, c.chain_id::int4 AS chain_id, c.network \
              FROM {schema}.collection c \

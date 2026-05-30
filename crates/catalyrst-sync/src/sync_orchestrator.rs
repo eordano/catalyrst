@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+use futures::StreamExt;
 use tokio::sync::{Mutex, Notify, RwLock};
 use tracing::{error, info, warn};
 
@@ -456,26 +457,45 @@ impl SyncOrchestratorRefs {
             }
         }
 
-        for (hash, servers) in &snapshots_to_process {
-            if self.stopped.load(std::sync::atomic::Ordering::SeqCst) {
-                return Err(SyncError::Stopped);
-            }
-            if let Err(e) = snapshots::deploy_entities_from_snapshot(
-                &self.http_client,
-                self.storage.as_ref(),
-                self.deployer.as_ref(),
-                hash,
-                servers,
-                self.config.from_timestamp,
-                self.config.request_max_retries,
-                self.config.request_retry_wait_ms,
-                entity_type_filter,
-                || self.stopped.load(std::sync::atomic::Ordering::SeqCst),
-            )
-            .await
-            {
-                warn!(snapshot_hash = %hash, error = %e, "Snapshot deployment failed");
-            }
+        // Process snapshots with bounded concurrency so a stall on one
+        // snapshot's download / hash-retries doesn't idle the box — others
+        // deploy meanwhile. Safe: the deployer is concurrency-safe (sorted
+        // per-pointer advisory locks + recency-conditional upsert), its global
+        // max_queue_depth caps total in-flight deploys across all snapshots, and
+        // scenes stay serial within each snapshot. mark_processed runs only after
+        // on_idle() below drains every in-flight deploy, so completeness holds.
+        let snapshot_concurrency: usize = std::env::var("SYNC_SNAPSHOT_CONCURRENCY")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .filter(|&n| n > 0)
+            .unwrap_or(4);
+
+        futures::stream::iter(snapshots_to_process.iter())
+            .for_each_concurrent(snapshot_concurrency, |(hash, servers)| async move {
+                if self.stopped.load(std::sync::atomic::Ordering::SeqCst) {
+                    return;
+                }
+                if let Err(e) = snapshots::deploy_entities_from_snapshot(
+                    &self.http_client,
+                    self.storage.as_ref(),
+                    self.deployer.as_ref(),
+                    hash,
+                    servers,
+                    self.config.from_timestamp,
+                    self.config.request_max_retries,
+                    self.config.request_retry_wait_ms,
+                    entity_type_filter,
+                    || self.stopped.load(std::sync::atomic::Ordering::SeqCst),
+                )
+                .await
+                {
+                    warn!(snapshot_hash = %hash, error = %e, "Snapshot deployment failed");
+                }
+            })
+            .await;
+
+        if self.stopped.load(std::sync::atomic::Ordering::SeqCst) {
+            return Err(SyncError::Stopped);
         }
 
         self.deployer.on_idle().await?;

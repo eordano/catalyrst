@@ -6,6 +6,7 @@ use crate::dcl_schemas::{ChainId, Network};
 use crate::http::errors::InvalidParameterError;
 use crate::http::params::Params;
 use crate::http::response::ApiError;
+use crate::logic::sql_filters::{clamp_first, clamp_skip};
 use crate::MARKETPLACE_SQUID_SCHEMA;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -82,10 +83,12 @@ impl SalesComponent {
     }
 
     pub async fn get_sales(&self, f: &SaleFilters) -> Result<(Vec<Sale>, i64), ApiError> {
-        let limit = f.first.unwrap_or(100);
-        let offset = f.skip.unwrap_or(0);
+        let limit = clamp_first(f.first, 100);
+        let offset = clamp_skip(f.skip);
         let order_by = match f.sort_by {
-            Some(SaleSortBy::MostExpensive) => "price DESC",
+            // The outer `price` alias is price::text — sort it NUMERICALLY, else
+            // "980…"(9.8e17) lex-beats "9000…"(9e18). timestamp is bigint (ok).
+            Some(SaleSortBy::MostExpensive) => "price::numeric DESC",
             _ => "timestamp DESC",
         };
 
@@ -143,6 +146,18 @@ impl SalesComponent {
         if !f.categories.is_empty() {
             where_parts.push(format!("search_category = ANY({}::text[])", next()));
             bind_str.push(format!("{{{}}}", f.categories.join(",")));
+            kinds.push('s');
+        }
+        // network filter: upstream applies `network = ANY(getDBNetworks(network))`
+        // (ETHEREUM -> [ETHEREUM]; MATIC -> [MATIC, POLYGON]). Was parsed but never
+        // applied here, so ?network= leaked sales from the other chain.
+        if let Some(net) = f.network {
+            let db_nets: &[&str] = match net {
+                Network::Ethereum => &["ETHEREUM"],
+                Network::Matic => &["MATIC", "POLYGON"],
+            };
+            where_parts.push(format!("network = ANY({}::text[])", next()));
+            bind_str.push(format!("{{{}}}", db_nets.join(",")));
             kinds.push('s');
         }
         if let Some(v) = f.from {

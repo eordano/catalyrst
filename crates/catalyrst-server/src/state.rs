@@ -200,10 +200,19 @@ pub struct AppState {
     pub content_server_address: String,
     pub read_only: bool,
 
+    /// `max-age` (seconds) for the opt-in `Cache-Control` header on the active-entity listing
+    /// endpoints (`/entities/active`, `/entities/:type`). `0` disables the header. Tunable via
+    /// `ENTITIES_CACHE_CONTROL_MAX_AGE` (default 10).
+    pub entities_cache_control_max_age: u64,
+
     pub content_public_url: String,
     pub lambdas_public_url: String,
     pub realm_name: Option<String>,
 
     pub squid_pool: Option<sqlx::PgPool>,
     pub profile_cdn_base_url: String,
+    /// Base URL the squid-stored LAND/estate `image` map-thumbnail URLs are
+    /// rewritten to (replacing the prod `https://api.decentraland.org` prefix),
+    /// so lambdas land listings reference the LOCAL catalyrst-map (:5143).
+    pub land_image_base_url: String,
 }

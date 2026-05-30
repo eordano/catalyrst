@@ -151,7 +151,8 @@ async fn download_file_with_retries(
             Ok(resp) => {
                 if resp.status().is_success() {
 
-                    if let Some(len) = resp.content_length() {
+                    let expected_len = resp.content_length();
+                    if let Some(len) = expected_len {
                         if len as usize > MAX_BODY_BYTES {
                             warn!(
                                 hash,
@@ -217,6 +218,29 @@ async fn download_file_with_retries(
                             tokio::time::sleep(std::time::Duration::from_millis(RETRY_WAIT_MS)).await;
                         }
                         continue;
+                    }
+
+                    // Explicit truncation signal (short clean EOF) instead of an
+                    // opaque downstream hash-verification failure.
+                    if let Some(len) = expected_len {
+                        if (buf.len() as u64) < len {
+                            warn!(
+                                hash,
+                                %server,
+                                attempt,
+                                got = buf.len(),
+                                expected = len,
+                                "Content download TRUNCATED (short read), trying next server"
+                            );
+                            last_error = Some(SyncError::Other(format!(
+                                "content {} from {} truncated: got {} of {} bytes",
+                                hash, server, buf.len(), len
+                            )));
+                            if attempt + 1 < MAX_DOWNLOAD_RETRIES {
+                                tokio::time::sleep(std::time::Duration::from_millis(RETRY_WAIT_MS)).await;
+                            }
+                            continue;
+                        }
                     }
 
                     let bytes: bytes::Bytes = buf.into();

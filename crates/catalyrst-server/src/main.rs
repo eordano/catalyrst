@@ -210,6 +210,7 @@ async fn main() {
         "PROFILE_CDN_BASE_URL",
         "https://profile-images.decentraland.org",
     );
+    let land_image_base_url = env_or("LAND_IMAGE_BASE_URL", "http://127.0.0.1:5143");
 
     let state = Arc::new(AppState {
         storage: Arc::new(StubStorage),
@@ -227,11 +228,16 @@ async fn main() {
         eth_network,
         content_server_address,
         read_only,
+        entities_cache_control_max_age: std::env::var("ENTITIES_CACHE_CONTROL_MAX_AGE")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(10),
         content_public_url,
         lambdas_public_url,
         realm_name,
         squid_pool: None,
         profile_cdn_base_url,
+        land_image_base_url,
     });
 
     let app = build_router(state);

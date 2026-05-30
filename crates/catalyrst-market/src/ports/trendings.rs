@@ -28,16 +28,6 @@ impl TrendingsComponent {
         Self { pool }
     }
 
-    /// Returns full `Item` rows for the trending NFTs based on sales and
-    /// volume over the last day. Mirrors upstream `createTrendingsComponent`
-    /// (`/tmp/mps-src/src/ports/trendings/component.ts`):
-    ///   1. Fetch up to 1000 sales from the last 24h (today 00:00:00 cut).
-    ///   2. Group by (contract, itemId), counting occurrences.
-    ///   3. Look up the matching items via `ItemsComponent::get_items`.
-    ///   4. Take 60% of `size` from the items with the most sales,
-    ///      filtering to those that are currently on sale.
-    ///   5. Take 40% of `size` from the items with the highest implied
-    ///      volume (sales_count * price), excluding any already in (4).
     pub async fn fetch(
         &self,
         items: &ItemsComponent,
@@ -48,7 +38,6 @@ impl TrendingsComponent {
             return Ok(Vec::new());
         }
 
-        // Mirror upstream `getDateXDaysAgo(1)`: midnight UTC, 1 day ago.
         let from_ts = midnight_days_ago(1);
 
         let sql = format!(
@@ -71,11 +60,8 @@ LIMIT $2 OFFSET 0
                 .fetch_all(&self.pool)
                 .await?;
 
-        // (contractAddress, itemId) -> count. Skip sales without an itemId
-        // (the upstream `reduce` is conditional on `sale.itemId`).
         let mut counts: HashMap<(String, String), i64> = HashMap::new();
-        // Preserve insertion order so the volume tie-breaker mirrors the
-        // upstream's `Object.keys()` ordering.
+
         let mut order: Vec<(String, String)> = Vec::new();
         for (item_id, contract) in rows {
             let Some(item_id) = item_id else { continue };
@@ -90,9 +76,6 @@ LIMIT $2 OFFSET 0
             return Ok(Vec::new());
         }
 
-        // Look up each (contract, itemId) → Item. We store each found item
-        // at most once and index it by the key. Owning `Vec<Item>` so we
-        // can move out into the output without cloning (Item is not Clone).
         let mut owned_items: Vec<Item> = Vec::new();
         let mut item_index: HashMap<(String, String), usize> = HashMap::new();
         for key in &order {
@@ -112,10 +95,8 @@ LIMIT $2 OFFSET 0
             }
         }
 
-        // Build the sales-ranked list of (key, count, idx_into_owned, on_sale).
         let lookup_at = |k: &(String, String)| -> Option<usize> { item_index.get(k).copied() };
 
-        // Trending by sales: items with the most sales, on-sale only.
         let mut by_sales: Vec<(usize, i64)> = order
             .iter()
             .enumerate()
@@ -137,8 +118,6 @@ LIMIT $2 OFFSET 0
             }
         }
 
-        // Trending by volume: sales_count * price, descending. Excludes
-        // anything already chosen by sales.
         let mut by_volume: Vec<(usize, i64)> = order
             .iter()
             .enumerate()
@@ -174,9 +153,6 @@ LIMIT $2 OFFSET 0
         let mut chosen = chosen_sales_idx;
         chosen.extend(chosen_volume_idx);
 
-        // Take the chosen indices out of `owned_items` in the order
-        // selected. Using `Option::take` lets us move out of arbitrary
-        // indices without breaking the vector's other slots.
         let mut wrapped: Vec<Option<Item>> = owned_items.into_iter().map(Some).collect();
         let mut out: Vec<Item> = Vec::with_capacity(chosen.len());
         for idx in chosen {
@@ -187,11 +163,6 @@ LIMIT $2 OFFSET 0
             }
         }
 
-        // Upstream applies a `seedrandom(item1.id + item2.id)` shuffle for
-        // a deterministic-but-non-monotone order. We don't carry a port of
-        // that across, so we leave the items in the canonical
-        // sales-then-volume order — the parity script sorts arrays by `id`
-        // before diffing, so the visible ordering does not affect parity.
         Ok(out)
     }
 }

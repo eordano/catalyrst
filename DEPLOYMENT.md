@@ -36,7 +36,7 @@ CATALYRST_PORT=5141 \
 POSTGRES_CONTENT_USER=<user> \
 POSTGRES_CONTENT_PASSWORD=<pw> \
 POSTGRES_CONTENT_DB=content \
-STORAGE_ROOT_FOLDER=/var/lib/catalyrst/content \
+STORAGE_ROOT_FOLDER=<DATA_DIR>/content \
   ./target/release/catalyrst-live
 # → "catalyrst-live listening 127.0.0.1:5141"
 
@@ -107,7 +107,7 @@ example NixOS module):
 ```bash
 ENABLE_DEPLOYMENTS=true
 POSTGRES_CONTENT_DB=content_scratch            # NOT the live `content` DB
-STORAGE_ROOT_FOLDER=/var/lib/catalyrst/content_scratch
+STORAGE_ROOT_FOLDER=<DATA_DIR>/content_scratch
 ETH_RPC_URL=https://rpc.decentraland.org/mainnet     # EIP-1654 (smart-wallet) sigs
 IGNORE_BLOCKCHAIN_ACCESS_CHECKS=false                # default; fail-closed (full ACL). =true only for historical-profile sync
 # optional, for access checks:
@@ -149,7 +149,7 @@ multipart and confirm a 200 + the row in `deployments` + `active_pointers`.
 | `POSTGRES_PORT` | `5432` | content DB port |
 | `POSTGRES_CONTENT_USER` / `_PASSWORD` | — (required) | content DB creds |
 | `POSTGRES_CONTENT_DB` | `content` | content DB name |
-| `STORAGE_ROOT_FOLDER` | `/var/lib/catalyrst/content` | content blob root |
+| `STORAGE_ROOT_FOLDER` | `<DATA_DIR>/content` | content blob root |
 | `STORAGE_X_ACCEL_BASE` | unset | when set, catalyrst returns `X-Accel-Redirect: <base>/<sha1[..2]>/<hash>` + empty body on `/content/contents/{hash}`, thumbnail, and image endpoints so nginx serves the bytes via `sendfile` (see "nginx X-Accel-Redirect" below). Leave unset for dev/docker/podman setups without nginx. |
 | `SQUID_DB_HOST` / `SQUID_DB_PORT` | inherits `POSTGRES_HOST` / `POSTGRES_PORT` | squid DB socket/host + port |
 | `SQUID_DB_USER` | `squid_ro` | squid DB user |
@@ -158,7 +158,7 @@ multipart and confirm a 200 + the row in `deployments` + `active_pointers`.
 | `SYNC_ENABLED` | `false` | enable upstream sync |
 | `SYNC_SOURCE` | `http://127.0.0.1:5140` | upstream peer(s), comma-separated |
 | `SYNC_DB_NAME` | `content_rust` | sync replica DB name |
-| `SYNC_STORAGE_ROOT` | `/var/lib/catalyrst/content_rust` | sync replica blob root |
+| `SYNC_STORAGE_ROOT` | `<DATA_DIR>/content_rust` | sync replica blob root |
 | `CONCURRENT_SYNC_DOWNLOADS` | `200` | parallel content downloads during sync |
 | `SNAPSHOT_GENERATION_INTERVAL_HOURS` | `6` | how often to regenerate `/content/snapshots` |
 | `RETRY_FAILED_ENABLED` | `true` | run the failed-deployment retry worker (sync mode only) |
@@ -188,7 +188,7 @@ internal nginx location pointing at `STORAGE_ROOT_FOLDER/contents`:
 ```nginx
 location /__protected_storage/ {
     internal;
-    alias /srv/catalyrst/content/contents/;
+    alias <DATA_DIR>/content/contents/;
     add_header Cache-Control "public, max-age=31536000, immutable" always;
     add_header X-Content-Type-Options "nosniff" always;
     sendfile on;
@@ -216,8 +216,8 @@ marketplace data), you can have the Node squid populate them and leave
 compatible with §2's Rust refresher — pick one writer, not both.
 
 The squid changes are staged on branch `feat/index-third-party-registry` of
-your `marketplace-squid-core` checkout (work off a separate worktree of the
-live commit; the running squid is untouched).
+your `marketplace-squid-core` checkout (apply them to a checkout separate from
+any running indexer so the live process is untouched).
 
 > ⚠️ This touches the **live polygon indexer**. Do it in a maintenance window.
 > The migration only adds two new tables; it does not alter existing ones.

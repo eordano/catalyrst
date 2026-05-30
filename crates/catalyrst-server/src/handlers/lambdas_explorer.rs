@@ -18,9 +18,6 @@ use crate::state::AppState;
 const EXPLORER_CACHE_TTL: Duration = Duration::from_secs(30);
 const EXPLORER_CACHE_MAX_ENTRIES: usize = 50_000;
 
-/// Key = (lowercase address, sort, direction, pageSize, pageNum, collection-types joined, category, name+categories+rarity filter string).
-/// `name`, `categories`, and `rarity` are folded into the trailing filter
-/// string so two queries with different filters never collide.
 type ExplorerKey = (String, String, String, i64, i64, String, &'static str, String);
 
 fn explorer_cache() -> &'static Arc<ResponseCache<ExplorerKey, Value>> {
@@ -50,6 +47,11 @@ struct ExplorerQuery {
     direction: String,
 
     collection_types: Vec<String>,
+
+    // The unity backpack always requests trimmed=true and deserializes
+    // elements[].entity.{id,thumbnail,metadata,individualData} — a different
+    // element shape than the default (un-trimmed) response.
+    trimmed: bool,
 }
 
 fn parse_query(query: Option<&str>, valid_collection_types: &[&str]) -> Result<ExplorerQuery, Response> {
@@ -125,6 +127,11 @@ fn parse_query(query: Option<&str>, valid_collection_types: &[&str]) -> Result<E
         )));
     }
 
+    let trimmed = matches!(
+        get_first("trimmed").as_deref(),
+        Some("true") | Some("1")
+    );
+
     Ok(ExplorerQuery {
         page_num,
         page_size,
@@ -134,6 +141,7 @@ fn parse_query(query: Option<&str>, valid_collection_types: &[&str]) -> Result<E
         sort,
         direction,
         collection_types,
+        trimmed,
     })
 }
 
@@ -274,11 +282,24 @@ async fn fetch_owned_items(state: &AppState, owner: &str, category: &str) -> Vec
 
 fn extract_name_category(entity: &Value, category: &str) -> (String, String) {
     let md = entity.get("metadata").cloned().unwrap_or(Value::Null);
-    let name = md
+    // v1-collection metadata ships name:"" with the display name only in the i18n
+    // table — fall back to the first i18n text so sorting/searching and the
+    // backpack grid label get a real name.
+    let mut name = md
         .get("name")
         .and_then(|n| n.as_str())
         .unwrap_or("")
         .to_string();
+    if name.is_empty() {
+        name = md
+            .get("i18n")
+            .and_then(|i| i.as_array())
+            .and_then(|arr| arr.first())
+            .and_then(|e| e.get("text"))
+            .and_then(|t| t.as_str())
+            .unwrap_or("")
+            .to_string();
+    }
     let cat = if category == "emote" {
         md.get("emoteDataADR74")
             .or_else(|| md.get("emoteDataV0"))
@@ -417,7 +438,10 @@ fn item_to_value(item: &OwnedItem, include_item_type: bool) -> Value {
     }
     obj.insert("type".to_string(), json!("on-chain"));
     obj.insert("urn".to_string(), json!(item.urn));
-    obj.insert("amount".to_string(), json!(item.amount.to_string()));
+    // amount is a NUMBER (upstream catalyst lambdas types.ts: `amount: number`);
+    // the base/third-party/trimmed branches and /users all emit a number — only
+    // this on-chain branch stringified it. Keep it numeric for consistency.
+    obj.insert("amount".to_string(), json!(item.amount));
     obj.insert(
         "individualData".to_string(),
         Value::Array(item.individual_data.clone()),
@@ -432,6 +456,64 @@ fn item_to_value(item: &OwnedItem, include_item_type: bool) -> Value {
     }
     obj.insert("category".to_string(), json!(item.category));
     obj.insert("entity".to_string(), item.entity.clone());
+    Value::Object(obj)
+}
+
+/// lamb2's `trimmed=true` element shape: everything the client reads lives INSIDE
+/// `entity` — `id`, `thumbnail` (the content HASH of the thumbnail file, not its
+/// name), `metadata` (must carry `name`; v1 wearables only store it in i18n) and
+/// `individualData`. The unity backpack deserializes exactly this and silently
+/// drops elements that miss it.
+fn item_to_trimmed_value(item: &OwnedItem) -> Value {
+    let mut entity = match &item.entity {
+        Value::Object(m) => m.clone(),
+        _ => serde_json::Map::new(),
+    };
+
+    if !entity.contains_key("id") {
+        entity.insert("id".to_string(), json!(item.urn));
+    }
+
+    let thumb_file = entity
+        .get("metadata")
+        .and_then(|m| m.get("thumbnail"))
+        .and_then(|t| t.as_str())
+        .unwrap_or("thumbnail.png")
+        .to_string();
+    let thumb_hash = entity
+        .get("content")
+        .and_then(|c| c.as_array())
+        .and_then(|files| {
+            files.iter().find(|f| {
+                f.get("file").and_then(|x| x.as_str()) == Some(thumb_file.as_str())
+            })
+        })
+        .and_then(|f| f.get("hash").cloned());
+    if let Some(h) = thumb_hash {
+        entity.insert("thumbnail".to_string(), h);
+    }
+
+    if let Some(Value::Object(md)) = entity.get_mut("metadata") {
+        // v1-collection metadata often carries name:"" with the display name only
+        // in i18n — item.name was already resolved from there, so fill on empty too.
+        let name_missing = md
+            .get("name")
+            .and_then(|n| n.as_str())
+            .map(|n| n.is_empty())
+            .unwrap_or(true);
+        if name_missing {
+            md.insert("name".to_string(), json!(item.name));
+        }
+    }
+
+    entity.insert(
+        "individualData".to_string(),
+        Value::Array(item.individual_data.clone()),
+    );
+
+    let mut obj = serde_json::Map::new();
+    obj.insert("entity".to_string(), Value::Object(entity));
+    obj.insert("amount".to_string(), json!(item.amount));
     Value::Object(obj)
 }
 
@@ -504,21 +586,29 @@ async fn explorer_items(
     let mut cats_sorted = q.categories.clone();
     cats_sorted.sort();
     let filter_key = format!(
-        "name={}|cats={}|rarity={}",
+        "name={}|cats={}|rarity={}|trimmed={}",
         q.name.as_deref().unwrap_or(""),
         cats_sorted.join(","),
         q.rarity.as_deref().unwrap_or(""),
+        q.trimmed,
     );
+    // The cache holds the FULL computed item set (page params excluded from the
+    // key, -1 sentinels keep the key type); pages are sliced per request. The
+    // previous per-page keys recomputed the whole inventory for every page of a
+    // backpack scroll (~600ms x pages).
     let cache_key: ExplorerKey = (
         addr_lc.clone(),
         q.sort.clone(),
         q.direction.clone(),
-        q.page_size,
-        q.page_num,
+        -1,
+        -1,
         collection_types_key,
         category,
         filter_key,
     );
+
+    let page_num = q.page_num;
+    let page_size = q.page_size;
 
     let valid_collection_types_owned: Vec<&'static str> = valid_collection_types.to_vec();
     let result: Result<Value, ()> = explorer_cache()
@@ -529,7 +619,23 @@ async fn explorer_items(
         .await;
 
     match result {
-        Ok(v) => Json(v).into_response(),
+        Ok(v) => {
+            let total = v.get("totalAmount").cloned().unwrap_or_else(|| json!(0));
+            let offset = page_num.saturating_sub(1).saturating_mul(page_size).max(0) as usize;
+            let limit = page_size.max(0) as usize;
+            let page: Vec<Value> = v
+                .get("elements")
+                .and_then(|e| e.as_array())
+                .map(|all| all.iter().skip(offset).take(limit).cloned().collect())
+                .unwrap_or_default();
+            Json(json!({
+                "elements": page,
+                "totalAmount": total,
+                "pageNum": page_num,
+                "pageSize": page_size,
+            }))
+            .into_response()
+        }
         Err(()) => Json(json!({
             "elements": [],
             "totalAmount": 0,
@@ -573,25 +679,22 @@ async fn compute_explorer_items(
 
     let total = items.len() as i64;
 
-    let offset = q
-        .page_num
-        .saturating_sub(1)
-        .saturating_mul(q.page_size)
-        .max(0) as usize;
-    let limit = q.page_size.max(0) as usize;
+    // Materialize the FULL set — the caller caches it and slices pages.
     let include_item_type = category == "wearable";
     let elements: Vec<Value> = items
         .iter()
-        .skip(offset)
-        .take(limit)
-        .map(|it| item_to_value(it, include_item_type))
+        .map(|it| {
+            if q.trimmed {
+                item_to_trimmed_value(it)
+            } else {
+                item_to_value(it, include_item_type)
+            }
+        })
         .collect();
 
     Ok(json!({
         "elements": elements,
         "totalAmount": total,
-        "pageNum": q.page_num,
-        "pageSize": q.page_size,
     }))
 }
 
@@ -712,8 +815,6 @@ mod tests {
     use std::sync::Arc as StdArc;
     use std::time::Duration as StdDuration;
 
-    /// Different filter strings produce different cache keys (no collision),
-    /// and identical keys HIT the cache on the second call.
     #[tokio::test]
     async fn explorer_cache_distinct_filters_dont_collide_and_same_key_hits() {
         let cache: ResponseCache<ExplorerKey, Value> =
@@ -741,7 +842,7 @@ mod tests {
             })
             .await
             .unwrap();
-        // Same key — should HIT.
+
         let c = counter.clone();
         cache
             .get_or_fetch(make_key("0xabc", "name=hat"), || async move {
@@ -750,7 +851,7 @@ mod tests {
             })
             .await
             .unwrap();
-        // Different filter — should MISS.
+
         let c = counter.clone();
         cache
             .get_or_fetch(make_key("0xabc", "name=cape"), || async move {

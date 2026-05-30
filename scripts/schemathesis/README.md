@@ -14,7 +14,7 @@ The spec we drive it with lives at `docs/openapi.yaml` (generated separately).
 ## Quick start (local catalyrst)
 
 ```sh
-# 1. Start catalyrst somewhere (e.g. cargo run, default port 5141).
+# 1. Start catalyrst somewhere (e.g. cargo run) and note its port.
 # 2. From the repo root:
 ./scripts/schemathesis/run.sh --target http://127.0.0.1:5141
 ```

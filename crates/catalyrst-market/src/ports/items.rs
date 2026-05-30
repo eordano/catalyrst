@@ -6,7 +6,7 @@ use crate::dcl_schemas::{
 };
 use crate::http::params::Params;
 use crate::http::response::ApiError;
-use crate::logic::sql_filters::where_from;
+use crate::logic::sql_filters::{clamp_first, clamp_skip, where_from};
 use crate::MARKETPLACE_SQUID_SCHEMA;
 
 pub const DEFAULT_LIMIT: i64 = 100;
@@ -70,6 +70,48 @@ pub struct ItemFilters {
     pub min_price: Option<String>,
     pub urns: Vec<String>,
     pub ids: Vec<String>,
+    pub sort_by: Option<ItemSortBy>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ItemSortBy {
+    Newest,
+    RecentlyReviewed,
+    RecentlySold,
+    Name,
+    Cheapest,
+    RecentlyListed,
+}
+
+impl ItemSortBy {
+    fn from_str(s: &str) -> Option<Self> {
+        match s {
+            "newest" => Some(Self::Newest),
+            "recently_reviewed" => Some(Self::RecentlyReviewed),
+            "recently_sold" => Some(Self::RecentlySold),
+            "name" => Some(Self::Name),
+            "cheapest" => Some(Self::Cheapest),
+            "recently_listed" => Some(Self::RecentlyListed),
+            _ => None,
+        }
+    }
+
+    // ORDER BY expression over the outer projection. Every variant carries a
+    // stable `item.id ASC` tie-breaker so LIMIT/OFFSET pages partition
+    // deterministically. The outer `price` alias is item.price::text, so cheapest
+    // MUST cast back to numeric (price::numeric) — a bare `price ASC` sorts
+    // lexicographically ("9e18" after "1e19"). name collates as text (matching
+    // upstream's createdAt/price/searchText sort fields).
+    fn order_by(&self) -> &'static str {
+        match self {
+            Self::Newest => " ORDER BY created_at DESC, item.id ASC ",
+            Self::RecentlyReviewed => " ORDER BY reviewed_at DESC, item.id ASC ",
+            Self::RecentlySold => " ORDER BY sold_at DESC, item.id ASC ",
+            Self::Name => " ORDER BY name ASC, item.id ASC ",
+            Self::Cheapest => " ORDER BY price::numeric ASC, item.id ASC ",
+            Self::RecentlyListed => " ORDER BY first_listed_at DESC NULLS LAST, item.id ASC ",
+        }
+    }
 }
 
 #[derive(Debug, sqlx::FromRow)]
@@ -148,16 +190,14 @@ pub struct Item {
     #[serde(rename = "firstListedAt", skip_serializing_if = "Option::is_none")]
     pub first_listed_at: Option<i64>,
     pub picks: PicksCount,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    // Prod nft-server always emits these three (as explicit null when absent);
+    // omitting them diverged on the wire, so serialize them unconditionally.
     pub utility: Option<String>,
-    #[serde(rename = "tradeId", skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "tradeId")]
     pub trade_id: Option<String>,
     #[serde(rename = "tradeExpiresAt", skip_serializing_if = "Option::is_none")]
     pub trade_expires_at: Option<i64>,
-    #[serde(
-        rename = "tradeContractAddress",
-        skip_serializing_if = "Option::is_none"
-    )]
+    #[serde(rename = "tradeContractAddress")]
     pub trade_contract_address: Option<String>,
 }
 
@@ -199,8 +239,6 @@ pub struct EmoteData {
 #[derive(Debug, Serialize, Default)]
 pub struct PicksCount {
     pub count: i64,
-    #[serde(rename = "itemId")]
-    pub item_id: String,
 }
 
 pub fn parse_filters(pairs: &[(String, String)]) -> Result<ItemFilters, ApiError> {
@@ -258,6 +296,7 @@ pub fn parse_filters(pairs: &[(String, String)]) -> Result<ItemFilters, ApiError
             .filter(|s| !s.trim().is_empty()),
         urns: p.get_list("urn", &[]),
         ids: p.get_list("id", &[]),
+        sort_by: p.get_string("sortBy", None).and_then(|s| ItemSortBy::from_str(&s)),
     })
 }
 
@@ -279,16 +318,42 @@ impl ItemsComponent {
     }
 
     pub async fn get_items(&self, filters: &ItemFilters) -> Result<(Vec<Item>, i64), ApiError> {
-        // STUB: items query depends on marketplace.mv_trades (and the utility lookup
-        // depends on marketplace.mv_builder_server_items_utility), both produced by
-        // node-pg-migrate in the upstream marketplace-server. Until we port that
-        // migration, return empty so the endpoint responds 200. Federation ADR
-        // will revisit.
-        tracing::info!("items: skipped (no local marketplace.mv_trades materialized view)");
-        let _ = (filters, &self.pool);
-        Ok((Vec::new(), 0))
+        let (sql, binds) = build_items_query(filters);
+        let sql = sql.replace("marketplace.mv_trades", MV_TRADES_STUB);
+        let mut q = sqlx::query_as::<_, DbItem>(&sql);
+        for b in &binds {
+            q = match b {
+                Bind::Text(s) => q.bind(s.clone()),
+                Bind::TextArray(v) => q.bind(v.clone()),
+                Bind::Int(i) => q.bind(*i),
+            };
+        }
+        let rows: Vec<DbItem> = q.fetch_all(&self.pool).await?;
+        let total = rows.first().map(|r| r.count).unwrap_or(0);
+        let results = rows.iter().map(from_db_item_to_item).collect();
+        Ok((results, total))
     }
 }
+
+const MV_TRADES_STUB: &str = "(SELECT \
+    NULL::text       AS id, \
+    NULL::timestamptz AS created_at, \
+    NULL::text       AS type, \
+    NULL::text       AS signer, \
+    NULL::text       AS contract_address_sent, \
+    NULL::numeric    AS amount_received, \
+    NULL::numeric    AS available, \
+    NULL::jsonb      AS assets, \
+    NULL::text       AS sent_contract_address, \
+    NULL::text       AS sent_token_id, \
+    NULL::text       AS sent_nft_category, \
+    NULL::text       AS sent_item_id, \
+    NULL::text       AS sent_nft_id, \
+    NULL::text       AS network, \
+    NULL::timestamptz AS expires_at, \
+    NULL::text       AS trade_contract, \
+    NULL::text       AS status \
+    WHERE FALSE)";
 
 pub enum Bind {
     Text(String),
@@ -416,8 +481,11 @@ pub fn build_items_query(filters: &ItemFilters) -> (String, Vec<Bind>) {
     }
 
     if let Some(ref it) = filters.item_id {
+        // blockchain_id is NUMERIC; the filter value is bound as text, so compare
+        // on the text form (a bare `numeric = text` errors: "operator does not
+        // exist"). Exercised by ?itemId= and the /v1/trendings item lookup.
         let p = emit(Bind::Text(it.clone()), &mut binds, &mut next_idx);
-        wheres.push(format!(" item.blockchain_id = {} ", p));
+        wheres.push(format!(" item.blockchain_id::text = {} ", p));
     }
 
     if !filters.ids.is_empty() {
@@ -469,7 +537,7 @@ pub fn build_items_query(filters: &ItemFilters) -> (String, Vec<Bind>) {
 
     if !filters.urns.is_empty() {
         let p = emit(
-            Bind::TextArray(filters.urns.clone()),
+            Bind::TextArray(expand_urn_network_forms(&filters.urns)),
             &mut binds,
             &mut next_idx,
         );
@@ -478,8 +546,15 @@ pub fn build_items_query(filters: &ItemFilters) -> (String, Vec<Bind>) {
 
     let where_clause = where_from(&wheres);
 
-    let limit = filters.first.unwrap_or(DEFAULT_LIMIT);
-    let offset = filters.skip.unwrap_or(0);
+    // Default to NEWEST (upstream ITEM_DEFAULT_SORT_BY); always include the
+    // id tie-breaker so pagination is deterministic.
+    let order_by = filters
+        .sort_by
+        .unwrap_or(ItemSortBy::Newest)
+        .order_by();
+
+    let limit = clamp_first(filters.first, DEFAULT_LIMIT);
+    let offset = clamp_skip(filters.skip);
     let limit_p = emit(Bind::Int(limit), &mut binds, &mut next_idx);
     let offset_p = emit(Bind::Int(offset), &mut binds, &mut next_idx);
 
@@ -492,7 +567,7 @@ pub fn build_items_query(filters: &ItemFilters) -> (String, Vec<Bind>) {
            item.id,\n\
            item.image,\n\
            item.uri,\n\
-           item.blockchain_id as item_id,\n\
+           item.blockchain_id::text as item_id,\n\
            item.collection_id as contract_address,\n\
            coalesce(wearable.rarity, emote.rarity) as rarity,\n\
            item.price::text as price,\n\
@@ -533,10 +608,12 @@ pub fn build_items_query(filters: &ItemFilters) -> (String, Vec<Bind>) {
             AND sent_contract_address = item.collection_id \
             AND type = 'public_item_order' AND status = 'open'\n\
          {where_clause}\n\
+         {order_by}\n\
          LIMIT {limit_p} OFFSET {offset_p}",
         trades_cat = trades_category_clause,
         schema = MARKETPLACE_SQUID_SCHEMA,
         where_clause = where_clause,
+        order_by = order_by,
         limit_p = limit_p,
         offset_p = offset_p,
     );
@@ -682,10 +759,7 @@ pub fn from_db_item_to_item(d: &DbItem) -> Item {
         chain_id,
         urn,
         first_listed_at: d.first_listed_at.map(|t| t.timestamp_millis()),
-        picks: PicksCount {
-            count: 0,
-            item_id: d.id.clone(),
-        },
+        picks: PicksCount { count: 0 },
         utility: d.utility.clone(),
         trade_id: d.trade_id.clone(),
         trade_expires_at: d.trade_expires_at.map(|t| t.timestamp_millis()),
@@ -695,6 +769,36 @@ pub fn from_db_item_to_item(d: &DbItem) -> Item {
 
 pub fn fix_urn(urn: &str) -> String {
     urn.replace("mainnet", "ethereum")
+}
+
+/// Expand a list of `urn` filter values so it matches the squid DB regardless
+/// of the `:ethereum:` vs `:mainnet:` ethereum network-token form.
+///
+/// The squid mirror stores ethereum collection/item urns under the
+/// `:mainnet:` token, but every urn the API *returns* is rewritten to
+/// `:ethereum:` by [`fix_urn`]. A client that round-trips a returned ethereum
+/// urn back into a `urn=` filter therefore queries with `:ethereum:` and
+/// silently matches nothing (the same latent asymmetry exists upstream in
+/// `marketplace-server`). This helper makes the filter token-form-agnostic by
+/// including BOTH forms of every value. It is strictly additive — for any urn
+/// already in `:mainnet:` form (the upstream parity case) the original value is
+/// always present, so existing matches are never lost; it only *adds* the
+/// rewritten counterpart, closing the round-trip miss.
+pub fn expand_urn_network_forms(urns: &[String]) -> Vec<String> {
+    let mut out: Vec<String> = Vec::with_capacity(urns.len());
+    let mut seen = std::collections::HashSet::new();
+    for u in urns {
+        for v in [
+            u.clone(),
+            u.replace(":mainnet:", ":ethereum:"),
+            u.replace(":ethereum:", ":mainnet:"),
+        ] {
+            if seen.insert(v.clone()) {
+                out.push(v);
+            }
+        }
+    }
+    out
 }
 
 pub fn is_address_zero(addr: &str) -> bool {
@@ -712,5 +816,45 @@ fn network_chain_id(network: Option<&str>) -> ChainId {
     match network {
         Some("MATIC") | Some("POLYGON") => polygon_chain_id(),
         _ => ethereum_chain_id(),
+    }
+}
+
+#[cfg(test)]
+mod urn_form_tests {
+    use super::expand_urn_network_forms;
+
+    #[test]
+    fn expands_both_ethereum_token_forms() {
+        let eth = "urn:decentraland:ethereum:collections-v1:0xabc:0".to_string();
+        let out = expand_urn_network_forms(&[eth.clone()]);
+        // additive: original kept, plus the :mainnet: counterpart for the DB.
+        assert!(out.contains(&eth));
+        assert!(out.contains(&"urn:decentraland:mainnet:collections-v1:0xabc:0".to_string()));
+    }
+
+    #[test]
+    fn mainnet_input_still_present_parity_preserved() {
+        // The upstream parity case (clients pass :mainnet:) must never lose its
+        // original value — only gain the :ethereum: counterpart.
+        let main = "urn:decentraland:mainnet:collections-v1:0xabc:0".to_string();
+        let out = expand_urn_network_forms(&[main.clone()]);
+        assert!(out.contains(&main));
+    }
+
+    #[test]
+    fn matic_urn_unchanged_no_dupes() {
+        let matic = "urn:decentraland:matic:collections-v2:0xdef:1".to_string();
+        let out = expand_urn_network_forms(&[matic.clone()]);
+        assert_eq!(out, vec![matic]); // no ethereum/mainnet token -> single value
+    }
+
+    #[test]
+    fn dedups_when_both_forms_supplied() {
+        let a = "urn:decentraland:ethereum:x:0xa:0".to_string();
+        let b = "urn:decentraland:mainnet:x:0xa:0".to_string();
+        let out = expand_urn_network_forms(&[a.clone(), b.clone()]);
+        // both inputs expand to the same {ethereum, mainnet} set -> exactly 2 unique.
+        assert_eq!(out.len(), 2);
+        assert!(out.contains(&a) && out.contains(&b));
     }
 }

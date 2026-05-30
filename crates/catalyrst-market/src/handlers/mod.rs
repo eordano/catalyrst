@@ -4,6 +4,7 @@ pub mod bids;
 pub mod catalog;
 pub mod collections;
 pub mod contracts;
+pub mod federation;
 pub mod items;
 pub mod nfts;
 pub mod orders;

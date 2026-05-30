@@ -325,42 +325,49 @@ async fn fetch_servers(client: &reqwest::Client, network: &str) -> Result<Vec<Va
     let count_hex = eth_call(client, &rpc, c.catalyst, SEL_CATALYST_COUNT).await?;
     let count = decode_uint_word(&count_hex)?;
 
-    let mut servers = Vec::with_capacity(count as usize);
-    for i in 0..count {
-        let ids_data = format!("{}{}", SEL_CATALYST_IDS, encode_uint256(i));
-        let id_hex = eth_call(client, &rpc, c.catalyst, &ids_data).await?;
-        let id_word = strip0x(&id_hex);
-        if id_word.len() < 64 {
-            return Err(format!("bad catalystIds return: {id_hex}"));
-        }
-        let id = format!("0x{}", &id_word[..64]);
+    use futures::stream::{self, StreamExt, TryStreamExt};
+    let rpc = &rpc;
+    let catalyst = c.catalyst;
+    let raw: Vec<Option<Value>> = stream::iter(0..count)
+        .map(|i| async move {
+            let ids_data = format!("{}{}", SEL_CATALYST_IDS, encode_uint256(i));
+            let id_hex = eth_call(client, rpc, catalyst, &ids_data).await?;
+            let id_word = strip0x(&id_hex);
+            if id_word.len() < 64 {
+                return Err(format!("bad catalystIds return: {id_hex}"));
+            }
+            let id = format!("0x{}", &id_word[..64]);
 
-        let by_id_data = format!("{}{}", SEL_CATALYST_BY_ID, &id_word[..64]);
-        let rec_hex = eth_call(client, &rpc, c.catalyst, &by_id_data).await?;
-        let rec = hex_decode(strip0x(&rec_hex)).map_err(|e| format!("bad hex: {e}"))?;
-        if rec.len() < 96 {
-            return Err(format!("catalystById return too short: {rec_hex}"));
-        }
+            let by_id_data = format!("{}{}", SEL_CATALYST_BY_ID, &id_word[..64]);
+            let rec_hex = eth_call(client, rpc, catalyst, &by_id_data).await?;
+            let rec = hex_decode(strip0x(&rec_hex)).map_err(|e| format!("bad hex: {e}"))?;
+            if rec.len() < 96 {
+                return Err(format!("catalystById return too short: {rec_hex}"));
+            }
 
-        let owner = to_checksum_address(&hex_encode(&rec[44..64]));
-        let domain = decode_string_at(&rec, 2)?;
+            let owner = to_checksum_address(&hex_encode(&rec[44..64]));
+            let domain = decode_string_at(&rec, 2)?;
 
-        if domain.starts_with("http://") {
-            continue;
-        }
-        let mut address = domain.clone();
-        if !address.starts_with("https://") {
-            address = format!("https://{address}");
-        }
-        let address = address.trim().to_string();
+            if domain.starts_with("http://") {
+                return Ok(None);
+            }
+            let mut address = domain.clone();
+            if !address.starts_with("https://") {
+                address = format!("https://{address}");
+            }
+            let address = address.trim().to_string();
 
-        servers.push(json!({
-            "baseUrl": address,
-            "owner": owner,
-            "id": id,
-        }));
-    }
-    Ok(servers)
+            Ok(Some(json!({
+                "baseUrl": address,
+                "owner": owner,
+                "id": id,
+            })))
+        })
+        .buffered(ETH_CALL_CONCURRENCY)
+        .try_collect()
+        .await?;
+
+    Ok(raw.into_iter().flatten().collect())
 }
 
 async fn fetch_list(
@@ -371,12 +378,16 @@ async fn fetch_list(
     let size_hex = eth_call(client, rpc, contract, SEL_SIZE).await?;
     let size = decode_uint_word(&size_hex)?;
 
-    let mut out = Vec::with_capacity(size as usize);
-    for i in 0..size {
-        let data = format!("{}{}", SEL_GET, encode_uint256(i));
-        let val_hex = eth_call(client, rpc, contract, &data).await?;
-        out.push(decode_string_return(&val_hex)?);
-    }
+    use futures::stream::{self, StreamExt, TryStreamExt};
+    let out: Vec<String> = stream::iter(0..size)
+        .map(|i| async move {
+            let data = format!("{}{}", SEL_GET, encode_uint256(i));
+            let val_hex = eth_call(client, rpc, contract, &data).await?;
+            decode_string_return(&val_hex)
+        })
+        .buffered(ETH_CALL_CONCURRENCY)
+        .try_collect()
+        .await?;
     Ok(out)
 }
 
@@ -443,6 +454,8 @@ async fn fetch_third_party_integrations(
 
 const CACHE_TTL: Duration = Duration::from_secs(6 * 60 * 60);
 
+const ETH_CALL_CONCURRENCY: usize = 16;
+
 struct Cached {
     value: Value,
     fetched_at: Instant,
@@ -489,10 +502,10 @@ where
     Fut: std::future::Future<Output = Result<Value, String>>,
 {
 
-    let cached_snapshot: Option<(Value, Instant)> = {
-        let g = slot.lock().await;
-        g.as_ref().map(|c| (c.value.clone(), c.fetched_at))
-    };
+    let mut g = slot.lock().await;
+
+    let cached_snapshot: Option<(Value, Instant)> =
+        g.as_ref().map(|c| (c.value.clone(), c.fetched_at));
 
     if let Some((ref value, fetched_at)) = cached_snapshot {
         if fetched_at.elapsed() < CACHE_TTL {
@@ -503,7 +516,6 @@ where
     let new_value = match fetch().await {
         Ok(v) => v,
         Err(e) => {
-
             if let Some((value, _)) = cached_snapshot {
                 tracing::warn!("contract fetch failed ({e}); serving stale cache");
                 return Ok(value);
@@ -512,13 +524,10 @@ where
         }
     };
 
-    {
-        let mut g = slot.lock().await;
-        *g = Some(Cached {
-            value: new_value.clone(),
-            fetched_at: Instant::now(),
-        });
-    }
+    *g = Some(Cached {
+        value: new_value.clone(),
+        fetched_at: Instant::now(),
+    });
     Ok(new_value)
 }
 

@@ -80,8 +80,9 @@ impl CollectionsComponent {
         filters: &CollectionFilters,
     ) -> Result<(Vec<Collection>, i64), ApiError> {
         const MAX_LIMIT: i64 = 1000;
-        let limit = filters.first.map(|f| f.min(MAX_LIMIT)).unwrap_or(MAX_LIMIT);
-        let offset = filters.skip.unwrap_or(0);
+        // Clamp non-negative: a negative first/skip → negative SQL LIMIT/OFFSET → 500.
+        let limit = filters.first.map(|f| f.clamp(0, MAX_LIMIT)).unwrap_or(MAX_LIMIT);
+        let offset = filters.skip.unwrap_or(0).max(0);
 
         let mut where_clauses: Vec<String> = vec!["is_approved = true".to_string()];
         let mut bind_idx: usize = 0;
@@ -135,9 +136,6 @@ impl CollectionsComponent {
 
         let where_sql = format!(" WHERE {}", where_clauses.join(" AND "));
 
-        // Pin `COLLATE "C"` on the name sort so paged results are deterministic
-        // and survive a future change in the underlying DB locale. See the
-        // parity report's collation-divergence note for context.
         let sort_clause = match filters.sort_by {
             Some(CollectionSortBy::Newest) => " ORDER BY created_at DESC ",
             Some(CollectionSortBy::RecentlyReviewed) => " ORDER BY reviewed_at DESC ",

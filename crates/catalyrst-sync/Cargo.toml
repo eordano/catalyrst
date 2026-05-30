@@ -5,28 +5,15 @@ edition = "2021"
 description = "Rust port of the Decentraland catalyst sync orchestrator, snapshots fetcher, and pointer-changes consumer"
 
 [dependencies]
-# async runtime
 tokio = { workspace = true }
 futures = { workspace = true }
 async-trait = { workspace = true }
-
-# HTTP client
 reqwest = { workspace = true }
-
-# serialization
 serde = { workspace = true }
 serde_json = { workspace = true }
-
-# time
 chrono = { workspace = true }
-
-# error handling
 thiserror = { workspace = true }
-
-# logging
 tracing = { workspace = true }
-
-# misc
 url = { workspace = true }
 bytes = { workspace = true }
 parking_lot = { workspace = true }

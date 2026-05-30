@@ -66,9 +66,13 @@ impl<'a> Params<'a> {
     }
 
     pub fn get_address_list(&self, key: &str, lowercase: bool) -> Vec<String> {
+        // Match both `key=` and `key[]=` — upstream getAddressList delegates to
+        // getList which reads getAll(key) + getAll(`${key}[]`) ("adds support for
+        // arrays sent as &key[]=..."). get_list already does this; mirror it here.
+        let bracket_key = format!("{}[]", key);
         self.pairs
             .iter()
-            .filter(|(k, _)| k == key)
+            .filter(|(k, _)| k == key || k == &bracket_key)
             .filter_map(|(_, v)| {
                 if is_address(v) {
                     Some(if lowercase {

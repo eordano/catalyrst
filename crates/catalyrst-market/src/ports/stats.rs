@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 use crate::http::errors::InvalidParameterError;
 use crate::http::params::Params;
 use crate::http::response::ApiError;
+use crate::ports::prices::NumericKey;
 use crate::MARKETPLACE_SQUID_SCHEMA;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -29,7 +30,11 @@ pub struct StatsResourceFilters {
     pub max_price: Option<String>,
 }
 
-pub type StatsResponse = BTreeMap<String, i64>;
+// NumericKey-keyed so the estate-size histogram serializes in NUMERIC order
+// ("2" before "10"). Upstream marketplace-server returns it via a JS object whose
+// small-integer keys (<2^32) are iterated in ascending numeric order; a plain
+// BTreeMap<String,_> would sort lexicographically ("10" before "2"). See prices.rs.
+pub type StatsResponse = BTreeMap<NumericKey, i64>;
 
 pub struct StatsComponent {
     pool: PgPool,
@@ -54,19 +59,10 @@ impl StatsComponent {
         }
     }
 
-    /// Mirror of upstream `getEstatesSizesQuery`, which composes
-    /// `getNFTsQuery({category: ESTATE})`. For `ESTATE`/`PARCEL` categories
-    /// that routes through `getAllLANDsQuery` (default) or
-    /// `getLandsOnSaleQuery` (when `isOnSale = true`). Both apply a default
-    /// `LIMIT 100 ORDER BY created_at DESC` to the inner NFTs CTE before
-    /// computing the size distribution.
     async fn fetch_estate_sizes(
         &self,
         filters: &StatsResourceFilters,
     ) -> Result<StatsResponse, ApiError> {
-        // Inner filters shared across both code paths. Upstream's land path
-        // forces `search_estate_size > 0` when no explicit minEstateSize is
-        // given (see `getAllLANDsQuery`/`getLandsOnSaleQuery`).
         let mut inner_where: Vec<String> = vec![
             "nft.search_is_land = TRUE".to_string(),
             "nft.category = 'estate'".to_string(),
@@ -101,15 +97,9 @@ impl StatsComponent {
             ));
         }
 
-        // The land path defaults to `ORDER BY created_at DESC LIMIT 100`
-        // (see `getNFTsSortBy` default + `getNFTLimitAndOffsetStatement`).
         let limit: i64 = 100;
 
         let sql = if filters.is_on_sale {
-            // getLandsOnSaleQuery: only NFTs with an open order (we don't
-            // have marketplace.mv_trades locally, so open_trades is empty).
-            // expires_at_normalized is `timestamp with time zone` — compare
-            // it to NOW() directly (no EPOCH coercion).
             inner_where.push("nft.active_order_id IS NOT NULL".to_string());
             inner_where.push("o.status = 'open'".to_string());
             inner_where.push("o.expires_at_normalized > NOW()".to_string());
@@ -147,16 +137,14 @@ LIMIT {limit}
             .await
             .unwrap_or_default();
 
-        let mut tally: BTreeMap<String, i64> = BTreeMap::new();
+        let mut tally: StatsResponse = BTreeMap::new();
         for s in sizes.into_iter().flatten() {
-            *tally.entry(s.to_string()).or_insert(0) += 1;
+            *tally.entry(NumericKey(s.to_string())).or_insert(0) += 1;
         }
         Ok(tally)
     }
 }
 
-/// Whitelist numeric input to a safe digit-only string (with optional sign)
-/// for inlining into SQL. Anything that isn't a decimal number becomes "0".
 fn sanitize_numeric(s: &str) -> String {
     let trimmed = s.trim();
     let bytes = trimmed.as_bytes();

@@ -53,16 +53,24 @@ pub fn parse_ephemeral_payload(
 
     let expiration_str = &parts[2][expiration_prefix.len()..];
 
-    let expiration = chrono::DateTime::parse_from_rfc3339(expiration_str)
-        .map_err(|e| {
-            crate::AuthError::InvalidEphemeralPayload(format!(
-                "Invalid expiration date '{}': {}",
-                expiration_str, e
-            ))
-        })?
-        .timestamp_millis();
+    let expiration = parse_expiration(expiration_str)?;
 
     Ok((message, ephemeral_address, expiration))
+}
+
+fn parse_expiration(s: &str) -> Result<i64, crate::AuthError> {
+    if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(s) {
+        return Ok(dt.timestamp_millis());
+    }
+    for fmt in ["%Y-%m-%dT%H:%M:%S%.f", "%Y-%m-%dT%H:%M:%S"] {
+        if let Ok(naive) = chrono::NaiveDateTime::parse_from_str(s, fmt) {
+            return Ok(naive.and_utc().timestamp_millis());
+        }
+    }
+    Err(crate::AuthError::InvalidEphemeralPayload(format!(
+        "Invalid expiration date '{}'",
+        s
+    )))
 }
 
 #[cfg(test)]
@@ -141,6 +149,13 @@ mod tests {
         assert_eq!(msg, payload);
         assert_eq!(addr, "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266");
         assert!(exp > 0);
+    }
+
+    #[test]
+    fn test_parse_ephemeral_payload_unity_editor_format() {
+        let payload = "Decentraland Login\nEphemeral address: 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266\nExpiration: 2036-06-10T16:07:42";
+        let (_, _, exp) = parse_ephemeral_payload(payload).unwrap();
+        assert!(exp > 2_000_000_000_000);
     }
 
     #[test]

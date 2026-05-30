@@ -156,17 +156,12 @@ pub fn naive_to_timestamp_ms(dt: NaiveDateTime) -> Timestamp {
     dt.and_utc().timestamp_millis()
 }
 
-/// Returns true if `value` is a syntactically valid Ethereum address:
-/// 42 characters, starts with `0x`, and the remaining 40 characters are ASCII hex.
-/// Canonical implementation shared between the content and marketplace sides.
 pub fn is_eth_address(value: &str) -> bool {
     value.len() == 42
         && value.starts_with("0x")
         && value[2..].bytes().all(|b| b.is_ascii_hexdigit())
 }
 
-/// Validates `value` as an Ethereum address and returns it lowercased.
-/// Returns `None` if the input is not a syntactically valid address.
 pub fn parse_eth_address(value: &str) -> Option<EthAddress> {
     if is_eth_address(value) {
         Some(value.to_lowercase())
@@ -230,15 +225,10 @@ mod tests {
 
     #[test]
     fn is_eth_address_rejects_bad_inputs() {
-        // too short
         assert!(!is_eth_address("0x0"));
-        // missing prefix
         assert!(!is_eth_address("00000000000000000000000000000000000000000000"));
-        // non-hex char
         assert!(!is_eth_address("0xZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ"));
-        // length 41
         assert!(!is_eth_address("0x000000000000000000000000000000000000000"));
-        // empty
         assert!(!is_eth_address(""));
     }
 

@@ -1,4 +1,3 @@
-// Handlers use Result<T, axum::Response> (~512B) and sqlx row tuples are wire-shaped.
 #![allow(clippy::result_large_err, clippy::type_complexity)]
 
 pub mod cache;

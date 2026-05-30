@@ -49,11 +49,11 @@ pub struct Order {
     pub price: String,
     pub status: String,
     #[serde(rename = "expiresAt")]
-    pub expires_at: f64,
+    pub expires_at: i64,
     #[serde(rename = "createdAt")]
-    pub created_at: f64,
+    pub created_at: i64,
     #[serde(rename = "updatedAt")]
-    pub updated_at: f64,
+    pub updated_at: i64,
     pub network: Network,
     #[serde(rename = "chainId")]
     pub chain_id: ChainId,
@@ -73,16 +73,21 @@ impl OrdersComponent {
     }
 
     pub async fn get_orders(&self, filters: &OrderFilters) -> Result<(Vec<Order>, i64), ApiError> {
-        let limit = filters.first.unwrap_or(1000);
-        let offset = filters.skip.unwrap_or(0);
+        let limit = crate::logic::sql_filters::clamp_first(filters.first, 1000);
+        let offset = crate::logic::sql_filters::clamp_skip(filters.skip);
 
+        // `price` and `token_id` are projected as ::text aliases in the inner
+        // subquery; sorting them as text is a LEXICAL sort of a NUMERIC/uint256
+        // (e.g. token_id 10 < 2, price "9" > "10"). Cast back to numeric so the
+        // sort is numeric. Every arm carries `, id ASC` as a stable tie-breaker
+        // so LIMIT/OFFSET pages partition deterministically.
         let order_by = match filters.sort_by {
-            Some(OrderSortBy::Oldest) => "created_at ASC",
-            Some(OrderSortBy::RecentlyUpdated) => "updated_at DESC",
-            Some(OrderSortBy::Cheapest) => "price ASC",
-            Some(OrderSortBy::IssuedIdAsc) => "token_id ASC",
-            Some(OrderSortBy::IssuedIdDesc) => "token_id DESC",
-            _ => "created_at DESC",
+            Some(OrderSortBy::Oldest) => "created_at ASC, id ASC",
+            Some(OrderSortBy::RecentlyUpdated) => "updated_at DESC, id ASC",
+            Some(OrderSortBy::Cheapest) => "price::numeric ASC, id ASC",
+            Some(OrderSortBy::IssuedIdAsc) => "token_id::numeric ASC, id ASC",
+            Some(OrderSortBy::IssuedIdDesc) => "token_id::numeric DESC, id ASC",
+            _ => "created_at DESC, id ASC",
         };
 
         let mut where_parts: Vec<String> = Vec::new();
@@ -124,6 +129,20 @@ impl OrdersComponent {
             where_parts.push(format!("token_id = {}", next_param()));
             bind_strings.push(v.clone());
         }
+        // network filter: upstream applies `network = ANY(getDBNetworks(network))`
+        // (ETHEREUM -> [ETHEREUM]; MATIC -> [MATIC, POLYGON]). Was parsed but never
+        // applied here, so ?network= leaked rows from the other chain.
+        if let Some(net) = filters.network {
+            let db_nets: &[&str] = match net {
+                Network::Ethereum => &["ETHEREUM"],
+                Network::Matic => &["MATIC", "POLYGON"],
+            };
+            let placeholders: Vec<String> = db_nets.iter().map(|_| next_param()).collect();
+            where_parts.push(format!("network IN ({})", placeholders.join(", ")));
+            for n in db_nets {
+                bind_strings.push((*n).to_string());
+            }
+        }
 
         let where_clause = if where_parts.is_empty() {
             String::new()
@@ -134,13 +153,6 @@ impl OrdersComponent {
         let limit_param = next_param();
         let offset_param = next_param();
 
-        // NOTE: created_at, updated_at, expires_at on squid_marketplace.order are
-        // numeric (epoch seconds, written by the indexer), not timestamps. The
-        // upstream marketplace-server uses EXTRACT(EPOCH FROM ...) because it
-        // unions in marketplace.trades (where they are timestamptz). Here we keep
-        // them as-is for the order table and skip the trades branch (the trades
-        // CTE — `unified_trades` — is provided by marketplace.mv_trades which we
-        // do not have locally; see items/trades stub for context).
         let sql = format!(
             r#"
 SELECT
@@ -206,7 +218,7 @@ LIMIT {limit_param} OFFSET {offset_param}
     }
 }
 
-fn row_to_order(r: &sqlx::postgres::PgRow) -> Order {
+pub(crate) fn row_to_order(r: &sqlx::postgres::PgRow) -> Order {
     let network_str: String = r.try_get("network").unwrap_or_default();
     let (network, chain_id) = network_and_chain(&network_str);
     Order {
@@ -218,15 +230,9 @@ fn row_to_order(r: &sqlx::postgres::PgRow) -> Order {
         buyer: r.try_get::<Option<String>, _>("buyer").unwrap_or(None),
         price: r.try_get("price").unwrap_or_default(),
         status: r.try_get("status").unwrap_or_default(),
-        expires_at: r.try_get::<f64, _>("expires_at").unwrap_or(0.0),
-        created_at: r
-            .try_get::<f64, _>("created_at")
-            .map(|v| v * 1000.0)
-            .unwrap_or(0.0),
-        updated_at: r
-            .try_get::<f64, _>("updated_at")
-            .map(|v| v * 1000.0)
-            .unwrap_or(0.0),
+        expires_at: r.try_get::<f64, _>("expires_at").unwrap_or(0.0) as i64,
+        created_at: r.try_get::<f64, _>("created_at").unwrap_or(0.0) as i64,
+        updated_at: r.try_get::<f64, _>("updated_at").unwrap_or(0.0) as i64,
         network,
         chain_id,
         issued_id: r.try_get::<Option<String>, _>("issued_id").unwrap_or(None),

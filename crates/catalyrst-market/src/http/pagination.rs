@@ -1,7 +1,5 @@
 use super::errors::InvalidParameterError;
 
-// Re-export the shared input shape from catalyrst-types so existing imports
-// (`use crate::http::pagination::Pagination`) keep working unchanged.
 pub use catalyrst_types::PageInput as Pagination;
 
 const MAX_LIMIT: i64 = 100;

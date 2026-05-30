@@ -37,6 +37,11 @@ const VALID_SORTING_ORDERS: &[&str] = &["ASC", "DESC"];
 
 const VALID_DEPLOYMENT_FIELDS: &[&str] = &["pointers", "content", "metadata", "auditInfo"];
 
+// Bound each request-controlled filter array (entityIds / pointers / entityTypes) that feeds the
+// `= ANY(...)` / `&&` predicates. Without a cap, one request on this public endpoint can push a very
+// large array into the WHERE clause. The result set itself is already bounded by `limit`.
+const MAX_DEPLOYMENT_FILTER_VALUES: usize = 1000;
+
 fn normalize_query_string(qs: &str) -> String {
     let mut pairs: Vec<&str> = qs.split('&').filter(|s| !s.is_empty()).collect();
     pairs.sort_unstable();
@@ -87,6 +92,17 @@ pub async fn get_deployments(
         .into_iter()
         .map(|a| a.to_lowercase())
         .collect();
+
+    if entity_ids.len() > MAX_DEPLOYMENT_FILTER_VALUES
+        || pointers.len() > MAX_DEPLOYMENT_FILTER_VALUES
+        || entity_types.len() > MAX_DEPLOYMENT_FILTER_VALUES
+    {
+        return Err(InvalidRequestError::new(format!(
+            "Too many filter values; the maximum allowed per filter is {}",
+            MAX_DEPLOYMENT_FILTER_VALUES
+        ))
+        .into());
+    }
 
     let only_currently_pointed = qs_get_bool(&params, "onlyCurrentlyPointed");
     let offset = qs_get_number(&params, "offset");

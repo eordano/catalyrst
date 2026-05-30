@@ -56,5 +56,16 @@ pub async fn get_active_entities(
         })
         .collect();
 
-    Ok(Json(filtered))
+    // Short, opt-in cache window so shared caches can absorb repeated identical reads. Default 10s,
+    // tunable via ENTITIES_CACHE_CONTROL_MAX_AGE (0 disables). Active entities are mutable, so this is
+    // a small staleness/perf tradeoff, not the immutable caching used for content blobs.
+    let mut response = Json(filtered).into_response();
+    if let Some(cache_control) =
+        crate::handlers::get_entities::entities_cache_control(state.entities_cache_control_max_age)
+    {
+        if let Ok(hv) = cache_control.parse() {
+            response.headers_mut().insert("Cache-Control", hv);
+        }
+    }
+    Ok(response)
 }

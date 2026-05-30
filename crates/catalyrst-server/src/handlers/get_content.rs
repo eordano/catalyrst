@@ -54,23 +54,16 @@ pub fn detect_content_type(first_bytes: &[u8]) -> &'static str {
     "application/octet-stream"
 }
 
-/// Build the X-Accel-Redirect internal path for `hash` given an optional base.
-///
-/// Returns `None` when no base is configured (Rust serves the body itself).
-/// The shard scheme matches `catalyrst_storage::hex_prefix` (sha1[..2]).
 pub(crate) fn x_accel_redirect_path(base: Option<&str>, hash: &str) -> Option<String> {
     let base = base?.trim_end_matches('/');
     if base.is_empty() {
         return None;
     }
-    // matches catalyrst_storage::resolve_file_path sharding
+
     let shard = catalyrst_storage::hex_prefix(hash);
     Some(format!("{base}/{shard}/{hash}"))
 }
 
-/// Returns the configured X-Accel-Redirect base (`STORAGE_X_ACCEL_BASE`), or
-/// `None` when the env var is unset/empty — in which case Rust streams the
-/// body itself, matching pre-PERF-B behavior.
 pub(crate) fn x_accel_base() -> Option<String> {
     let v = std::env::var("STORAGE_X_ACCEL_BASE").ok()?;
     if v.is_empty() {
@@ -87,6 +80,20 @@ pub async fn get_content(
     method: Method,
     headers: HeaderMap,
 ) -> AppResult<Response> {
+    // Reject anything that isn't a syntactically valid content hash (IPFS CIDv0 `Qm…` or CIDv1
+    // `ba…`) before it reaches storage. The storage layer already refuses keys that resolve outside
+    // its root, but this turns path-traversal probes such as `..%2f..` into a clean 404 and keeps
+    // them from ever touching the filesystem layer.
+    if !catalyrst_hashing::is_canonical_cid(&hash_id) {
+        return Err(NotFoundError::new(format!("No content found with hash {}", hash_id)).into());
+    }
+
+    // Denylisted content must not be served, even though the bytes remain in storage. The denylist is
+    // keyed by entity id and/or content hash and `:hashId` may be either, so one membership check
+    // covers both. Mirrors the filtering already applied on the listing endpoints.
+    if state.denylist.is_denylisted(&hash_id) {
+        return Err(NotFoundError::new(format!("No content found with hash {}", hash_id)).into());
+    }
 
     if let Some(not_modified_headers) = check_not_modified(&headers, &hash_id) {
         let mut response = StatusCode::NOT_MODIFIED.into_response();
@@ -190,9 +197,6 @@ pub async fn get_content(
         return Ok(response);
     }
 
-    // X-Accel-Redirect zero-copy path: when STORAGE_X_ACCEL_BASE is set, hand
-    // the byte transfer to nginx. We still need to sniff the first bytes when
-    // includeMimeType=true so the Content-Type header is correct.
     if let Some(accel) = x_accel_base().and_then(|b| x_accel_redirect_path(Some(&b), &hash_id)) {
         if query.include_mime_type.is_some() {
             if let Some(head) = state.storage.retrieve_range(&hash_id, 0, 31).await {
@@ -204,8 +208,7 @@ pub async fn get_content(
                 }
             }
         }
-        // nginx serves the body — we send 0 bytes. Drop any Content-Length we
-        // computed for the on-disk size; nginx will set it from the file.
+
         base_headers.retain(|(n, _)| *n != "Content-Length");
 
         let mut response = (StatusCode::OK, Body::empty()).into_response();
@@ -289,7 +292,7 @@ mod tests {
 
     #[test]
     fn x_accel_redirect_path_uses_storage_shard() {
-        // sha1("QmcoQSrVoi8C...")[..2] = "f0" "49" → "f049"
+
         let got = x_accel_redirect_path(
             Some("/__protected_storage"),
             "QmcoQSrVoi8CKSwiRyJ3MPYyN1AUiLjHiAtYCUGoBr8JM4",

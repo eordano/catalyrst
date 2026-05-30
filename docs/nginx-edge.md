@@ -5,8 +5,9 @@ then reverse-proxies to loopback ports.
 
 ## Real-client IP
 
-`include /var/lib/cloudflare/nginx-real-ip.conf;` plus
-`real_ip_header CF-Connecting-IP` and `real_ip_recursive on`.
+If you front the edge with a CDN/proxy, restore the real client IP by
+including your proxy's trusted-IP list (e.g. `include <DATA_DIR>/nginx-real-ip.conf;`)
+plus `real_ip_header <YOUR-CONNECTING-IP-HEADER>` and `real_ip_recursive on`.
 See `docs/cloudflare-ips.md` for the refresh logic.
 
 ## Rate limits
@@ -42,15 +43,15 @@ locations."= /debug"   → return 404;
 ## LiveKit vhost (`livekit.<domain>`)
 
 - `onlySSL = true` (no HTTP redirect on the SFU vhost).
-- `locations."/rtc"` proxies WebSockets to `127.0.0.1:7880`,
+- `locations."/rtc"` proxies WebSockets to the SFU on `127.0.0.1:<SFU_PORT>`,
   `proxy_read_timeout 3600s`.
-- `locations."/"` → 404. The Twirp admin API also lives on `:7880` (same
+- `locations."/"` → 404. The Twirp admin API also lives on `<SFU_PORT>` (same
   process); this keeps it off the internet even if someone later adds a
   generic `/` location.
 
 ## Deploy endpoint
 
-`POST /content/entities` proxies to catalyrst on `:5141`:
+`POST /content/entities` proxies to catalyrst on `:<CONTENT_PORT>`:
 
 - `proxy_buffering off` (streaming deploy body).
 - `client_max_body_size 200m`, `client_body_timeout 300s`,
