@@ -85,7 +85,7 @@ tokio-util = { version = "0.7", features = ["io"] }
 dashmap = "6"
 parking_lot = "0.12"
 metrics = "0.24"
-metrics-exporter-prometheus = { version = "0.16", default-features = false }
+metrics-exporter-prometheus = { version = "0.18", default-features = false }
 ethers-core = "2.0.3"
 ethers-signers = "2.0.3"
 catalyrst-types = { path = "crates/catalyrst-types" }
