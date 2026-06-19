@@ -37,6 +37,13 @@ pub struct Config {
     // enabled AND a relayer key is present; see ports::signer::DirectSigner.
     pub meta_tx_broadcast_enabled: bool,
     pub relayer_private_key: Option<String>,
+
+    /// Bearer token gating the runtime relayer admin routes
+    /// (`/{api}/admin/relayer*`). Unset ⇒ those routes 403 (fail-closed); the
+    /// console hides the controls. The crate had no prior admin token, so this
+    /// is its own dedicated env (per the per-crate `CATALYRST_<X>_ADMIN_TOKEN`
+    /// convention used by catalyrst-badges / catalyrst-builder).
+    pub admin_token: Option<String>,
 }
 
 impl Config {
@@ -81,6 +88,8 @@ impl Config {
 
             meta_tx_broadcast_enabled: get_bool("META_TX_BROADCAST_ENABLED", false)?,
             relayer_private_key: opt("RELAYER_PRIVATE_KEY"),
+
+            admin_token: opt("CATALYRST_ECONOMY_ADMIN_TOKEN"),
         })
     }
 

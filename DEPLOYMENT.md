@@ -143,7 +143,15 @@ multipart and confirm a 200 + the row in `deployments` + `active_pointers`.
 | `CONTENT_URL` | `<PUBLIC_URL>/content/` | content base URL in `/about` |
 | `LAMBDAS_URL` | `<PUBLIC_URL>/lambdas/` | lambdas base URL in `/about` |
 | `CONTENT_SERVER_ADDRESS` | `<PUBLIC_URL>/content` | `contentServerAddress` in `/about` |
-| `REALM_NAME` | unset | optional realm name reported by `/about` |
+| `REALM_NAME` | unset | optional realm name reported by `/about` and shown on the landing page (`GET /`) |
+| `CATALYRST_SERVICE_URLS` | unset | comma-separated `key=baseurl` pairs for the sibling bundles, probed at `{base}/health` to power the live service-health dots on the landing page (`GET /`) and `/admin`. Keys: `explore,create,social,data,ab-cdn,social-rpc,scene-state,profile-images,explorer-api,telemetry`. Unset keys render as "not configured" (never "down"). E.g. `explore=http://127.0.0.1:5143,data=http://127.0.0.1:5146`. `/admin` is loopback/tailnet-only — not proxied on the public edge. |
+| `ADMIN_ADDRESSES` | unset | comma-separated `0x…` allowlist for the admin console's write controls. **Unset ⇒ the console is read-only and every `POST /admin/api/*` mutation returns 403** (default-safe). See [docs/admin-console.md](./docs/admin-console.md). |
+| `SESSION_SECRET` | unset | HMAC key for the admin session cookie + sign-in nonce. Unset ⇒ admin write controls disabled (same as no `ADMIN_ADDRESSES`). Use a long random value. |
+| `ADMIN_SESSION_TTL_SECS` | `43200` | admin session lifetime (seconds, default 12h). |
+| `ADMIN_COOKIE_INSECURE` | unset | set `1` to drop the cookie `Secure` flag — only for a plain-HTTP tailnet with no TLS terminator (localhost is already a secure context). |
+| `COMMS_MODERATOR_TOKEN` / `MODERATOR_TOKEN` | unset | bearer the console forwards to comms for ban/unban/warn; unset ⇒ social controls hidden. |
+| `AB_REGISTRY_ADMIN_TOKEN` / `API_ADMIN_TOKEN` | unset | bearer forwarded to ab-registry for registry re-ingest / AB cache flush; unset ⇒ create controls hidden. |
+| `DEBUGGING_SECRET` | unset | secret injected into the scene-state reload call; unset ⇒ scene controls hidden. |
 | `PROFILE_CDN_BASE_URL` | `https://profile-images.decentraland.org` | base URL for rebuilt profile snapshot links |
 | `POSTGRES_HOST` | `/run/postgresql` | content DB socket/host |
 | `POSTGRES_PORT` | `5432` | content DB port |

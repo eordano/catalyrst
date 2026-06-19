@@ -13,6 +13,12 @@ pub async fn envelope(
     headers: HeaderMap,
     body: Bytes,
 ) -> Json<Value> {
+    // Admin ingest gate (default-open): when disabled or over the project's daily
+    // quota, accept the request shape but drop the payload. Returns the same
+    // {id} body so clients don't error or retry-storm.
+    if !state.ingest.admit(&project) {
+        return Json(json!({ "id": "" }));
+    }
     let raw = decode_body(&headers, body);
     let text = String::from_utf8_lossy(&raw);
     let mut lines = text.split('\n').filter(|l| !l.trim().is_empty());
@@ -79,6 +85,9 @@ pub async fn store(
     headers: HeaderMap,
     body: Bytes,
 ) -> Json<Value> {
+    if !state.ingest.admit(&project) {
+        return Json(json!({ "id": "" }));
+    }
     let raw = decode_body(&headers, body);
     let event: Value = serde_json::from_slice(&raw).unwrap_or_else(|_| json!({}));
     let event_id = event

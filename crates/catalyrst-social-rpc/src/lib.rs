@@ -1,3 +1,4 @@
+pub mod admin;
 pub mod auth_chain;
 pub mod config;
 pub mod context;

@@ -15,6 +15,9 @@ pub enum ApiError {
     Unauthorized(String),
 
     #[error("{0}")]
+    Forbidden(String),
+
+    #[error("{0}")]
     NotFound(String),
 
     #[error("database error: {0}")]
@@ -45,6 +48,7 @@ impl IntoResponse for ApiError {
         let (code, message) = match &self {
             ApiError::BadRequest(m) => (400u16, m.clone()),
             ApiError::Unauthorized(m) => (401, m.clone()),
+            ApiError::Forbidden(m) => (403, m.clone()),
             ApiError::NotFound(m) => (404, m.clone()),
             ApiError::Database(e) => {
                 tracing::error!(error = %e, "sqlx error");

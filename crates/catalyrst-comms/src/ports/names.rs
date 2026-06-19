@@ -56,7 +56,6 @@ impl NamesComponent {
         }
 
         let Some(pool) = self.pool.as_ref() else {
-
             for addr in &misses {
                 self.cache.insert(
                     addr.clone(),

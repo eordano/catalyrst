@@ -1,23 +1,11 @@
 //! MLS (RFC 9420) delivery-service primitives.
 //!
-//! ADR: `docs/federation/messaging.md`. This catalyst is the MLS **delivery
-//! service**, not a group member. It never holds group secrets and therefore
-//! **cannot decrypt** any message. Its job is:
-//!
-//!   * accept and index opaque KeyPackages (key-package directory),
-//!   * route opaque Welcome/Commit/application ciphertext to members,
-//!   * persist encrypted history and serialise epoch advances.
-//!
-//! To do that safely it must parse the *public framing* of MLS messages — never
-//! the content — to extract routing metadata: the ciphersuite of a KeyPackage,
-//! and the `group_id` + `epoch` carried in the cleartext `FramedContent` /
-//! `PrivateMessage` header of an MLSMessage. `openmls` 0.6.x gives us exactly
-//! these accessors (`ProtocolMessage::group_id` / `::epoch`,
-//! `KeyPackageIn::unverified_credential`) without ever constructing a group.
-//!
-//! Ciphersuite is pinned to the single one the explorer client must use — see
-//! [`PINNED_CIPHERSUITE`]. Anything else is rejected so the federation stays on
-//! one audit surface (ADR §2 "one library, one set of test vectors").
+//! ADR: `docs/federation/messaging.md`. This catalyst is the MLS delivery
+//! service, not a group member: it never holds group secrets and cannot decrypt
+//! any message. It parses only the *public framing* of MLS messages (never the
+//! content) to extract routing metadata — a KeyPackage's ciphersuite, and the
+//! `group_id` + `epoch` in the cleartext MLSMessage header. Ciphersuite is
+//! pinned to one ([`PINNED_CIPHERSUITE`]); anything else is rejected.
 
 use openmls::prelude::{
     Ciphersuite, KeyPackageIn, MlsMessageBodyIn, MlsMessageIn, ProtocolMessage, ProtocolVersion,
@@ -28,14 +16,10 @@ use tls_codec::DeserializeBytes;
 
 use sha2::{Digest, Sha256};
 
-/// The one ciphersuite the federation supports, RFC 9420 §17.1 value `0x0001`:
-/// `MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519`.
-///
-/// **Client contract (hand-off):** the explorer's MLS stack MUST create
-/// groups, KeyPackages and messages with this ciphersuite. It is the openmls
-/// default (`Ciphersuite::MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519`) and
-/// the most widely interop-tested one (RFC 9420 mandatory-to-implement). The
-/// server rejects any KeyPackage or group whose ciphersuite differs.
+/// The one ciphersuite the federation supports, RFC 9420 §17.1 value `0x0001`
+/// (`MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519`, the openmls default and the
+/// mandatory-to-implement suite). The server rejects any KeyPackage or group
+/// whose ciphersuite differs.
 pub const PINNED_CIPHERSUITE: Ciphersuite =
     Ciphersuite::MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519;
 
@@ -85,18 +69,11 @@ pub struct ParsedKeyPackage {
 }
 
 /// Parse, cryptographically validate, and ciphersuite-check a published
-/// KeyPackage from its TLS bytes.
-///
-/// The bytes are an `MLSMessage` whose body is a `KeyPackage` (the wire form
-/// `openmls` produces via `KeyPackage::into()` / `MlsMessageOut`). A directory
-/// SHOULD reject forged or expired KeyPackages before serving them, so we run
-/// the full RFC 9420 `KeyPackageIn::validate` (verifies the key-package + leaf
-/// signatures, lifetime, init/encryption-key distinctness, supported
-/// extensions) against a standard crypto provider. This validates the *public*
-/// key material only — it does NOT join a group, hold any group secret, or
-/// decrypt anything. We then enforce the pinned ciphersuite and surface the
-/// credential identity so the directory can be keyed (and signer-bound) by
-/// owner. Bytes are stored verbatim and re-served.
+/// KeyPackage from its TLS bytes (an `MLSMessage` whose body is a `KeyPackage`).
+/// Runs the full RFC 9420 `KeyPackageIn::validate` (key-package + leaf
+/// signatures, lifetime, key distinctness, extensions) over the *public* key
+/// material only — never joins a group or decrypts — then enforces the pinned
+/// ciphersuite and surfaces the credential identity for owner-binding.
 pub fn parse_key_package(bytes: &[u8]) -> Result<ParsedKeyPackage, MlsError> {
     let (msg, _rest) = MlsMessageIn::tls_deserialize_bytes(bytes)
         .map_err(|e| MlsError::Malformed(e.to_string()))?;
@@ -175,12 +152,10 @@ pub fn parse_message_routing(bytes: &[u8]) -> Result<MessageRouting, MlsError> {
     })
 }
 
-/// Confirm a blob is a parseable MLSMessage whose body is a Commit-carrying
-/// PrivateMessage/PublicMessage. We only need the framing for ordering; the
-/// commit content stays opaque. Returns the (group_id, epoch) the commit
-/// advances *to* is NOT knowable from framing alone (epoch in the header is the
-/// epoch the message was sent *in*), so callers pass the target epoch
-/// explicitly in the signed GroupCommit. Here we just validate parse + routing.
+/// Validate that a blob parses as a Commit-carrying MLSMessage and return its
+/// routing header. The target epoch is not knowable from framing alone (the
+/// header epoch is the one the commit was sent *in*), so callers pass it
+/// explicitly.
 pub fn parse_commit_routing(bytes: &[u8]) -> Result<MessageRouting, MlsError> {
     parse_message_routing(bytes)
 }

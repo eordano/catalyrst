@@ -10,6 +10,9 @@ pub struct Config {
     pub dapps_read_schema: String,
     pub favorites_database_url: String,
     pub favorites_schema: String,
+    /// Bearer token gating the §4 admin moderation routes. When `None`
+    /// (env unset) every admin route fails closed with 403.
+    pub admin_token: Option<String>,
 }
 
 impl Config {
@@ -26,6 +29,9 @@ impl Config {
             favorites_database_url: required("FAVORITES_PG_COMPONENT_PSQL_CONNECTION_STRING")?,
             favorites_schema: env::var("FAVORITES_PG_COMPONENT_PSQL_SCHEMA")
                 .unwrap_or_else(|_| "favorites".to_string()),
+            admin_token: env::var("CATALYRST_MARKET_ADMIN_TOKEN")
+                .ok()
+                .filter(|s| !s.is_empty()),
         })
     }
 }

@@ -89,6 +89,134 @@ impl RegistryStore {
         Ok(res.rows_affected() > 0)
     }
 
+    /// Returns whether the build queue is operator-paused. Defaults to false
+    /// when the registry DB is unconfigured (no control plane available).
+    pub async fn queue_paused(&self) -> Result<bool, sqlx::Error> {
+        let Some(pool) = &self.pool else {
+            return Ok(false);
+        };
+        let row = sqlx::query("SELECT paused FROM queue_control WHERE id = 1")
+            .fetch_optional(pool)
+            .await?;
+        Ok(row.map(|r| r.get::<bool, _>("paused")).unwrap_or(false))
+    }
+
+    /// Sets the operator queue-pause flag, returning the new value.
+    pub async fn set_queue_paused(
+        &self,
+        paused: bool,
+        updated_by: &str,
+    ) -> Result<bool, sqlx::Error> {
+        let Some(pool) = &self.pool else {
+            return Err(disabled());
+        };
+        let now = now_ms();
+        sqlx::query(
+            "INSERT INTO queue_control (id, paused, updated_by, updated_at) \
+             VALUES (1, $1, $2, $3) \
+             ON CONFLICT (id) DO UPDATE \
+               SET paused = EXCLUDED.paused, \
+                   updated_by = EXCLUDED.updated_by, \
+                   updated_at = EXCLUDED.updated_at",
+        )
+        .bind(paused)
+        .bind(updated_by)
+        .bind(now)
+        .execute(pool)
+        .await?;
+        Ok(paused)
+    }
+
+    /// Records (or bumps) a retry request for an entity, returning the attempt
+    /// count after the upsert.
+    pub async fn record_retry(
+        &self,
+        entity_id: &str,
+        requested_by: &str,
+    ) -> Result<i32, sqlx::Error> {
+        let Some(pool) = &self.pool else {
+            return Err(disabled());
+        };
+        let now = now_ms();
+        let row = sqlx::query(
+            "INSERT INTO build_retries (entity_id, requested_by, requested_at, attempts) \
+             VALUES ($1, $2, $3, 1) \
+             ON CONFLICT (entity_id) DO UPDATE \
+               SET requested_by = EXCLUDED.requested_by, \
+                   requested_at = EXCLUDED.requested_at, \
+                   attempts = build_retries.attempts + 1 \
+             RETURNING attempts",
+        )
+        .bind(entity_id.to_lowercase())
+        .bind(requested_by)
+        .bind(now)
+        .fetch_one(pool)
+        .await?;
+        Ok(row.get::<i32, _>("attempts"))
+    }
+
+    /// The platforms a build job is tracked for. Mirrors the platforms
+    /// `/queues/status` reports (windows, mac, webgl).
+    pub const BUILD_PLATFORMS: [&'static str; 3] = ["windows", "mac", "webgl"];
+
+    /// Re-enqueue an entity for building: reset every platform's build status to
+    /// `pending` in the catalyrst-owned build-job queue so a worker picks it up
+    /// and `/queues/status` reports it as pending. Returns the platforms that
+    /// were (re)enqueued. Idempotent — an existing row is reset to `pending`.
+    pub async fn enqueue_build(
+        &self,
+        entity_id: &str,
+        requested_by: &str,
+    ) -> Result<Vec<String>, sqlx::Error> {
+        let Some(pool) = &self.pool else {
+            return Err(disabled());
+        };
+        let now = now_ms();
+        let id = entity_id.to_lowercase();
+        let mut enqueued = Vec::with_capacity(Self::BUILD_PLATFORMS.len());
+        for platform in Self::BUILD_PLATFORMS {
+            sqlx::query(
+                "INSERT INTO build_jobs (entity_id, platform, status, requested_by, enqueued_at, updated_at) \
+                 VALUES ($1, $2, 'pending', $3, $4, $4) \
+                 ON CONFLICT (entity_id, platform) DO UPDATE \
+                   SET status = 'pending', \
+                       requested_by = EXCLUDED.requested_by, \
+                       enqueued_at = EXCLUDED.enqueued_at, \
+                       updated_at = EXCLUDED.updated_at",
+            )
+            .bind(&id)
+            .bind(platform)
+            .bind(requested_by)
+            .bind(now)
+            .execute(pool)
+            .await?;
+            enqueued.push(platform.to_string());
+        }
+        Ok(enqueued)
+    }
+
+    /// All entity ids with a `pending` build job for the given platform. Used by
+    /// `/queues/status` to union DB-enqueued pending jobs with the disk-derived
+    /// set. Returns an empty set when the registry DB is unconfigured.
+    pub async fn pending_jobs_for(
+        &self,
+        platform: &str,
+    ) -> Result<HashSet<String>, sqlx::Error> {
+        let Some(pool) = &self.pool else {
+            return Ok(HashSet::new());
+        };
+        let rows = sqlx::query(
+            "SELECT entity_id FROM build_jobs WHERE status = 'pending' AND platform = $1",
+        )
+        .bind(platform)
+        .fetch_all(pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|r| r.get::<String, _>("entity_id"))
+            .collect())
+    }
+
     pub async fn world_spawn(
         &self,
         world_name: &str,

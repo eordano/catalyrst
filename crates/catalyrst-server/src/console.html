@@ -1,0 +1,291 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title><!--SSR:title--></title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800;900&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+  :root{
+    --bg:#efe9db; --bg2:#f6f1e6; --bg3:#e7e0cf; --card:#f6f1e6; --line:#d4cdbb;
+    --fg:#16130c; --mut:#6c6655; --mut2:#9a9382;
+    --acc:#d6312b; --acc2:#a1211c;
+    --err:#d6312b; --warn:#9a6a12; --info:#1f55c9; --ok:#2f7d32; --dbg:#9a9382;
+    --mono:'IBM Plex Mono',ui-monospace,Menlo,Consolas,monospace;
+    --display:'Archivo',system-ui,-apple-system,Segoe UI,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.5 var(--display);-webkit-font-smoothing:antialiased;border-top:3px solid var(--acc);
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E")}
+  a{color:var(--acc);text-decoration:none;border-bottom:1px solid transparent}
+  a:hover{border-bottom-color:var(--acc)}
+  .mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+  .wrap{max-width:1160px;margin:0 auto;padding:0 22px}
+  /* ---- header / nav ---- */
+  header{border-bottom:2px solid var(--fg);background:var(--bg2);position:sticky;top:0;z-index:5}
+  header .wrap{display:flex;align-items:center;gap:18px;padding:13px 22px}
+  header h1{font-family:var(--display);font-size:15px;margin:0;font-weight:900;letter-spacing:-.02em}
+  header h1 .dot{display:inline-block;width:10px;height:10px;background:var(--acc);margin-right:9px;vertical-align:middle;animation:pulse 2.4s ease-in-out infinite}
+  header h1 .sub{font-family:var(--mono);font-size:10px;font-weight:500;letter-spacing:.14em;text-transform:uppercase;color:var(--mut2);margin-left:11px}
+  .nav{display:flex;border:1px solid var(--fg)}
+  .nav a{border:0;border-right:1px solid var(--line);padding:6px 14px;color:var(--fg);font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:.06em}
+  .nav a:last-child{border-right:0}
+  .nav a:hover{background:var(--bg3);border-bottom-color:transparent}
+  .nav a.on{background:var(--fg);color:var(--bg);font-weight:600}
+  .spacer{flex:1}
+  .ext{font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--mut)}
+  #live{background:var(--bg);color:var(--fg);border:1px solid var(--line);padding:6px 12px;font:inherit;font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:.06em;cursor:pointer}
+  #live:hover{border-color:var(--fg)}
+  #live.on{background:var(--fg);color:var(--bg);border-color:var(--fg)}
+  #live.on::before{content:'';display:inline-block;width:6px;height:6px;background:var(--acc);margin-right:7px;vertical-align:middle;animation:pulse 1.6s ease-in-out infinite}
+  /* ---- hero ---- */
+  .hero{border-bottom:2px solid var(--fg);background:var(--bg2)}
+  .hero .wrap{padding:34px 22px 30px}
+  .hero h2{font-family:var(--display);font-weight:900;font-size:42px;line-height:1.02;letter-spacing:-.035em;margin:0 0 8px}
+  .hero h2 em{font-style:normal;color:var(--acc)}
+  .hero p{margin:0;max-width:680px;color:var(--mut);font-size:15px}
+  .statusbar{display:flex;flex-wrap:wrap;gap:0;margin-top:24px;border-top:1px solid var(--line);border-left:1px solid var(--line)}
+  .stat{flex:1 1 150px;background:var(--bg);border-right:1px solid var(--line);border-bottom:1px solid var(--line);padding:13px 16px;min-width:140px}
+  .stat .lab{color:var(--mut);font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.12em}
+  .stat .big{font-family:var(--display);font-size:26px;font-weight:800;letter-spacing:-.02em;margin-top:4px;line-height:1.05;word-break:break-word}
+  .stat .big.sm{font-size:17px}
+  .stat.hl{background:var(--fg)} .stat.hl .lab{color:var(--mut2)} .stat.hl .big{color:var(--bg)}
+  .pill{display:inline-flex;align-items:center;gap:7px;font-family:var(--mono);font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.04em}
+  .dot{display:inline-block;width:9px;height:9px;flex:none}
+  .dot.ok{background:var(--ok)} .dot.bad{background:var(--err)} .dot.warn{background:var(--warn)} .dot.unk{background:var(--mut2);opacity:.5}
+  .ok-t{color:var(--ok)} .bad-t{color:var(--err)} .warn-t{color:var(--warn)} .unk-t{color:var(--mut2)}
+  /* primary call-to-action (e.g. open this realm in an explorer) */
+  .cta{display:inline-flex;align-items:center;gap:8px;margin-top:22px;background:var(--fg);color:var(--bg);border:1px solid var(--fg);padding:11px 20px;font-family:var(--mono);font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;box-shadow:4px 4px 0 var(--acc)}
+  .cta:hover{border-bottom-color:var(--fg);background:var(--acc);border-color:var(--acc);box-shadow:4px 4px 0 var(--fg)}
+  .cta.ghost{background:transparent;color:var(--fg);box-shadow:none;margin-left:10px}
+  .cta.ghost:hover{background:var(--bg3);color:var(--fg)}
+  /* back link on detail pages */
+  .back{display:inline-block;font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--mut);margin:22px 0 4px}
+  /* small per-row member dot on service lists */
+  .svc>.dot{margin-top:6px}
+  /* endpoint links on the detail page */
+  .eplist{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:6px}
+  .ep{font-family:var(--mono);font-size:11px;border:1px solid var(--line);padding:3px 9px;color:var(--acc2)}
+  .ep:hover{border-color:var(--acc);background:var(--acc);color:var(--bg);border-bottom-color:var(--acc)}
+  .raw{margin:6px 0 18px}
+  .raw .rt{font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--mut);margin-bottom:5px}
+  /* ---- sections ---- */
+  main{padding:8px 0 70px}
+  section{padding:28px 0 4px}
+  .shead{display:flex;align-items:baseline;gap:12px;border-bottom:2px solid var(--fg);padding-bottom:8px;margin-bottom:18px}
+  .shead h3{font-family:var(--display);font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:.1em;margin:0}
+  .shead .c{font-family:var(--mono);font-size:11px;color:var(--mut)}
+  /* service grid */
+  .groups{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:14px}
+  .group{border:1px solid var(--line);background:var(--bg2);display:flex;flex-direction:column}
+  .group .gh{display:flex;align-items:center;gap:10px;padding:12px 15px;border-bottom:1px solid var(--line);background:var(--bg3)}
+  .group .gh .gt{font-family:var(--display);font-weight:800;font-size:14px;letter-spacing:-.01em}
+  .group .gh .gp{font-family:var(--mono);font-size:10px;color:var(--mut);margin-left:auto;text-transform:uppercase;letter-spacing:.06em}
+  .svc{display:flex;align-items:flex-start;gap:10px;padding:10px 15px;border-bottom:1px dashed var(--line)}
+  .svc:last-child{border-bottom:0}
+  .svc .sd{min-width:0;flex:1}
+  .svc .sn{font-weight:600;font-size:13.5px}
+  .svc .sn .ref{font-family:var(--mono);font-size:10.5px;color:var(--mut2);font-weight:400;margin-left:6px}
+  .svc .sdesc{color:var(--mut);font-size:12px;margin-top:2px}
+  .svc .spath{font-family:var(--mono);font-size:11px;color:var(--acc2);margin-top:4px;display:inline-block}
+  .svc .spath.no{color:var(--mut2)}
+  /* link tiles */
+  .links{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:12px}
+  .link{border:1px solid var(--line);background:var(--bg2);padding:14px 16px;display:block;color:var(--fg)}
+  .link:hover{border-color:var(--fg);background:var(--bg3);border-bottom-color:var(--fg)}
+  .link .lt{font-family:var(--display);font-weight:700;font-size:14px}
+  .link .ld{color:var(--mut);font-size:12px;margin-top:3px}
+  .link .lu{font-family:var(--mono);font-size:11px;color:var(--acc2);margin-top:6px;word-break:break-all}
+  /* admin tables / kv */
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:0;border-top:1px solid var(--line);border-left:1px solid var(--line)}
+  .kv{background:var(--bg2);border-right:1px solid var(--line);border-bottom:1px solid var(--line);padding:11px 14px;min-width:0}
+  .kv .k{color:var(--mut);font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.1em}
+  .kv .v{font-family:var(--mono);font-size:13.5px;word-break:break-word;margin-top:4px;font-weight:500}
+  table{width:100%;border-collapse:collapse;background:var(--bg2);border:1px solid var(--line)}
+  th{text-align:left;color:var(--mut);font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.1em;font-weight:600;padding:9px 14px;border-bottom:2px solid var(--fg)}
+  td{padding:10px 14px;border-bottom:1px solid var(--line);vertical-align:top;font-size:13px}
+  tr:last-child td{border-bottom:0}
+  td.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+  .note{border:1px solid var(--warn);background:var(--bg2);color:var(--warn);padding:10px 14px;font-family:var(--mono);font-size:12px;margin:14px 0}
+  pre{background:var(--bg2);border:1px solid var(--line);padding:12px 14px;overflow:auto;font-family:var(--mono);font-size:12px;white-space:pre-wrap;word-break:break-word;margin:0}
+  footer{border-top:2px solid var(--fg);background:var(--bg2);margin-top:40px}
+  footer .wrap{display:flex;flex-wrap:wrap;gap:14px;align-items:center;padding:16px 22px;font-family:var(--mono);font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.06em}
+  footer .wrap b{color:var(--fg)}
+  /* ---- operator controls ---- */
+  .ctlcard{border:1px solid var(--line);background:var(--bg2);margin-bottom:14px}
+  .ctlcard .ctlh{font-family:var(--display);font-weight:800;font-size:13px;text-transform:uppercase;letter-spacing:.08em;padding:11px 15px;border-bottom:1px solid var(--line);background:var(--bg3)}
+  .ctlcard .ctlbody{padding:14px 15px}
+  .ctldesc{color:var(--mut);font-size:12.5px;margin:0 0 12px}
+  .ctlform{display:flex;flex-direction:column;gap:10px;margin-bottom:6px}
+  .ctlform+.ctlform{padding-top:12px;border-top:1px dashed var(--line)}
+  .ctlform label{display:flex;flex-direction:column;gap:4px;font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.1em;color:var(--mut)}
+  .ctlform label .hint{text-transform:none;letter-spacing:0;color:var(--mut2);font-weight:400}
+  .ctlform input,.ctlform select,.ctlform textarea{font-family:var(--mono);font-size:13px;background:var(--bg);color:var(--fg);border:1px solid var(--line);padding:8px 10px}
+  .ctlform input:focus,.ctlform select:focus,.ctlform textarea:focus{outline:none;border-color:var(--fg)}
+  .ctlform textarea{resize:vertical;white-space:pre}
+  .btnrow{display:flex;flex-wrap:wrap;gap:8px}
+  .btn{background:var(--fg);color:var(--bg);border:1px solid var(--fg);padding:8px 16px;font-family:var(--mono);font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;cursor:pointer;align-self:flex-start}
+  .btn:hover{background:var(--acc);border-color:var(--acc)}
+  .btn.ghost{background:transparent;color:var(--fg)}
+  .btn.ghost:hover{background:var(--bg3);color:var(--fg);border-color:var(--fg)}
+  .btn:disabled{opacity:.5;cursor:default}
+  /* destructive / financial actions — visually distinct */
+  .btn.danger{background:var(--err);border-color:var(--acc2);color:#fff}
+  .btn.danger:hover{background:var(--acc2);border-color:var(--acc2)}
+  .danger-form{border-left:3px solid var(--err);padding-left:11px;margin-left:-2px}
+  .danger-lab{color:var(--err)!important;font-weight:600}
+  .who{font-family:var(--mono);font-size:12px;color:var(--mut);margin-left:10px}
+  .ctl-result{font-family:var(--mono);font-size:12px;margin-top:4px;word-break:break-word;white-space:pre-wrap}
+  .ctl-result:empty{display:none}
+  .ctl-result.ok-t{color:var(--ok)} .ctl-result.bad-t{color:var(--err)}
+  pre.ctl-result.sqlout{background:var(--bg);border:1px solid var(--line);padding:10px 12px;max-height:300px;overflow:auto;margin-top:8px}
+  pre.ctl-result.sqlout:empty{display:none}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+  @keyframes rise{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+  .hero,main>section{animation:rise .5s ease both}
+  main>section:nth-child(2){animation-delay:.05s}
+  main>section:nth-child(3){animation-delay:.1s}
+  @media (prefers-reduced-motion:reduce){*{animation:none!important}}
+  @media (max-width:640px){.hero h2{font-size:32px}}
+</style>
+</head>
+<body>
+<header><div class="wrap">
+  <h1><span class="dot"></span>catalyrst<span class="sub"><!--SSR:realmname--></span></h1>
+  <nav class="nav"><!--SSR:nav--></nav>
+  <span class="spacer"></span>
+  <button id="live" title="auto-refresh this page every 15s">Live</button>
+</div></header>
+<!--SSR:main-->
+<footer><div class="wrap">
+  <span>catalyrst <b><!--SSR:version--></b></span>
+  <span>build <b><!--SSR:commit--></b></span>
+  <span>net <b><!--SSR:network--></b></span>
+  <span>mode <b><!--SSR:mode--></b></span>
+  <span class="spacer" style="flex:1"></span>
+  <span>rendered <b id="rendered" data-ts="<!--SSR:now-->">just now</b></span>
+</div></footer>
+<script>
+// SSR-first: the server renders everything above. This only progressively
+// enhances — relative timestamps and an opt-in 15s auto-refresh.
+(function(){
+  function rel(ts){ if(!ts)return''; const d=(Date.now()-new Date(ts).getTime())/1000;
+    if(d<60)return Math.max(0,d|0)+'s ago'; if(d<3600)return (d/60|0)+'m ago';
+    if(d<86400)return (d/3600|0)+'h ago'; return (d/86400|0)+'d ago'; }
+  function ticks(){ document.querySelectorAll('[data-ts]').forEach(function(el){
+    var r=rel(el.getAttribute('data-ts')); if(r)el.textContent=r; }); }
+  ticks(); setInterval(ticks,1000);
+  var live=document.getElementById('live'), t=null;
+  function on(v){ if(v){live.classList.add('on');t=setInterval(function(){location.reload();},15000);}
+    else {live.classList.remove('on');clearInterval(t);t=null;} try{localStorage.setItem('cat_live',v?'1':'0');}catch(e){} }
+  live&&live.addEventListener('click',function(){on(!live.classList.contains('on'));});
+  try{ if(localStorage.getItem('cat_live')==='1')on(true); }catch(e){}
+})();
+
+// Operator controls — progressive enhancement only. The server decides which
+// controls exist (SSR); this wires the wallet sign-in handshake and the POSTs to
+// /admin/api/* for whatever controls were rendered. The session cookie is
+// HttpOnly + same-origin, so fetch() sends it automatically; we never read it.
+(function(){
+  function flash(el,ok,msg){ if(!el)return;
+    el.classList.remove('ok-t','bad-t'); el.classList.add(ok?'ok-t':'bad-t');
+    el.textContent=msg; }
+  function pretty(body){ try{ return typeof body==='string'?body:JSON.stringify(body,null,2); }catch(e){ return String(body); } }
+
+  // Fill the signed-in address (server already rendered the controls; this is
+  // cosmetic confirmation the cookie is live).
+  fetch('/admin/auth/me',{headers:{'accept':'application/json'}}).then(function(r){
+    return r.ok?r.json():null; }).then(function(j){
+    if(j&&j.address){ document.querySelectorAll('#admin-who').forEach(function(el){
+      if(!el.textContent) el.textContent=j.address; }); }
+  }).catch(function(){});
+
+  // Wallet sign-in.
+  var signin=document.getElementById('admin-signin');
+  if(signin){ signin.addEventListener('click',async function(){
+    var out=document.getElementById('signin-result');
+    if(!window.ethereum){ flash(out,false,'No wallet detected (window.ethereum).'); return; }
+    signin.disabled=true;
+    try{
+      var accts=await ethereum.request({method:'eth_requestAccounts'});
+      var acct=accts&&accts[0];
+      if(!acct){ flash(out,false,'No account selected.'); signin.disabled=false; return; }
+      // The challenge is bound to this host + the signing address, so the nonce
+      // request must carry the address; the server returns the exact message.
+      var nr=await fetch('/admin/auth/nonce?address='+encodeURIComponent(acct));
+      if(!nr.ok){ var nt=await nr.text(); flash(out,false,'Could not start sign-in ('+nr.status+'). '+(nt||'')); signin.disabled=false; return; }
+      var nj=await nr.json();
+      var sig=await ethereum.request({method:'personal_sign',params:[nj.message,acct]});
+      var vr=await fetch('/admin/auth/verify',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({message:nj.message,signature:sig})});
+      if(vr.ok){ flash(out,true,'Signed in — reloading…'); location.reload(); }
+      else { var t=await vr.text(); flash(out,false,'Sign-in rejected ('+vr.status+'). '+(t||'')); signin.disabled=false; }
+    }catch(e){ flash(out,false,'Sign-in failed: '+(e&&e.message||e)); signin.disabled=false; }
+  }); }
+
+  // Sign-out.
+  var signout=document.getElementById('admin-signout');
+  if(signout){ signout.addEventListener('click',async function(){
+    try{ await fetch('/admin/auth/logout',{method:'POST'}); }catch(e){}
+    location.reload();
+  }); }
+
+  // Collect the named fields for an action element. For a submit button inside a
+  // <form> use the whole form; for a standalone button with data-fields, pull
+  // just those named inputs from the nearest form.
+  function gather(el){
+    var form=el.closest('form');
+    var data={};
+    var only=el.getAttribute('data-fields');
+    // An explicit (even empty) data-fields means "send only these named fields";
+    // an empty value therefore sends an empty body rather than the whole form.
+    if(only!==null){ var names=only.split(',').map(function(s){return s.trim();}).filter(Boolean);
+      names.forEach(function(n){ var inp=form&&form.querySelector('[name="'+n+'"]'); if(inp) data[n]=inp.value; });
+      return data; }
+    if(form){ Array.prototype.forEach.call(form.elements,function(inp){
+      if(inp.name && inp.type!=='submit' && inp.type!=='button') data[inp.name]=inp.value; }); }
+    return data;
+  }
+  // Where to render the result: an explicit data-result selector, else the
+  // nearest .ctl-result inside the same form/card.
+  function resultEl(el){
+    var sel=el.getAttribute('data-result');
+    if(sel){ return document.querySelector(sel); }
+    var scope=el.closest('form')||el.closest('.ctlcard');
+    return scope?scope.querySelector('.ctl-result'):null;
+  }
+  async function run(el){
+    var action=el.getAttribute('data-admin-action');
+    if(!action) return;
+    var confirmMsg=el.getAttribute('data-confirm');
+    if(confirmMsg && !window.confirm(confirmMsg)) return;
+    var out=resultEl(el);
+    var body=gather(el);
+    if(out){ out.classList.remove('ok-t','bad-t'); out.textContent='…'; }
+    try{
+      var r=await fetch(action,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});
+      var j=null; try{ j=await r.json(); }catch(e){}
+      // Proxy envelope is {ok,status,body}; content-local is {ok,...}. Treat the
+      // HTTP status and the envelope's ok together.
+      var ok=r.ok && (j?(j.ok!==false):true);
+      var rendered = j ? (j.body!==undefined?pretty(j.body):pretty(j)) : ('HTTP '+r.status);
+      if(out) flash(out,ok,(ok?'✓ ':'✗ ')+(j&&j.status?('['+j.status+'] '):'')+rendered);
+    }catch(e){ if(out) flash(out,false,'✗ request failed: '+(e&&e.message||e)); }
+  }
+  // Wire every action element. Submit buttons fire via the form's submit event;
+  // standalone buttons fire on click.
+  document.querySelectorAll('form[data-admin-action]').forEach(function(f){
+    f.addEventListener('submit',function(ev){ ev.preventDefault(); run(f); });
+  });
+  document.querySelectorAll('button[data-admin-action]').forEach(function(btn){
+    btn.addEventListener('click',function(ev){
+      // A submit button inside a data-admin-action form is handled by the form's
+      // submit handler — don't double-fire.
+      if(btn.type==='submit' && btn.closest('form[data-admin-action]')) return;
+      ev.preventDefault(); run(btn);
+    });
+  });
+})();
+</script>
+</body>
+</html>

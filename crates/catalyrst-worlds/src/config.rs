@@ -24,6 +24,10 @@ pub struct Config {
 
     pub comms_gatekeeper_url: Option<String>,
     pub comms_gatekeeper_auth_token: Option<String>,
+
+    /// Bearer token gating the `/admin/*` query + world-owned mutation routes.
+    /// Unset ⇒ every admin route fails closed (403).
+    pub admin_token: Option<String>,
 }
 
 impl Config {
@@ -87,6 +91,9 @@ impl Config {
                 .filter(|s| !s.is_empty())
                 .map(|s| s.trim_end_matches('/').to_string()),
             comms_gatekeeper_auth_token: env::var("COMMS_GATEKEEPER_AUTH_TOKEN")
+                .ok()
+                .filter(|s| !s.is_empty()),
+            admin_token: env::var("CATALYRST_WORLDS_ADMIN_TOKEN")
                 .ok()
                 .filter(|s| !s.is_empty()),
         })

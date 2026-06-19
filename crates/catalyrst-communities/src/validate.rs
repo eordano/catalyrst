@@ -1,33 +1,18 @@
-//! Field validation for community name/description.
-//!
-//! Parity with upstream `social-service-ea`
-//! (`src/logic/community/fields-validator.ts`): name must be non-empty and
-//! ≤ 30 chars; description non-empty and ≤ 500 chars. Limits are measured in
-//! Unicode scalar values (`chars().count()`), matching JS `String.length`'s
-//! intent of "user-visible length" closely enough for a guard rail and, more
-//! importantly, bounding storage.
-//!
-//! We additionally reject NUL and other C0/C1 control characters (except the
-//! common whitespace `\t \n \r`): Postgres `TEXT` columns cannot store a NUL
-//! byte, so an un-screened control char surfaces as a 500 "database error"
-//! instead of a clean 400 (see /tmp/content-hostile-strings.py).
+//! Field validation for community name/description, matching upstream
+//! `social-service-ea`: name 1..=30, description 1..=500, measured in Unicode
+//! scalar values.
 
-/// Max community name length (Unicode scalar values). Matches upstream's 30.
 pub const NAME_MAX: usize = 30;
-/// Max community description length. Matches upstream's 500.
 pub const DESCRIPTION_MAX: usize = 500;
 
-/// Reject NUL and control characters that break TEXT storage / are never
-/// meaningful in a community name or description. Ordinary whitespace
-/// (`\t`, `\n`, `\r`) is allowed; everything else in the C0/C1 control range
-/// (including the NUL byte and the RTL-override is *not* a control char, so it
-/// is intentionally allowed through — it round-trips safely as JSON data).
+/// Reject NUL and other C0/C1 control chars (except `\t \n \r`): Postgres `TEXT`
+/// cannot store a NUL byte, so an un-screened control char surfaces as a 500
+/// instead of a clean 400.
 fn has_forbidden_control(s: &str) -> bool {
     s.chars()
         .any(|c| c.is_control() && c != '\t' && c != '\n' && c != '\r')
 }
 
-/// Validate a community name. Returns a human-readable error string on failure.
 pub fn validate_name(name: &str) -> Result<(), String> {
     if name.trim().is_empty() {
         return Err("name is required".to_string());
@@ -42,7 +27,6 @@ pub fn validate_name(name: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// Validate a community description.
 pub fn validate_description(description: &str) -> Result<(), String> {
     if description.trim().is_empty() {
         return Err("description is required".to_string());
@@ -59,8 +43,7 @@ pub fn validate_description(description: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// Validate an *optional* name (federation update / partial edit): `None`
-/// means "leave unchanged" and is always allowed.
+/// `None` means "leave unchanged" and is always allowed.
 pub fn validate_name_opt(name: Option<&str>) -> Result<(), String> {
     match name {
         Some(n) => validate_name(n),
@@ -68,7 +51,6 @@ pub fn validate_name_opt(name: Option<&str>) -> Result<(), String> {
     }
 }
 
-/// Validate an *optional* description.
 pub fn validate_description_opt(description: Option<&str>) -> Result<(), String> {
     match description {
         Some(d) => validate_description(d),

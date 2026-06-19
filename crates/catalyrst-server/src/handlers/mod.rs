@@ -1,5 +1,6 @@
 pub mod about;
 pub mod active_entities;
+pub mod console;
 pub mod base_wearables;
 pub mod create_entity;
 pub mod definitions;

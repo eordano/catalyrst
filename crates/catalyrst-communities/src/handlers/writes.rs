@@ -31,13 +31,9 @@ fn err_json(code: StatusCode, message: impl Into<String>) -> (StatusCode, Json<s
     (code, Json(json!({ "ok": false, "message": m })))
 }
 
-/// Best-effort gossip emission for a locally-applied signed action.
-///
-/// Per `docs/federation/00-primitives.md §2.1` the wire format is the verbatim
-/// `Signed<T>` JSON; we wrap it in a `GossipEnvelope` and publish on the
-/// communities subject. A transport failure NEVER fails the request — the
-/// action is already durable in Postgres and recoverable by peers via the
-/// `/federation/communities/changes` snapshot-pull path (`communities.md §5`).
+/// Best-effort gossip emission for a locally-applied signed action. A transport
+/// failure never fails the request: the action is already durable in Postgres
+/// and recoverable by peers via snapshot pull.
 async fn emit_gossip<T>(state: &AppState, signed: &Signed<T>, sig_hash: &str, signer: &str)
 where
     T: TypedMessage + serde::Serialize,
@@ -781,11 +777,10 @@ async fn fed_delete_post(
     let post_meta = post_meta(&state.pool, &signed.message.post_id).await;
     let community_id_for_post = post_meta.as_ref().map(|(c, _)| c.clone()).unwrap_or_default();
     let author = post_meta.map(|(_, a)| a);
+    // `||` not `&&`: with `&&` a mod of community A could delete a post in
+    // community B by supplying B's real post_id + A's community_id. Unknown post
+    // (empty community_id_for_post) also correctly fails here.
     if signed.message.community_id != community_id_for_post || signed.message.post_id != post_id {
-        // || (not &&): reject if EITHER the path post_id or the signed community_id
-        // disagrees with the stored post. With && a mod of community A could delete
-        // a post in community B by supplying B's real post_id + A's community_id.
-        // Empty community_id_for_post (unknown post) also correctly fails here.
         return err_json(StatusCode::BAD_REQUEST, "post_id / community_id mismatch");
     }
     let is_author = author
@@ -1082,14 +1077,9 @@ pub struct MemberCommunitiesByIdsBody {
     community_ids: Vec<String>,
 }
 
-/// `POST /v1/members/{address}/communities` — admin batch read mirroring
-/// upstream `social-service-ea` `getMemberCommunitiesByIdsHandler`
-/// (`src/controllers/handlers/http/get-member-communities-by-ids-handler.ts`).
-/// Bearer-token authenticated, called by sibling services (e.g.
-/// worlds-content-server) to validate a set of community IDs: returns only the
-/// communities from the input set that are visible to `address` (active, not
-/// banned, listed-or-member). Response shape matches upstream:
-/// `{ data: { communities: [{ id }] } }`.
+/// `POST /v1/members/{address}/communities` — bearer-gated admin batch read.
+/// Returns the communities from the input set visible to `address` (active, not
+/// banned, listed-or-member).
 pub async fn member_communities_by_ids(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -1106,9 +1096,6 @@ pub async fn member_communities_by_ids(
     }
 
     let community_ids = body.map(|Json(b)| b.community_ids).unwrap_or_default();
-    // Parse the requested ids as UUIDs (the canonical `communities.id` form).
-    // Unparseable ids cannot match any community and are dropped, matching
-    // upstream's "filter the input set" behaviour.
     let uuids: Vec<Uuid> = community_ids
         .iter()
         .filter_map(|s| Uuid::parse_str(s).ok())

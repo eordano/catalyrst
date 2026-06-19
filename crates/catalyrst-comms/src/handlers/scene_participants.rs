@@ -13,7 +13,6 @@ use crate::AppState;
 pub struct ParticipantsQuery {
     pub pointer: Option<String>,
     pub realm_name: Option<String>,
-
     pub room: Option<String>,
 }
 
@@ -74,11 +73,9 @@ pub async fn list_participants(
                 Some(scene_id) => world_scene_room_name(realm, &scene_id),
                 None => return Ok(empty_roster()),
             },
-
             None => world_room_name(realm),
         }
     } else {
-
         let Some(p) = pointer else {
             return Err(ApiError::bad_request(
                 "Either pointer with realm_name or a world realm_name must be provided",

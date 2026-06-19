@@ -1,26 +1,18 @@
 //! MLS messaging delivery-service HTTP endpoints.
 //!
-//! ADR: `docs/federation/messaging.md`. This catalyst is the MLS **delivery
-//! service** (not a group member): it distributes KeyPackages, routes opaque
+//! ADR: `docs/federation/messaging.md`. This catalyst is the MLS delivery
+//! service (not a group member): it distributes KeyPackages, routes opaque
 //! Welcome/Commit/application ciphertext, persists encrypted history, and
-//! serialises epoch advances. **It can never decrypt.** Every byte payload it
-//! handles is opaque MLS material; there is no plaintext anywhere in this file.
+//! serialises epoch advances. It can never decrypt — every byte payload is
+//! opaque MLS material.
 //!
-//! Authorization model (requirement #4):
-//!   * key-package **publish** is authed by signed-fetch (`catalyrst-crypto`
-//!     auth chain) and the publisher must own the credential it publishes.
-//!   * key-package **fetch** is open to any authed wallet (claiming a one-time
-//!     KP to add a peer is a normal pre-add step).
-//!   * group **history / commit / blob** fetch is restricted to current group
-//!     members (`mls_group_members`).
-//!   * message **send** / **commit** is restricted to current group members;
-//!     commits additionally must come from the group's `epoch_author`.
-//!
-//! Live transport: the LiveKit data channel carries the same MLS ciphertext
-//! directly between online peers (sub-second). This federation path is the
-//! durable-history + offline-delivery + ordering authority (ADR §7). When NATS
-//! gossip is enabled, accepted `MessageRef`/`GroupCommit` envelopes are
-//! published to peers so other catalysts' members converge.
+//! Authorization model:
+//!   * key-package publish: signed-fetch authed; publisher must own the
+//!     credential it publishes.
+//!   * key-package fetch: any authed wallet.
+//!   * group history / commit / blob fetch: current group members only.
+//!   * message send / commit: current group members only; epoch-advancing
+//!     commits additionally must go to the group's `epoch_author`.
 
 use axum::extract::{Path, Query, State};
 use axum::http::HeaderMap;
@@ -39,9 +31,8 @@ fn bad_request(msg: impl Into<String>) -> ApiError {
     ApiError::bad_request(msg)
 }
 
-/// Decode a base64 (standard, padded) field into bytes, bounded so a malicious
-/// caller can't OOM us. 256 KiB is well above a normal MLS message; the route
-/// also has the 512 KiB body limit from `api_router`.
+/// Decode a base64 (standard, padded) field, bounded to 256 KiB so a caller
+/// can't OOM us.
 fn b64_field(v: &serde_json::Value, key: &str) -> Result<Vec<u8>, ApiError> {
     let s = v
         .get(key)
@@ -66,8 +57,7 @@ fn is_eth_address(addr: &str) -> bool {
         && addr[2..].chars().all(|c| c.is_ascii_hexdigit())
 }
 
-/// Require a signed-fetch identity (auth chain) for `method path`. Returns the
-/// lowercase wallet of the final signer.
+/// Require a signed-fetch identity for `method path`; returns the lowercase signer.
 fn auth(headers: &HeaderMap, method: &str, path: &str) -> Result<String, ApiError> {
     require_signer(headers, method, path)
         .map(|s| s.to_lowercase())
@@ -87,14 +77,9 @@ async fn is_member(state: &AppState, group_id: &str, wallet: &str) -> Result<boo
     Ok(n > 0)
 }
 
-// ---------------------------------------------------------------------------
-// Key-package directory
-// ---------------------------------------------------------------------------
-
-/// `POST /mls/key-packages` — publish one-or-more one-time KeyPackages for the
-/// authenticated identity. Body: `{ "key_packages": ["<base64 MLSMessage>", ..] }`.
-/// Each KP is parsed (framing only), ciphersuite-pinned, and indexed by owner.
-/// The publisher must own the credential identity inside the KP.
+/// `POST /mls/key-packages` — publish one-time KeyPackages for the authed
+/// identity. Body: `{ "key_packages": ["<base64 MLSMessage>", ..] }`. The
+/// publisher must own the credential identity inside each KP.
 pub async fn publish_key_packages(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -124,9 +109,8 @@ pub async fn publish_key_packages(
         }
         let parsed = mls::parse_key_package(&bytes).map_err(|e| bad_request(e.to_string()))?;
 
-        // Bind the published KP to the authed wallet: the credential identity
-        // SHOULD be the lowercase wallet. We accept either an exact match or a
-        // hex-address match (clients may store it with/without 0x or casing).
+        // Bind the published KP to the authed wallet (accept the address with or
+        // without the 0x prefix).
         let cred = String::from_utf8_lossy(&parsed.credential_identity)
             .trim()
             .to_lowercase();
@@ -153,10 +137,7 @@ pub async fn publish_key_packages(
 }
 
 /// `GET /mls/key-packages/{owner}` — claim one unconsumed KeyPackage for
-/// `owner` (single-use: marked consumed atomically). Used by a member that is
-/// about to `add_member(owner)`. Authed (any wallet). If `owner` has no spare
-/// KP, returns 404 with `last_resort: false` so the client knows to ask the
-/// owner to publish more (or fall back to a last-resort KP if it ever ships one).
+/// `owner` (single-use, marked consumed atomically). Authed (any wallet).
 pub async fn claim_key_package(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -168,7 +149,6 @@ pub async fn claim_key_package(
     }
     let _claimer = auth(&headers, "get", &format!("/mls/key-packages/{owner}"))?;
 
-    // Atomic claim: select-for-update the oldest unconsumed KP, mark consumed.
     let row = sqlx::query_as::<_, (String, Vec<u8>, i32)>(
         "UPDATE mls_key_packages SET consumed_at = now() \
          WHERE id = ( \
@@ -195,8 +175,7 @@ pub async fn claim_key_package(
     }
 }
 
-/// `GET /mls/key-packages/{owner}/count` — how many unconsumed KPs remain, so a
-/// client knows when to replenish. Authed (any wallet).
+/// `GET /mls/key-packages/{owner}/count` — unconsumed KPs remaining. Authed (any wallet).
 pub async fn key_package_count(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -216,24 +195,18 @@ pub async fn key_package_count(
     Ok(Json(json!({ "owner": owner, "available": n })))
 }
 
-// ---------------------------------------------------------------------------
-// Group lifecycle
-// ---------------------------------------------------------------------------
-
 #[derive(Debug, Deserialize)]
 pub struct CreateGroupBody {
     /// hex of the MLS GroupId (32-byte opaque) the creator generated locally.
     pub group_id: String,
     /// 'dm' | 'channel'
     pub group_kind: String,
-    /// for channels: the owning community id (authz hook for the future
-    /// communities cross-check). Optional for DMs.
+    /// for channels: the owning community id. Optional for DMs.
     #[serde(default)]
     pub community_id: Option<String>,
     /// initial member wallets (creator included). For a DM this is exactly two.
     pub initial_members: Vec<String>,
-    /// base64 MLSMessage(Commit) that created/initialised epoch 0->whatever, or
-    /// the first commit. Optional at create; may be supplied via /commits.
+    /// base64 MLSMessage(Commit). Optional at create; may be supplied via /commits.
     #[serde(default)]
     pub initial_commit: Option<String>,
     /// base64 MLSMessage(Welcome) for the added initial members. Optional.
@@ -241,10 +214,8 @@ pub struct CreateGroupBody {
     pub welcome: Option<String>,
 }
 
-/// `POST /mls/groups` — register a new MLS group. The creator becomes the
-/// epoch-author (ADR §4). The server stores routing metadata + the membership
-/// roster (for authz) + the optional first commit/welcome. It never sees group
-/// secrets. Authed; creator must be in `initial_members`.
+/// `POST /mls/groups` — register a new MLS group; the creator becomes the
+/// epoch-author. Authed; creator must be in `initial_members`.
 pub async fn create_group(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -308,7 +279,6 @@ pub async fn create_group(
         .await?;
     }
 
-    // optional first commit
     if let Some(c) = &b.initial_commit {
         let commit_bytes = base64::engine::general_purpose::STANDARD
             .decode(c)
@@ -350,10 +320,6 @@ pub async fn create_group(
     })))
 }
 
-// ---------------------------------------------------------------------------
-// Commits / epoch advances
-// ---------------------------------------------------------------------------
-
 #[derive(Debug, Deserialize)]
 pub struct CommitBody {
     /// target epoch this commit advances the group to.
@@ -372,10 +338,8 @@ pub struct CommitBody {
 }
 
 /// `POST /mls/groups/{group_id}/commits` — submit an epoch-advancing commit.
-/// Must be sent to the group's epoch-author (ADR §4: the author's catalyst is
-/// the sole serialiser of epoch advances). Authed; sender must be a current
-/// member; epoch must be exactly `current_epoch + 1`. The commit + welcome are
-/// stored opaque and the authz roster is updated from the supplied delta.
+/// Must be sent to the group's epoch-author. Authed; sender must be a current
+/// member; epoch must be exactly `current_epoch + 1`.
 pub async fn submit_commit(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -399,7 +363,6 @@ pub async fn submit_commit(
         return Err(forbidden("only group members may submit commits"));
     }
 
-    // This catalyst only accepts commits for groups whose epoch-author is us.
     let our_peer = std::env::var("FED_PEER_ID").unwrap_or_else(|_| "local".to_string());
     if epoch_author != our_peer {
         return Err(ApiError::schema(
@@ -523,8 +486,7 @@ pub struct CommitsQuery {
 }
 
 /// `GET /mls/groups/{group_id}/commits?from=N` — fetch handshake commits from
-/// epoch N onward so a member can catch up its group state (ADR §4). Members
-/// only.
+/// epoch N onward (catch-up). Members only.
 pub async fn fetch_commits(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -562,15 +524,10 @@ pub async fn fetch_commits(
     Ok(Json(json!({ "group_id": group_id, "commits": commits })))
 }
 
-// ---------------------------------------------------------------------------
-// Application messages
-// ---------------------------------------------------------------------------
-
 /// `POST /mls/groups/{group_id}/messages` — submit an application-message
 /// ciphertext. Body: `{ "ciphertext": "<base64 MLSMessage(PrivateMessage)>" }`.
-/// The server parses the framing only (to confirm the message's group_id +
-/// epoch match), content-addresses + dedups the ciphertext, records an ordered
-/// ref, and (if gossip enabled) fans out a `MessageRef` envelope to peers.
+/// The server parses the framing only (to confirm group_id + epoch),
+/// content-addresses + dedups the ciphertext, and records an ordered ref.
 /// Members only.
 pub async fn send_message(
     State(state): State<AppState>,
@@ -603,8 +560,7 @@ pub async fn send_message(
             "ciphertext group_id does not match the URL group",
         ));
     }
-    // The message epoch should not be ahead of what the server has recorded as
-    // the current epoch (it may legitimately be behind during catch-up).
+    // The message epoch may be behind during catch-up, but never ahead.
     if routing.epoch as i64 > current_epoch {
         return Err(ApiError::schema(
             409,
@@ -619,9 +575,8 @@ pub async fn send_message(
 
     let ciphertext_hash = mls::content_hash(&ciphertext);
     let now = chrono::Utc::now().timestamp();
-    // signature_hash: in the full federation path this is Signed<MessageRef>::hash().
-    // Here (HTTP delivery) we content-address the ref deterministically from its
-    // routing fields so duplicate submissions dedup.
+    // Content-address the ref deterministically from its routing fields so
+    // duplicate submissions dedup.
     let signature_hash = mls::content_hash(
         format!("{group_id}:{}:{signer}:{ciphertext_hash}", routing.epoch).as_bytes(),
     );
@@ -650,13 +605,10 @@ pub async fn send_message(
     .await?;
     tx.commit().await?;
 
-    // NOTE(federation): when FED_GOSSIP=nats, publish a Signed<MessageRef>
-    // envelope here so peer catalysts holding other members converge. The wire
-    // contract is the `MessageRef` signed-action from messaging.md §6; the
-    // ciphertext blob is fetched by peers on demand via /mls/blobs/{hash}. The
-    // gossip publisher lives in catalyrst-fed (GossipPublisher); wiring it into
-    // AppState is the next federation step (single-node deploy is correct as-is:
-    // LiveKit data-channel handles live delivery, this row is durable history).
+    // TODO(federation): when FED_GOSSIP=nats, publish a Signed<MessageRef> here
+    // (catalyrst-fed GossipPublisher) so peer catalysts converge. Single-node is
+    // correct as-is: LiveKit data-channel handles live delivery, this row is
+    // durable history.
 
     Ok(Json(json!({
         "group_id": group_id,
@@ -678,9 +630,7 @@ pub struct HistoryQuery {
 }
 
 /// `GET /mls/groups/{group_id}/messages` — fetch encrypted history (newest
-/// first), paginated. Returns message refs with their ciphertext inline (the
-/// server can't read it). **Members only** (requirement #4). The client
-/// decrypts each ciphertext locally with its MLS group state.
+/// first), paginated; ciphertext inline. Members only.
 pub async fn fetch_history(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -724,9 +674,8 @@ pub async fn fetch_history(
     Ok(Json(json!({ "group_id": group_id, "messages": messages })))
 }
 
-/// `GET /mls/blobs/{hash}` — fetch a single ciphertext blob by content hash
-/// (ADR §7). The caller must be a member of *some* group that references this
-/// blob. Returns raw base64; never decrypted.
+/// `GET /mls/blobs/{hash}` — fetch a single ciphertext blob by content hash.
+/// The caller must be a current member of some group that references it.
 pub async fn fetch_blob(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -735,8 +684,6 @@ pub async fn fetch_blob(
     let hash = hash.to_lowercase();
     let signer = auth(&headers, "get", &format!("/mls/blobs/{hash}"))?;
 
-    // authz: the caller must be a current member of at least one group that
-    // references this blob.
     let allowed: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM mls_message_refs r \
          JOIN mls_group_members m ON m.group_id = r.group_id \

@@ -77,9 +77,52 @@ pub struct SyncOrchestrator {
     stopped: Arc<std::sync::atomic::AtomicBool>,
     stop_notify: Arc<Notify>,
     bootstrap_handle: Arc<Mutex<Option<tokio::task::AbortHandle>>>,
+    /// Operator pause intent. `false` = run, `true` = paused. Consulted by the
+    /// download passes (steady-state + bootstrap) which halt cleanly at pass
+    /// boundaries and resume from the persisted frontier. Default (never
+    /// touched) keeps the orchestrator behaving exactly as before.
+    paused: Arc<std::sync::atomic::AtomicBool>,
+    /// Wakes paused/sleeping download passes so `resume`/`force` take effect
+    /// immediately instead of waiting out the reconnect interval.
+    control_notify: Arc<Notify>,
 }
 
 const POINTER_CHANGES_SHIFT_MS: Timestamp = 20 * 60_000;
+
+/// Operator handle for pause/resume/force, shared with the running orchestrator
+/// loops. Cheaply cloneable. All operations are additive and never block the
+/// caller; the orchestrator observes the intent at the next pass boundary.
+#[derive(Clone)]
+pub struct SyncControlHandle {
+    paused: Arc<std::sync::atomic::AtomicBool>,
+    control_notify: Arc<Notify>,
+}
+
+impl SyncControlHandle {
+    /// Halt download passes at the next safe boundary (resumable).
+    pub fn pause(&self) {
+        self.paused.store(true, std::sync::atomic::Ordering::SeqCst);
+        // Wake any pass sleeping on the interval so it parks on the pause gate
+        // promptly (it will re-check `paused` and wait on `control_notify`).
+        self.control_notify.notify_waiters();
+    }
+
+    /// Resume paused passes and wake any that are sleeping.
+    pub fn resume(&self) {
+        self.paused.store(false, std::sync::atomic::Ordering::SeqCst);
+        self.control_notify.notify_waiters();
+    }
+
+    /// Clear any pause intent and trigger an immediate pass (skip the wait).
+    pub fn force(&self) {
+        self.paused.store(false, std::sync::atomic::Ordering::SeqCst);
+        self.control_notify.notify_waiters();
+    }
+
+    pub fn is_paused(&self) -> bool {
+        self.paused.load(std::sync::atomic::Ordering::SeqCst)
+    }
+}
 
 impl SyncOrchestrator {
     pub fn new(
@@ -105,6 +148,18 @@ impl SyncOrchestrator {
             stopped: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             stop_notify: Arc::new(Notify::new()),
             bootstrap_handle: Arc::new(Mutex::new(None)),
+            paused: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            control_notify: Arc::new(Notify::new()),
+        }
+    }
+
+    /// Operator control handle (pause/resume/force) shared with the running
+    /// loops. Hand this to the admin layer so its sync toggles actually steer
+    /// the orchestrator.
+    pub fn control_handle(&self) -> SyncControlHandle {
+        SyncControlHandle {
+            paused: self.paused.clone(),
+            control_notify: self.control_notify.clone(),
         }
     }
 
@@ -218,6 +273,8 @@ impl SyncOrchestrator {
             bootstrap_done: self.bootstrap_done.clone(),
             stopped: self.stopped.clone(),
             stop_notify: self.stop_notify.clone(),
+            paused: self.paused.clone(),
+            control_notify: self.control_notify.clone(),
         }
     }
 }
@@ -235,9 +292,37 @@ struct SyncOrchestratorRefs {
     bootstrap_done: Arc<Notify>,
     stopped: Arc<std::sync::atomic::AtomicBool>,
     stop_notify: Arc<Notify>,
+    paused: Arc<std::sync::atomic::AtomicBool>,
+    control_notify: Arc<Notify>,
 }
 
 impl SyncOrchestratorRefs {
+    /// Park while paused, returning `true` if a stop was requested while
+    /// waiting (caller should bail). Returns immediately when not paused, so
+    /// the unpaused hot path pays only one relaxed atomic load. Cleanly
+    /// resumable: passes always re-derive their starting point from the
+    /// persisted/in-memory frontier, never from a half-consumed stream.
+    async fn wait_while_paused(&self) -> bool {
+        loop {
+            if self.stopped.load(std::sync::atomic::Ordering::SeqCst) {
+                return true;
+            }
+            if !self.paused.load(std::sync::atomic::Ordering::SeqCst) {
+                return false;
+            }
+            // Re-arm the notified() future, then re-check the flag to close the
+            // resume-between-check-and-wait race before parking.
+            let notified = self.control_notify.notified();
+            if !self.paused.load(std::sync::atomic::Ordering::SeqCst) {
+                return false;
+            }
+            tokio::select! {
+                _ = self.stop_notify.notified() => return true,
+                _ = notified => {}
+            }
+        }
+    }
+
     async fn run_bootstrap(&self) -> Result<(), SyncError> {
         if self.config.phased_sync {
             self.run_phased_bootstrap().await
@@ -369,6 +454,13 @@ impl SyncOrchestratorRefs {
 
         if bootstrapping.is_empty() {
             return Ok(());
+        }
+
+        // Honor an operator pause before kicking off a (potentially large)
+        // snapshot download pass. Resumable: bootstrap re-derives its frontier
+        // from the persisted store on the next run.
+        if self.wait_while_paused().await {
+            return Err(SyncError::Stopped);
         }
 
         info!(
@@ -539,6 +631,10 @@ impl SyncOrchestratorRefs {
             return Ok(());
         }
 
+        if self.wait_while_paused().await {
+            return Err(SyncError::Stopped);
+        }
+
         let now = chrono::Utc::now().timestamp_millis();
         let min_from = bootstrapping.iter().map(|(_, ts)| *ts).min().unwrap_or(0);
         self.deployer
@@ -619,6 +715,8 @@ impl SyncOrchestratorRefs {
             let deployer = self.deployer.clone();
             let stopped = self.stopped.clone();
             let stop_notify = self.stop_notify.clone();
+            let paused = self.paused.clone();
+            let control_notify = self.control_notify.clone();
             let wait_time_ms = self.config.pointer_changes_wait_time_ms;
             let reconnect_time = self.config.syncing_reconnect_time_ms;
             let reconnect_exponent = self.config.syncing_reconnect_exponent;
@@ -636,6 +734,28 @@ impl SyncOrchestratorRefs {
                 loop {
                     if stopped.load(std::sync::atomic::Ordering::SeqCst) {
                         return;
+                    }
+                    // Operator pause gate: halt cleanly between passes. On
+                    // resume/force we fall straight through and start the next
+                    // pass from the current (persisted) `from_timestamp`, so no
+                    // deployments are lost or duplicated.
+                    if paused.load(std::sync::atomic::Ordering::SeqCst) {
+                        loop {
+                            if stopped.load(std::sync::atomic::Ordering::SeqCst) {
+                                return;
+                            }
+                            if !paused.load(std::sync::atomic::Ordering::SeqCst) {
+                                break;
+                            }
+                            let notified = control_notify.notified();
+                            if !paused.load(std::sync::atomic::Ordering::SeqCst) {
+                                break;
+                            }
+                            tokio::select! {
+                                _ = stop_notify.notified() => return,
+                                _ = notified => {}
+                            }
+                        }
                     }
                     let options = PointerChangesOptions {
                         from_timestamp,
@@ -667,6 +787,8 @@ impl SyncOrchestratorRefs {
                     }
                     tokio::select! {
                         _ = stop_notify.notified() => return,
+                        // resume/force wake the loop to start the next pass now.
+                        _ = control_notify.notified() => {}
                         _ = tokio::time::sleep(std::time::Duration::from_millis(backoff_ms as u64)) => {}
                     }
                 }

@@ -446,14 +446,6 @@ pub async fn community_voice_chat_end(
     })))
 }
 
-// --- Per-user community voice-chat participant actions -----------------------
-//
-// These mirror upstream comms-gatekeeper's community-voice-chat sub-routes
-// (`/community-voice-chat/:communityId/users/:userAddress/...`). Each one
-// mutates LiveKit participant state via the RoomService `UpdateParticipant`
-// call: speak-request / mute flip metadata, promote/demote flip both the
-// publish permission and metadata, kick removes the participant.
-
 fn require_community_and_user(
     community_id: &str,
     user_address: &str,
@@ -615,8 +607,8 @@ pub struct MuteSpeakerBody {
     pub muted: bool,
 }
 
-/// PATCH .../mute — mute / unmute a speaker (metadata flag only; the client
-/// enforces the mute, matching upstream behaviour).
+/// PATCH .../mute — mute / unmute a speaker. Metadata flag only; the client
+/// enforces the mute (matches upstream).
 pub async fn community_mute_speaker(
     State(state): State<AppState>,
     Path((community_id, user_address)): Path<(String, String)>,

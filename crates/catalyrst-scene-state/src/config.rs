@@ -20,6 +20,15 @@ pub struct Config {
     /// Shared secret guarding `/debugging/reload`. Upstream `DEBUGGING_SECRET`.
     pub debugging_secret: Option<String>,
 
+    /// Bearer token gating the admin control routes (`/admin/scene/*`):
+    /// kick-all, CRDT inspect, reset-state. Compared in constant time against
+    /// `Authorization: Bearer <token>`. Sourced from
+    /// `CATALYRST_SCENE_STATE_ADMIN_TOKEN`, falling back to `DEBUGGING_SECRET`
+    /// so a single-host deploy that already armed the scene-control secret need
+    /// not set a second value. Unset (both) ⇒ every admin route returns 403
+    /// (fail-closed / default-safe).
+    pub admin_token: Option<String>,
+
     /// Base URL the server signs auth payloads against. Upstream `HTTP_BASE_URL`.
     pub http_base_url: Option<String>,
 
@@ -89,12 +98,18 @@ impl Config {
 
         let opt = |k: &str| env::var(k).ok().filter(|s| !s.is_empty());
 
+        let debugging_secret = opt("DEBUGGING_SECRET");
+        // Prefer a dedicated admin bearer; fall back to DEBUGGING_SECRET so the
+        // existing scene-control secret also unlocks the admin routes.
+        let admin_token = opt("CATALYRST_SCENE_STATE_ADMIN_TOKEN").or_else(|| debugging_secret.clone());
+
         Ok(Self {
             http_host,
             http_port,
             local_scene_path: opt("LOCAL_SCENE_PATH"),
             world_server_url: opt("WORLD_SERVER_URL"),
-            debugging_secret: opt("DEBUGGING_SECRET"),
+            debugging_secret,
+            admin_token,
             http_base_url: opt("HTTP_BASE_URL"),
             auth_timeout_secs: opt("AUTH_TIMEOUT_SECS")
                 .and_then(|s| s.parse().ok())

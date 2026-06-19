@@ -74,11 +74,8 @@ impl Endpoints {
 }
 
 enum Outcome {
-
     Diffs(Vec<Difference>),
-
     TransientSkip(String),
-
     VolatilitySkip,
 }
 
@@ -204,7 +201,6 @@ async fn main() -> Result<()> {
 
     let volatility = {
         let path = args.volatility_config.clone().unwrap_or_else(|| {
-
             let crate_local = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("volatility.toml");
             if crate_local.exists() {
                 crate_local
@@ -1128,7 +1124,6 @@ async fn fetch_json_with_retry(ctx: &Ctx, label: &str, url: &str) -> Result<Opti
             return Ok(RetryDecision::Retry(wait));
         }
         if !status.is_success() {
-
             return Ok(RetryDecision::Done(None));
         }
         let body = resp.text().await.context("reading bootstrap body")?;
@@ -1468,7 +1463,6 @@ fn fixture_slug_for(method: &str, path_and_query: &str, body: Option<&Value>) ->
 
 fn fixture_subdir_for(section: &str) -> &'static str {
     match section {
-
         "lambdas-status" | "contracts" | "third-party-integrations" | "collections"
         | "nfts-collections" | "profiles" | "user-items" | "collections-by-owner" | "explorer"
         | "parcel" | "name-owner" | "outfits" => "lambdas",
@@ -1553,9 +1547,7 @@ fn write_fixture(
         .unwrap_or_default();
     let (body_json, body_bytes_b64) = if content_type.contains("application/json")
         || response_bytes
-            .iter()
-            .take(1)
-            .next()
+            .first()
             .map(|c| *c == b'{' || *c == b'[')
             .unwrap_or(false)
     {

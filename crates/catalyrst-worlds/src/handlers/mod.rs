@@ -1,6 +1,7 @@
 pub mod live_data;
 pub mod about;
 pub mod active;
+pub mod admin;
 pub mod comms;
 pub mod contents;
 pub mod permissions;

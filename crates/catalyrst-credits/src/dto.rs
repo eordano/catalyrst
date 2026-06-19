@@ -97,8 +97,7 @@ pub struct ClaimCreditsBody {
 #[serde(rename_all = "camelCase")]
 pub struct ClaimCreditsResponse {
     pub ok: bool,
-    // Previously serialized as snake_case `credits_granted` while its sibling
-    // was camelCase — the explorer reads `creditsGranted` and got undefined.
+    // `rename_all = camelCase` emits this as `creditsGranted` (what the explorer reads).
     pub credits_granted: f64,
     pub is_blocked_for_claiming: bool,
 }

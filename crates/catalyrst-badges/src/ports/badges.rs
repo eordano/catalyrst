@@ -274,6 +274,174 @@ impl BadgesComponent {
         }
     }
 
+    async fn badge_is_tier(&self, badge_id: &str) -> Result<Option<bool>, ApiError> {
+        let row = sqlx::query("SELECT is_tier FROM badge_definitions WHERE id = $1")
+            .bind(badge_id)
+            .fetch_optional(&self.pool)
+            .await?;
+        Ok(row.map(|r| r.get::<bool, _>("is_tier")))
+    }
+
+    /// Resolve the tier to grant: supplied `tier_id` (must exist) or the
+    /// highest-ordinal tier. Returns `(tier_id, criteria_steps)`.
+    async fn resolve_tier(
+        &self,
+        badge_id: &str,
+        tier_id: Option<&str>,
+    ) -> Result<(String, i32), ApiError> {
+        match tier_id {
+            Some(tid) => {
+                let row = sqlx::query(
+                    "SELECT tier_id, criteria_steps FROM badge_tiers \
+                     WHERE badge_id = $1 AND tier_id = $2",
+                )
+                .bind(badge_id)
+                .bind(tid)
+                .fetch_optional(&self.pool)
+                .await?;
+                let row = row.ok_or_else(|| {
+                    ApiError::not_found(format!("no tier '{tid}' on badge '{badge_id}'"))
+                })?;
+                Ok((row.get("tier_id"), row.get("criteria_steps")))
+            }
+            None => {
+                let row = sqlx::query(
+                    "SELECT tier_id, criteria_steps FROM badge_tiers \
+                     WHERE badge_id = $1 ORDER BY ordinal DESC LIMIT 1",
+                )
+                .bind(badge_id)
+                .fetch_optional(&self.pool)
+                .await?;
+                let row = row.ok_or_else(|| {
+                    ApiError::bad_request(format!(
+                        "tiered badge '{badge_id}' has no tiers; specify tierId"
+                    ))
+                })?;
+                Ok((row.get("tier_id"), row.get("criteria_steps")))
+            }
+        }
+    }
+
+    /// Grant a badge. Non-tier badges are marked complete; tier badges record an
+    /// achieved tier. Idempotent. Returns `false` if the badge id is unknown.
+    pub async fn grant_badge(
+        &self,
+        address: &str,
+        badge_id: &str,
+        tier_id: Option<&str>,
+        granted_by: &str,
+    ) -> Result<bool, ApiError> {
+        let is_tier = match self.badge_is_tier(badge_id).await? {
+            Some(v) => v,
+            None => return Ok(false),
+        };
+
+        let mut tx = self.pool.begin().await?;
+
+        if is_tier {
+            let (resolved_tier, steps) = self.resolve_tier(badge_id, tier_id).await?;
+            sqlx::query(
+                "INSERT INTO user_achieved_tiers \
+                   (address, badge_id, tier_id, completed_at, granted_by, granted_at) \
+                 VALUES ($1, $2, $3, now(), $4, now()) \
+                 ON CONFLICT (address, badge_id, tier_id) DO UPDATE \
+                   SET granted_by = EXCLUDED.granted_by, granted_at = now()",
+            )
+            .bind(address)
+            .bind(badge_id)
+            .bind(&resolved_tier)
+            .bind(granted_by)
+            .execute(&mut *tx)
+            .await?;
+
+            sqlx::query(
+                "INSERT INTO user_badge_progress \
+                   (address, badge_id, steps_done, completed_at, last_completed_tier_id, \
+                    updated_at, granted_by) \
+                 VALUES ($1, $2, $3, now(), $4, now(), $5) \
+                 ON CONFLICT (address, badge_id) DO UPDATE SET \
+                   steps_done = GREATEST(user_badge_progress.steps_done, EXCLUDED.steps_done), \
+                   completed_at = COALESCE(user_badge_progress.completed_at, EXCLUDED.completed_at), \
+                   last_completed_tier_id = EXCLUDED.last_completed_tier_id, \
+                   updated_at = now(), \
+                   granted_by = EXCLUDED.granted_by",
+            )
+            .bind(address)
+            .bind(badge_id)
+            .bind(steps)
+            .bind(&resolved_tier)
+            .bind(granted_by)
+            .execute(&mut *tx)
+            .await?;
+        } else {
+            sqlx::query(
+                "INSERT INTO user_badge_progress \
+                   (address, badge_id, steps_done, completed_at, updated_at, granted_by) \
+                 VALUES ($1, $2, 1, now(), now(), $3) \
+                 ON CONFLICT (address, badge_id) DO UPDATE SET \
+                   steps_done = GREATEST(user_badge_progress.steps_done, 1), \
+                   completed_at = COALESCE(user_badge_progress.completed_at, now()), \
+                   updated_at = now(), \
+                   granted_by = EXCLUDED.granted_by",
+            )
+            .bind(address)
+            .bind(badge_id)
+            .bind(granted_by)
+            .execute(&mut *tx)
+            .await?;
+        }
+
+        sqlx::query(
+            "INSERT INTO badge_admin_audit (action, address, badge_id, tier_id, actor) \
+             VALUES ('grant', $1, $2, $3, $4)",
+        )
+        .bind(address)
+        .bind(badge_id)
+        .bind(tier_id)
+        .bind(granted_by)
+        .execute(&mut *tx)
+        .await?;
+
+        tx.commit().await?;
+        Ok(true)
+    }
+
+    /// Revoke a badge: delete the user's progress + achieved-tier rows. The
+    /// deleted rows can't carry provenance, so the append-only `badge_admin_audit`
+    /// log is the durable record. Idempotent. Returns `false` if the id is unknown.
+    pub async fn revoke_badge(
+        &self,
+        address: &str,
+        badge_id: &str,
+        revoked_by: &str,
+    ) -> Result<bool, ApiError> {
+        if self.badge_is_tier(badge_id).await?.is_none() {
+            return Ok(false);
+        }
+        let mut tx = self.pool.begin().await?;
+        sqlx::query("DELETE FROM user_achieved_tiers WHERE address = $1 AND badge_id = $2")
+            .bind(address)
+            .bind(badge_id)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("DELETE FROM user_badge_progress WHERE address = $1 AND badge_id = $2")
+            .bind(address)
+            .bind(badge_id)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query(
+            "INSERT INTO badge_admin_audit (action, address, badge_id, actor) \
+             VALUES ('revoke', $1, $2, $3)",
+        )
+        .bind(address)
+        .bind(badge_id)
+        .bind(revoked_by)
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(true)
+    }
+
     pub async fn latest_achieved(
         &self,
         address: &str,

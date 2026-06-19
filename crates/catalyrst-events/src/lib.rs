@@ -1,3 +1,4 @@
+pub mod admin;
 pub mod auth_chain;
 pub mod config;
 pub mod handlers;
@@ -26,6 +27,8 @@ pub struct AppStateInner {
     pub attendees: AttendeesComponent,
     pub categories: CategoriesComponent,
     pub schedules: SchedulesComponent,
+    /// Bearer token gating admin moderation routes; `None` ⇒ fail closed (403).
+    pub admin_token: Option<String>,
 }
 
 pub type AppState = Arc<AppStateInner>;
@@ -49,6 +52,7 @@ pub async fn build_state(cfg: &Config) -> Result<AppState> {
         attendees: AttendeesComponent::new(pool.clone()),
         categories: CategoriesComponent::new(pool.clone()),
         schedules: SchedulesComponent::new(pool),
+        admin_token: cfg.admin_token.clone(),
     }))
 }
 

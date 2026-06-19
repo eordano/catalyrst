@@ -54,10 +54,27 @@ pub async fn livekit_webhook(
     }
 
     if let Some(world) = world_from_room(&room.name) {
-        match evt.event.as_str() {
-            "participant_joined" => state.presence.set_peer_world(&participant.identity, &world),
-            "participant_left" => state.presence.remove_peer(&participant.identity),
-            _ => {}
+        let action = match evt.event.as_str() {
+            "participant_joined" => {
+                state.presence.set_peer_world(&participant.identity, &world);
+                Some("join")
+            }
+            "participant_left" => {
+                state.presence.remove_peer(&participant.identity);
+                Some("leave")
+            }
+            _ => None,
+        };
+        // Persist the access event for the bearer-gated GET /admin/access-log
+        // view. Best-effort: a logging failure must not fail the webhook.
+        if let Some(action) = action {
+            if let Err(e) = state
+                .worlds
+                .record_access(&world, &participant.identity, action, &room.name)
+                .await
+            {
+                tracing::warn!(error = %e, "failed to persist world access log row");
+            }
         }
     }
 

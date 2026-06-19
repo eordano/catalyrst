@@ -75,6 +75,7 @@
 //!   lifetime is unimplemented (per-client GC on close is — see
 //!   `crdt::CrdtEngine::reclaim_range`).
 
+pub mod admin;
 pub mod auth;
 pub mod config;
 pub mod crdt;
@@ -130,5 +131,6 @@ pub async fn build_state(cfg: &Config) -> Result<AppState> {
 pub fn api_router() -> Router<AppState> {
     Router::new()
         .merge(handlers::routes())
+        .merge(admin::routes())
         .merge(ws::routes())
 }

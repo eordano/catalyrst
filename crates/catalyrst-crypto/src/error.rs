@@ -11,9 +11,7 @@ pub enum AuthError {
     #[error("Signature recovery failed: {0}")]
     RecoveryFailed(String),
 
-    #[error(
-        "Invalid signer address at link {index}. Expected: {expected}. Actual: {actual}"
-    )]
+    #[error("Invalid signer address at link {index}. Expected: {expected}. Actual: {actual}")]
     SignerMismatch {
         index: usize,
         expected: String,
@@ -26,9 +24,7 @@ pub enum AuthError {
     #[error("Invalid ephemeral payload: {0}")]
     InvalidEphemeralPayload(String),
 
-    #[error(
-        "Invalid final authority. Expected: {expected}. Got: {actual}"
-    )]
+    #[error("Invalid final authority. Expected: {expected}. Got: {actual}")]
     FinalAuthorityMismatch { expected: String, actual: String },
 
     #[error("EIP-1654 smart-contract wallet verification is not implemented (requires RPC)")]

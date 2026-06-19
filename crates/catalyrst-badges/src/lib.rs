@@ -1,5 +1,6 @@
 #![allow(clippy::result_large_err)]
 
+pub mod admin;
 pub mod config;
 pub mod handlers;
 pub mod http;
@@ -10,7 +11,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
-use axum::routing::get;
+use axum::routing::{get, post};
 use axum::Router;
 use moka::future::Cache;
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
@@ -22,12 +23,15 @@ pub struct AppStateInner {
     pub badges: BadgesComponent,
     pub categories_cache: Cache<(), Vec<String>>,
     pub tiers_cache: Cache<String, serde_json::Value>,
+    /// `None` ⇒ admin grant/revoke routes 403 (fail closed).
+    pub admin_token: Option<String>,
 }
 
 impl AppStateInner {
-    pub fn new(badges: BadgesComponent) -> Self {
+    pub fn new(badges: BadgesComponent, admin_token: Option<String>) -> Self {
         Self {
             badges,
+            admin_token,
             categories_cache: Cache::builder()
                 .max_capacity(1)
                 .time_to_live(Duration::from_secs(300))
@@ -61,9 +65,10 @@ pub async fn build_state(cfg: &Config) -> Result<AppState> {
         .await
         .context("failed to run badges migrations")?;
 
-    Ok(Arc::new(AppStateInner::new(BadgesComponent::new(
-        pool.clone(),
-    ))))
+    Ok(Arc::new(AppStateInner::new(
+        BadgesComponent::new(pool.clone()),
+        cfg.admin_token.clone(),
+    )))
 }
 
 pub fn api_router() -> Router<AppState> {
@@ -80,5 +85,10 @@ pub fn api_router() -> Router<AppState> {
         .route(
             "/badges/{badge_id}/tiers",
             get(handlers::badges::get_badge_tiers),
+        )
+        .route(
+            "/users/{address}/badges/{badge_id}",
+            post(handlers::badges::grant_user_badge)
+                .delete(handlers::badges::revoke_user_badge),
         )
 }

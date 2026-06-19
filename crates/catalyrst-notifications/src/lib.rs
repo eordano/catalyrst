@@ -1,3 +1,4 @@
+pub mod admin;
 pub mod auth_chain;
 pub mod config;
 pub mod handlers;
@@ -17,6 +18,8 @@ use crate::ports::NotificationsComponent;
 
 pub struct AppStateInner {
     pub notifications: NotificationsComponent,
+    /// Bearer token gating the admin broadcast route. `None` => fail closed.
+    pub admin_token: Option<String>,
 }
 
 pub type AppState = Arc<AppStateInner>;
@@ -37,6 +40,7 @@ pub async fn build_state(cfg: &Config) -> Result<AppState> {
 
     Ok(Arc::new(AppStateInner {
         notifications: NotificationsComponent::new(pool.clone()),
+        admin_token: cfg.admin_token.clone(),
     }))
 }
 
@@ -69,5 +73,9 @@ pub fn api_router() -> Router<AppState> {
             get(handlers::subscription::get_community_opt_out)
                 .delete(handlers::subscription::delete_community_opt_out),
         )
-        .layer(axum::extract::DefaultBodyLimit::max(64 * 1024))
+        .route(
+            "/notifications/broadcast",
+            post(handlers::admin::post_broadcast),
+        )
+        .layer(axum::extract::DefaultBodyLimit::max(256 * 1024))
 }

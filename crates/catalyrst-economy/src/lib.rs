@@ -1,3 +1,4 @@
+pub mod admin;
 pub mod config;
 pub mod handlers;
 pub mod http;
@@ -13,6 +14,7 @@ use axum::Router;
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use sqlx::PgPool;
 
+use crate::admin::RuntimeConfig;
 use crate::config::Config;
 use crate::ports::contracts::ContractsComponent;
 use crate::ports::relayer::Relayer;
@@ -24,6 +26,8 @@ pub struct AppStateInner {
     pub pool: PgPool,
     pub transaction: TransactionComponent,
     pub contracts: ContractsComponent,
+    /// Runtime-mutable relayer controls (admin toggle + signer switch).
+    pub runtime: Arc<RuntimeConfig>,
 }
 
 pub type AppState = Arc<AppStateInner>;
@@ -42,6 +46,16 @@ pub fn api_router(api_version: &str) -> Router<AppState> {
         .route(
             "/contracts/{address}",
             get(handlers::contracts::contracts_address),
+        )
+        // Bearer-gated runtime relayer controls (docs/admin-console.md §4).
+        .route("/admin/relayer", get(handlers::admin::relayer_status))
+        .route(
+            "/admin/relayer/toggle",
+            post(handlers::admin::relayer_toggle),
+        )
+        .route(
+            "/admin/relayer/signer",
+            post(handlers::admin::relayer_signer),
         );
     Router::new().nest(&api_prefix, api)
 }
@@ -89,12 +103,14 @@ pub async fn build_state(cfg: Config) -> Result<AppState> {
             "no broadcast provider provisioned; POST /transactions validates + returns 503 on broadcast"
         ),
     }
-    let transaction = TransactionComponent::new(pool.clone(), relayer, signer);
+    let runtime = RuntimeConfig::new();
+    let transaction = TransactionComponent::new(pool.clone(), relayer, signer, runtime.clone());
 
     Ok(Arc::new(AppStateInner {
         config: cfg,
         pool,
         transaction,
         contracts,
+        runtime,
     }))
 }

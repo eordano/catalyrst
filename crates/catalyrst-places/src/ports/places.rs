@@ -238,6 +238,47 @@ impl PlacesComponent {
         .execute(writer)
         .await?;
 
+        // Moderation-queue state (admin-console.md §4). Additive columns so the
+        // existing report write path is untouched; status defaults to 'open'.
+        for ddl in [
+            "ALTER TABLE place_reports_local ADD COLUMN IF NOT EXISTS status text NOT NULL DEFAULT 'open'",
+            "ALTER TABLE place_reports_local ADD COLUMN IF NOT EXISTS resolution text",
+            "ALTER TABLE place_reports_local ADD COLUMN IF NOT EXISTS moderator_notes text",
+            "ALTER TABLE place_reports_local ADD COLUMN IF NOT EXISTS resolved_by text",
+            "ALTER TABLE place_reports_local ADD COLUMN IF NOT EXISTS resolved_at timestamptz",
+        ] {
+            sqlx::query(ddl).execute(writer).await?;
+        }
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS place_reports_local_status_idx ON place_reports_local (status, created_at DESC)",
+        )
+        .execute(writer)
+        .await?;
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS place_reports_local_entity_idx ON place_reports_local (entity_id)",
+        )
+        .execute(writer)
+        .await?;
+
+        // POI registry (admin-console.md §4: POI CRUD). Owned by this crate's
+        // writer DB; positions are catalyst "x,y" base-position strings.
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS pois (
+                position    text PRIMARY KEY,
+                entity_id   text,
+                title       text,
+                description text,
+                enabled     boolean NOT NULL DEFAULT true,
+                created_by  text,
+                created_at  timestamptz NOT NULL DEFAULT now(),
+                updated_at  timestamptz NOT NULL DEFAULT now()
+            )
+            "#,
+        )
+        .execute(writer)
+        .await?;
+
         // Federation signed-action log (docs/federation/places.md §2). The
         // log is the canonical, replicable record of place opinions; the
         // existing user_favorites / user_likes tables are the materialised
@@ -629,6 +670,257 @@ impl PlacesComponent {
         Ok(())
     }
 
+    /// Moderation queue: list local place reports, newest first, optionally
+    /// filtered by status and/or entity_id. Requires the writer pool; returns
+    /// 503 when reports are not persisted here.
+    pub async fn list_reports(
+        &self,
+        status: Option<&str>,
+        entity_id: Option<&str>,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<ReportRow>, ApiError> {
+        let writer = self.writer.as_ref().ok_or_else(|| {
+            ApiError::service_unavailable("report persistence not configured")
+        })?;
+        let rows = sqlx::query(
+            r#"
+            SELECT id, entity_id, reporter, signed_url, filename, payload,
+                   status, resolution, moderator_notes, resolved_by,
+                   resolved_at, created_at
+            FROM place_reports_local
+            WHERE ($1::text IS NULL OR status = $1)
+              AND ($2::text IS NULL OR entity_id = $2)
+            ORDER BY created_at DESC, id DESC
+            LIMIT $3 OFFSET $4
+            "#,
+        )
+        .bind(status)
+        .bind(entity_id)
+        .bind(limit.clamp(1, 200))
+        .bind(offset.max(0))
+        .fetch_all(writer)
+        .await?;
+        Ok(rows.into_iter().map(row_to_report).collect())
+    }
+
+    pub async fn count_reports(
+        &self,
+        status: Option<&str>,
+        entity_id: Option<&str>,
+    ) -> Result<i64, ApiError> {
+        let writer = self.writer.as_ref().ok_or_else(|| {
+            ApiError::service_unavailable("report persistence not configured")
+        })?;
+        let row = sqlx::query(
+            r#"SELECT count(*)::bigint AS total FROM place_reports_local
+               WHERE ($1::text IS NULL OR status = $1)
+                 AND ($2::text IS NULL OR entity_id = $2)"#,
+        )
+        .bind(status)
+        .bind(entity_id)
+        .fetch_one(writer)
+        .await?;
+        Ok(row.get::<i64, _>("total"))
+    }
+
+    pub async fn get_report(&self, id: i64) -> Result<Option<ReportRow>, ApiError> {
+        let writer = self.writer.as_ref().ok_or_else(|| {
+            ApiError::service_unavailable("report persistence not configured")
+        })?;
+        let row = sqlx::query(
+            r#"
+            SELECT id, entity_id, reporter, signed_url, filename, payload,
+                   status, resolution, moderator_notes, resolved_by,
+                   resolved_at, created_at
+            FROM place_reports_local WHERE id = $1
+            "#,
+        )
+        .bind(id)
+        .fetch_optional(writer)
+        .await?;
+        Ok(row.map(row_to_report))
+    }
+
+    /// Resolve/dismiss a report. `status` is the new state (e.g. "resolved",
+    /// "dismissed", "open"); `resolution`/`notes`/`resolved_by` are optional
+    /// audit metadata. Returns the updated row, or `None` if no such report.
+    pub async fn update_report_status(
+        &self,
+        id: i64,
+        status: &str,
+        resolution: Option<&str>,
+        notes: Option<&str>,
+        resolved_by: Option<&str>,
+    ) -> Result<Option<ReportRow>, ApiError> {
+        let writer = self.writer.as_ref().ok_or_else(|| {
+            ApiError::service_unavailable("report persistence not configured")
+        })?;
+        let resolved_at_now = !status.eq_ignore_ascii_case("open");
+        let row = sqlx::query(
+            r#"
+            UPDATE place_reports_local
+            SET status = $2,
+                resolution = COALESCE($3, resolution),
+                moderator_notes = COALESCE($4, moderator_notes),
+                resolved_by = $5,
+                resolved_at = CASE WHEN $6 THEN now() ELSE NULL END
+            WHERE id = $1
+            RETURNING id, entity_id, reporter, signed_url, filename, payload,
+                      status, resolution, moderator_notes, resolved_by,
+                      resolved_at, created_at
+            "#,
+        )
+        .bind(id)
+        .bind(status)
+        .bind(resolution)
+        .bind(notes)
+        .bind(resolved_by)
+        .bind(resolved_at_now)
+        .fetch_optional(writer)
+        .await?;
+        Ok(row.map(row_to_report))
+    }
+
+    /// Soft-delete / disable a place: set `disabled` and record the reason +
+    /// timestamp in `raw` (mirrors the columns surfaced by `PLACE_COLUMNS`).
+    pub async fn set_disabled(
+        &self,
+        entity_id: &str,
+        disabled: bool,
+        reason: Option<&str>,
+    ) -> Result<bool, ApiError> {
+        let writer = self.writer.as_ref().ok_or_else(|| {
+            ApiError::service_unavailable("place writes not configured")
+        })?;
+        let reason_value = match (disabled, reason) {
+            (true, Some(r)) => serde_json::Value::from(r),
+            _ => serde_json::Value::Null,
+        };
+        let disabled_at_value = if disabled {
+            serde_json::Value::from(chrono::Utc::now().to_rfc3339())
+        } else {
+            serde_json::Value::Null
+        };
+        let res = sqlx::query(
+            r#"
+            UPDATE place
+            SET disabled = $2,
+                raw = jsonb_set(
+                          jsonb_set(COALESCE(raw,'{}'::jsonb), '{disabled_reason}', $3, true),
+                          '{disabled_at}', $4, true)
+            WHERE id = $1
+            "#,
+        )
+        .bind(entity_id)
+        .bind(disabled)
+        .bind(reason_value)
+        .bind(disabled_at_value)
+        .execute(writer)
+        .await?;
+        Ok(res.rows_affected() > 0)
+    }
+
+    // ---- POI CRUD (admin-console.md §4) ----
+
+    pub async fn list_pois(&self) -> Result<Vec<PoiRow>, ApiError> {
+        let writer = self.writer.as_ref().ok_or_else(|| {
+            ApiError::service_unavailable("poi persistence not configured")
+        })?;
+        let rows = sqlx::query(
+            r#"SELECT position, entity_id, title, description, enabled,
+                      created_by, created_at, updated_at
+               FROM pois ORDER BY position ASC"#,
+        )
+        .fetch_all(writer)
+        .await?;
+        Ok(rows.into_iter().map(row_to_poi).collect())
+    }
+
+    pub async fn upsert_poi(
+        &self,
+        position: &str,
+        entity_id: Option<&str>,
+        title: Option<&str>,
+        description: Option<&str>,
+        enabled: bool,
+        created_by: Option<&str>,
+    ) -> Result<PoiRow, ApiError> {
+        let writer = self.writer.as_ref().ok_or_else(|| {
+            ApiError::service_unavailable("poi persistence not configured")
+        })?;
+        let row = sqlx::query(
+            r#"
+            INSERT INTO pois (position, entity_id, title, description, enabled, created_by)
+            VALUES ($1,$2,$3,$4,$5,$6)
+            ON CONFLICT (position) DO UPDATE SET
+                entity_id = EXCLUDED.entity_id,
+                title = EXCLUDED.title,
+                description = EXCLUDED.description,
+                enabled = EXCLUDED.enabled,
+                updated_at = now()
+            RETURNING position, entity_id, title, description, enabled,
+                      created_by, created_at, updated_at
+            "#,
+        )
+        .bind(position)
+        .bind(entity_id)
+        .bind(title)
+        .bind(description)
+        .bind(enabled)
+        .bind(created_by)
+        .fetch_one(writer)
+        .await?;
+        Ok(row_to_poi(row))
+    }
+
+    /// Partial update of an existing POI. `None` fields are left untouched
+    /// (NULL coalesce). Returns the updated row or `None` when absent.
+    pub async fn update_poi(
+        &self,
+        position: &str,
+        entity_id: Option<&str>,
+        title: Option<&str>,
+        description: Option<&str>,
+        enabled: Option<bool>,
+    ) -> Result<Option<PoiRow>, ApiError> {
+        let writer = self.writer.as_ref().ok_or_else(|| {
+            ApiError::service_unavailable("poi persistence not configured")
+        })?;
+        let row = sqlx::query(
+            r#"
+            UPDATE pois SET
+                entity_id = COALESCE($2, entity_id),
+                title = COALESCE($3, title),
+                description = COALESCE($4, description),
+                enabled = COALESCE($5, enabled),
+                updated_at = now()
+            WHERE position = $1
+            RETURNING position, entity_id, title, description, enabled,
+                      created_by, created_at, updated_at
+            "#,
+        )
+        .bind(position)
+        .bind(entity_id)
+        .bind(title)
+        .bind(description)
+        .bind(enabled)
+        .fetch_optional(writer)
+        .await?;
+        Ok(row.map(row_to_poi))
+    }
+
+    pub async fn delete_poi(&self, position: &str) -> Result<bool, ApiError> {
+        let writer = self.writer.as_ref().ok_or_else(|| {
+            ApiError::service_unavailable("poi persistence not configured")
+        })?;
+        let res = sqlx::query("DELETE FROM pois WHERE position = $1")
+            .bind(position)
+            .execute(writer)
+            .await?;
+        Ok(res.rows_affected() > 0)
+    }
+
     pub async fn ping(&self) -> Result<(), ApiError> {
         sqlx::query("SELECT 1").fetch_one(&self.pool).await?;
         Ok(())
@@ -857,6 +1149,70 @@ impl CategoryTarget {
             Some("worlds") => Self::Worlds,
             _ => Self::All,
         }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ReportRow {
+    pub id: i64,
+    pub entity_id: Option<String>,
+    pub reporter: String,
+    pub signed_url: String,
+    pub filename: String,
+    pub payload: serde_json::Value,
+    pub status: String,
+    pub resolution: Option<String>,
+    pub moderator_notes: Option<String>,
+    pub resolved_by: Option<String>,
+    pub resolved_at: Option<DateTime<Utc>>,
+    pub created_at: DateTime<Utc>,
+}
+
+fn row_to_report(r: sqlx::postgres::PgRow) -> ReportRow {
+    ReportRow {
+        id: r.get::<i64, _>("id"),
+        entity_id: r.try_get::<Option<String>, _>("entity_id").unwrap_or(None),
+        reporter: r.get::<String, _>("reporter"),
+        signed_url: r.get::<String, _>("signed_url"),
+        filename: r.get::<String, _>("filename"),
+        payload: r
+            .try_get::<serde_json::Value, _>("payload")
+            .unwrap_or(serde_json::Value::Null),
+        status: r.get::<String, _>("status"),
+        resolution: r.try_get::<Option<String>, _>("resolution").unwrap_or(None),
+        moderator_notes: r
+            .try_get::<Option<String>, _>("moderator_notes")
+            .unwrap_or(None),
+        resolved_by: r.try_get::<Option<String>, _>("resolved_by").unwrap_or(None),
+        resolved_at: r
+            .try_get::<Option<DateTime<Utc>>, _>("resolved_at")
+            .unwrap_or(None),
+        created_at: r.get::<DateTime<Utc>, _>("created_at"),
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct PoiRow {
+    pub position: String,
+    pub entity_id: Option<String>,
+    pub title: Option<String>,
+    pub description: Option<String>,
+    pub enabled: bool,
+    pub created_by: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+fn row_to_poi(r: sqlx::postgres::PgRow) -> PoiRow {
+    PoiRow {
+        position: r.get::<String, _>("position"),
+        entity_id: r.try_get::<Option<String>, _>("entity_id").unwrap_or(None),
+        title: r.try_get::<Option<String>, _>("title").unwrap_or(None),
+        description: r.try_get::<Option<String>, _>("description").unwrap_or(None),
+        enabled: r.try_get::<bool, _>("enabled").unwrap_or(true),
+        created_by: r.try_get::<Option<String>, _>("created_by").unwrap_or(None),
+        created_at: r.get::<DateTime<Utc>, _>("created_at"),
+        updated_at: r.get::<DateTime<Utc>, _>("updated_at"),
     }
 }
 

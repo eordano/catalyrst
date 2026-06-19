@@ -5,6 +5,10 @@ pub struct Config {
     pub http_host: String,
     pub http_port: u16,
     pub database_url: String,
+    /// Bearer token gating the high-risk financial admin routes
+    /// (seasons/goals CRUD, grant/revoke credits, block/unblock a user).
+    /// When unset, every admin route fails closed (403).
+    pub admin_token: Option<String>,
 }
 
 impl Config {
@@ -13,6 +17,9 @@ impl Config {
             http_host: env::var("HTTP_SERVER_HOST").unwrap_or_else(|_| "127.0.0.1".to_string()),
             http_port: get_port("HTTP_SERVER_PORT", 5150)?,
             database_url: required("CREDITS_PG_CONNECTION_STRING")?,
+            admin_token: env::var("CATALYRST_CREDITS_ADMIN_TOKEN")
+                .ok()
+                .filter(|s| !s.is_empty()),
         })
     }
 }

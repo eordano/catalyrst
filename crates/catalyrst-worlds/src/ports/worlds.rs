@@ -199,4 +199,200 @@ impl WorldsComponent {
         .await?;
         Ok(exists)
     }
+
+    // ----- admin queries / world-owned mutations (admin-console §4) -----
+
+    /// List worlds for the admin view. Returns name, owner, access type tag,
+    /// whether the world is blocked (over-storage marker), block timestamp, and
+    /// the count of deployed scenes.
+    pub async fn admin_list_worlds(
+        &self,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<WorldAdminRow>, ApiError> {
+        let rows = sqlx::query(
+            r#"SELECT w.name,
+                      w.owner,
+                      w.access,
+                      w.blocked_since,
+                      w.spawn_coordinates,
+                      (SELECT count(*) FROM world_scenes ws
+                         WHERE lower(ws.world_name) = lower(w.name)) AS scene_count
+               FROM worlds w
+               ORDER BY w.name
+               LIMIT $1 OFFSET $2"#,
+        )
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(rows
+            .into_iter()
+            .map(|r| {
+                let access_type = r
+                    .get::<Option<Value>, _>("access")
+                    .and_then(|v| {
+                        v.get("type")
+                            .and_then(|t| t.as_str())
+                            .map(|s| s.to_string())
+                    })
+                    .unwrap_or_else(|| "unrestricted".to_string());
+                WorldAdminRow {
+                    name: r.get("name"),
+                    owner: r.get("owner"),
+                    access_type,
+                    blocked_since: r.get("blocked_since"),
+                    spawn_coordinates: r.get("spawn_coordinates"),
+                    scene_count: r.get("scene_count"),
+                }
+            })
+            .collect())
+    }
+
+    pub async fn admin_count_worlds(&self) -> Result<i64, ApiError> {
+        Ok(sqlx::query_scalar(r#"SELECT count(*) FROM worlds"#)
+            .fetch_one(&self.pool)
+            .await?)
+    }
+
+    /// Enable (`blocked = None`) or disable (`blocked = Some(now)`) a world by
+    /// setting the over-storage `blocked_since` marker. Returns false if no such
+    /// world exists.
+    pub async fn admin_set_world_blocked(
+        &self,
+        world_name: &str,
+        blocked: bool,
+    ) -> Result<bool, ApiError> {
+        let sql = if blocked {
+            r#"UPDATE worlds SET blocked_since = now(), updated_at = now()
+               WHERE lower(name) = lower($1)"#
+        } else {
+            r#"UPDATE worlds SET blocked_since = NULL, updated_at = now()
+               WHERE lower(name) = lower($1)"#
+        };
+        let res = sqlx::query(sql).bind(world_name).execute(&self.pool).await?;
+        Ok(res.rows_affected() > 0)
+    }
+
+    /// List the platform block list (wallets blocked from the realm).
+    pub async fn admin_list_blocked(&self) -> Result<Vec<BlockedRow>, ApiError> {
+        let rows = sqlx::query(
+            r#"SELECT wallet, created_at, updated_at FROM blocked ORDER BY created_at DESC"#,
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|r| BlockedRow {
+                wallet: r.get("wallet"),
+                created_at: r.get("created_at"),
+                updated_at: r.get("updated_at"),
+            })
+            .collect())
+    }
+
+    /// Add a wallet to the platform block list (idempotent).
+    pub async fn admin_block_wallet(&self, wallet: &str) -> Result<(), ApiError> {
+        sqlx::query(
+            r#"INSERT INTO blocked (wallet) VALUES (lower($1))
+               ON CONFLICT (wallet) DO UPDATE SET updated_at = now()"#,
+        )
+        .bind(wallet)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Remove a wallet from the platform block list. Returns false if absent.
+    pub async fn admin_unblock_wallet(&self, wallet: &str) -> Result<bool, ApiError> {
+        let res = sqlx::query(r#"DELETE FROM blocked WHERE lower(wallet) = lower($1)"#)
+            .bind(wallet)
+            .execute(&self.pool)
+            .await?;
+        Ok(res.rows_affected() > 0)
+    }
+
+    /// Record a world access event (join/leave) from the LiveKit webhook.
+    pub async fn record_access(
+        &self,
+        world_name: &str,
+        address: &str,
+        action: &str,
+        room: &str,
+    ) -> Result<(), ApiError> {
+        sqlx::query(
+            r#"INSERT INTO world_access_log (world_name, address, action, room)
+               VALUES ($1, lower($2), $3, $4)"#,
+        )
+        .bind(world_name)
+        .bind(address)
+        .bind(action)
+        .bind(room)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Query the world access log, optionally filtered by world and/or address.
+    pub async fn admin_query_access_log(
+        &self,
+        world_name: Option<&str>,
+        address: Option<&str>,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<AccessLogRow>, ApiError> {
+        let rows = sqlx::query(
+            r#"SELECT id, world_name, address, action, room, created_at
+               FROM world_access_log
+               WHERE ($1::text IS NULL OR lower(world_name) = lower($1))
+                 AND ($2::text IS NULL OR lower(address) = lower($2))
+               ORDER BY created_at DESC, id DESC
+               LIMIT $3 OFFSET $4"#,
+        )
+        .bind(world_name)
+        .bind(address)
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|r| AccessLogRow {
+                id: r.get("id"),
+                world_name: r.get("world_name"),
+                address: r.get("address"),
+                action: r.get("action"),
+                room: r.get("room"),
+                created_at: r.get("created_at"),
+            })
+            .collect())
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct WorldAdminRow {
+    pub name: String,
+    pub owner: Option<String>,
+    pub access_type: String,
+    pub blocked_since: Option<DateTime<Utc>>,
+    pub spawn_coordinates: Option<String>,
+    pub scene_count: i64,
+}
+
+#[derive(Debug, Clone)]
+pub struct BlockedRow {
+    pub wallet: String,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone)]
+pub struct AccessLogRow {
+    pub id: i64,
+    pub world_name: String,
+    pub address: String,
+    pub action: String,
+    pub room: String,
+    pub created_at: DateTime<Utc>,
 }

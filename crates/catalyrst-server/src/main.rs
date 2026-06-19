@@ -160,6 +160,19 @@ impl ContentCluster for StubContentCluster {
     }
 }
 
+/// Accepting-users flag backed by an in-process `AtomicBool`. The stub binary
+/// has no realm gatekeeper, but the admin toggle is still functional locally.
+struct AtomicAcceptingUsers(std::sync::atomic::AtomicBool);
+impl AcceptingUsers for AtomicAcceptingUsers {
+    fn is_accepting(&self) -> bool {
+        self.0.load(std::sync::atomic::Ordering::Relaxed)
+    }
+    fn set_accepting(&self, accepting: bool) -> Result<(), String> {
+        self.0.store(accepting, std::sync::atomic::Ordering::Relaxed);
+        Ok(())
+    }
+}
+
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt()
@@ -221,13 +234,17 @@ async fn main() {
         synchronization_state: Arc::new(StubSynchronizationState),
         snapshot_generator: Arc::new(StubSnapshotGenerator),
         content_cluster: Arc::new(StubContentCluster),
+        accepting_users: Arc::new(AtomicAcceptingUsers(
+            std::sync::atomic::AtomicBool::new(true),
+        )),
         deployments_cache: dashmap::DashMap::new(),
         content_version,
         lambdas_version,
         commit_hash,
         eth_network,
         content_server_address,
-        read_only,
+        read_only: std::sync::atomic::AtomicBool::new(read_only),
+        audit_pool: None,
         entities_cache_control_max_age: std::env::var("ENTITIES_CACHE_CONTROL_MAX_AGE")
             .ok()
             .and_then(|v| v.parse().ok())

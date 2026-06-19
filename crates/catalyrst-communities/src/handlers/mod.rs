@@ -1,3 +1,4 @@
+pub mod admin;
 pub mod bans;
 pub mod client;
 pub mod communities;

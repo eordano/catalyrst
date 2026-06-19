@@ -3,9 +3,7 @@ use std::path::Path;
 
 #[derive(Debug, Default, Clone)]
 pub struct SectionRules {
-
     pub ignore: Vec<String>,
-
     pub ignore_whole_response: bool,
 }
 
@@ -15,7 +13,6 @@ pub struct Volatility {
 }
 
 impl Volatility {
-
     pub fn load_or_default(path: &Path) -> Self {
         match std::fs::read_to_string(path) {
             Ok(contents) => match parse_toml(&contents) {
@@ -130,7 +127,6 @@ fn glob_match(pattern: &str, path: &str) -> bool {
     if matches_inner(pattern, path) {
         return true;
     }
-
     if let Some(stripped) = path.split_once('.').map(|(_, rest)| rest) {
         if matches_inner(pattern, stripped) {
             return true;
@@ -140,7 +136,6 @@ fn glob_match(pattern: &str, path: &str) -> bool {
 }
 
 fn matches_inner(pattern: &str, path: &str) -> bool {
-
     let p_segs = tokenize(pattern);
     let v_segs = tokenize(path);
     if p_segs.len() != v_segs.len() {
@@ -173,7 +168,6 @@ fn tokenize(s: &str) -> Vec<String> {
 }
 
 fn segment_match(pattern: &str, segment: &str) -> bool {
-
     let (p_name, p_idx) = split_bracket(pattern);
     let (v_name, v_idx) = split_bracket(segment);
 
@@ -287,7 +281,6 @@ fn fold_arrays(input: &str) -> Vec<(usize, String)> {
 }
 
 fn strip_comment(line: &str) -> &str {
-
     match line.find('#') {
         Some(i) => &line[..i],
         None => line,

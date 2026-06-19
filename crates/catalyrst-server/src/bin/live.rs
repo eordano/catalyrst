@@ -1561,6 +1561,23 @@ impl Database for LiveDatabase {
         let mut entities = self.active_entities_by_pointers(&pointers).await?;
         Ok(entities.pop())
     }
+
+    async fn clear_failed_deployment(&self, entity_id: &str) -> Result<u64, DatabaseError> {
+        let res = sqlx::query("DELETE FROM failed_deployments WHERE entity_id = $1")
+            .bind(entity_id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| DatabaseError::QueryFailed(e.to_string()))?;
+        Ok(res.rows_affected())
+    }
+
+    async fn clear_all_failed_deployments(&self) -> Result<u64, DatabaseError> {
+        let res = sqlx::query("DELETE FROM failed_deployments")
+            .execute(&self.pool)
+            .await
+            .map_err(|e| DatabaseError::QueryFailed(e.to_string()))?;
+        Ok(res.rows_affected())
+    }
 }
 
 struct ReadOnlyDeployer;
@@ -1580,10 +1597,68 @@ impl Deployer for ReadOnlyDeployer {
     }
 }
 
-struct EmptyDenylist;
-impl Denylist for EmptyDenylist {
-    fn is_denylisted(&self, _id: &str) -> bool {
-        false
+/// Content-local denylist backed by an in-process set. `is_denylisted` (the
+/// serving-path check) honors admin add/remove for the lifetime of the process;
+/// the admin controls (`add`/`remove`/`list`) operate on the same set. This is a
+/// genuine local store with no new schema; persistence across restarts is LATER
+/// backend work (a `denylist` table) noted in docs/admin-console.md §4.
+struct MemoryDenylist {
+    ids: std::sync::RwLock<std::collections::HashSet<String>>,
+}
+
+impl MemoryDenylist {
+    fn new() -> Self {
+        Self {
+            ids: std::sync::RwLock::new(std::collections::HashSet::new()),
+        }
+    }
+}
+
+impl Denylist for MemoryDenylist {
+    fn is_denylisted(&self, id: &str) -> bool {
+        self.ids
+            .read()
+            .map(|s| s.contains(id))
+            .unwrap_or(false)
+    }
+
+    fn add(&self, id: &str) -> Result<bool, String> {
+        self.ids
+            .write()
+            .map(|mut s| s.insert(id.to_string()))
+            .map_err(|_| "denylist lock poisoned".to_string())
+    }
+
+    fn remove(&self, id: &str) -> Result<bool, String> {
+        self.ids
+            .write()
+            .map(|mut s| s.remove(id))
+            .map_err(|_| "denylist lock poisoned".to_string())
+    }
+
+    fn list(&self) -> Vec<String> {
+        self.ids
+            .read()
+            .map(|s| {
+                let mut v: Vec<String> = s.iter().cloned().collect();
+                v.sort();
+                v
+            })
+            .unwrap_or_default()
+    }
+}
+
+/// Accepting-users flag backed by an in-process `AtomicBool` (no realm
+/// gatekeeper is wired in this binary yet; the admin toggle is still functional
+/// locally and audited).
+struct LiveAcceptingUsers(std::sync::atomic::AtomicBool);
+impl AcceptingUsers for LiveAcceptingUsers {
+    fn is_accepting(&self) -> bool {
+        self.0.load(std::sync::atomic::Ordering::Relaxed)
+    }
+    fn set_accepting(&self, accepting: bool) -> Result<(), String> {
+        self.0.store(accepting, std::sync::atomic::Ordering::Relaxed);
+        Ok(())
     }
 }
 
@@ -1596,15 +1671,34 @@ impl ChallengeSupervisor for UuidChallengeSupervisor {
 
 struct LiveSynchronizationState {
     sync_state: Option<Arc<tokio::sync::RwLock<catalyrst_sync::SyncState>>>,
+    /// Operator pause/resume intent. When `control` is present (an orchestrator
+    /// is running) it is the source of truth and the AtomicBool only mirrors it
+    /// for reporting; pause/resume/force actually steer the download passes.
+    /// When `control` is None (no orchestrator wired in this process) the
+    /// AtomicBool alone records intent, preserving prior behavior.
+    paused: std::sync::atomic::AtomicBool,
+    /// Live control handle into the sync orchestrator, if one is running.
+    control: Option<catalyrst_sync::sync_orchestrator::SyncControlHandle>,
 }
 
 impl LiveSynchronizationState {
     fn new() -> Self {
-        Self { sync_state: None }
+        Self {
+            sync_state: None,
+            paused: std::sync::atomic::AtomicBool::new(false),
+            control: None,
+        }
     }
 
-    fn with_sync_state(sync_state: Arc<tokio::sync::RwLock<catalyrst_sync::SyncState>>) -> Self {
-        Self { sync_state: Some(sync_state) }
+    fn with_sync_state(
+        sync_state: Arc<tokio::sync::RwLock<catalyrst_sync::SyncState>>,
+        control: Option<catalyrst_sync::sync_orchestrator::SyncControlHandle>,
+    ) -> Self {
+        Self {
+            sync_state: Some(sync_state),
+            paused: std::sync::atomic::AtomicBool::new(false),
+            control,
+        }
     }
 
     fn read_state(&self) -> Option<catalyrst_sync::SyncState> {
@@ -1645,6 +1739,49 @@ impl SynchronizationState for LiveSynchronizationState {
             }
             Some(catalyrst_sync::SyncState::Bootstrapping) => Some(vec![]),
         }
+    }
+
+    fn control(&self) -> SyncControl {
+        // Prefer the orchestrator's view when wired; fall back to the local flag.
+        let paused = match &self.control {
+            Some(c) => c.is_paused(),
+            None => self.paused.load(std::sync::atomic::Ordering::Relaxed),
+        };
+        if paused {
+            SyncControl::Paused
+        } else {
+            SyncControl::Run
+        }
+    }
+
+    fn pause(&self) -> Result<(), String> {
+        self.paused
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+        if let Some(c) = &self.control {
+            c.pause();
+        }
+        Ok(())
+    }
+
+    fn resume(&self) -> Result<(), String> {
+        self.paused
+            .store(false, std::sync::atomic::Ordering::Relaxed);
+        if let Some(c) = &self.control {
+            c.resume();
+        }
+        Ok(())
+    }
+
+    fn force(&self) -> Result<(), String> {
+        // Clear any pause intent and trigger an immediate download pass in the
+        // running orchestrator (wakes the steady-state loop / shortcuts its
+        // reconnect interval).
+        self.paused
+            .store(false, std::sync::atomic::Ordering::Relaxed);
+        if let Some(c) = &self.control {
+            c.force();
+        }
+        Ok(())
     }
 }
 
@@ -2157,7 +2294,10 @@ async fn main() {
     };
 
     let sync_state: Arc<dyn SynchronizationState> = match &sync_orchestrator {
-        Some((orch, _, _, _)) => Arc::new(LiveSynchronizationState::with_sync_state(orch.state_handle())),
+        Some((orch, _, _, _)) => Arc::new(LiveSynchronizationState::with_sync_state(
+            orch.state_handle(),
+            Some(orch.control_handle()),
+        )),
         None => Arc::new(LiveSynchronizationState::new()),
     };
 
@@ -2260,18 +2400,24 @@ async fn main() {
             prefix_ids_cache: prefix_ids_cache.clone(),
         }),
         deployer,
-        denylist: Arc::new(EmptyDenylist),
+        denylist: Arc::new(MemoryDenylist::new()),
         challenge_supervisor: Arc::new(UuidChallengeSupervisor),
         synchronization_state: sync_state.clone(),
         snapshot_generator: Arc::new(snapshot_gen),
         content_cluster: Arc::new(LiveContentCluster),
+        accepting_users: Arc::new(LiveAcceptingUsers(
+            std::sync::atomic::AtomicBool::new(true),
+        )),
         deployments_cache: dashmap::DashMap::new(),
         content_version,
         lambdas_version,
         commit_hash,
         eth_network,
         content_server_address,
-        read_only: env_bool("READ_ONLY", false),
+        read_only: std::sync::atomic::AtomicBool::new(env_bool("READ_ONLY", false)),
+        // The admin audit log + content-local denylist/failed-deployment writes
+        // go to the content DB, which `pool` is connected to.
+        audit_pool: Some(pool.clone()),
         entities_cache_control_max_age: env_or("ENTITIES_CACHE_CONTROL_MAX_AGE", "10")
             .parse()
             .unwrap_or(10),

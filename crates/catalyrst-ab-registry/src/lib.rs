@@ -24,9 +24,7 @@ pub struct AppStateInner {
     pub manifests: AbManifestStore,
     pub registry: RegistryStore,
     pub admin_token: Option<String>,
-
     pub profile_images_url: String,
-
     pub denylist_moderators: Vec<String>,
 }
 
@@ -81,7 +79,6 @@ pub async fn build_state(cfg: &Config) -> Result<AppState> {
 
 pub fn api_router() -> Router<AppState> {
     Router::new()
-
         .route("/entities/active", post(handlers::entities::post_entities_active))
         .route("/entities/versions", post(handlers::entities::post_entities_versions))
         .route("/worlds/{world_name}/manifest", get(handlers::worlds::get_world_manifest))
@@ -94,6 +91,9 @@ pub fn api_router() -> Router<AppState> {
         )
         .route("/entities/status/{id}", get(handlers::status::get_entity_status))
         .route("/queues/status", get(handlers::queues::get_queues_status))
+        .route("/queues/retry", post(handlers::queues::post_queues_retry))
+        .route("/queues/pause", post(handlers::queues::post_queues_pause))
+        .route("/queues/resume", post(handlers::queues::post_queues_resume))
 
         .route("/denylist", get(handlers::denylist::get_denylist))
         .route(

@@ -89,6 +89,7 @@ async fn main_about(State(state): State<AppState>, Query(q): Query<AboutQuery>) 
 
     let realm_name = cfg.realm_name.clone();
     let comms_adapter = cfg.comms_adapter.clone();
+    let comms_fixed_adapter = cfg.comms_fixed_adapter.clone();
     let network_id = cfg.network_id;
     let pkg_version = env!("CARGO_PKG_VERSION");
     let commit_hash = option_env!("GIT_COMMIT").unwrap_or("");
@@ -172,6 +173,7 @@ async fn main_about(State(state): State<AppState>, Query(q): Query<AboutQuery>) 
             "protocol": "v3",
             "usersCount": 0,
             "adapter": comms_adapter,
+            "fixedAdapter": comms_fixed_adapter,
         },
     });
 

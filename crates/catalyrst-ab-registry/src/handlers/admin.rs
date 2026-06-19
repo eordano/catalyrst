@@ -5,6 +5,7 @@ use axum::http::HeaderMap;
 use axum::Json;
 use serde_json::json;
 
+use crate::http::auth::timing_safe_eq;
 use crate::http::errors::{ApiError, ApiResult};
 use crate::AppState;
 
@@ -72,7 +73,9 @@ pub async fn flush_cache(
 
 fn require_admin(state: &AppState, headers: &HeaderMap) -> Result<(), ApiError> {
     let Some(expected) = &state.admin_token else {
-        return Err(ApiError::not_found("Not Found"));
+        return Err(ApiError::forbidden(
+            "admin controls disabled (API_ADMIN_TOKEN unset)",
+        ));
     };
     let header = headers
         .get("authorization")
@@ -83,7 +86,7 @@ fn require_admin(state: &AppState, headers: &HeaderMap) -> Result<(), ApiError> 
     let mut parts = header.splitn(2, ' ');
     let scheme = parts.next().unwrap_or("");
     let value = parts.next().unwrap_or("");
-    if scheme != "Bearer" || value.len() != expected.len() || value != expected {
+    if scheme != "Bearer" || !timing_safe_eq(value, expected) {
         return Err(ApiError::unauthorized("Invalid authorization header"));
     }
     Ok(())

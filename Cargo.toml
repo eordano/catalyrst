@@ -63,6 +63,8 @@ serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["float_roundtrip"] }
 alloy = { version = "1", features = ["full"] }
 sha2 = "0.10"
+hmac = "0.12"
+base64 = "0.22"
 multihash = "0.19"
 cid = "0.11"
 bs58 = "0.5"

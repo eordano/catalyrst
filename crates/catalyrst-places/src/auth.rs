@@ -57,7 +57,40 @@ pub fn require_bearer_token(
     let expected =
         expected.ok_or_else(|| crate::http::errors::ApiError::unauthorized("Invalid authentication"))?;
     match bearer_token(headers) {
-        Some(token) if token == expected => Ok(()),
+        Some(token) if timing_safe_eq(&token, expected) => Ok(()),
         _ => Err(crate::http::errors::ApiError::unauthorized("Invalid authentication")),
+    }
+}
+
+/// Constant-time string comparison (mirrors catalyrst-comms
+/// `moderator::timing_safe_eq`). Avoids leaking the admin token via the
+/// early-exit timing of `==`.
+pub fn timing_safe_eq(a: &str, b: &str) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for (x, y) in a.bytes().zip(b.bytes()) {
+        diff |= x ^ y;
+    }
+    diff == 0
+}
+
+/// Gate for the LATER admin-console routes (moderation queue, place
+/// disable/soft-delete, POI CRUD). **Fails closed:** when the admin token env
+/// is unset, `expected` is `None` and every call returns 403 (default-safe per
+/// admin-console.md §4). Compares the presented `Authorization: Bearer <token>`
+/// in constant time.
+pub fn require_admin_bearer(
+    headers: &HeaderMap,
+    expected: Option<&str>,
+) -> Result<(), crate::http::errors::ApiError> {
+    let expected = expected
+        .ok_or_else(|| crate::http::errors::ApiError::forbidden("Admin token not configured"))?;
+    match bearer_token(headers) {
+        Some(token) if timing_safe_eq(&token, expected) => Ok(()),
+        _ => Err(crate::http::errors::ApiError::forbidden(
+            "Invalid admin credentials",
+        )),
     }
 }

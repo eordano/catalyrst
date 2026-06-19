@@ -86,6 +86,25 @@ impl Scene {
         self.clients.remove(&index);
         self.runtime.on_client_close(index);
     }
+
+    /// Forcibly disconnect every connected client (admin kick-all). Removing a
+    /// client from the roster drops the only [`Client::tx`] holder (plus, for
+    /// the JS runtime, `on_client_close` drops the runtime's outbound sender),
+    /// so the client's WS task sees its outbound channel close and breaks out
+    /// of its relay loop, tearing down the socket. Returns the number kicked.
+    pub fn kick_all(&self) -> usize {
+        let indices: Vec<u32> = self.clients.iter().map(|e| *e.key()).collect();
+        let n = indices.len();
+        for index in indices {
+            self.remove_client(index);
+        }
+        n
+    }
+
+    /// The current authoritative CRDT snapshot bytes (admin inspect).
+    pub fn snapshot(&self) -> Vec<u8> {
+        self.runtime.snapshot()
+    }
 }
 
 /// The top-level scene registry. Equivalent to the upstream `scenes` map plus

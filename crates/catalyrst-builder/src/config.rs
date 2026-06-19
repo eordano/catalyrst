@@ -10,6 +10,7 @@ pub struct Config {
     pub newsletter_service_url: Option<String>,
     pub newsletter_publication_id: Option<String>,
     pub newsletter_api_key: Option<String>,
+    pub admin_token: Option<String>,
 }
 
 impl Config {
@@ -34,6 +35,9 @@ impl Config {
                 .ok()
                 .filter(|s| !s.is_empty()),
             newsletter_api_key: env::var("NEWSLETTER_SERVICE_API_KEY")
+                .ok()
+                .filter(|s| !s.is_empty()),
+            admin_token: env::var("CATALYRST_BUILDER_ADMIN_TOKEN")
                 .ok()
                 .filter(|s| !s.is_empty()),
         })

@@ -203,4 +203,8 @@ impl AbManifestStore {
     pub fn invalidate_all(&self) {
         self.cache.invalidate_all();
     }
+
+    pub async fn invalidate(&self, entity_id: &str) {
+        self.cache.invalidate(entity_id).await;
+    }
 }

@@ -6,6 +6,11 @@ pub struct Config {
     pub http_port: u16,
 
     pub places_events_database_url: String,
+
+    /// Bearer token gating the admin moderation routes
+    /// (`POST /api/events`, `PATCH /api/events/{id}`). When unset, every admin
+    /// route fails closed (403). See docs/admin-console.md §4 (catalyrst-events).
+    pub admin_token: Option<String>,
 }
 
 impl Config {
@@ -15,6 +20,10 @@ impl Config {
             http_port: get_port("HTTP_SERVER_PORT", 5135)?,
 
             places_events_database_url: required("PLACES_EVENTS_PG_CONNECTION_STRING")?,
+
+            admin_token: env::var("CATALYRST_EVENTS_ADMIN_TOKEN")
+                .ok()
+                .filter(|s| !s.is_empty()),
         })
     }
 }

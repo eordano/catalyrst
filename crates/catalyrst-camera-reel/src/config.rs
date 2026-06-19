@@ -18,6 +18,10 @@ pub struct Config {
     pub places_api_url: String,
     pub places_cache_ttl_seconds: u64,
     pub places_cache_max_size: u64,
+
+    /// Bearer token gating the moderator `/admin/*` routes. When unset, those
+    /// routes fail closed (403). Compared in constant time.
+    pub admin_token: Option<String>,
 }
 
 impl Config {
@@ -36,6 +40,9 @@ impl Config {
                 .unwrap_or_else(|_| "http://127.0.0.1:5134".to_string()),
             places_cache_ttl_seconds: get_u64("PLACES_CACHE_TTL_SECONDS", 300)?,
             places_cache_max_size: get_u64("PLACES_CACHE_MAX_SIZE", 1000)?,
+            admin_token: env::var("CATALYRST_CAMERA_REEL_ADMIN_TOKEN")
+                .ok()
+                .filter(|s| !s.is_empty()),
         })
     }
 }

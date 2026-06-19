@@ -261,14 +261,174 @@ pub async fn get_attending_event_list(
     Ok(Json(ApiOk::new(events)))
 }
 
-pub async fn create_event() -> Result<Json<Value>, ApiError> {
-    Err(ApiError::not_implemented(
-        "POST /api/events is a federation-signed action (EventCreate per docs/federation/events.md §3); writes will land with the federation phase",
-    ))
+// ── Admin moderation (docs/admin-console.md §4, catalyrst-events) ──────────
+//
+// The archive-owned `event` table is read-only for this service (the
+// events-archive importer is its only writer). Admin create / moderation
+// actions are therefore persisted into the writable `events_local` overlay
+// table, keyed by event id, the same way RSVPs land in
+// `event_attendance_local`. Each route is gated by a constant-time bearer
+// compare against `CATALYRST_EVENTS_ADMIN_TOKEN` (fail-closed when unset).
+
+#[derive(Debug, Deserialize)]
+pub struct CreateEventBody {
+    pub name: String,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub start_at: Option<String>,
+    #[serde(default)]
+    pub finish_at: Option<String>,
+    #[serde(default)]
+    pub x: Option<i32>,
+    #[serde(default)]
+    pub y: Option<i32>,
+    /// Optional explicit id; a uuid-like id is derived from the name+time when
+    /// omitted so callers can create without coordinating ids.
+    #[serde(default)]
+    pub id: Option<String>,
 }
 
-pub async fn patch_event() -> Result<Json<Value>, ApiError> {
-    Err(ApiError::not_implemented(
-        "PATCH /api/events/{id} is a federation-signed action (EventModerate per docs/federation/events.md §3); writes will land with the federation phase",
-    ))
+fn derive_event_id(name: &str) -> String {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+    let mut h = DefaultHasher::new();
+    name.hash(&mut h);
+    Utc::now().timestamp_nanos_opt().unwrap_or_default().hash(&mut h);
+    format!("local-{:016x}", h.finish())
+}
+
+pub async fn create_event(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<CreateEventBody>,
+) -> Result<Json<Value>, ApiError> {
+    crate::admin::authorize_admin(&state, &headers)?;
+
+    let name = body.name.trim();
+    if name.is_empty() {
+        return Err(ApiError::bad_request("name is required"));
+    }
+    let event_id = body
+        .id
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| derive_event_id(name));
+
+    let doc = json!({
+        "action": "create",
+        "name": name,
+        "description": body.description,
+        "start_at": body.start_at,
+        "finish_at": body.finish_at,
+        "x": body.x,
+        "y": body.y,
+        "approved": false,
+        "created_via": "admin",
+        "moderated_at": Utc::now().to_rfc3339(),
+    });
+
+    let merged = state
+        .events
+        .upsert_local(&event_id, "admin", doc)
+        .await?;
+    Ok(Json(json!({"ok": true, "data": {"id": event_id, "local": merged}})))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PatchEventBody {
+    /// approve | reject | feature | unfeature | archive (any subset of the
+    /// boolean fields below may be set directly instead).
+    #[serde(default)]
+    pub action: Option<String>,
+    #[serde(default)]
+    pub approved: Option<bool>,
+    #[serde(default)]
+    pub rejected: Option<bool>,
+    #[serde(default)]
+    pub highlighted: Option<bool>,
+    #[serde(default)]
+    pub trending: Option<bool>,
+    /// editable content fields (overlay only)
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub description: Option<String>,
+}
+
+pub async fn patch_event(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(event_id): Path<String>,
+    Json(body): Json<PatchEventBody>,
+) -> Result<Json<Value>, ApiError> {
+    crate::admin::authorize_admin(&state, &headers)?;
+
+    // The target must be a known event (archive row) or an existing local
+    // overlay (e.g. an admin-created draft).
+    let known = state.events.exists(&event_id).await?
+        || state.events.get_local(&event_id).await?.is_some();
+    if !known {
+        return Err(ApiError::not_found(format!(
+            "Not found event \"{}\"",
+            event_id
+        )));
+    }
+
+    let mut doc = serde_json::Map::new();
+    // Named actions expand to overlay flags.
+    match body.action.as_deref() {
+        Some("approve") => {
+            doc.insert("approved".into(), json!(true));
+            doc.insert("rejected".into(), json!(false));
+        }
+        Some("reject") | Some("archive") => {
+            doc.insert("approved".into(), json!(false));
+            doc.insert("rejected".into(), json!(true));
+        }
+        Some("feature") => {
+            doc.insert("highlighted".into(), json!(true));
+        }
+        Some("unfeature") => {
+            doc.insert("highlighted".into(), json!(false));
+        }
+        Some(other) => {
+            return Err(ApiError::bad_request(format!(
+                "unknown action \"{}\" (expected approve|reject|feature|unfeature|archive)",
+                other
+            )));
+        }
+        None => {}
+    }
+    // Explicit field overrides (take precedence over the named action).
+    if let Some(v) = body.approved {
+        doc.insert("approved".into(), json!(v));
+    }
+    if let Some(v) = body.rejected {
+        doc.insert("rejected".into(), json!(v));
+    }
+    if let Some(v) = body.highlighted {
+        doc.insert("highlighted".into(), json!(v));
+    }
+    if let Some(v) = body.trending {
+        doc.insert("trending".into(), json!(v));
+    }
+    if let Some(v) = &body.name {
+        doc.insert("name".into(), json!(v));
+    }
+    if let Some(v) = &body.description {
+        doc.insert("description".into(), json!(v));
+    }
+
+    if doc.is_empty() {
+        return Err(ApiError::bad_request(
+            "no moderation fields provided (action / approved / rejected / highlighted / trending / name / description)",
+        ));
+    }
+    doc.insert("moderated_at".into(), json!(Utc::now().to_rfc3339()));
+
+    let merged = state
+        .events
+        .upsert_local(&event_id, "admin", Value::Object(doc))
+        .await?;
+    Ok(Json(json!({"ok": true, "data": {"id": event_id, "local": merged}})))
 }

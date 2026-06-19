@@ -1,5 +1,6 @@
 pub mod accounts;
 pub mod activity;
+pub mod admin;
 pub mod bids;
 pub mod catalog;
 pub mod collections;

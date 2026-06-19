@@ -5,9 +5,7 @@ use serde_json::Value;
 #[serde(rename_all = "lowercase")]
 pub enum BuildStatus {
     Pending,
-
     Complete,
-
     Failed,
 }
 
@@ -92,7 +90,6 @@ pub struct DbEntity {
     pub pointers: Vec<String>,
     pub content: Vec<ContentFile>,
     pub metadata: Value,
-
     pub deployer: String,
     pub status: RegistryStatus,
     pub bundles: Bundles,
@@ -133,6 +130,10 @@ pub struct QueuesStatus {
     pub mac_pending_jobs: Vec<String>,
     #[serde(rename = "webglPendingJobs")]
     pub webgl_pending_jobs: Vec<String>,
+    /// Operator queue-pause flag. Only populated for authenticated admin
+    /// callers; omitted from the public/scene-facing response.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub paused: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize)]

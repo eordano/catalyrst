@@ -66,7 +66,7 @@ pub async fn dispatch(
     if segments.len() == 2 && segments[0] != "manifest" {
         let filename = segments[1];
         let raw = filename.strip_suffix(".br").unwrap_or(filename);
-        let bare = strip_platform(raw);
+        let (_, bare) = resolver::split_platform(raw);
         let Some(exact) = resolver::binary_path(&state.out_root, bare, filename) else {
             return serve_404();
         };
@@ -76,15 +76,6 @@ pub async fn dispatch(
     }
 
     serve_404()
-}
-
-fn strip_platform(name: &str) -> &str {
-    for suffix in ["_windows", "_mac", "_linux"] {
-        if let Some(s) = name.strip_suffix(suffix) {
-            return s;
-        }
-    }
-    name
 }
 
 fn serve_404() -> Response {

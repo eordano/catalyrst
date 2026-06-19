@@ -19,6 +19,8 @@ use crate::ports::credits::CreditsComponent;
 
 pub struct AppStateInner {
     pub credits: CreditsComponent,
+    /// Bearer token gating the admin routes; `None` => fail closed (403).
+    pub admin_token: Option<String>,
 }
 
 pub type AppState = Arc<AppStateInner>;
@@ -35,6 +37,7 @@ pub fn api_router() -> Router<AppState> {
             "/captcha",
             get(handlers::captcha::generate).post(handlers::captcha::claim),
         )
+        .merge(handlers::admin::router())
         .layer(axum::extract::DefaultBodyLimit::max(64 * 1024))
 }
 
@@ -54,5 +57,6 @@ pub async fn build_state(cfg: &Config) -> Result<AppState> {
 
     Ok(Arc::new(AppStateInner {
         credits: CreditsComponent::new(pool),
+        admin_token: cfg.admin_token.clone(),
     }))
 }

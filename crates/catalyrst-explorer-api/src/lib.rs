@@ -22,6 +22,7 @@ pub async fn build_state(cfg: &Config) -> Result<AppState> {
         http,
         auth_api: Default::default(),
         feature_flags: Default::default(),
+        runtime_config: Default::default(),
     }))
 }
 
@@ -33,4 +34,5 @@ pub fn api_router() -> Router<AppState> {
         .merge(modules::builder_api::routes())
         .merge(modules::worlds_content_server::routes())
         .merge(modules::feature_flags::routes())
+        .merge(modules::runtime_config::routes())
 }

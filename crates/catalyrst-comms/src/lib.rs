@@ -21,9 +21,7 @@ use sqlx::PgPool;
 use crate::config::Config;
 
 /// Parse a connection URL and pin server-side query/transaction timeouts so a
-/// pathological MLS/community query can't tie up a pooled connection
-/// indefinitely. Mirrors the `statement_timeout`/`idle_in_transaction` knobs
-/// the catalyrst-db and camera-reel pools already set.
+/// pathological query can't tie up a pooled connection indefinitely.
 fn connect_opts(url: &str) -> Result<PgConnectOptions> {
     Ok(url
         .parse::<PgConnectOptions>()
@@ -118,7 +116,6 @@ pub async fn build_state(cfg: &Config) -> Result<AppState> {
         }
     };
 
-    // places_events archive pool — for scene-bans/admin owner-or-admin authz.
     let places_pool = match cfg.places_database_url.as_deref() {
         Some(url) => match PgPoolOptions::new()
             .max_connections(5)
@@ -184,23 +181,11 @@ pub async fn build_state(cfg: &Config) -> Result<AppState> {
     }))
 }
 
-/// Bearer-token middleware for the voice / private-message social-service routes.
-///
-/// Upstream comms-gatekeeper gates these routes behind `tokenAuthMiddleware`
-/// (`COMMS_GATEKEEPER_AUTH_TOKEN`). Here the gate is OPT-IN: when
-/// `gatekeeper_auth_token` is `None` the request is allowed through (the warning
-/// is logged once at startup in `build_state`'s caller), so the loopback dev
-/// stack keeps working. When the token IS set, every request must carry a
-/// matching `Authorization: Bearer <token>` (constant-time compared) or it is
-/// rejected with 401. `/private-messages/token` is intentionally NOT behind this
-/// layer — upstream gates it with signed-fetch (`authExplorer`), which its
-/// handler already enforces via `try_extract_signer`.
-/// Paths that upstream comms-gatekeeper gates behind `tokenAuthMiddleware`
-/// (the `socialServiceInteractionsToken` bearer). Covers /private-voice-chat*,
+/// Paths upstream comms-gatekeeper gates behind `tokenAuthMiddleware` (the
+/// `COMMS_GATEKEEPER_AUTH_TOKEN` bearer): /private-voice-chat*,
 /// /community-voice-chat*, .../voice-chat-status, and the
-/// /users/{address}/private-messages-privacy write. `/private-messages/token`
-/// is intentionally excluded — upstream gates it with signed-fetch (authExplorer),
-/// enforced by the handler's `try_extract_signer`.
+/// /users/{address}/private-messages-privacy write. `/private-messages/token` is
+/// excluded — upstream gates it with signed-fetch, enforced by its handler.
 pub(crate) fn is_bearer_gated_path(path: &str) -> bool {
     path.contains("voice-chat") || path.contains("private-messages-privacy")
 }
@@ -211,17 +196,7 @@ pub async fn voice_auth_layer(
     next: axum::middleware::Next,
 ) -> axum::response::Response {
     use axum::response::IntoResponse;
-    // Only the voice-chat routes are gated (the paths upstream comms-gatekeeper
-    // protects with COMMS_GATEKEEPER_AUTH_TOKEN). Everything else — scene-adapter,
-    // scene-bans/admin, MLS, /private-messages/token — keeps its existing
-    // signed-fetch / per-handler auth. Matching on the "voice-chat" path segment
-    // covers /private-voice-chat*, /community-voice-chat*, and the
-    // .../voice-chat-status reads. PATCH /users/{address}/private-messages-privacy
-    // is also gated by upstream's tokenAuthMiddleware but its path has no
-    // "voice-chat" segment, so match it explicitly (else it would be open when
-    // the bearer token is enabled, unlike upstream).
-    let is_voice_route = is_bearer_gated_path(req.uri().path());
-    if is_voice_route {
+    if is_bearer_gated_path(req.uri().path()) {
         if let Some(expected) = state.gatekeeper_auth_token.as_deref() {
             let ok = crate::moderator::bearer_token(req.headers())
                 .map(|t| crate::moderator::timing_safe_eq(&t, expected))

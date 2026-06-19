@@ -76,9 +76,9 @@ impl CommunitiesComponent {
         only_public: bool,
     ) -> Result<bool, ApiError> {
         let sql = if only_public {
-            "SELECT EXISTS (SELECT 1 FROM communities WHERE id = $1 AND active = TRUE AND private <> TRUE)"
+            "SELECT EXISTS (SELECT 1 FROM communities WHERE id = $1 AND active = TRUE AND suspended = FALSE AND private <> TRUE)"
         } else {
-            "SELECT EXISTS (SELECT 1 FROM communities WHERE id = $1 AND active = TRUE)"
+            "SELECT EXISTS (SELECT 1 FROM communities WHERE id = $1 AND active = TRUE AND suspended = FALSE)"
         };
         let exists: bool = sqlx::query_scalar(sql)
             .bind(id)
@@ -115,7 +115,7 @@ impl CommunitiesComponent {
     ) -> Result<Option<serde_json::Value>, ApiError> {
         let row = sqlx::query_as::<_, (Uuid, String, String, String, bool, bool, bool, NaiveDateTime, NaiveDateTime)>(
             "SELECT id, name, description, owner_address, private, active, unlisted, created_at, updated_at \
-             FROM communities WHERE id = $1 AND active = true"
+             FROM communities WHERE id = $1 AND active = true AND suspended = false"
         )
         .bind(id)
         .fetch_optional(&self.pool)
@@ -197,7 +197,11 @@ impl CommunitiesComponent {
         only_with_active_voice_chat: bool,
         roles: &[String],
     ) -> Result<(Vec<serde_json::Value>, i64), ApiError> {
-        let mut where_clauses: Vec<String> = vec!["c.active = TRUE".to_string()];
+        // Suspended communities are hidden from all public/member reads (the
+        // point of the admin suspend control, docs/admin-console.md §4). They
+        // remain visible only through the bearer-gated admin_list.
+        let mut where_clauses: Vec<String> =
+            vec!["c.active = TRUE".to_string(), "c.suspended = FALSE".to_string()];
         let mut params: Vec<String> = Vec::new();
 
         if as_user.is_none() {
@@ -368,6 +372,177 @@ impl CommunitiesComponent {
             })
             .collect();
         Ok((results, total))
+    }
+
+    /// Admin list (admin-console §4). Unlike the public `list`, this returns
+    /// communities regardless of privacy/listed/suspension so an operator can
+    /// see and act on everything, and supports filtering by `status` and
+    /// `owner`. `status` is one of: `all` (default), `active` (active and not
+    /// suspended), `suspended`, `inactive` (deleted/tombstoned, `active=FALSE`).
+    pub async fn admin_list(
+        &self,
+        pagination: &Pagination,
+        status: &str,
+        owner: Option<&str>,
+        search: Option<&str>,
+    ) -> Result<(Vec<serde_json::Value>, i64), ApiError> {
+        let mut where_clauses: Vec<String> = Vec::new();
+        let mut params: Vec<String> = Vec::new();
+
+        match status {
+            "active" => where_clauses.push("c.active = TRUE AND c.suspended = FALSE".to_string()),
+            "suspended" => where_clauses.push("c.suspended = TRUE".to_string()),
+            "inactive" => where_clauses.push("c.active = FALSE".to_string()),
+            // "all" or anything unrecognized => no status filter
+            _ => {}
+        }
+
+        if let Some(o) = owner {
+            params.push(o.to_lowercase());
+            let i = params.len();
+            where_clauses.push(format!("LOWER(c.owner_address) = ${}", i));
+        }
+
+        if let Some(s) = search {
+            params.push(format!("%{}%", s.replace('%', "\\%").replace('_', "\\_")));
+            let i = params.len();
+            where_clauses.push(format!("c.name ILIKE ${}", i));
+        }
+
+        let where_sql = if where_clauses.is_empty() {
+            "TRUE".to_string()
+        } else {
+            where_clauses.join(" AND ")
+        };
+
+        let limit_idx = params.len() + 1;
+        let offset_idx = params.len() + 2;
+
+        let select_sql = format!(
+            "SELECT c.id, c.name, c.description, c.owner_address, c.private, c.active, \
+                    c.unlisted, c.suspended, c.suspended_at, c.suspended_by, c.suspension_reason, \
+                    c.created_at, c.updated_at, \
+                    (SELECT COUNT(*) FROM community_members m WHERE m.community_id = c.id) AS members_count \
+             FROM communities c \
+             WHERE {where_sql} \
+             ORDER BY c.created_at DESC \
+             LIMIT ${limit_idx} OFFSET ${offset_idx}"
+        );
+
+        let mut q = sqlx::query_as::<
+            _,
+            (
+                Uuid,
+                String,
+                String,
+                String,
+                bool,
+                bool,
+                bool,
+                bool,
+                Option<NaiveDateTime>,
+                Option<String>,
+                Option<String>,
+                NaiveDateTime,
+                NaiveDateTime,
+                i64,
+            ),
+        >(&select_sql);
+        for p in &params {
+            q = q.bind(p);
+        }
+        q = q.bind(pagination.limit).bind(pagination.offset);
+        let rows = q.fetch_all(&self.pool).await?;
+
+        let count_sql = format!("SELECT COUNT(*) FROM communities c WHERE {where_sql}");
+        let mut cq = sqlx::query_scalar::<_, i64>(&count_sql);
+        for p in &params {
+            cq = cq.bind(p);
+        }
+        let total = cq.fetch_one(&self.pool).await.unwrap_or(0);
+
+        let results: Vec<serde_json::Value> = rows
+            .into_iter()
+            .map(
+                |(
+                    id,
+                    name,
+                    description,
+                    owner_address,
+                    private,
+                    active,
+                    unlisted,
+                    suspended,
+                    suspended_at,
+                    suspended_by,
+                    suspension_reason,
+                    created_at,
+                    updated_at,
+                    members_count,
+                )| {
+                    let privacy = if private { "private" } else { "public" };
+                    let visibility = if unlisted { "unlisted" } else { "all" };
+                    serde_json::json!({
+                        "id": id,
+                        "name": name,
+                        "description": description,
+                        "ownerAddress": owner_address,
+                        "privacy": privacy,
+                        "visibility": visibility,
+                        "active": active,
+                        "unlisted": unlisted,
+                        "suspended": suspended,
+                        "suspendedAt": suspended_at,
+                        "suspendedBy": suspended_by,
+                        "suspensionReason": suspension_reason,
+                        "membersCount": members_count,
+                        "createdAt": created_at,
+                        "updatedAt": updated_at,
+                    })
+                },
+            )
+            .collect();
+
+        Ok((results, total))
+    }
+
+    /// Set the suspension state of a community (admin-console §4). Returns
+    /// `Ok(false)` when no such community row exists (so the handler can 404),
+    /// `Ok(true)` on a successful update. `actor` is the authenticated admin
+    /// identity recorded for audit; `reason` is optional free text.
+    pub async fn set_suspended(
+        &self,
+        id: Uuid,
+        suspended: bool,
+        actor: &str,
+        reason: Option<&str>,
+    ) -> Result<bool, ApiError> {
+        let affected = if suspended {
+            sqlx::query(
+                "UPDATE communities \
+                 SET suspended = TRUE, suspended_at = now(), suspended_by = $2, \
+                     suspension_reason = $3, updated_at = now() \
+                 WHERE id = $1",
+            )
+            .bind(id)
+            .bind(actor)
+            .bind(reason)
+            .execute(&self.pool)
+            .await?
+            .rows_affected()
+        } else {
+            sqlx::query(
+                "UPDATE communities \
+                 SET suspended = FALSE, suspended_at = NULL, suspended_by = NULL, \
+                     suspension_reason = NULL, updated_at = now() \
+                 WHERE id = $1",
+            )
+            .bind(id)
+            .execute(&self.pool)
+            .await?
+            .rows_affected()
+        };
+        Ok(affected > 0)
     }
 
     /// Batch-filter `community_ids` to those visible to `user_address` — the

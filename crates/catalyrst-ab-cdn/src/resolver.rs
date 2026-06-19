@@ -7,12 +7,16 @@ const PLATFORMS: &[(&str, &str)] = &[
 ];
 
 pub fn platform_of(name: &str) -> &'static str {
+    split_platform(name).0
+}
+
+pub fn split_platform(name: &str) -> (&'static str, &str) {
     for (suffix, bare) in PLATFORMS {
-        if name.ends_with(suffix) {
-            return bare;
+        if let Some(stem) = name.strip_suffix(suffix) {
+            return (bare, stem);
         }
     }
-    "webgl"
+    ("webgl", name)
 }
 
 pub fn is_safe_component(c: &str) -> bool {
@@ -25,11 +29,7 @@ pub fn is_safe_component(c: &str) -> bool {
 }
 
 pub fn manifest_path(root: &Path, name_with_suffix: &str) -> Option<PathBuf> {
-    let platform = platform_of(name_with_suffix);
-    let entity_id = match PLATFORMS.iter().find(|(s, _)| name_with_suffix.ends_with(s)) {
-        Some((suffix, _)) => &name_with_suffix[..name_with_suffix.len() - suffix.len()],
-        None => name_with_suffix,
-    };
+    let (platform, entity_id) = split_platform(name_with_suffix);
     if !is_safe_component(entity_id) {
         return None;
     }
@@ -57,10 +57,7 @@ pub fn lod_path(root: &Path, level: &str, filename: &str) -> Option<PathBuf> {
         return None;
     }
     let raw = filename.strip_suffix(".br").unwrap_or(filename);
-    let no_platform = match PLATFORMS.iter().find(|(s, _)| raw.ends_with(s)) {
-        Some((suffix, _)) => &raw[..raw.len() - suffix.len()],
-        None => raw,
-    };
+    let (_, no_platform) = split_platform(raw);
     let scene_id = no_platform
         .strip_suffix(&format!("_{level}"))
         .unwrap_or(no_platform);

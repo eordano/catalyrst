@@ -12,6 +12,9 @@ pub enum ApiError {
     #[error("{0}")]
     NotFound(String),
 
+    #[error("{0}")]
+    Forbidden(String),
+
     #[error("database error: {0}")]
     Database(#[from] sqlx::Error),
 
@@ -26,6 +29,9 @@ impl ApiError {
     pub fn not_found(msg: impl Into<String>) -> Self {
         Self::NotFound(msg.into())
     }
+    pub fn forbidden(msg: impl Into<String>) -> Self {
+        Self::Forbidden(msg.into())
+    }
 }
 
 impl IntoResponse for ApiError {
@@ -33,6 +39,7 @@ impl IntoResponse for ApiError {
         let (code, message) = match &self {
             ApiError::BadRequest(m) => (400u16, m.clone()),
             ApiError::NotFound(m) => (404, m.clone()),
+            ApiError::Forbidden(m) => (403, m.clone()),
             ApiError::Database(e) => {
                 tracing::error!(error = %e, "sqlx error");
                 (500, "database error".to_string())

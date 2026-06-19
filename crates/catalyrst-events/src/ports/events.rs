@@ -75,8 +75,13 @@ impl EventsComponent {
         let mut sql = String::from(" WHERE 1=1");
         let now = Utc::now();
 
-        let nf = "(raw->>'next_finish_at')::timestamptz";
-        let ns = "(raw->>'next_start_at')::timestamptz";
+        // next_finish_at / next_start_at are extracted by the archive
+        // (events-archive.py) into real indexed timestamptz columns, so these
+        // filters/sorts are index-backed instead of re-parsing the raw JSONB and
+        // casting per row (the text::timestamptz cast is STABLE and can't be
+        // indexed as a functional expression).
+        let nf = "next_finish_at";
+        let ns = "next_start_at";
 
         match f.list {
             EventListType::All => {}
@@ -209,10 +214,7 @@ impl EventsComponent {
                 SortOrder::Asc => "ASC",
                 SortOrder::Desc => "DESC",
             };
-            format!(
-                " ORDER BY (raw->>'next_start_at')::timestamptz {} NULLS LAST",
-                order_dir
-            )
+            format!(" ORDER BY next_start_at {} NULLS LAST", order_dir)
         };
 
         let lim_p = next_placeholder(&mut binds, EventBind::Int64(f.limit.max(0)));
@@ -307,13 +309,13 @@ impl EventsComponent {
             "SELECT id, name, start_at, finish_at, duration_ms, recurrent, highlighted, trending, \
              approved, attending, community_id, user_creator, coordinates_x, coordinates_y, \
              description, raw FROM event \
-             WHERE (raw->>'next_finish_at')::timestamptz > now() \
+             WHERE next_finish_at > now() \
                AND COALESCE((raw->>'rejected')::boolean, false) IS FALSE \
                AND ( \
                  id IN (SELECT event_id FROM event_attendance_local WHERE signer = $1 AND action = 'going') \
                  OR raw->'latest_attendees' ? $1 \
                ) \
-             ORDER BY (raw->>'next_start_at')::timestamptz ASC NULLS LAST",
+             ORDER BY next_start_at ASC NULLS LAST",
         )
         .bind(&user_lc)
         .fetch_all(&self.pool)
@@ -368,6 +370,49 @@ impl EventsComponent {
             .fetch_optional(&self.pool)
             .await?;
         Ok(row.is_some())
+    }
+
+    /// Persist an admin moderation / create action into the writable
+    /// `events_local` overlay table. The archive-owned `event` table is
+    /// read-only for this service (the events-archive importer is the only
+    /// writer), so admin actions are recorded in the local overlay keyed by
+    /// event id. `signed_payload` carries the full action document (action,
+    /// edited fields, who/when) and is upserted; the merged document is
+    /// returned for the response.
+    pub async fn upsert_local(
+        &self,
+        event_id: &str,
+        signer: &str,
+        payload: Value,
+    ) -> Result<Value, ApiError> {
+        let signed_at = Utc::now();
+        let row: (Value,) = sqlx::query_as(
+            "INSERT INTO events_local (id, signer, signed_payload, signed_at) \
+             VALUES ($1, $2, $3, $4) \
+             ON CONFLICT (id) DO UPDATE \
+               SET signer = EXCLUDED.signer, \
+                   signed_payload = events_local.signed_payload || EXCLUDED.signed_payload, \
+                   signed_at = EXCLUDED.signed_at, \
+                   updated_at = now() \
+             RETURNING signed_payload",
+        )
+        .bind(event_id)
+        .bind(signer.to_lowercase())
+        .bind(payload)
+        .bind(signed_at)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(row.0)
+    }
+
+    /// Read the local overlay document for an event id, if any.
+    pub async fn get_local(&self, event_id: &str) -> Result<Option<Value>, ApiError> {
+        let row: Option<(Value,)> =
+            sqlx::query_as("SELECT signed_payload FROM events_local WHERE id = $1")
+                .bind(event_id)
+                .fetch_optional(&self.pool)
+                .await?;
+        Ok(row.map(|(v,)| v))
     }
 
     pub async fn exists_visible(&self, event_id: &str, signer: &str) -> Result<bool, ApiError> {

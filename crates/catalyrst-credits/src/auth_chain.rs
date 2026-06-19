@@ -44,6 +44,16 @@ pub fn build_payload(method: &str, path: &str, timestamp: &str, metadata: &str) 
     format!("{}:{}:{}:{}", method, path, timestamp, metadata).to_lowercase()
 }
 
+/// nginx strips the service prefix but the client signs the full external path;
+/// it forwards the original in `x-original-path`. Prefer it so the reconstructed
+/// payload matches what was signed; fall back to the route path (direct requests).
+fn signed_fetch_path<'a>(headers: &HeaderMap, fallback: &'a str) -> std::borrow::Cow<'a, str> {
+    match headers.get("x-original-path").and_then(|v| v.to_str().ok()) {
+        Some(raw) => std::borrow::Cow::Owned(raw.split('?').next().unwrap_or(raw).to_string()),
+        None => std::borrow::Cow::Borrowed(fallback),
+    }
+}
+
 fn header_str<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {
     headers.get(name).and_then(|v| v.to_str().ok())
 }
@@ -112,11 +122,10 @@ pub fn validate_signature(
     expiration_secs: i64,
     now: i64,
 ) -> Result<EthAddress, AuthChainError> {
-    // Freshness window: read the timestamp from the authoritative
-    // `x-identity-timestamp` header (passed in as `timestamp`), NOT by splitting
-    // the payload on ':'. Paths that contain ':' (e.g. wearable/credits URNs)
-    // shift the colon-delimited field and silently skip the freshness check.
-    if let Some(signed_at_ms) = timestamp.parse::<i64>().ok() {
+    // Freshness window reads the authoritative `x-identity-timestamp` header, not
+    // a colon-split of the payload: paths containing ':' (wearable/credits URNs)
+    // would shift the field and silently skip the check.
+    if let Ok(signed_at_ms) = timestamp.parse::<i64>() {
         let signed_at = signed_at_ms / 1000;
         if (now - signed_at).abs() > expiration_secs {
             return Err(AuthChainError::Expired {
@@ -172,6 +181,8 @@ pub fn try_extract(headers: &HeaderMap) -> Option<AuthChain> {
 }
 
 pub fn try_extract_signer(headers: &HeaderMap, method: &str, path: &str) -> Option<String> {
+    let path = signed_fetch_path(headers, path);
+    let path = path.as_ref();
     let chain = try_extract(headers)?;
     let ts = header_str(headers, AUTH_TIMESTAMP_HEADER)?.to_string();
     let metadata = header_str(headers, AUTH_METADATA_HEADER).unwrap_or("{}").to_string();
@@ -185,6 +196,8 @@ pub fn require_signer(
     method: &str,
     path: &str,
 ) -> Result<String, AuthChainError> {
+    let path = signed_fetch_path(headers, path);
+    let path = path.as_ref();
     let chain = extract_auth_chain(headers)?;
     let ts = header_str(headers, AUTH_TIMESTAMP_HEADER)
         .ok_or(AuthChainError::MissingTimestamp)?

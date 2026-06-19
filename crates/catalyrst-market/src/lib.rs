@@ -70,6 +70,8 @@ pub struct AppStateInner {
     pub replay: Arc<Replay>,
     pub limiter: Arc<RateLimiter>,
     pub domain: Eip712Domain,
+    /// Bearer token gating the §4 admin moderation routes; `None` ⇒ fail closed.
+    pub admin_token: Option<String>,
 }
 
 pub type AppState = Arc<AppStateInner>;
@@ -184,6 +186,29 @@ pub fn api_router() -> Router<AppState> {
             "/federation/market/changes",
             get(handlers::federation::changes),
         )
+        // ---- §4 admin moderation (bearer-gated; CATALYRST_MARKET_ADMIN_TOKEN) ----
+        .route(
+            "/v1/admin/moderation/flags",
+            get(handlers::admin::list_flags),
+        )
+        .route(
+            "/v1/admin/moderation/{kind}/{hash}/flag",
+            post(handlers::admin::set_flag).delete(handlers::admin::clear_flag),
+        )
+        .route("/v1/admin/disputes", get(handlers::admin::list_disputes))
+        .route(
+            "/v1/admin/disputes/{trade_hash}/open",
+            post(handlers::admin::open_dispute),
+        )
+        .route(
+            "/v1/admin/disputes/{trade_hash}/resolve",
+            post(handlers::admin::resolve_dispute),
+        )
+        .route(
+            "/v1/admin/listings/{kind}/{hash}/force-cancel",
+            post(handlers::admin::force_cancel),
+        )
+        .route("/v1/admin/audit", get(handlers::admin::list_audit))
 }
 
 fn db_config_from_url(url_str: &str, max_connections: u32) -> Result<DatabaseConfig> {
@@ -308,5 +333,6 @@ pub async fn build_state(cfg: &Config) -> Result<AppState> {
         replay,
         limiter,
         domain: market_domain(),
+        admin_token: cfg.admin_token.clone(),
     }))
 }

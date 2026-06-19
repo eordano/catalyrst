@@ -9,7 +9,8 @@ use bytes::Bytes;
 use image::guess_format;
 use uuid::Uuid;
 
-use crate::dto::{Image, Metadata, UpdateVisibility, UploadResponse, UserDataResponse};
+use crate::admin::authorize_admin;
+use crate::dto::{Image, Metadata, UpdateReview, UpdateVisibility, UploadResponse, UserDataResponse};
 use crate::handlers::require_auth;
 use crate::http::ApiError;
 use crate::AppState;
@@ -270,6 +271,79 @@ pub async fn get_image(
         Body::from(bytes),
     )
         .into_response())
+}
+
+/// Moderator delete: removes any image regardless of owner. Bearer-gated.
+pub async fn admin_delete_image(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(image_id): Path<String>,
+) -> Result<Response, ApiError> {
+    authorize_admin(&state, &headers)?;
+
+    let image = state
+        .db
+        .get_image(&image_id)
+        .await
+        .map_err(|_| ApiError::NotFound("image not found".to_string()))?;
+
+    state.db.delete_image(&image_id).await.map_err(|e| {
+        tracing::error!("failed to delete image metadata: {e}");
+        ApiError::Internal("failed to delete image".to_string())
+    })?;
+
+    if let Some(hash) = image.url.rsplit('/').next() {
+        let _ = state.store.delete(hash).await;
+    }
+    if let Some(hash) = image.thumbnail_url.rsplit('/').next() {
+        let _ = state.store.delete(hash).await;
+    }
+
+    let current_images = state
+        .db
+        .get_user_images_count(&image.user_address, false)
+        .await
+        .unwrap_or(0);
+
+    Ok((
+        StatusCode::OK,
+        Json(UserDataResponse {
+            current_images,
+            max_images: state.config.max_images_per_user,
+        }),
+    )
+        .into_response())
+}
+
+/// Moderator review: flag/clear/reject any image. Bearer-gated.
+pub async fn admin_update_image_review(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(image_id): Path<String>,
+    Json(update): Json<UpdateReview>,
+) -> Result<Response, ApiError> {
+    authorize_admin(&state, &headers)?;
+
+    if !update.is_valid() {
+        return Err(ApiError::BadRequest(
+            "reviewStatus must be one of: ok, flagged, rejected".to_string(),
+        ));
+    }
+
+    let affected = state
+        .db
+        .update_image_review_status(&image_id, &update.review_status)
+        .await
+        .map_err(|e| {
+            tracing::error!("failed to update image review status: {e}");
+            ApiError::Internal("failed to update image review status".to_string())
+        })?;
+
+    if affected == 0 {
+        return Err(ApiError::NotFound("image not found".to_string()));
+    }
+
+    Ok(StatusCode::OK.into_response())
 }
 
 pub async fn get_metadata(

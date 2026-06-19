@@ -286,6 +286,61 @@ impl NotificationsComponent {
             .collect())
     }
 
+    /// Insert one admin broadcast notification per target address.
+    ///
+    /// When `addresses` is `None` the broadcast targets every address known to
+    /// the `subscriptions` table. `broadcast_id` is recorded on every inserted
+    /// row (via `broadcast_address`) so the whole fan-out can be correlated.
+    /// Returns the number of rows inserted.
+    pub async fn broadcast(
+        &self,
+        broadcast_id: &str,
+        kind: &str,
+        metadata: &Json,
+        addresses: Option<&[String]>,
+    ) -> Result<u64, ApiError> {
+        let now_ms = chrono::Utc::now().timestamp_millis();
+
+        let targets: Vec<String> = match addresses {
+            Some(list) => list.iter().map(|a| a.to_lowercase()).collect(),
+            None => sqlx::query_scalar::<_, String>("SELECT address FROM subscriptions")
+                .fetch_all(&self.pool)
+                .await?,
+        };
+
+        if targets.is_empty() {
+            return Ok(0);
+        }
+
+        // One row per address; a fresh UUID per row. UNNEST keeps this a single
+        // round-trip regardless of audience size.
+        let ids: Vec<Uuid> = (0..targets.len()).map(|_| Uuid::new_v4()).collect();
+        let res = sqlx::query(
+            r#"
+            INSERT INTO notifications
+                (id, address, type, metadata, broadcast_address, timestamp)
+            SELECT * FROM UNNEST(
+                $1::uuid[],
+                $2::text[],
+                ARRAY(SELECT $3::text FROM generate_series(1, array_length($1, 1))),
+                ARRAY(SELECT $4::jsonb FROM generate_series(1, array_length($1, 1))),
+                ARRAY(SELECT $5::text FROM generate_series(1, array_length($1, 1))),
+                ARRAY(SELECT $6::bigint FROM generate_series(1, array_length($1, 1)))
+            )
+            "#,
+        )
+        .bind(&ids)
+        .bind(&targets)
+        .bind(kind)
+        .bind(metadata)
+        .bind(broadcast_id)
+        .bind(now_ms)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(res.rows_affected())
+    }
+
     pub async fn mark_read(&self, address: &str, ids: &[Uuid]) -> Result<u64, ApiError> {
         let now_ms = chrono::Utc::now().timestamp_millis();
         let res = sqlx::query(

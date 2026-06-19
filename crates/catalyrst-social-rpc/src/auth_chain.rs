@@ -48,6 +48,18 @@ pub fn build_payload(method: &str, path: &str, timestamp: &str, metadata: &str) 
     format!("{}:{}:{}:{}", method, path, timestamp, metadata).to_lowercase()
 }
 
+/// Behind the svc.dcl.one front-host proxy, nginx strips the service prefix before
+/// proxying but the client signs the full external path (incl. prefix). nginx
+/// forwards the original path in `x-original-path`; prefer it for signed-fetch
+/// payload reconstruction so it matches what the client signed. Falls back to the
+/// hardcoded route path for direct/loopback requests (no header).
+fn signed_fetch_path<'a>(headers: &HeaderMap, fallback: &'a str) -> std::borrow::Cow<'a, str> {
+    match headers.get("x-original-path").and_then(|v| v.to_str().ok()) {
+        Some(raw) => std::borrow::Cow::Owned(raw.split('?').next().unwrap_or(raw).to_string()),
+        None => std::borrow::Cow::Borrowed(fallback),
+    }
+}
+
 fn obj_str<'a>(obj: &'a serde_json::Map<String, Value>, key: &str) -> Option<&'a str> {
     obj.iter()
         .find(|(k, _)| k.eq_ignore_ascii_case(key))
@@ -211,6 +223,8 @@ pub fn require_signer(
     method: &str,
     path: &str,
 ) -> Result<String, AuthChainError> {
+    let path = signed_fetch_path(headers, path);
+    let path = path.as_ref();
     let mut value = serde_json::Map::new();
     for (name, val) in headers.iter() {
         if let Ok(s) = val.to_str() {

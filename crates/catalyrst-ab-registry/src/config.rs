@@ -4,17 +4,11 @@ use std::env;
 pub struct Config {
     pub http_host: String,
     pub http_port: u16,
-
     pub content_database_url: String,
-
     pub ab_registry_database_url: Option<String>,
-
     pub abgen_out_root: String,
-
     pub admin_token: Option<String>,
-
     pub profile_images_url: String,
-
     pub denylist_moderators: Vec<String>,
 }
 

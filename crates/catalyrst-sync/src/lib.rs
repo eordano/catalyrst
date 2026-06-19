@@ -23,6 +23,36 @@ pub use catalyrst_types::{AuthChain, AuthLink, AuthLinkType};
 
 pub type EntityType = String;
 
+// Accept `entityTimestamp` / `localTimestamp` as either an integer or a float
+// (e.g. `1581016728515` or `1581016728515.0`). Some catalyst snapshot generators
+// emit epoch-ms as a float; a strict i64 deserialize rejects those, which silently
+// breaks snapshot bootstrap (every line fails to parse) and forces the slow
+// pointer-changes fallback. Tolerate both.
+fn de_timestamp<'de, D>(d: D) -> Result<Timestamp, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let n = serde_json::Number::deserialize(d)?;
+    n.as_i64()
+        .or_else(|| n.as_f64().map(|f| f as i64))
+        .ok_or_else(|| serde::de::Error::custom("invalid timestamp number"))
+}
+
+fn de_timestamp_opt<'de, D>(d: D) -> Result<Option<Timestamp>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let opt = Option::<serde_json::Number>::deserialize(d)?;
+    match opt {
+        None => Ok(None),
+        Some(n) => n
+            .as_i64()
+            .or_else(|| n.as_f64().map(|f| f as i64))
+            .map(Some)
+            .ok_or_else(|| serde::de::Error::custom("invalid timestamp number")),
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SyncDeployment {
@@ -30,8 +60,9 @@ pub struct SyncDeployment {
     pub entity_type: EntityType,
     pub pointers: Vec<Pointer>,
     pub auth_chain: AuthChain,
+    #[serde(deserialize_with = "de_timestamp")]
     pub entity_timestamp: Timestamp,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, deserialize_with = "de_timestamp_opt", skip_serializing_if = "Option::is_none")]
     pub local_timestamp: Option<Timestamp>,
 }
 

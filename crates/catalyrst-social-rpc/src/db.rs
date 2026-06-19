@@ -682,6 +682,47 @@ impl Db {
         }))
     }
 
+    /// Admin read: every non-expired 1:1 voice chat, newest first. Backs the
+    /// admin "active voice calls" view.
+    pub async fn list_active_private_voice_chats(
+        &self,
+        limit: i64,
+    ) -> Result<Vec<(Uuid, String, String, DateTime<Utc>, DateTime<Utc>)>, DbError> {
+        let rows = sqlx::query(
+            r#"SELECT id, caller_address, callee_address, created_at, expires_at
+               FROM private_voice_chats
+               WHERE expires_at > now()
+               ORDER BY created_at DESC
+               LIMIT $1"#,
+        )
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|r| {
+                (
+                    r.get::<Uuid, _>("id"),
+                    r.get::<String, _>("caller_address"),
+                    r.get::<String, _>("callee_address"),
+                    r.get::<chrono::NaiveDateTime, _>("created_at").and_utc(),
+                    r.get::<chrono::NaiveDateTime, _>("expires_at").and_utc(),
+                )
+            })
+            .collect())
+    }
+
+    /// Admin mutation: reset a user's social settings to the schema defaults by
+    /// deleting their row (reads fall back to `SocialSettingsRow::default`).
+    /// Returns whether a row existed.
+    pub async fn reset_social_settings(&self, address: &str) -> Result<bool, DbError> {
+        let res = sqlx::query(r#"DELETE FROM social_settings WHERE address = $1"#)
+            .bind(address.to_lowercase())
+            .execute(&self.pool)
+            .await?;
+        Ok(res.rows_affected() > 0)
+    }
+
     pub async fn delete_private_voice_chat(&self, call_id: Uuid) -> Result<(), DbError> {
         sqlx::query(r#"DELETE FROM private_voice_chats WHERE id = $1"#)
             .bind(call_id)

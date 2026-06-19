@@ -1,27 +1,6 @@
 use crate::state::AppState;
 use serde_json::{json, Value};
 
-pub const READ_ONLY_METHODS: &[&str] = &[
-    "eth_getTransactionReceipt",
-    "eth_estimateGas",
-    "eth_call",
-    "eth_getBalance",
-    "eth_getStorageAt",
-    "eth_blockNumber",
-    "eth_gasPrice",
-    "eth_protocolVersion",
-    "net_version",
-    "web3_sha3",
-    "web3_clientVersion",
-    "eth_getTransactionCount",
-    "eth_getBlockByNumber",
-    "eth_getCode",
-];
-
-pub fn is_allowed(method: &str) -> bool {
-    READ_ONLY_METHODS.contains(&method)
-}
-
 fn rpc_error(id: Value, code: i64, message: &str) -> Value {
     json!({
         "jsonrpc": "2.0",
@@ -63,7 +42,7 @@ pub async fn handle_single(state: &AppState, network: &str, req: Value) -> Value
         None => return rpc_error(id, -32600, "Invalid Request: missing method"),
     };
 
-    if !is_allowed(method) {
+    if !state.is_method_allowed(method) {
         return rpc_error(
             id,
             -32601,
@@ -71,14 +50,14 @@ pub async fn handle_single(state: &AppState, network: &str, req: Value) -> Value
         );
     }
 
-    let upstream = match state.cfg.upstream_for(network) {
+    let upstream = match state.upstream_for(network) {
         Some(u) => u,
         None => {
             return rpc_error(id, -32602, &format!("Unsupported network: {network}"));
         }
     };
 
-    forward(state, upstream, id, req).await
+    forward(state, &upstream, id, req).await
 }
 
 async fn forward(state: &AppState, upstream: &str, id: Value, req: Value) -> Value {

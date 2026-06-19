@@ -4,14 +4,15 @@ pub mod relay;
 pub mod state;
 
 pub use config::Config;
-pub use state::{AppState, AppStateInner};
+pub use state::{AppState, AppStateInner, READ_ONLY_METHODS};
 
 use anyhow::Result;
 use axum::Router;
-use std::sync::Arc;
+use std::collections::{BTreeMap, BTreeSet};
+use std::sync::{Arc, RwLock};
 
 pub fn api_router() -> Router<AppState> {
-    modules::rpc::routes()
+    modules::rpc::routes().merge(modules::admin::routes())
 }
 
 pub async fn build_state(cfg: Config) -> Result<AppState> {
@@ -30,10 +31,34 @@ pub async fn build_state(cfg: Config) -> Result<AppState> {
         }
     }
 
+    let admin_token = std::env::var("CATALYRST_RPC_ADMIN_TOKEN")
+        .ok()
+        .filter(|t| !t.is_empty());
+    if admin_token.is_none() {
+        tracing::warn!(
+            "CATALYRST_RPC_ADMIN_TOKEN unset; /admin/rpc/* routes will fail closed (403)"
+        );
+    }
+
+    let allowed_methods: BTreeSet<String> =
+        READ_ONLY_METHODS.iter().map(|m| m.to_string()).collect();
+    let upstreams: BTreeMap<String, String> = cfg
+        .upstreams
+        .iter()
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect();
+
     tracing::info!(
-        networks = ?cfg.upstreams.keys().collect::<Vec<_>>(),
+        networks = ?upstreams.keys().collect::<Vec<_>>(),
+        methods = allowed_methods.len(),
         "catalyrst-rpc wired"
     );
 
-    Ok(Arc::new(AppStateInner { cfg, http }))
+    Ok(Arc::new(AppStateInner {
+        cfg,
+        http,
+        allowed_methods: RwLock::new(allowed_methods),
+        upstreams: RwLock::new(upstreams),
+        admin_token,
+    }))
 }

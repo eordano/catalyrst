@@ -12,26 +12,18 @@ use std::time::Duration;
 #[command(name = "catalyrst-conformance-capture", version)]
 #[command(about = "Capture a single HTTP request/response pair to a fixture JSON file.")]
 struct Args {
-
     #[arg(long)]
     peer: String,
-
     #[arg(long, short = 'o')]
     output: PathBuf,
-
     #[arg(long)]
     description: Option<String>,
-
     #[arg(long, value_delimiter = ',')]
     volatile_paths: Vec<String>,
-
     #[arg(long, default_value_t = 30)]
     timeout_secs: u64,
-
     method: String,
-
     path: String,
-
     body: Option<String>,
 }
 
@@ -92,7 +84,6 @@ async fn main() -> Result<()> {
             if key == "content-type" {
                 content_type = Some(s.to_string());
             }
-
             if matches!(
                 key.as_str(),
                 "content-type" | "content-length" | "etag" | "cache-control"
@@ -164,7 +155,6 @@ async fn main() -> Result<()> {
     );
 
     if status >= 400 {
-
         eprintln!("note: captured response is an error ({}).", status);
     }
 

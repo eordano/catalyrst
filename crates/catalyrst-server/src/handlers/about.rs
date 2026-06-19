@@ -114,6 +114,8 @@ pub struct AboutComms {
     pub users_count: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub adapter: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fixed_adapter: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -311,6 +313,11 @@ fn build_comms_config(probe: CommsProbe) -> AboutComms {
         commit_hash: env.comms_commit_hash.clone(),
         users_count: Some(probe.user_count),
         adapter: if env.comms_fixed_adapter.is_empty() {
+            None
+        } else {
+            Some(env.comms_fixed_adapter.clone())
+        },
+        fixed_adapter: if env.comms_fixed_adapter.is_empty() {
             None
         } else {
             Some(env.comms_fixed_adapter.clone())

@@ -8,7 +8,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
-use axum::routing::{get, post};
+use axum::routing::{get, patch, post};
 use axum::Router;
 use reqwest::Client;
 use sqlx::postgres::PgPoolOptions;
@@ -24,6 +24,7 @@ pub struct AppStateInner {
     pub newsletter_service_url: Option<String>,
     pub newsletter_publication_id: Option<String>,
     pub newsletter_api_key: Option<String>,
+    pub admin_token: Option<String>,
     pub http: Client,
 }
 
@@ -51,6 +52,7 @@ pub async fn build_state(cfg: &Config) -> Result<AppState> {
         newsletter_service_url: cfg.newsletter_service_url.clone(),
         newsletter_publication_id: cfg.newsletter_publication_id.clone(),
         newsletter_api_key: cfg.newsletter_api_key.clone(),
+        admin_token: cfg.admin_token.clone(),
         http: reqwest::Client::builder()
             .timeout(Duration::from_secs(10))
             .build()
@@ -74,4 +76,12 @@ pub fn api_router() -> Router<AppState> {
             get(handlers::storage::head_storage_content_exists),
         )
         .route("/v1/newsletter", post(handlers::newsletter::post_newsletter))
+        .route(
+            "/v1/collections/{id}/items/{item}/status",
+            patch(handlers::curation::patch_item_status),
+        )
+        .route(
+            "/v1/collections/{id}/items/status",
+            patch(handlers::curation::patch_items_status_bulk),
+        )
 }

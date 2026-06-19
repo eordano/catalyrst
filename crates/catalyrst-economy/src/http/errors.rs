@@ -37,6 +37,8 @@ pub enum ApiError {
     #[error("{0}")]
     RelayerTimeout(String),
     #[error("{0}")]
+    Forbidden(String),
+    #[error("{0}")]
     NotFound(String),
     #[error("{0}")]
     MissingTransactionData(String),
@@ -60,6 +62,7 @@ impl ApiError {
             ApiError::HighCongestion(_) => (503, Some(code::HIGH_CONGESTION)),
             ApiError::RelayerUnavailable(_) => (503, Some(code::UNKNOWN)),
             ApiError::RelayerTimeout(_) => (504, Some(code::UNKNOWN)),
+            ApiError::Forbidden(_) => (403, Some(code::UNKNOWN)),
             ApiError::NotFound(_) => (404, Some(code::UNKNOWN)),
             ApiError::MissingTransactionData(_) => (400, None),
             ApiError::MalformedBody(_) => (500, None),

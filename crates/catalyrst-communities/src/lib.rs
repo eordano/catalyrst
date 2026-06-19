@@ -49,13 +49,6 @@ pub struct AppStateInner {
     pub mutes_pool: Option<PgPool>,
     pub replay: Arc<Replay>,
     pub limiter: Arc<RateLimiter>,
-    /// Federation gossip transport. Per `docs/federation/communities.md §5`,
-    /// communities federate via HTTP-snapshot pull (the
-    /// `/federation/communities/*` endpoints), NOT live gossip, so this is the
-    /// `NoopPublisher` by default. It is wired here for symmetry with places and
-    /// so an operator can opt a community deploy into NATS push via
-    /// `FED_GOSSIP=nats`; the snapshot-pull path stays the canonical
-    /// reconciliation mechanism either way.
     pub gossip: Arc<dyn catalyrst_fed::GossipPublisher>,
     pub domain: Eip712Domain,
     pub content_store: Arc<ContentStore>,
@@ -84,9 +77,6 @@ pub async fn build_state(cfg: &Config) -> Result<AppState> {
         .context("failed to load replay state")?;
     let limiter = Arc::new(RateLimiter::new(60, Duration::from_secs(60)));
 
-    // Gossip transport selected via FED_GOSSIP / FED_NATS_URL / FED_PEER_ID
-    // (defaults to Disabled = NoopPublisher; communities reconcile via
-    // HTTP-snapshot pull regardless).
     let gossip = catalyrst_fed::build_publisher(&catalyrst_fed::GossipConfig::from_env()).await;
     tracing::info!(gossip_live = gossip.is_live(), "communities gossip publisher ready");
 
@@ -175,9 +165,6 @@ pub async fn build_state(cfg: &Config) -> Result<AppState> {
         global_moderators: cfg.global_moderators.clone(),
     });
 
-    // Spawn the federation gossip consumer apply-loop (communities.md §5). No-op
-    // when gossip reaches no peers (the default; peers reconcile via
-    // HTTP-snapshot pull). Live under FED_GOSSIP=nats.
     crate::fed::consumer::spawn(state.clone()).await;
 
     Ok(state)
@@ -191,6 +178,10 @@ pub fn api_router() -> Router<AppState> {
             get(handlers::mutes::get_mutes)
                 .post(handlers::mutes::add_mute)
                 .delete(handlers::mutes::remove_mute),
+        )
+        .route(
+            "/social/communities/{id}/raw-thumbnail.png",
+            get(handlers::communities::get_raw_thumbnail),
         )
         .route(
             "/v1/communities/{id}",
@@ -263,6 +254,18 @@ pub fn api_router() -> Router<AppState> {
         .route(
             "/v1/moderation/communities",
             get(handlers::moderation::get_moderation_communities),
+        )
+        .route(
+            "/v1/admin/communities",
+            get(handlers::admin::list_communities),
+        )
+        .route(
+            "/v1/admin/communities/{id}/suspend",
+            post(handlers::admin::suspend_community),
+        )
+        .route(
+            "/v1/admin/communities/{id}/unsuspend",
+            post(handlers::admin::unsuspend_community),
         )
         .route(
             "/federation/communities/snapshot",

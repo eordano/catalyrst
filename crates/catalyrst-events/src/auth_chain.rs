@@ -44,6 +44,18 @@ pub fn build_payload(method: &str, path: &str, timestamp: &str, metadata: &str) 
     format!("{}:{}:{}:{}", method, path, timestamp, metadata).to_lowercase()
 }
 
+/// Behind the svc.dcl.one front-host proxy, nginx strips the service prefix before
+/// proxying but the client signs the full external path (incl. prefix). nginx
+/// forwards the original path in `x-original-path`; prefer it for signed-fetch
+/// payload reconstruction so it matches what the client signed. Falls back to the
+/// hardcoded route path for direct/loopback requests (no header).
+fn signed_fetch_path<'a>(headers: &HeaderMap, fallback: &'a str) -> std::borrow::Cow<'a, str> {
+    match headers.get("x-original-path").and_then(|v| v.to_str().ok()) {
+        Some(raw) => std::borrow::Cow::Owned(raw.split('?').next().unwrap_or(raw).to_string()),
+        None => std::borrow::Cow::Borrowed(fallback),
+    }
+}
+
 fn header_str<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {
     headers.get(name).and_then(|v| v.to_str().ok())
 }
@@ -168,6 +180,8 @@ pub fn try_extract(headers: &HeaderMap) -> Option<AuthChain> {
 }
 
 pub fn try_extract_signer(headers: &HeaderMap, method: &str, path: &str) -> Option<String> {
+    let path = signed_fetch_path(headers, path);
+    let path = path.as_ref();
     let chain = try_extract(headers)?;
     let ts = header_str(headers, AUTH_TIMESTAMP_HEADER)?.to_string();
     let metadata = header_str(headers, AUTH_METADATA_HEADER).unwrap_or("{}").to_string();
@@ -181,6 +195,8 @@ pub fn require_signer(
     method: &str,
     path: &str,
 ) -> Result<String, AuthChainError> {
+    let path = signed_fetch_path(headers, path);
+    let path = path.as_ref();
     let chain = extract_auth_chain(headers)?;
     let ts = header_str(headers, AUTH_TIMESTAMP_HEADER)
         .ok_or(AuthChainError::MissingTimestamp)?

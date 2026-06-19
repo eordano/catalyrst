@@ -194,9 +194,7 @@ impl ActiveEntities {
         for p in pointers {
             let key = p.to_lowercase();
             if let Some(Some(old_eid)) = pcache.get(&key) {
-                if let Some(CachedEntity::Active(old_entity)) = ecache.get(old_eid) {
-                    let _old_pointers: Vec<String> =
-                        old_entity.pointers.iter().map(|p| p.to_lowercase()).collect();
+                if ecache.get(old_eid).map(|c| c.is_active()).unwrap_or(false) {
                     let old_id = old_eid.clone();
                     ecache.insert(old_id, CachedEntity::NotActive);
                 }

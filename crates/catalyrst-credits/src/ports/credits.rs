@@ -201,11 +201,8 @@ impl CreditsComponent {
     pub async fn claim_credits(&self, address: &str) -> Result<ClaimOutcome, ApiError> {
         let mut tx = self.pool.begin().await?;
 
-        // Read the balance as exact text, never through f64. Credit amounts are
-        // MANA wei (BigInt, 18 decimals); values like 123123456789012345678
-        // exceed f64's 2^53 exact range and would silently drift if read as
-        // float8. We keep the canonical value as a NUMERIC-formatted string and
-        // only convert to f64 at the JSON edge (the `number`-typed API field).
+        // Read the balance as exact NUMERIC text: MANA wei exceeds f64's 2^53
+        // range and would silently drift. Convert to f64 only at the JSON edge.
         let row = sqlx::query(
             "SELECT available::text AS available, available > 0 AS positive, \
                     is_blocked_for_claiming \
@@ -242,8 +239,7 @@ impl CreditsComponent {
             });
         }
 
-        // Move the exact balance into the ledger atomically: the granted amount
-        // is the pre-zeroing NUMERIC value, recorded losslessly via $2::numeric.
+        // Zero the balance and record the pre-zeroing value into the ledger atomically.
         sqlx::query(
             "WITH moved AS ( \
                  UPDATE user_credits \
@@ -261,8 +257,6 @@ impl CreditsComponent {
 
         tx.commit().await?;
 
-        // The API field is `number`; parse only for that representation. The
-        // ledger above already holds the exact value.
         let credits_granted = available_str.parse::<f64>().unwrap_or(0.0);
 
         Ok(ClaimOutcome {

@@ -166,6 +166,20 @@ pub struct UpdateVisibility {
     pub is_public: bool,
 }
 
+/// Body for the moderator review PATCH. `review_status` must be one of
+/// `ok` | `flagged` | `rejected`.
+#[derive(Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateReview {
+    pub review_status: String,
+}
+
+impl UpdateReview {
+    pub fn is_valid(&self) -> bool {
+        matches!(self.review_status.as_str(), "ok" | "flagged" | "rejected")
+    }
+}
+
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct GetMultiplePlacesImagesBody {

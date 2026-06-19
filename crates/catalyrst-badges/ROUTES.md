@@ -12,7 +12,23 @@ All routes are `auth:none`. `{address}` is lowercased before lookup.
 | GET | `/users/{address}/preview` | implemented | `{"data":{"latestAchievedBadges":[{id,name,tierName,image}]}}` | `FetchLatestAchievedBadgesAsync` |
 | GET | `/users/{address}/badges?includeNotAchieved={true\|false}` | implemented | `{"data":{"achieved":[BadgeData],"notAchieved":[BadgeData]}}` | `FetchBadgesAsync` |
 | GET | `/badges/{badgeId}/tiers` | implemented | `{"data":{"tiers":[{tierId,tierName,description,assets,criteria{steps}}]}}` | `FetchTiersAsync` |
+| POST | `/users/{address}/badges/{badgeId}` | implemented | `{"data":{"granted":true,address,badgeId,tierId}}` | admin (bearer) |
+| DELETE | `/users/{address}/badges/{badgeId}` | implemented | `{"data":{"revoked":true,address,badgeId}}` | admin (bearer) |
 | GET | `/ping` | implemented | `pong` (health) | — |
+
+## Admin grant/revoke (bearer-gated)
+
+`POST`/`DELETE /users/{address}/badges/{badgeId}` are the only mutating routes.
+They are gated by `Authorization: Bearer <CATALYRST_BADGES_ADMIN_TOKEN>`, compared
+in constant time. If the env var is unset the routes fail closed (403). Read-only
+routes above are unaffected.
+
+- **Grant** (`POST`): for a non-tier badge, marks it complete (`completed_at=now`,
+  `steps_done>=1`). For a tier badge, records an achieved tier — optional body
+  `{"tierId":"<id>"}` selects the tier; default is the highest-ordinal tier.
+  Idempotent. `404` if the badge id is unknown.
+- **Revoke** (`DELETE`): deletes the user's progress + achieved-tier rows for the
+  badge. Idempotent. `404` if the badge id is unknown.
 
 `BadgeData` = `{id,name,description,category,isTier,completedAt,assets{2d{normal,hrm,baseColor},3d{...}},progress{stepsDone,nextStepsTarget,totalStepsTarget,lastCompletedTierAt,lastCompletedTierName,lastCompletedTierImage,achievedTiers[{tierId,completedAt}]}}`
 — matches Unity `DCL.BadgesAPIService.BadgeData` exactly (assets keys `2d`/`3d`).
@@ -29,6 +45,8 @@ the Unity client parses them with `long.Parse(...)` + `FromUnixTimeMilliseconds`
   `user_achieved_tiers`. Categories derived via `DISTINCT category`.
 - `0002_seed_fixture.sql` — Stage-1 static fixture for definitions + tiers so the
   Unity passport renders against a fresh DB (idempotent `ON CONFLICT DO NOTHING`).
+- `0003_admin_grant_audit.sql` — adds nullable `granted_by` (both user tables) and
+  `granted_at` (achieved-tiers) to record provenance of admin grants.
 
 ## Staging
 

@@ -113,8 +113,7 @@ impl DeploymentService {
 
         let hashes: HashMap<ContentHash, Vec<u8>> = match files {
             DeploymentFiles::Hashed(map) => map,
-            DeploymentFiles::Raw(buffers) => {
-                let _ = buffers;
+            DeploymentFiles::Raw(_) => {
                 return DeploymentResult::Invalid(vec![
                     "Raw (unhashed) file upload not yet implemented in catalyrst-deployer; supply pre-hashed files.".into()
                 ]);
@@ -138,16 +137,9 @@ impl DeploymentService {
             }
         };
 
-        // Entity-id reconciliation (mirrors the reference content-server +
-        // `DeploymentBuilder`). A standard catalyst-client deploy uploads an
-        // id-less entity file; its id is `hashV1(idless_file)`, supplied
-        // out-of-band as the multipart `entityId` field — which is also the
-        // hash key (`entity_id`) under which the file bytes are stored here. So:
-        //   * if the file carries no `id`, adopt the deploy's `entity_id`;
-        //   * if it carries one, it MUST equal `entity_id` (a mismatched
-        //     embedded id is a forged/inconsistent deploy and is rejected).
-        // Either way `entity.id` ends up bound to the content hash, keeping the
-        // downstream validator's `entity.id == entity_id` invariant intact.
+        // `entity_id` is the content hash the file bytes were stored under. Bind
+        // the entity to it; a mismatched embedded id is a forged deploy and is
+        // rejected, preserving the validator's `entity.id == entity_id` invariant.
         if entity.id.is_empty() {
             entity.id = entity_id.to_string();
         } else if entity.id != entity_id {
@@ -433,10 +425,6 @@ mod tests {
 
     #[test]
     fn entity_deserializes_without_id_field() {
-        // Standard catalyst-client deploys upload an id-less entity file; the
-        // id is hashV1(file), supplied out-of-band. The Entity struct must
-        // parse such a file (id defaults to empty, then the deployer binds it
-        // to the content hash). Previously this failed (no serde default).
         let idless = r#"{
             "type": "scene",
             "pointers": ["0,0"],
@@ -447,8 +435,6 @@ mod tests {
         assert_eq!(e.id, "");
         assert_eq!(e.pointers, vec!["0,0".to_string()]);
 
-        // A file that DOES carry an id still parses (id preserved for the
-        // deployer's match-or-reject check).
         let with_id = r#"{
             "id": "bafkreitest",
             "type": "scene",

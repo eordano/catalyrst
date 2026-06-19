@@ -1,22 +1,7 @@
-//! Federation gossip consumer apply-loop (communities.md §5, 00-primitives.md §2).
-//!
-//! Communities canonically reconcile peers via HTTP-snapshot pull
-//! (`/federation/communities/{snapshot,changes}`), so live gossip is OFF by
-//! default and this loop is a no-op (`subscribe` -> `None`). When an operator
-//! opts a deploy into NATS push (`FED_GOSSIP=nats`), this loop receives the
-//! same `Signed<T>` envelopes the local write path publishes and applies them
-//! through the identical verify/replay/authority machinery — so a community-key
-//! authority chain (communities.md §3) is enforced on remote actions exactly as
-//! on local ones. Gossip is never trusted because a peer forwarded it.
-//!
-//! For each remote envelope:
-//!   1. decode the inner `Signed<T>` by `primary_type`,
-//!   2. recover signer + `verify` (skew + ecrecover, §2.1/§2.2),
-//!   3. domain check, replay check, per-wallet rate limit (§2.2/§2.4),
-//!   4. the same authority gate the matching HTTP handler runs
-//!      (`require_min_role` / `can_grant` / `community_exists`),
-//!   5. apply via the shared `fed::apply::*` functions (idempotent on
-//!      `signature_hash`, so re-delivery is harmless).
+//! Federation gossip consumer apply-loop. Off by default (communities reconcile
+//! via HTTP-snapshot pull); live under `FED_GOSSIP=nats`. Remote envelopes are
+//! never trusted for being forwarded by a peer: each runs the identical
+//! verify/replay/rate-limit + authority gate as the matching HTTP write handler.
 
 use catalyrst_fed::{GossipEnvelope, RateLimitDecision, Scope, Signed, TypedMessage};
 
@@ -73,8 +58,8 @@ fn decode<T: TypedMessage + serde::de::DeserializeOwned>(
 }
 
 /// Verify the envelope's inner signature, domain, replay, and rate-limit — the
-/// same checks `handlers::writes::preflight` runs, minus the HTTP auth-chain
-/// header (gossip carries only the signature). Returns the recovered wallet.
+/// same checks `writes::preflight` runs, minus the HTTP auth-chain header (gossip
+/// carries only the signature). Returns the recovered wallet.
 async fn preverify<T: TypedMessage + serde::de::DeserializeOwned>(
     state: &AppState,
     signed: &Signed<T>,
@@ -136,7 +121,6 @@ async fn apply_envelope(state: &AppState, env: &GossipEnvelope) -> Result<(), St
             {
                 return Err("community does not exist".to_string());
             }
-            // banned users cannot self-join (mirrors add_member handler)
             if load_role(pool, &signed.message.community_id, &signer)
                 .await
                 .map_err(me)?
@@ -215,10 +199,8 @@ async fn apply_envelope(state: &AppState, env: &GossipEnvelope) -> Result<(), St
         CommunityPostDelete::PRIMARY_TYPE => {
             let signed = decode::<CommunityPostDelete>(env)?;
             let signer = preverify(state, &signed).await?;
-            // delete is allowed for the author OR a mod+ (mirrors delete_post:
-            // mod-gate enforced when the signer is not the post author). We
-            // re-check mod role here; author-self-delete is covered by the
-            // signature already binding the actor.
+            // Author-self-delete is allowed (the signature binds the actor); the
+            // mod check only gates non-authors, so its result is advisory here.
             let _ = require_min_role(pool, &signed.message.community_id, &signer, Role::Mod).await;
             apply::apply_post_delete(pool, &signed).await.map_err(me)?;
         }

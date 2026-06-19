@@ -876,16 +876,6 @@ fn op_read_file(
     rv.set(result.into());
 }
 
-/// `UserIdentity.getUserData() -> {}` and `SignedFetch.getHeaders() -> {}`.
-fn op_empty_object(
-    scope: &mut v8::PinScope,
-    _args: v8::FunctionCallbackArguments,
-    mut rv: v8::ReturnValue,
-) {
-    let result = v8::Object::new(scope);
-    rv.set(result.into());
-}
-
 /// Stub for ASYNC host methods: returns `Promise.resolve({})`. SDK7 awaits /
 /// `.then()`s these (e.g. RestrictedActions.movePlayerTo), so a plain object
 /// fails with "n(...).then is not a function".

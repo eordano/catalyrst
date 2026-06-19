@@ -1,5 +1,4 @@
 use std::net::IpAddr;
-use std::time::Duration;
 
 use axum::extract::{Query, State};
 use axum::http::{header, HeaderMap, HeaderValue, StatusCode};
@@ -65,32 +64,47 @@ async fn resolve_pinned(url: &reqwest::Url) -> Option<std::net::SocketAddr> {
     Some(addrs[0])
 }
 
+fn build_response(status: StatusCode, content_type: &str, body: Vec<u8>) -> Response {
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_str(content_type)
+            .unwrap_or(HeaderValue::from_static("application/octet-stream")),
+    );
+    headers.insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("public, max-age=86400"),
+    );
+    (status, headers, body).into_response()
+}
+
 pub async fn convert(
     State(state): State<AppState>,
     Query(p): Query<ConvertParams>,
 ) -> Response {
+    // Fast path: serve a fresh cached GET 2xx for this exact URL without any
+    // DNS/connect/external round-trip.
+    if let Some((status, content_type, body)) = state.convert_cache_get(&p.url) {
+        let status = StatusCode::from_u16(status).unwrap_or(StatusCode::OK);
+        return build_response(status, &content_type, body);
+    }
+
     let mut current = match reqwest::Url::parse(&p.url) {
         Ok(u) if matches!(u.scheme(), "http" | "https") => u,
         _ => return (StatusCode::BAD_REQUEST, "url must be http(s)").into_response(),
     };
 
     // Manual redirect following so the SSRF guard re-runs on every hop, with the
-    // connection PINNED to the validated IP (redirects are not auto-followed).
-    let _ = &state; // fetch_client is no longer used; per-request pinned clients below
+    // connection PINNED to the validated IP (redirects are not auto-followed). The
+    // pinned client is reused across requests (keyed by the validated host+addr),
+    // so a warm TLS connection survives instead of a fresh handshake per call.
     let mut hops = 0;
     let upstream = loop {
         let Some(pinned) = resolve_pinned(&current).await else {
             return (StatusCode::FORBIDDEN, "url host is not publicly routable").into_response();
         };
         let host = current.host_str().unwrap_or_default().to_string();
-        let client = match reqwest::Client::builder()
-            .connect_timeout(Duration::from_secs(10))
-            .timeout(Duration::from_secs(30))
-            .user_agent("catalyrst-media-converter/0.1")
-            .redirect(reqwest::redirect::Policy::none())
-            .resolve(&host, pinned)
-            .build()
-        {
+        let client = match state.pinned_client(&host, pinned) {
             Ok(c) => c,
             Err(e) => {
                 return (StatusCode::BAD_GATEWAY, format!("client build failed: {e}"))
@@ -149,15 +163,11 @@ pub async fn convert(
         }
     };
 
-    let mut headers = HeaderMap::new();
-    headers.insert(
-        header::CONTENT_TYPE,
-        HeaderValue::from_str(&content_type)
-            .unwrap_or(HeaderValue::from_static("application/octet-stream")),
-    );
-    headers.insert(
-        header::CACHE_CONTROL,
-        HeaderValue::from_static("public, max-age=86400"),
-    );
-    (status, headers, bytes).into_response()
+    let body = bytes.to_vec();
+    // Cache successful responses keyed by the original request URL so repeat
+    // proxies of the same source are served from memory (sub-ms) within the TTL.
+    if status.is_success() {
+        state.convert_cache_put(&p.url, status.as_u16(), &content_type, &body);
+    }
+    build_response(status, &content_type, body)
 }

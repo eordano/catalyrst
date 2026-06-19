@@ -205,7 +205,25 @@ pub fn api_router() -> Router<AppState> {
             get(handlers::destinations::get_destinations_list)
                 .post(handlers::destinations::post_destinations_list_by_id),
         )
-        .route("/status", get(handlers::status::status));
+        .route("/status", get(handlers::status::status))
+        // LATER admin-console controls (admin-console.md §4), admin-bearer
+        // gated. Route ordering: place these specific paths before the
+        // `/places/{place_id}` catch-all is unaffected (axum matches exact
+        // segments first); disable lives under the place namespace.
+        .route("/reports", get(handlers::admin::get_reports))
+        .route("/reports/{id}", patch(handlers::admin::patch_report))
+        .route(
+            "/places/{place_id}/disable",
+            patch(handlers::admin::patch_place_disable),
+        )
+        .route(
+            "/pois",
+            get(handlers::admin::get_pois).post(handlers::admin::post_poi),
+        )
+        .route(
+            "/pois/{position}",
+            patch(handlers::admin::patch_poi).delete(handlers::admin::delete_poi),
+        );
 
     let social = Router::new()
         .route("/place", get(handlers::social::inject_place_metadata))

@@ -23,19 +23,14 @@ const VOLATILE_HEADERS: &[&str] = &[
 #[command(name = "catalyrst-conformance-replay", version)]
 #[command(about = "Replay recorded fixture files against a candidate host and diff the responses.")]
 struct Args {
-
     #[arg(long)]
     candidate: String,
-
     #[arg(long, default_value = "fixtures/")]
     fixtures: PathBuf,
-
     #[arg(long)]
     filter: Option<String>,
-
     #[arg(long, default_value_t = 30)]
     timeout_secs: u64,
-
     #[arg(long, default_value_t = false)]
     verbose: bool,
 }
@@ -151,7 +146,7 @@ async fn replay_one(
         Ok(s) => s,
         Err(e) => {
             outcome.notes.push(format!("read error: {e}"));
-            print_outcome(&outcome, verbose);
+            print_outcome(&outcome);
             return outcome;
         }
     };
@@ -159,7 +154,7 @@ async fn replay_one(
         Ok(f) => f,
         Err(e) => {
             outcome.notes.push(format!("parse error: {e}"));
-            print_outcome(&outcome, verbose);
+            print_outcome(&outcome);
             return outcome;
         }
     };
@@ -170,7 +165,7 @@ async fn replay_one(
             outcome
                 .notes
                 .push(format!("invalid method {:?}: {e}", fixture.request.method));
-            print_outcome(&outcome, verbose);
+            print_outcome(&outcome);
             return outcome;
         }
     };
@@ -182,7 +177,6 @@ async fn replay_one(
         req = req.query(&qp);
     }
     for (k, v) in &fixture.request.headers {
-
         if k.eq_ignore_ascii_case("content-type") && fixture.request.body.is_some() {
             continue;
         }
@@ -196,7 +190,7 @@ async fn replay_one(
         Ok(r) => r,
         Err(e) => {
             outcome.notes.push(format!("HTTP error: {e}"));
-            print_outcome(&outcome, verbose);
+            print_outcome(&outcome);
             return outcome;
         }
     };
@@ -246,13 +240,12 @@ async fn replay_one(
         Ok(b) => b,
         Err(e) => {
             outcome.notes.push(format!("body read error: {e}"));
-            print_outcome(&outcome, verbose);
+            print_outcome(&outcome);
             return outcome;
         }
     };
 
     if let Some(expected_b64) = &fixture.response.body_bytes_b64 {
-
         match B64.decode(expected_b64.as_bytes()) {
             Ok(expected) => {
                 if expected.as_slice() != bytes.as_ref() {
@@ -277,7 +270,7 @@ async fn replay_one(
                 outcome
                     .notes
                     .push(format!("candidate body is not valid JSON: {e}"));
-                print_outcome(&outcome, verbose);
+                print_outcome(&outcome);
                 outcome.passed = outcome.notes.is_empty();
                 return outcome;
             }
@@ -312,11 +305,11 @@ async fn replay_one(
     }
 
     outcome.passed = outcome.notes.is_empty();
-    print_outcome(&outcome, verbose);
+    print_outcome(&outcome);
     outcome
 }
 
-fn print_outcome(o: &Outcome, _verbose: bool) {
+fn print_outcome(o: &Outcome) {
     let label = o.fixture_path.display().to_string();
     if o.passed {
         println!("  {} {}", "✓".green(), label);

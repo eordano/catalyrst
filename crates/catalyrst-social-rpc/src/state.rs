@@ -57,6 +57,7 @@ fn spawn_rpc_server(
     server.set_on_transport_connected_handler(move |transport, transport_id| {
         let address = transport.address().to_string();
         bind_ctx.register_identity(transport_id, address.clone());
+        bind_ctx.register_kill_handle(transport_id, transport.kill_handle());
         if bind_ctx.mark_online(&address) {
             let fan_ctx = bind_ctx.clone();
             tokio::spawn(async move {

@@ -1,5 +1,3 @@
-#![allow(clippy::type_complexity)]
-
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use serde::Serialize;
 use serde_json::{json, Value};
@@ -65,21 +63,11 @@ struct DeploymentItem<'a> {
     metadata: Option<&'a Value>,
 }
 
-fn build_sample_deployment() -> (
-    String,
-    String,
-    Vec<String>,
-    Vec<(String, String)>,
-    String,
-    String,
-    Value,
-    Option<String>,
-    Value,
-) {
+fn bench_json_serialization(c: &mut Criterion) {
     let entity_type = "profile".to_string();
     let entity_id = "bafkreie4eisvkzyjuqrcendydk6vikqs2vco5lmib4nlzsxtjzofiqy2pa".to_string();
     let pointers = vec!["0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266".to_string()];
-    let content = vec![
+    let content_pairs = vec![
         ("body.png".to_string(), "QmYwAPJzv5CZsnA625s3Xf2nemtYgPpHdWEz79ojWnPbdG".to_string()),
         ("face256.png".to_string(), "QmaozNR7DZHQK1ZcU9p7QdrshMvXqWK6gpu5rmrkPdT3L4".to_string()),
     ];
@@ -90,40 +78,36 @@ fn build_sample_deployment() -> (
     ]);
     let overwritten_by: Option<String> = None;
     let metadata = json!({"avatars": [{"name": "test", "description": "test avatar"}]});
-    (entity_type, entity_id, pointers, content, deployed_by, version, auth_chain, overwritten_by, metadata)
-}
 
-fn bench_json_serialization(c: &mut Criterion) {
-    let (entity_type, entity_id, pointers, content_pairs, deployed_by, version, auth_chain, overwritten_by, metadata) =
-        build_sample_deployment();
+    let build_item = || {
+        let content: Vec<ContentEntry> = content_pairs
+            .iter()
+            .map(|(k, h)| ContentEntry { key: k.as_str(), hash: h.as_str() })
+            .collect();
+        DeploymentItem {
+            entity_type: &entity_type,
+            entity_id: &entity_id,
+            entity_timestamp: 1716000000000,
+            pointers: &pointers,
+            content,
+            deployed_by: &deployed_by,
+            entity_version: &version,
+            audit_info: AuditInfoResponse {
+                version: &version,
+                auth_chain: &auth_chain,
+                local_timestamp: 1716000001000,
+                overwritten_by: &overwritten_by,
+            },
+            local_timestamp: 1716000001000,
+            metadata: Some(&metadata),
+        }
+    };
 
     let mut group = c.benchmark_group("json_serialization");
 
     group.bench_function("typed_struct_to_vec", |b| {
         b.iter(|| {
-            let content: Vec<ContentEntry> = content_pairs
-                .iter()
-                .map(|(k, h)| ContentEntry { key: k.as_str(), hash: h.as_str() })
-                .collect();
-
-            let item = DeploymentItem {
-                entity_type: &entity_type,
-                entity_id: &entity_id,
-                entity_timestamp: 1716000000000,
-                pointers: &pointers,
-                content,
-                deployed_by: &deployed_by,
-                entity_version: &version,
-                audit_info: AuditInfoResponse {
-                    version: &version,
-                    auth_chain: &auth_chain,
-                    local_timestamp: 1716000001000,
-                    overwritten_by: &overwritten_by,
-                },
-                local_timestamp: 1716000001000,
-                metadata: Some(&metadata),
-            };
-
+            let item = build_item();
             black_box(serde_json::to_vec(&item).unwrap())
         })
     });
@@ -159,29 +143,7 @@ fn bench_json_serialization(c: &mut Criterion) {
 
     group.bench_function("double_serialization", |b| {
         b.iter(|| {
-            let content: Vec<ContentEntry> = content_pairs
-                .iter()
-                .map(|(k, h)| ContentEntry { key: k.as_str(), hash: h.as_str() })
-                .collect();
-
-            let item = DeploymentItem {
-                entity_type: &entity_type,
-                entity_id: &entity_id,
-                entity_timestamp: 1716000000000,
-                pointers: &pointers,
-                content,
-                deployed_by: &deployed_by,
-                entity_version: &version,
-                audit_info: AuditInfoResponse {
-                    version: &version,
-                    auth_chain: &auth_chain,
-                    local_timestamp: 1716000001000,
-                    overwritten_by: &overwritten_by,
-                },
-                local_timestamp: 1716000001000,
-                metadata: Some(&metadata),
-            };
-
+            let item = build_item();
             let val = serde_json::to_value(&item).unwrap();
             black_box(serde_json::to_vec(&val).unwrap())
         })
@@ -761,6 +723,13 @@ mod http_handlers {
         }
     }
 
+    struct StubAcceptingUsers;
+    impl AcceptingUsers for StubAcceptingUsers {
+        fn is_accepting(&self) -> bool {
+            true
+        }
+    }
+
     struct BenchState {
         router: axum::Router,
         content_hash: String,
@@ -807,18 +776,22 @@ mod http_handlers {
                 synchronization_state: Arc::new(StubSyncState),
                 snapshot_generator: Arc::new(StubSnapshots),
                 content_cluster: Arc::new(StubCluster),
+                accepting_users: Arc::new(StubAcceptingUsers),
                 deployments_cache: dashmap::DashMap::new(),
                 content_version: "bench-0.0.0".to_string(),
                 lambdas_version: "bench-0.0.0".to_string(),
                 commit_hash: "bench".to_string(),
                 eth_network: "mainnet".to_string(),
                 content_server_address: "http://127.0.0.1:5141".to_string(),
-                read_only: true,
+                read_only: std::sync::atomic::AtomicBool::new(true),
+                audit_pool: None,
+                entities_cache_control_max_age: 10,
                 content_public_url: "http://127.0.0.1:5141/content".to_string(),
                 lambdas_public_url: "http://127.0.0.1:5141/lambdas".to_string(),
                 realm_name: None,
                 squid_pool: None,
                 profile_cdn_base_url: String::new(),
+                land_image_base_url: String::new(),
             });
 
             let router = build_router(state);

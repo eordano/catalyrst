@@ -10,17 +10,22 @@ pub struct ContentParams {
     pub ts: Option<String>,
 }
 
-pub async fn get_storage_content(
-    State(state): State<AppState>,
-    Path(hash): Path<String>,
-    Query(params): Query<ContentParams>,
-) -> Response {
+fn content_url(state: &AppState, hash: &str, params: &ContentParams) -> String {
     let bucket = state.content_bucket_url.trim_end_matches('/');
     let mut target = format!("{}/contents/{}", bucket, hash);
     if let Some(ts) = params.ts.as_deref().filter(|s| !s.is_empty()) {
         target.push_str("?ts=");
         target.push_str(ts);
     }
+    target
+}
+
+pub async fn get_storage_content(
+    State(state): State<AppState>,
+    Path(hash): Path<String>,
+    Query(params): Query<ContentParams>,
+) -> Response {
+    let target = content_url(&state, &hash, &params);
 
     let mut resp = (StatusCode::MOVED_PERMANENTLY, ()).into_response();
     let headers = resp.headers_mut();
@@ -39,12 +44,7 @@ pub async fn head_storage_content_exists(
     Path(hash): Path<String>,
     Query(params): Query<ContentParams>,
 ) -> Response {
-    let bucket = state.content_bucket_url.trim_end_matches('/');
-    let mut target = format!("{}/contents/{}", bucket, hash);
-    if let Some(ts) = params.ts.as_deref().filter(|s| !s.is_empty()) {
-        target.push_str("?ts=");
-        target.push_str(ts);
-    }
+    let target = content_url(&state, &hash, &params);
 
     match state.http.head(&target).send().await {
         Ok(r) if r.status().is_success() => StatusCode::OK.into_response(),

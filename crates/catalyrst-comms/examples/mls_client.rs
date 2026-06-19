@@ -36,7 +36,6 @@ fn b64(bytes: &[u8]) -> String {
 
 /// One MLS identity: its own crypto provider (keystore) + signer + credential.
 struct Identity {
-    wallet: String,
     provider: OpenMlsRustCrypto,
     signer: SignatureKeyPair,
     credential_with_key: CredentialWithKey,
@@ -60,7 +59,6 @@ impl Identity {
             signature_key: signer.public().into(),
         };
         Identity {
-            wallet: wallet.to_string(),
             provider,
             signer,
             credential_with_key,

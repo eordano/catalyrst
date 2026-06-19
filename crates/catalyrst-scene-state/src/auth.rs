@@ -101,6 +101,21 @@ pub fn build_payload(method: &str, path: &str, timestamp: &str, metadata: &str) 
     format!("{method}:{path}:{timestamp}:{metadata}").to_lowercase()
 }
 
+/// Behind a front-host proxy that strips the service prefix, the WS upgrade
+/// request carries the original, un-stripped path in `x-original-path` (set by
+/// nginx). Prefer it (query-stripped) over the locally-built route path so the
+/// reconstructed signed-fetch payload matches what the client signed. Falls back
+/// to `fallback` for direct/loopback upgrades (no header).
+pub fn signed_fetch_path<'a>(
+    headers: &axum::http::HeaderMap,
+    fallback: &'a str,
+) -> std::borrow::Cow<'a, str> {
+    match headers.get("x-original-path").and_then(|v| v.to_str().ok()) {
+        Some(raw) => std::borrow::Cow::Owned(raw.split('?').next().unwrap_or(raw).to_string()),
+        None => std::borrow::Cow::Borrowed(fallback),
+    }
+}
+
 fn extract_auth_chain(headers: &HashMap<String, String>) -> Result<Vec<AuthLink>, AuthError> {
     let mut links: Vec<AuthLink> = Vec::new();
     for i in 0..MAX_AUTH_CHAIN_LINKS {

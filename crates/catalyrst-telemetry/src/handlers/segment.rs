@@ -45,6 +45,10 @@ pub async fn batch(
     let raw = decode_body(&headers, body);
     let payload: Value = serde_json::from_slice(&raw).unwrap_or_else(|_| json!({}));
     let key = write_key(&headers, &payload);
+    // Admin ingest gate (default-open): segment's "project" is the write key.
+    if !state.ingest.admit(&key) {
+        return Json(json!({ "success": true }));
+    }
     if let Some(batch) = payload.get("batch").and_then(|v| v.as_array()) {
         for event in batch {
             store_event(&state, &key, event).await;
@@ -63,6 +67,9 @@ pub async fn single(
     let raw = decode_body(&headers, body);
     let payload: Value = serde_json::from_slice(&raw).unwrap_or_else(|_| json!({}));
     let key = write_key(&headers, &payload);
+    if !state.ingest.admit(&key) {
+        return Json(json!({ "success": true }));
+    }
     store_event(&state, &key, &payload).await;
     Json(json!({ "success": true }))
 }

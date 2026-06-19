@@ -3,34 +3,24 @@ use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Fixture {
-
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub description: String,
-
     pub request: RecordedRequest,
     pub response: RecordedResponse,
-
     pub captured_from: String,
-
     pub captured_at: String,
-
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub volatile_paths: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RecordedRequest {
-
     pub method: String,
-
     pub path: String,
-
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub query: BTreeMap<String, String>,
-
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub headers: BTreeMap<String, String>,
-
     #[serde(default)]
     pub body: Option<serde_json::Value>,
 }
@@ -40,10 +30,8 @@ pub struct RecordedResponse {
     pub status: u16,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub headers: BTreeMap<String, String>,
-
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub body_json: Option<serde_json::Value>,
-
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub body_bytes_b64: Option<String>,
 }
@@ -76,7 +64,6 @@ fn scrub_recursive(value: &mut serde_json::Value, parts: &[&str], sentinel: &str
             }
         }
         serde_json::Value::Array(arr) => {
-
             for child in arr.iter_mut() {
                 scrub_recursive(child, parts, sentinel);
             }

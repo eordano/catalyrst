@@ -11,7 +11,7 @@ pub fn verify_auth_chain(
     expected_address: &str,
     now_ms: Option<i64>,
 ) -> Result<(), AuthError> {
-    verify_auth_chain_with_validator(chain, expected_address, now_ms, None)
+    verify_chain_inner(chain, expected_address, now_ms)
 }
 
 pub fn verify_auth_chain_with_validator(
@@ -20,7 +20,7 @@ pub fn verify_auth_chain_with_validator(
     now_ms: Option<i64>,
     _eip1654_validator: Option<&dyn Eip1654Validator>,
 ) -> Result<(), AuthError> {
-    verify_chain_inner(chain, expected_address, now_ms, None)
+    verify_chain_inner(chain, expected_address, now_ms)
 }
 
 pub async fn verify_auth_chain_async(
@@ -183,7 +183,6 @@ fn verify_chain_inner(
     chain: &AuthChain,
     expected_address: &str,
     now_ms: Option<i64>,
-    _eip1654_validator: Option<&dyn Eip1654Validator>,
 ) -> Result<(), AuthError> {
     if chain.len() > MAX_AUTH_CHAIN_LINKS {
         return Err(AuthError::MalformedChain(format!(

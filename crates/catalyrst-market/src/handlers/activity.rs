@@ -18,6 +18,18 @@ pub struct ActivityEnvelope {
     pub total: i64,
 }
 
+/// Behind the svc.dcl.one front-host proxy, nginx strips the service prefix before
+/// proxying but the client signs the full external path (incl. prefix). nginx
+/// forwards the original path in `x-original-path`; prefer it for signed-fetch
+/// payload reconstruction so it matches what the client signed. Falls back to the
+/// hardcoded route path for direct/loopback requests (no header).
+fn signed_fetch_path<'a>(headers: &HeaderMap, fallback: &'a str) -> std::borrow::Cow<'a, str> {
+    match headers.get("x-original-path").and_then(|v| v.to_str().ok()) {
+        Some(raw) => std::borrow::Cow::Owned(raw.split('?').next().unwrap_or(raw).to_string()),
+        None => std::borrow::Cow::Borrowed(fallback),
+    }
+}
+
 fn auth_chain_error_to_api(e: AuthChainError) -> ApiError {
     match e {
         AuthChainError::AddressMismatch { .. } => ApiError::bad_request(e.message()),
@@ -48,7 +60,8 @@ pub async fn get_activity(
         .and_then(|v| v.to_str().ok())
         .unwrap_or("{}");
 
-    let payload = build_payload("get", "/v1/activity", timestamp, metadata);
+    let path = signed_fetch_path(&headers, "/v1/activity");
+    let payload = build_payload("get", path.as_ref(), timestamp, metadata);
 
     let now = Utc::now().timestamp();
     let recovered = auth_chain::validate_signature(&chain, &payload, FIVE_MINUTES, now)

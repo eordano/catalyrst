@@ -1,5 +1,8 @@
+pub mod admin;
+pub mod dashboard;
 pub mod segment;
 pub mod sentry;
+pub mod ssr;
 
 use axum::body::Bytes;
 use flate2::read::{GzDecoder, ZlibDecoder};

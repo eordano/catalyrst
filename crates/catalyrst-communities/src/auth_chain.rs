@@ -44,6 +44,17 @@ pub fn build_payload(method: &str, path: &str, timestamp: &str, metadata: &str) 
     format!("{}:{}:{}:{}", method, path, timestamp, metadata).to_lowercase()
 }
 
+/// nginx strips the service prefix before proxying but the client signs the
+/// full external path, forwarded in `x-original-path`; prefer it so the
+/// signed-fetch payload matches what the client signed. Falls back to the route
+/// path for direct/loopback requests.
+fn signed_fetch_path<'a>(headers: &HeaderMap, fallback: &'a str) -> std::borrow::Cow<'a, str> {
+    match headers.get("x-original-path").and_then(|v| v.to_str().ok()) {
+        Some(raw) => std::borrow::Cow::Owned(raw.split('?').next().unwrap_or(raw).to_string()),
+        None => std::borrow::Cow::Borrowed(fallback),
+    }
+}
+
 fn header_str<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {
     headers.get(name).and_then(|v| v.to_str().ok())
 }
@@ -168,6 +179,8 @@ pub fn try_extract(headers: &HeaderMap) -> Option<AuthChain> {
 }
 
 pub fn try_extract_signer(headers: &HeaderMap, method: &str, path: &str) -> Option<String> {
+    let path = signed_fetch_path(headers, path);
+    let path = path.as_ref();
     let chain = try_extract(headers)?;
     let ts = header_str(headers, AUTH_TIMESTAMP_HEADER)?.to_string();
     let metadata = header_str(headers, AUTH_METADATA_HEADER).unwrap_or("{}").to_string();
@@ -181,6 +194,8 @@ pub fn require_signer(
     method: &str,
     path: &str,
 ) -> Result<String, AuthChainError> {
+    let path = signed_fetch_path(headers, path);
+    let path = path.as_ref();
     let result = require_signer_impl(headers, method, path);
     if let Err(e) = &result {
         tracing::warn!(error = ?e, %method, %path, "signed-fetch rejected");

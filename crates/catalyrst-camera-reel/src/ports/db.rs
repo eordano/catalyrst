@@ -13,6 +13,8 @@ pub struct DbImage {
     #[allow(dead_code)]
     pub created_at: chrono::NaiveDateTime,
     pub metadata: Json<Metadata>,
+    #[allow(dead_code)]
+    pub review_status: String,
 }
 
 pub const TABLE: &str = "camera_reel_images";
@@ -191,5 +193,21 @@ impl Database {
             .execute(&self.pool)
             .await?;
         Ok(())
+    }
+
+    /// Set the moderation review status for an image. Returns the number of rows
+    /// affected (0 if no image with that id exists).
+    pub async fn update_image_review_status(
+        &self,
+        id: &str,
+        review_status: &str,
+    ) -> Result<u64, sqlx::Error> {
+        let sql = format!("UPDATE {TABLE} SET review_status = $1 WHERE id = $2");
+        let res = sqlx::query(&sql)
+            .bind(review_status)
+            .bind(parse_uuid(id)?)
+            .execute(&self.pool)
+            .await?;
+        Ok(res.rows_affected())
     }
 }

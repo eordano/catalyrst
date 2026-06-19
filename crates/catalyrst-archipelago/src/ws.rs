@@ -46,6 +46,32 @@ async fn send_packet(socket: &mut WebSocket, message: server_packet::Message) ->
         .is_ok()
 }
 
+fn conn_str(grant: Option<&crate::livekit::LivekitGrant>, fallback_ws_url: &str) -> String {
+    match grant {
+        Some(g) => match &g.token {
+            Some(tok) => format!("livekit:{}?access_token={}", g.url, tok),
+            None => format!("livekit:{}", g.url),
+        },
+        None => format!("livekit:{}", fallback_ws_url),
+    }
+}
+
+// Mirror upstream onChangeToIsland: every island member keyed by id with its last
+// position, falling back to the origin when a member has no recorded heartbeat yet.
+fn position_map(state: &AppState, peers: &[String]) -> HashMap<String, Position> {
+    let lookup = state.cluster.peers_by_address();
+    peers
+        .iter()
+        .map(|p| {
+            let pos = lookup
+                .get(p)
+                .map(|ps| Position { x: ps.position[0], y: ps.position[1], z: ps.position[2] })
+                .unwrap_or(Position { x: 0.0, y: 0.0, z: 0.0 });
+            (p.clone(), pos)
+        })
+        .collect()
+}
+
 async fn handle_socket(mut socket: WebSocket, state: AppState) {
     let mut rx = state.cluster.subscribe();
     let mut stage = Stage::HandshakeStart;
@@ -53,11 +79,9 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
     let mut address: Option<String> = None;
     let mut conn_gen: Option<u64> = None;
     let mut initial_island_sent = false;
-    // Per-socket idempotence: the reconnect catch-up push and the broadcast from
-    // a kicked recluster can otherwise deliver the SAME island twice back-to-back
-    // (observed tripping a despawn race in bevy-explorer's manage_islands).
-    // Upstream only ever notifies on actual changes; member updates flow via the
-    // LiveKit room, so deduping by island id is protocol-faithful.
+    // Per-socket dedup by island id: the reconnect catch-up push and a kicked
+    // recluster's broadcast can otherwise deliver the SAME island twice back-to-back,
+    // tripping a despawn race in bevy-explorer's manage_islands.
     let mut last_island_sent: Option<String> = None;
 
     loop {
@@ -89,12 +113,7 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                                     break;
                                 }
                                 let addr = req.address.to_ascii_lowercase();
-                                let already_connected = false;
-
-                                challenge_to_sign = format!(
-                                    "dcl-{}",
-                                    rand::thread_rng().gen::<u64>().to_string()
-                                );
+                                challenge_to_sign = format!("dcl-{}", rand::thread_rng().gen::<u64>());
 
                                 state.challenges.put(&addr, &challenge_to_sign);
                                 address = Some(addr);
@@ -102,7 +121,7 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                                     &mut socket,
                                     server_packet::Message::ChallengeResponse(ChallengeResponseMessage {
                                         challenge_to_sign: challenge_to_sign.clone(),
-                                        already_connected,
+                                        already_connected: false,
                                     }),
                                 )
                                 .await
@@ -162,38 +181,24 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                                 state.cluster.upsert_peer(addr.clone(), position, parcel, realm);
 
                                 // Reconnect catch-up: IslandChanged only broadcasts on
-                                // assignment CHANGES, so a peer that reconnects while its
-                                // old assignment is still current would never learn its
-                                // island on this socket and the client times out. Push the
-                                // current assignment once, directly.
+                                // assignment CHANGES, so a peer reconnecting onto an unchanged
+                                // assignment would never learn its island and time out.
                                 if !initial_island_sent {
                                     initial_island_sent = true;
                                     if state.cluster.island_of(&addr).is_none() {
-                                        // Fresh peer: don't make it wait for the periodic
-                                        // recluster tick — assign now; the IslandChanged
-                                        // broadcast delivers it to this socket's rx arm.
+                                        // Fresh peer: assign now rather than wait for the
+                                        // periodic tick; the broadcast lands on this socket's rx.
                                         state.cluster.kick_recluster();
                                     }
                                     if let Some((island_id, peers)) = state.cluster.island_of(&addr) {
                                         if last_island_sent.as_deref() != Some(island_id.as_str()) {
-                                            let conn_str = if state.cluster.livekit().is_armed() {
-                                                let g = state.cluster.livekit().mint(&addr, &island_id);
-                                                match &g.token {
-                                                    Some(tok) => format!("livekit:{}?access_token={}", g.url, tok),
-                                                    None => format!("livekit:{}", g.url),
-                                                }
-                                            } else {
-                                                format!("livekit:{}", state.livekit.ws_url())
-                                            };
-                                            let lookup = state.cluster.peers_by_address();
-                                            let mut peer_map: HashMap<String, Position> = HashMap::new();
-                                            for p in &peers {
-                                                let pos = lookup
-                                                    .get(p)
-                                                    .map(|ps| Position { x: ps.position[0], y: ps.position[1], z: ps.position[2] })
-                                                    .unwrap_or(Position { x: 0.0, y: 0.0, z: 0.0 });
-                                                peer_map.insert(p.clone(), pos);
-                                            }
+                                            let grant = state
+                                                .cluster
+                                                .livekit()
+                                                .is_armed()
+                                                .then(|| state.cluster.livekit().mint(&addr, &island_id));
+                                            let conn_str = conn_str(grant.as_ref(), state.livekit.ws_url());
+                                            let peer_map = position_map(&state, &peers);
                                             last_island_sent = Some(island_id.clone());
                                             if !send_packet(
                                                 &mut socket,
@@ -229,28 +234,8 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                             continue; // already delivered (e.g. by the reconnect catch-up push)
                         }
                         last_island_sent = Some(island_id.clone());
-                        let conn_str = match livekit {
-                            Some(ref g) => match &g.token {
-                                Some(tok) => format!("livekit:{}?access_token={}", g.url, tok),
-                                None => format!("livekit:{}", g.url),
-                            },
-                            None => format!("livekit:{}", state.livekit.ws_url()),
-                        };
-
-                        // Upstream archipelago-workers (core/src/adapters/publisher.ts
-                        // `onChangeToIsland`) populates `peers` from *every* member of the
-                        // target island, keyed by peer id with that peer's last position.
-                        // Mirror that: include all island members, falling back to the
-                        // origin position when a member has no recorded heartbeat yet.
-                        let lookup = state.cluster.peers_by_address();
-                        let mut peer_map: HashMap<String, Position> = HashMap::new();
-                        for p in &peers {
-                            let pos = lookup
-                                .get(p)
-                                .map(|ps| Position { x: ps.position[0], y: ps.position[1], z: ps.position[2] })
-                                .unwrap_or(Position { x: 0.0, y: 0.0, z: 0.0 });
-                            peer_map.insert(p.clone(), pos);
-                        }
+                        let conn_str = conn_str(livekit.as_ref(), state.livekit.ws_url());
+                        let peer_map = position_map(&state, &peers);
                         if !send_packet(
                             &mut socket,
                             server_packet::Message::IslandChanged(IslandChangedMessage {
@@ -265,22 +250,16 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                             break;
                         }
                     }
-                    // NOTE: upstream archipelago-workers never sends LeftIsland/JoinIsland
-                    // over /ws. Peer departures are conveyed purely via LiveKit room
-                    // membership (the explorer learns a peer left when its LiveKit track
-                    // disappears). The PeerLeft cluster event therefore drives no ws frame
-                    // here — emitting LeftIslandMessage diverged from the real protocol and
-                    // the Unity client ignores that message type entirely.
+                    // Upstream never sends LeftIsland/JoinIsland over /ws; departures are
+                    // conveyed via LiveKit room membership, so PeerLeft drives no frame here.
                     _ => {}
                 }
             }
         }
     }
 
-    // Only remove the registration THIS socket made. An unconditional
-    // remove_peer here let a stale socket's late close delete the peer a newer
-    // reconnect had just registered, cascading into repeated 10s client
-    // timeouts on world->genesis realm changes.
+    // Only remove the registration THIS socket made: an unconditional remove_peer
+    // would let a stale socket's late close delete a newer reconnect's registration.
     if let (Some(addr), Some(gen)) = (address, conn_gen) {
         tracing::info!(addr = %addr, gen, "archipelago ws closed");
         state.cluster.remove_peer_if_conn(&addr, gen);

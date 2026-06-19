@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use std::time::Duration;
 
 use alloy::primitives::U256;
@@ -6,6 +7,7 @@ use serde_json::{json, Value};
 use sqlx::types::chrono::NaiveDateTime;
 use sqlx::PgPool;
 
+use crate::admin::{RuntimeConfig, SignerPreference};
 use crate::config::Config;
 use crate::http::errors::ApiError;
 use crate::ports::abi::{self, SaleKind};
@@ -174,16 +176,33 @@ pub struct TransactionComponent {
     http: reqwest::Client,
     relayer: Option<Relayer>,
     signer: Option<DirectSigner>,
+    runtime: Arc<RuntimeConfig>,
 }
 
 impl TransactionComponent {
-    pub fn new(pool: PgPool, relayer: Option<Relayer>, signer: Option<DirectSigner>) -> Self {
+    pub fn new(
+        pool: PgPool,
+        relayer: Option<Relayer>,
+        signer: Option<DirectSigner>,
+        runtime: Arc<RuntimeConfig>,
+    ) -> Self {
         Self {
             pool,
             http: reqwest::Client::new(),
             relayer,
             signer,
+            runtime,
         }
+    }
+
+    /// Whether the OZ HTTP relayer is provisioned (wired at startup).
+    pub fn has_oz_relayer(&self) -> bool {
+        self.relayer.is_some()
+    }
+
+    /// Whether the direct JSON-RPC signer is provisioned (wired at startup).
+    pub fn has_direct_signer(&self) -> bool {
+        self.signer.is_some()
     }
 
     pub async fn insert(&self, tx_hash: &str, user_address: &str) -> Result<(), ApiError> {
@@ -335,24 +354,47 @@ impl TransactionComponent {
             .map_err(|e| e.to_string())
     }
 
-    /// Broadcast a validated meta-transaction. Provider preference:
-    ///   1. OpenZeppelin HTTP relayer (`OZ_RELAYER_*`), matching upstream.
-    ///   2. Direct self-hosted JSON-RPC signer (`META_TX_BROADCAST_ENABLED` +
-    ///      `RELAYER_PRIVATE_KEY`).
-    ///   3. Neither → 503, preserving the prior "validation-only" contract.
+    /// Broadcast a validated meta-transaction. Provider selection honours the
+    /// runtime-mutable admin controls ([`crate::admin::RuntimeConfig`]):
+    ///   - If the relayer master switch is OFF, short-circuit to 503 (the same
+    ///     "validation passed, broadcast unavailable" contract), regardless of
+    ///     what is provisioned. This is the admin "relayer off" toggle.
+    ///   - Otherwise pick a provisioned provider per the signer-preference:
+    ///       * `Auto`   → OZ HTTP relayer first, then direct JSON-RPC signer
+    ///                    (the historical startup-only order).
+    ///       * `Oz`     → OZ HTTP relayer only.
+    ///       * `Direct` → direct JSON-RPC signer only.
+    ///   - If the selected provider is not provisioned → 503.
+    ///
+    /// With the default runtime state (`enabled = true`, `signer = Auto`) this is
+    /// byte-for-byte the prior behaviour.
     pub async fn send_meta_transaction(
         &self,
         _cfg: &Config,
         tx: &TransactionData,
     ) -> Result<String, ApiError> {
-        if let Some(relayer) = &self.relayer {
-            return relayer.send_meta_transaction(tx).await;
+        if !self.runtime.relayer_enabled() {
+            return Err(ApiError::RelayerUnavailable(
+                "Broadcasting is currently disabled by the operator (relayer toggle is OFF). Validation passed; the meta-transaction was not broadcast.".into(),
+            ));
         }
-        if let Some(signer) = &self.signer {
-            return signer.send_meta_transaction(tx).await;
+
+        let pref = self.runtime.signer_preference();
+        let try_oz = matches!(pref, SignerPreference::Auto | SignerPreference::Oz);
+        let try_direct = matches!(pref, SignerPreference::Auto | SignerPreference::Direct);
+
+        if try_oz {
+            if let Some(relayer) = &self.relayer {
+                return relayer.send_meta_transaction(tx).await;
+            }
+        }
+        if try_direct {
+            if let Some(signer) = &self.signer {
+                return signer.send_meta_transaction(tx).await;
+            }
         }
         Err(ApiError::RelayerUnavailable(
-            "No relayer is provisioned. Validation passed; broadcast is unavailable. Set OZ_RELAYER_URL/OZ_RELAYER_ID/OZ_RELAYER_API_KEY, or META_TX_BROADCAST_ENABLED=true with RELAYER_PRIVATE_KEY (+ RPC_URL), to enable broadcasting.".into(),
+            "No relayer is provisioned for the selected signer preference. Validation passed; broadcast is unavailable. Set OZ_RELAYER_URL/OZ_RELAYER_ID/OZ_RELAYER_API_KEY, or META_TX_BROADCAST_ENABLED=true with RELAYER_PRIVATE_KEY (+ RPC_URL), to enable broadcasting.".into(),
         ))
     }
 }

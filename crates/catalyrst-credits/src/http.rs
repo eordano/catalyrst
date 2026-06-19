@@ -20,6 +20,9 @@ pub enum ApiError {
     #[error("{0}")]
     NotFound(String),
 
+    #[error("{0}")]
+    Conflict(String),
+
     #[error("not implemented: {0}")]
     NotImplemented(String),
 
@@ -43,6 +46,9 @@ impl ApiError {
     pub fn not_found(msg: impl Into<String>) -> Self {
         Self::NotFound(msg.into())
     }
+    pub fn conflict(msg: impl Into<String>) -> Self {
+        Self::Conflict(msg.into())
+    }
     pub fn not_implemented(msg: impl Into<String>) -> Self {
         Self::NotImplemented(msg.into())
     }
@@ -61,6 +67,7 @@ impl IntoResponse for ApiError {
             ApiError::Unauthorized(m) => (401, m.clone()),
             ApiError::Forbidden(m) => (403, m.clone()),
             ApiError::NotFound(m) => (404, m.clone()),
+            ApiError::Conflict(m) => (409, m.clone()),
             ApiError::NotImplemented(m) => (501, m.clone()),
             ApiError::Database(e) => {
                 tracing::error!(error = %e, "sqlx error");

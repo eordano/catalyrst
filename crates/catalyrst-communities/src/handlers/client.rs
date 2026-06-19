@@ -28,7 +28,7 @@ struct MultipartFields {
     privacy: Option<String>,
     visibility: Option<String>,
     place_ids: Vec<String>,
-    has_thumbnail: bool,
+    thumbnail: Option<Vec<u8>>,
 }
 
 fn boundary(headers: &HeaderMap) -> Option<String> {
@@ -45,7 +45,7 @@ async fn parse_multipart(boundary: String, body: Bytes) -> Result<MultipartField
         privacy: None,
         visibility: None,
         place_ids: Vec::new(),
-        has_thumbnail: false,
+        thumbnail: None,
     };
     loop {
         let field = match mp.next_field().await {
@@ -57,7 +57,11 @@ async fn parse_multipart(boundary: String, body: Bytes) -> Result<MultipartField
         match fname.as_str() {
             "thumbnail" => {
                 let data = field.bytes().await.unwrap_or_default();
-                out.has_thumbnail = !data.is_empty();
+                out.thumbnail = if data.is_empty() {
+                    None
+                } else {
+                    Some(data.to_vec())
+                };
             }
             "name" => out.name = Some(field.text().await.unwrap_or_default()),
             "description" => out.description = Some(field.text().await.unwrap_or_default()),
@@ -116,6 +120,37 @@ fn map_api(e: crate::http::ApiError) -> Response {
     }
 }
 
+/// Persist uploaded thumbnail bytes to the ContentStore and record the hash +
+/// `has_thumbnail` on `community_ranking_metrics`. A store failure is fatal so
+/// we never advertise a thumbnail we cannot serve.
+async fn store_thumbnail<'a, E>(executor: E, store: &crate::content_store::ContentStore, community_id: Uuid, bytes: &[u8]) -> Result<(), Response>
+where
+    E: sqlx::PgExecutor<'a>,
+{
+    let hash = store.put(bytes).await.map_err(|e| match e {
+        crate::content_store::ContentError::TooLarge { max } => err(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            format!("thumbnail exceeds {} bytes", max),
+        ),
+        other => {
+            tracing::error!(error = %other, "failed to store community thumbnail");
+            err(StatusCode::INTERNAL_SERVER_ERROR, "failed to store thumbnail")
+        }
+    })?;
+    map_db(
+        sqlx::query(
+            "INSERT INTO community_ranking_metrics (community_id, has_thumbnail, thumbnail_hash, updated_at) \
+             VALUES ($1, TRUE, $2, now()) \
+             ON CONFLICT (community_id) DO UPDATE SET has_thumbnail = TRUE, thumbnail_hash = EXCLUDED.thumbnail_hash, updated_at = now()",
+        )
+        .bind(community_id)
+        .bind(&hash)
+        .execute(executor)
+        .await,
+    )?;
+    Ok(())
+}
+
 async fn community_active(state: &AppState, id: Uuid) -> Result<bool, Response> {
     let active: Option<bool> =
         map_db(sqlx::query_scalar("SELECT active FROM communities WHERE id = $1")
@@ -150,7 +185,8 @@ pub async fn create_community(
     let privacy = fields.privacy.unwrap_or_else(|| "public".to_string());
     let visibility = fields.visibility.unwrap_or_else(|| "all".to_string());
     let place_ids = fields.place_ids;
-    let has_thumbnail = fields.has_thumbnail;
+    let thumbnail = fields.thumbnail;
+    let has_thumbnail = thumbnail.is_some();
 
     if let Err(e) = crate::validate::validate_name(&name) {
         return err(StatusCode::BAD_REQUEST, e);
@@ -193,14 +229,10 @@ pub async fn create_community(
     if let Err(e) = memb {
         return map_db::<()>(Err(e)).unwrap_err();
     }
-    if has_thumbnail {
-        let _ = sqlx::query(
-            "INSERT INTO community_ranking_metrics (community_id, has_thumbnail, updated_at) \
-             VALUES ($1, TRUE, now()) ON CONFLICT (community_id) DO UPDATE SET has_thumbnail = TRUE, updated_at = now()",
-        )
-        .bind(id)
-        .execute(&mut *tx)
-        .await;
+    if let Some(bytes) = thumbnail.as_deref() {
+        if let Err(e) = store_thumbnail(&mut *tx, &state.content_store, id, bytes).await {
+            return e;
+        }
     }
     for pid in &place_ids {
         let _ = sqlx::query(
@@ -278,7 +310,7 @@ pub async fn update_community(
     }
     let privacy: Option<bool> = fields.privacy.map(|p| p == "private");
     let visibility: Option<bool> = fields.visibility.map(|v| v == "unlisted");
-    let has_thumbnail = fields.has_thumbnail;
+    let thumbnail = fields.thumbnail;
 
     let upd = sqlx::query(
         "UPDATE communities SET \
@@ -299,14 +331,10 @@ pub async fn update_community(
     if let Err(e) = map_db(upd) {
         return e;
     }
-    if has_thumbnail {
-        let _ = sqlx::query(
-            "INSERT INTO community_ranking_metrics (community_id, has_thumbnail, updated_at) \
-             VALUES ($1, TRUE, now()) ON CONFLICT (community_id) DO UPDATE SET has_thumbnail = TRUE, updated_at = now()",
-        )
-        .bind(uuid)
-        .execute(&state.pool)
-        .await;
+    if let Some(bytes) = thumbnail.as_deref() {
+        if let Err(e) = store_thumbnail(&state.pool, &state.content_store, uuid, bytes).await {
+            return e;
+        }
     }
 
     let data = match state.communities.get_by_id(uuid, Some(&signer)).await {
@@ -514,19 +542,11 @@ pub async fn update_member_role(
         Some(r) if r != Role::None && r != Role::Banned => r,
         _ => return err(StatusCode::BAD_REQUEST, "invalid role"),
     };
-    // HAZARD FIX (prior review: latent `role='admin'`): this is the LEGACY,
-    // unsigned write path — it mutates `community_members.role` directly without
-    // appending a signed `CommunityRole` to the federation log. Per
-    // `docs/federation/communities.md §4`, every role transition (especially
-    // elevations to `admin`/`owner`) MUST be a signed action so peers can
-    // replay the authority chain deterministically. Letting an unsigned legacy
-    // request mint an `admin` would create a role that exists in
-    // `community_members` but not in `community_role_current` / the signed log,
-    // diverging the two stores and granting authority that no peer can verify.
-    // We therefore cap unsigned grants at `mod`; admin/owner grants must use the
-    // signed federation endpoint (writes::update_member_role with a
-    // Signed<CommunityRole> envelope), which records the log entry + projects
-    // authoritatively.
+    // Unsigned legacy path: mutates `community_members.role` directly without a
+    // signed `CommunityRole` log entry. An unsigned admin/owner grant would exist
+    // in `community_members` but not in the signed log / `community_role_current`,
+    // diverging the stores and minting authority no peer can verify. Cap unsigned
+    // grants at `mod`; admin/owner must use the signed federation endpoint.
     if matches!(new_role, Role::Admin | Role::Owner) {
         return err(
             StatusCode::FORBIDDEN,

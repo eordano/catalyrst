@@ -1,5 +1,6 @@
 use axum::extract::{Path, Query, State};
-use axum::http::HeaderMap;
+use axum::http::{header, HeaderMap, HeaderValue, StatusCode};
+use axum::response::{IntoResponse, Response};
 use axum::Json;
 use std::collections::HashMap;
 use uuid::Uuid;
@@ -10,6 +11,59 @@ use crate::AppState;
 
 pub fn thumbnail_url(cdn: &str, id: &str) -> String {
     format!("{}/social/communities/{}/raw-thumbnail.png", cdn, id)
+}
+
+/// `GET /social/communities/{id}/raw-thumbnail.png` — serve the locally-stored
+/// thumbnail bytes for a community.
+///
+/// The unity-explorer client fetches this on the assets-cdn host; after nginx
+/// strips `/assets-cdn/` it routes to this (SOCIAL) bundle as
+/// `/social/communities/{id}/raw-thumbnail.png`. The bytes were persisted to
+/// the local ContentStore on community create/update; we resolve
+/// community_id -> content hash (community_ranking_metrics.thumbnail_hash) and
+/// stream them back as image/png. 404 if the community has no stored thumbnail.
+pub async fn get_raw_thumbnail(
+    State(state): State<AppState>,
+    Path(id_str): Path<String>,
+) -> Response {
+    let Ok(id) = Uuid::parse_str(&id_str) else {
+        return (StatusCode::NOT_FOUND, "thumbnail not found").into_response();
+    };
+
+    let hash: Option<String> = match sqlx::query_scalar(
+        "SELECT thumbnail_hash FROM community_ranking_metrics \
+         WHERE community_id = $1 AND has_thumbnail",
+    )
+    .bind(id)
+    .fetch_optional(&state.pool)
+    .await
+    {
+        Ok(h) => h.flatten(),
+        Err(e) => {
+            tracing::error!(error = %e, "raw-thumbnail: db error");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "database error").into_response();
+        }
+    };
+
+    let Some(hash) = hash else {
+        return (StatusCode::NOT_FOUND, "thumbnail not found").into_response();
+    };
+
+    match state.content_store.get(&hash).await {
+        Ok(Some(bytes)) => {
+            let mut headers = HeaderMap::new();
+            headers.insert(header::CONTENT_TYPE, HeaderValue::from_static("image/png"));
+            if let Ok(v) = HeaderValue::from_str(&bytes.len().to_string()) {
+                headers.insert(header::CONTENT_LENGTH, v);
+            }
+            (StatusCode::OK, headers, bytes).into_response()
+        }
+        Ok(None) => (StatusCode::NOT_FOUND, "thumbnail not found").into_response(),
+        Err(e) => {
+            tracing::error!(error = %e, hash = %hash, "raw-thumbnail: content store error");
+            (StatusCode::INTERNAL_SERVER_ERROR, "content store error").into_response()
+        }
+    }
 }
 
 fn enrich_community(

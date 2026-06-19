@@ -1,3 +1,4 @@
+pub mod admin;
 pub mod categories;
 pub mod destinations;
 pub mod federation;

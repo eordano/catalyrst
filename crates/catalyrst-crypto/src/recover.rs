@@ -25,24 +25,18 @@ const SECP256K1_HALF_N: [u8; 32] = [
     0x5d, 0x57, 0x6e, 0x73, 0x57, 0xa4, 0x50, 0x1d, 0xdf, 0xe9, 0x2f, 0x46, 0x68, 0x1b, 0x20, 0xa0,
 ];
 
-/// Reject non-canonical (high-s) signatures (EIP-2 / strict ECDSA malleability
-/// guard). ethers-core's `recover()` silently normalizes a high-s value into
-/// low-s and flips the recovery id, so without this check the two malleable
-/// twins (s and n-s) both recover the same address — two byte-distinct, equally
-/// valid signatures for one message. We require `0 < s <= n/2` up front so the
-/// signature bytes that reach recovery (and any caller that keys on them) are
-/// canonical.
+/// Reject non-canonical (high-s) signatures. ethers-core's `recover()` silently
+/// normalizes a high-s value to low-s and flips the recovery id, so without this
+/// the two malleable twins (s and n-s) both recover the same address. We require
+/// `0 < s <= n/2` so the signature bytes reaching recovery are canonical.
 fn reject_high_s(bytes: &[u8; 65]) -> Result<(), AuthError> {
     let s = &bytes[32..64];
-    // s must be non-zero.
     if s.iter().all(|&b| b == 0) {
         return Err(AuthError::RecoveryFailed("signature s is zero".into()));
     }
-    // s must be < n (a valid scalar).
     if cmp_be(s, &SECP256K1_N) != std::cmp::Ordering::Less {
         return Err(AuthError::RecoveryFailed("signature s >= group order n".into()));
     }
-    // s must be <= n/2 (canonical, low-s).
     if cmp_be(s, &SECP256K1_HALF_N) == std::cmp::Ordering::Greater {
         return Err(AuthError::RecoveryFailed(
             "non-canonical high-s signature rejected (malleability)".into(),
@@ -87,25 +81,6 @@ fn parse_ethers_signature(bytes: &[u8; 65]) -> Result<Signature, AuthError> {
 
     Signature::try_from(sig_bytes.as_slice())
         .map_err(|e| AuthError::RecoveryFailed(format!("Invalid signature bytes: {}", e)))
-}
-
-mod hex {
-    use crate::AuthError;
-
-    pub fn decode(hex: &str) -> Result<Vec<u8>, AuthError> {
-        if !hex.len().is_multiple_of(2) {
-            return Err(AuthError::RecoveryFailed(
-                "Odd-length hex string".into(),
-            ));
-        }
-        (0..hex.len())
-            .step_by(2)
-            .map(|i| {
-                u8::from_str_radix(&hex[i..i + 2], 16)
-                    .map_err(|e| AuthError::RecoveryFailed(format!("Hex decode: {}", e)))
-            })
-            .collect()
-    }
 }
 
 #[cfg(test)]

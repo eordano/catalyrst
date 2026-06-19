@@ -9,6 +9,7 @@ use crate::pubsub::{PubSub, SocialEvent};
 use catalyrst_types::EthAddress;
 use dashmap::DashMap;
 use std::sync::Arc;
+use tokio::sync::Notify;
 
 pub struct ContextInner {
     pub cfg: Config,
@@ -18,6 +19,9 @@ pub struct ContextInner {
     pub profiles: Profiles,
     identities: DashMap<u32, EthAddress>,
     presence: DashMap<String, u32>,
+    /// Kill-switches for live WS transports, keyed by transport id, so an admin
+    /// route can force-disconnect a connection it doesn't own.
+    kill_handles: DashMap<u32, Arc<Notify>>,
 }
 
 #[derive(Clone)]
@@ -34,6 +38,7 @@ impl Context {
             profiles,
             identities: DashMap::new(),
             presence: DashMap::new(),
+            kill_handles: DashMap::new(),
         }))
     }
 
@@ -57,12 +62,58 @@ impl Context {
         self.0.identities.insert(transport_id, address);
     }
 
+    /// Register the kill-switch for a live transport so an admin route can
+    /// later force-close it. Paired with `forget_identity` on disconnect.
+    pub fn register_kill_handle(&self, transport_id: u32, kill: Arc<Notify>) {
+        self.0.kill_handles.insert(transport_id, kill);
+    }
+
     pub fn forget_identity(&self, transport_id: u32) {
         self.0.identities.remove(&transport_id);
+        self.0.kill_handles.remove(&transport_id);
     }
 
     pub fn identity(&self, transport_id: u32) -> Option<EthAddress> {
         self.0.identities.get(&transport_id).map(|r| r.clone())
+    }
+
+    /// Snapshot of in-memory presence: (lowercased address, live connection
+    /// count). Reflects only transports attached to *this* node.
+    pub fn presence_snapshot(&self) -> Vec<(String, u32)> {
+        self.0
+            .presence
+            .iter()
+            .map(|e| (e.key().clone(), *e.value()))
+            .collect()
+    }
+
+    pub fn online_count(&self) -> usize {
+        self.0.presence.len()
+    }
+
+    /// Force-disconnect every live transport for `address`. Returns the number
+    /// of transports kicked. Firing the kill notify makes each transport's
+    /// `receive` return `Closed`; the dcl-rpc server then runs the close
+    /// handler, which removes the identity and fans an Offline update to the
+    /// user's friends/communities. We do not mutate presence here directly —
+    /// the close handler is the single owner of that state.
+    pub fn disconnect_address(&self, address: &str) -> usize {
+        let addr = address.to_lowercase();
+        let ids: Vec<u32> = self
+            .0
+            .identities
+            .iter()
+            .filter(|e| e.value().to_lowercase() == addr)
+            .map(|e| *e.key())
+            .collect();
+        let mut kicked = 0;
+        for id in ids {
+            if let Some(handle) = self.0.kill_handles.get(&id) {
+                handle.notify_waiters();
+                kicked += 1;
+            }
+        }
+        kicked
     }
 
     pub fn mark_online(&self, address: &str) -> bool {

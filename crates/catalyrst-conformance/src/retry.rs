@@ -24,7 +24,6 @@ where
             RetryDecision::Done(v) => return Ok(Some(v)),
             RetryDecision::Retry(suggested) => {
                 if attempt == attempts {
-
                     return Ok(None);
                 }
                 let wait = suggested.unwrap_or_else(|| Duration::from_millis(backoff_ms));
@@ -48,7 +47,6 @@ pub fn parse_retry_after(header: &str) -> Option<Duration> {
     if let Ok(secs) = trimmed.parse::<u64>() {
         return Some(Duration::from_secs(secs));
     }
-
     if !trimmed.is_empty() {
         return Some(Duration::from_secs(5));
     }

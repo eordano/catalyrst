@@ -40,6 +40,7 @@ pub fn routes() -> Router<AppState> {
 async fn ws_upgrade(
     ws: WebSocketUpgrade,
     Path(scene_name): Path<String>,
+    headers: axum::http::HeaderMap,
     State(state): State<AppState>,
 ) -> impl IntoResponse {
     let Some(scene) = state.scenes.get(&scene_name) else {
@@ -49,7 +50,10 @@ async fn ws_upgrade(
         )
             .into_response();
     };
-    let pathname = format!("/ws/{scene_name}");
+    // Honor the front-host X-Original-Path (set by nginx) so the signed-fetch
+    // path matches what the client signed; fall back to the native route path.
+    let fallback = format!("/ws/{scene_name}");
+    let pathname = crate::auth::signed_fetch_path(&headers, &fallback).into_owned();
     let timeout_secs = state.cfg.auth_timeout_secs;
     let outbound_cap = state.cfg.client_outbound_max.max(1);
     // Clamp the inbound WS frame/message size from axum's 64 MiB default to a

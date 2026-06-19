@@ -160,6 +160,67 @@ impl ItemsComponent {
         Ok(row.map(|(addr,)| addr))
     }
 
+    pub async fn item_in_collection(
+        &self,
+        collection_id: &Uuid,
+        item_id: &Uuid,
+    ) -> Result<bool, ApiError> {
+        let row: Option<(Uuid,)> =
+            sqlx::query_as("SELECT id FROM items WHERE id = $1 AND collection_id = $2")
+                .bind(item_id)
+                .bind(collection_id)
+                .fetch_optional(&self.pool)
+                .await?;
+        Ok(row.is_some())
+    }
+
+    /// Keeps the legacy `is_approved` boolean in sync with `curation_status`.
+    pub async fn set_item_curation_status(
+        &self,
+        collection_id: &Uuid,
+        item_id: &Uuid,
+        status: &str,
+    ) -> Result<u64, ApiError> {
+        let res = sqlx::query(
+            r#"
+            UPDATE items
+               SET curation_status = $3,
+                   is_approved = ($3 = 'approved'),
+                   updated_at = now()
+             WHERE id = $1 AND collection_id = $2
+            "#,
+        )
+        .bind(item_id)
+        .bind(collection_id)
+        .bind(status)
+        .execute(&self.pool)
+        .await?;
+        Ok(res.rows_affected())
+    }
+
+    pub async fn set_items_curation_status(
+        &self,
+        collection_id: &Uuid,
+        item_ids: &[Uuid],
+        status: &str,
+    ) -> Result<u64, ApiError> {
+        let res = sqlx::query(
+            r#"
+            UPDATE items
+               SET curation_status = $3,
+                   is_approved = ($3 = 'approved'),
+                   updated_at = now()
+             WHERE collection_id = $1 AND id = ANY($2)
+            "#,
+        )
+        .bind(collection_id)
+        .bind(item_ids)
+        .bind(status)
+        .execute(&self.pool)
+        .await?;
+        Ok(res.rows_affected())
+    }
+
     pub async fn items_for_collection(
         &self,
         collection_id: &Uuid,

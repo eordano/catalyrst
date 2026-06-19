@@ -1,4 +1,5 @@
 pub mod access;
+pub mod admin;
 pub mod auth_chain;
 pub mod config;
 pub mod handlers;
@@ -100,4 +101,28 @@ pub fn api_router() -> Router<AppState> {
         )
         .route("/live-data", get(handlers::live_data::live_data))
         .route("/livekit-webhook", post(handlers::webhook::livekit_webhook))
+        // ----- bearer-gated admin views + world-owned mutations (admin-console §4) -----
+        .route("/admin/worlds", get(handlers::admin::list_worlds))
+        .route(
+            "/admin/worlds/{world_name}",
+            get(handlers::admin::world_detail),
+        )
+        .route(
+            "/admin/worlds/{world_name}/enable",
+            post(handlers::admin::enable_world),
+        )
+        .route(
+            "/admin/worlds/{world_name}/disable",
+            post(handlers::admin::disable_world),
+        )
+        .route(
+            "/admin/worlds/{world_name}/ban-status",
+            get(handlers::admin::world_ban_status),
+        )
+        .route("/admin/blocked", get(handlers::admin::list_blocked))
+        .route(
+            "/admin/blocked/{wallet}",
+            post(handlers::admin::block_wallet).delete(handlers::admin::unblock_wallet),
+        )
+        .route("/admin/access-log", get(handlers::admin::access_log))
 }

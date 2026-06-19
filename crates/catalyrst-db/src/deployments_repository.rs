@@ -191,103 +191,33 @@ pub async fn get_historical_deployments(
 
     if let Some(f) = filters {
         if f.from.is_some() {
-            if sorting_field == SortingField::LocalTimestamp {
-                if let Some(_lid) = last_id {
-                    if sorting_order == SortingOrder::Ascending {
-                        conditions.push(format!(
-                            "((LOWER(dep1.entity_id) > LOWER(${next}) AND dep1.local_timestamp = to_timestamp(${ts} / 1000.0)) OR (dep1.local_timestamp > to_timestamp(${ts} / 1000.0)))",
-                            next = param_idx,
-                            ts = param_idx + 1,
-                        ));
-                        param_idx += 2;
-                    } else {
-                        conditions.push(format!(
-                            "dep1.local_timestamp >= to_timestamp(${} / 1000.0)",
-                            param_idx
-                        ));
-                        param_idx += 1;
-                    }
-                } else {
-                    conditions.push(format!(
-                        "dep1.local_timestamp >= to_timestamp(${} / 1000.0)",
-                        param_idx
-                    ));
-                    param_idx += 1;
-                }
-            }
-            if sorting_field == SortingField::EntityTimestamp {
-                if let Some(_lid) = last_id {
-                    if sorting_order == SortingOrder::Ascending {
-                        conditions.push(format!(
-                            "((LOWER(dep1.entity_id) > LOWER(${next}) AND dep1.entity_timestamp = to_timestamp(${ts} / 1000.0)) OR (dep1.entity_timestamp > to_timestamp(${ts} / 1000.0)))",
-                            next = param_idx,
-                            ts = param_idx + 1,
-                        ));
-                        param_idx += 2;
-                    } else {
-                        conditions.push(format!(
-                            "dep1.entity_timestamp >= to_timestamp(${} / 1000.0)",
-                            param_idx
-                        ));
-                        param_idx += 1;
-                    }
-                } else {
-                    conditions.push(format!(
-                        "dep1.entity_timestamp >= to_timestamp(${} / 1000.0)",
-                        param_idx
-                    ));
-                    param_idx += 1;
-                }
+            if last_id.is_some() && sorting_order == SortingOrder::Ascending {
+                conditions.push(format!(
+                    "((LOWER(dep1.entity_id) > LOWER(${next}) AND dep1.{ts_col} = to_timestamp(${ts} / 1000.0)) OR (dep1.{ts_col} > to_timestamp(${ts} / 1000.0)))",
+                    next = param_idx,
+                    ts = param_idx + 1,
+                ));
+                param_idx += 2;
+            } else {
+                conditions.push(format!(
+                    "dep1.{ts_col} >= to_timestamp(${param_idx} / 1000.0)"
+                ));
+                param_idx += 1;
             }
         }
         if f.to.is_some() {
-            if sorting_field == SortingField::LocalTimestamp {
-                if let Some(_lid) = last_id {
-                    if sorting_order == SortingOrder::Descending {
-                        conditions.push(format!(
-                            "((LOWER(dep1.entity_id) < LOWER(${next}) AND dep1.local_timestamp = to_timestamp(${ts} / 1000.0)) OR (dep1.local_timestamp < to_timestamp(${ts} / 1000.0)))",
-                            next = param_idx,
-                            ts = param_idx + 1,
-                        ));
-                        param_idx += 2;
-                    } else {
-                        conditions.push(format!(
-                            "dep1.local_timestamp <= to_timestamp(${} / 1000.0)",
-                            param_idx
-                        ));
-                        param_idx += 1;
-                    }
-                } else {
-                    conditions.push(format!(
-                        "dep1.local_timestamp <= to_timestamp(${} / 1000.0)",
-                        param_idx
-                    ));
-                    param_idx += 1;
-                }
-            }
-            if sorting_field == SortingField::EntityTimestamp {
-                if let Some(_lid) = last_id {
-                    if sorting_order == SortingOrder::Descending {
-                        conditions.push(format!(
-                            "((LOWER(dep1.entity_id) < LOWER(${next}) AND dep1.entity_timestamp = to_timestamp(${ts} / 1000.0)) OR (dep1.entity_timestamp < to_timestamp(${ts} / 1000.0)))",
-                            next = param_idx,
-                            ts = param_idx + 1,
-                        ));
-                        param_idx += 2;
-                    } else {
-                        conditions.push(format!(
-                            "dep1.entity_timestamp <= to_timestamp(${} / 1000.0)",
-                            param_idx
-                        ));
-                        param_idx += 1;
-                    }
-                } else {
-                    conditions.push(format!(
-                        "dep1.entity_timestamp <= to_timestamp(${} / 1000.0)",
-                        param_idx
-                    ));
-                    param_idx += 1;
-                }
+            if last_id.is_some() && sorting_order == SortingOrder::Descending {
+                conditions.push(format!(
+                    "((LOWER(dep1.entity_id) < LOWER(${next}) AND dep1.{ts_col} = to_timestamp(${ts} / 1000.0)) OR (dep1.{ts_col} < to_timestamp(${ts} / 1000.0)))",
+                    next = param_idx,
+                    ts = param_idx + 1,
+                ));
+                param_idx += 2;
+            } else {
+                conditions.push(format!(
+                    "dep1.{ts_col} <= to_timestamp(${param_idx} / 1000.0)"
+                ));
+                param_idx += 1;
             }
         }
 
@@ -337,52 +267,16 @@ pub async fn get_historical_deployments(
 
     if let Some(f) = filters {
         if let Some(from) = f.from {
-            if sorting_field == SortingField::LocalTimestamp {
-                if let Some(lid) = last_id {
-                    if sorting_order == SortingOrder::Ascending {
-                        query = query.bind(lid.to_string()).bind(from);
-                    } else {
-                        query = query.bind(from);
-                    }
-                } else {
-                    query = query.bind(from);
-                }
+            if let (Some(lid), SortingOrder::Ascending) = (last_id, sorting_order) {
+                query = query.bind(lid.to_string());
             }
-            if sorting_field == SortingField::EntityTimestamp {
-                if let Some(lid) = last_id {
-                    if sorting_order == SortingOrder::Ascending {
-                        query = query.bind(lid.to_string()).bind(from);
-                    } else {
-                        query = query.bind(from);
-                    }
-                } else {
-                    query = query.bind(from);
-                }
-            }
+            query = query.bind(from);
         }
         if let Some(to) = f.to {
-            if sorting_field == SortingField::LocalTimestamp {
-                if let Some(lid) = last_id {
-                    if sorting_order == SortingOrder::Descending {
-                        query = query.bind(lid.to_string()).bind(to);
-                    } else {
-                        query = query.bind(to);
-                    }
-                } else {
-                    query = query.bind(to);
-                }
+            if let (Some(lid), SortingOrder::Descending) = (last_id, sorting_order) {
+                query = query.bind(lid.to_string());
             }
-            if sorting_field == SortingField::EntityTimestamp {
-                if let Some(lid) = last_id {
-                    if sorting_order == SortingOrder::Descending {
-                        query = query.bind(lid.to_string()).bind(to);
-                    } else {
-                        query = query.bind(to);
-                    }
-                } else {
-                    query = query.bind(to);
-                }
-            }
+            query = query.bind(to);
         }
 
         if let Some(ref types) = f.entity_types {

@@ -1,3 +1,4 @@
+pub mod admin;
 pub mod auth_chain;
 pub mod config;
 pub mod docs;
@@ -97,5 +98,17 @@ pub fn api_router() -> Router<AppState> {
         .route("/docs/ui/", get(docs::swagger_ui))
         .route("/docs/ui/{*rest}", get(docs::swagger_ui));
 
-    Router::new().nest("/api", api)
+    // Moderator admin routes. Bearer-gated (CATALYRST_CAMERA_REEL_ADMIN_TOKEN),
+    // mounted at top level to match the admin-console spec paths exactly.
+    let admin = Router::new()
+        .route(
+            "/admin/images/{image_id}",
+            delete(handlers::images::admin_delete_image),
+        )
+        .route(
+            "/admin/images/{image_id}/review",
+            patch(handlers::images::admin_update_image_review),
+        );
+
+    Router::new().nest("/api", api).merge(admin)
 }

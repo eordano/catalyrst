@@ -72,6 +72,7 @@ async fn main() -> Result<()> {
         .route("/info", get(root))
         .route("/health", get(health))
         .route("/health/live", get(health_live))
+        .nest("/admin/social", catalyrst_social_rpc::admin::router())
         .layer(TraceLayer::new_for_http())
         .with_state(state);
 

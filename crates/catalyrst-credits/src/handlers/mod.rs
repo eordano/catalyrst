@@ -1,3 +1,4 @@
+pub mod admin;
 pub mod captcha;
 pub mod ping;
 pub mod seasons;

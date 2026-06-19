@@ -37,7 +37,49 @@ fn profiles_batch_cache() -> &'static Arc<ResponseCache<String, Value>> {
     })
 }
 
+/// `default`, `default0`..`defaultN` are not deployed profiles — the classic
+/// catalyst lambdas synthesizes a built-in starter avatar for them. We mirror
+/// that so tools requesting `default` (e.g. wearable-preview) get a usable base
+/// avatar instead of a 404.
+fn is_default_profile_id(id: &str) -> bool {
+    let id = id.to_ascii_lowercase();
+    id == "default" || id.strip_prefix("default").is_some_and(|rest| !rest.is_empty() && rest.chars().all(|c| c.is_ascii_digit()))
+}
+
+fn synthetic_default_profile(id: &str) -> Value {
+    json!({
+        "avatars": [{
+            "userId": id,
+            "name": id,
+            "hasClaimedName": false,
+            "ethAddress": id,
+            "version": 0,
+            "tutorialStep": 0,
+            "avatar": {
+                "bodyShape": "urn:decentraland:off-chain:base-avatars:BaseMale",
+                "wearables": [
+                    "urn:decentraland:off-chain:base-avatars:eyebrows_00",
+                    "urn:decentraland:off-chain:base-avatars:mouth_00",
+                    "urn:decentraland:off-chain:base-avatars:casual_hair_01",
+                    "urn:decentraland:off-chain:base-avatars:green_hoodie",
+                    "urn:decentraland:off-chain:base-avatars:brown_pants",
+                    "urn:decentraland:off-chain:base-avatars:sneakers"
+                ],
+                "emotes": [],
+                "snapshots": { "face256": "", "body": "" },
+                "eyes": { "color": { "r": 0.37, "g": 0.22, "b": 0.19 } },
+                "hair": { "color": { "r": 0.6, "g": 0.46, "b": 0.27 } },
+                "skin": { "color": { "r": 0.94, "g": 0.76, "b": 0.6 } }
+            }
+        }],
+        "timestamp": 0
+    })
+}
+
 async fn fetch_profile_for_id(state: &AppState, id: &str) -> Option<Value> {
+    if is_default_profile_id(id) {
+        return Some(synthetic_default_profile(id));
+    }
     let key = id.to_lowercase();
     let state_arc = state;
     let cached = profile_cache()

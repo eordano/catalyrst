@@ -113,11 +113,10 @@ impl ChallengeStore {
         if last_payload != challenge {
             return Err(AuthError::ChallengeMismatch);
         }
-        // The chain's FINAL authority is the signed payload — i.e. the challenge
-        // text, not the wallet address (verify_auth_chain walks SIGNER ->
-        // EPHEMERAL -> SIGNED_ENTITY(payload=challenge)). Passing the address
-        // here rejected EVERY handshake with FinalAuthorityMismatch; the
-        // address binding is already enforced by the first-link check above.
+        // The chain's final authority is the signed payload (the challenge text),
+        // not the wallet address — verify_auth_chain walks SIGNER -> EPHEMERAL ->
+        // SIGNED_ENTITY(payload=challenge). The address binding is enforced by the
+        // first-link check above.
         verify_auth_chain(chain, challenge, Some(now.timestamp_millis()))
             .map_err(|e| AuthError::InvalidChain(format!("{:?}", e)))?;
         Ok(())
@@ -174,11 +173,7 @@ mod tests {
         matches!(err, AuthError::UnknownChallenge);
     }
 
-    /// The happy path with a REAL signed chain. This is the test that was
-    /// missing when verify_auth_chain was called with the wallet address as
-    /// the expected final authority (the final authority of a signed-challenge
-    /// chain is the CHALLENGE text) — every production handshake was rejected
-    /// with FinalAuthorityMismatch while all the failure-path tests passed.
+    /// Happy path with a real signed chain (final authority = challenge text).
     #[test]
     fn redeem_with_valid_signed_chain_succeeds() {
         use ethers_signers::{LocalWallet, Signer};

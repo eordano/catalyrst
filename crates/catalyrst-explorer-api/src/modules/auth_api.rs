@@ -1,3 +1,4 @@
+use crate::modules::admin_auth::require_admin;
 use crate::AppState;
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode};
@@ -7,7 +8,7 @@ use axum::{Json, Router};
 use chrono::{DateTime, Duration, Utc};
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{json, Value};
 use uuid::Uuid;
 
 use catalyrst_crypto::recover::recover_address;
@@ -201,6 +202,134 @@ pub fn routes() -> Router<AppState> {
         )
         .route("/auth/identities", post(create_identity))
         .route("/auth/identities/{id}", get(get_identity))
+        // Admin (bearer-gated) introspection — read + revoke the in-memory
+        // challenge/identity stores. Additive; does not touch the routes above.
+        .route("/admin/auth/challenges", get(admin_list_challenges))
+        .route("/admin/auth/challenges/{id}", get(admin_get_challenge))
+        .route("/admin/auth/challenges/{id}/revoke", post(admin_revoke_challenge))
+        .route("/admin/auth/identities", get(admin_list_identities))
+        .route("/admin/auth/identities/{id}/revoke", post(admin_revoke_identity))
+}
+
+fn challenge_view(record: &ChallengeRecord) -> Value {
+    let status = match &record.status {
+        ChallengeStatus::Pending => "pending",
+        ChallengeStatus::Signed { .. } => "signed",
+        ChallengeStatus::Fulfilled => "fulfilled",
+    };
+    json!({
+        "requestId": record.request_id,
+        "method": record.method,
+        "sender": record.sender,
+        "code": record.code,
+        "createdAt": record.created_at,
+        "expiration": record.expiration,
+        "requiresValidation": record.requires_validation,
+        "status": status,
+    })
+}
+
+async fn admin_list_challenges(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    if let Err(resp) = require_admin(&headers) {
+        return resp;
+    }
+    let items: Vec<Value> = state
+        .auth_api
+        .requests
+        .iter()
+        .map(|e| challenge_view(e.value()))
+        .collect();
+    (
+        StatusCode::OK,
+        Json(json!({ "count": items.len(), "challenges": items })),
+    )
+        .into_response()
+}
+
+async fn admin_get_challenge(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Response {
+    if let Err(resp) = require_admin(&headers) {
+        return resp;
+    }
+    match state.auth_api.requests.get(&id) {
+        Some(entry) => (StatusCode::OK, Json(challenge_view(entry.value()))).into_response(),
+        None => (
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": "challenge_not_found", "requestId": id })),
+        )
+            .into_response(),
+    }
+}
+
+async fn admin_revoke_challenge(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Response {
+    if let Err(resp) = require_admin(&headers) {
+        return resp;
+    }
+    let removed = state.auth_api.requests.remove(&id).is_some();
+    let status = if removed {
+        StatusCode::OK
+    } else {
+        StatusCode::NOT_FOUND
+    };
+    (
+        status,
+        Json(json!({ "ok": removed, "requestId": id, "revoked": removed })),
+    )
+        .into_response()
+}
+
+async fn admin_list_identities(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    if let Err(resp) = require_admin(&headers) {
+        return resp;
+    }
+    let items: Vec<Value> = state
+        .auth_api
+        .identities
+        .iter()
+        .map(|e| {
+            let r = e.value();
+            json!({
+                "identityId": r.identity_id,
+                "ipAddress": r.ip_address,
+                "isMobile": r.is_mobile,
+                "createdAt": r.created_at,
+                "expiration": r.expiration,
+            })
+        })
+        .collect();
+    (
+        StatusCode::OK,
+        Json(json!({ "count": items.len(), "identities": items })),
+    )
+        .into_response()
+}
+
+async fn admin_revoke_identity(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Response {
+    if let Err(resp) = require_admin(&headers) {
+        return resp;
+    }
+    let removed = state.auth_api.identities.remove(&id).is_some();
+    let status = if removed {
+        StatusCode::OK
+    } else {
+        StatusCode::NOT_FOUND
+    };
+    (
+        status,
+        Json(json!({ "ok": removed, "identityId": id, "revoked": removed })),
+    )
+        .into_response()
 }
 
 async fn health_live() -> impl IntoResponse {

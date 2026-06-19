@@ -20,7 +20,7 @@ async fn main() -> Result<()> {
     let state = build_state(&cfg).await?;
 
     let app = Router::new()
-        .route("/health", get(|| async { "ok" }))
+        .route("/healthz", get(|| async { "ok" }))
         .merge(api_router())
         .layer(TraceLayer::new_for_http())
         .with_state(state);

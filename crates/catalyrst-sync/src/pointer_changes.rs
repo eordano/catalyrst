@@ -98,19 +98,51 @@ where
         server, options.from_timestamp
     );
 
+    // Pipeline the cursor: keep the NEXT page's download in flight (spawned) while
+    // we drain the current page into the concurrent deploy scheduler. A single
+    // source's stream is otherwise page-serial — fetch, deploy, fetch, deploy —
+    // which leaves an idle box waiting on each per-page round-trip. Overlapping the
+    // fetch with the deploys keeps the scheduler fed. reqwest::Client is an Arc, so
+    // the clone is cheap.
+    let spawn_fetch = |u: String| {
+        let c = client.clone();
+        tokio::spawn(async move { fetch_page(&c, &u).await })
+    };
+
+    let mut in_flight = Some(spawn_fetch(url.clone()));
+
     loop {
         if should_stop() {
+            if let Some(h) = in_flight.take() { h.abort(); }
             return Ok(greatest_timestamp);
         }
 
-        let (items, next_url) = fetch_page(client, &url).await?;
+        let (items, next_url) = match in_flight.take() {
+            Some(h) => h
+                .await
+                .map_err(|e| SyncError::Other(format!("pointer-changes prefetch join: {e}")))??,
+            None => fetch_page(client, &url).await?,
+        };
 
         if items.is_empty() {
             debug!(server, from = greatest_timestamp, "No new pointer-changes");
         }
 
+        let resolved_next = match next_url {
+            Some(next) => resolve_url(&url, &next)?,
+            None => None,
+        };
+
+        // Start the next page download BEFORE deploying this page's items so the
+        // network round-trip overlaps the (concurrent) deploys below.
+        if let Some(next) = &resolved_next {
+            in_flight = Some(spawn_fetch(next.clone()));
+            url = next.clone();
+        }
+
         for item in items {
             if should_stop() {
+                if let Some(h) = in_flight.take() { h.abort(); }
                 return Ok(greatest_timestamp);
             }
 
@@ -139,25 +171,17 @@ where
                 .await?;
         }
 
-        let resolved_next = match next_url {
-            Some(next) => resolve_url(&url, &next)?,
-            None => None,
-        };
-
-        match resolved_next {
-            Some(next) => {
-                url = next;
+        // No cursor advance: end of stream (or live-tail). in_flight is None here.
+        if resolved_next.is_none() {
+            if options.wait_time_ms == 0 {
+                break;
             }
-            None => {
-                if options.wait_time_ms == 0 {
-                    break;
-                }
-                tokio::time::sleep(std::time::Duration::from_millis(options.wait_time_ms)).await;
-                url = format!(
-                    "{}/pointer-changes?sortingOrder=ASC&sortingField=local_timestamp&from={}",
-                    server, greatest_timestamp
-                );
-            }
+            tokio::time::sleep(std::time::Duration::from_millis(options.wait_time_ms)).await;
+            url = format!(
+                "{}/pointer-changes?sortingOrder=ASC&sortingField=local_timestamp&from={}",
+                server, greatest_timestamp
+            );
+            in_flight = Some(spawn_fetch(url.clone()));
         }
     }
 

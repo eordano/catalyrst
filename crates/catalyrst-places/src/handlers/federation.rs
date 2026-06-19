@@ -5,7 +5,7 @@ use catalyrst_fed::{Signed, TypedMessage};
 use serde::de::DeserializeOwned;
 use serde_json::{json, Value};
 
-use crate::auth::{auth_address_verified, require_bearer_token};
+use crate::auth::{auth_address_verified, require_admin_bearer, require_bearer_token};
 use crate::fed::apply as fed_apply;
 use crate::fed::messages::{PlaceFavorite, PlaceReport, PlaceVote};
 use crate::fed::replay;
@@ -307,6 +307,13 @@ fn require_admin(
     path: &str,
     action: &str,
 ) -> Result<(), ApiError> {
+    // Bearer parity (admin-console.md §4): the console can't forge a user
+    // auth-chain signature, so these routes ALSO accept the admin bearer token
+    // in addition to the existing admin signed-fetch path. This is additive —
+    // a valid admin signature still authorizes when no bearer is presented.
+    if crate::auth::bearer_token(headers).is_some() {
+        return require_admin_bearer(headers, state.admin_auth_token.as_deref());
+    }
     let user = auth_address_verified(headers, method, path)?;
     if state.admin_addresses.contains(&user) {
         Ok(())

@@ -1,5 +1,6 @@
 #![allow(clippy::result_large_err, clippy::type_complexity)]
 
+pub mod admin;
 pub mod cache;
 pub mod cors;
 pub mod errors;

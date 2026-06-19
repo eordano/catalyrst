@@ -4,8 +4,7 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{error, info};
 
-#[derive(Debug, Clone)]
-#[derive(Default)]
+#[derive(Debug, Clone, Default)]
 pub struct DenylistConfig {
     pub file_path: Option<PathBuf>,
     pub urls: Vec<String>,

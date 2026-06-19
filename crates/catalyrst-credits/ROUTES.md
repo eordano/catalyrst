@@ -14,6 +14,33 @@ on the shared PostgreSQL cluster.
 | GET | `/captcha` | `captcha::generate` (GenerateCaptchaAsync) — mint+store a `captcha_challenges` row, return `image/png` bytes | implemented (placeholder PNG) |
 | POST | `/captcha` | `captcha::claim` (ClaimCreditsAsync) — validates signer + active challenge + `x`, then **501** | deferred (accrual/ledger pending federation) |
 
+## Admin routes (high-risk financial, bearer-gated)
+
+Spec: `docs/admin-console.md` §4 (catalyrst-credits row). Every route below is
+gated by a constant-time bearer compare against `CATALYRST_CREDITS_ADMIN_TOKEN`;
+when that env is unset the gate fails closed (403). These are additive and do not
+touch the signed-fetch routes above. Every successful mutation is transactional
+and writes an `admin_audit` row (migration `0002_admin_audit.sql`). The operator
+identity is taken from the trusted `X-Catalyrst-Admin` header (set server-side by
+the admin console) and recorded in `admin_audit.actor` for credit/block
+mutations (migration `0003_grant_idempotency.sql`). Credit amounts (`amount`,
+`maxMana`, `reward`) are decimal **strings**, never JSON numbers, to preserve
+MANA-wei precision. Revoke is clamped (never negative).
+
+| Method | Path | Body | Effect |
+|---|---|---|---|
+| GET | `/admin/seasons` | - | list all seasons |
+| POST | `/admin/seasons` | `{name,startDate,endDate,maxMana,amountOfWeeks,state}` | create season (201) |
+| PUT | `/admin/seasons/{id}` | same as POST | update season |
+| DELETE | `/admin/seasons/{id}` | - | delete season (cascades weeks/goals) (204) |
+| GET | `/admin/goals?weekId=` | - | list goals (optionally by week) |
+| POST | `/admin/goals` | `{weekId,title,description?,thumbnail?,reward,totalSteps,sortOrder?}` | create goal (201) |
+| PUT | `/admin/goals/{id}` | `{title,description?,thumbnail?,reward,totalSteps,sortOrder?}` | update goal |
+| DELETE | `/admin/goals/{id}` | - | delete goal (204) |
+| POST | `/admin/credits/grant` | `{address,amount,reason?,idempotencyKey?}` | add credits + `grant` ledger row; replayed `idempotencyKey` returns prior result (`replayed:true`) without a 2nd grant |
+| POST | `/admin/credits/revoke` | `{address,amount,reason?}` | subtract credits (clamped) + `consume` ledger row |
+| POST | `/admin/users/{address}/block` | `{blocked:bool,reason?}` | set `is_blocked_for_claiming` |
+
 Out of scope (notifications.decentraland.org host, future `catalyrst-notifications`):
 `PUT /set-email`, `GET /subscription`.
 

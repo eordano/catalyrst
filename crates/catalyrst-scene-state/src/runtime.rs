@@ -169,6 +169,11 @@ pub trait SceneRuntime: Send + Sync {
 
     /// Handle a client disconnect (free its range, GC its network entities).
     fn on_client_close(&self, client_index: u32);
+
+    /// The current authoritative CRDT snapshot (the same bytes a late-joining
+    /// client receives in its `Init` frame). Read-only; used by the admin
+    /// CRDT-inspect route.
+    fn snapshot(&self) -> Vec<u8>;
 }
 
 /// Transport-faithful relay with no scene logic. Used as a fallback for scenes
@@ -233,6 +238,10 @@ impl SceneRuntime for RelayRuntime {
         // Reclaim the client's network entity range + GC its entities.
         let (start, size) = self.config.range_for_client(client_index);
         self.engine.lock().reclaim_range(start, size);
+    }
+
+    fn snapshot(&self) -> Vec<u8> {
+        self.engine.lock().snapshot()
     }
 }
 
@@ -308,6 +317,10 @@ impl SceneRuntime for JsRuntime {
             index: client_index,
         });
         self.handle.shared.outbound.remove(&client_index);
+    }
+
+    fn snapshot(&self) -> Vec<u8> {
+        self.handle.shared.snapshot.lock().clone()
     }
 }
 
