@@ -63,6 +63,10 @@ async fn mint(
         ));
     }
 
+    if state.denylist.is_denylisted(&identity).await {
+        return Err(ApiError::forbidden("Access denied, deny-listed wallet."));
+    }
+
     if state.worlds.is_wallet_blocked(&identity).await?
         || state.bans.is_player_banned(&identity).await
     {

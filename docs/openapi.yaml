@@ -20,7 +20,7 @@ info:
     (the `message` field is optional). The `*` fallback returns `text/plain "Not found"`
     instead of the JSON error body, matching reference parity.
   license:
-    name: Apache-2.0 OR MIT
+    name: AGPL-3.0
 servers:
   - url: http://127.0.0.1:5141
     description: Local catalyrst (default dev port)
@@ -337,6 +337,12 @@ paths:
       responses:
         '200':
           description: Array of active entities (empty array if none matched).
+          headers:
+            Cache-Control:
+              description: >-
+                `public, max-age=<ENTITIES_CACHE_CONTROL_MAX_AGE>` (default 10);
+                absent when the env var is 0.
+              schema: { type: string }
           content:
             application/json:
               schema:
@@ -442,6 +448,22 @@ paths:
                     type: integer
                     format: int64
                   overwrittenBy: { type: string, nullable: true }
+                  localProvenance:
+                    type: object
+                    nullable: true
+                    description: |
+                      Present only for entities published directly against this
+                      node's write API (LAND publish on this network) rather than
+                      synced from upstream Genesis City.
+                    properties:
+                      signer: { type: string }
+                      origin: { type: string, example: land-publish }
+                      publishedAt: { type: integer, format: int64 }
+                      tombstonedAt: { type: integer, format: int64, nullable: true }
+                      superseded: { type: boolean }
+                      status:
+                        type: string
+                        enum: [active, superseded, unpublished]
                 additionalProperties: true
         '400':
           description: Unrecognized entity type (includes `outfit`/`outfits`).
@@ -540,6 +562,12 @@ paths:
       responses:
         '200':
           description: Array of entities (possibly masked).
+          headers:
+            Cache-Control:
+              description: >-
+                `public, max-age=<ENTITIES_CACHE_CONTROL_MAX_AGE>` (default 10);
+                absent when the env var is 0.
+              schema: { type: string }
           content:
             application/json:
               schema:
@@ -567,6 +595,7 @@ paths:
           content:
             application/json:
               schema: { type: object }
+        '400': { $ref: '#/components/responses/BadRequest' }
 
   /content/contents/{hashId}/active-entities:
     get:
@@ -586,6 +615,11 @@ paths:
               schema:
                 type: array
                 items: { type: object }
+        '404':
+          description: No active entity references that content hash.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorBody' }
 
   /content/failed-deployments:
     get:
@@ -628,6 +662,7 @@ paths:
           schema: { type: string }
       responses:
         '200': { description: Headers only. }
+        '404': { description: No active entity for that pointer. }
 
   /content/queries/items/{pointer}/image:
     get:
@@ -656,6 +691,7 @@ paths:
           schema: { type: string }
       responses:
         '200': { description: Headers only. }
+        '404': { description: No active entity for that pointer. }
 
   /content/queries/erc721/{chainId}/{contract}/{option}:
     get:
@@ -681,6 +717,7 @@ paths:
           content:
             application/json:
               schema: { type: object }
+        '400': { $ref: '#/components/responses/BadRequest' }
         '404': { description: No metadata found. }
 
   /content/queries/erc721/{chainId}/{contract}/{option}/{emission}:
@@ -711,6 +748,7 @@ paths:
           content:
             application/json:
               schema: { type: object }
+        '400': { $ref: '#/components/responses/BadRequest' }
         '404': { description: No metadata found. }
 
   /content/entities:
@@ -749,6 +787,44 @@ paths:
               schema: { type: object }
         '400': { $ref: '#/components/responses/BadRequest' }
         '413': { description: Request body exceeded `MAX_DEPLOYMENT_SIZE_BYTES`. }
+
+  /content/scenes/{coord}:
+    delete:
+      tags: [content]
+      summary: Unpublish a locally published LAND scene (write mode only)
+      description: |
+        Owner-signed tombstone for a scene published directly against this
+        node (`localProvenance` in the audit record). Auth is a signed fetch
+        (`x-identity-auth-chain-*` + `x-identity-timestamp` headers, worlds
+        style) followed by the LAND access rule for the addressed parcel
+        (parcel owner, estate owner, or operator/updateOperator/
+        updateManagers/approvedForAll via the land-manager subgraph). The
+        parcel reverts to the newest synced Genesis City deployment covering
+        it, or to nothing. Synced Genesis City entities are never deletable.
+      parameters:
+        - in: path
+          name: coord
+          required: true
+          description: Parcel coordinate `x,y`, e.g. `52,-52`.
+          schema: { type: string }
+      responses:
+        '200':
+          description: Local publish tombstoned; pointers repointed.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  entityId: { type: string }
+                  unpublished: { type: boolean }
+                  parcels:
+                    type: array
+                    items: { type: string }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { description: Missing/invalid/expired signed-fetch auth chain. }
+        '403': { description: Signer has no rights on the parcel. }
+        '404': { description: No locally published scene at that parcel. }
+        '409': { description: A concurrent deployment changed the parcel; retry. }
 
   /lambdas/profiles:
     post:
@@ -1226,6 +1302,7 @@ paths:
           content:
             application/json:
               schema: { type: object }
+        '400': { $ref: '#/components/responses/BadRequest' }
 
   /lambdas/collections/emotes:
     get:
@@ -1238,6 +1315,7 @@ paths:
           content:
             application/json:
               schema: { type: object }
+        '400': { $ref: '#/components/responses/BadRequest' }
 
   /lambdas/collections/wearables-by-owner/{owner}:
     get:
@@ -1328,7 +1406,7 @@ paths:
             application/json:
               schema:
                 type: array
-                items: { type: array, items: { type: integer } }
+                items: { type: string, description: 'Parcel coordinates as "x,y".' }
 
   /lambdas/contracts/denylisted-names:
     get:
@@ -1422,6 +1500,11 @@ paths:
           content:
             application/json:
               schema: { type: object }
+        '404':
+          description: No outfit entity for that address.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorBody' }
 
   /metrics:
     get:
@@ -1463,7 +1546,7 @@ components:
 
     EntityType:
       type: string
-      enum: [scene, profile, wearable, emote, store, outfit]
+      enum: [scene, profile, wearable, emote, store, outfit, outfits]
       description: |
         Canonical entity type. The query/path parsers also accept the trailing-`s`
         plural form (e.g. `scenes`) and canonicalize. Note that `outfit`/`outfits`

@@ -402,12 +402,14 @@ pub async fn get_about(State(state): State<Arc<AppState>>) -> impl IntoResponse 
                 ],
                 satellite_view: Some(AboutMapView {
                     version: "v1".to_string(),
+
                     base_url: env_url("MAP_SATELLITE_BASE_URL", "https://genesis.city/map/latest"),
-                    suffix_url: ".jpg".to_string(),
+                    suffix_url: env_url("MAP_SATELLITE_SUFFIX", ".jpg"),
                     top_left_offset: AboutMapOffset { x: -2, y: -6 },
                 }),
                 parcel_view: Some(AboutParcelView {
                     version: "v1".to_string(),
+
                     image_url: env_url(
                         "MAP_PARCEL_VIEW_URL",
                         "https://api.decentraland.org/v1/minimap.png",

@@ -1,8 +1,8 @@
 [package]
 name = "catalyrst-explore"
-version = "0.1.0"
+version = "0.12.0"
 edition = "2021"
-description = "Bundle binary serving several catalyrst explorer-facing service crates (places, events, archipelago, worlds, map, lists) on a single axum port (5143) by merging each member's api_router."
+description = "Bundle binary serving the catalyrst explorer-facing surface (places, events, archipelago, worlds, map, lists) on a single axum port (5143) by merging each member router."
 
 [[bin]]
 name = "catalyrst-explore"
@@ -14,7 +14,6 @@ catalyrst-events = { path = "../catalyrst-events" }
 catalyrst-archipelago = { path = "../catalyrst-archipelago" }
 catalyrst-worlds = { path = "../catalyrst-worlds" }
 catalyrst-map = { path = "../catalyrst-map" }
-catalyrst-lists = { path = "../catalyrst-lists" }
 
 tokio = { workspace = true }
 axum = { workspace = true }

@@ -1,7 +1,7 @@
-// large error enum; boxing every Result hurts ergonomics
 #![allow(clippy::result_large_err)]
 
 pub mod auth;
+pub mod ban;
 pub mod cluster;
 pub mod config;
 pub mod content;
@@ -24,22 +24,30 @@ use axum::Router;
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 
 use crate::auth::ChallengeStore;
+use crate::ban::{BanChecker, DenyList};
 use crate::cluster::Cluster;
 use crate::content::ContentResolver;
 use crate::gossip::GossipBus;
 use crate::livekit::LivekitMinter;
 
 pub async fn build_state(cfg: &Config) -> Result<AppState> {
-    let livekit = Arc::new(LivekitMinter::new(cfg.livekit.clone()));
-    let cluster = Cluster::new(cfg.cluster.clone(), Arc::clone(&livekit));
-    let _recluster_task = Arc::clone(&cluster).spawn_periodic();
-
-    let challenges = ChallengeStore::new(cfg.auth.clone());
-
     let http = reqwest::Client::builder()
         .user_agent(concat!("catalyrst-archipelago/", env!("CARGO_PKG_VERSION")))
         .timeout(std::time::Duration::from_secs(5))
         .build()?;
+
+    let livekit = Arc::new(LivekitMinter::new(cfg.livekit.clone()));
+    let ban_checker = BanChecker::new(cfg.livekit.comms_gatekeeper_url.clone(), http.clone());
+    let deny_list = DenyList::new(cfg.auth.deny_list_url.clone(), http.clone());
+    let cluster = Cluster::new(
+        cfg.cluster.clone(),
+        Arc::clone(&livekit),
+        Arc::clone(&ban_checker),
+    );
+    let _recluster_task = Arc::clone(&cluster).spawn_periodic();
+
+    let challenges = ChallengeStore::new(cfg.auth.clone());
+
     let gossip = GossipBus::new(cfg.gossip.clone(), http);
     let _gossip_task = Arc::clone(&gossip).spawn_periodic(Arc::clone(&cluster));
 
@@ -73,6 +81,8 @@ pub async fn build_state(cfg: &Config) -> Result<AppState> {
 
     tracing::info!(
         livekit_armed = livekit.is_armed(),
+        ban_check_armed = ban_checker.is_armed(),
+        deny_list_armed = deny_list.is_armed(),
         gossip_armed = gossip.is_armed(),
         auth_required = challenges.required(),
         content_armed = content.is_armed(),
@@ -86,6 +96,8 @@ pub async fn build_state(cfg: &Config) -> Result<AppState> {
         livekit,
         gossip,
         content,
+        ban_checker,
+        deny_list,
     }))
 }
 

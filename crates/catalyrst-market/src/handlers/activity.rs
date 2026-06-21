@@ -18,11 +18,6 @@ pub struct ActivityEnvelope {
     pub total: i64,
 }
 
-/// Behind the front-host proxy, nginx strips the service prefix before
-/// proxying but the client signs the full external path (incl. prefix). nginx
-/// forwards the original path in `x-original-path`; prefer it for signed-fetch
-/// payload reconstruction so it matches what the client signed. Falls back to the
-/// hardcoded route path for direct/loopback requests (no header).
 fn signed_fetch_path<'a>(headers: &HeaderMap, fallback: &'a str) -> std::borrow::Cow<'a, str> {
     match headers.get("x-original-path").and_then(|v| v.to_str().ok()) {
         Some(raw) => std::borrow::Cow::Owned(raw.split('?').next().unwrap_or(raw).to_string()),

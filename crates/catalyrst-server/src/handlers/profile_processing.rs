@@ -60,15 +60,27 @@ async fn resolve_ownership_batch(
             .collect()
     };
 
-    let exact_rows: Vec<(String,)> = sqlx::query_as(
+    let overlay = super::lease_overlay::usage_grants_present(pool).await;
+    let exact_sql = if overlay {
+        "SELECT DISTINCT urn FROM ( \
+             SELECT urn FROM squid_marketplace.nft \
+             WHERE owner_address = lower($1) AND urn = ANY($2) \
+           UNION ALL \
+             SELECT ug.urn AS urn FROM marketplace.usage_grants ug \
+             WHERE ug.status = 'active' \
+               AND ug.grantee_address = lower($1) \
+               AND ug.urn = ANY($2) \
+         ) owned"
+    } else {
         "SELECT DISTINCT urn FROM squid_marketplace.nft \
-         WHERE owner_address = lower($1) AND urn = ANY($2)",
-    )
-    .bind(address)
-    .bind(&unique)
-    .fetch_all(pool)
-    .await
-    .unwrap_or_default();
+         WHERE owner_address = lower($1) AND urn = ANY($2)"
+    };
+    let exact_rows: Vec<(String,)> = sqlx::query_as(exact_sql)
+        .bind(address)
+        .bind(&unique)
+        .fetch_all(pool)
+        .await
+        .unwrap_or_default();
     for (urn,) in exact_rows {
         owned_exact.insert(urn);
     }
@@ -82,20 +94,35 @@ async fn resolve_ownership_batch(
     if !fallback.is_empty() {
         let prefixes: Vec<String> = fallback.iter().map(|u| format!("{u}:")).collect();
 
-        let prefix_rows: Vec<(String,)> = sqlx::query_as(
+        let prefix_sql = if overlay {
             "SELECT DISTINCT p AS matched_prefix \
              FROM unnest($2::text[]) AS p \
              WHERE EXISTS ( \
                  SELECT 1 FROM squid_marketplace.nft n \
                  WHERE n.owner_address = lower($1) \
                    AND left(n.urn, length(p)) = p \
-             )",
-        )
-        .bind(address)
-        .bind(&prefixes)
-        .fetch_all(pool)
-        .await
-        .unwrap_or_default();
+             ) \
+             OR EXISTS ( \
+                 SELECT 1 FROM marketplace.usage_grants ug \
+                 WHERE ug.status = 'active' \
+                   AND ug.grantee_address = lower($1) \
+                   AND left(ug.urn, length(p)) = p \
+             )"
+        } else {
+            "SELECT DISTINCT p AS matched_prefix \
+             FROM unnest($2::text[]) AS p \
+             WHERE EXISTS ( \
+                 SELECT 1 FROM squid_marketplace.nft n \
+                 WHERE n.owner_address = lower($1) \
+                   AND left(n.urn, length(p)) = p \
+             )"
+        };
+        let prefix_rows: Vec<(String,)> = sqlx::query_as(prefix_sql)
+            .bind(address)
+            .bind(&prefixes)
+            .fetch_all(pool)
+            .await
+            .unwrap_or_default();
 
         for (matched_prefix,) in prefix_rows {
             if let Some(urn) = matched_prefix.strip_suffix(':') {
@@ -107,22 +134,44 @@ async fn resolve_ownership_batch(
     resolve_owned(&unique, &owned_exact, &owned_prefixes)
 }
 
-pub async fn validate_ownership(
-    squid_pool: Option<&PgPool>,
-    eth_address: &str,
-    metadata: &mut Value,
-) {
-    let pool = match squid_pool {
-        Some(p) => p,
-        None => return,
-    };
+pub async fn fetch_owned_ens_names(pool: &PgPool, address: &str) -> Vec<String> {
+    sqlx::query_scalar::<_, String>(
+        "SELECT name FROM squid_marketplace.nft \
+         WHERE category = 'ens' AND owner_address = lower($1) \
+         ORDER BY id ASC",
+    )
+    .bind(address)
+    .fetch_all(pool)
+    .await
+    .unwrap_or_default()
+}
 
+pub fn apply_claimed_name(metadata: &mut Value, owned_names: &[String]) {
     let avatars = match metadata.get_mut("avatars").and_then(|v| v.as_array_mut()) {
         Some(arr) => arr,
         None => return,
     };
 
+    for avatar_val in avatars.iter_mut() {
+        let claimed = avatar_val
+            .get("name")
+            .and_then(|v| v.as_str())
+            .map(|name| owned_names.iter().any(|owned| owned == name))
+            .unwrap_or(false);
+        if let Some(obj) = avatar_val.as_object_mut() {
+            obj.insert("hasClaimedName".to_string(), Value::Bool(claimed));
+        }
+    }
+}
+
+fn collect_ownership_urns(metadata: &Value) -> Vec<String> {
     let mut to_check: Vec<String> = Vec::new();
+
+    let avatars = match metadata.get("avatars").and_then(|v| v.as_array()) {
+        Some(arr) => arr,
+        None => return to_check,
+    };
+
     for avatar_val in avatars.iter() {
         let avatar_obj = match avatar_val.get("avatar") {
             Some(a) => a,
@@ -158,15 +207,27 @@ pub async fn validate_ownership(
         }
     }
 
-    let owned = resolve_ownership_batch(pool, eth_address, &to_check).await;
-    filter_avatars_by_ownership(avatars, &owned);
+    to_check
 }
 
-/// Strip on-chain wearables/emotes the wallet does not own from each avatar
-/// (the second half of `validate_ownership`, factored out so the security-critical
-/// keep/drop decision is unit-testable without a DB). Base wearables/emotes and
-/// emotes without a URN are always kept; on-chain items are kept only when their
-/// normalized URN (token id removed) is in `owned`.
+pub async fn validate_ownership(
+    squid_pool: Option<&PgPool>,
+    eth_address: &str,
+    metadata: &mut Value,
+) {
+    let pool = match squid_pool {
+        Some(p) => p,
+        None => return,
+    };
+
+    let to_check = collect_ownership_urns(metadata);
+    let owned = resolve_ownership_batch(pool, eth_address, &to_check).await;
+
+    if let Some(avatars) = metadata.get_mut("avatars").and_then(|v| v.as_array_mut()) {
+        filter_avatars_by_ownership(avatars, &owned);
+    }
+}
+
 fn filter_avatars_by_ownership(avatars: &mut [Value], owned: &std::collections::HashSet<String>) {
     for avatar_val in avatars.iter_mut() {
         let avatar_obj = match avatar_val.get_mut("avatar") {
@@ -343,7 +404,18 @@ pub async fn process_profile(
     rewrite_snapshot_urls(eid, &mut metadata, cdn_base);
 
     if !eth_address.starts_with("default") {
-        validate_ownership(squid_pool, &eth_address, &mut metadata).await;
+        if let Some(pool) = squid_pool {
+            let to_check = collect_ownership_urns(&metadata);
+            let (owned, owned_names) = tokio::join!(
+                resolve_ownership_batch(pool, &eth_address, &to_check),
+                fetch_owned_ens_names(pool, &eth_address),
+            );
+
+            if let Some(avatars) = metadata.get_mut("avatars").and_then(|v| v.as_array_mut()) {
+                filter_avatars_by_ownership(avatars, &owned);
+            }
+            apply_claimed_name(&mut metadata, &owned_names);
+        }
     }
 
     Some(metadata)
@@ -361,15 +433,14 @@ mod tests {
 
     #[test]
     fn split_urn_strips_token_id_for_7segment_collections_v2() {
-        // 7-segment tokenized URN -> (item urn, token id)
         let (urn, tok) = split_urn_and_token_id("urn:decentraland:matic:collections-v2:0xabc:0:42");
         assert_eq!(urn, "urn:decentraland:matic:collections-v2:0xabc:0");
         assert_eq!(tok, Some("42"));
-        // 6-segment item URN -> unchanged
+
         let (urn, tok) = split_urn_and_token_id("urn:decentraland:matic:collections-v2:0xabc:0");
         assert_eq!(urn, "urn:decentraland:matic:collections-v2:0xabc:0");
         assert_eq!(tok, None);
-        // third-party (7 segments) is NOT split
+
         let tp = "urn:decentraland:matic:collections-thirdparty:tp:coll:item";
         assert_eq!(split_urn_and_token_id(tp).1, None);
     }
@@ -380,7 +451,7 @@ mod tests {
             normalize_urn("urn:decentraland:ethereum:collections-v1:0xabc:hat"),
             "urn:decentraland:mainnet:collections-v1:0xabc:hat"
         );
-        // only the first occurrence is replaced (matches replacen(.., 1))
+
         assert!(normalize_urn("a:mainnet:b").contains(":mainnet:"));
     }
 
@@ -390,10 +461,10 @@ mod tests {
         let mut avatars = vec![json!({
             "avatar": {
                 "wearables": [
-                    "urn:decentraland:off-chain:base-avatars:eyebrows_00",   // base -> keep
-                    "urn:decentraland:matic:collections-v2:0xowned:0",        // owned -> keep
-                    "urn:decentraland:matic:collections-v2:0xowned:0:99",     // owned (tokenized) -> keep
-                    "urn:decentraland:matic:collections-v2:0xnope:0"          // unowned -> DROP
+                    "urn:decentraland:off-chain:base-avatars:eyebrows_00",
+                    "urn:decentraland:matic:collections-v2:0xowned:0",
+                    "urn:decentraland:matic:collections-v2:0xowned:0:99",
+                    "urn:decentraland:matic:collections-v2:0xnope:0"
                 ]
             }
         })];
@@ -418,15 +489,14 @@ mod tests {
 
     #[test]
     fn ownership_filter_handles_emotes_and_ethereum_normalization() {
-        // owned set is stored in :mainnet: form; a profile listing the :ethereum: form must still match
         let owned = owned_set(&["urn:decentraland:mainnet:collections-v1:0xc:dance"]);
         let mut avatars = vec![json!({
             "avatar": {
                 "emotes": [
-                    {"slot": 0, "urn": "handsair"},                                  // no colon -> keep
-                    {"slot": 1, "urn": "urn:decentraland:off-chain:base-emotes:wave"},// base -> keep
-                    {"slot": 2, "urn": "urn:decentraland:ethereum:collections-v1:0xc:dance"}, // owned via normalize -> keep
-                    {"slot": 3, "urn": "urn:decentraland:matic:collections-v2:0xx:1"}        // unowned -> DROP
+                    {"slot": 0, "urn": "handsair"},
+                    {"slot": 1, "urn": "urn:decentraland:off-chain:base-emotes:wave"},
+                    {"slot": 2, "urn": "urn:decentraland:ethereum:collections-v1:0xc:dance"},
+                    {"slot": 3, "urn": "urn:decentraland:matic:collections-v2:0xx:1"}
                 ]
             }
         })];
@@ -759,6 +829,52 @@ mod tests {
             .collect();
         assert_eq!(batched, expected);
         assert!(batched.is_empty());
+    }
+
+    #[test]
+    fn apply_claimed_name_overrides_stale_true_when_name_not_owned() {
+        let mut metadata = json!({
+            "avatars": [{"name": "Genius", "hasClaimedName": true}]
+        });
+
+        apply_claimed_name(&mut metadata, &["OtherName".to_string()]);
+
+        assert_eq!(metadata["avatars"][0]["hasClaimedName"], false);
+    }
+
+    #[test]
+    fn apply_claimed_name_sets_true_when_missing_and_owned() {
+        let mut metadata = json!({
+            "avatars": [{"name": "iMoo"}]
+        });
+
+        apply_claimed_name(&mut metadata, &["iMoo".to_string()]);
+
+        assert_eq!(metadata["avatars"][0]["hasClaimedName"], true);
+    }
+
+    #[test]
+    fn apply_claimed_name_is_case_sensitive() {
+        let mut metadata = json!({
+            "avatars": [{"name": "imoo", "hasClaimedName": true}]
+        });
+
+        apply_claimed_name(&mut metadata, &["iMoo".to_string()]);
+
+        assert_eq!(metadata["avatars"][0]["hasClaimedName"], false);
+    }
+
+    #[test]
+    fn apply_claimed_name_handles_missing_name_and_empty_avatars() {
+        let mut metadata = json!({
+            "avatars": [{"avatar": {}}]
+        });
+        apply_claimed_name(&mut metadata, &["iMoo".to_string()]);
+        assert_eq!(metadata["avatars"][0]["hasClaimedName"], false);
+
+        let mut no_avatars = json!({});
+        apply_claimed_name(&mut no_avatars, &["iMoo".to_string()]);
+        assert!(no_avatars.get("avatars").is_none());
     }
 
     #[test]

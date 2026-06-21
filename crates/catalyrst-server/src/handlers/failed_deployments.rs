@@ -8,11 +8,8 @@ use crate::errors::{AppError, AppResult};
 use crate::query_params::{parse_query_string, qs_get_number};
 use crate::state::AppState;
 
-// Largest page returned when the caller opts into pagination via `?offset=&limit=`.
 const MAX_FAILED_DEPLOYMENTS_PAGE_SIZE: i64 = 1000;
 
-// Method: GET
-// Query String (optional): ?offset={n}&limit={n}
 pub async fn get_failed_deployments(
     State(state): State<Arc<AppState>>,
     request: Request,
@@ -27,11 +24,6 @@ pub async fn get_failed_deployments(
         .await
         .map_err(|e| AppError::Internal(e.to_string()))?;
 
-    // Backward-compatible, opt-in pagination: with neither `offset` nor `limit` we return the full
-    // array exactly as before (the response is a bare array, so a pagination envelope would break the
-    // API contract). When either is provided we return a bounded slice, so an operator can page a
-    // large failure set instead of pulling the entire in-memory table — which includes every auth
-    // chain and internal error description — in one response.
     if offset.is_none() && limit.is_none() {
         return Ok(Json(failed));
     }

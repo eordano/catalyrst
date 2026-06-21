@@ -113,6 +113,7 @@ pub enum MarketplaceApiError {
     #[error(transparent)]
     InvalidParameter(#[from] InvalidParameterError),
 
+    #[cfg(feature = "sqlx")]
     #[error("database error: {0}")]
     Database(#[from] sqlx::Error),
 
@@ -137,11 +138,15 @@ impl IntoResponse for MarketplaceApiError {
         let (code, message) = match &self {
             MarketplaceApiError::Http(HttpError { code, message }) => (*code, message.clone()),
             MarketplaceApiError::InvalidParameter(e) => (400u16, e.to_string()),
+            #[cfg(feature = "sqlx")]
             MarketplaceApiError::Database(e) => {
                 tracing::error!(error = %e, "sqlx error");
                 (500, "database error".to_string())
             }
-            MarketplaceApiError::Internal(s) => (500, s.clone()),
+            MarketplaceApiError::Internal(s) => {
+                tracing::error!(error = %s, "internal error");
+                (500, s.clone())
+            }
         };
         let status = StatusCode::from_u16(code).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
         let body = json!({ "ok": false, "message": message });

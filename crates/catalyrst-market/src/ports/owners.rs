@@ -24,6 +24,11 @@ pub struct OwnersFilters {
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "market/", rename_all = "camelCase")
+)]
 pub struct Owner {
     #[serde(rename = "issuedId")]
     pub issued_id: String,
@@ -72,7 +77,7 @@ impl OwnersComponent {
             order_clause = order_clause,
         );
 
-        let rows: Vec<(String, String, String)> = sqlx::query_as(&select_sql)
+        let rows: Vec<(String, String, String)> = sqlx::query_as(sqlx::AssertSqlSafe(select_sql))
             .bind(&filters.contract_address)
             .bind(&filters.item_id)
             .bind(skip)
@@ -86,7 +91,7 @@ impl OwnersComponent {
              WHERE nft.contract_address = $1 AND nft.item_blockchain_id = $2::numeric",
             schema = MARKETPLACE_SQUID_SCHEMA,
         );
-        let total: i64 = sqlx::query_scalar(&count_sql)
+        let total: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(count_sql))
             .bind(&filters.contract_address)
             .bind(&filters.item_id)
             .fetch_one(&self.pool)

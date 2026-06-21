@@ -10,9 +10,9 @@
   "response": {
     "status": 404,
     "headers": {"content-type": "application/json"},
-    "body_json": {"error": "Not Found", "message": "The entity was not found"}
+    "body_json": {"error": "The entity was not found"}
   },
-  "captured_from": "hand-authored from handler source (get_active_entities_by_hash.rs)",
+  "captured_from": "re-derived from peer.decentraland.org 2026-07-03",
   "captured_at": "2026-05-23T20:00:00Z",
   "volatile_paths": []
 }

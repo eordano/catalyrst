@@ -1,14 +1,4 @@
 #!/usr/bin/env bash
-# scripts/schemathesis/run.sh
-#
-# Bootstrap a venv and run schemathesis against a catalyrst (or peer) instance,
-# using the OpenAPI spec at docs/openapi.yaml by default.
-#
-# Usage:
-#   ./scripts/schemathesis/run.sh --target http://127.0.0.1:5141
-#   ./scripts/schemathesis/run.sh --target https://peer.decentraland.org \
-#       --hypothesis-max-examples 5 --workers 1
-#
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -16,7 +6,6 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 VENV_DIR="${SCRIPT_DIR}/.venv"
 REQUIREMENTS="${SCRIPT_DIR}/requirements.txt"
 
-# Defaults
 TARGET=""
 SPEC="${REPO_ROOT}/docs/openapi.yaml"
 CHECKS="all"
@@ -95,16 +84,13 @@ if [[ ! -f "${SPEC}" ]]; then
     exit 2
 fi
 
-# Bootstrap venv on first run.
 if [[ ! -d "${VENV_DIR}" ]]; then
     echo "==> creating venv at ${VENV_DIR}" >&2
     python3 -m venv "${VENV_DIR}"
 fi
 
-# shellcheck disable=SC1091
 source "${VENV_DIR}/bin/activate"
 
-# Install/upgrade requirements if schemathesis is missing or requirements changed.
 NEED_INSTALL=0
 if ! python3 -c "import schemathesis" >/dev/null 2>&1; then
     NEED_INSTALL=1
@@ -125,14 +111,14 @@ if [[ "${NEED_INSTALL}" -eq 1 ]]; then
     sha256sum "${REQUIREMENTS}" | awk '{print $1}' > "${VENV_DIR}/.requirements.sha"
 fi
 
-# Build args. Custom checks live in checks.py and are auto-loaded via
-# SCHEMATHESIS_HOOKS so the @schemathesis.check decorators register before run.
 export SCHEMATHESIS_HOOKS="checks"
 export PYTHONPATH="${SCRIPT_DIR}${PYTHONPATH:+:${PYTHONPATH}}"
 
 ARGS=(
     run
     "${SPEC}"
+    # docs/openapi.yaml is OpenAPI 3.1; schemathesis >=3.x needs this opt-in.
+    --experimental=openapi-3.1
     --base-url "${TARGET}"
     --checks "${CHECKS}"
     --hypothesis-max-examples "${MAX_EXAMPLES}"
@@ -143,5 +129,7 @@ if [[ -n "${REPORT}" ]]; then
     ARGS+=(--junit-xml "${REPORT}")
 fi
 
+# schemathesis >=3.20 dropped the `python -m schemathesis` entrypoint; invoke the
+# console script installed into the venv instead.
 echo "==> schemathesis ${ARGS[*]}" >&2
-exec python3 -m schemathesis "${ARGS[@]}"
+exec schemathesis "${ARGS[@]}"

@@ -1,36 +1,3 @@
-//! Federation gossip transport.
-//!
-//! Design notes:
-//! - NATS is the federation transport, on an account-isolated, mTLS broker.
-//!   Subjects are namespaced `fed.<scope>.*`.
-//! - Places opinions gossip over a single JetStream subject (normalised to the
-//!   `fed.<scope>.actions` convention so every service shares one wire shape).
-//! - Communities deliberately federate via HTTP-snapshot pull, NOT live gossip.
-//!   The HTTP `snapshot` / `changes` endpoints already implement that.
-//!   Communities therefore use the [`NoopPublisher`] (local-authoritative writes
-//!   apply + are durably logged in Postgres; remote peers pull the log). The
-//!   gossip path below is what places (and, later, friends/messaging) use for
-//!   sub-second push.
-//!
-//! Design: a [`GossipPublisher`] trait abstracts the transport so the rest of
-//! the workspace never touches NATS directly. Two impls:
-//!
-//!  * [`NoopPublisher`] — the single-node / no-peers default. `publish` is a
-//!    no-op that returns `Ok`; `consume` never yields. A deploy with no peers
-//!    works unchanged: local writes apply immediately and are published into the
-//!    void.
-//!  * [`nats::NatsPublisher`] — real JetStream publish/subscribe, gated behind
-//!    the `nats` cargo feature so the workspace still builds where `async-nats`
-//!    is unavailable. Selected at runtime via [`GossipConfig`].
-//!
-//! Every gossiped action is wrapped in a [`GossipEnvelope`]: the original
-//! `Signed<T>` re-serialised as JSON (the canonical signed wire format), plus
-//! routing metadata (scope, primary type,
-//! signature hash, recovered signer, origin peer). A receiver re-verifies the
-//! inner `Signed<T>` through the same `verify` / replay / authority machinery a
-//! local write goes through — gossip is never trusted just because a peer
-//! forwarded it.
-
 use crate::session::Scope;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -48,38 +15,27 @@ pub fn account_name() -> &'static str {
     "federation"
 }
 
-/// JetStream stream name per scope (durable, Postgres remains source of truth).
 pub fn stream_name(scope: Scope) -> String {
     format!("FED_{}", scope.as_str().to_ascii_uppercase())
 }
 
-/// The envelope carried on the wire for one federated action.
-///
-/// `signed_json` is the verbatim JSON of the originating `Signed<T>` so a
-/// receiver can deserialise it into the concrete per-service message type and
-/// re-run `Signed::verify`. We do NOT transmit the decoded payload separately —
-/// the signed bytes are the only thing a peer should trust.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GossipEnvelope {
-    /// envelope schema version (forward-compat).
     #[serde(default = "default_env_version")]
     pub version: u32,
-    /// service namespace (places / communities / ...).
+
     pub scope: Scope,
-    /// `T::PRIMARY_TYPE` of the inner action, so the receiver knows which
-    /// concrete type to deserialise `signed_json` into.
+
     pub primary_type: String,
-    /// canonical content id = `Signed::hash()` hex; receivers dedup on this.
+
     pub signature_hash: String,
-    /// wallet address recovered from the signature (post session-delegation).
+
     pub signer: String,
-    /// `signed_at` of the inner action (unix seconds) — lets a receiver apply
-    /// the configured clock-skew window before deserialising the full body.
+
     pub signed_at: i64,
-    /// the originating `Signed<T>` re-serialised as JSON.
+
     pub signed_json: serde_json::Value,
-    /// peer_id this envelope was first published by. `None` == produced by the
-    /// local catalyst (set by the publisher); set to the source peer on ingest.
+
     #[serde(default)]
     pub origin_peer: Option<String>,
 }
@@ -89,7 +45,6 @@ fn default_env_version() -> u32 {
 }
 
 impl GossipEnvelope {
-    /// Build an envelope for a locally-produced signed action.
     pub fn local<T>(
         scope: Scope,
         signed: &crate::sig::Signed<T>,
@@ -126,22 +81,14 @@ impl GossipEnvelope {
     }
 }
 
-/// Runtime selection of the gossip transport.
 #[derive(Debug, Clone)]
 pub enum GossipConfig {
-    /// No live gossip. Local writes still apply + persist; peers reconcile via
-    /// HTTP-snapshot pull. This is the single-node default and the communities
-    /// transport.
     Disabled,
-    /// NATS JetStream (requires the `nats` cargo feature). `url` is the broker
-    /// (e.g. `nats://<HOST>:4222`). `peer_id` stamps the
-    /// origin on outbound envelopes.
+
     Nats { url: String, peer_id: String },
 }
 
 impl GossipConfig {
-    /// Parse from env: `FED_GOSSIP=nats|disabled`, `FED_NATS_URL`, `FED_PEER_ID`.
-    /// Defaults to `Disabled` so an operator must opt in to live gossip.
     pub fn from_env() -> Self {
         match std::env::var("FED_GOSSIP").ok().as_deref() {
             Some("nats") => GossipConfig::Nats {
@@ -154,26 +101,10 @@ impl GossipConfig {
     }
 }
 
-/// Transport abstraction. `publish` emits a locally-applied action to peers;
-/// `consume` yields remote envelopes for the service to re-verify and apply.
 #[async_trait::async_trait]
 pub trait GossipPublisher: Send + Sync {
-    /// Publish an envelope for an action that has already been applied locally.
-    /// MUST be best-effort: a transport failure does not roll back the local
-    /// write (the action is durable in Postgres and recoverable via snapshot
-    /// pull), it is logged and surfaced as `Err` for metrics.
     async fn publish(&self, env: &GossipEnvelope) -> Result<(), crate::error::FedError>;
 
-    /// Subscribe to remote actions for `scope`. Returns a receiver that yields
-    /// every [`GossipEnvelope`] a peer publishes on `fed.<scope>.actions`,
-    /// EXCEPT envelopes this peer itself originated (those are filtered by the
-    /// transport to avoid apply loops). The caller drives
-    /// a loop that re-verifies + applies each envelope through the same
-    /// verify/replay/authority machinery a local write goes through (gossip is
-    /// never trusted because a peer forwarded it).
-    ///
-    /// Returns `None` for transports that never reach peers (the no-op /
-    /// snapshot-pull deploy), so callers can skip spawning an apply loop.
     async fn subscribe(
         &self,
         _scope: Scope,
@@ -181,13 +112,11 @@ pub trait GossipPublisher: Send + Sync {
         Ok(None)
     }
 
-    /// Whether this publisher actually reaches peers (false for the no-op).
     fn is_live(&self) -> bool {
         true
     }
 }
 
-/// Single-node / no-peers publisher. Every `publish` is a no-op success.
 #[derive(Debug, Default, Clone)]
 pub struct NoopPublisher;
 
@@ -207,10 +136,6 @@ impl GossipPublisher for NoopPublisher {
     }
 }
 
-/// Build the publisher selected by `cfg`. Returns the [`NoopPublisher`] for
-/// `Disabled` and (when the `nats` feature is on) a connected JetStream
-/// publisher for `Nats`. Without the `nats` feature, `Nats` falls back to noop
-/// with a warning so a misconfigured single-binary still boots.
 pub async fn build_publisher(cfg: &GossipConfig) -> Arc<dyn GossipPublisher> {
     match cfg {
         GossipConfig::Disabled => Arc::new(NoopPublisher),
@@ -218,10 +143,10 @@ pub async fn build_publisher(cfg: &GossipConfig) -> Arc<dyn GossipPublisher> {
             #[cfg(feature = "nats")]
             {
                 match nats::NatsPublisher::connect(url, peer_id.clone()).await {
-                    Ok(p) => return Arc::new(p),
+                    Ok(p) => Arc::new(p),
                     Err(e) => {
                         tracing::error!(error = %e, url = %url, "NATS gossip connect failed; falling back to noop (snapshot-pull only)");
-                        return Arc::new(NoopPublisher);
+                        Arc::new(NoopPublisher)
                     }
                 }
             }
@@ -284,7 +209,7 @@ mod tests {
         let bytes = env.encode().unwrap();
         let back = GossipEnvelope::decode(&bytes).unwrap();
         assert_eq!(back.signature_hash, "deadbeef");
-        // inner Signed<T> is preserved verbatim and re-deserialisable.
+
         let inner: Signed<Dummy> = serde_json::from_value(back.signed_json).unwrap();
         assert_eq!(inner.message.place_id, "abc");
     }
@@ -300,7 +225,6 @@ mod tests {
 
     #[test]
     fn config_from_env_defaults_disabled() {
-        // no FED_GOSSIP set in test env => Disabled
         std::env::remove_var("FED_GOSSIP");
         assert!(matches!(GossipConfig::from_env(), GossipConfig::Disabled));
     }
@@ -308,16 +232,6 @@ mod tests {
 
 #[cfg(feature = "nats")]
 pub mod nats {
-    //! NATS JetStream transport. Gated behind the `nats` feature so the
-    //! workspace builds without `async-nats` present. Implements the
-    //! federation subjects and a 30-day retention window; the durable source
-    //! of truth stays in Postgres.
-    //!
-    //! mTLS is wired in [`NatsPublisher::connect`]: client cert/key + CA root
-    //! are read from `FED_NATS_CLIENT_CERT` / `FED_NATS_CLIENT_KEY` /
-    //! `FED_NATS_ROOT_CA` (file paths). When none are set the connect path is
-    //! plaintext for a single-broker dev deploy on loopback, which is the
-    //! current state when peer-list entries have an empty `mtls_root_pem`.
 
     use super::{stream_name, subject_actions, GossipEnvelope, GossipPublisher};
     use crate::error::FedError;
@@ -332,21 +246,6 @@ pub mod nats {
 
     impl NatsPublisher {
         pub async fn connect(url: &str, peer_id: String) -> Result<Self, FedError> {
-            // mTLS: the federation NATS account uses an account-isolated,
-            // mutually-authenticated broker, each peer cert rooted in
-            // `mtls_root_pem` from the peer-list entry. mTLS material is sourced
-            // from env so operators can roll it out without a rebuild:
-            //
-            //   FED_NATS_CLIENT_CERT  path to PEM client cert (this catalyst)
-            //   FED_NATS_CLIENT_KEY   path to PEM client private key
-            //   FED_NATS_ROOT_CA      path to PEM CA root (peers' `mtls_root_pem`)
-            //
-            // STATUS (single-broker dev deploy): when the broker ships no TLS
-            // block and every peer-list entry has an empty `mtls_root_pem`,
-            // none of the three vars are set and the connect path below is
-            // plaintext against the loopback broker. A catalyst that runs
-            // federation against a *remote* peer without these set is insecure
-            // and should be omitted from the peer list at validation time.
             let cert = std::env::var("FED_NATS_CLIENT_CERT").ok();
             let key = std::env::var("FED_NATS_CLIENT_KEY").ok();
             let ca = std::env::var("FED_NATS_ROOT_CA").ok();
@@ -387,9 +286,6 @@ pub mod nats {
             Ok(Self { js, peer_id })
         }
 
-        /// Ensure a per-scope JetStream stream exists (idempotent). 30-day
-        /// retention; Postgres is the durable source of truth,
-        /// the stream is a catch-up window for peers that were briefly offline.
         pub async fn ensure_stream(&self, scope: Scope) -> Result<(), FedError> {
             self.js
                 .get_or_create_stream(jetstream::stream::Config {
@@ -403,10 +299,6 @@ pub mod nats {
             Ok(())
         }
 
-        /// Subscribe to a scope's action subject and forward decoded envelopes
-        /// onto `tx`. The caller drives a loop that re-verifies + applies each
-        /// envelope. Self-published envelopes (origin_peer == our peer_id) are
-        /// dropped to avoid apply loops.
         pub async fn consume(
             &self,
             scope: Scope,
@@ -445,7 +337,6 @@ pub mod nats {
                     };
                     match GossipEnvelope::decode(&msg.payload) {
                         Ok(env) => {
-                            // skip our own echoes
                             if env.origin_peer.as_deref() == Some(peer_id.as_str()) {
                                 let _ = msg.ack().await;
                                 continue;
@@ -469,9 +360,6 @@ pub mod nats {
             &self,
             scope: Scope,
         ) -> Result<Option<mpsc::Receiver<GossipEnvelope>>, FedError> {
-            // Channel depth = a generous in-flight window; backpressure on the
-            // apply loop simply slows JetStream ack, which is fine (Postgres is
-            // the durable source of truth and replay is idempotent).
             let (tx, rx) = mpsc::channel(1024);
             self.consume(scope, tx).await?;
             Ok(Some(rx))

@@ -1,18 +1,6 @@
-//! ADR-44 signed-fetch extraction + verification.
-//!
-//! Mirrors `@dcl/platform-crypto-middleware` (the `wellKnownComponents`
-//! middleware used by upstream world-storage-service): the auth chain arrives
-//! across `x-identity-auth-chain-{i}` headers, the timestamp in
-//! `x-identity-timestamp`, and the JSON metadata in `x-identity-metadata`. The
-//! signed payload is `"<method>:<path>:<timestamp>:<metadata>"` lowercased.
-//!
-//! Ported from `catalyrst-camera-reel::auth_chain`, extended to decode the
-//! signed metadata (`realm` / `realmName` / `parcel` / `signer`) that the
-//! upstream `scene-context-middleware` reads.
-
 use axum::http::HeaderMap;
-use catalyrst_crypto::verify::verify_auth_chain;
-use catalyrst_crypto::AuthError;
+use catalyrst_crypto::verify::{verify_auth_chain, verify_auth_chain_async};
+use catalyrst_crypto::{AuthError, Eip1654Validator};
 use catalyrst_types::{AuthLink as CryptoAuthLink, AuthLinkType as CryptoAuthLinkType, EthAddress};
 use serde::Deserialize;
 use thiserror::Error;
@@ -22,7 +10,8 @@ pub const AUTH_TIMESTAMP_HEADER: &str = "x-identity-timestamp";
 pub const AUTH_METADATA_HEADER: &str = "x-identity-metadata";
 
 pub const MAX_AUTH_CHAIN_LINKS: usize = 10;
-pub const FIVE_MINUTES: i64 = 5 * 60;
+
+pub const ONE_MINUTE: i64 = 60;
 
 #[derive(Debug, Clone)]
 pub struct AuthLink {
@@ -37,11 +26,6 @@ pub struct AuthChain {
     pub signer: EthAddress,
 }
 
-/// Subset of the signed scene metadata the service relies on.
-///
-/// `realm.serverName` / `realmName` carry the world name (`*.dcl.eth`) or a
-/// Genesis City realm name; `parcel` is the scene base position; `signer` lets
-/// the middleware reject `decentraland-kernel-scene` callers.
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct SceneAuthMetadata {
     #[serde(default)]
@@ -50,6 +34,8 @@ pub struct SceneAuthMetadata {
     pub realm_name: Option<String>,
     #[serde(default)]
     pub parcel: Option<String>,
+    #[serde(rename = "sceneId", default)]
+    pub scene_id: Option<String>,
     #[serde(default)]
     pub signer: Option<String>,
 }
@@ -68,6 +54,8 @@ pub enum AuthChainError {
     InsufficientLinks,
     #[error("Missing timestamp")]
     MissingTimestamp,
+    #[error("Invalid timestamp")]
+    InvalidTimestamp(String),
     #[error("Expired signature")]
     Expired {
         signed_at: i64,
@@ -78,19 +66,56 @@ pub enum AuthChainError {
     InvalidSignature(String),
     #[error("EIP-1654 not implemented")]
     EipNotImplemented,
+    #[error("Error connecting to catalyst")]
+    CatalystUnavailable(String),
     #[error("Requests from scenes are not allowed")]
     SceneSignerRejected,
+}
+
+impl AuthChainError {
+    pub fn status_code(&self) -> u16 {
+        match self {
+            AuthChainError::MalformedChain { .. }
+            | AuthChainError::InsufficientLinks
+            | AuthChainError::InvalidTimestamp(_)
+            | AuthChainError::SceneSignerRejected => 400,
+            AuthChainError::MissingTimestamp
+            | AuthChainError::Expired { .. }
+            | AuthChainError::InvalidSignature(_) => 401,
+            AuthChainError::EipNotImplemented | AuthChainError::CatalystUnavailable(_) => 503,
+        }
+    }
+
+    pub fn raw_message(&self) -> String {
+        match self {
+            AuthChainError::MalformedChain { detail } => format!("Invalid chain format: {detail}"),
+            AuthChainError::InsufficientLinks => "Invalid Auth Chain".to_string(),
+            AuthChainError::MissingTimestamp => "Missing timestamp".to_string(),
+            AuthChainError::InvalidTimestamp(value) => {
+                format!("Invalid chain timestamp: {value}")
+            }
+            AuthChainError::Expired {
+                signed_at,
+                now,
+                window_secs,
+            } => format!(
+                "Expired signature: signature timestamp: {signed_at}, timestamp expiration: {}, local timestamp: {now}",
+                signed_at + window_secs
+            ),
+            AuthChainError::InvalidSignature(detail) => format!("Invalid signature: {detail}"),
+            AuthChainError::EipNotImplemented => self.to_string(),
+            AuthChainError::CatalystUnavailable(detail) => {
+                format!("Error connecting to catalyst: {detail}")
+            }
+            AuthChainError::SceneSignerRejected => "Invalid metadata".to_string(),
+        }
+    }
 }
 
 pub fn build_payload(method: &str, path: &str, timestamp: &str, metadata: &str) -> String {
     format!("{}:{}:{}:{}", method, path, timestamp, metadata).to_lowercase()
 }
 
-/// Behind the front-host proxy, nginx strips the service prefix before
-/// proxying but the client signs the full external path (incl. prefix). nginx
-/// forwards the original path in `x-original-path`; prefer it for signed-fetch
-/// payload reconstruction so it matches what the client signed. Falls back to the
-/// hardcoded route path for direct/loopback requests (no header).
 fn signed_fetch_path<'a>(headers: &HeaderMap, fallback: &'a str) -> std::borrow::Cow<'a, str> {
     match headers.get("x-original-path").and_then(|v| v.to_str().ok()) {
         Some(raw) => std::borrow::Cow::Owned(raw.split('?').next().unwrap_or(raw).to_string()),
@@ -161,20 +186,14 @@ pub fn extract_auth_chain(headers: &HeaderMap) -> Result<AuthChain, AuthChainErr
     Ok(AuthChain { links, signer })
 }
 
-pub fn validate_signature(
-    chain: &AuthChain,
-    payload: &str,
+pub fn check_freshness(
     timestamp: &str,
     expiration_secs: i64,
     now: i64,
-) -> Result<EthAddress, AuthChainError> {
-    // Freshness window: the timestamp is read from the authoritative
-    // `x-identity-timestamp` header (passed in as `timestamp`), NOT by splitting
-    // the payload on ':'. Paths that contain ':' (e.g. world URNs) would shift
-    // the colon-delimited field and silently skip the freshness check.
+) -> Result<(), AuthChainError> {
     if let Ok(signed_at_ms) = timestamp.parse::<i64>() {
         let signed_at = signed_at_ms / 1000;
-        if (now - signed_at).abs() > expiration_secs {
+        if now - signed_at > expiration_secs {
             return Err(AuthChainError::Expired {
                 signed_at,
                 now,
@@ -182,8 +201,11 @@ pub fn validate_signature(
             });
         }
     }
+    Ok(())
+}
 
-    let crypto_chain: Vec<CryptoAuthLink> = chain
+fn to_crypto_chain(chain: &AuthChain) -> Vec<CryptoAuthLink> {
+    chain
         .links
         .iter()
         .map(|link| CryptoAuthLink {
@@ -195,9 +217,31 @@ pub fn validate_signature(
                 Some(link.signature.clone())
             },
         })
-        .collect();
+        .collect()
+}
 
-    verify_auth_chain(&crypto_chain, payload, Some(now * 1000)).map_err(map_auth_error)?;
+pub async fn validate_signature(
+    chain: &AuthChain,
+    payload: &str,
+    timestamp: &str,
+    expiration_secs: i64,
+    now: i64,
+    eip1654_validator: Option<&dyn Eip1654Validator>,
+) -> Result<EthAddress, AuthChainError> {
+    check_freshness(timestamp, expiration_secs, now)?;
+
+    let crypto_chain = to_crypto_chain(chain);
+
+    match eip1654_validator {
+        Some(validator) => {
+            verify_auth_chain_async(&crypto_chain, payload, Some(now * 1000), Some(validator))
+                .await
+                .map_err(map_auth_error)?;
+        }
+        None => {
+            verify_auth_chain(&crypto_chain, payload, Some(now * 1000)).map_err(map_auth_error)?;
+        }
+    }
     Ok(chain.signer.clone())
 }
 
@@ -220,29 +264,22 @@ fn map_auth_error(err: AuthError) -> AuthChainError {
             window_secs: 0,
         },
         AuthError::InvalidEphemeralPayload(d) => AuthChainError::MalformedChain { detail: d },
-        AuthError::Eip1654NotImplemented
-        | AuthError::Eip1654ValidationFailed(_)
-        | AuthError::Eip1654Rejected { .. } => AuthChainError::EipNotImplemented,
+        AuthError::Eip1654NotImplemented => AuthChainError::EipNotImplemented,
+        AuthError::Eip1654Rejected { .. } => AuthChainError::InvalidSignature(err.to_string()),
+        AuthError::Eip1654ValidationFailed(d) => AuthChainError::CatalystUnavailable(d),
     }
 }
 
-/// Outcome of a successful signed-fetch verification: the recovered signer
-/// address (lowercased) plus the decoded scene metadata.
 pub struct VerifiedRequest {
     pub signer: EthAddress,
     pub metadata: SceneAuthMetadata,
 }
 
-/// Full signed-fetch gate: extract + verify the chain over the request payload,
-/// reject `decentraland-kernel-scene` signers (upstream `metadataValidator`),
-/// and return the recovered signer + decoded metadata.
-///
-/// `path` must be the **full request path including query string**, matching the
-/// `URL.pathname + search` the upstream middleware signs over.
-pub fn verify_request(
+pub async fn verify_request(
     headers: &HeaderMap,
     method: &str,
     path: &str,
+    eip1654_validator: Option<&dyn Eip1654Validator>,
 ) -> Result<VerifiedRequest, AuthChainError> {
     let path = signed_fetch_path(headers, path);
     let path = path.as_ref();
@@ -250,20 +287,142 @@ pub fn verify_request(
     let ts = header_str(headers, AUTH_TIMESTAMP_HEADER)
         .ok_or(AuthChainError::MissingTimestamp)?
         .to_string();
+    if !ts.is_empty() && ts.parse::<f64>().is_err() {
+        return Err(AuthChainError::InvalidTimestamp(ts));
+    }
     let metadata_raw = header_str(headers, AUTH_METADATA_HEADER)
         .unwrap_or("{}")
         .to_string();
 
     let payload = build_payload(method, path, &ts, &metadata_raw);
     let now = chrono::Utc::now().timestamp();
-    let signer = validate_signature(&chain, &payload, &ts, FIVE_MINUTES, now)?;
+    let signer =
+        validate_signature(&chain, &payload, &ts, ONE_MINUTE, now, eip1654_validator).await?;
 
     let metadata: SceneAuthMetadata = serde_json::from_str(&metadata_raw).unwrap_or_default();
 
-    // Upstream metadataValidator: prevent requests from scenes.
     if metadata.signer.as_deref() == Some("decentraland-kernel-scene") {
         return Err(AuthChainError::SceneSignerRejected);
     }
 
     Ok(VerifiedRequest { signer, metadata })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const NOW: i64 = 1_700_000_000;
+
+    fn ts_ms(secs_ago: i64) -> String {
+        ((NOW - secs_ago) * 1000).to_string()
+    }
+
+    #[test]
+    fn freshness_uses_one_minute_window() {
+        assert_eq!(ONE_MINUTE, 60);
+    }
+
+    #[test]
+    fn freshness_accepts_signature_within_window() {
+        assert!(check_freshness(&ts_ms(59), ONE_MINUTE, NOW).is_ok());
+    }
+
+    #[test]
+    fn freshness_accepts_exactly_at_window_boundary() {
+        assert!(check_freshness(&ts_ms(60), ONE_MINUTE, NOW).is_ok());
+    }
+
+    #[test]
+    fn freshness_rejects_just_past_window() {
+        let err = check_freshness(&ts_ms(61), ONE_MINUTE, NOW).unwrap_err();
+        assert!(matches!(err, AuthChainError::Expired { .. }));
+    }
+
+    #[test]
+    fn freshness_rejects_five_minute_old_signature() {
+        let err = check_freshness(&ts_ms(4 * 60), ONE_MINUTE, NOW).unwrap_err();
+        assert!(matches!(err, AuthChainError::Expired { .. }));
+    }
+
+    #[test]
+    fn freshness_does_not_reject_future_timestamps() {
+        assert!(check_freshness(&ts_ms(-10_000), ONE_MINUTE, NOW).is_ok());
+    }
+
+    #[test]
+    fn freshness_skips_check_for_non_numeric_timestamp() {
+        assert!(check_freshness("not-a-number", ONE_MINUTE, NOW).is_ok());
+    }
+
+    #[test]
+    fn status_code_maps_to_upstream_request_error_codes() {
+        assert_eq!(
+            AuthChainError::MalformedChain {
+                detail: "bad json".into()
+            }
+            .status_code(),
+            400
+        );
+        assert_eq!(AuthChainError::InsufficientLinks.status_code(), 400);
+        assert_eq!(
+            AuthChainError::InvalidTimestamp("abc".into()).status_code(),
+            400
+        );
+        assert_eq!(AuthChainError::SceneSignerRejected.status_code(), 400);
+
+        assert_eq!(AuthChainError::MissingTimestamp.status_code(), 401);
+        assert_eq!(
+            AuthChainError::Expired {
+                signed_at: 0,
+                now: 100,
+                window_secs: 60
+            }
+            .status_code(),
+            401
+        );
+        assert_eq!(
+            AuthChainError::InvalidSignature("nope".into()).status_code(),
+            401
+        );
+
+        assert_eq!(AuthChainError::EipNotImplemented.status_code(), 503);
+        assert_eq!(
+            AuthChainError::CatalystUnavailable("rpc down".into()).status_code(),
+            503
+        );
+    }
+
+    #[test]
+    fn raw_message_mirrors_upstream_error_text() {
+        assert_eq!(
+            AuthChainError::MalformedChain {
+                detail: "unexpected token".into()
+            }
+            .raw_message(),
+            "Invalid chain format: unexpected token"
+        );
+        assert_eq!(
+            AuthChainError::InsufficientLinks.raw_message(),
+            "Invalid Auth Chain"
+        );
+        assert_eq!(
+            AuthChainError::InvalidTimestamp("xyz".into()).raw_message(),
+            "Invalid chain timestamp: xyz"
+        );
+        assert_eq!(
+            AuthChainError::SceneSignerRejected.raw_message(),
+            "Invalid metadata"
+        );
+        assert!(AuthChainError::InvalidSignature("recovery failed".into())
+            .raw_message()
+            .starts_with("Invalid signature: "));
+    }
+
+    #[test]
+    fn rpc_validation_failure_is_catalyst_unavailable_503() {
+        let mapped = map_auth_error(AuthError::Eip1654ValidationFailed("RPC timeout".into()));
+        assert!(matches!(mapped, AuthChainError::CatalystUnavailable(_)));
+        assert_eq!(mapped.status_code(), 503);
+    }
 }

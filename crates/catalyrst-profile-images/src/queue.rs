@@ -1,19 +1,3 @@
-//! Single-flight render queue.
-//!
-//! A request for `/entities/{id}/face.png` and one for `.../body.png` for the
-//! same `id` both need the same Godot render (one render emits *both* PNGs).
-//! Many concurrent clients may ask for the same brand-new entity at once. This
-//! queue guarantees:
-//!
-//!   * at most one in-flight render per entity id (single-flight), and
-//!   * a global cap on concurrent Godot processes (a semaphore), since each
-//!     render spawns a heavyweight headless client.
-//!
-//! Callers `await` `render_once(entity)`; the first caller for an entity does
-//! the work, every other caller for the same entity parks on the same shared
-//! result. On success both PNGs are already in the cache, so the handler just
-//! re-reads the cache.
-
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
@@ -23,21 +7,16 @@ use crate::cache::{ImageCache, ImageKind};
 use crate::render::{GodotRenderer, RenderError};
 use crate::resolver::{ProfileResolver, ResolveResult};
 
-/// Terminal outcome of a single-flight render, cloneable so it can fan out to
-/// all waiters via a broadcast channel.
 #[derive(Clone, Debug)]
 pub enum RenderOutcome {
-    /// Both PNGs were rendered and written to the cache.
     Rendered,
-    /// The entity has no avatar / is not a profile / content core 404 — there
-    /// is nothing to render. Maps to HTTP 404.
+
     NotFound,
-    /// The render (or the resolve step) failed. Maps to HTTP 502.
+
     Failed(String),
 }
 
 struct Inner {
-    /// entity id -> broadcast sender for the in-flight render's outcome.
     inflight: Mutex<HashMap<String, broadcast::Sender<RenderOutcome>>>,
     limiter: Semaphore,
     cache: ImageCache,
@@ -71,15 +50,11 @@ impl RenderQueue {
         }
     }
 
-    /// Ensure both PNGs for `entity` exist in the cache, rendering once if
-    /// needed. Concurrent calls for the same entity share a single render.
     pub async fn render_once(&self, entity: &str) -> RenderOutcome {
-        // Fast path: another caller already cached both PNGs.
         if self.both_cached(entity).await {
             return RenderOutcome::Rendered;
         }
 
-        // Join or become the single-flight leader for this entity.
         let (leader, mut rx, tx) = {
             let mut map = self.inner.inflight.lock().unwrap();
             if let Some(existing) = map.get(entity) {
@@ -92,22 +67,21 @@ impl RenderQueue {
         };
 
         if !leader {
-            // Follower: wait for the leader's outcome. If the leader vanished
-            // before sending (panic), fall back to a fresh attempt.
             return match rx.recv().await {
                 Ok(outcome) => outcome,
                 Err(_) => Box::pin(self.render_once(entity)).await,
             };
         }
 
-        // Leader: do the work, broadcast, then deregister.
+        let mut guard = InflightGuard {
+            inner: Arc::clone(&self.inner),
+            entity: entity.to_string(),
+            tx,
+            outcome: None,
+        };
+
         let outcome = self.do_render(entity).await;
-        {
-            let mut map = self.inner.inflight.lock().unwrap();
-            map.remove(entity);
-        }
-        // Best-effort fan-out (errors only mean nobody is waiting).
-        let _ = tx.send(outcome.clone());
+        guard.outcome = Some(outcome.clone());
         outcome
     }
 
@@ -125,16 +99,12 @@ impl RenderQueue {
                 .is_some()
     }
 
-    /// The leader's actual work: acquire a render slot, resolve the avatar,
-    /// run Godot, copy both PNGs into the cache, clean up the workdir.
     async fn do_render(&self, entity: &str) -> RenderOutcome {
         let _permit = match self.inner.limiter.acquire().await {
             Ok(p) => p,
             Err(_) => return RenderOutcome::Failed("render semaphore closed".into()),
         };
 
-        // Re-check the cache now that we hold the slot — a render that
-        // completed while we queued behind the semaphore makes ours redundant.
         if self.both_cached(entity).await {
             return RenderOutcome::Rendered;
         }
@@ -148,7 +118,6 @@ impl RenderQueue {
             }
         };
 
-        // Per-render scratch dir; removed at the end regardless of outcome.
         let workdir =
             self.inner
                 .workdir_root
@@ -167,7 +136,6 @@ impl RenderQueue {
 
         let outcome = match result {
             Ok(out) => {
-                // Move both PNGs into the content-addressed cache.
                 let body = tokio::fs::read(&out.body_path).await;
                 let face = tokio::fs::read(&out.face_path).await;
                 match (body, face) {
@@ -185,8 +153,6 @@ impl RenderQueue {
                 }
             }
             Err(RenderError::OutputMissing { .. }) => {
-                // Godot ran but produced nothing usable — treat as a failure so
-                // the caller can fall back, but log loudly.
                 tracing::warn!(entity = %entity, "godot produced no usable output");
                 RenderOutcome::Failed("render produced no output".into())
             }
@@ -198,5 +164,30 @@ impl RenderQueue {
 
         let _ = tokio::fs::remove_dir_all(&workdir).await;
         outcome
+    }
+}
+
+struct InflightGuard {
+    inner: Arc<Inner>,
+    entity: String,
+    tx: broadcast::Sender<RenderOutcome>,
+    outcome: Option<RenderOutcome>,
+}
+
+impl Drop for InflightGuard {
+    fn drop(&mut self) {
+        {
+            let mut map = self
+                .inner
+                .inflight
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            map.remove(&self.entity);
+        }
+        let outcome = self
+            .outcome
+            .take()
+            .unwrap_or_else(|| RenderOutcome::Failed("render task aborted".into()));
+        let _ = self.tx.send(outcome);
     }
 }

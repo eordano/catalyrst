@@ -1,4 +1,5 @@
 use crate::auth::ChallengeStore;
+use crate::ban::{BanChecker, DenyList};
 use crate::cluster::Cluster;
 use crate::config::Config;
 use crate::content::ContentResolver;
@@ -14,6 +15,9 @@ pub struct AppStateInner {
     pub gossip: Arc<GossipBus>,
 
     pub content: Arc<ContentResolver>,
+
+    pub ban_checker: Arc<BanChecker>,
+    pub deny_list: Arc<DenyList>,
 }
 
 pub type AppState = Arc<AppStateInner>;

@@ -2,32 +2,44 @@
   description = "catalyrst — Rust Decentraland catalyst (content + lambdas + write path)";
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
-  inputs.flake-utils.url = "github:numtide/flake-utils";
-  inputs.archipelago = { url = "github:decentraland/archipelago-workers/537def15e2609cf0ecc8ba5bd7ad400702e455c8"; flake = false; };
-  inputs.uws-node24 = { url = "github:uNetworking/uWebSockets.js/v20.67.0"; flake = false; };
-  inputs.pulse-src = {
-    url = "github:decentraland/Pulse/d7b13d7";
-    flake = false;
-  };
+  inputs.archipelago = { url = "github:decentraland/archipelago-workers/a9ddb40f54d9fc6eeccda9db7454e8e7dc921b1d"; flake = false; };
+  inputs.uws-node24 = { url = "github:uNetworking/uWebSockets.js/v20.69.0"; flake = false; };
+  inputs.rust-overlay = { url = "github:oxalica/rust-overlay"; inputs.nixpkgs.follows = "nixpkgs"; };
+  # abgen source-of-truth: decentraland/abgen (PR #6 merged; flipped 2026-07-17)
+  inputs.abgen = { url = "github:decentraland/abgen"; inputs.nixpkgs.follows = "nixpkgs"; };
 
-  outputs = { self, nixpkgs, flake-utils, archipelago, uws-node24, pulse-src }:
+  outputs = inputs@{ self, nixpkgs, archipelago, uws-node24, rust-overlay, ... }:
     let
-      # NixOS module is system-independent — expose it at the top level.
+      systems = [ "x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin" ];
+      forAllSystems = f: nixpkgs.lib.genAttrs systems
+        (system: f (import nixpkgs { inherit system; }));
+
       nixosModules.catalyrst = import ./nixos/configuration.nix;
     in
-    (flake-utils.lib.eachDefaultSystem (system:
-      let
-        pkgs = import nixpkgs { inherit system; };
-        nodejs = pkgs.nodejs_24;
-      in {
-        packages = rec {
+    {
+      packages = forAllSystems (pkgs:
+        let
+          nodejs = pkgs.nodejs_24;
+          # Shared across every buildRustPackage: the workspace lock plus the
+          # git-dependency hashes cargo vendoring needs (web_transport is fetched
+          # from git, so buildRustPackage cannot derive its hash from the lock).
+          cargoLockShared = {
+            lockFile = ./Cargo.lock;
+            outputHashes = {
+              "web_transport-0.1.0" = "sha256-2QwYPooH7gVUenYVXZ24kuB0A19UwO1ICzolkvdo5sI=";
+            };
+          };
+        in
+        rec {
           archipelago-workers = pkgs.buildNpmPackage {
             pname = "archipelago-workers";
             version = "0.1.0";
             src = archipelago;
-            npmDepsHash = "sha256-zZLuGHkMxpqOcJG4nGRZqLexTCL0O2RojRop8/jchqM=";
+            npmDepsHash = "sha256-vKKFI3WAetIfgjesNSg5tgNNVX0PLtbk80GQv9wyZFI=";
             inherit nodejs;
             dontNpmBuild = true;
+            npmFlags = [ "--legacy-peer-deps" ];
+            npmDepsFetcherVersion = 2;
             nativeBuildInputs = [ pkgs.makeWrapper ];
             postPatch = ''
               cp ${./nixos/archipelago-package-lock.json} package-lock.json
@@ -57,65 +69,50 @@
             '';
           };
 
-          pulse = pkgs.buildDotnetModule {
-            pname = "dclpulse";
+          pulse = pkgs.rustPlatform.buildRustPackage {
+            pname = "catalyrst-pulse";
             version = "0.1.0";
-            src = pulse-src;
-            projectFile = "src/DCLPulse/DCLPulse.csproj";
-            executables = [ "DCLPulse" ];
-            dotnet-sdk = pkgs.dotnet-sdk_10;
-            dotnet-runtime = pkgs.dotnet-runtime_10;
-            nugetDeps = ./nixos/pulse-deps.json;
-            dotnetFlags = [ "-p:GenerateProto=false" ];
-            runtimeDeps = [ pkgs.enet ];
-            meta.mainProgram = "DCLPulse";
-            postPatch = ''
-              substituteInPlace src/DCLPulse/HttpServiceOptions.cs \
-                --replace-fail \
-                  'public ushort Port { get; set; } = 5000;' \
-                  'public ushort Port { get; set; } = 5000;
-      public string? Host { get; set; }'
-              substituteInPlace src/DCLPulse/HttpService.cs \
-                --replace-fail \
-                  'string host = OperatingSystem.IsWindows() ? "localhost" : "+";' \
-                  'string host = OperatingSystem.IsWindows() ? "localhost" : (string.IsNullOrEmpty(options.Value.Host) ? "+" : options.Value.Host);'
-            '';
+            src = ./.;
+            cargoLock = cargoLockShared;
+            cargoBuildFlags = [ "-p" "catalyrst-pulse" "--bin" "catalyrst-pulse" ];
+            doCheck = false;
+            nativeBuildInputs = [ pkgs.pkg-config pkgs.protobuf ];
+            buildInputs = [ pkgs.openssl ];
+            env.OPENSSL_NO_VENDOR = "1";
+            meta.mainProgram = "catalyrst-pulse";
           };
 
           catalyrst = pkgs.rustPlatform.buildRustPackage {
             pname = "catalyrst";
             version = "0.1.0";
             src = ./.;
-            cargoLock = {
-              lockFile = ./Cargo.lock;
-            };
+            cargoLock = cargoLockShared;
             cargoBuildFlags = [ "-p" "catalyrst-server" "--bin" "catalyrst-live" ];
             doCheck = false;
             nativeBuildInputs = [ pkgs.pkg-config ];
             buildInputs = [ pkgs.openssl ];
             env.OPENSSL_NO_VENDOR = "1";
-            # Ship the content-DB schema so a deploy can create it on a fresh
-            # sync replica (catalyrst-server has no in-binary schema bootstrap;
-            # see crates/catalyrst-server/migrations/0001_content_schema.sql).
-            # Applied by a NixOS one-shot, not sqlx::migrate! (the content DB's
-            # _sqlx_migrations table is owned by catalyrst-media).
             postInstall = ''
               mkdir -p "$out/share/catalyrst-server"
               cp -r crates/catalyrst-server/migrations "$out/share/catalyrst-server/migrations"
             '';
           };
 
-          # Marketplace REST API in front of squid_marketplace (port of
-          # decentraland/marketplace-server). Loopback Postgres only —
-          # sqlx is built without a TLS feature so no openssl needed.
           catalyrst-market = pkgs.rustPlatform.buildRustPackage {
             pname = "catalyrst-market";
             version = "0.1.0";
             src = ./.;
-            cargoLock = {
-              lockFile = ./Cargo.lock;
-            };
+            cargoLock = cargoLockShared;
             cargoBuildFlags = [ "-p" "catalyrst-market" "--bin" "catalyrst-market" ];
+            doCheck = false;
+          };
+
+          catalyrst-map = pkgs.rustPlatform.buildRustPackage {
+            pname = "catalyrst-map";
+            version = "0.1.0";
+            src = ./.;
+            cargoLock = cargoLockShared;
+            cargoBuildFlags = [ "-p" "catalyrst-map" "--bin" "catalyrst-map" ];
             doCheck = false;
           };
 
@@ -123,8 +120,17 @@
             pname = "catalyrst-places";
             version = "0.1.0";
             src = ./.;
-            cargoLock = { lockFile = ./Cargo.lock; };
+            cargoLock = cargoLockShared;
             cargoBuildFlags = [ "-p" "catalyrst-places" "--bin" "catalyrst-places" ];
+            doCheck = false;
+          };
+
+          catalyrst-camera-reel = pkgs.rustPlatform.buildRustPackage {
+            pname = "catalyrst-camera-reel";
+            version = "0.1.0";
+            src = ./.;
+            cargoLock = cargoLockShared;
+            cargoBuildFlags = [ "-p" "catalyrst-camera-reel" "--bin" "catalyrst-camera-reel" ];
             doCheck = false;
           };
 
@@ -132,7 +138,7 @@
             pname = "catalyrst-events";
             version = "0.1.0";
             src = ./.;
-            cargoLock = { lockFile = ./Cargo.lock; };
+            cargoLock = cargoLockShared;
             cargoBuildFlags = [ "-p" "catalyrst-events" "--bin" "catalyrst-events" ];
             doCheck = false;
           };
@@ -141,8 +147,9 @@
             pname = "catalyrst-communities";
             version = "0.1.0";
             src = ./.;
-            cargoLock = { lockFile = ./Cargo.lock; };
-            cargoBuildFlags = [ "-p" "catalyrst-communities" "--bin" "catalyrst-communities" ];
+            cargoLock = cargoLockShared;
+            cargoBuildFlags = [ "-p" "catalyrst-social-service" "--bin" "catalyrst-communities" ];
+            nativeBuildInputs = [ pkgs.protobuf ];
             doCheck = false;
           };
 
@@ -150,8 +157,125 @@
             pname = "catalyrst-explorer-api";
             version = "0.1.0";
             src = ./.;
-            cargoLock = { lockFile = ./Cargo.lock; };
+            cargoLock = cargoLockShared;
             cargoBuildFlags = [ "-p" "catalyrst-explorer-api" "--bin" "catalyrst-explorer-api" ];
+            doCheck = false;
+            nativeBuildInputs = [ pkgs.pkg-config ];
+            buildInputs = [ pkgs.openssl ];
+            env.OPENSSL_NO_VENDOR = "1";
+          };
+
+          catalyrst-governance = pkgs.rustPlatform.buildRustPackage {
+            pname = "catalyrst-governance";
+            version = "0.1.0";
+            src = ./.;
+            cargoLock = cargoLockShared;
+            cargoBuildFlags = [ "-p" "catalyrst-governance" "--bin" "catalyrst-governance" ];
+            doCheck = false;
+            nativeBuildInputs = [ pkgs.pkg-config ];
+            buildInputs = [ pkgs.openssl ];
+            env.OPENSSL_NO_VENDOR = "1";
+          };
+
+          catalyrst-presence = pkgs.rustPlatform.buildRustPackage {
+            pname = "catalyrst-presence";
+            version = "0.1.0";
+            src = ./.;
+            cargoLock = cargoLockShared;
+            cargoBuildFlags = [ "-p" "catalyrst-presence" "--bin" "catalyrst-presence" ];
+            doCheck = false;
+            nativeBuildInputs = [ pkgs.pkg-config ];
+            buildInputs = [ pkgs.openssl ];
+            env.OPENSSL_NO_VENDOR = "1";
+          };
+
+          catalyrst-price = pkgs.rustPlatform.buildRustPackage {
+            pname = "catalyrst-price";
+            version = "0.1.0";
+            src = ./.;
+            cargoLock = cargoLockShared;
+            cargoBuildFlags = [ "-p" "catalyrst-price" "--bin" "catalyrst-price" ];
+            doCheck = false;
+            nativeBuildInputs = [ pkgs.pkg-config ];
+            buildInputs = [ pkgs.openssl ];
+            env.OPENSSL_NO_VENDOR = "1";
+          };
+
+          catalyrst-notifications = pkgs.rustPlatform.buildRustPackage {
+            pname = "catalyrst-notifications";
+            version = "0.1.0";
+            src = ./.;
+            cargoLock = cargoLockShared;
+            cargoBuildFlags = [ "-p" "catalyrst-notifications" "--bin" "catalyrst-notifications" ];
+            doCheck = false;
+            nativeBuildInputs = [ pkgs.pkg-config ];
+            buildInputs = [ pkgs.openssl ];
+            env.OPENSSL_NO_VENDOR = "1";
+          };
+
+          catalyrst-badges = pkgs.rustPlatform.buildRustPackage {
+            pname = "catalyrst-badges";
+            version = "0.1.0";
+            src = ./.;
+            cargoLock = cargoLockShared;
+            cargoBuildFlags = [ "-p" "catalyrst-badges" "--bin" "catalyrst-badges" ];
+            doCheck = false;
+          };
+
+          catalyrst-economy = pkgs.rustPlatform.buildRustPackage {
+            pname = "catalyrst-economy";
+            version = "0.1.0";
+            src = ./.;
+            cargoLock = cargoLockShared;
+            cargoBuildFlags = [ "-p" "catalyrst-economy" "--bin" "catalyrst-economy" ];
+            doCheck = false;
+            nativeBuildInputs = [ pkgs.pkg-config ];
+            buildInputs = [ pkgs.openssl ];
+            env.OPENSSL_NO_VENDOR = "1";
+          };
+
+          catalyrst-media = pkgs.rustPlatform.buildRustPackage {
+            pname = "catalyrst-media";
+            version = "0.1.0";
+            src = ./.;
+            cargoLock = cargoLockShared;
+            cargoBuildFlags = [ "-p" "catalyrst-media" "--bin" "catalyrst-media" ];
+            doCheck = false;
+            nativeBuildInputs = [ pkgs.pkg-config ];
+            buildInputs = [ pkgs.openssl ];
+            env.OPENSSL_NO_VENDOR = "1";
+          };
+
+          catalyrst-credits = pkgs.rustPlatform.buildRustPackage {
+            pname = "catalyrst-credits";
+            version = "0.1.0";
+            src = ./.;
+            cargoLock = cargoLockShared;
+            cargoBuildFlags = [ "-p" "catalyrst-credits" "--bin" "catalyrst-credits" ];
+            doCheck = false;
+            nativeBuildInputs = [ pkgs.pkg-config ];
+            buildInputs = [ pkgs.openssl ];
+            env.OPENSSL_NO_VENDOR = "1";
+          };
+
+          catalyrst-worlds = pkgs.rustPlatform.buildRustPackage {
+            pname = "catalyrst-worlds";
+            version = "0.1.0";
+            src = ./.;
+            cargoLock = cargoLockShared;
+            cargoBuildFlags = [ "-p" "catalyrst-worlds" "--bin" "catalyrst-worlds" ];
+            doCheck = false;
+            nativeBuildInputs = [ pkgs.pkg-config ];
+            buildInputs = [ pkgs.openssl ];
+            env.OPENSSL_NO_VENDOR = "1";
+          };
+
+          catalyrst-builder = pkgs.rustPlatform.buildRustPackage {
+            pname = "catalyrst-builder";
+            version = "0.1.0";
+            src = ./.;
+            cargoLock = cargoLockShared;
+            cargoBuildFlags = [ "-p" "catalyrst-builder" "--bin" "catalyrst-builder" ];
             doCheck = false;
             nativeBuildInputs = [ pkgs.pkg-config ];
             buildInputs = [ pkgs.openssl ];
@@ -162,7 +286,7 @@
             pname = "catalyrst-comms";
             version = "0.1.0";
             src = ./.;
-            cargoLock = { lockFile = ./Cargo.lock; };
+            cargoLock = cargoLockShared;
             cargoBuildFlags = [ "-p" "catalyrst-comms" "--bin" "catalyrst-comms" ];
             doCheck = false;
             nativeBuildInputs = [ pkgs.pkg-config ];
@@ -174,7 +298,7 @@
             pname = "catalyrst-archipelago";
             version = "0.1.0";
             src = ./.;
-            cargoLock = { lockFile = ./Cargo.lock; };
+            cargoLock = cargoLockShared;
             cargoBuildFlags = [ "-p" "catalyrst-archipelago" "--bin" "catalyrst-archipelago" ];
             doCheck = false;
             nativeBuildInputs = [ pkgs.pkg-config pkgs.protobuf ];
@@ -182,57 +306,80 @@
             env.OPENSSL_NO_VENDOR = "1";
           };
 
-          # Server-side SDK7 scene-state host (port of scene-state-server). This
-          # crate embeds V8 (the `v8`/rusty_v8 crate). rusty_v8's build.rs
-          # normally DOWNLOADS a prebuilt librusty_v8 archive, which is
-          # impossible in the offline Nix sandbox. We instead fetch that exact
-          # archive as a fixed-output derivation (see ./crates/catalyrst-scene-
-          # state/nix/librusty_v8.nix) and point the crate at it via
-          # RUSTY_V8_ARCHIVE — the rusty_v8 build then links the prebuilt static
-          # lib without any network access or a from-source V8 build.
+          abgen = inputs.abgen.packages.${pkgs.stdenv.hostPlatform.system}.default;
+
           librusty_v8 = pkgs.callPackage ./crates/catalyrst-scene-state/nix/librusty_v8.nix { };
           catalyrst-scene-state = pkgs.rustPlatform.buildRustPackage {
             pname = "catalyrst-scene-state";
             version = "0.1.0";
             src = ./.;
-            cargoLock = { lockFile = ./Cargo.lock; };
+            cargoLock = cargoLockShared;
             cargoBuildFlags = [ "-p" "catalyrst-scene-state" "--bin" "catalyrst-scene-state" ];
             doCheck = false;
             nativeBuildInputs = [ pkgs.pkg-config ];
             buildInputs = [ pkgs.openssl ];
             env = {
               OPENSSL_NO_VENDOR = "1";
-              # The single env var that makes V8-under-Nix work offline.
               RUSTY_V8_ARCHIVE = "${librusty_v8}";
             };
           };
 
-          # Single-derivation bundle of every binary a multi-service deploy
-          # runs directly from the flake (replaces a locally cargo-built
-          # bin/catalyrst tree). One cargo invocation compiles the shared
-          # dependency graph once and emits all bins. Build inputs are the
-          # UNION of the per-service packages above: openssl everywhere,
-          # protobuf for the dcl-rpc / prost codegen (social-rpc), and the
-          # prebuilt V8 archive for the scene-state crate.
           catalyrst-all = pkgs.rustPlatform.buildRustPackage {
             pname = "catalyrst-all";
             version = "0.1.0";
             src = ./.;
-            cargoLock = { lockFile = ./Cargo.lock; };
+            cargoLock = cargoLockShared;
             cargoBuildFlags = [
-              "-p" "catalyrst-server"         "--bin" "catalyrst-live"
-              "-p" "catalyrst-explore"        "--bin" "catalyrst-explore"
-              "-p" "catalyrst-create"         "--bin" "catalyrst-create"
-              "-p" "catalyrst-data"           "--bin" "catalyrst-data"
-              "-p" "catalyrst-social"         "--bin" "catalyrst-social"
-              "-p" "catalyrst-social-rpc"     "--bin" "catalyrst-social-rpc"
-              "-p" "catalyrst-explorer-api"   "--bin" "catalyrst-explorer-api"
-              "-p" "catalyrst-ab-cdn"         "--bin" "catalyrst-ab-cdn"
-              "-p" "catalyrst-profile-images" "--bin" "catalyrst-profile-images"
-              "-p" "catalyrst-scene-state"    "--bin" "catalyrst-scene-state"
-              "-p" "catalyrst-signatures"     "--bin" "catalyrst-signatures"
-              "-p" "catalyrst-telemetry"      "--bin" "catalyrst-telemetry"
-              "-p" "catalyrst-world-storage"  "--bin" "catalyrst-world-storage"
+              "-p"
+              "catalyrst-server"
+              "--bin"
+              "catalyrst-live"
+              "-p"
+              "catalyrst-explore"
+              "--bin"
+              "catalyrst-explore"
+              "-p"
+              "catalyrst-create"
+              "--bin"
+              "catalyrst-create"
+              "-p"
+              "catalyrst-data"
+              "--bin"
+              "catalyrst-data"
+              "-p"
+              "catalyrst-social"
+              "--bin"
+              "catalyrst-social"
+              "-p"
+              "catalyrst-social-service"
+              "--features"
+              "catalyrst-social-service/rpc"
+              "--bin"
+              "catalyrst-social-rpc"
+              "-p"
+              "catalyrst-explorer-api"
+              "--bin"
+              "catalyrst-explorer-api"
+              "-p"
+              "catalyrst-profile-images"
+              "--bin"
+              "catalyrst-profile-images"
+              "-p"
+              "catalyrst-scene-state"
+              "--bin"
+              "catalyrst-scene-state"
+              "-p"
+              "catalyrst-signatures"
+              "--bin"
+              "catalyrst-signatures"
+              "-p"
+              "catalyrst-telemetry"
+              "--bin"
+              "catalyrst-telemetry"
+              "-p"
+              "catalyrst-world-storage"
+              "--bin"
+              "catalyrst-world-storage"
             ];
             doCheck = false;
             nativeBuildInputs = [ pkgs.pkg-config pkgs.protobuf ];
@@ -241,21 +388,74 @@
               OPENSSL_NO_VENDOR = "1";
               RUSTY_V8_ARCHIVE = "${librusty_v8}";
             };
-            # Ship the content-DB schema like the catalyrst package does, so a
-            # fresh sync replica can bootstrap content_rust.
             postInstall = ''
               mkdir -p "$out/share/catalyrst-server"
               cp -r crates/catalyrst-server/migrations "$out/share/catalyrst-server/migrations"
             '';
           };
 
+          abgen-compare = inputs.abgen.packages.${pkgs.stdenv.hostPlatform.system}.abgen-compare;
+
           default = catalyrst;
-        };
-      }
-    )) // {
-      # Reusable NixOS module. Operators import it from their own host config
-      # and set `services.catalyrst.*` options. See nixos/module-example.nix
-      # for a minimal consumer.
+        });
+
+      # Stateless, sandboxed tests. `nix flake check` (or
+      # `nix build .#checks.<system>.catalyrst-server-tests`) builds the
+      # catalyrst derivation with its check phase enabled — no devShell, no
+      # mutable cargo target dir. Covers the catalyrst-server input-validation
+      # unit tests (nul_guard middleware, DatabaseError->AppError mapping,
+      # active_entities validator).
+      checks = forAllSystems (pkgs: {
+        catalyrst-server-tests =
+          self.packages.${pkgs.stdenv.hostPlatform.system}.catalyrst.overrideAttrs (old: {
+          pname = "catalyrst-server-tests";
+          doCheck = true;
+          cargoTestFlags = (old.cargoTestFlags or [ ]) ++ [ "-p" "catalyrst-server" ];
+        });
+      });
+
+      devShells = forAllSystems (pkgs:
+        let
+          librusty_v8 = pkgs.callPackage ./crates/catalyrst-scene-state/nix/librusty_v8.nix { };
+          rust197 = (pkgs.extend (import rust-overlay)).rust-bin.stable."1.97.1".default;
+        in
+        {
+          default = pkgs.mkShell {
+
+            hardeningDisable = [ "fortify" ];
+            nativeBuildInputs = [
+              pkgs.cargo
+              pkgs.rustc
+              pkgs.rustfmt
+              pkgs.clippy
+              pkgs.rust-analyzer
+              pkgs.pkg-config
+              pkgs.protobuf
+              pkgs.gnumake
+            ];
+            buildInputs = [ pkgs.openssl ];
+            env = {
+              OPENSSL_NO_VENDOR = "1";
+              RUSTY_V8_ARCHIVE = "${librusty_v8}";
+            };
+          };
+
+          ci = pkgs.mkShell {
+            hardeningDisable = [ "fortify" ];
+            nativeBuildInputs = [
+              rust197
+              pkgs.pkg-config
+              pkgs.protobuf
+              pkgs.gnumake
+            ];
+            buildInputs = [ pkgs.openssl ];
+            env = {
+              OPENSSL_NO_VENDOR = "1";
+              RUSTY_V8_ARCHIVE = "${librusty_v8}";
+            };
+          };
+        });
+
       nixosModules = nixosModules // { default = nixosModules.catalyrst; };
     };
 }

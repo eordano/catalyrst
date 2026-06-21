@@ -3,17 +3,13 @@ use uuid::Uuid;
 
 use crate::http::ApiError;
 
-/// One active scene-admin row. Mirrors upstream `SceneAdmin`
-/// (comms-gatekeeper `src/types.ts`): `created_at` is epoch milliseconds (the
-/// upstream column is `bigint`), serialized as a JSON number so the wire object
-/// shape is `SceneAdmin & {name, canBeRemoved}`.
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct SceneAdminRow {
     pub id: Uuid,
     pub place_id: String,
     pub admin: String,
     pub added_by: String,
-    /// epoch milliseconds
+
     pub created_at: i64,
     pub active: bool,
 }
@@ -27,17 +23,11 @@ impl SceneAdminComponent {
         Self { pool }
     }
 
-    /// Active admins for a place, optionally filtered by a single admin address.
-    /// Ports `sceneAdminManager.listActiveAdmins` (comms-gatekeeper
-    /// `scene-admin-manager.ts`): `SELECT * FROM scene_admin WHERE active = true
-    /// AND place_id = $1 [AND admin = $2]`, with `admin` lowercased.
     pub async fn list_active_admins(
         &self,
         place_id: &str,
         admin: Option<&str>,
     ) -> Result<Vec<SceneAdminRow>, ApiError> {
-        // `created_at` is stored as TIMESTAMP here but upstream stores bigint
-        // epoch-ms; convert so the emitted JSON value matches upstream's number.
         let mut sql = String::from(
             "SELECT id, place_id, admin, added_by, \
              (EXTRACT(EPOCH FROM created_at) * 1000)::int8 AS created_at, active \
@@ -46,7 +36,7 @@ impl SceneAdminComponent {
         if admin.is_some() {
             sql.push_str(" AND admin = $2");
         }
-        let mut q = sqlx::query_as::<_, SceneAdminRow>(&sql).bind(place_id);
+        let mut q = sqlx::query_as::<_, SceneAdminRow>(sqlx::AssertSqlSafe(sql)).bind(place_id);
         if let Some(a) = admin {
             q = q.bind(a.to_lowercase());
         }

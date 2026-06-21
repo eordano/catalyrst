@@ -1,4 +1,5 @@
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, Result};
+use catalyrst_envcfg::{env_bool, get_port, required};
 use std::env;
 
 pub struct Config {
@@ -10,26 +11,23 @@ pub struct Config {
     pub livekit_api_secret: String,
     pub livekit_webhook_key: Option<String>,
     pub livekit_configured: bool,
+
+    pub livekit_token_ttl_secs: u64,
     pub private_messages_room_id: String,
     pub places_api_url: String,
     pub catalyst_url: String,
-    /// worlds-content-server base URL — resolves world deployment/streaming ACL
-    /// addresses + owner for the /scene-admin extra-address set.
+
     pub world_content_url: String,
-    /// lambdas base URL — resolves Genesis City LAND operators (owner / operator /
-    /// updateOperator / updateManagers / approvedForAll) for the extra-address set.
+
     pub lambdas_url: String,
     pub dapps_database_url: Option<String>,
     pub dapps_schema: String,
-    /// places_events archive (resolves place_id -> parcels/world for scene authz).
+
     pub places_database_url: Option<String>,
     pub authoritative_server_address: Option<String>,
     pub moderator_token: Option<String>,
     pub moderator_addresses: Vec<String>,
-    /// Bearer token gating the social-service voice / private-message routes.
-    /// Upstream comms-gatekeeper requires `COMMS_GATEKEEPER_AUTH_TOKEN`; here it
-    /// is OPT-IN — when unset, the gate is disabled (loopback dev keeps working)
-    /// and a warning is logged. Set it before exposing the service off loopback.
+
     pub gatekeeper_auth_token: Option<String>,
 }
 
@@ -49,12 +47,17 @@ impl Config {
         let livekit_configured = !livekit_api_key.is_empty() && !livekit_api_secret.is_empty();
         let (livekit_api_key, livekit_api_secret) = if livekit_configured {
             (livekit_api_key, livekit_api_secret)
-        } else {
+        } else if env_bool("LIVEKIT_ALLOW_DEV_CREDS", false) {
             tracing::warn!(
                 "LIVEKIT_API_KEY / LIVEKIT_API_SECRET not set; defaulting to devkey/devsecret — \
                  tokens will parse locally but will NOT be accepted by a real LiveKit cluster"
             );
             ("devkey".to_string(), "devsecret".to_string())
+        } else {
+            return Err(anyhow!(
+                "LIVEKIT_API_KEY / LIVEKIT_API_SECRET are not set; set both, or set \
+                 LIVEKIT_ALLOW_DEV_CREDS=1 to run with the devkey/devsecret dev defaults"
+            ));
         };
 
         Ok(Self {
@@ -68,6 +71,11 @@ impl Config {
                 .ok()
                 .filter(|s| !s.is_empty()),
             livekit_configured,
+            livekit_token_ttl_secs: env::var("LIVEKIT_TOKEN_TTL_SECS")
+                .ok()
+                .and_then(|s| s.trim().parse::<u64>().ok())
+                .filter(|&n| n > 0)
+                .unwrap_or(3600),
             private_messages_room_id: env::var("PRIVATE_MESSAGES_ROOM_ID")
                 .ok()
                 .filter(|s| !s.is_empty())
@@ -103,16 +111,5 @@ impl Config {
                 .ok()
                 .filter(|s| !s.is_empty()),
         })
-    }
-}
-
-fn required(key: &str) -> Result<String> {
-    env::var(key).map_err(|_| anyhow!("missing required env var: {}", key))
-}
-
-fn get_port(key: &str, default: u16) -> Result<u16> {
-    match env::var(key) {
-        Ok(s) => s.parse::<u16>().with_context(|| format!("invalid {}", key)),
-        Err(_) => Ok(default),
     }
 }

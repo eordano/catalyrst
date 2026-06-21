@@ -1,11 +1,3 @@
-//! dcl-rpc `QuestsService` implementation — port of `decentraland/quests`
-//! crates/server/src/rpc/service.rs over the in-process context. Implements the
-//! six procedures from definitions.proto:
-//!   StartQuest / AbortQuest / SendEvent / Subscribe / GetAllQuests /
-//!   GetQuestDefinition
-//! The per-connection user address comes from the signed auth-chain handshake
-//! (see `ws.rs` / `auth_chain.rs`), keyed by transport id in `Context`.
-
 use crate::context::Context;
 use crate::proto::*;
 use crate::quests::{self, QuestError};
@@ -19,8 +11,6 @@ use tokio::sync::broadcast::error::RecvError;
 pub struct QuestsServiceImpl;
 
 impl QuestsServiceImpl {
-    /// The authenticated user address for this transport, or the
-    /// "transport id not registered" error (upstream `NotExistsTransportID`).
     fn user(ctx: &ProcedureContext<Context>) -> Result<String, ServiceError> {
         ctx.server_context
             .identity(ctx.transport_id)
@@ -41,8 +31,6 @@ impl QuestsServiceServer<Context, ServiceError> for QuestsServiceImpl {
 
         match quests::start_quest(ctx.db(), &user_address, &quest_id).await {
             Ok(new_instance_id) => {
-                // Publish a NewQuestStarted update with the instance's initial,
-                // action-hidden state (upstream StartQuest success path).
                 match build_quest_instance(ctx, &quest_id, &new_instance_id).await {
                     Ok(instance) => {
                         ctx.pubsub().publish(UserUpdate {
@@ -92,8 +80,7 @@ impl QuestsServiceServer<Context, ServiceError> for QuestsServiceImpl {
     ) -> Result<EventResponse, ServiceError> {
         let user_address = Self::user(&context)?;
         let ctx = &context.server_context;
-        // Upstream's add_event_controller: NoAction -> Ignored; otherwise build
-        // an Event with a fresh id and push it onto the processing queue.
+
         match quests::build_event(&user_address, request) {
             Some((id, event)) => {
                 if ctx.push_event(event) {
@@ -113,7 +100,6 @@ impl QuestsServiceServer<Context, ServiceError> for QuestsServiceImpl {
         let user_address = Self::user(&context)?;
         let (generator, yielder) = Generator::create();
 
-        // First message: subscribed=true (upstream Subscribe accepted_response).
         if yielder
             .r#yield(UserUpdate {
                 message: Some(user_update::Message::Subscribed(true)),
@@ -197,8 +183,6 @@ impl QuestsServiceServer<Context, ServiceError> for QuestsServiceImpl {
     }
 }
 
-/// Build a `QuestInstance` (id + full quest + action-hidden state) for a
-/// running instance — used by StartQuest and GetAllQuests.
 async fn build_quest_instance(
     ctx: &Context,
     quest_id: &str,
@@ -213,8 +197,6 @@ async fn build_quest_instance(
         state: Some(state),
     })
 }
-
-// ---- Response constructors (port of crates/protocol/src/quests/builders.rs) ----
 
 fn start_quest_accepted() -> StartQuestResponse {
     StartQuestResponse {
@@ -329,8 +311,6 @@ fn get_quest_definition_internal_error() -> GetQuestDefinitionResponse {
         ),
     }
 }
-
-// ---- ServiceError (port of upstream rpc/service.rs ServiceError) ----
 
 pub enum ServiceError {
     NotExistsTransportID,

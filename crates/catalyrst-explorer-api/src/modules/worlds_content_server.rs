@@ -26,7 +26,7 @@ pub fn routes() -> Router<AppState> {
 async fn world_about(State(state): State<AppState>, Path(name): Path<String>) -> Response {
     let url = format!(
         "{}/world/{}/about",
-        state.cfg.upstream_worlds_url.trim_end_matches('/'),
+        state.cfg.upstream_worlds_content_url.trim_end_matches('/'),
         urlencoding::encode(&name),
     );
     proxy_get(&state, &url, None).await
@@ -35,7 +35,7 @@ async fn world_about(State(state): State<AppState>, Path(name): Path<String>) ->
 async fn world_permissions(State(state): State<AppState>, Path(name): Path<String>) -> Response {
     let url = format!(
         "{}/world/{}/permissions",
-        state.cfg.upstream_worlds_url.trim_end_matches('/'),
+        state.cfg.upstream_worlds_content_url.trim_end_matches('/'),
         urlencoding::encode(&name),
     );
     proxy_get(&state, &url, None).await
@@ -77,7 +77,7 @@ async fn worlds_contents(
 ) -> Response {
     let url = format!(
         "{}/contents/{}",
-        state.cfg.upstream_worlds_url.trim_end_matches('/'),
+        state.cfg.upstream_worlds_content_url.trim_end_matches('/'),
         urlencoding::encode(&hash),
     );
     proxy_get(&state, &url, Some(&headers)).await
@@ -90,7 +90,7 @@ async fn worlds_contents_head(
 ) -> Response {
     let url = format!(
         "{}/contents/{}",
-        state.cfg.upstream_worlds_url.trim_end_matches('/'),
+        state.cfg.upstream_worlds_content_url.trim_end_matches('/'),
         urlencoding::encode(&hash),
     );
     proxy(&state, Method::HEAD, &url, Some(&headers), None).await
@@ -99,7 +99,7 @@ async fn worlds_contents_head(
 async fn connected_world(State(state): State<AppState>, Path(wallet): Path<String>) -> Response {
     let url = format!(
         "{}/wallet/{}/connected-world",
-        state.cfg.upstream_worlds_url.trim_end_matches('/'),
+        state.cfg.upstream_worlds_content_url.trim_end_matches('/'),
         urlencoding::encode(&wallet),
     );
     proxy_get(&state, &url, None).await

@@ -1,13 +1,8 @@
-//! Bearer-gated authorization for the admin grant/revoke endpoints.
-//! Fails closed: when `CATALYRST_BADGES_ADMIN_TOKEN` is unset every admin route
-//! returns 403.
-
 use axum::http::HeaderMap;
 
 use crate::http::errors::ApiError;
 use crate::AppState;
 
-/// Constant-time compare (length leaks via the early return, as in the comms helper).
 fn timing_safe_eq(a: &str, b: &str) -> bool {
     if a.len() != b.len() {
         return false;
@@ -27,7 +22,6 @@ fn bearer_token(headers: &HeaderMap) -> Option<String> {
         .map(|s| s.to_string())
 }
 
-/// Fails closed: `expected == None` (token unset) ⇒ `Err`.
 fn check_admin(expected: Option<&str>, headers: &HeaderMap) -> Result<(), ApiError> {
     let expected = expected.ok_or_else(|| ApiError::forbidden("admin token not configured"))?;
     let token = bearer_token(headers)
@@ -39,15 +33,10 @@ fn check_admin(expected: Option<&str>, headers: &HeaderMap) -> Result<(), ApiErr
     }
 }
 
-/// Authorize an admin mutation. `Ok(())` only when a token is configured AND the
-/// request carries a matching `Authorization: Bearer` header; 403 otherwise.
 pub fn authorize_admin(state: &AppState, headers: &HeaderMap) -> Result<(), ApiError> {
     check_admin(state.admin_token.as_deref(), headers)
 }
 
-/// Audit actor label for an admin mutation. The trustworthy source is the
-/// `X-Catalyrst-Admin` header, set server-side by the admin console; absent it
-/// falls back to `"admin-token"`.
 pub fn admin_actor(headers: &HeaderMap) -> String {
     headers
         .get("x-catalyrst-admin")

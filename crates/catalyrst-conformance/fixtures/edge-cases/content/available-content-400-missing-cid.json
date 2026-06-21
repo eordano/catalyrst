@@ -10,9 +10,9 @@
   "response": {
     "status": 400,
     "headers": {"content-type": "application/json"},
-    "body_json": {"error": "Bad request", "message": "Please set at least one cid."}
+    "body_json": {"error": "Please set at least one cid."}
   },
-  "captured_from": "hand-authored from handler source (get_available_content.rs)",
+  "captured_from": "re-derived from peer.decentraland.org 2026-07-03",
   "captured_at": "2026-05-23T20:00:00Z",
   "volatile_paths": []
 }

@@ -1,7 +1,9 @@
 pub mod admin;
 pub mod categories;
 pub mod destinations;
+pub mod fed_sync;
 pub mod federation;
+pub mod lists;
 pub mod map;
 pub mod ping;
 pub mod places;

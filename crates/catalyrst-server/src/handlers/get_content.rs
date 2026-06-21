@@ -88,17 +88,10 @@ pub async fn get_content(
     method: Method,
     headers: HeaderMap,
 ) -> AppResult<Response> {
-    // Reject anything that isn't a syntactically valid content hash (IPFS CIDv0 `Qm…` or CIDv1
-    // `ba…`) before it reaches storage. The storage layer already refuses keys that resolve outside
-    // its root, but this turns path-traversal probes such as `..%2f..` into a clean 404 and keeps
-    // them from ever touching the filesystem layer.
     if !catalyrst_hashing::is_canonical_cid(&hash_id) {
         return Err(NotFoundError::new(format!("No content found with hash {}", hash_id)).into());
     }
 
-    // Denylisted content must not be served, even though the bytes remain in storage. The denylist is
-    // keyed by entity id and/or content hash and `:hashId` may be either, so one membership check
-    // covers both. Mirrors the filtering already applied on the listing endpoints.
     if state.denylist.is_denylisted(&hash_id) {
         return Err(NotFoundError::new(format!("No content found with hash {}", hash_id)).into());
     }

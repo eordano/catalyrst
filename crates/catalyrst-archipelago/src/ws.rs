@@ -12,7 +12,7 @@ use axum::routing::get;
 use axum::Router;
 use catalyrst_types::AuthChain;
 use prost::Message as _;
-use rand::Rng;
+use rand::RngExt;
 use std::collections::HashMap;
 
 pub fn routes() -> Router<AppState> {
@@ -20,7 +20,8 @@ pub fn routes() -> Router<AppState> {
 }
 
 async fn ws_upgrade(ws: WebSocketUpgrade, State(state): State<AppState>) -> impl IntoResponse {
-    ws.on_upgrade(move |socket| handle_socket(socket, state))
+    ws.protocols(["archipelago"])
+        .on_upgrade(move |socket| handle_socket(socket, state))
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -56,8 +57,10 @@ fn conn_str(grant: Option<&crate::livekit::LivekitGrant>, fallback_ws_url: &str)
     }
 }
 
-// Mirror upstream onChangeToIsland: every island member keyed by id with its last
-// position, falling back to the origin when a member has no recorded heartbeat yet.
+fn heartbeat_position(hb: &crate::proto::archipelago::Heartbeat) -> Option<[f32; 3]> {
+    hb.position.as_ref().map(|p| [p.x, p.y, p.z])
+}
+
 fn position_map(state: &AppState, peers: &[String]) -> HashMap<String, Position> {
     let lookup = state.cluster.peers_by_address();
     peers
@@ -87,9 +90,7 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
     let mut address: Option<String> = None;
     let mut conn_gen: Option<u64> = None;
     let mut initial_island_sent = false;
-    // Per-socket dedup by island id: the reconnect catch-up push and a kicked
-    // recluster's broadcast can otherwise deliver the SAME island twice back-to-back,
-    // tripping a despawn race in bevy-explorer's manage_islands.
+
     let mut last_island_sent: Option<String> = None;
 
     loop {
@@ -121,7 +122,7 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                                     break;
                                 }
                                 let addr = req.address.to_ascii_lowercase();
-                                challenge_to_sign = format!("dcl-{}", rand::thread_rng().gen::<u64>());
+                                challenge_to_sign = format!("dcl-{}", rand::rng().random::<u64>());
 
                                 state.challenges.put(&addr, &challenge_to_sign);
                                 address = Some(addr);
@@ -156,6 +157,10 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                                             .first()
                                             .map(|l| l.payload.to_ascii_lowercase())
                                             .unwrap_or(claimed);
+                                        if state.deny_list.is_denied(&signer).await {
+                                            tracing::warn!(addr = %signer, "archipelago ws rejected: deny-listed wallet (post-auth)");
+                                            break;
+                                        }
                                         address = Some(signer.clone());
                                         conn_gen = Some(state.cluster.register_conn(&signer));
                                         tracing::info!(addr = %signer, "archipelago ws handshake complete (welcome)");
@@ -182,44 +187,43 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                                     continue;
                                 };
                                 let Some(addr) = address.clone() else { continue };
-                                let pos = hb.position.unwrap_or(Position { x: 0.0, y: 0.0, z: 0.0 });
-                                let position = [pos.x, pos.y, pos.z];
-                                let parcel = crate::cluster::to_parcel(pos.x, pos.z);
+                                let Some(position) = heartbeat_position(&hb) else { continue };
+                                let parcel = crate::cluster::to_parcel(position[0], position[2]);
                                 let realm = hb.desired_room.unwrap_or_else(|| "catalyrst".into());
                                 state.cluster.upsert_peer(addr.clone(), position, parcel, realm);
 
-                                // Reconnect catch-up: IslandChanged only broadcasts on
-                                // assignment CHANGES, so a peer reconnecting onto an unchanged
-                                // assignment would never learn its island and time out.
                                 if !initial_island_sent {
                                     initial_island_sent = true;
                                     if state.cluster.island_of(&addr).is_none() {
-                                        // Fresh peer: assign now rather than wait for the
-                                        // periodic tick; the broadcast lands on this socket's rx.
-                                        state.cluster.kick_recluster();
+                                        state.cluster.kick_recluster().await;
                                     }
                                     if let Some((island_id, peers)) = state.cluster.island_of(&addr) {
                                         if last_island_sent.as_deref() != Some(island_id.as_str()) {
-                                            let grant = state
-                                                .cluster
-                                                .livekit()
-                                                .is_armed()
-                                                .then(|| state.cluster.livekit().mint(&addr, &island_id));
-                                            let conn_str = conn_str(grant.as_ref(), state.livekit.ws_url());
-                                            let peer_map = position_map(&state, &peers);
-                                            last_island_sent = Some(island_id.clone());
-                                            if !send_packet(
-                                                &mut socket,
-                                                server_packet::Message::IslandChanged(IslandChangedMessage {
-                                                    island_id,
-                                                    conn_str,
-                                                    from_island_id: None,
-                                                    peers: peer_map,
-                                                }),
-                                            )
-                                            .await
-                                            {
-                                                break;
+                                            if state.ban_checker.is_banned(&addr).await {
+                                                tracing::info!(addr = %addr, island = %island_id, "peer banned; evicting from engine, no livekit token minted");
+                                                state.cluster.remove_peer(&addr);
+                                            } else {
+                                                let grant = state
+                                                    .cluster
+                                                    .livekit()
+                                                    .is_armed()
+                                                    .then(|| state.cluster.livekit().mint(&addr, &island_id));
+                                                let conn_str = conn_str(grant.as_ref(), state.livekit.ws_url());
+                                                let peer_map = position_map(&state, &peers);
+                                                last_island_sent = Some(island_id.clone());
+                                                if !send_packet(
+                                                    &mut socket,
+                                                    server_packet::Message::IslandChanged(IslandChangedMessage {
+                                                        island_id,
+                                                        conn_str,
+                                                        from_island_id: None,
+                                                        peers: peer_map,
+                                                    }),
+                                                )
+                                                .await
+                                                {
+                                                    break;
+                                                }
                                             }
                                         }
                                     }
@@ -239,7 +243,7 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                 match evt {
                     ClusterEvent::IslandChanged { address: ev_addr, island_id, from_island_id, peers, livekit } if ev_addr == addr => {
                         if last_island_sent.as_deref() == Some(island_id.as_str()) {
-                            continue; // already delivered (e.g. by the reconnect catch-up push)
+                            continue;
                         }
                         last_island_sent = Some(island_id.clone());
                         let conn_str = conn_str(livekit.as_ref(), state.livekit.ws_url());
@@ -258,18 +262,44 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                             break;
                         }
                     }
-                    // Upstream never sends LeftIsland/JoinIsland over /ws; departures are
-                    // conveyed via LiveKit room membership, so PeerLeft drives no frame here.
+
                     _ => {}
                 }
             }
         }
     }
 
-    // Only remove the registration THIS socket made: an unconditional remove_peer
-    // would let a stale socket's late close delete a newer reconnect's registration.
     if let (Some(addr), Some(gen)) = (address, conn_gen) {
         tracing::info!(addr = %addr, gen, "archipelago ws closed");
         state.cluster.remove_peer_if_conn(&addr, gen);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::heartbeat_position;
+    use crate::proto::archipelago::Heartbeat;
+    use crate::proto::Position;
+
+    #[test]
+    fn positionless_heartbeat_is_ignored() {
+        let hb = Heartbeat {
+            position: None,
+            desired_room: Some("catalyrst".into()),
+        };
+        assert_eq!(heartbeat_position(&hb), None);
+    }
+
+    #[test]
+    fn heartbeat_with_position_yields_xyz() {
+        let hb = Heartbeat {
+            position: Some(Position {
+                x: 1.5,
+                y: 2.0,
+                z: -3.25,
+            }),
+            desired_room: None,
+        };
+        assert_eq!(heartbeat_position(&hb), Some([1.5, 2.0, -3.25]));
     }
 }

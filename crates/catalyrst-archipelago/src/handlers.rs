@@ -173,8 +173,6 @@ async fn peers(State(s): State<AppState>, RawQuery(q): RawQuery) -> Json<PeersRe
         .cluster
         .peers_snapshot()
         .iter()
-        // Case-insensitive: addresses are stored lowercase but clients may pass
-        // EIP-55 checksummed ids in ?id=.
         .filter(|p| {
             filter.is_empty() || filter.iter().any(|id| id.eq_ignore_ascii_case(&p.address))
         })
@@ -190,9 +188,6 @@ struct PeerResp {
 }
 
 async fn peer_by_id(State(s): State<AppState>, Path(id): Path<String>) -> impl IntoResponse {
-    // Peer addresses are stored lowercase (recovered signer); clients routinely
-    // pass EIP-55 checksummed (mixed-case) addresses, which would 404 on an exact
-    // match. Normalize the lookup key.
     match s.cluster.peer(&id.to_lowercase()) {
         Some(p) => (
             StatusCode::OK,
@@ -446,6 +441,14 @@ async fn livekit_token(State(s): State<AppState>, body: Bytes) -> impl IntoRespo
         return (
             StatusCode::UNAUTHORIZED,
             Json(serde_json::json!({"error": e.to_string()})),
+        )
+            .into_response();
+    }
+    if s.ban_checker.is_banned(&req.address).await {
+        s.cluster.remove_peer(&req.address.to_ascii_lowercase());
+        return (
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({"error": "banned"})),
         )
             .into_response();
     }

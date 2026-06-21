@@ -1,5 +1,5 @@
 {
-  "description": "Template fixture for GET /about against a public peer. Replace with a freshly captured response when wiring this up to a real peer; the data here is illustrative.",
+  "description": "Template fixture for GET /about against a public peer. Replace with a freshly captured response when wiring this up to a real peer; the data here is illustrative. [Intentional divergence: comms present.]",
   "request": {
     "method": "GET",
     "path": "/about",
@@ -14,50 +14,62 @@
     },
     "body_json": {
       "healthy": true,
-      "acceptingUsers": true,
+      "content": {
+        "healthy": true,
+        "version": "<<VOLATILE>>",
+        "synchronizationStatus": "<<VOLATILE>>",
+        "commitHash": "<<VOLATILE>>",
+        "publicUrl": "<<VOLATILE>>"
+      },
+      "lambdas": {
+        "healthy": true,
+        "version": "<<VOLATILE>>",
+        "commitHash": "<<VOLATILE>>",
+        "publicUrl": "<<VOLATILE>>"
+      },
       "configurations": {
         "networkId": 1,
         "globalScenesUrn": [],
         "scenesUrn": [],
-        "realmName": "loki"
-      },
-      "content": {
-        "healthy": true,
-        "publicUrl": "https://peer.decentraland.org/content",
-        "version": "7.5.0",
-        "commitHash": "abc1234"
-      },
-      "lambdas": {
-        "healthy": true,
-        "publicUrl": "https://peer.decentraland.org/lambdas",
-        "version": "7.5.0",
-        "commitHash": "abc1234"
+        "realmName": "<<VOLATILE>>",
+        "map": "<<VOLATILE>>"
       },
       "comms": {
         "healthy": true,
-        "protocol": "v3",
-        "commitHash": "abc1234",
-        "usersCount": 42,
-        "adapter": "archipelago",
-        "fixedAdapter": "offline:offline"
+        "protocol": "<<VOLATILE>>",
+        "usersCount": "<<VOLATILE>>",
+        "adapter": "<<VOLATILE>>",
+        "fixedAdapter": "<<VOLATILE>>"
       },
       "bff": {
         "healthy": true,
-        "publicUrl": "https://peer.decentraland.org/bff",
-        "commitHash": "abc1234",
-        "userCount": 42,
-        "protocolVersion": "1.0_0"
-      }
+        "protocolVersion": "1.0_0",
+        "userCount": "<<VOLATILE>>",
+        "publicUrl": "<<VOLATILE>>"
+      },
+      "acceptingUsers": "<<VOLATILE>>"
     }
   },
-  "captured_from": "https://peer.decentraland.org",
+  "captured_from": "INTENTIONAL DIVERGENCE from upstream \u2014 we emit a top-level comms{} block (Unity RealmController reads about.comms to distinguish a standalone realm with a fixed adapter from a shared-BFF main realm). Upstream peer runs shared-BFF and omits comms. Golden asserts OUR behavior.",
   "captured_at": "2026-05-23T20:00:00Z",
   "volatile_paths": [
-    "configurations.realmName",
+    "content.version",
+    "content.commitHash",
     "content.publicUrl",
+    "content.synchronizationStatus",
+    "lambdas.version",
+    "lambdas.commitHash",
     "lambdas.publicUrl",
-    "bff.publicUrl",
+    "configurations.realmName",
+    "configurations.map",
+    "comms.adapter",
+    "comms.fixedAdapter",
     "comms.usersCount",
-    "bff.userCount"
+    "comms.protocol",
+    "bff.userCount",
+    "bff.publicUrl",
+    "bff.commitHash",
+    "bff.version",
+    "acceptingUsers"
   ]
 }

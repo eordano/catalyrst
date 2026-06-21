@@ -1,3 +1,4 @@
+use crate::ban::BanChecker;
 use crate::config::ClusterConfig;
 use crate::livekit::{LivekitGrant, LivekitMinter};
 use chrono::{DateTime, Utc};
@@ -75,17 +76,19 @@ pub struct Cluster {
     next_island: parking_lot::Mutex<u64>,
     started_at: DateTime<Utc>,
     livekit: Arc<LivekitMinter>,
-    // Latest ws-connection generation per address. A closing socket may only
-    // remove the peer it registered itself: an abandoned older socket's late
-    // cleanup must NOT delete the entry a newer reconnect just created
-    // (observed as a cascading reconnect failure on world->genesis returns).
+    ban_checker: Arc<BanChecker>,
+
     conn_gens: DashMap<Address, u64>,
     conn_counter: parking_lot::Mutex<u64>,
     last_kicked_recluster: parking_lot::Mutex<std::time::Instant>,
 }
 
 impl Cluster {
-    pub fn new(cfg: ClusterConfig, livekit: Arc<LivekitMinter>) -> Arc<Self> {
+    pub fn new(
+        cfg: ClusterConfig,
+        livekit: Arc<LivekitMinter>,
+        ban_checker: Arc<BanChecker>,
+    ) -> Arc<Self> {
         let (tx, _) = broadcast::channel(1024);
         Arc::new(Self {
             peers: DashMap::new(),
@@ -95,6 +98,7 @@ impl Cluster {
             next_island: parking_lot::Mutex::new(0),
             started_at: Utc::now(),
             livekit,
+            ban_checker,
             conn_gens: DashMap::new(),
             conn_counter: parking_lot::Mutex::new(0),
             last_kicked_recluster: parking_lot::Mutex::new(
@@ -103,9 +107,6 @@ impl Cluster {
         })
     }
 
-    /// Registers a freshly authenticated ws connection for `address` and
-    /// returns its generation token. Pass it back to
-    /// [`Cluster::remove_peer_if_conn`] on socket close.
     pub fn register_conn(&self, address: &str) -> u64 {
         let mut c = self.conn_counter.lock();
         *c += 1;
@@ -115,8 +116,6 @@ impl Cluster {
         gen
     }
 
-    /// Removes the peer only if `gen` is still the address' latest connection —
-    /// a stale socket's cleanup leaves a newer reconnect's registration alone.
     pub fn remove_peer_if_conn(&self, address: &str, gen: u64) {
         let is_current = self
             .conn_gens
@@ -129,7 +128,6 @@ impl Cluster {
         }
     }
 
-    /// Current island assignment for a peer (id + member list), if any.
     pub fn island_of(&self, address: &str) -> Option<(IslandId, Vec<Address>)> {
         let island_id = self.peers.get(address)?.island_id.clone()?;
         let islands = self.islands.read();
@@ -137,10 +135,7 @@ impl Cluster {
         Some((island_id, island.peers.clone()))
     }
 
-    /// Debounced on-demand recluster: a freshly heartbeating peer otherwise
-    /// waits up to `recluster_interval_secs` for its first island. The
-    /// resulting IslandChanged broadcast delivers the assignment.
-    pub fn kick_recluster(&self) {
+    pub async fn kick_recluster(&self) {
         {
             let mut last = self.last_kicked_recluster.lock();
             if last.elapsed() < std::time::Duration::from_millis(200) {
@@ -148,7 +143,7 @@ impl Cluster {
             }
             *last = std::time::Instant::now();
         }
-        self.recluster_once();
+        self.recluster_once().await;
     }
 
     pub fn subscribe(&self) -> broadcast::Receiver<ClusterEvent> {
@@ -255,7 +250,7 @@ impl Cluster {
         format!("I{}", *n)
     }
 
-    pub fn recluster_once(&self) {
+    pub async fn recluster_once(&self) {
         let now = Utc::now();
         let timeout = chrono::Duration::seconds(self.cfg.heartbeat_timeout_secs as i64);
         let stale: Vec<Address> = self
@@ -382,6 +377,11 @@ impl Cluster {
         *self.islands.write() = new_islands;
 
         for (address, island_id, from_island_id, peers) in changed {
+            if self.ban_checker.is_banned(&address).await {
+                tracing::info!(addr = %address, island = %island_id, "peer banned; evicting from engine, no token minted");
+                self.remove_peer(&address);
+                continue;
+            }
             tracing::info!(addr = %address, island = %island_id, from = ?from_island_id, members = peers.len(), "island assigned");
             let livekit = if self.livekit.is_armed() {
                 Some(self.livekit.mint(&address, &island_id))
@@ -406,7 +406,7 @@ impl Cluster {
             tick.tick().await;
             loop {
                 tick.tick().await;
-                self.recluster_once();
+                self.recluster_once().await;
             }
         })
     }

@@ -3,7 +3,6 @@ package decentraland.quests;
 
 import "google/protobuf/empty.proto";
 
-// Errors 
 message InvalidQuest {}
 
 message NotUUID {}
@@ -23,11 +22,6 @@ message StartQuestRequest {
 }
 
 message StartQuestResponse {
-  /* There are a few valid reasons to not be accepted:
-  *  - Quest is not found
-  *  - Quest is deactivated (the owner deleted it)
-  *  - User already started the quest
-  *  - Internal errors (DB connection failed or something like that) */
   message Accepted {}
   oneof response {
     Accepted accepted = 1;
@@ -43,11 +37,6 @@ message AbortQuestRequest {
 }
 
 message AbortQuestResponse {
-  /* There are a few valid reasons to not be accepted:
-  *  - Quest instance is not found
-  *  - Quest instance is from another user 
-  *  - Quest instance already aborted
-  *  - Internal errors (DB connection failed or something like that) */
   message Accepted {}
   oneof response {
     Accepted accepted = 1;
@@ -171,15 +160,12 @@ message GetQuestDefinitionResponse {
 }
 
 service QuestsService {
-  // User actions
   rpc StartQuest(StartQuestRequest) returns (StartQuestResponse) {}
   rpc AbortQuest(AbortQuestRequest) returns (AbortQuestResponse) {}
   rpc SendEvent(EventRequest) returns (EventResponse) {}
 
-  // Listen to changes in quest states and event processing updates
   rpc Subscribe(google.protobuf.Empty) returns (stream UserUpdate) {}
 
-  // Query quest information
   rpc GetAllQuests(google.protobuf.Empty) returns (GetAllQuestsResponse) {}
   rpc GetQuestDefinition(GetQuestDefinitionRequest) returns (GetQuestDefinitionResponse) {}
 }

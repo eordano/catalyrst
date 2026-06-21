@@ -1,3 +1,5 @@
+#![allow(clippy::result_large_err)]
+
 pub mod auth_chain;
 pub mod config;
 pub mod extract;
@@ -7,6 +9,7 @@ pub mod livekit;
 pub mod mls;
 pub mod moderator;
 pub mod ports;
+pub mod room_metadata_sync;
 pub mod scene_perms;
 pub mod voice_db;
 pub mod voice_logic;
@@ -22,8 +25,6 @@ use sqlx::PgPool;
 
 use crate::config::Config;
 
-/// Parse a connection URL and pin server-side query/transaction timeouts so a
-/// pathological query can't tie up a pooled connection indefinitely.
 fn connect_opts(url: &str) -> Result<PgConnectOptions> {
     Ok(url
         .parse::<PgConnectOptions>()
@@ -34,6 +35,7 @@ fn connect_opts(url: &str) -> Result<PgConnectOptions> {
         ]))
 }
 use crate::ports::names::NamesComponent;
+use crate::ports::player_connection::PlayerConnectionComponent;
 use crate::ports::scene_admin::SceneAdminComponent;
 use crate::ports::scene_bans::SceneBansComponent;
 use crate::ports::user_bans::UserBansComponent;
@@ -44,14 +46,15 @@ pub struct AppStateInner {
     pub scene_admin: SceneAdminComponent,
     pub scene_bans: SceneBansComponent,
     pub user_bans: UserBansComponent,
+    pub player_connection: PlayerConnectionComponent,
     pub names: NamesComponent,
-    /// Private (1:1) voice-chat status state machine (upstream `voice-db.ts`).
+
     pub voice_db: VoiceDb,
     pub http: reqwest::Client,
     pub catalyst_url: String,
-    /// worlds-content-server base URL (scene-admin world extra-address lookup).
+
     pub world_content_url: String,
-    /// lambdas base URL (scene-admin GC LAND operator lookup).
+
     pub lambdas_url: String,
     pub livekit_host: String,
     pub livekit_ws_url: String,
@@ -59,20 +62,19 @@ pub struct AppStateInner {
     pub livekit_api_secret: String,
     pub livekit_webhook_key: Option<String>,
     pub livekit_configured: bool,
+
+    pub livekit_token_ttl_secs: u64,
     pub private_messages_room_id: String,
     pub authoritative_server_address: Option<String>,
     pub moderator_token: Option<String>,
     pub moderator_addresses: Vec<String>,
-    /// Bearer token gating the voice / private-message social-service routes
-    /// (upstream `COMMS_GATEKEEPER_AUTH_TOKEN`). `None` => gate disabled (loopback
-    /// dev). See `voice_auth_layer`.
+
     pub gatekeeper_auth_token: Option<String>,
-    /// places_events archive pool — resolves place_id -> parcels/world for the
-    /// scene-bans/scene-admin owner-or-admin authz (see `scene_perms`).
+
     pub places_pool: Option<PgPool>,
-    /// marketplace squid pool — resolves parcel/estate/ENS ownership for authz.
+
     pub dapps_pool: Option<PgPool>,
-    /// squid schema (e.g. `squid_marketplace`).
+
     pub dapps_schema: String,
 }
 
@@ -157,6 +159,12 @@ pub async fn build_state(cfg: &Config) -> Result<AppState> {
         );
     }
 
+    if cfg.gatekeeper_auth_token.is_none() {
+        tracing::warn!(
+            "COMMS_GATEKEEPER_AUTH_TOKEN unset; the bearer check is skipped and all voice routes (/community-voice-chat*, /private-voice-chat*, /users/:address/*-voice-chat-status, /users/:address/private-messages-privacy) plus the world ban-status route are served UNAUTHENTICATED"
+        );
+    }
+
     let http = reqwest::Client::builder()
         .timeout(Duration::from_secs(10))
         .build()
@@ -166,6 +174,7 @@ pub async fn build_state(cfg: &Config) -> Result<AppState> {
         scene_admin: SceneAdminComponent::new(pool.clone()),
         scene_bans: SceneBansComponent::new(pool.clone()),
         user_bans: UserBansComponent::new(pool.clone()),
+        player_connection: PlayerConnectionComponent::new(pool.clone()),
         names: NamesComponent::new(dapps_pool.clone(), cfg.dapps_schema.clone()),
         voice_db: VoiceDb::new(pool.clone(), crate::voice_db::VoiceDbConfig::from_env()),
         places_pool,
@@ -185,6 +194,7 @@ pub async fn build_state(cfg: &Config) -> Result<AppState> {
         livekit_api_secret: cfg.livekit_api_secret.clone(),
         livekit_webhook_key: cfg.livekit_webhook_key.clone(),
         livekit_configured: cfg.livekit_configured,
+        livekit_token_ttl_secs: cfg.livekit_token_ttl_secs,
         private_messages_room_id: cfg.private_messages_room_id.clone(),
         authoritative_server_address: cfg.authoritative_server_address.clone(),
         moderator_token: cfg.moderator_token.clone(),
@@ -193,11 +203,6 @@ pub async fn build_state(cfg: &Config) -> Result<AppState> {
     }))
 }
 
-/// Paths upstream comms-gatekeeper gates behind `tokenAuthMiddleware` (the
-/// `COMMS_GATEKEEPER_AUTH_TOKEN` bearer): /private-voice-chat*,
-/// /community-voice-chat*, .../voice-chat-status, and the
-/// /users/{address}/private-messages-privacy write. `/private-messages/token` is
-/// excluded — upstream gates it with signed-fetch, enforced by its handler.
 pub(crate) fn is_bearer_gated_path(path: &str) -> bool {
     path.contains("voice-chat") || path.contains("private-messages-privacy")
 }
@@ -252,7 +257,7 @@ pub fn api_router(state: AppState) -> Router<AppState> {
             get(handlers::scene_bans::list_ban_addresses),
         )
         .route(
-            "/worlds/{world_name}/users/{address}/ban-status",
+            handlers::world_ban_check::WORLD_BAN_STATUS_PATH,
             get(handlers::world_ban_check::world_ban_check),
         )
         .route(
@@ -330,7 +335,6 @@ pub fn api_router(state: AppState) -> Router<AppState> {
             "/community-voice-chat/{id}",
             delete(handlers::voice::community_voice_chat_end),
         )
-        // --- MLS messaging (RFC 9420) delivery service — docs/federation/messaging.md
         .route(
             "/mls/key-packages",
             post(handlers::messaging::publish_key_packages),
@@ -375,8 +379,6 @@ pub fn api_router(state: AppState) -> Router<AppState> {
                 .delete(handlers::deferred::scene_stream_access_put_delete),
         )
         .layer(axum::extract::DefaultBodyLimit::max(512 * 1024))
-        // Bearer-token gate on the voice-chat routes (opt-in via
-        // COMMS_GATEKEEPER_AUTH_TOKEN; no-op when unset — loopback dev unaffected).
         .layer(axum::middleware::from_fn_with_state(
             state,
             voice_auth_layer,
@@ -388,7 +390,6 @@ mod bearer_gate_tests {
     use super::is_bearer_gated_path;
     #[test]
     fn bearer_gated_paths_match_upstream_tokenauthmiddleware() {
-        // gated (upstream tokenAuthMiddleware)
         assert!(is_bearer_gated_path("/community-voice-chat"));
         assert!(is_bearer_gated_path("/community-voice-chat/status"));
         assert!(is_bearer_gated_path("/community-voice-chat/active"));
@@ -404,7 +405,7 @@ mod bearer_gate_tests {
         assert!(is_bearer_gated_path(
             "/users/0xabc/private-messages-privacy"
         ));
-        // NOT gated (signed-fetch / per-handler / public)
+
         assert!(!is_bearer_gated_path("/private-messages/token"));
         assert!(!is_bearer_gated_path("/get-scene-adapter"));
         assert!(!is_bearer_gated_path("/scene-participants"));

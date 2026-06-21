@@ -4,17 +4,14 @@ use axum::Json;
 use chrono::{DateTime, Utc};
 
 use crate::dto::{CurrentSeasonInfo, SeasonData, SeasonsData, Week};
-use crate::handlers::signer_from;
 use crate::http::ApiError;
 use crate::ports::credits::{SeasonRow, WeekRow};
 use crate::AppState;
 
 pub async fn seasons(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
 ) -> Result<Json<SeasonsData>, ApiError> {
-    let _signer = signer_from(&headers, "get", "/seasons")?;
-
     let now = Utc::now();
     let last = state.credits.last_season(now).await?;
     let current = state.credits.current_season(now).await?;

@@ -1,19 +1,12 @@
-# Per-section volatility rules for the conformance runner.
-#
-# Each table name is a section as the runner knows it (the strings passed
-# to should_run() in main.rs). Within a section:
-#   ignore                = ["dot.path", "with[].array.wildcard", ...]
-#   ignore_whole_response = true   # short-circuit the section as a skip
-#
-# Path syntax:
-#   - dots separate object keys: configurations.realmName
-#   - [] matches any array index: deployments[].localTimestamp
-#   - * matches one whole segment: configurations.*
-#
-# Only add entries you have evidence are legitimately host-specific or
-# time-drifting — anything else risks hiding real bugs.
+# NOTE: this file is read by a minimal hand-rolled parser (src/volatility.rs);
+# comments must not appear inside multi-line arrays.
 
 [about]
+# "comms": comms presence is realm-specific — a vanilla TS peer
+# (peer.decentraland.org) exposes no comms object at all. Because is_ignored is
+# checked at every node, this skips the entire comms subtree even when both
+# sides have one — acceptable since comms content is realm/deployment config
+# (publicUrl and adapter were already ignored).
 ignore = [
     "configurations.realmName",
     "configurations.networkId",
@@ -22,9 +15,12 @@ ignore = [
     "comms.publicUrl",
     "comms.adapter",
     "bff.publicUrl",
+    "comms",
 ]
 
 [status]
+# synchronizationStatus.{lastHeartbeat,syncFrontier,up} are candidate-only
+# diagnostics fields; the TS baseline never emits them.
 ignore = [
     "lastSyncWithDAO",
     "lastDeploymentAt",
@@ -32,18 +28,23 @@ ignore = [
     "synchronizationStatus.lastSyncWithOtherServers[].lastDeploymentTimestamp",
     "synchronizationStatus.lastSyncWithOtherServers[].url",
     "synchronizationStatus.otherServers[]",
+    "synchronizationStatus.lastHeartbeat",
+    "synchronizationStatus.syncFrontier",
+    "synchronizationStatus.up",
 ]
 
 [challenge]
-# Challenge text is server-instance-specific by design.
 ignore = ["challengeText"]
 
+[audit]
+# local receive time, differs per node — same rationale as
+# deployments[].localTimestamp below
+ignore = ["localTimestamp"]
+
 [snapshots]
-# Snapshot hashes and timestamps are state-dependent across regions/instances.
 ignore_whole_response = true
 
 [failed-deployments]
-# The failure log is host-local and drifts constantly.
 ignore_whole_response = true
 
 [deployments]

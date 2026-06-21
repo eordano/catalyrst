@@ -1,0 +1,74 @@
+# cargo-audit configuration (read by `cargo audit` from .cargo/audit.toml at
+# the workspace root; the rustsec/audit-check GitHub Action just runs
+# `cargo audit`, so this file is what CI honors — verified empirically:
+# repo-root audit.toml is NOT read).
+
+[advisories]
+# Every ignore below is the same upstream story: the only route from this
+# workspace to the libcrux crates is catalyrst-comms' MLS stack
+# (openmls_rust_crypto 0.5.1 -> hpke-rs 0.6.1), and that chain exact-pins the
+# flagged versions (hpke-rs 0.6.1 requires libcrux-sha3 ^0.0.8, which pins
+# libcrux-traits =0.0.6, which pins libcrux-secrets =0.0.5; no hpke-rs 0.6.x
+# successor exists). The fixed line (libcrux-aes 0.0.9 / libcrux-sha3 0.0.10 /
+# libcrux-secrets 0.0.6) is only consumed by hpke-rs 0.7.0, which
+# openmls_rust_crypto (latest 0.5.1) rejects (^0.6). No lockfile update can
+# move any of these. Re-evaluate and drop ALL entries once openmls_rust_crypto
+# ships against hpke-rs >= 0.7.
+#
+# Never-compiled group — these crates sit in Cargo.lock only through
+# hpke-rs-libcrux, an optional hpke-rs backend no workspace feature enables
+# (`cargo tree -i <crate> --target all` prints "nothing to print" for each),
+# so the code is absent from every artifact:
+# - RUSTSEC-2026-0124: libcrux-chacha20poly1305 0.0.7 panic on overlong
+#   ciphertext buffer.
+# - RUSTSEC-2026-0209: libcrux-aesgcm 0.0.7 missing AAD length limit.
+# - RUSTSEC-2026-0211: libcrux-aesgcm 0.0.7 non-constant-time tag check.
+#
+# Compiled-but-unreachable group — libcrux-sha3 0.0.8 and libcrux-secrets
+# 0.0.5 do compile (hpke-rs hard deps), but the vulnerable paths are dead:
+# - RUSTSEC-2026-0207: incorrect output from the *incremental* portable SHAKE
+#   API on multiple squeeze calls. The sole call sites in our graph are
+#   hpke-rs 0.6.1 src/kem.rs one-shot `libcrux_sha3::shake256::<32>/<64>`
+#   (single squeeze); the incremental API is never invoked.
+# - RUSTSEC-2026-0208: panic in `avx2::x4::shake256` for output lengths > 32
+#   and not divisible by 8. Same sole call sites: top-level one-shot API with
+#   lengths 32 and 64, both divisible by 8; the avx2::x4 API is never invoked.
+# - RUSTSEC-2026-0212: incorrect constant-time swap/select on aarch64 (cmp on
+#   a 32-bit register with undefined high bits). Neither libcrux-traits 0.0.6
+#   nor libcrux-sha3 0.0.8 — the only crates pulling libcrux-secrets into the
+#   compiled graph — call the swap/select API at all (grep of vendored src),
+#   so the affected impls are dead code on every target, aarch64 included.
+# Unmaintained-only group — informational warnings, no vulnerability. Each was
+# checked for removal (2026-07-19) and every path terminates in the LATEST
+# published version of its parent, so no update or lockfile change can drop
+# them; the unblock condition is named per entry:
+# - RUSTSEC-2023-0089: atomic-polyfill, via heapless 0.7 <- postcard 1.1.3
+#   (latest) <- feruca 0.12.0 (latest) + oxc-browserslist 3.0.11 (latest, via
+#   rolldown/oxc in dcl-one-sdk). Target-gated: only compiled for embedded
+#   targets without atomic CAS (thumbv6/riscv32 class); no catalyrst target
+#   qualifies. Clears when postcard ships against heapless >= 0.8.
+# - RUSTSEC-2024-0388: derivative, via ark-ff 0.3/0.4 — un-enabled optional
+#   deps of ruint 1.19.0 (latest); never compiled (`cargo tree -i derivative`
+#   prints nothing). Clears when ruint drops its ark-ff 0.3/0.4 features.
+# - RUSTSEC-2024-0436: paste, a compiled proc-macro used by alloy-primitives
+#   1.6.1, syn-solidity 1.6.1, v8 150, ark-ff — all latest versions still
+#   depend on it. Clears as those parents migrate off it.
+# - RUSTSEC-2026-0173: proc-macro-error2, via hax-lib-macros <- hax-lib <-
+#   libcrux; hax-lib-macros 0.3.7 (latest) still depends on it. Clears with
+#   the libcrux line the hpke-rs >= 0.7 chain brings, or a hax-lib release
+#   that drops it.
+# - RUSTSEC-2026-0210: libcrux-aesgcm renamed to libcrux-aes — same
+#   never-compiled optional hpke-rs-libcrux backend as the group above.
+ignore = [
+    "RUSTSEC-2023-0089",
+    "RUSTSEC-2024-0388",
+    "RUSTSEC-2024-0436",
+    "RUSTSEC-2026-0124",
+    "RUSTSEC-2026-0173",
+    "RUSTSEC-2026-0207",
+    "RUSTSEC-2026-0208",
+    "RUSTSEC-2026-0209",
+    "RUSTSEC-2026-0210",
+    "RUSTSEC-2026-0211",
+    "RUSTSEC-2026-0212",
+]

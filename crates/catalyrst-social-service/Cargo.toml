@@ -1,0 +1,89 @@
+[package]
+name = "catalyrst-social-service"
+version = "0.12.0"
+edition = "2021"
+description = "Rust port of decentraland/social-service-ea: community REST routes (authority-chain federation) plus the dcl-rpc WebSocket service for friends, blocks, mutes, private/community voice, sharing one communities database and one migration history."
+
+[[bin]]
+name = "catalyrst-communities"
+path = "src/bin/catalyrst-communities.rs"
+
+[[bin]]
+name = "catalyrst-social-rpc"
+path = "src/bin/catalyrst-social-rpc.rs"
+required-features = ["rpc"]
+
+[[test]]
+name = "friends_blocks"
+required-features = ["rpc"]
+
+[[test]]
+name = "private_voice_busy"
+required-features = ["rpc"]
+
+[[test]]
+name = "ws_handshake"
+required-features = ["rpc"]
+
+[features]
+default = []
+nats = ["catalyrst-fed/nats"]
+ts = ["dep:ts-rs"]
+rpc = [
+    "dep:dcl-rpc",
+    "dep:prost",
+    "dep:prost-types",
+    "dep:dashmap",
+    "dep:async-trait",
+    "dep:futures",
+    "axum/ws",
+]
+
+[dependencies]
+catalyrst-types = { workspace = true }
+catalyrst-envcfg = { workspace = true }
+catalyrst-fed = { workspace = true }
+catalyrst-crypto = { workspace = true }
+tokio = { workspace = true }
+axum = { workspace = true }
+tower-http = { workspace = true }
+sqlx = { workspace = true, features = ["uuid"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+uuid = { workspace = true, features = ["serde"] }
+sha2 = { workspace = true }
+hex = "0.4"
+multer = "3"
+futures-util = "0.3"
+parking_lot = { workspace = true }
+reqwest = { workspace = true }
+ts-rs = { workspace = true, optional = true }
+dcl-rpc = { version = "2.3.6", optional = true }
+prost = { version = "0.11", optional = true }
+prost-types = { version = "0.11", optional = true }
+dashmap = { workspace = true, optional = true }
+async-trait = { workspace = true, optional = true }
+futures = { workspace = true, optional = true }
+
+[dev-dependencies]
+alloy = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+rand = "0.10"
+reqwest = { workspace = true }
+tokio-tungstenite = "0.29"
+
+[build-dependencies]
+dcl-rpc = { version = "2.3.6", features = ["codegen"] }
+prost-build = "0.11"
+
+[package.metadata.cargo-machete]
+ignored = ["prost", "prost-types"]
+
+[[example]]
+name = "smoke_create"
+path = "examples/smoke_create.rs"

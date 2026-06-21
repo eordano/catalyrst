@@ -1,6 +1,3 @@
-//! HTTP control + status surface. Port of `src/controllers/routes.ts` and the
-//! `ping` / `status` / `debugging/reload` handlers.
-
 use axum::extract::State;
 use axum::http::{header, StatusCode};
 use axum::response::IntoResponse;
@@ -52,8 +49,6 @@ struct ReloadReq {
     name: String,
 }
 
-/// `POST /debugging/reload` — load or restart a world's scene state.
-/// Port of `reloadHandler`: secret-gated, returns 204 on success.
 async fn reload(State(s): State<AppState>, body: axum::body::Bytes) -> impl IntoResponse {
     let Some(expected) = s.cfg.debugging_secret.clone() else {
         return (
@@ -78,13 +73,7 @@ async fn reload(State(s): State<AppState>, body: axum::body::Bytes) -> impl Into
     }
 }
 
-/// Compare two byte slices in time independent of where (or whether) they
-/// differ, so the debugging secret can't be recovered via timing. Folds the
-/// length difference into the accumulator so unequal lengths still take the
-/// full pass and never early-return. (No `subtle` dependency to keep the
-/// offline build self-contained.)
 fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
-    // Mix in the length difference so a length mismatch can't be a no-op.
     let mut diff: u8 = (a.len() ^ b.len()) as u8 | ((a.len() ^ b.len()) >> 8) as u8;
     let n = a.len().max(b.len());
     for i in 0..n {

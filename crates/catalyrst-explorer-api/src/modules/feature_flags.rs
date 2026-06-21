@@ -51,9 +51,6 @@ impl FeatureFlagsState {
         self.inner.read().clone()
     }
 
-    /// Set a single flag's value under `flags.<name>`. Returns the new value.
-    /// Used by the admin toggle route; mutates only the in-memory `RwLock`
-    /// (the on-disk config file is the reload source and is left untouched).
     pub fn set_flag(&self, name: &str, value: Value) -> Value {
         let mut guard = self.inner.write();
         if let Some(flags) = guard.get_mut("flags").and_then(Value::as_object_mut) {
@@ -62,12 +59,6 @@ impl FeatureFlagsState {
         value
     }
 
-    /// Re-read the flags payload from `path` (the configured
-    /// `FEATURE_FLAGS_CONFIG_PATH`) and replace the in-memory snapshot.
-    /// Returns `Ok(())` on a successful read+parse; on read/parse failure the
-    /// existing snapshot is kept and an error message is returned so the caller
-    /// can surface it (we do NOT silently fall back to the embedded default,
-    /// which would clobber live state).
     pub fn reload_from_path<P: AsRef<StdPath>>(&self, path: P) -> Result<(), String> {
         let bytes = std::fs::read(path.as_ref()).map_err(|e| e.to_string())?;
         let parsed: Value = serde_json::from_slice(&bytes).map_err(|e| e.to_string())?;
@@ -105,9 +96,7 @@ fn normalize_payload(mut value: Value) -> Value {
 #[derive(Debug, Deserialize)]
 pub struct FlagToggleBody {
     pub name: String,
-    /// New value for the flag. Defaults to a boolean toggle when omitted is not
-    /// possible (no prior value semantics), so callers should pass an explicit
-    /// value; absent => `true`.
+
     #[serde(default = "default_flag_value")]
     pub value: Value,
 }
@@ -120,7 +109,6 @@ pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/{app_name}", get(get_app_json))
         .route("/flags/{name}", get(get_flag))
-        // Admin (bearer-gated) controls — additive, do not affect the GET routes.
         .route("/admin/flags/toggle", post(admin_flag_toggle))
         .route("/admin/flags/reload", post(admin_flags_reload))
 }

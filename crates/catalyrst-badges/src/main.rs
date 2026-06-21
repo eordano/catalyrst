@@ -7,8 +7,27 @@ use tower_http::trace::TraceLayer;
 use catalyrst_badges::config::Config;
 use catalyrst_badges::{api_router, build_state, handlers};
 
+const ENV_DOCS: &[(&str, &str)] = &[
+    ("HTTP_SERVER_HOST", "bind address (default 127.0.0.1)"),
+    ("HTTP_SERVER_PORT", "listen port (default 5147)"),
+    (
+        "BADGES_PG_CONNECTION_STRING",
+        "required — badges Postgres connection string",
+    ),
+    (
+        "CATALYRST_BADGES_ADMIN_TOKEN",
+        "optional — bearer token guarding the admin endpoints",
+    ),
+    (
+        "RUST_LOG",
+        "tracing filter (default catalyrst_badges=info,tower_http=info)",
+    ),
+];
+
 #[tokio::main]
 async fn main() -> Result<()> {
+    catalyrst_envcfg::handle_standard_args("catalyrst-badges", ENV_DOCS);
+
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()

@@ -1,5 +1,7 @@
 pub use catalyrst_types::{AuthChain, AuthLink, AuthLinkType, MAX_AUTH_CHAIN_LINKS};
 
+pub const MAX_AUTH_LINK_FIELD_LEN: usize = 100_000;
+
 pub fn is_valid_auth_chain(chain: &AuthChain) -> bool {
     if chain.is_empty() {
         return false;
@@ -12,6 +14,16 @@ pub fn is_valid_auth_chain(chain: &AuthChain) -> bool {
             return false;
         }
         if link.link_type == AuthLinkType::SIGNER && i != 0 {
+            return false;
+        }
+        if link.payload.len() > MAX_AUTH_LINK_FIELD_LEN {
+            return false;
+        }
+        if link
+            .signature
+            .as_ref()
+            .is_some_and(|s| s.len() > MAX_AUTH_LINK_FIELD_LEN)
+        {
             return false;
         }
     }
@@ -213,5 +225,63 @@ mod tests {
         assert_eq!(chain[0].link_type, AuthLinkType::SIGNER);
         assert_eq!(chain[1].link_type, AuthLinkType::EcdsaEphemeral);
         assert_eq!(chain[2].link_type, AuthLinkType::EcdsaSignedEntity);
+    }
+
+    #[test]
+    fn test_is_valid_auth_chain_rejects_oversized_payload() {
+        let over = AuthLink {
+            link_type: AuthLinkType::SIGNER,
+            payload: "a".repeat(MAX_AUTH_LINK_FIELD_LEN + 1),
+            signature: None,
+        };
+        assert!(!is_valid_auth_chain(&vec![over]));
+
+        let at_limit = AuthLink {
+            link_type: AuthLinkType::SIGNER,
+            payload: "a".repeat(MAX_AUTH_LINK_FIELD_LEN),
+            signature: None,
+        };
+        assert!(is_valid_auth_chain(&vec![at_limit]));
+    }
+
+    #[test]
+    fn test_is_valid_auth_chain_rejects_oversized_signature() {
+        let make = |sig_len: usize| {
+            vec![
+                AuthLink {
+                    link_type: AuthLinkType::SIGNER,
+                    payload: "0xabc".into(),
+                    signature: None,
+                },
+                AuthLink {
+                    link_type: AuthLinkType::EcdsaSignedEntity,
+                    payload: "hash".into(),
+                    signature: Some("a".repeat(sig_len)),
+                },
+            ]
+        };
+        assert!(!is_valid_auth_chain(&make(MAX_AUTH_LINK_FIELD_LEN + 1)));
+        assert!(is_valid_auth_chain(&make(MAX_AUTH_LINK_FIELD_LEN)));
+    }
+
+    #[test]
+    fn test_is_valid_auth_chain_count_bound_still_holds() {
+        let well_formed = |n: usize| {
+            let mut chain = vec![AuthLink {
+                link_type: AuthLinkType::SIGNER,
+                payload: "0xabc".into(),
+                signature: None,
+            }];
+            for _ in 1..n {
+                chain.push(AuthLink {
+                    link_type: AuthLinkType::EcdsaSignedEntity,
+                    payload: "hash".into(),
+                    signature: Some("0xsig".into()),
+                });
+            }
+            chain
+        };
+        assert!(is_valid_auth_chain(&well_formed(MAX_AUTH_CHAIN_LINKS)));
+        assert!(!is_valid_auth_chain(&well_formed(MAX_AUTH_CHAIN_LINKS + 1)));
     }
 }

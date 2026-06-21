@@ -1,16 +1,16 @@
 use std::collections::HashMap;
 
-use axum::extract::{Path, Query, State};
+use axum::extract::{FromRequest, Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::Json;
 use serde_json::{json, Value};
 
 use crate::handlers::common::{
-    is_eth_address, is_js_falsy, normalize_player, parse_pagination, require_confirm_delete_all,
-    UpsertBody,
+    check_content_length, get_value_response, is_eth_address, normalize_player, parse_pagination,
+    raw_paginated_response, raw_value_response, reject_nul_characters, require_confirm_delete_all,
+    validate_key, RawJson, UpsertBody, ValidatedJson,
 };
 use crate::http::errors::ApiError;
-use crate::storage::{check_limits, value_size_bytes};
 use crate::{authorize, resolve_scene_context, signed_path, AppState, AuthPolicy};
 
 pub async fn get(
@@ -18,7 +18,7 @@ pub async fn get(
     Path((player, key)): Path<(String, String)>,
     headers: HeaderMap,
     uri: axum::http::Uri,
-) -> Result<Json<Value>, ApiError> {
+) -> Result<RawJson, ApiError> {
     let player = normalize_player(&player)?;
     let path = signed_path(&uri);
     let ctx = resolve_scene_context(&state, &headers, "get", &path).await?;
@@ -26,53 +26,50 @@ pub async fn get(
     if !is_eth_address(&player) {
         return Err(ApiError::bad_request("Invalid player address"));
     }
+    validate_key(&key)?;
 
     let value = state
         .storage
         .player_get(&ctx.world_name, &ctx.place_id, &player, &key)
         .await?;
-    match value {
-        Some(v) if !is_js_falsy(&v) => Ok(Json(json!({ "value": v }))),
-        _ => Err(ApiError::not_found("Value not found")),
-    }
+    get_value_response(value)
 }
 
 pub async fn upsert(
     State(state): State<AppState>,
     Path((player, key)): Path<(String, String)>,
-    headers: HeaderMap,
-    uri: axum::http::Uri,
-    Json(body): Json<UpsertBody>,
-) -> Result<Json<Value>, ApiError> {
+    req: axum::extract::Request,
+) -> Result<RawJson, ApiError> {
     let player = normalize_player(&player)?;
-    let path = signed_path(&uri);
-    let ctx = resolve_scene_context(&state, &headers, "put", &path).await?;
+    let (parts, body) = req.into_parts();
+    let path = signed_path(&parts.uri);
+    let ctx = resolve_scene_context(&state, &parts.headers, "put", &path).await?;
     authorize(&state, &ctx, AuthPolicy::DEFAULT).await?;
     if !is_eth_address(&player) {
         return Err(ApiError::bad_request("Invalid player address"));
     }
+    validate_key(&key)?;
+    check_content_length(&parts.headers, state.cfg.player_limits.max_value_size_bytes)?;
+
+    let req = axum::http::Request::from_parts(parts, body);
+    let ValidatedJson(body) = ValidatedJson::<UpsertBody>::from_request(req, &()).await?;
 
     let serialized = serde_json::to_string(&body.value)
         .map_err(|e| ApiError::bad_request(format!("invalid value: {e}")))?;
-    let size = value_size_bytes(&serialized);
-    let info = state
-        .storage
-        .player_size_info(&ctx.world_name, &player, Some(&key))
-        .await?;
-    check_limits(size, info, state.cfg.player_limits)?;
+    reject_nul_characters(&serialized)?;
 
-    let stored = state
+    state
         .storage
-        .player_set(
+        .player_upsert_with_quota(
             &ctx.world_name,
             &ctx.place_id,
             &player,
             &key,
-            &body.value,
-            size,
+            &serialized,
+            state.cfg.player_limits,
         )
         .await?;
-    Ok(Json(json!({ "value": stored })))
+    Ok(raw_value_response(&serialized))
 }
 
 pub async fn delete(
@@ -88,6 +85,7 @@ pub async fn delete(
     if !is_eth_address(&player) {
         return Err(ApiError::bad_request("Invalid player address"));
     }
+    validate_key(&key)?;
 
     state
         .storage
@@ -102,7 +100,7 @@ pub async fn list(
     Query(params): Query<HashMap<String, String>>,
     headers: HeaderMap,
     uri: axum::http::Uri,
-) -> Result<Json<Value>, ApiError> {
+) -> Result<RawJson, ApiError> {
     let player = normalize_player(&player)?;
     let path = signed_path(&uri);
     let ctx = resolve_scene_context(&state, &headers, "get", &path).await?;
@@ -128,14 +126,7 @@ pub async fn list(
         .player_count(&ctx.world_name, &ctx.place_id, &player, p.prefix.as_deref())
         .await?;
 
-    let data: Vec<Value> = entries
-        .into_iter()
-        .map(|e| json!({ "key": e.key, "value": e.value }))
-        .collect();
-    Ok(Json(json!({
-        "data": data,
-        "pagination": { "limit": p.limit, "offset": p.offset, "total": total }
-    })))
+    Ok(raw_paginated_response(&entries, p.limit, p.offset, total))
 }
 
 pub async fn clear(
@@ -151,8 +142,7 @@ pub async fn clear(
     if !is_eth_address(&player) {
         return Err(ApiError::bad_request("Invalid player address"));
     }
-    // Auth before the confirm-header check (upstream validates it inside the
-    // handler, after the middleware chain) so unauthenticated callers get 401.
+
     require_confirm_delete_all(&headers)?;
 
     state
@@ -196,8 +186,7 @@ pub async fn clear_all_players(
     let path = signed_path(&uri);
     let ctx = resolve_scene_context(&state, &headers, "delete", &path).await?;
     authorize(&state, &ctx, AuthPolicy::OWNERS_DEPLOYERS_ONLY).await?;
-    // Auth before the confirm-header check (upstream validates it inside the
-    // handler, after the middleware chain) so unauthenticated callers get 401.
+
     require_confirm_delete_all(&headers)?;
 
     state

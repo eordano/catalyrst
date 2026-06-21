@@ -2,7 +2,6 @@ syntax = "proto3";
 package decentraland.common;
 import "decentraland/common/content_mapping.proto";
 
-// Entity schema compliant with https://rfc.decentraland.org/adr/ADR-80
 
 message Entity {
   string id = 1;

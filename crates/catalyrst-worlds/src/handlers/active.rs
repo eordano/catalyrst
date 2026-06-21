@@ -43,6 +43,13 @@ pub async fn active_entities(
         .filter(|p| seen.insert(p.to_lowercase()))
         .collect();
 
-    let entities = state.worlds.get_entities_for_worlds(&unique).await?;
+    let mut allowed: Vec<String> = Vec::with_capacity(unique.len());
+    for pointer in unique {
+        if state.name_denylist.check_name_deny_list(&pointer).await {
+            allowed.push(pointer);
+        }
+    }
+
+    let entities = state.worlds.get_entities_for_worlds(&allowed).await?;
     Ok(axum::Json(entities))
 }

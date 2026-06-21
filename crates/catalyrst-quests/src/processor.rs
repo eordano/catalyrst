@@ -1,9 +1,3 @@
-//! Event processor — faithful port of `decentraland/quests`
-//! crates/system/src/event_processing.rs. Drains the in-process events queue,
-//! tests each event against every active instance of the event's user, persists
-//! matched events, fires reward hooks + completion, and publishes the resulting
-//! `QuestStateUpdate` / `EventIgnored` `UserUpdate`s.
-
 use crate::context::Context;
 use crate::proto::{
     user_update, Event, ProtocolMessage, Quest, QuestState, QuestStateUpdate, UserUpdate,
@@ -12,8 +6,6 @@ use crate::quests::give_rewards_to_user;
 use crate::state::{apply_event, get_state, hide_state_actions, is_completed, QuestGraph};
 use tokio::sync::mpsc::UnboundedReceiver;
 
-/// Spawn the processing loop. Mirrors `start_event_processing`: an infinite
-/// loop popping events and processing each.
 pub fn spawn_event_processor(ctx: Context, mut rx: UnboundedReceiver<Event>) {
     tokio::spawn(async move {
         tracing::info!("quests event processor listening");
@@ -23,7 +15,6 @@ pub fn spawn_event_processor(ctx: Context, mut rx: UnboundedReceiver<Event>) {
     });
 }
 
-/// `process_event` + `do_process_event`.
 async fn process_event(ctx: &Context, event: Event) {
     let user_address = event.address.clone();
     let instances = match ctx
@@ -34,7 +25,7 @@ async fn process_event(ctx: &Context, event: Event) {
         Ok(v) => v,
         Err(e) => {
             tracing::error!(error = %e, "processing event > couldn't load active instances");
-            // Upstream re-pushes on failure so the event isn't lost.
+
             ctx.push_event(event);
             return;
         }
@@ -42,7 +33,6 @@ async fn process_event(ctx: &Context, event: Event) {
 
     let mut applied = 0usize;
     for instance in instances {
-        // Recompute the instance's current state from its event log.
         let quest = match ctx
             .db()
             .get_quest_with_decoded_definition(&instance.quest_id)
@@ -89,8 +79,6 @@ async fn process_event(ctx: &Context, event: Event) {
     }
 }
 
-/// `add_event_and_notify`: persist the event, on completion fire rewards +
-/// record completion, then publish the (hidden-actions) QuestStateUpdate.
 async fn add_event_and_notify(
     ctx: &Context,
     event: &Event,
@@ -135,8 +123,6 @@ fn fold_state(quest: &Quest, events: &[Event]) -> QuestState {
     get_state(quest, events)
 }
 
-/// Structural state inequality (the prost types don't derive PartialEq, so
-/// compare on the protobuf-encoded bytes — exactly what differs after an event).
 fn state_changed(a: &QuestState, b: &QuestState) -> bool {
     a.encode_to_vec() != b.encode_to_vec()
 }

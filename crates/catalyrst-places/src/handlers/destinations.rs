@@ -6,8 +6,6 @@ use crate::http::errors::ApiError;
 use crate::ports::places::{PlaceListFilters, PlaceOrderBy, PlaceRow};
 use crate::AppState;
 
-/// Aggregate flags parsed off the `/destinations` query string. Upstream gates
-/// the comms/events enrichment behind these (`destinationsWithAggregates`).
 struct DestinationFlags {
     with_realms_detail: bool,
     with_connected_users: bool,
@@ -53,6 +51,7 @@ fn parse_filters(pairs: &[(String, String)]) -> (PlaceListFilters, bool, Destina
         order_desc: !matches!(get("order").as_deref(), Some("asc")),
         only_worlds,
         only_places,
+        destinations_mode: true,
         ..Default::default()
     };
     let flags = DestinationFlags {
@@ -63,6 +62,15 @@ fn parse_filters(pairs: &[(String, String)]) -> (PlaceListFilters, bool, Destina
     (f, only_favorites, flags)
 }
 
+async fn inject_live_user_counts(state: &AppState, filters: &mut PlaceListFilters) {
+    if !matches!(filters.order_by, PlaceOrderBy::MostActive) {
+        return;
+    }
+    let counts = state.presence.live_user_counts().await;
+    filters.place_user_counts = counts.places;
+    filters.world_user_counts = counts.worlds;
+}
+
 fn to_destination(place: &PlaceRow) -> Value {
     let mut v = serde_json::to_value(place).unwrap_or(Value::Null);
     if let Some(obj) = v.as_object_mut() {
@@ -71,15 +79,7 @@ fn to_destination(place: &PlaceRow) -> Value {
     v
 }
 
-/// Port of `destinationsWithAggregates` (entities/Destination/utils.ts): when
-/// `with_connected_users` is set, attach `connected_addresses` (world_name key
-/// for worlds, base_position for places) and bump `user_count` to the connected
-/// count when it exceeds the stored count (`finalUserCount`); when
-/// `with_live_events` is set, attach `live` (default false); when
-/// `with_realms_detail` is set, attach `realms_detail` for places.
 async fn enrich(state: &AppState, data: &mut [PlaceRow], flags: &DestinationFlags) {
-    // Fetch connected users for every destination (worlds via world_name, places
-    // via base_position), mirroring fetchConnectedUsersForDestinations.
     if flags.with_connected_users && !data.is_empty() {
         for d in data.iter_mut() {
             let addresses = if d.world {
@@ -93,7 +93,7 @@ async fn enrich(state: &AppState, data: &mut [PlaceRow], flags: &DestinationFlag
                     .get_scene_participants(&d.base_position)
                     .await
             };
-            // finalUserCount: prefer the live connected count when larger.
+
             let connected_len = addresses.len() as i32;
             let base_count = d.user_count.unwrap_or(0);
             if connected_len > base_count {
@@ -103,7 +103,6 @@ async fn enrich(state: &AppState, data: &mut [PlaceRow], flags: &DestinationFlag
         }
     }
 
-    // Live-event status: land places key on the place UUID, worlds on world_name.
     if flags.with_live_events && !data.is_empty() {
         let ids: Vec<String> = data
             .iter()
@@ -126,14 +125,9 @@ async fn enrich(state: &AppState, data: &mut [PlaceRow], flags: &DestinationFlag
         }
     }
 
-    // realms_detail is experimental and only attached for non-world places. We
-    // have no hot-scenes realm feed wired in, so it resolves to an empty list,
-    // exactly as upstream does when a place has no matching hot scene.
     if flags.with_realms_detail {
         for d in data.iter_mut() {
-            if !d.world {
-                d.realms_detail = Some(Vec::new());
-            }
+            d.apply_realms_detail(true);
         }
     }
 }
@@ -149,6 +143,7 @@ pub async fn get_destinations_list(
     if let Some(owner) = pairs.iter().find(|(k, _)| k == "owner").map(|(_, v)| v) {
         filters.operated_positions = state.places.operated_positions(owner).await?;
     }
+    inject_live_user_counts(&state, &mut filters).await;
     let (mut data, total) = tokio::try_join!(
         state.places.find_list(&filters),
         state.places.count_list(&filters),
@@ -181,6 +176,7 @@ pub async fn post_destinations_list_by_id(
         return Ok(Json(json!({ "ok": true, "data": [], "total": 0 })));
     }
     filters.ids = ids;
+    inject_live_user_counts(&state, &mut filters).await;
     let (mut data, total) = tokio::try_join!(
         state.places.find_list(&filters),
         state.places.count_list(&filters),

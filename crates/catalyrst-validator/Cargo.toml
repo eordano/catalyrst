@@ -1,6 +1,6 @@
 [package]
 name = "catalyrst-validator"
-version = "0.1.0"
+version = "0.12.0"
 edition = "2021"
 description = "Rust port of the Decentraland catalyst content validator (@dcl/content-validator)"
 
@@ -13,8 +13,7 @@ thiserror = { workspace = true }
 tracing = { workspace = true }
 tokio = { workspace = true }
 async-trait = { workspace = true }
-futures = { workspace = true }
 sqlx = { workspace = true }
 reqwest = { workspace = true }
-ethers-core = "2.0.3"
+alloy-primitives = { workspace = true }
 hex = "0.4"

@@ -18,27 +18,26 @@ use axum::routing::{get, patch, post, put};
 use axum::Router;
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 
-use crate::clients::{CommsGatekeeper, Events};
+use crate::clients::{CommsGatekeeper, Events, Presence};
 use crate::config::Config;
+use crate::ports::lists::ListsComponent;
 use crate::ports::places::PlacesComponent;
 
 pub struct AppStateInner {
     pub places: PlacesComponent,
+    pub lists: ListsComponent,
     pub admin_addresses: Vec<String>,
     pub data_team_auth_token: Option<String>,
     pub admin_auth_token: Option<String>,
-    /// comms-gatekeeper client — real-time scene/world participant lists for
-    /// the `/destinations` `with_connected_users` path.
+
     pub comms_gatekeeper: CommsGatekeeper,
-    /// Events API client — live-event status for the `/destinations`
-    /// `with_live_events` path.
+
     pub events: Events,
-    /// Federation gossip transport (places.md §4: NATS JetStream
-    /// `fed.places.actions`). Defaults to the NoopPublisher; opt in with
-    /// `FED_GOSSIP=nats`. A no-peer deploy applies favorites/votes locally and
-    /// publishes into the void.
+
+    pub presence: Presence,
+
     pub gossip: Arc<dyn catalyrst_fed::GossipPublisher>,
-    /// EIP-712 domain for place opinions (00-primitives.md §2.1).
+
     pub domain: catalyrst_fed::Eip712Domain,
 }
 
@@ -58,6 +57,7 @@ pub async fn build_state(cfg: &Config) -> Result<AppState> {
         .await
         .context("failed to connect places_events pool")?;
 
+    let lists = ListsComponent::new(pool.clone());
     let mut places = PlacesComponent::new(pool);
 
     if let Some(writer_url) = &cfg.places_writer_database_url {
@@ -125,17 +125,17 @@ pub async fn build_state(cfg: &Config) -> Result<AppState> {
 
     let state = Arc::new(AppStateInner {
         places,
+        lists,
         admin_addresses: cfg.admin_addresses.clone(),
         data_team_auth_token: cfg.data_team_auth_token.clone(),
         admin_auth_token: cfg.admin_auth_token.clone(),
         comms_gatekeeper: CommsGatekeeper::new(cfg.comms_gatekeeper_url.clone()),
         events: Events::new(cfg.events_api_url.clone()),
+        presence: Presence::new(cfg.presence_url.clone()),
         gossip,
         domain: catalyrst_fed::sig::domains::places(),
     });
 
-    // Spawn the federation gossip consumer apply-loop (places.md §4). No-op when
-    // gossip reaches no peers (single-node default); live under FED_GOSSIP=nats.
     crate::fed::consumer::spawn(state.clone()).await;
 
     Ok(state)
@@ -223,15 +223,12 @@ pub fn api_router() -> Router<AppState> {
                 .post(handlers::destinations::post_destinations_list_by_id),
         )
         .route("/status", get(handlers::status::status))
-        // LATER admin-console controls (admin-console.md §4), admin-bearer
-        // gated. Route ordering: place these specific paths before the
-        // `/places/{place_id}` catch-all is unaffected (axum matches exact
-        // segments first); disable lives under the place namespace.
         .route("/reports", get(handlers::admin::get_reports))
         .route("/reports/{id}", patch(handlers::admin::patch_report))
         .route(
             "/places/{place_id}/disable",
-            patch(handlers::admin::patch_place_disable),
+            patch(handlers::admin::patch_place_disable)
+                .put(handlers::federation::put_place_disable),
         )
         .route(
             "/pois",
@@ -246,5 +243,24 @@ pub fn api_router() -> Router<AppState> {
         .route("/place", get(handlers::social::inject_place_metadata))
         .route("/world", get(handlers::social::inject_world_metadata));
 
-    Router::new().nest("/api", api).nest("/places", social)
+    let federation = Router::new()
+        .route(
+            "/federation/places/snapshot",
+            get(handlers::fed_sync::snapshot),
+        )
+        .route(
+            "/federation/places/changes",
+            get(handlers::fed_sync::changes),
+        );
+
+    Router::new()
+        .nest("/api", api)
+        .nest("/places", social)
+        .merge(federation)
+}
+
+pub fn lists_router() -> Router<AppState> {
+    Router::new()
+        .route("/pois", post(handlers::lists::post_pois))
+        .route("/banned-names", post(handlers::lists::post_banned_names))
 }

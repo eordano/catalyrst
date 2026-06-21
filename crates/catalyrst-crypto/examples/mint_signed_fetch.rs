@@ -1,5 +1,5 @@
+use alloy::signers::{local::PrivateKeySigner, Signer};
 use chrono::{Duration, Utc};
-use ethers_signers::{LocalWallet, Signer};
 
 #[tokio::main]
 async fn main() {
@@ -8,8 +8,8 @@ async fn main() {
     let path = args.get(2).map(String::as_str).unwrap_or("/notifications");
     let metadata = args.get(3).map(String::as_str).unwrap_or("{}");
 
-    let root = LocalWallet::new(&mut rand::thread_rng());
-    let ephemeral = LocalWallet::new(&mut rand::thread_rng());
+    let root = PrivateKeySigner::random();
+    let ephemeral = PrivateKeySigner::random();
     let root_address = format!("{:#x}", root.address());
     let ephemeral_address = format!("{:#x}", ephemeral.address());
 
@@ -34,12 +34,12 @@ async fn main() {
         serde_json::json!({
             "type": "ECDSA_EPHEMERAL",
             "payload": ephemeral_payload,
-            "signature": format!("0x{ephemeral_sig}"),
+            "signature": ephemeral_sig.to_string(),
         }),
         serde_json::json!({
             "type": "ECDSA_SIGNED_ENTITY",
             "payload": signed_fetch_payload,
-            "signature": format!("0x{entity_sig}"),
+            "signature": entity_sig.to_string(),
         }),
     ];
 

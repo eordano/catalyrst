@@ -20,13 +20,6 @@ fn is_world_name(name: &str) -> bool {
     name.ends_with(".eth")
 }
 
-fn empty_roster() -> Json<serde_json::Value> {
-    Json(serde_json::json!({
-        "ok": true,
-        "data": { "addresses": Vec::<String>::new() }
-    }))
-}
-
 async fn resolve_scene_id(state: &AppState, pointer: &str) -> Option<String> {
     let url = format!("{}/content/entities/active", state.catalyst_url);
     let resp = state
@@ -69,10 +62,17 @@ pub async fn list_participants(
 
     let room_name = if is_world_name(realm) {
         match pointer {
-            Some(p) => match resolve_scene_id(&state, p).await {
-                Some(scene_id) => world_scene_room_name(realm, &scene_id),
-                None => return Ok(empty_roster()),
-            },
+            Some(p) => {
+                match super::scene_adapter::fetch_world_scene_id_by_pointer(&state, realm, p).await
+                {
+                    Some(scene_id) => world_scene_room_name(realm, &scene_id),
+                    None => {
+                        return Err(ApiError::not_found(format!(
+                            "No scene found for world {realm} at pointer: {p}"
+                        )))
+                    }
+                }
+            }
             None => world_room_name(realm),
         }
     } else {
@@ -82,8 +82,12 @@ pub async fn list_participants(
             ));
         };
         match resolve_scene_id(&state, p).await {
-            Some(scene_id) => scene_room_name(realm, &scene_id),
-            None => return Ok(empty_roster()),
+            Some(scene_id) => scene_room_name(&scene_id),
+            None => {
+                return Err(ApiError::not_found(format!(
+                    "No scene found for pointer: {p}"
+                )))
+            }
         }
     };
 

@@ -5,14 +5,6 @@ use uuid::Uuid;
 
 use crate::http::ApiError;
 
-/// Serializes `DateTime<Utc>` as a fixed-3-digit millisecond ISO-8601 string,
-/// byte-identical to JavaScript's `Date.prototype.toISOString()`
-/// (`YYYY-MM-DDTHH:mm:ss.sssZ`). Upstream comms-gatekeeper stores these
-/// timestamps as Postgres `TIMESTAMP`s and the node-postgres JSON serializer
-/// emits them through `Date.toISOString`, so a client diffing the wire bytes
-/// sees the same always-`.sss`-precision format. chrono's default
-/// `AutoSi`/RFC3339 serializer instead emits variable subsecond precision
-/// (0/6/9 digits, dot omitted on zero) which diverges.
 pub mod ms_iso {
     use super::{DateTime, SecondsFormat, Utc};
     use serde::Serializer;
@@ -24,8 +16,6 @@ pub mod ms_iso {
         s.serialize_str(&dt.to_rfc3339_opts(SecondsFormat::Millis, true))
     }
 
-    /// `Option<DateTime<Utc>>` variant: `None` serializes as JSON `null`,
-    /// matching upstream's nullable `expiresAt`/`liftedAt` columns.
     pub mod option {
         use super::super::{DateTime, SecondsFormat, Utc};
         use serde::Serializer;
@@ -43,6 +33,11 @@ pub mod ms_iso {
 }
 
 #[derive(Debug, Serialize)]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "comms/", rename_all = "camelCase")
+)]
 pub struct UserBan {
     pub id: String,
     #[serde(rename = "bannedAddress")]
@@ -52,19 +47,30 @@ pub struct UserBan {
     pub reason: String,
     #[serde(rename = "customMessage")]
     pub custom_message: Option<String>,
+    #[serde(rename = "bannedDeviceId")]
+    pub banned_device_id: Option<String>,
     #[serde(rename = "bannedAt", serialize_with = "ms_iso::serialize")]
+    #[cfg_attr(feature = "ts", ts(type = "string"))]
     pub banned_at: DateTime<Utc>,
     #[serde(rename = "expiresAt", serialize_with = "ms_iso::option::serialize")]
+    #[cfg_attr(feature = "ts", ts(type = "string | null"))]
     pub expires_at: Option<DateTime<Utc>>,
     #[serde(rename = "liftedAt", serialize_with = "ms_iso::option::serialize")]
+    #[cfg_attr(feature = "ts", ts(type = "string | null"))]
     pub lifted_at: Option<DateTime<Utc>>,
     #[serde(rename = "liftedBy")]
     pub lifted_by: Option<String>,
     #[serde(rename = "createdAt", serialize_with = "ms_iso::serialize")]
+    #[cfg_attr(feature = "ts", ts(type = "string"))]
     pub created_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Serialize)]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "comms/", rename_all = "camelCase")
+)]
 pub struct UserWarning {
     pub id: String,
     #[serde(rename = "warnedAddress")]
@@ -73,12 +79,19 @@ pub struct UserWarning {
     pub warned_by: String,
     pub reason: String,
     #[serde(rename = "warnedAt", serialize_with = "ms_iso::serialize")]
+    #[cfg_attr(feature = "ts", ts(type = "string"))]
     pub warned_at: DateTime<Utc>,
     #[serde(rename = "createdAt", serialize_with = "ms_iso::serialize")]
+    #[cfg_attr(feature = "ts", ts(type = "string"))]
     pub created_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Serialize)]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "comms/", rename_all = "camelCase")
+)]
 pub struct BanStatus {
     #[serde(rename = "isBanned")]
     pub is_banned: bool,
@@ -92,6 +105,7 @@ type BanRow = (
     String,
     String,
     Option<String>,
+    Option<String>,
     NaiveDateTime,
     Option<NaiveDateTime>,
     Option<NaiveDateTime>,
@@ -102,7 +116,7 @@ type BanRow = (
 type WarningRow = (Uuid, String, String, String, NaiveDateTime, NaiveDateTime);
 
 const BAN_SELECT_FIELDS: &str =
-    "id, banned_address, banned_by, reason, custom_message, banned_at, expires_at, lifted_at, lifted_by, created_at";
+    "id, banned_address, banned_by, reason, custom_message, banned_device_id, banned_at, expires_at, lifted_at, lifted_by, created_at";
 
 const WARNING_SELECT_FIELDS: &str = "id, warned_address, warned_by, reason, warned_at, created_at";
 
@@ -113,6 +127,7 @@ fn ban_from_row(row: BanRow) -> UserBan {
         banned_by,
         reason,
         custom_message,
+        banned_device_id,
         banned_at,
         expires_at,
         lifted_at,
@@ -125,6 +140,7 @@ fn ban_from_row(row: BanRow) -> UserBan {
         banned_by,
         reason,
         custom_message,
+        banned_device_id,
         banned_at: DateTime::from_naive_utc_and_offset(banned_at, Utc),
         expires_at: expires_at.map(|t| DateTime::from_naive_utc_and_offset(t, Utc)),
         lifted_at: lifted_at.map(|t| DateTime::from_naive_utc_and_offset(t, Utc)),
@@ -150,6 +166,7 @@ pub struct CreateBan {
     pub banned_by: String,
     pub reason: String,
     pub custom_message: Option<String>,
+    pub banned_device_id: Option<String>,
     pub duration_ms: Option<i64>,
 }
 
@@ -206,14 +223,46 @@ impl UserBansComponent {
         Ok(n > 0)
     }
 
+    pub async fn is_banned_for_connection(
+        &self,
+        address: &str,
+        device_id: Option<&str>,
+    ) -> Result<bool, ApiError> {
+        let address = address.to_lowercase();
+        let device_id = device_id.filter(|s| !s.is_empty());
+        let n: i64 = match device_id {
+            Some(device_id) => sqlx::query_scalar(
+                "SELECT COUNT(*) FROM user_bans \
+                 WHERE (banned_address = $1 OR banned_device_id = $2) \
+                   AND lifted_at IS NULL \
+                   AND (expires_at IS NULL OR expires_at > now())",
+            )
+            .bind(&address)
+            .bind(device_id)
+            .fetch_one(&self.pool)
+            .await
+            .unwrap_or(0),
+            None => sqlx::query_scalar(
+                "SELECT COUNT(*) FROM user_bans \
+                 WHERE banned_address = $1 AND lifted_at IS NULL \
+                   AND (expires_at IS NULL OR expires_at > now())",
+            )
+            .bind(&address)
+            .fetch_one(&self.pool)
+            .await
+            .unwrap_or(0),
+        };
+        Ok(n > 0)
+    }
+
     pub async fn get_status(&self, address: &str) -> Result<BanStatus, ApiError> {
         let address = address.to_lowercase();
-        let row = sqlx::query_as::<_, BanRow>(&format!(
+        let row = sqlx::query_as::<_, BanRow>(sqlx::AssertSqlSafe(format!(
             "SELECT {BAN_SELECT_FIELDS} FROM user_bans \
              WHERE banned_address = $1 AND lifted_at IS NULL \
                AND (expires_at IS NULL OR expires_at > now()) \
              ORDER BY banned_at DESC LIMIT 1"
-        ))
+        )))
         .bind(&address)
         .fetch_optional(&self.pool)
         .await?;
@@ -234,11 +283,22 @@ impl UserBansComponent {
         let banned_address = input.banned_address.to_lowercase();
         let banned_by = input.banned_by.to_lowercase();
 
-        if self
-            .is_banned(&banned_address)
-            .await
-            .map_err(BanWriteError::Db)?
-        {
+        let mut txn = self.pool.begin().await?;
+
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtext($1))")
+            .bind(&banned_address)
+            .execute(&mut *txn)
+            .await?;
+
+        let existing: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM user_bans \
+             WHERE banned_address = $1 AND lifted_at IS NULL \
+               AND (expires_at IS NULL OR expires_at > now())",
+        )
+        .bind(&banned_address)
+        .fetch_one(&mut *txn)
+        .await?;
+        if existing > 0 {
             return Err(BanWriteError::AlreadyBanned(banned_address));
         }
 
@@ -246,19 +306,24 @@ impl UserBansComponent {
             .duration_ms
             .map(|d| Utc::now() + Duration::milliseconds(d));
 
-        let row = sqlx::query_as::<_, BanRow>(&format!(
+        let banned_device_id = input.banned_device_id.filter(|s| !s.is_empty());
+
+        let row = sqlx::query_as::<_, BanRow>(sqlx::AssertSqlSafe(format!(
             "INSERT INTO user_bans \
-               (banned_address, banned_by, reason, custom_message, expires_at, active) \
-             VALUES ($1, $2, $3, $4, $5, TRUE) \
+               (banned_address, banned_by, reason, custom_message, banned_device_id, expires_at, active) \
+             VALUES ($1, $2, $3, $4, $5, $6, TRUE) \
              RETURNING {BAN_SELECT_FIELDS}"
-        ))
+        )))
         .bind(&banned_address)
         .bind(&banned_by)
         .bind(&input.reason)
         .bind(&input.custom_message)
+        .bind(&banned_device_id)
         .bind(expires_at)
-        .fetch_one(&self.pool)
+        .fetch_one(&mut *txn)
         .await?;
+
+        txn.commit().await?;
 
         Ok(ban_from_row(row))
     }
@@ -266,13 +331,13 @@ impl UserBansComponent {
     pub async fn lift_ban(&self, address: &str, lifted_by: &str) -> Result<UserBan, LiftError> {
         let address = address.to_lowercase();
         let lifted_by = lifted_by.to_lowercase();
-        let row = sqlx::query_as::<_, BanRow>(&format!(
+        let row = sqlx::query_as::<_, BanRow>(sqlx::AssertSqlSafe(format!(
             "UPDATE user_bans \
              SET lifted_at = now(), lifted_by = $2, active = FALSE \
              WHERE banned_address = $1 AND lifted_at IS NULL \
                AND (expires_at IS NULL OR expires_at > now()) \
              RETURNING {BAN_SELECT_FIELDS}"
-        ))
+        )))
         .bind(&address)
         .bind(&lifted_by)
         .fetch_optional(&self.pool)
@@ -282,11 +347,11 @@ impl UserBansComponent {
     }
 
     pub async fn get_active_bans(&self) -> Result<Vec<UserBan>, ApiError> {
-        let rows = sqlx::query_as::<_, BanRow>(&format!(
+        let rows = sqlx::query_as::<_, BanRow>(sqlx::AssertSqlSafe(format!(
             "SELECT {BAN_SELECT_FIELDS} FROM user_bans \
              WHERE lifted_at IS NULL AND (expires_at IS NULL OR expires_at > now()) \
              ORDER BY banned_at DESC"
-        ))
+        )))
         .fetch_all(&self.pool)
         .await?;
         Ok(rows.into_iter().map(ban_from_row).collect())
@@ -295,11 +360,11 @@ impl UserBansComponent {
     pub async fn create_warning(&self, input: CreateWarning) -> Result<UserWarning, ApiError> {
         let warned_address = input.warned_address.to_lowercase();
         let warned_by = input.warned_by.to_lowercase();
-        let row = sqlx::query_as::<_, WarningRow>(&format!(
+        let row = sqlx::query_as::<_, WarningRow>(sqlx::AssertSqlSafe(format!(
             "INSERT INTO user_warnings (warned_address, warned_by, reason) \
              VALUES ($1, $2, $3) \
              RETURNING {WARNING_SELECT_FIELDS}"
-        ))
+        )))
         .bind(&warned_address)
         .bind(&warned_by)
         .bind(&input.reason)
@@ -310,10 +375,10 @@ impl UserBansComponent {
 
     pub async fn get_warnings(&self, address: &str) -> Result<Vec<UserWarning>, ApiError> {
         let address = address.to_lowercase();
-        let rows = sqlx::query_as::<_, WarningRow>(&format!(
+        let rows = sqlx::query_as::<_, WarningRow>(sqlx::AssertSqlSafe(format!(
             "SELECT {WARNING_SELECT_FIELDS} FROM user_warnings \
              WHERE warned_address = $1 ORDER BY warned_at DESC"
-        ))
+        )))
         .bind(&address)
         .fetch_all(&self.pool)
         .await?;
@@ -333,6 +398,7 @@ mod ms_iso_tests {
             banned_by: "0xdef".into(),
             reason: "test".into(),
             custom_message: None,
+            banned_device_id: None,
             banned_at: banned,
             expires_at: expires,
             lifted_at: None,
@@ -343,14 +409,12 @@ mod ms_iso_tests {
 
     #[test]
     fn ban_timestamps_serialize_fixed_3_digit_millis_iso() {
-        // Whole-second instant: chrono's default RFC3339 omits the subsecond
-        // dot entirely; the upstream JS wire always carries `.000`.
         let banned = Utc.timestamp_opt(1_718_900_000, 0).unwrap();
         let expires = Utc.timestamp_opt(1_718_900_500, 7_000_000).unwrap();
         let v = serde_json::to_value(ban_at(banned, Some(expires))).unwrap();
         assert_eq!(v["bannedAt"], "2024-06-20T16:13:20.000Z");
         assert_eq!(v["createdAt"], "2024-06-20T16:13:20.000Z");
-        // 7ms subsecond stays 3-digit (not 6/9).
+
         assert_eq!(v["expiresAt"], "2024-06-20T16:21:40.007Z");
     }
 
@@ -364,7 +428,6 @@ mod ms_iso_tests {
 
     #[test]
     fn ban_truncates_sub_millisecond_precision() {
-        // 123_456_789ns -> 123ms (drops the µs/ns tail, matching Date.toISOString).
         let banned = Utc.timestamp_opt(1_718_900_000, 123_456_789).unwrap();
         let v = serde_json::to_value(ban_at(banned, None)).unwrap();
         assert_eq!(v["bannedAt"], "2024-06-20T16:13:20.123Z");

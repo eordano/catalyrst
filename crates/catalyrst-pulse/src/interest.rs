@@ -1,17 +1,6 @@
-//! Spatial interest management — a port of `InterestManagement/` (`ParcelEncoder`,
-//! `SpatialGrid`, `SpatialAreaOfInterest`, `IInterestCollector`) plus
-//! `Peers/Diff/PeerViewSimulationTier`.
-//!
-//! An observer sees only subjects in the same realm and within [`SpatialAreaOfInterest`]'s
-//! max radius, each tagged with a [`PeerViewSimulationTier`] (0/1/2 by distance) that
-//! governs how often and in how much detail it is updated. This is what makes peers receive
-//! only in-interest state rather than all state unconditionally.
-
 use crate::decentraland::common::Vector3;
 use crate::snapshot::SnapshotBoard;
 
-/// How detailed the data sent about a subject to an observer is
-/// (`Peers/Diff/PeerViewSimulationTier`). Lower = closer = more frequent + more fields.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PeerViewSimulationTier(pub u8);
 
@@ -25,8 +14,6 @@ impl PeerViewSimulationTier {
     }
 }
 
-/// Options for the parcel/global coordinate mapping (`ParcelEncoderOptions`). Defaults match
-/// upstream `appsettings`-less defaults (Genesis City + 2 parcel padding, 16m parcels).
 #[derive(Debug, Clone)]
 pub struct ParcelEncoderOptions {
     pub min_parcel_x: i32,
@@ -50,12 +37,11 @@ impl Default for ParcelEncoderOptions {
     }
 }
 
-/// Maps a (parcel_index, local position) pair to a global position and back
-/// (`InterestManagement/ParcelEncoder.cs`).
 pub struct ParcelEncoder {
     min_x: i32,
     min_z: i32,
     width: i32,
+    height: i32,
     parcel_size: i32,
     max_index_exclusive: i32,
 }
@@ -73,14 +59,25 @@ impl ParcelEncoder {
             min_x,
             min_z,
             width,
+            height,
             parcel_size: options.parcel_size,
             max_index_exclusive: width * height,
         }
     }
 
-    /// A parcel index is valid iff `0 <= index < max_index_exclusive`.
     pub fn is_valid_index(&self, index: i32) -> bool {
         (index as u32) < (self.max_index_exclusive as u32)
+    }
+
+    pub fn encode(&self, x: i32, z: i32) -> i32 {
+        x - self.min_x + (z - self.min_z) * self.width
+    }
+
+    pub fn is_valid_coordinate(&self, x: i32, z: i32) -> bool {
+        x >= self.min_x
+            && x < self.min_x + self.width
+            && z >= self.min_z
+            && z < self.min_z + self.height
     }
 
     pub fn decode(&self, index: i32) -> (i32, i32) {
@@ -99,9 +96,15 @@ impl ParcelEncoder {
     }
 }
 
-/// Uniform spatial hash grid keyed by cell coordinate (`InterestManagement/SpatialGrid.cs`).
-/// Kept for parity / future broad-phase use; [`SpatialAreaOfInterest`] currently scans the
-/// active set directly, exactly like the upstream `SpatialAreaOfInterest`.
+/// Immutable scene-listener descriptor stamped onto `PeerState` at handshake. A peer carrying it
+/// never publishes snapshots (invisible to players) and observes a fixed parcel set instead of a
+/// radius around its own position. Changing the set requires reconnecting.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SceneListenerState {
+    pub realm: String,
+    pub parcels: std::collections::HashSet<i32>,
+}
+
 pub struct SpatialGrid {
     inverse_cell_size: f32,
     parcel_size: i32,
@@ -119,22 +122,19 @@ impl SpatialGrid {
         (v * self.inverse_cell_size).floor() as i32
     }
 
-    /// Pack a 2D cell into the upstream `((long)x << 32) | (uint)z` key.
     pub fn key(&self, position: Vector3) -> i64 {
         let x = self.cell_coord(position.x);
         let z = self.cell_coord(position.z);
         ((x as i64) << 32) | (z as u32 as i64)
     }
 
-    /// Position is updated as part of every publish; the encoder owns the actual cell math.
     pub fn set(&mut self, _peer: u32, _position: Vector3) {
-        let _ = self.parcel_size; // grid is positional only; kept for API parity
+        let _ = self.parcel_size;
     }
 
     pub fn remove(&mut self, _peer: u32) {}
 }
 
-/// Radius tiers for spatial AoI (`SpatialAreaOfInterestOptions`). Defaults match upstream.
 #[derive(Debug, Clone)]
 pub struct SpatialAreaOfInterestOptions {
     pub tier0_radius: f32,
@@ -152,14 +152,12 @@ impl Default for SpatialAreaOfInterestOptions {
     }
 }
 
-/// A single (subject, tier) entry in an interest result set (`InterestEntry`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct InterestEntry {
     pub subject: u32,
     pub tier: PeerViewSimulationTier,
 }
 
-/// List-backed collector, reused across ticks (`InterestCollector`).
 #[derive(Default)]
 pub struct InterestCollector {
     pub entries: Vec<InterestEntry>,
@@ -179,9 +177,6 @@ impl InterestCollector {
     }
 }
 
-/// Realm-gated, distance-tiered area of interest (`SpatialAreaOfInterest.cs`). Subjects in a
-/// different realm, or beyond `max_radius`, are invisible; the rest are tagged TIER_0/1/2 by
-/// horizontal (XZ) distance to the observer.
 pub struct SpatialAreaOfInterest {
     tier0_sq: f32,
     tier1_sq: f32,
@@ -197,8 +192,6 @@ impl SpatialAreaOfInterest {
         }
     }
 
-    /// Fill `collector` with (subject, tier) for every active peer visible to `observer`.
-    /// An observer with no realm sees nobody (matches "invisible until first teleport").
     pub fn get_visible_subjects(
         &self,
         board: &SnapshotBoard,
@@ -211,7 +204,7 @@ impl SpatialAreaOfInterest {
             return;
         };
 
-        for subject in board.active_peers() {
+        for &subject in board.active_peers() {
             if subject == observer {
                 continue;
             }
@@ -268,7 +261,7 @@ mod tests {
     #[test]
     fn parcel_encode_decode_roundtrips_global_position() {
         let enc = ParcelEncoder::new(ParcelEncoderOptions::default());
-        // origin parcel (0,0) -> index, then back to global.
+
         let idx = (0 - (-150 - 2)) + (0 - (-150 - 2)) * (163 + 2 - (-150 - 2) + 1);
         let g = enc.decode_to_global_position(idx, v3(3.0, 4.0));
         assert_eq!(g.x, 3.0);
@@ -299,11 +292,11 @@ mod tests {
     #[test]
     fn distance_tiers_and_max_radius_cutoff() {
         let mut board = SnapshotBoard::new(8, 8);
-        place(&mut board, 0, v3(0.0, 0.0), "r"); // observer
-        place(&mut board, 1, v3(10.0, 0.0), "r"); // within tier0 (<=20)
-        place(&mut board, 2, v3(30.0, 0.0), "r"); // tier1 (<=50)
-        place(&mut board, 3, v3(70.0, 0.0), "r"); // tier2 (<=100)
-        place(&mut board, 4, v3(150.0, 0.0), "r"); // beyond max -> invisible
+        place(&mut board, 0, v3(0.0, 0.0), "r");
+        place(&mut board, 1, v3(10.0, 0.0), "r");
+        place(&mut board, 2, v3(30.0, 0.0), "r");
+        place(&mut board, 3, v3(70.0, 0.0), "r");
+        place(&mut board, 4, v3(150.0, 0.0), "r");
 
         let aoi = SpatialAreaOfInterest::new(SpatialAreaOfInterestOptions::default());
         let mut c = InterestCollector::default();

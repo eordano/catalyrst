@@ -13,7 +13,7 @@ use catalyrst_crypto::{Eip1654Validator, RpcEip1654Validator, ValidationCache};
 use catalyrst_storage::ContentStorage;
 use catalyrst_validator::content_validator::{CalculatedHash, ContentValidator, ExternalCalls};
 use catalyrst_validator::error::ValidationResponse;
-use catalyrst_validator::squid_checker::SquidBlockchainChecker;
+use catalyrst_validator::squid_checker::{LandOperatorResolver, SquidBlockchainChecker};
 use catalyrst_validator::types::{
     AuthChain as VAuthChain, DeploymentAuditInfo, DeploymentToValidate, Entity as VEntity,
 };
@@ -69,9 +69,6 @@ impl ExternalCalls for LiveExternalCalls {
     }
 
     async fn fetch_content_file_size(&self, hash: &str) -> Option<usize> {
-        // Read the size from storage metadata instead of retrieving the whole file into memory just
-        // to measure it. Content is stored uncompressed, so `content_size`/`size` (both `meta.len()`)
-        // are the true byte length.
         let info = self.storage.file_info(hash).await.ok().flatten()?;
         Some(info.content_size.unwrap_or(info.size) as usize)
     }
@@ -115,9 +112,6 @@ impl ExternalCalls for LiveExternalCalls {
         &self,
         files: &HashMap<String, Vec<u8>>,
     ) -> HashMap<String, CalculatedHash> {
-        // Hash the files concurrently instead of one after another. Hashing is CPU-bound, so each
-        // file runs on the blocking thread pool; this runs on the deploy path over every uploaded
-        // file, where the serial loop was a bottleneck for multi-file entities (e.g. wearables).
         let handles: Vec<_> = files
             .iter()
             .map(|(name, bytes)| {
@@ -242,6 +236,7 @@ impl WriteDeployer {
         tpr_subgraph_url: Option<String>,
         blocks_l2_subgraph_url: Option<String>,
         third_party_root_via_squid: bool,
+        land_operator_resolver: Option<Arc<dyn LandOperatorResolver>>,
     ) -> Self {
         let eip1654: Arc<dyn Eip1654Validator> = Arc::new(ValidationCache::new(Arc::new(
             RpcEip1654Validator::new(eth_rpc_url),
@@ -258,7 +253,7 @@ impl WriteDeployer {
             )),
             _ => None,
         };
-        let blockchain_checker = if tp_subgraph.is_some() || third_party_root_via_squid {
+        let mut blockchain_checker = if tp_subgraph.is_some() || third_party_root_via_squid {
             SquidBlockchainChecker::with_third_party(
                 squid_pool,
                 additional_dcl_address,
@@ -268,6 +263,9 @@ impl WriteDeployer {
         } else {
             SquidBlockchainChecker::new(squid_pool, additional_dcl_address)
         };
+        if let Some(resolver) = land_operator_resolver {
+            blockchain_checker = blockchain_checker.with_operator_resolver(resolver);
+        }
         let validator =
             ContentValidator::new(external_calls, blockchain_checker, ignore_blockchain_access);
 
@@ -335,7 +333,7 @@ impl Deployer for WriteDeployer {
         files: Vec<Bytes>,
         entity_id: &str,
         auth_chain: Value,
-        _context: &str,
+        context: &str,
     ) -> Result<i64, Vec<String>> {
         let mut by_v0: HashMap<String, Bytes> = HashMap::new();
         let mut by_v1: HashMap<String, Bytes> = HashMap::new();
@@ -354,14 +352,6 @@ impl Deployer for WriteDeployer {
         let mut entity: VEntity = serde_json::from_slice(&entity_bytes)
             .map_err(|e| vec![format!("There was a problem parsing the entity: {e}")])?;
 
-        // Entity-id reconciliation (reference content-server + DeploymentBuilder):
-        // the uploaded file is id-less in a standard catalyst-client deploy and
-        // its id IS the content hash (`entity_id` = `hashV1(idless_file)`, the
-        // key we just looked the bytes up by). Adopt that id when the file omits
-        // one; if the file declares an id it MUST equal `entity_id`, else the
-        // deploy is inconsistent/forged. This restores the validator's
-        // `entity.id == entity_id` invariant for standard deploys while keeping
-        // the mismatch check intact.
         if entity.id.is_empty() {
             entity.id = entity_id.to_string();
         } else if entity.id != entity_id {
@@ -427,9 +417,7 @@ impl Deployer for WriteDeployer {
             } else {
                 v1
             };
-            // Identical bytes mapping to the same hash twice is harmless; two
-            // DIFFERENT payloads claiming one hash (v0/v1 aliasing or a forged
-            // collision) must not silently drop one of them.
+
             if let Some(prev) = vfiles.insert(key.clone(), f.to_vec()) {
                 if prev != *f {
                     return Err(vec![format!(
@@ -469,7 +457,7 @@ impl Deployer for WriteDeployer {
         }
 
         let creation_ts = self
-            .persist(&entity, &entity_bytes, &files, &audit_info)
+            .persist(&entity, &entity_bytes, &files, &audit_info, context)
             .await
             .map_err(|e| vec![e])?;
 
@@ -484,6 +472,7 @@ impl WriteDeployer {
         entity_bytes: &Bytes,
         files: &[Bytes],
         audit_info: &DeploymentAuditInfo,
+        context: &str,
     ) -> Result<i64, String> {
         self.storage
             .store(&entity.id, entity_bytes.clone())
@@ -513,29 +502,20 @@ impl WriteDeployer {
             Some(m) if !m.is_null() => serde_json::json!({ "v": m }),
             _ => Value::Null,
         };
-        let pointers: Vec<String> = entity.pointers.iter().map(|p| p.to_lowercase()).collect();
+        let pointers: Vec<String> = {
+            let mut seen = std::collections::HashSet::new();
+            entity
+                .pointers
+                .iter()
+                .map(|p| p.to_lowercase())
+                .filter(|p| seen.insert(p.clone()))
+                .collect()
+        };
         let auth_chain_json =
             serde_json::to_value(&audit_info.auth_chain).map_err(|e| e.to_string())?;
 
         let mut tx = self.pool.begin().await.map_err(|e| e.to_string())?;
 
-        // Concurrency guard for the recency-conditional active_pointers upsert
-        // below. That upsert's `ON CONFLICT DO UPDATE ... WHERE NOT EXISTS
-        // (SELECT ... FROM deployments cur ...)` predicate is NOT race-safe on
-        // its own: when a *newer* concurrent deploy to the same pointer commits
-        // while this transaction is waiting on the ON CONFLICT row lock, the
-        // correlated subquery against `deployments` is re-evaluated under this
-        // statement's ORIGINAL (now-stale) MVCC snapshot during EvalPlanQual,
-        // so it cannot see the newer deployment row and wrongly "steals" the
-        // pointer back to the older entity — regressing the head. (Verified
-        // reproducible: a 3-way race left the head on the middle/older entity
-        // in ~1/6 runs.)
-        //
-        // Serialize all deploys that touch the same pointer with a
-        // transaction-scoped advisory lock per pointer, so same-pointer deploys
-        // commit one-at-a-time and the subquery always reads a committed,
-        // up-to-date `deployments`. Locks are taken in sorted order to avoid
-        // deadlocks between multi-pointer deploys with overlapping pointer sets.
         {
             let mut lock_keys: Vec<&String> = pointers.iter().collect();
             lock_keys.sort();
@@ -601,6 +581,13 @@ impl WriteDeployer {
             return Ok(now_ms);
         };
 
+        if context == "LOCAL" && entity.entity_type == catalyrst_validator::types::EntityType::Scene
+        {
+            crate::land_publish::record_local_provenance(&mut tx, &entity.id, &deployer_address)
+                .await
+                .map_err(|e| format!("local provenance insert failed: {e}"))?;
+        }
+
         if !entity.content.is_empty() {
             let deployments: Vec<i32> = vec![dep_id; entity.content.len()];
             let hashes: Vec<String> = entity.content.iter().map(|c| c.hash.clone()).collect();
@@ -623,9 +610,6 @@ impl WriteDeployer {
             let entity_ids = vec![entity.id.clone(); pointers.len()];
             let entity_types = vec![entity.entity_type.as_str().to_string(); pointers.len()];
 
-            // The node-catalyst `content` schema has active_pointers(pointer,
-            // entity_id) while the Rust-native schema also carries entity_type —
-            // probe once per deploy (cheap; deploys are rare) and branch.
             let has_type_col: bool = sqlx::query_scalar(
                 r#"SELECT EXISTS (
                        SELECT 1 FROM information_schema.columns
@@ -637,11 +621,6 @@ impl WriteDeployer {
             .await
             .map_err(|e| format!("active_pointers schema probe failed: {e}"))?;
 
-            // Recency-conditional upsert: only steal the pointer when the entity
-            // currently referenced is strictly OLDER (same tie-break as the
-            // overwrote computation above). The unconditional SET let a slower
-            // concurrent writer (the upstream sync replica shares this table)
-            // clobber a newer head depending on arrival order.
             let upsert = if has_type_col {
                 sqlx::query(
                     r#"

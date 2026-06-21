@@ -30,7 +30,8 @@ pub struct WeekRow {
 #[derive(Debug, Clone)]
 pub struct UserCreditsRow {
     pub available: f64,
-    pub expires_at: Option<DateTime<Utc>>,
+    pub earned_available: f64,
+    pub earned_expires_at: Option<DateTime<Utc>>,
     pub is_blocked_for_claiming: bool,
 }
 
@@ -82,7 +83,9 @@ impl CreditsComponent {
 
     pub async fn user_credits(&self, address: &str) -> Result<Option<UserCreditsRow>, ApiError> {
         let row = sqlx::query(
-            "SELECT available::float8 AS available, expires_at, is_blocked_for_claiming \
+            "SELECT available::float8 AS available, \
+                    earned_available::float8 AS earned_available, \
+                    earned_expires_at, is_blocked_for_claiming \
              FROM user_credits WHERE address = $1",
         )
         .bind(address)
@@ -90,7 +93,8 @@ impl CreditsComponent {
         .await?;
         Ok(row.map(|r| UserCreditsRow {
             available: r.get::<f64, _>("available"),
-            expires_at: r.get("expires_at"),
+            earned_available: r.get::<f64, _>("earned_available"),
+            earned_expires_at: r.get("earned_expires_at"),
             is_blocked_for_claiming: r.get("is_blocked_for_claiming"),
         }))
     }
@@ -195,28 +199,22 @@ impl CreditsComponent {
         }))
     }
 
-    pub async fn claim_credits(&self, address: &str) -> Result<ClaimOutcome, ApiError> {
+    pub async fn claim_credits(
+        &self,
+        address: &str,
+        now: DateTime<Utc>,
+    ) -> Result<ClaimOutcome, ApiError> {
         let mut tx = self.pool.begin().await?;
 
-        // Read the balance as exact NUMERIC text: MANA wei exceeds f64's 2^53
-        // range and would silently drift. Convert to f64 only at the JSON edge.
-        let row = sqlx::query(
-            "SELECT available::text AS available, available > 0 AS positive, \
-                    is_blocked_for_claiming \
+        let blocked = sqlx::query(
+            "SELECT is_blocked_for_claiming \
              FROM user_credits WHERE address = $1 FOR UPDATE",
         )
         .bind(address)
         .fetch_optional(&mut *tx)
-        .await?;
-
-        let (available_str, positive, blocked) = match row {
-            Some(r) => (
-                r.get::<String, _>("available"),
-                r.get::<bool, _>("positive"),
-                r.get::<bool, _>("is_blocked_for_claiming"),
-            ),
-            None => ("0".to_string(), false, false),
-        };
+        .await?
+        .map(|r| r.get::<bool, _>("is_blocked_for_claiming"))
+        .unwrap_or(false);
 
         if blocked {
             tx.rollback().await?;
@@ -227,7 +225,23 @@ impl CreditsComponent {
             });
         }
 
-        if !positive {
+        let claimable = sqlx::query(
+            "SELECT p.goal_id, g.reward::text AS reward \
+             FROM user_goal_progress p \
+             JOIN credits_goals g ON g.id = p.goal_id \
+             JOIN credits_weeks w ON w.id = g.week_id \
+             WHERE p.address = $1 AND p.is_claimed = FALSE \
+               AND p.completed_steps >= g.total_steps \
+               AND w.start_date <= $2 AND w.end_date >= $2 \
+             FOR UPDATE OF p",
+        )
+        .bind(address)
+        .bind(now)
+        .fetch_all(&mut *tx)
+        .await?;
+
+        let goal_ids: Vec<i32> = claimable.iter().map(|r| r.get("goal_id")).collect();
+        if goal_ids.is_empty() {
             tx.commit().await?;
             return Ok(ClaimOutcome {
                 ok: true,
@@ -236,29 +250,91 @@ impl CreditsComponent {
             });
         }
 
-        // Zero the balance and record the pre-zeroing value into the ledger atomically.
-        sqlx::query(
-            "WITH moved AS ( \
-                 UPDATE user_credits \
-                 SET available = 0, updated_at = now() \
-                 WHERE address = $1 \
-                 RETURNING $2::numeric AS amount \
-             ) \
-             INSERT INTO credit_ledger (address, kind, amount, captcha_ok) \
-             SELECT $1, 'claim', amount, TRUE FROM moved",
+        let marked = sqlx::query(
+            "UPDATE user_goal_progress SET is_claimed = TRUE \
+             WHERE address = $1 AND goal_id = ANY($2) AND is_claimed = FALSE \
+             RETURNING goal_id",
         )
         .bind(address)
-        .bind(&available_str)
+        .bind(&goal_ids)
+        .fetch_all(&mut *tx)
+        .await?;
+        let marked_ids: std::collections::HashSet<i32> =
+            marked.iter().map(|r| r.get::<i32, _>("goal_id")).collect();
+        if marked_ids.is_empty() {
+            tx.commit().await?;
+            return Ok(ClaimOutcome {
+                ok: true,
+                credits_granted: 0.0,
+                is_blocked_for_claiming: false,
+            });
+        }
+
+        let claimed_ids: Vec<i32> = marked_ids.iter().copied().collect();
+        let total: String = sqlx::query(
+            "SELECT COALESCE(SUM(reward), 0)::text AS total \
+             FROM credits_goals WHERE id = ANY($1)",
+        )
+        .bind(&claimed_ids)
+        .fetch_one(&mut *tx)
+        .await?
+        .get("total");
+
+        self.expire_earned_in_tx(&mut tx, address).await?;
+
+        let season_end: DateTime<Utc> = sqlx::query(
+            "SELECT s.end_date FROM credits_seasons s \
+             JOIN credits_weeks w ON w.season_id = s.id \
+             JOIN credits_goals g ON g.week_id = w.id \
+             WHERE g.id = ANY($1) ORDER BY s.end_date DESC LIMIT 1",
+        )
+        .bind(&claimed_ids)
+        .fetch_one(&mut *tx)
+        .await?
+        .get("end_date");
+
+        sqlx::query(
+            "INSERT INTO user_credits (address, available, earned_available, earned_expires_at, updated_at) \
+             VALUES ($1, $2::numeric, $2::numeric, $3, now()) \
+             ON CONFLICT (address) DO UPDATE \
+             SET available = user_credits.available + EXCLUDED.available, \
+                 earned_available = user_credits.earned_available + EXCLUDED.earned_available, \
+                 earned_expires_at = GREATEST(COALESCE(user_credits.earned_expires_at, EXCLUDED.earned_expires_at), \
+                                              EXCLUDED.earned_expires_at), \
+                 updated_at = now()",
+        )
+        .bind(address)
+        .bind(&total)
+        .bind(season_end)
+        .execute(&mut *tx)
+        .await?;
+
+        let mut tx_ref_ids: Vec<String> = claimed_ids.iter().map(|id| id.to_string()).collect();
+        tx_ref_ids.sort();
+        let tx_ref = format!("goals:{}", tx_ref_ids.join("+"));
+        sqlx::query(
+            "INSERT INTO credit_ledger (address, kind, amount, tx_ref, bucket, captcha_ok) \
+             VALUES ($1, 'claim', $2::numeric, $3, 'earned', TRUE)",
+        )
+        .bind(address)
+        .bind(&total)
+        .bind(&tx_ref)
+        .execute(&mut *tx)
+        .await?;
+
+        sqlx::query(
+            "INSERT INTO user_program (address, has_started_program) \
+             VALUES ($1, TRUE) ON CONFLICT (address) DO NOTHING",
+        )
+        .bind(address)
         .execute(&mut *tx)
         .await?;
 
         tx.commit().await?;
 
-        let credits_granted = available_str.parse::<f64>().unwrap_or(0.0);
-
         Ok(ClaimOutcome {
             ok: true,
-            credits_granted,
+            credits_granted: total.parse::<f64>().unwrap_or(0.0),
             is_blocked_for_claiming: false,
         })
     }

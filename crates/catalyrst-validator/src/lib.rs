@@ -3,6 +3,7 @@ pub mod content_validator;
 pub mod entity_parser;
 pub mod erc721;
 pub mod error;
+pub mod image_metadata;
 pub mod merkle;
 pub mod server_validator;
 pub mod squid_checker;

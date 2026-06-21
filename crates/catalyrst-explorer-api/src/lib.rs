@@ -1,4 +1,3 @@
-// large error enum; boxing every Result hurts ergonomics
 #![allow(clippy::result_large_err)]
 
 pub mod config;
@@ -26,6 +25,7 @@ pub async fn build_state(cfg: &Config) -> Result<AppState> {
         auth_api: Default::default(),
         feature_flags: Default::default(),
         runtime_config: Default::default(),
+        onboarding: Default::default(),
     }))
 }
 
@@ -38,4 +38,5 @@ pub fn api_router() -> Router<AppState> {
         .merge(modules::worlds_content_server::routes())
         .merge(modules::feature_flags::routes())
         .merge(modules::runtime_config::routes())
+        .merge(modules::onboarding::routes())
 }

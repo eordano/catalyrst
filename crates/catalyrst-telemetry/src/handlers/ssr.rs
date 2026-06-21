@@ -1,26 +1,3 @@
-//! Server-side rendering + boot-cache hydration for the dashboard.
-//!
-//! Each dashboard PAGE route (`/`, `/events`, `/issues/{fp}`, `/metrics`,
-//! `/metrics/stream`, `/metrics/funnel`, `/metrics/breakdown`, `/health`,
-//! `/flags`, `/sql`, `/session/{id}`) is bound to [`page`]. It parses the path +
-//! query into the same `(surface, tab, fingerprint, filters)` shape the client's
-//! `parsePath()` produces, fetches the data that route needs by REUSING the
-//! existing `handlers::dashboard::*` JSON handlers (no SQL is duplicated), and:
-//!
-//!   1. builds a BOOT cache — a map keyed by the EXACT `/dash/...` URL the JS
-//!      would fetch on boot (mirroring `qs()` in dashboard.html) so the client's
-//!      `jget()` serves the first paint from the embedded cache instead of
-//!      refetching; and
-//!   2. server-renders the route's `<main>` body (and the `#total` header count
-//!      and, for issue drill-in, the `#ihead` banner) by mirroring the JS render
-//!      functions, so there is real content on first paint and the page works
-//!      without JS.
-//!
-//! Both are injected into the `dashboard.html` template by replacing marker
-//! comments (`<!--SSR:*-->`). Under the plain `handlers::dashboard::index`
-//! handler the markers are never replaced and, being HTML comments, render as
-//! nothing.
-
 use axum::extract::{OriginalUri, Path, Query, State};
 use axum::response::Html;
 use serde_json::{json, Map, Value};
@@ -30,7 +7,6 @@ use crate::AppState;
 
 const TEMPLATE: &str = include_str!("../dashboard.html");
 
-/// What surface/tab a route maps to (mirror of the JS `parsePath()`).
 #[derive(Clone, Copy, PartialEq)]
 enum Surface {
     Errors,
@@ -48,7 +24,6 @@ struct Route {
     session_id: Option<String>,
 }
 
-/// Inverse of the JS `pathFor()` / mirror of `parsePath()`.
 fn parse_path(path: &str) -> Route {
     let path = {
         let trimmed = path.trim_end_matches('/');
@@ -97,9 +72,6 @@ fn parse_path(path: &str) -> Route {
     r
 }
 
-/// The query-string filters carried by a page route. Defaults mirror the JS
-/// `state` (per surface) so the BOOT cache keys match what the client would
-/// request on boot.
 struct Filters {
     hours: i64,
     q: Option<String>,
@@ -116,9 +88,6 @@ fn query_get(q: &[(String, String)], key: &str) -> Option<String> {
     q.iter().find(|(k, _)| k == key).map(|(_, v)| v.clone())
 }
 
-/// Read the filters out of the query string, applying the per-surface defaults
-/// the JS `setSurface()` installs (errors: kind='event', status='unresolved',
-/// sort='recent'; metrics: kind='', status='all', sort='frequent').
 fn parse_filters(q: &[(String, String)], surface: Surface) -> Filters {
     let metrics = surface == Surface::Metrics;
     Filters {
@@ -127,8 +96,7 @@ fn parse_filters(q: &[(String, String)], surface: Surface) -> Filters {
             .unwrap_or(24),
         q: query_get(q, "q"),
         level: query_get(q, "level"),
-        // JS state.kind default is per surface; the URL only carries `kind` when
-        // it differs from the surface default (see pathFor()).
+
         kind: query_get(q, "kind").or_else(|| {
             if surface == Surface::Errors {
                 Some("event".to_string())
@@ -146,10 +114,6 @@ fn parse_filters(q: &[(String, String)], surface: Surface) -> Filters {
     }
 }
 
-/// Build the `/dash/...` query string EXACTLY as the JS `qs(extra)` does, so the
-/// BOOT cache key matches the URL the client fetches. Param order:
-/// hours, source, [q], [level], [kind], [environment], [release], [tag],
-/// [sort if != recent], [status if errors && != all], [fingerprint], then extra.
 fn qs(
     f: &Filters,
     surface: Surface,
@@ -209,9 +173,6 @@ fn nonempty(s: &Option<String>) -> Option<String> {
     s.as_ref().filter(|v| !v.is_empty()).cloned()
 }
 
-/// Synthesize a `Query<T>` extractor for a dashboard handler from a JSON object,
-/// reusing the handler's own `Deserialize` impl. (`axum::extract::Query` is a
-/// pub tuple struct.)
 fn query_of<T: serde::de::DeserializeOwned>(v: Value) -> Query<T> {
     Query(serde_json::from_value(v).expect("ssr: query synth"))
 }
@@ -230,7 +191,7 @@ pub async fn page(State(st): State<AppState>, OriginalUri(uri): OriginalUri) -> 
     let mut ititle_html = String::new();
     let mut imeta_html = String::new();
     let mut ihead_show = false;
-    // Which view container should be visible on first paint.
+
     let panel_surface = matches!(
         route.surface,
         Surface::Health | Surface::Flags | Surface::Sql | Surface::Session
@@ -238,7 +199,6 @@ pub async fn page(State(st): State<AppState>, OriginalUri(uri): OriginalUri) -> 
 
     match route.surface {
         Surface::Errors => {
-            // stats (header total + chart + facets)
             let stats = call_stats(&st, &filters, &route.fingerprint, "sentry").await;
             cache.insert(
                 format!(
@@ -250,9 +210,6 @@ pub async fn page(State(st): State<AppState>, OriginalUri(uri): OriginalUri) -> 
             total_html = errors_total(&stats, filters.hours);
 
             if let Some(fp) = &route.fingerprint {
-                // drill-in: events ungrouped, fingerprint-scoped (loadList sees
-                // fingerprint set -> group:0). Also the meta lookup uses
-                // group:1&limit:1, and the spark reuses /dash/stats (cached above).
                 let issue = call_events(
                     &st,
                     &filters,
@@ -350,15 +307,12 @@ pub async fn page(State(st): State<AppState>, OriginalUri(uri): OriginalUri) -> 
             }
         }
         Surface::Metrics if matches!(route.tab, "funnel" | "breakdown") => {
-            // funnel/breakdown panels are client-built; we still warm the
-            // /dash/metrics?hours= fetch the JS does first on those panels.
             let metrics = call_metrics(&st, filters.hours).await;
             cache.insert(
                 format!("/dash/metrics?hours={}", filters.hours),
                 metrics.clone(),
             );
             total_html = metrics_total(&metrics, filters.hours);
-            // #panel left empty on purpose (JS builds it instantly).
         }
         Surface::Metrics => {
             let metrics = call_metrics(&st, filters.hours).await;
@@ -410,9 +364,7 @@ pub async fn page(State(st): State<AppState>, OriginalUri(uri): OriginalUri) -> 
             cache.insert("/dash/flags".to_string(), v.clone());
             panel_html = render_flags(&v);
         }
-        Surface::Sql => {
-            // interactive — client builds the editor on boot; nothing to render.
-        }
+        Surface::Sql => {}
         Surface::Session => {
             if let Some(id) = &route.session_id {
                 if let Ok(n) = id.parse::<i64>() {
@@ -436,10 +388,6 @@ pub async fn page(State(st): State<AppState>, OriginalUri(uri): OriginalUri) -> 
     html = html.replace("<!--SSR:ititle-->", &ititle_html);
     html = html.replace("<!--SSR:imeta-->", &imeta_html);
 
-    // First-paint view visibility. PANEL surfaces (health/flags/sql/session/
-    // funnel/breakdown) show #panel and hide #tableview; the rest keep the table
-    // visible (the static default). The non-table chrome (stats strip + toolbar)
-    // is hidden for health/flags/sql/session — mirroring setSurface/refreshAll.
     let no_chrome = matches!(
         route.surface,
         Surface::Health | Surface::Flags | Surface::Sql | Surface::Session
@@ -471,8 +419,6 @@ pub async fn page(State(st): State<AppState>, OriginalUri(uri): OriginalUri) -> 
 
     Html(html)
 }
-
-// ===================== handler reuse (no SQL duplication) =====================
 
 async fn call_stats(st: &AppState, f: &Filters, fp: &Option<String>, source: &str) -> Value {
     let mut body = json!({ "hours": f.hours, "source": source });
@@ -508,7 +454,7 @@ async fn call_events(
         "sentry"
     };
     let mut body = json!({ "hours": f.hours, "source": source });
-    // Mirror qs() field names so the synthesized ListParams matches the request.
+
     if let Some(v) = nonempty(&f.q) {
         body["q"] = json!(v);
     }
@@ -542,7 +488,7 @@ async fn call_events(
     }
     for (k, v) in extra {
         let obj = body.as_object_mut().unwrap();
-        // group/limit/offset are integers in ListParams.
+
         if let Ok(n) = v.parse::<i64>() {
             obj.insert(k.to_string(), json!(n));
         } else {
@@ -578,8 +524,6 @@ async fn call_session(st: &AppState, id: i64) -> Value {
         .map(|j| j.0)
         .unwrap_or(json!({ "user": Value::Null, "events": [] }))
 }
-
-// ===================== body renderers (mirror the JS) =====================
 
 fn esc(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
@@ -620,8 +564,6 @@ fn lvl_class(l: &str) -> &'static str {
     }
 }
 
-/// HH:MM:SS slice of an ISO timestamp — the JS overwrites `.when` with "Xm ago"
-/// on hydrate, so a short clock value is fine for the no-JS first paint.
 fn short_time(ts: &str) -> String {
     if ts.len() >= 19 && ts.as_bytes().get(10) == Some(&b'T') {
         ts[11..19].to_string()
@@ -639,7 +581,7 @@ fn vstr(v: &Value, key: &str) -> String {
 fn vi64(v: &Value, key: &str) -> i64 {
     v.get(key).and_then(|x| x.as_i64()).unwrap_or(0)
 }
-/// Thousands-separated integer (mirror of toLocaleString for plain ints).
+
 fn commas(n: i64) -> String {
     let neg = n < 0;
     let digits = n.abs().to_string();
@@ -716,8 +658,6 @@ fn metrics_thead(issues: bool, f: &Filters) -> String {
     }
 }
 
-/// Mirror of `rowHtml(it, issues)` across both surfaces. `metrics` selects the
-/// `isMetrics()` branch.
 fn render_rows(data: &Value, issues: bool, metrics: bool) -> String {
     let items = match data.get("items").and_then(|i| i.as_array()) {
         Some(a) => a,
@@ -811,9 +751,6 @@ fn row_html(it: &Value, issues: bool, metrics: bool) -> String {
     )
 }
 
-/// Mirror of `drillIn()`'s `#ititle` (plain text) and `#imeta` (chip HTML)
-/// content. Returns `(ititle_inner, imeta_inner)`. The spark and the
-/// workflow-action wiring are left to the JS on hydrate.
 fn issue_head(meta: &Value, fp: &str) -> (String, String) {
     let level = vstr(meta, "level");
     let kind = vstr(meta, "kind");
@@ -1063,8 +1000,6 @@ fn render_session(s: &Value, session_id: &str) -> String {
     )
 }
 
-// ===================== tiny url helpers =====================
-
 fn parse_query(q: &str) -> Vec<(String, String)> {
     q.split('&')
         .filter(|s| !s.is_empty())
@@ -1116,8 +1051,6 @@ fn hex(c: u8) -> Option<u8> {
     }
 }
 
-/// Percent-encode the way `URLSearchParams.toString()` does for the values the
-/// dashboard sends (alnum + `-_.!~*'()` stay literal, space -> `+`).
 fn urlencode(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for b in s.bytes() {

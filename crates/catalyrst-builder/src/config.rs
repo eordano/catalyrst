@@ -1,10 +1,13 @@
-use anyhow::{anyhow, Context, Result};
+use anyhow::Result;
+use catalyrst_envcfg::{get_port, required};
 use std::env;
 
 pub struct Config {
     pub http_host: String,
     pub http_port: u16,
     pub database_url: String,
+
+    pub marketplace_database_url: Option<String>,
     pub content_bucket_url: String,
     pub admin_addresses: Vec<String>,
     pub newsletter_service_url: Option<String>,
@@ -25,6 +28,9 @@ impl Config {
             http_host: env::var("HTTP_SERVER_HOST").unwrap_or_else(|_| "127.0.0.1".to_string()),
             http_port: get_port("HTTP_SERVER_PORT", 5145)?,
             database_url: required("BUILDER_PG_CONNECTION_STRING")?,
+            marketplace_database_url: env::var("BUILDER_MARKETPLACE_PG_CONNECTION_STRING")
+                .ok()
+                .filter(|s| !s.is_empty()),
             content_bucket_url: env::var("BUILDER_CONTENT_BUCKET_URL")
                 .unwrap_or_else(|_| "https://builder-items.decentraland.org".to_string()),
             admin_addresses,
@@ -41,16 +47,5 @@ impl Config {
                 .ok()
                 .filter(|s| !s.is_empty()),
         })
-    }
-}
-
-fn required(key: &str) -> Result<String> {
-    env::var(key).map_err(|_| anyhow!("missing required env var: {}", key))
-}
-
-fn get_port(key: &str, default: u16) -> Result<u16> {
-    match env::var(key) {
-        Ok(s) => s.parse::<u16>().with_context(|| format!("invalid {}", key)),
-        Err(_) => Ok(default),
     }
 }

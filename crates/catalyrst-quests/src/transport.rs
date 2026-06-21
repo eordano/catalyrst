@@ -1,8 +1,3 @@
-//! axum WebSocket -> dcl-rpc transport adapter. Binary frames carry the
-//! length-prefixed dcl-rpc protobuf packets; the per-connection authenticated
-//! address is carried alongside for the service to key on. Mirrors
-//! catalyrst-social-rpc's `AxumWsTransport`.
-
 use axum::extract::ws::{Message, WebSocket};
 use dcl_rpc::transports::{Transport, TransportError, TransportMessage};
 use futures::{SinkExt, StreamExt};

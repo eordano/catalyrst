@@ -4,15 +4,23 @@
     "method": "POST",
     "path": "/content/entities",
     "query": {},
-    "headers": {"content-type": "application/json"},
-    "body": {"hello": "world"}
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "hello": "world"
+    }
   },
   "response": {
     "status": 400,
-    "headers": {"content-type": "application/json"},
-    "body_json": {"error": "Bad request", "message": "Failed to read multipart field: invalid content type"}
+    "headers": {
+      "content-type": "text/plain; charset=utf-8"
+    },
+    "body_bytes_b64": "SW52YWxpZCBgYm91bmRhcnlgIGZvciBgbXVsdGlwYXJ0L2Zvcm0tZGF0YWAgcmVxdWVzdA=="
   },
-  "captured_from": "hand-authored from handler source (create_entity.rs) - error message text follows from axum::extract::Multipart",
+  "captured_from": "INTENTIONAL DIVERGENCE from upstream \u2014 a missing/invalid multipart boundary is a client error, so we return 400 (correct). Upstream 500s (unhandled exception). Golden asserts OUR (better) behavior.",
   "captured_at": "2026-05-23T20:00:00Z",
-  "volatile_paths": ["response.body_json.message"]
+  "volatile_paths": [
+    "response.body_json.message"
+  ]
 }

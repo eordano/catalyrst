@@ -23,7 +23,7 @@ pub struct AppStateInner {
     pub badges: BadgesComponent,
     pub categories_cache: Cache<(), Vec<String>>,
     pub tiers_cache: Cache<String, serde_json::Value>,
-    /// `None` ⇒ admin grant/revoke routes 403 (fail closed).
+
     pub admin_token: Option<String>,
 }
 

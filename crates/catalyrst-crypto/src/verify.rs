@@ -3,7 +3,7 @@ use tracing::debug;
 use crate::auth_chain::{
     is_valid_auth_chain, parse_ephemeral_payload, AuthLinkType, MAX_AUTH_CHAIN_LINKS,
 };
-use crate::eip1654::Eip1654Validator;
+use crate::eip1654::{verify_eip1654, Eip1654Validator};
 use crate::error::AuthError;
 use crate::recover::recover_address;
 use crate::AuthChain;
@@ -106,19 +106,13 @@ pub async fn verify_auth_chain_async(
 
                 let sig_bytes = decode_hex_signature(&signature)?;
 
-                let raw_hash = keccak256_hash(message.as_bytes());
-                let valid = validator
-                    .validate_signature(&current_authority, &raw_hash, &sig_bytes)
-                    .await?;
-
-                let valid = if !valid {
-                    let prefixed_hash = eip191_hash(message.as_bytes());
-                    validator
-                        .validate_signature(&current_authority, &prefixed_hash, &sig_bytes)
-                        .await?
-                } else {
-                    true
-                };
+                let valid = verify_eip1654(
+                    validator,
+                    &current_authority,
+                    message.as_bytes(),
+                    &sig_bytes,
+                )
+                .await?;
 
                 if !valid {
                     return Err(AuthError::Eip1654Rejected {
@@ -141,19 +135,13 @@ pub async fn verify_auth_chain_async(
 
                 let sig_bytes = decode_hex_signature(&signature)?;
 
-                let raw_hash = keccak256_hash(link.payload.as_bytes());
-                let valid = validator
-                    .validate_signature(&current_authority, &raw_hash, &sig_bytes)
-                    .await?;
-
-                let valid = if !valid {
-                    let prefixed_hash = eip191_hash(link.payload.as_bytes());
-                    validator
-                        .validate_signature(&current_authority, &prefixed_hash, &sig_bytes)
-                        .await?
-                } else {
-                    true
-                };
+                let valid = verify_eip1654(
+                    validator,
+                    &current_authority,
+                    link.payload.as_bytes(),
+                    &sig_bytes,
+                )
+                .await?;
 
                 if !valid {
                     return Err(AuthError::Eip1654Rejected {
@@ -260,15 +248,6 @@ fn verify_chain_inner(
     }
 
     Ok(())
-}
-
-fn keccak256_hash(message: &[u8]) -> [u8; 32] {
-    ethers_core::utils::keccak256(message)
-}
-
-fn eip191_hash(message: &[u8]) -> Vec<u8> {
-    use ethers_core::utils::hash_message;
-    hash_message(message).as_bytes().to_vec()
 }
 
 fn decode_hex_signature(hex_str: &str) -> Result<Vec<u8>, AuthError> {
@@ -413,15 +392,15 @@ mod tests {
 
     #[tokio::test]
     async fn test_real_ecdsa_auth_chain() {
-        use ethers_signers::{LocalWallet, Signer};
+        use alloy::signers::{local::PrivateKeySigner, Signer};
 
-        let root_key: LocalWallet =
+        let root_key: PrivateKeySigner =
             "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
                 .parse()
                 .unwrap();
         let root_address = format!("{:#x}", root_key.address());
 
-        let ephemeral_key: LocalWallet =
+        let ephemeral_key: PrivateKeySigner =
             "59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d"
                 .parse()
                 .unwrap();
@@ -436,7 +415,7 @@ mod tests {
             .sign_message(ephemeral_payload.as_bytes())
             .await
             .unwrap();
-        let ephemeral_sig_hex = format!("0x{}", ephemeral_sig);
+        let ephemeral_sig_hex = ephemeral_sig.to_string();
 
         let entity_payload = "bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi";
 
@@ -444,7 +423,7 @@ mod tests {
             .sign_message(entity_payload.as_bytes())
             .await
             .unwrap();
-        let entity_sig_hex = format!("0x{}", entity_sig);
+        let entity_sig_hex = entity_sig.to_string();
 
         let chain = vec![
             AuthLink {

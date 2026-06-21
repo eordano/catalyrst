@@ -134,3 +134,41 @@ pub fn not_found(msg: impl Into<String>) -> ApiError {
 pub fn service_unavailable(msg: impl Into<String>) -> ApiError {
     ApiError::http(503, msg)
 }
+
+pub fn encode_path_segment(segment: &str) -> String {
+    let mut out = String::with_capacity(segment.len());
+    for b in segment.bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => {
+                out.push(b as char)
+            }
+            _ => {
+                out.push('%');
+                out.push_str(&format!("{b:02X}"));
+            }
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::encode_path_segment;
+
+    #[test]
+    fn encode_path_segment_neutralizes_url_metacharacters() {
+        assert_eq!(encode_path_segment("myworld.dcl.eth"), "myworld.dcl.eth");
+        assert_eq!(encode_path_segment("a/b"), "a%2Fb");
+        assert_eq!(encode_path_segment("a?x=1"), "a%3Fx%3D1");
+        assert_eq!(encode_path_segment("a#frag"), "a%23frag");
+        assert_eq!(encode_path_segment("a%2F"), "a%252F");
+        assert_eq!(
+            encode_path_segment("evil/../permissions"),
+            "evil%2F..%2Fpermissions"
+        );
+        assert_eq!(
+            encode_path_segment("name with space"),
+            "name%20with%20space"
+        );
+    }
+}

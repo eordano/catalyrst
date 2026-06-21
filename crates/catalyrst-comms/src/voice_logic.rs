@@ -1,12 +1,3 @@
-//! Private (1:1) voice-chat state-machine logic.
-//!
-//! Faithful port of the private-voice-chat half of upstream comms-gatekeeper
-//! `src/logic/voice/voice.ts` — the `handlePrivateParticipant{Joined,Left}`,
-//! `getPrivateVoiceChatRoomCredentials`, `endPrivateVoiceChat`,
-//! `expirePrivateVoiceChats` and `isUserInVoiceChat` functions. This wires the
-//! LiveKit room teardown (DeleteRoom) into the DB state machine in
-//! [`crate::voice_db`].
-
 use std::collections::BTreeMap;
 
 use crate::livekit::{
@@ -16,10 +7,8 @@ use crate::livekit::{
 use crate::voice_db::{DeleteRoomError, VoiceChatUserStatus};
 use crate::AppState;
 
-/// LiveKit `DisconnectReason` enum. Values match the well-known LiveKit
-/// protobuf (`livekit_models.proto`). The webhook delivers the reason as either
-/// the numeric value or the proto3-JSON name string; [`DisconnectReason::parse`]
-/// accepts both.
+const STALE_LEAVE_SKEW_MS: i64 = 1000;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DisconnectReason {
     UnknownReason,
@@ -36,13 +25,11 @@ pub enum DisconnectReason {
     UserUnavailable,
     UserRejected,
     SipTrunkFailure,
-    /// Any reason value we do not model explicitly. Treated as an abrupt
-    /// disconnect (connection interrupted), matching upstream's `else` branch.
+
     Other(i64),
 }
 
 impl DisconnectReason {
-    /// Numeric protobuf value.
     fn from_i64(v: i64) -> Self {
         match v {
             0 => DisconnectReason::UnknownReason,
@@ -63,7 +50,6 @@ impl DisconnectReason {
         }
     }
 
-    /// proto3-JSON enum name.
     fn from_name(s: &str) -> Self {
         match s {
             "UNKNOWN_REASON" => DisconnectReason::UnknownReason,
@@ -84,10 +70,6 @@ impl DisconnectReason {
         }
     }
 
-    /// Parse from a webhook `participant.disconnectReason` JSON value, which may
-    /// be a number (raw protobuf) or a string (proto3-JSON name). A missing /
-    /// null field defaults to `UNKNOWN_REASON` (= 0), matching protobuf's zero
-    /// default.
     pub fn parse(v: Option<&serde_json::Value>) -> Self {
         match v {
             Some(serde_json::Value::Number(n)) => {
@@ -99,9 +81,6 @@ impl DisconnectReason {
     }
 }
 
-/// Generates credentials for a private voice chat room and inserts the users
-/// into the DB as `not_connected`. Faithful port of
-/// `getPrivateVoiceChatRoomCredentials`. Returns `{ address: { connection_url } }`.
 pub async fn get_private_voice_chat_room_credentials(
     state: &AppState,
     room_id: &str,
@@ -111,9 +90,6 @@ pub async fn get_private_voice_chat_room_credentials(
 
     let mut out: BTreeMap<String, serde_json::Value> = BTreeMap::new();
     for addr in user_addresses {
-        // Upstream generateCredentials: canPublish/canSubscribe true,
-        // canUpdateOwnMetadata false, and (cast empty) canPublishSources =
-        // [MICROPHONE].
         let mut grants = VideoGrants::join(&room_name);
         grants.can_publish = true;
         grants.can_subscribe = true;
@@ -135,7 +111,6 @@ pub async fn get_private_voice_chat_room_credentials(
         );
     }
 
-    // Create the room in the database (users => not_connected).
     state
         .voice_db
         .create_voice_chat_room(&room_name, user_addresses)
@@ -144,10 +119,6 @@ pub async fn get_private_voice_chat_room_credentials(
     Ok(out)
 }
 
-/// Ends a private voice chat: removes all users from the room (erroring if the
-/// caller was never in it), then deletes the LiveKit room. Returns the
-/// addresses that were in the deleted room. Faithful port of
-/// `endPrivateVoiceChat`.
 pub async fn end_private_voice_chat(
     state: &AppState,
     room_id: &str,
@@ -174,8 +145,6 @@ pub async fn end_private_voice_chat(
     Ok(users_in_room)
 }
 
-/// Checks if a user is currently in a (private) voice chat. Upstream
-/// `isUserInVoiceChat`.
 pub async fn is_user_in_voice_chat(
     state: &AppState,
     address: &str,
@@ -183,10 +152,6 @@ pub async fn is_user_in_voice_chat(
     Ok(state.voice_db.get_room_user_is_in(address).await?.is_some())
 }
 
-/// Handles a `participant_joined` webhook for a PRIVATE voice chat room.
-/// Faithful port of `handlePrivateParticipantJoined`: if the room is no longer
-/// active, tears it down; otherwise marks the user connected and tears down any
-/// stale old room they were in.
 pub async fn handle_private_participant_joined(
     state: &AppState,
     user_address: &str,
@@ -224,14 +189,6 @@ pub async fn handle_private_participant_joined(
     Ok(())
 }
 
-/// Handles a `participant_left` webhook for a PRIVATE voice chat room. Faithful
-/// port of `handlePrivateParticipantLeft`, branching on the disconnect reason:
-/// - `DUPLICATE_IDENTITY` => no-op (the user is re-joining).
-/// - `CLIENT_INITIATED` => destroy the room (only two users, voluntary leave)
-///   and mark the user `disconnected`.
-/// - `ROOM_DELETED` => delete the private voice chat row set (room already
-///   gone in LiveKit).
-/// - anything else => mark `connection_interrupted` (abrupt disconnect).
 pub async fn handle_private_participant_left(
     state: &AppState,
     user_address: &str,
@@ -269,7 +226,6 @@ pub async fn handle_private_participant_left(
             .map_err(Into::into);
     }
 
-    // Treat any other disconnection as an abrupt disconnection.
     state
         .voice_db
         .update_user_status_as_connection_interrupted(user_address, room_name)
@@ -277,9 +233,6 @@ pub async fn handle_private_participant_left(
         .map_err(Into::into)
 }
 
-/// Deletes expired private voice chats and tears down the rooms that must be
-/// destroyed in LiveKit. Faithful port of `expirePrivateVoiceChats`. Intended
-/// to be invoked periodically by a background task.
 pub async fn expire_private_voice_chats(state: &AppState) -> Result<(), crate::http::ApiError> {
     let expired_room_names = state.voice_db.delete_expired_private_voice_chats().await?;
     for room_name in &expired_room_names {
@@ -296,22 +249,9 @@ pub async fn expire_private_voice_chats(state: &AppState) -> Result<(), crate::h
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
-// Community voice-chat participant handlers + expiry.
-//
-// Faithful port of the community half of upstream `voice.ts`:
-// `handleCommunityParticipantJoined`, `handleCommunityParticipantLeft`,
-// `expireCommunityVoiceChats` and `publishCommunityStreamingEndedEvent`.
-// ---------------------------------------------------------------------------
-
-/// Wire-faithful `@dcl/schemas` event type/subtype strings (events/base.ts).
 const EVENT_TYPE_STREAMING: &str = "streaming";
 const EVENT_SUBTYPE_COMMUNITY_STREAMING_ENDED: &str = "community-streaming-ended";
 
-/// Builds the `CommunityStreamingEnded` event JSON, byte-faithful to the
-/// `@dcl/schemas` `CommunityStreamingEndedEvent` shape (a `BaseEvent` with
-/// `type`/`subType`/`key`/`timestamp` plus a `{communityId, totalParticipants}`
-/// metadata object). Pure so the wire shape is testable without a DB.
 fn community_streaming_ended_event(
     community_id: &str,
     participant_count: i64,
@@ -330,26 +270,26 @@ fn community_streaming_ended_event(
     })
 }
 
-/// Handles a `participant_joined` webhook for a COMMUNITY voice chat room.
-/// Faithful port of `handleCommunityParticipantJoined`: simply marks the user
-/// `connected`.
 pub async fn handle_community_participant_joined(
     state: &AppState,
     user_address: &str,
     room_name: &str,
+    sid: Option<&str>,
 ) -> Result<(), crate::http::ApiError> {
+    if sid.is_none() {
+        tracing::warn!(
+            user = user_address,
+            room = room_name,
+            "community participant joined without a session id"
+        );
+    }
     state
         .voice_db
-        .update_community_user_status(user_address, room_name, VoiceChatUserStatus::Connected)
+        .update_community_user_status(user_address, room_name, VoiceChatUserStatus::Connected, sid)
         .await
         .map_err(Into::into)
 }
 
-/// Builds and persists a `CommunityStreamingEnded` event into the published-event
-/// outbox, byte-faithful to the `@dcl/schemas` `CommunityStreamingEndedEvent`
-/// the upstream SNS publisher emits. Faithful port of
-/// `publishCommunityStreamingEndedEvent` (incl. the early-return when the room
-/// was already deleted, i.e. participant count is 0).
 async fn publish_community_streaming_ended_event(
     state: &AppState,
     room_name: &str,
@@ -391,21 +331,55 @@ async fn publish_community_streaming_ended_event(
     }
 }
 
-/// Handles a `participant_left` webhook for a COMMUNITY voice chat room.
-/// Faithful port of `handleCommunityParticipantLeft`, branching on the
-/// disconnect reason:
-/// - `DUPLICATE_IDENTITY` => no-op (the user is re-joining).
-/// - `ROOM_DELETED` => snapshot the participant count, delete the DB room set,
-///   publish `CommunityStreamingEnded`.
-/// - `CLIENT_INITIATED` => mark `disconnected`; if the leaver was a moderator
-///   and no other active moderators remain, destroy the LiveKit room + DB set
-///   and publish `CommunityStreamingEnded`.
-/// - anything else => mark `connection_interrupted`.
+pub async fn end_community_voice_chat(
+    state: &AppState,
+    community_id: &str,
+) -> Result<(), crate::http::ApiError> {
+    let room_name = crate::livekit::community_voice_chat_room_name(community_id);
+
+    let participant_count = state
+        .voice_db
+        .get_community_voice_chat_participant_count(&room_name)
+        .await?;
+
+    if let Err(e) = state.room_service().delete_room(&room_name).await {
+        tracing::warn!(error = %e, room = %room_name, "failed to delete livekit community voice room");
+    }
+
+    state
+        .voice_db
+        .delete_community_voice_chat(&room_name)
+        .await?;
+
+    publish_community_streaming_ended_event(state, &room_name, participant_count).await;
+    Ok(())
+}
+
+fn is_stale_leave(
+    current_sid: Option<&str>,
+    leaving_sid: Option<&str>,
+    status_updated_at_ms: i64,
+    leave_event_time_ms: Option<i64>,
+) -> bool {
+    let is_from_previous_session = match (leaving_sid, current_sid) {
+        (Some(leaving), Some(current)) => current != leaving,
+        _ => false,
+    };
+    let user_state_is_newer_than_leave = current_sid.is_none()
+        && leave_event_time_ms
+            .map(|t| status_updated_at_ms > t + STALE_LEAVE_SKEW_MS)
+            .unwrap_or(false);
+
+    is_from_previous_session || user_state_is_newer_than_leave
+}
+
 pub async fn handle_community_participant_left(
     state: &AppState,
     user_address: &str,
     room_name: &str,
     disconnect_reason: DisconnectReason,
+    sid: Option<&str>,
+    leave_event_time_ms: Option<i64>,
 ) -> Result<(), crate::http::ApiError> {
     if disconnect_reason == DisconnectReason::DuplicateIdentity {
         tracing::debug!(
@@ -417,7 +391,6 @@ pub async fn handle_community_participant_left(
     }
 
     if disconnect_reason == DisconnectReason::RoomDeleted {
-        // Room already deleted in LiveKit: snapshot the count before cleaning DB.
         let participant_count = state
             .voice_db
             .get_community_voice_chat_participant_count(room_name)
@@ -431,25 +404,41 @@ pub async fn handle_community_participant_left(
     }
 
     if disconnect_reason == DisconnectReason::ClientInitiated {
+        let users_in_room = state
+            .voice_db
+            .get_community_users_in_room(room_name)
+            .await?;
+        let leaving_user = users_in_room.iter().find(|u| u.address == user_address);
+
+        if let Some(leaving_user) = leaving_user {
+            if is_stale_leave(
+                leaving_user.sid.as_deref(),
+                sid,
+                leaving_user.status_updated_at,
+                leave_event_time_ms,
+            ) {
+                tracing::info!(
+                    user = user_address,
+                    room = room_name,
+                    leaving_sid = sid.unwrap_or("unknown"),
+                    current_sid = leaving_user.sid.as_deref().unwrap_or("none"),
+                    "ignoring stale participant_left: a newer session is active"
+                );
+                return Ok(());
+            }
+        }
+
         state
             .voice_db
             .update_community_user_status(
                 user_address,
                 room_name,
                 VoiceChatUserStatus::Disconnected,
+                None,
             )
             .await?;
 
-        // Only check for room destruction when a moderator leaves voluntarily.
-        let users_in_room = state
-            .voice_db
-            .get_community_users_in_room(room_name)
-            .await?;
-        let leaving_is_moderator = users_in_room
-            .iter()
-            .find(|u| u.address == user_address)
-            .map(|u| u.is_moderator)
-            .unwrap_or(false);
+        let leaving_is_moderator = leaving_user.map(|u| u.is_moderator).unwrap_or(false);
 
         if leaving_is_moderator {
             let now = now_ms();
@@ -484,24 +473,19 @@ pub async fn handle_community_participant_left(
         return Ok(());
     }
 
-    // Treat any other disconnection as an abrupt disconnection.
     state
         .voice_db
         .update_community_user_status(
             user_address,
             room_name,
             VoiceChatUserStatus::ConnectionInterrupted,
+            None,
         )
         .await
         .map_err(Into::into)
 }
 
-/// Deletes expired community voice chats and tears down their LiveKit rooms,
-/// publishing `CommunityStreamingEnded` for each with the pre-deletion
-/// participant count. Faithful port of `expireCommunityVoiceChats`.
 pub async fn expire_community_voice_chats(state: &AppState) -> Result<(), crate::http::ApiError> {
-    // Snapshot participant counts BEFORE deletion (upstream does a bulk count
-    // over the currently-active rooms first).
     let active = state
         .voice_db
         .get_all_active_community_voice_chats()
@@ -536,10 +520,6 @@ fn now_ms() -> i64 {
         .unwrap_or(0)
 }
 
-/// Spawns the voice-chat expiration job. Mirrors upstream's
-/// `voiceChatExpirationJob` (every-minute cron, wait-for-completion). Each tick
-/// sweeps TTL-expired PRIVATE and COMMUNITY rooms and tears down the LiveKit
-/// rooms.
 pub fn spawn_expiration_job(state: AppState) {
     tokio::spawn(async move {
         let mut ticker = tokio::time::interval(std::time::Duration::from_secs(60));
@@ -574,7 +554,7 @@ mod tests {
             DisconnectReason::parse(Some(&serde_json::json!(5))),
             DisconnectReason::RoomDeleted
         );
-        // Unmodeled numeric reason falls into Other (abrupt-disconnect branch).
+
         assert_eq!(
             DisconnectReason::parse(Some(&serde_json::json!(99))),
             DisconnectReason::Other(99)
@@ -626,8 +606,58 @@ mod tests {
         assert_eq!(event["timestamp"], 1_718_900_000_000i64);
         assert_eq!(event["metadata"]["communityId"], "my-community");
         assert_eq!(event["metadata"]["totalParticipants"], 7);
-        // No extra metadata keys (schema is additionalProperties:false).
+
         let meta = event["metadata"].as_object().unwrap();
         assert_eq!(meta.len(), 2);
+    }
+
+    #[test]
+    fn stale_leave_when_session_sid_differs() {
+        assert!(is_stale_leave(Some("new"), Some("old"), 0, None));
+        assert!(is_stale_leave(Some("new"), Some("old"), 0, Some(1_000_000)));
+    }
+
+    #[test]
+    fn not_stale_when_session_sid_matches() {
+        assert!(!is_stale_leave(Some("s1"), Some("s1"), 0, None));
+        assert!(!is_stale_leave(Some("s1"), Some("s1"), 0, Some(0)));
+    }
+
+    #[test]
+    fn stale_leave_via_timestamp_fallback_when_no_current_sid() {
+        assert!(is_stale_leave(None, Some("s"), 10_000, Some(5_000)));
+        assert!(is_stale_leave(None, None, 10_000, Some(5_000)));
+    }
+
+    #[test]
+    fn not_stale_via_timestamp_when_within_skew() {
+        assert!(!is_stale_leave(None, Some("s"), 5_500, Some(5_000)));
+    }
+
+    #[test]
+    fn timestamp_skew_boundary_is_exclusive() {
+        assert!(!is_stale_leave(
+            None,
+            Some("s"),
+            5_000 + STALE_LEAVE_SKEW_MS,
+            Some(5_000)
+        ));
+        assert!(is_stale_leave(
+            None,
+            Some("s"),
+            5_000 + STALE_LEAVE_SKEW_MS + 1,
+            Some(5_000)
+        ));
+    }
+
+    #[test]
+    fn not_stale_when_no_sid_and_no_leave_time() {
+        assert!(!is_stale_leave(None, None, 999_999, None));
+        assert!(!is_stale_leave(None, Some("s"), 999_999, None));
+    }
+
+    #[test]
+    fn timestamp_fallback_disabled_when_current_sid_present() {
+        assert!(!is_stale_leave(Some("s"), Some("s"), 10_000_000, Some(0)));
     }
 }

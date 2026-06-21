@@ -70,19 +70,12 @@ pub trait Database: Send + Sync {
 
     async fn find_entity_by_pointer(&self, pointer: &str) -> Result<Option<Value>, DatabaseError>;
 
-    /// Delete a single failed-deployment row by entity id (admin "clear one").
-    /// Returns the number of rows removed (0 if the id was not present).
-    ///
-    /// Default impl is fail-closed: a backend with no writable failed table
-    /// reports unsupported rather than silently succeeding.
     async fn clear_failed_deployment(&self, _entity_id: &str) -> Result<u64, DatabaseError> {
         Err(DatabaseError::Unsupported(
             "clear_failed_deployment not supported by this backend".to_string(),
         ))
     }
 
-    /// Delete every failed-deployment row (admin "clear all"). Returns the
-    /// number of rows removed. Fail-closed default (see above).
     async fn clear_all_failed_deployments(&self) -> Result<u64, DatabaseError> {
         Err(DatabaseError::Unsupported(
             "clear_all_failed_deployments not supported by this backend".to_string(),
@@ -169,11 +162,6 @@ pub trait Deployer: Send + Sync {
         context: &str,
     ) -> Result<i64, Vec<String>>;
 
-    /// Ask the deployer to re-attempt a previously failed deployment, identified
-    /// by its entity id. Returns a human-readable status string on success.
-    ///
-    /// Default impl is fail-closed: a deployer that cannot replay failures
-    /// reports unsupported rather than a false success.
     async fn retry_failed_deployment(&self, _entity_id: &str) -> Result<String, Vec<String>> {
         Err(vec![
             "retry_failed_deployment not supported by this deployer".to_string(),
@@ -181,24 +169,17 @@ pub trait Deployer: Send + Sync {
     }
 }
 
-/// Add/remove/list a content-local denylist. The single read method
-/// (`is_denylisted`) is all the serving path needs; the mutation + listing
-/// methods are used exclusively by the gated admin controls.
 pub trait Denylist: Send + Sync {
     fn is_denylisted(&self, id: &str) -> bool;
 
-    /// Add `id`. Returns `Ok(true)` when newly added, `Ok(false)` when already
-    /// present. Fail-closed default.
     fn add(&self, _id: &str) -> Result<bool, String> {
         Err("denylist add not supported by this backend".to_string())
     }
 
-    /// Remove `id`. Returns `Ok(true)` when removed, `Ok(false)` when absent.
     fn remove(&self, _id: &str) -> Result<bool, String> {
         Err("denylist remove not supported by this backend".to_string())
     }
 
-    /// Snapshot of all denylisted ids. Default empty (read-only backends).
     fn list(&self) -> Vec<String> {
         Vec::new()
     }
@@ -207,15 +188,11 @@ pub trait Denylist: Send + Sync {
 pub trait ChallengeSupervisor: Send + Sync {
     fn get_challenge_text(&self) -> String;
 
-    /// Rotate the challenge text and return the new value. Default returns the
-    /// current text (backends whose challenge is derived per-call — e.g. a
-    /// uuid/timestamp — are effectively already fresh).
     fn refresh(&self) -> String {
         self.get_challenge_text()
     }
 }
 
-/// Operator intent for the sync engine, recorded by the runtime control surface.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SyncControl {
     Run,
@@ -233,23 +210,26 @@ pub trait SynchronizationState: Send + Sync {
         None
     }
 
-    /// Current operator control intent. Default `Run` (no control surface).
+    fn sync_frontier_ms(&self) -> Option<i64> {
+        None
+    }
+
+    fn sync_heartbeat_ms(&self) -> Option<i64> {
+        None
+    }
+
     fn control(&self) -> SyncControl {
         SyncControl::Run
     }
 
-    /// Request the engine pause. `Ok(())` when the intent was recorded, `Err`
-    /// when this backend has no runtime control surface (fail-closed).
     fn pause(&self) -> Result<(), String> {
         Err("sync pause not supported by this backend".to_string())
     }
 
-    /// Request the engine resume. Fail-closed default.
     fn resume(&self) -> Result<(), String> {
         Err("sync resume not supported by this backend".to_string())
     }
 
-    /// Request an immediate sync pass (clears any pause intent). Fail-closed.
     fn force(&self) -> Result<(), String> {
         Err("sync force not supported by this backend".to_string())
     }
@@ -258,20 +238,14 @@ pub trait SynchronizationState: Send + Sync {
 pub trait SnapshotGenerator: Send + Sync {
     fn get_current_snapshots(&self) -> Option<Value>;
 
-    /// Request a fresh snapshot regeneration pass. Returns a status string.
-    /// Fail-closed default for generators with no trigger hook.
     fn trigger_regeneration(&self) -> Result<String, String> {
         Err("snapshot regeneration not supported by this backend".to_string())
     }
 }
 
-/// Runtime allowlist controlling whether the realm is accepting new users.
-/// Backed by an `AtomicBool` in the live binary so an operator can flip it
-/// without a restart. Read is cheap; the mutator is admin-gated.
 pub trait AcceptingUsers: Send + Sync {
     fn is_accepting(&self) -> bool;
 
-    /// Set the accepting-users flag. Default fail-closed (no control surface).
     fn set_accepting(&self, _accepting: bool) -> Result<(), String> {
         Err("accepting-users toggle not supported by this backend".to_string())
     }
@@ -317,20 +291,13 @@ pub struct AppState {
     pub commit_hash: String,
     pub eth_network: String,
     pub content_server_address: String,
-    /// Runtime-mutable read-only flag. When `true`, the `POST /entities` deploy
-    /// route is rejected at request time (see `routes.rs::read_only_gate`). An
-    /// admin can flip it without a restart via `POST /admin/api/content/read-only`.
+
     pub read_only: AtomicBool,
 
-    /// Content DB pool used by admin-only writes (the `admin_audit` log and the
-    /// content-local denylist / failed-deployment mutations). `None` in builds
-    /// with no content DB (the stub `main.rs`), in which case audit logging is a
-    /// no-op and DB-backed mutations report unsupported.
     pub audit_pool: Option<sqlx::PgPool>,
 
-    /// `max-age` (seconds) for the opt-in `Cache-Control` header on the active-entity listing
-    /// endpoints (`/entities/active`, `/entities/:type`). `0` disables the header. Tunable via
-    /// `ENTITIES_CACHE_CONTROL_MAX_AGE` (default 10).
+    pub content_pool: Option<sqlx::PgPool>,
+
     pub entities_cache_control_max_age: u64,
 
     pub content_public_url: String,
@@ -339,19 +306,15 @@ pub struct AppState {
 
     pub squid_pool: Option<sqlx::PgPool>,
     pub profile_cdn_base_url: String,
-    /// Base URL the squid-stored LAND/estate `image` map-thumbnail URLs are
-    /// rewritten to (replacing the prod `https://api.decentraland.org` prefix),
-    /// so lambdas land listings reference the LOCAL catalyrst-map (:5143).
+
     pub land_image_base_url: String,
 }
 
 impl AppState {
-    /// Snapshot of the runtime read-only flag.
     pub fn is_read_only(&self) -> bool {
         self.read_only.load(Ordering::Relaxed)
     }
 
-    /// Flip the runtime read-only flag (admin control). Returns the new value.
     pub fn set_read_only(&self, read_only: bool) -> bool {
         self.read_only.store(read_only, Ordering::Relaxed);
         read_only

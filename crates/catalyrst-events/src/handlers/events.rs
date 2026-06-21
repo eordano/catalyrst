@@ -2,7 +2,7 @@ use axum::extract::{Path, Query, State};
 use axum::http::HeaderMap;
 use axum::Json;
 use chrono::{DateTime, Utc};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use crate::auth_chain::try_extract_signer;
@@ -10,6 +10,30 @@ use crate::http::response::{ApiError, ApiOk};
 use crate::ports::events::{EventListFilters, EventListType, SortOrder};
 use crate::schemas::EventRecord;
 use crate::AppState;
+
+#[derive(Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "events/"))]
+pub struct EventListWithTotal {
+    pub events: Vec<EventRecord>,
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
+    pub total: i64,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(untagged)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "events/"))]
+pub enum EventListData {
+    WithTotal(EventListWithTotal),
+    Events(Vec<EventRecord>),
+}
+
+#[derive(Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "events/"))]
+pub struct EventUpsertResult {
+    pub id: String,
+    #[cfg_attr(feature = "ts", ts(type = "Record<string, unknown>"))]
+    pub local: Value,
+}
 
 #[derive(Debug, Deserialize, Default)]
 pub struct EventListQuery {
@@ -38,13 +62,6 @@ pub struct EventListQuery {
 }
 
 impl EventListQuery {
-    /// Build from raw query pairs. serde_urlencoded (axum `Query<T>`) cannot
-    /// deserialize repeated keys into a `Vec<String>` field, so the array params
-    /// the real events client sends (`positions=X&positions=Y`, places_ids,
-    /// world_names — see decentraland/events Places.ts `query.append("positions", …)`)
-    /// previously 400'd ("expected a sequence") and the filters were unusable.
-    /// Extract via `Query<Vec<(String,String)>>` and collect repeated keys here.
-    /// Also accept the `key[]` bracket alias for clients that use it.
     fn from_pairs(pairs: &[(String, String)]) -> Self {
         let mut q = EventListQuery::default();
         let (mut positions, mut world_names, mut places_ids) = (Vec::new(), Vec::new(), Vec::new());
@@ -179,13 +196,19 @@ fn parse_filters(
         }
     });
 
+    let owner = resolve_owner(q);
+
     Ok(EventListFilters {
         limit,
         offset,
         list,
         order,
         highlighted,
-        creator: q.creator.as_ref().map(|c| c.to_lowercase()),
+        creator: if owner {
+            None
+        } else {
+            q.creator.as_ref().map(|c| c.to_lowercase())
+        },
         world: q.world.as_deref().and_then(parse_bool),
         world_names: q.world_names.clone().unwrap_or_default(),
         positions,
@@ -198,15 +221,77 @@ fn parse_filters(
         user: user.clone(),
         rejected: q.rejected.as_deref().and_then(parse_bool),
         only_attendee: resolve_only_attendee(q) && user.is_some(),
+        owner,
     })
 }
 
-/// Upstream gates `only_attendee` on a present query value (any value, even an
-/// unparseable one, resolves to `true` via `bool(query.only_attendee) ?? true`).
 fn resolve_only_attendee(q: &EventListQuery) -> bool {
     match q.only_attendee.as_deref() {
         Some(v) => parse_bool(v).unwrap_or(true),
         None => false,
+    }
+}
+
+fn resolve_owner(q: &EventListQuery) -> bool {
+    q.owner.as_deref().and_then(parse_bool).unwrap_or(false)
+}
+
+enum EventLocation {
+    World(String),
+    Place(String),
+}
+
+fn event_location(world: bool, server: Option<&str>, x: i32, y: i32) -> Option<EventLocation> {
+    if world {
+        server
+            .filter(|s| !s.is_empty())
+            .map(|s| EventLocation::World(s.to_string()))
+    } else {
+        Some(EventLocation::Place(format!("{},{}", x, y)))
+    }
+}
+
+fn connected_key(world: bool, server: Option<&str>, x: i32, y: i32) -> String {
+    match server {
+        Some(s) if world && !s.is_empty() => s.to_string(),
+        _ => format!("{},{}", x, y),
+    }
+}
+
+async fn attach_connected_users(state: &AppState, events: &mut [EventRecord]) {
+    use std::collections::{HashMap, HashSet};
+
+    if events.is_empty() {
+        return;
+    }
+
+    let mut worlds: HashSet<String> = HashSet::new();
+    let mut places: HashSet<String> = HashSet::new();
+    for e in events.iter() {
+        match event_location(e.world, e.server.as_deref(), e.x, e.y) {
+            Some(EventLocation::World(w)) => {
+                worlds.insert(w);
+            }
+            Some(EventLocation::Place(p)) => {
+                places.insert(p);
+            }
+            None => {}
+        }
+    }
+
+    let mut map: HashMap<String, Vec<String>> = HashMap::new();
+    for w in worlds {
+        let addrs = state.comms.get_world_participants(&w).await;
+        map.insert(w, addrs);
+    }
+    for p in places {
+        let addrs = state.comms.get_scene_participants(&p).await;
+        map.insert(p, addrs);
+    }
+
+    for e in events.iter_mut() {
+        let key = connected_key(e.world, e.server.as_deref(), e.x, e.y);
+        e.connected_addresses = Some(map.get(&key).cloned().unwrap_or_default());
     }
 }
 
@@ -225,7 +310,7 @@ pub async fn get_event_list(
     State(state): State<AppState>,
     headers: HeaderMap,
     Query(pairs): Query<Vec<(String, String)>>,
-) -> Result<Json<Value>, ApiError> {
+) -> Result<Json<ApiOk<EventListData>>, ApiError> {
     let q = EventListQuery::from_pairs(&pairs);
     let user = optional_user(&headers, "get", "/api/events");
     if q.only_attendee.is_some() && user.is_none() {
@@ -233,19 +318,23 @@ pub async fn get_event_list(
             "only_attendee filter requieres autentication",
         ));
     }
+    if resolve_owner(&q) && user.is_none() {
+        return Err(ApiError::unauthorized(
+            "owner filter requires authentication",
+        ));
+    }
     let filters = parse_filters(&q, Vec::new(), None, user)?;
     let envelope_with_total = !filters.places_ids.is_empty() || filters.community_id.is_some();
     let (mut events, total) = state.events.query(&filters, envelope_with_total).await?;
     if with_connected(&q) {
-        state.events.attach_connected_addresses(&mut events).await?;
+        attach_connected_users(&state, &mut events).await;
     }
-    if envelope_with_total {
-        Ok(Json(
-            json!({"ok": true, "data": {"events": events, "total": total}}),
-        ))
+    let data = if envelope_with_total {
+        EventListData::WithTotal(EventListWithTotal { events, total })
     } else {
-        Ok(Json(json!({"ok": true, "data": events})))
-    }
+        EventListData::Events(events)
+    };
+    Ok(Json(ApiOk::new(data)))
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -261,7 +350,7 @@ pub async fn post_event_search(
     headers: HeaderMap,
     Query(pairs): Query<Vec<(String, String)>>,
     Json(body): Json<EventSearchBody>,
-) -> Result<Json<Value>, ApiError> {
+) -> Result<Json<ApiOk<EventListData>>, ApiError> {
     let q = EventListQuery::from_pairs(&pairs);
     let user = optional_user(&headers, "post", "/api/events/search");
     if q.only_attendee.is_some() && user.is_none() {
@@ -269,19 +358,23 @@ pub async fn post_event_search(
             "only_attendee filter requieres autentication",
         ));
     }
+    if resolve_owner(&q) && user.is_none() {
+        return Err(ApiError::unauthorized(
+            "owner filter requires authentication",
+        ));
+    }
     let filters = parse_filters(&q, body.place_ids, body.community_id, user)?;
     let envelope_with_total = !filters.places_ids.is_empty() || filters.community_id.is_some();
     let (mut events, total) = state.events.query(&filters, envelope_with_total).await?;
     if with_connected(&q) {
-        state.events.attach_connected_addresses(&mut events).await?;
+        attach_connected_users(&state, &mut events).await;
     }
-    if envelope_with_total {
-        Ok(Json(
-            json!({"ok": true, "data": {"events": events, "total": total}}),
-        ))
+    let data = if envelope_with_total {
+        EventListData::WithTotal(EventListWithTotal { events, total })
     } else {
-        Ok(Json(json!({"ok": true, "data": events})))
-    }
+        EventListData::Events(events)
+    };
+    Ok(Json(ApiOk::new(data)))
 }
 
 pub async fn get_event(
@@ -317,14 +410,32 @@ pub async fn get_attending_event_list(
     Ok(Json(ApiOk::new(events)))
 }
 
-// ── Admin moderation (docs/admin-console.md §4, catalyrst-events) ──────────
-//
-// The archive-owned `event` table is read-only for this service (the
-// events-archive importer is its only writer). Admin create / moderation
-// actions are therefore persisted into the writable `events_local` overlay
-// table, keyed by event id, the same way RSVPs land in
-// `event_attendance_local`. Each route is gated by a constant-time bearer
-// compare against `CATALYRST_EVENTS_ADMIN_TOKEN` (fail-closed when unset).
+#[derive(Debug, Deserialize, Default)]
+pub struct ModerationListQuery {
+    pub limit: Option<String>,
+}
+
+pub async fn get_moderation_list(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(pairs): Query<Vec<(String, String)>>,
+) -> Result<Json<ApiOk<Vec<EventRecord>>>, ApiError> {
+    crate::admin::authorize_admin(&state, &headers)?;
+    let q = ModerationListQuery {
+        limit: pairs
+            .iter()
+            .find(|(k, _)| k == "limit")
+            .map(|(_, v)| v.clone()),
+    };
+    let limit = q
+        .limit
+        .as_deref()
+        .and_then(|s| s.parse::<i64>().ok())
+        .map(|n| n.clamp(0, 500))
+        .unwrap_or(24);
+    let events = state.events.moderation_pending(limit).await?;
+    Ok(Json(ApiOk::new(events)))
+}
 
 #[derive(Debug, Deserialize)]
 pub struct CreateEventBody {
@@ -339,8 +450,7 @@ pub struct CreateEventBody {
     pub x: Option<i32>,
     #[serde(default)]
     pub y: Option<i32>,
-    /// Optional explicit id; a uuid-like id is derived from the name+time when
-    /// omitted so callers can create without coordinating ids.
+
     #[serde(default)]
     pub id: Option<String>,
 }
@@ -361,7 +471,7 @@ pub async fn create_event(
     State(state): State<AppState>,
     headers: HeaderMap,
     Json(body): Json<CreateEventBody>,
-) -> Result<Json<Value>, ApiError> {
+) -> Result<Json<ApiOk<EventUpsertResult>>, ApiError> {
     crate::admin::authorize_admin(&state, &headers)?;
 
     let name = body.name.trim();
@@ -387,15 +497,14 @@ pub async fn create_event(
     });
 
     let merged = state.events.upsert_local(&event_id, "admin", doc).await?;
-    Ok(Json(
-        json!({"ok": true, "data": {"id": event_id, "local": merged}}),
-    ))
+    Ok(Json(ApiOk::new(EventUpsertResult {
+        id: event_id,
+        local: merged,
+    })))
 }
 
 #[derive(Debug, Deserialize)]
 pub struct PatchEventBody {
-    /// approve | reject | feature | unfeature | archive (any subset of the
-    /// boolean fields below may be set directly instead).
     #[serde(default)]
     pub action: Option<String>,
     #[serde(default)]
@@ -406,7 +515,7 @@ pub struct PatchEventBody {
     pub highlighted: Option<bool>,
     #[serde(default)]
     pub trending: Option<bool>,
-    /// editable content fields (overlay only)
+
     #[serde(default)]
     pub name: Option<String>,
     #[serde(default)]
@@ -418,11 +527,9 @@ pub async fn patch_event(
     headers: HeaderMap,
     Path(event_id): Path<String>,
     Json(body): Json<PatchEventBody>,
-) -> Result<Json<Value>, ApiError> {
+) -> Result<Json<ApiOk<EventUpsertResult>>, ApiError> {
     crate::admin::authorize_admin(&state, &headers)?;
 
-    // The target must be a known event (archive row) or an existing local
-    // overlay (e.g. an admin-created draft).
     let known =
         state.events.exists(&event_id).await? || state.events.get_local(&event_id).await?.is_some();
     if !known {
@@ -433,7 +540,7 @@ pub async fn patch_event(
     }
 
     let mut doc = serde_json::Map::new();
-    // Named actions expand to overlay flags.
+
     match body.action.as_deref() {
         Some("approve") => {
             doc.insert("approved".into(), json!(true));
@@ -457,7 +564,7 @@ pub async fn patch_event(
         }
         None => {}
     }
-    // Explicit field overrides (take precedence over the named action).
+
     if let Some(v) = body.approved {
         doc.insert("approved".into(), json!(v));
     }
@@ -488,8 +595,15 @@ pub async fn patch_event(
         .events
         .upsert_local(&event_id, "admin", Value::Object(doc))
         .await?;
-    Ok(Json(
-        json!({"ok": true, "data": {"id": event_id, "local": merged}}),
+    Ok(Json(ApiOk::new(EventUpsertResult {
+        id: event_id,
+        local: merged,
+    })))
+}
+
+pub async fn delete_event(Path(_event_id): Path<String>) -> Result<Json<Value>, ApiError> {
+    Err(ApiError::not_implemented(
+        "event deletion is handled via the federation write path",
     ))
 }
 
@@ -512,5 +626,179 @@ mod tests {
         assert!(!resolve_only_attendee(&q(Some("false"))));
         assert!(!resolve_only_attendee(&q(Some("0"))));
         assert!(resolve_only_attendee(&q(Some("yes"))));
+    }
+
+    fn owner_q(v: Option<&str>) -> EventListQuery {
+        EventListQuery {
+            owner: v.map(String::from),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn owner_resolves_only_for_explicit_truthy() {
+        assert!(!resolve_owner(&owner_q(None)));
+        assert!(resolve_owner(&owner_q(Some("true"))));
+        assert!(resolve_owner(&owner_q(Some("1"))));
+        assert!(!resolve_owner(&owner_q(Some("false"))));
+        assert!(!resolve_owner(&owner_q(Some("0"))));
+        assert!(!resolve_owner(&owner_q(Some("yes"))));
+    }
+
+    #[test]
+    fn parse_filters_owner_suppresses_creator() {
+        let q = EventListQuery {
+            owner: Some("true".into()),
+            creator: Some("0xDEF".into()),
+            ..Default::default()
+        };
+        let f = parse_filters(&q, Vec::new(), None, Some("0xabc".into())).unwrap();
+        assert!(f.owner);
+        assert!(f.creator.is_none(), "creator must be dropped under owner");
+
+        let q2 = EventListQuery {
+            creator: Some("0xDEF".into()),
+            ..Default::default()
+        };
+        let f2 = parse_filters(&q2, Vec::new(), None, Some("0xabc".into())).unwrap();
+        assert!(!f2.owner);
+        assert_eq!(f2.creator.as_deref(), Some("0xdef"));
+    }
+
+    #[test]
+    fn connected_location_and_key() {
+        assert!(matches!(
+            event_location(true, Some("my.dcl.eth"), 0, 0),
+            Some(EventLocation::World(ref w)) if w.as_str() == "my.dcl.eth"
+        ));
+        assert_eq!(connected_key(true, Some("my.dcl.eth"), 0, 0), "my.dcl.eth");
+
+        assert!(matches!(
+            event_location(false, None, 10, 20),
+            Some(EventLocation::Place(ref p)) if p.as_str() == "10,20"
+        ));
+        assert_eq!(connected_key(false, None, 10, 20), "10,20");
+
+        assert!(event_location(true, None, 5, 6).is_none());
+        assert!(event_location(true, Some(""), 5, 6).is_none());
+        assert_eq!(connected_key(true, None, 5, 6), "5,6");
+    }
+
+    fn sample_event(connected: Option<Vec<String>>) -> EventRecord {
+        let ts = |s: &str| {
+            DateTime::parse_from_rfc3339(s)
+                .expect("valid rfc3339")
+                .with_timezone(&Utc)
+        };
+        EventRecord {
+            id: "409b6eb1-1fe2-40ab-afc3-6e117dd8cf10".into(),
+            name: "Community Meeting".into(),
+            image: Some("https://events-assets/poster/6f0d.png".into()),
+            image_vertical: None,
+            description: None,
+            start_at: Some(ts("2026-07-06T14:00:00Z")),
+            finish_at: Some(ts("2026-07-06T15:00:00Z")),
+            next_start_at: None,
+            next_finish_at: None,
+            duration: Some(3_600_000),
+            all_day: false,
+            x: 10,
+            y: -20,
+            server: None,
+            url: Some("https://decentraland.org/play/?position=10%2C-20".into()),
+            user: Some("0xc073b6a602d4061d57ba78db3d93a3f856476396".into()),
+            user_name: None,
+            estate_id: Some("1164".into()),
+            estate_name: Some("Genesis Plaza".into()),
+            scene_name: None,
+            approved: true,
+            rejected: false,
+            highlighted: false,
+            trending: false,
+            world: false,
+            recurrent: true,
+            recurrent_frequency: Some("MONTHLY".into()),
+            recurrent_weekday_mask: 0,
+            recurrent_month_mask: 0,
+            recurrent_interval: 1,
+            recurrent_setpos: None,
+            recurrent_monthday: Some(6),
+            recurrent_count: None,
+            recurrent_until: Some(ts("2026-12-06T14:00:00Z")),
+            recurrent_dates: vec![ts("2026-07-06T14:00:00Z"), ts("2026-08-06T14:00:00Z")],
+            categories: vec!["social".into()],
+            schedules: vec![],
+            total_attendees: 3,
+            latest_attendees: vec!["0xeb0c682e1ca11e62eabe436ea36459d57616e5f1".into()],
+            coordinates: [10, -20],
+            position: [10, -20],
+            live: false,
+            attending: false,
+            place_id: None,
+            community_id: Some("e99471aa-31c4-4952-abf6-99905445f43b".into()),
+            connected_addresses: connected,
+        }
+    }
+
+    #[test]
+    fn wire_identity_event_list_plain() {
+        let events = vec![sample_event(None), sample_event(Some(vec!["0x1".into()]))];
+        let new = serde_json::to_value(ApiOk::new(EventListData::Events(events.clone()))).unwrap();
+        assert_eq!(new, json!({"ok": true, "data": events}));
+
+        assert!(new["data"][0].get("connected_addresses").is_none());
+        assert!(new["data"][1]["connected_addresses"].is_array());
+        assert!(new["data"][0]["description"].is_null());
+    }
+
+    #[test]
+    fn wire_identity_event_list_with_total() {
+        let events = vec![sample_event(None)];
+        let new = serde_json::to_value(ApiOk::new(EventListData::WithTotal(EventListWithTotal {
+            events: events.clone(),
+            total: 42,
+        })))
+        .unwrap();
+        assert_eq!(
+            new,
+            json!({"ok": true, "data": {"events": events, "total": 42}})
+        );
+    }
+
+    #[test]
+    fn wire_identity_moderation_list() {
+        let events: Vec<EventRecord> = vec![sample_event(None)];
+        let new = serde_json::to_value(ApiOk::new(events.clone())).unwrap();
+        assert_eq!(new, json!({"ok": true, "data": events}));
+
+        let empty: Vec<EventRecord> = Vec::new();
+        let new = serde_json::to_value(ApiOk::new(empty.clone())).unwrap();
+        assert_eq!(new, json!({"ok": true, "data": empty}));
+    }
+
+    #[test]
+    fn wire_identity_event_upsert_result() {
+        let merged = json!({
+            "action": "create",
+            "name": "Community Meeting",
+            "description": null,
+            "approved": false,
+            "created_via": "admin",
+            "some_future_key": {"nested": [1, 2, null]}
+        });
+        let new = serde_json::to_value(ApiOk::new(EventUpsertResult {
+            id: "local-0011223344556677".into(),
+            local: merged.clone(),
+        }))
+        .unwrap();
+        assert_eq!(
+            new,
+            json!({"ok": true, "data": {"id": "local-0011223344556677", "local": merged}})
+        );
+        assert!(new["data"]["local"]["description"].is_null());
+        assert_eq!(
+            new["data"]["local"]["some_future_key"]["nested"][2],
+            json!(null)
+        );
     }
 }

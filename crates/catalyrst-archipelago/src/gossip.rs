@@ -1,7 +1,7 @@
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine as _;
 use chrono::{DateTime, Utc};
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
@@ -96,7 +96,7 @@ impl GossipBus {
 
     pub fn sign(&self, body: &[u8], ts: i64) -> Result<String, GossipError> {
         let key = self.cfg.hmac_key.as_deref().ok_or(GossipError::Disabled)?;
-        let mut mac = <Hmac<Sha256> as Mac>::new_from_slice(key.as_bytes())
+        let mut mac = <Hmac<Sha256> as KeyInit>::new_from_slice(key.as_bytes())
             .expect("HMAC accepts any key length");
         mac.update(ts.to_string().as_bytes());
         mac.update(b"\n");

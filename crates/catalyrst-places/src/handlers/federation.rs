@@ -5,18 +5,17 @@ use catalyrst_fed::{Signed, TypedMessage};
 use serde::de::DeserializeOwned;
 use serde_json::{json, Value};
 
-use crate::auth::{auth_address_verified, require_admin_bearer, require_bearer_token};
+use crate::auth::{
+    auth_address_verified, require_admin_bearer, require_bearer_token, require_ranking_token,
+};
 use crate::fed::apply as fed_apply;
 use crate::fed::messages::{PlaceFavorite, PlaceReport, PlaceVote};
 use crate::fed::replay;
 use crate::http::errors::ApiError;
 use crate::http::response::ApiData;
-use crate::ports::places::PlaceRow;
+use crate::ports::places::{PlaceRow, PlacesComponent};
 use crate::AppState;
 
-/// A `Signed<T>` JSON envelope is `{ domain, message, signature, nonce,
-/// signed_at }`. We branch on its presence so the legacy auth-address body
-/// (`{ favorites: bool }` / `{ like: bool|null }`) still works.
 fn is_federation_envelope(body: &Option<Json<Value>>) -> bool {
     body.as_ref()
         .and_then(|Json(v)| v.as_object())
@@ -26,8 +25,6 @@ fn is_federation_envelope(body: &Option<Json<Value>>) -> bool {
         .unwrap_or(false)
 }
 
-/// Verify envelope + domain + replay + per-wallet rate limit. Returns the
-/// recovered wallet signer (places.md: post session-delegation resolution).
 async fn preflight<T: TypedMessage + DeserializeOwned>(
     state: &AppState,
     headers: &HeaderMap,
@@ -41,8 +38,6 @@ async fn preflight<T: TypedMessage + DeserializeOwned>(
         ApiError::bad_request(format!("invalid Signed<{}>: {}", T::PRIMARY_TYPE, e))
     })?;
 
-    // signer is recovered from the signature (00-primitives.md §2.1). The
-    // auth-chain header (if present) is cross-checked when available.
     let signer = signed
         .signer()
         .map_err(|e| ApiError::unauthorized(format!("signature verify: {}", e)))?;
@@ -80,8 +75,6 @@ fn body_bool(body: &Option<Json<Value>>, key: &str) -> Option<bool> {
         .and_then(|v| v.as_bool())
 }
 
-/// A place entity id is a UUID; world routes reject these so callers use the
-/// place-namespaced route (places ac340f2 isPlaceId guard).
 fn is_place_uuid(s: &str) -> bool {
     let b = s.as_bytes();
     b.len() == 36
@@ -92,25 +85,38 @@ fn is_place_uuid(s: &str) -> bool {
         && s.chars().all(|c| c.is_ascii_hexdigit() || c == '-')
 }
 
-/// World routes resolve worlds-only (`find_world_by_id`) with a "world" 404;
-/// place routes accept place-UUID or world id (places f55bb30 retrocompat).
+pub async fn lookup_entity(
+    places: &PlacesComponent,
+    entity_id: &str,
+    is_world: bool,
+) -> Result<Option<PlaceRow>, ApiError> {
+    if is_world {
+        return places.find_world_by_id(entity_id).await;
+    }
+    if let Some(place) = places.find_by_id(entity_id).await? {
+        return Ok(Some(place));
+    }
+    if is_place_uuid(entity_id) {
+        return Ok(None);
+    }
+    places.find_world_by_id(entity_id).await
+}
+
 async fn resolve_entity(
     state: &AppState,
     entity_id: &str,
     is_world: bool,
 ) -> Result<PlaceRow, ApiError> {
-    if is_world {
-        state
-            .places
-            .find_world_by_id(entity_id)
-            .await?
-            .ok_or_else(|| ApiError::not_found(format!("Not found world \"{}\"", entity_id)))
-    } else {
-        state
-            .places
-            .find_by_id(entity_id)
-            .await?
-            .ok_or_else(|| ApiError::not_found(format!("Not found entity \"{}\"", entity_id)))
+    match lookup_entity(&state.places, entity_id, is_world).await? {
+        Some(entity) => Ok(entity),
+        None if is_world => Err(ApiError::not_found(format!(
+            "Not found world \"{}\"",
+            entity_id
+        ))),
+        None => Err(ApiError::not_found(format!(
+            "Not found entity \"{}\"",
+            entity_id
+        ))),
     }
 }
 
@@ -123,9 +129,6 @@ fn body_like(body: &Option<Json<Value>>) -> Option<Option<bool>> {
     }
 }
 
-/// Best-effort gossip of a locally-applied signed place opinion (places.md §4).
-/// Never fails the request; the action is durable in `signed_actions_places`
-/// and recoverable via snapshot.
 async fn emit_gossip<T>(state: &AppState, signed: &Signed<T>, sig_hash: &str, signer: &str)
 where
     T: TypedMessage + serde::Serialize,
@@ -303,9 +306,6 @@ async fn do_patch_likes(
         })));
     }
 
-    // Capture the voter's Snapshot voting power at vote time (port of
-    // updateLike's `fetchScore` call). Only fetched when storing a vote — a
-    // withdraw (like == null) deletes the row, so no score is needed.
     let user_activity = match like_req {
         Some(_) => crate::snapshot::fetch_score(&user).await,
         None => 0.0,
@@ -392,10 +392,6 @@ fn require_admin(
     path: &str,
     action: &str,
 ) -> Result<(), ApiError> {
-    // Bearer parity (admin-console.md §4): the console can't forge a user
-    // auth-chain signature, so these routes ALSO accept the admin bearer token
-    // in addition to the existing admin signed-fetch path. This is additive —
-    // a valid admin signature still authorizes when no bearer is presented.
     if crate::auth::bearer_token(headers).is_some() {
         return require_admin_bearer(headers, state.admin_auth_token.as_deref());
     }
@@ -441,6 +437,15 @@ fn body_ranking(body: &Option<Json<Value>>) -> Result<Option<f64>, ApiError> {
     }
 }
 
+fn body_disabled(body: &Option<Json<Value>>) -> Result<bool, ApiError> {
+    body.as_ref()
+        .and_then(|Json(v)| v.get("disabled"))
+        .and_then(|v| v.as_bool())
+        .ok_or_else(|| {
+            ApiError::bad_request("Invalid disable body. Expected { disabled: boolean }.")
+        })
+}
+
 const ALLOWED_RATINGS: [&str; 5] = ["PR", "E", "T", "A", "R"];
 
 fn body_content_rating(body: &Option<Json<Value>>) -> Result<String, ApiError> {
@@ -478,7 +483,11 @@ pub async fn put_place_ranking(
     Path(place_id): Path<String>,
     body: Option<Json<Value>>,
 ) -> Result<Json<ApiData<PlaceRow>>, ApiError> {
-    require_bearer_token(&headers, state.data_team_auth_token.as_deref())?;
+    require_ranking_token(
+        &headers,
+        state.data_team_auth_token.as_deref(),
+        state.admin_auth_token.as_deref(),
+    )?;
     let ranking = body_ranking(&body)?;
     let mut place = fetch_place(&state, &place_id).await?;
     state.places.set_ranking(&place_id, ranking).await?;
@@ -505,6 +514,29 @@ pub async fn put_place_highlight(
     let mut place = fetch_place(&state, &place_id).await?;
     state.places.set_highlighted(&place_id, highlighted).await?;
     place.highlighted = highlighted;
+    Ok(Json(ApiData::ok(place)))
+}
+
+pub async fn put_place_disable(
+    State(state): State<AppState>,
+    method: Method,
+    OriginalUri(uri): OriginalUri,
+    headers: HeaderMap,
+    Path(place_id): Path<String>,
+    body: Option<Json<Value>>,
+) -> Result<Json<ApiData<PlaceRow>>, ApiError> {
+    require_admin(&state, &headers, method.as_str(), uri.path(), "disabled")?;
+    let disabled = body_disabled(&body)?;
+    let mut place = fetch_place(&state, &place_id).await?;
+    state
+        .places
+        .set_disabled(&place_id, disabled, disabled.then_some("moderation"))
+        .await?;
+    let now = chrono::Utc::now();
+    place.disabled = disabled;
+    place.disabled_at = disabled.then_some(now);
+    place.disabled_reason = disabled.then(|| "moderation".to_string());
+    place.updated_at = Some(now);
     Ok(Json(ApiData::ok(place)))
 }
 
@@ -560,7 +592,11 @@ pub async fn put_world_ranking(
     Path(world_id): Path<String>,
     body: Option<Json<Value>>,
 ) -> Result<Json<ApiData<PlaceRow>>, ApiError> {
-    require_bearer_token(&headers, state.data_team_auth_token.as_deref())?;
+    require_ranking_token(
+        &headers,
+        state.data_team_auth_token.as_deref(),
+        state.admin_auth_token.as_deref(),
+    )?;
     let ranking = body_ranking(&body)?;
     let mut world = fetch_world(&state, &world_id).await?;
     state.places.set_ranking(&world.id, ranking).await?;
@@ -610,7 +646,48 @@ pub async fn delete_world_featured(
 
 #[cfg(test)]
 mod tests {
-    use super::is_place_uuid;
+    use super::{body_disabled, is_place_uuid};
+    use crate::auth::require_ranking_token;
+    use crate::http::errors::ApiError;
+    use axum::http::HeaderMap;
+    use axum::Json;
+    use serde_json::json;
+
+    fn bearer(token: &str) -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        headers.insert("authorization", format!("Bearer {token}").parse().unwrap());
+        headers
+    }
+
+    #[test]
+    fn ranking_accepts_data_team_token() {
+        let headers = bearer("data-team");
+        assert!(require_ranking_token(&headers, Some("data-team"), Some("admin")).is_ok());
+        assert!(require_ranking_token(&headers, Some("data-team"), None).is_ok());
+    }
+
+    #[test]
+    fn ranking_accepts_admin_token() {
+        let headers = bearer("admin");
+        assert!(require_ranking_token(&headers, Some("data-team"), Some("admin")).is_ok());
+        assert!(require_ranking_token(&headers, None, Some("admin")).is_ok());
+    }
+
+    #[test]
+    fn ranking_rejects_wrong_token() {
+        let headers = bearer("nope");
+        let err = require_ranking_token(&headers, Some("data-team"), Some("admin")).unwrap_err();
+        assert!(matches!(err, ApiError::Unauthorized(_)));
+    }
+
+    #[test]
+    fn ranking_rejects_when_no_tokens_configured_or_header_missing() {
+        let err = require_ranking_token(&bearer("anything"), None, None).unwrap_err();
+        assert!(matches!(err, ApiError::Unauthorized(_)));
+        let err =
+            require_ranking_token(&HeaderMap::new(), Some("data-team"), Some("admin")).unwrap_err();
+        assert!(matches!(err, ApiError::Unauthorized(_)));
+    }
 
     #[test]
     fn place_uuid_guard() {
@@ -619,5 +696,24 @@ mod tests {
         assert!(!is_place_uuid("123e4567e89b12d3a456426614174000"));
         assert!(!is_place_uuid("123e4567-e89b-12d3-a456-42661417400g"));
         assert!(!is_place_uuid(""));
+    }
+
+    #[test]
+    fn disable_body_validation() {
+        assert!(body_disabled(&Some(Json(json!({ "disabled": true })))).unwrap());
+        assert!(!body_disabled(&Some(Json(json!({ "disabled": false })))).unwrap());
+        for body in [
+            None,
+            Some(Json(json!({}))),
+            Some(Json(json!({ "disabled": "true" }))),
+            Some(Json(json!({ "disabled": 1 }))),
+            Some(Json(json!({ "disabled": null }))),
+        ] {
+            let err = body_disabled(&body).unwrap_err();
+            assert_eq!(
+                err.to_string(),
+                "Invalid disable body. Expected { disabled: boolean }."
+            );
+        }
     }
 }

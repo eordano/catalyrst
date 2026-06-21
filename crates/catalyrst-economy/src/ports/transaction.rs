@@ -36,6 +36,10 @@ pub fn parse_send_transaction_request(body: &[u8]) -> Result<TransactionData, Ap
     validate_transaction_data(transaction_data)
 }
 
+const ADDRESS_PATTERN: &str = "^0x[a-fA-F0-9]{40}$";
+const CALLDATA_PATTERN: &str = "^0x[a-fA-F0-9]+$";
+const CALLDATA_MAX_LENGTH: usize = 200_002;
+
 fn schema_error(
     instance_path: &str,
     schema_path: &str,
@@ -109,6 +113,16 @@ fn validate_transaction_data(data: &Value) -> Result<TransactionData, ApiError> 
         }
     };
 
+    if !is_hex_address(&from) {
+        return Err(schema_error(
+            "/from",
+            "#/properties/from/pattern",
+            "pattern",
+            json!({ "pattern": ADDRESS_PATTERN }),
+            &format!("must match pattern \"{ADDRESS_PATTERN}\""),
+        ));
+    }
+
     let arr = match obj.get("params") {
         Some(Value::Array(a)) => a,
         _ => {
@@ -143,8 +157,8 @@ fn validate_transaction_data(data: &Value) -> Result<TransactionData, ApiError> 
 
     let mut params = Vec::with_capacity(2);
     for (i, item) in arr.iter().enumerate() {
-        match item {
-            Value::String(s) => params.push(s.clone()),
+        let s = match item {
+            Value::String(s) => s,
             _ => {
                 return Err(schema_error(
                     &format!("/params/{i}"),
@@ -154,10 +168,74 @@ fn validate_transaction_data(data: &Value) -> Result<TransactionData, ApiError> 
                     "must be string",
                 ));
             }
+        };
+
+        if i == 1 && s.chars().count() > CALLDATA_MAX_LENGTH {
+            return Err(schema_error(
+                "/params/1",
+                "#/properties/params/items/1/maxLength",
+                "maxLength",
+                json!({ "limit": CALLDATA_MAX_LENGTH }),
+                &format!("must NOT have more than {CALLDATA_MAX_LENGTH} characters"),
+            ));
         }
+
+        let (matches, pattern) = if i == 0 {
+            (is_hex_address(s), ADDRESS_PATTERN)
+        } else {
+            (is_hex_data(s), CALLDATA_PATTERN)
+        };
+        if !matches {
+            return Err(schema_error(
+                &format!("/params/{i}"),
+                &format!("#/properties/params/items/{i}/pattern"),
+                "pattern",
+                json!({ "pattern": pattern }),
+                &format!("must match pattern \"{pattern}\""),
+            ));
+        }
+
+        params.push(s.clone());
     }
 
     Ok(TransactionData { from, params })
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReservationDisposition {
+    Release,
+    Keep,
+}
+
+pub fn reservation_disposition(err: &ApiError) -> ReservationDisposition {
+    if is_post_broadcast(err) {
+        return ReservationDisposition::Keep;
+    }
+    if is_pre_broadcast(err) {
+        ReservationDisposition::Release
+    } else {
+        ReservationDisposition::Keep
+    }
+}
+
+fn is_post_broadcast(err: &ApiError) -> bool {
+    matches!(
+        err,
+        ApiError::RelayReverted(_) | ApiError::RelayerTimeout(_)
+    )
+}
+
+fn is_pre_broadcast(err: &ApiError) -> bool {
+    matches!(
+        err,
+        ApiError::InvalidSchema(_)
+            | ApiError::InvalidSalePrice(_)
+            | ApiError::InvalidContractAddress(_)
+            | ApiError::InvalidTransaction(_)
+            | ApiError::HighCongestion(_)
+            | ApiError::RelayerFailed(_)
+            | ApiError::RelayerUnavailable(_)
+    )
 }
 
 #[derive(Debug, Serialize, sqlx::FromRow)]
@@ -200,20 +278,76 @@ impl TransactionComponent {
         }
     }
 
-    /// Whether the OZ HTTP relayer is provisioned (wired at startup).
     pub fn has_oz_relayer(&self) -> bool {
         self.relayer.is_some()
     }
 
-    /// Whether the direct JSON-RPC signer is provisioned (wired at startup).
     pub fn has_direct_signer(&self) -> bool {
         self.signer.is_some()
     }
 
-    pub async fn insert(&self, tx_hash: &str, user_address: &str) -> Result<(), ApiError> {
-        sqlx::query("INSERT INTO transactions (tx_hash, user_address) VALUES ($1, $2)")
-            .bind(tx_hash)
-            .bind(user_address.to_lowercase())
+    pub fn direct_signer(&self) -> Option<&DirectSigner> {
+        self.signer.as_ref()
+    }
+
+    pub async fn reserve_quota(
+        &self,
+        max_transactions_per_day: i64,
+        user_address: &str,
+        session_id: &str,
+    ) -> Result<(), ApiError> {
+        let user_address = user_address.to_lowercase();
+
+        let mut db_tx = self.pool.begin().await?;
+
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtext($1))")
+            .bind(&user_address)
+            .execute(&mut *db_tx)
+            .await?;
+
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM transactions \
+             WHERE user_address = $1 AND created_at >= NOW() - INTERVAL '1 day'",
+        )
+        .bind(&user_address)
+        .fetch_one(&mut *db_tx)
+        .await?;
+
+        if count >= max_transactions_per_day {
+            db_tx.rollback().await?;
+            return Err(ApiError::QuotaReached(format!(
+                "Max amount of transactions reached for address. Quota: {count}"
+            )));
+        }
+
+        sqlx::query("INSERT INTO transactions (user_address, session_id) VALUES ($1, $2)")
+            .bind(&user_address)
+            .bind(session_id)
+            .execute(&mut *db_tx)
+            .await?;
+
+        db_tx.commit().await?;
+        Ok(())
+    }
+
+    pub async fn confirm_reservation(
+        &self,
+        session_id: &str,
+        tx_hash: &str,
+    ) -> Result<(), ApiError> {
+        sqlx::query(
+            "UPDATE transactions SET tx_hash = $1, session_id = NULL WHERE session_id = $2",
+        )
+        .bind(tx_hash)
+        .bind(session_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn release_reservation(&self, session_id: &str) -> Result<(), ApiError> {
+        sqlx::query("DELETE FROM transactions WHERE session_id = $1")
+            .bind(session_id)
             .execute(&self.pool)
             .await?;
         Ok(())
@@ -224,7 +358,8 @@ impl TransactionComponent {
         user_address: &str,
     ) -> Result<Vec<TransactionRow>, ApiError> {
         let rows = sqlx::query_as::<_, TransactionRow>(
-            "SELECT id, tx_hash, user_address, created_at FROM transactions WHERE user_address = $1",
+            "SELECT id, tx_hash, user_address, created_at FROM transactions \
+             WHERE user_address = $1 AND tx_hash IS NOT NULL",
         )
         .bind(user_address.to_lowercase())
         .fetch_all(&self.pool)
@@ -239,13 +374,13 @@ impl TransactionComponent {
         tx: &TransactionData,
     ) -> Result<(), ApiError> {
         self.check_function_selector(tx)?;
+        self.check_quota(cfg, tx).await?;
         if cfg.has_rpc() {
             self.check_gas_price(cfg, tx).await?;
             self.check_transaction(cfg, tx).await?;
         }
         check_sale_price(cfg, tx)?;
         self.check_contract_address(contracts, tx).await?;
-        self.check_quota(cfg, tx).await?;
         Ok(())
     }
 
@@ -280,15 +415,10 @@ impl TransactionComponent {
 
     async fn check_quota(&self, cfg: &Config, tx: &TransactionData) -> Result<(), ApiError> {
         let from = tx.from.to_lowercase();
-        // MAX_TRANSACTIONS_PER_DAY is a per-address daily cap (a relayer-gas
-        // spend guard). Upstream transactions-server filters `created_at >= NOW()`,
-        // which only matches future-dated rows — so the count is always ~0 and the
-        // quota never actually fires. We diverge from that bug and count the
-        // calendar day's rows (`>= CURRENT_DATE`), matching the upstream variable's
-        // own name (`todayAddressTransactions`) and the MAX_TRANSACTIONS_PER_DAY
-        // intent. Matters once a relayer is provisioned and broadcasts go live.
+
         let count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM transactions WHERE user_address = $1 AND created_at >= CURRENT_DATE",
+            "SELECT COUNT(*) FROM transactions \
+             WHERE user_address = $1 AND created_at >= NOW() - INTERVAL '1 day'",
         )
         .bind(&from)
         .fetch_one(&self.pool)
@@ -374,20 +504,6 @@ impl TransactionComponent {
             .map_err(|e| e.to_string())
     }
 
-    /// Broadcast a validated meta-transaction. Provider selection honours the
-    /// runtime-mutable admin controls ([`crate::admin::RuntimeConfig`]):
-    ///   - If the relayer master switch is OFF, short-circuit to 503 (the same
-    ///     "validation passed, broadcast unavailable" contract), regardless of
-    ///     what is provisioned. This is the admin "relayer off" toggle.
-    ///   - Otherwise pick a provisioned provider per the signer-preference:
-    ///       * `Auto`   → OZ HTTP relayer first, then direct JSON-RPC signer
-    ///         (the historical startup-only order).
-    ///       * `Oz`     → OZ HTTP relayer only.
-    ///       * `Direct` → direct JSON-RPC signer only.
-    ///   - If the selected provider is not provisioned → 503.
-    ///
-    /// With the default runtime state (`enabled = true`, `signer = Auto`) this is
-    /// byte-for-byte the prior behaviour.
     pub async fn send_meta_transaction(
         &self,
         _cfg: &Config,
@@ -423,7 +539,9 @@ fn check_sale_price(cfg: &Config, tx: &TransactionData) -> Result<(), ApiError> 
     let Some(contracts) = DclContracts::for_chain(cfg.collections_chain_id) else {
         return Ok(());
     };
-    let contract_address = tx.params[0].to_lowercase();
+    let Ok(contract_address) = tx.params[0].trim().parse::<alloy::primitives::Address>() else {
+        return Ok(());
+    };
     let kind = if contract_address == contracts.collection_store {
         SaleKind::CollectionStore
     } else if contract_address == contracts.marketplace_v2 {
@@ -453,6 +571,20 @@ fn check_sale_price(cfg: &Config, tx: &TransactionData) -> Result<(), ApiError> 
     Ok(())
 }
 
+fn is_hex_address(s: &str) -> bool {
+    match s.strip_prefix("0x") {
+        Some(rest) => rest.len() == 40 && rest.bytes().all(|b| b.is_ascii_hexdigit()),
+        None => false,
+    }
+}
+
+fn is_hex_data(s: &str) -> bool {
+    match s.strip_prefix("0x") {
+        Some(rest) => !rest.is_empty() && rest.bytes().all(|b| b.is_ascii_hexdigit()),
+        None => false,
+    }
+}
+
 fn hex_to_bytes(s: &str) -> Option<Vec<u8>> {
     let s = s.strip_prefix("0x").unwrap_or(s);
     if !s.len().is_multiple_of(2) {
@@ -475,4 +607,200 @@ struct JsonRpcResponse {
 #[derive(Debug, Deserialize)]
 struct JsonRpcError {
     message: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const FROM: &str = "0xe539E0AED3C1971560517D58277f8dd9aC296281";
+    const CONTRACT: &str = "0x7ad72b9f944ea9793cf4055d88f81138cc2c63a0";
+    const CALLDATA: &str = "0x0c53c51cffffffffffffffff";
+
+    fn tx(from: &str, params: Value) -> Value {
+        json!({ "from": from, "params": params })
+    }
+
+    fn schema_msg(res: Result<TransactionData, ApiError>) -> String {
+        match res {
+            Err(ApiError::InvalidSchema(m)) => m,
+            other => panic!("expected ApiError::InvalidSchema, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn accepts_well_formed_transaction_data() {
+        let data = tx(FROM, json!([CONTRACT, CALLDATA]));
+        let parsed = validate_transaction_data(&data).expect("valid payload should parse");
+        assert_eq!(parsed.from, FROM);
+        assert_eq!(
+            parsed.params,
+            vec![CONTRACT.to_string(), CALLDATA.to_string()]
+        );
+    }
+
+    #[test]
+    fn rejects_from_that_does_not_match_address_pattern() {
+        let data = tx("0x1234", json!([CONTRACT, CALLDATA]));
+        let msg = schema_msg(validate_transaction_data(&data));
+        assert!(msg.contains(r#""instancePath":"/from""#), "{msg}");
+        assert!(
+            msg.contains(r##""schemaPath":"#/properties/from/pattern""##),
+            "{msg}"
+        );
+        assert!(msg.contains(r#""keyword":"pattern""#), "{msg}");
+        assert!(msg.contains(r#""pattern":"^0x[a-fA-F0-9]{40}$""#), "{msg}");
+        assert!(
+            msg.contains(r#"must match pattern \"^0x[a-fA-F0-9]{40}$\""#),
+            "{msg}"
+        );
+    }
+
+    #[test]
+    fn rejects_from_missing_0x_prefix() {
+        let data = tx(
+            "e539E0AED3C1971560517D58277f8dd9aC296281",
+            json!([CONTRACT, CALLDATA]),
+        );
+        let msg = schema_msg(validate_transaction_data(&data));
+        assert!(
+            msg.contains(r##""schemaPath":"#/properties/from/pattern""##),
+            "{msg}"
+        );
+    }
+
+    #[test]
+    fn rejects_from_with_non_hex_char() {
+        let data = tx(
+            "0xg539E0AED3C1971560517D58277f8dd9aC296281",
+            json!([CONTRACT, CALLDATA]),
+        );
+        let msg = schema_msg(validate_transaction_data(&data));
+        assert!(
+            msg.contains(r##""schemaPath":"#/properties/from/pattern""##),
+            "{msg}"
+        );
+    }
+
+    #[test]
+    fn rejects_contract_param_that_does_not_match_address_pattern() {
+        let data = tx(FROM, json!([CALLDATA, CALLDATA]));
+        let msg = schema_msg(validate_transaction_data(&data));
+        assert!(msg.contains(r#""instancePath":"/params/0""#), "{msg}");
+        assert!(
+            msg.contains(r##""schemaPath":"#/properties/params/items/0/pattern""##),
+            "{msg}"
+        );
+        assert!(msg.contains(r#""pattern":"^0x[a-fA-F0-9]{40}$""#), "{msg}");
+    }
+
+    #[test]
+    fn rejects_calldata_param_that_does_not_match_hex_pattern() {
+        let data = tx(FROM, json!([CONTRACT, "0xnothex"]));
+        let msg = schema_msg(validate_transaction_data(&data));
+        assert!(msg.contains(r#""instancePath":"/params/1""#), "{msg}");
+        assert!(
+            msg.contains(r##""schemaPath":"#/properties/params/items/1/pattern""##),
+            "{msg}"
+        );
+        assert!(msg.contains(r#""pattern":"^0x[a-fA-F0-9]+$""#), "{msg}");
+        assert!(
+            msg.contains(r#"must match pattern \"^0x[a-fA-F0-9]+$\""#),
+            "{msg}"
+        );
+    }
+
+    #[test]
+    fn rejects_empty_calldata_param() {
+        let data = tx(FROM, json!([CONTRACT, "0x"]));
+        let msg = schema_msg(validate_transaction_data(&data));
+        assert!(
+            msg.contains(r##""schemaPath":"#/properties/params/items/1/pattern""##),
+            "{msg}"
+        );
+    }
+
+    #[test]
+    fn rejects_oversized_calldata_before_pattern() {
+        let oversized = format!("0x{}", "a".repeat(200_001));
+        assert_eq!(oversized.chars().count(), 200_003);
+        let data = tx(FROM, json!([CONTRACT, oversized]));
+        let msg = schema_msg(validate_transaction_data(&data));
+        assert!(msg.contains(r#""instancePath":"/params/1""#), "{msg}");
+        assert!(
+            msg.contains(r##""schemaPath":"#/properties/params/items/1/maxLength""##),
+            "{msg}"
+        );
+        assert!(msg.contains(r#""keyword":"maxLength""#), "{msg}");
+        assert!(msg.contains(r#""limit":200002"#), "{msg}");
+        assert!(
+            msg.contains("must NOT have more than 200002 characters"),
+            "{msg}"
+        );
+    }
+
+    #[test]
+    fn accepts_calldata_at_max_length_boundary() {
+        let at_limit = format!("0x{}", "a".repeat(200_000));
+        assert_eq!(at_limit.chars().count(), CALLDATA_MAX_LENGTH);
+        let data = tx(FROM, json!([CONTRACT, at_limit.clone()]));
+        let parsed = validate_transaction_data(&data).expect("payload at cap should parse");
+        assert_eq!(parsed.params[1], at_limit);
+    }
+
+    #[test]
+    fn oversized_non_hex_calldata_reports_maxlength_not_pattern() {
+        let oversized = format!("0x{}", "z".repeat(200_001));
+        let data = tx(FROM, json!([CONTRACT, oversized]));
+        let msg = schema_msg(validate_transaction_data(&data));
+        assert!(
+            msg.contains(r##""schemaPath":"#/properties/params/items/1/maxLength""##),
+            "{msg}"
+        );
+    }
+
+    #[test]
+    fn pre_broadcast_errors_release_the_slot() {
+        for err in [
+            ApiError::InvalidTransaction("bad".into()),
+            ApiError::InvalidSchema("bad".into()),
+            ApiError::InvalidContractAddress("bad".into()),
+            ApiError::InvalidSalePrice("bad".into()),
+            ApiError::HighCongestion("busy".into()),
+            ApiError::RelayerFailed("network".into()),
+            ApiError::RelayerUnavailable("off".into()),
+        ] {
+            assert_eq!(
+                reservation_disposition(&err),
+                ReservationDisposition::Release,
+                "{err:?} is a pre-broadcast failure and must refund the slot"
+            );
+        }
+    }
+
+    #[test]
+    fn post_broadcast_errors_keep_the_slot() {
+        for err in [
+            ApiError::RelayReverted("reverted".into()),
+            ApiError::RelayerTimeout("too slow".into()),
+        ] {
+            assert_eq!(
+                reservation_disposition(&err),
+                ReservationDisposition::Keep,
+                "{err:?} is post-broadcast/indeterminate and must keep the slot consumed"
+            );
+        }
+    }
+
+    #[test]
+    fn unclassified_errors_default_to_keep() {
+        assert_eq!(
+            reservation_disposition(&ApiError::Internal("boom".into())),
+            ReservationDisposition::Keep
+        );
+        assert_eq!(
+            reservation_disposition(&ApiError::Conflict("dup".into())),
+            ReservationDisposition::Keep
+        );
+    }
 }

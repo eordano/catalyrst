@@ -77,19 +77,21 @@ GROUP BY id
 "#,
                 schema = MARKETPLACE_SQUID_SCHEMA,
             );
-            sqlx::query_as::<_, (String, i32, i64, String, String, String)>(&sql)
-                .fetch_all(&self.pool)
-                .await?
-                .into_iter()
-                .map(|(id, date, sales, volume, ce, de)| AnalyticsDayData {
-                    id,
-                    date: date as i64,
-                    sales,
-                    volume,
-                    creators_earnings: ce,
-                    dao_earnings: de,
-                })
-                .collect()
+            sqlx::query_as::<_, (String, i32, i64, String, String, String)>(sqlx::AssertSqlSafe(
+                sql,
+            ))
+            .fetch_all(&self.pool)
+            .await?
+            .into_iter()
+            .map(|(id, date, sales, volume, ce, de)| AnalyticsDayData {
+                id,
+                date: date as i64,
+                sales,
+                volume,
+                creators_earnings: ce,
+                dao_earnings: de,
+            })
+            .collect()
         } else {
             let from_s = from_ms / 1000;
             let sql = format!(
@@ -106,20 +108,22 @@ WHERE date > $1
 "#,
                 schema = MARKETPLACE_SQUID_SCHEMA,
             );
-            sqlx::query_as::<_, (String, i32, i64, String, String, String)>(&sql)
-                .bind(from_s)
-                .fetch_all(&self.pool)
-                .await?
-                .into_iter()
-                .map(|(id, date, sales, volume, ce, de)| AnalyticsDayData {
-                    id,
-                    date: date as i64,
-                    sales,
-                    volume,
-                    creators_earnings: ce,
-                    dao_earnings: de,
-                })
-                .collect()
+            sqlx::query_as::<_, (String, i32, i64, String, String, String)>(sqlx::AssertSqlSafe(
+                sql,
+            ))
+            .bind(from_s)
+            .fetch_all(&self.pool)
+            .await?
+            .into_iter()
+            .map(|(id, date, sales, volume, ce, de)| AnalyticsDayData {
+                id,
+                date: date as i64,
+                sales,
+                volume,
+                creators_earnings: ce,
+                dao_earnings: de,
+            })
+            .collect()
         };
         Ok(rows)
     }

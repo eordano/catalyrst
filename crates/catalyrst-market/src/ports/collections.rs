@@ -29,6 +29,11 @@ pub struct CollectionFilters {
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "market/", rename_all = "camelCase")
+)]
 pub struct Collection {
     pub urn: String,
     pub creator: String,
@@ -36,18 +41,23 @@ pub struct Collection {
     #[serde(rename = "contractAddress")]
     pub contract_address: String,
     #[serde(rename = "createdAt")]
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub created_at: i64,
     #[serde(rename = "updatedAt")]
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub updated_at: i64,
     #[serde(rename = "reviewedAt")]
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub reviewed_at: i64,
     #[serde(rename = "isOnSale")]
     pub is_on_sale: bool,
     pub size: i32,
     pub network: Network,
     #[serde(rename = "chainId")]
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub chain_id: ChainId,
     #[serde(rename = "firstListedAt")]
+    #[cfg_attr(feature = "ts", ts(type = "number | null"))]
     pub first_listed_at: Option<i64>,
 }
 
@@ -80,7 +90,7 @@ impl CollectionsComponent {
         filters: &CollectionFilters,
     ) -> Result<(Vec<Collection>, i64), ApiError> {
         const MAX_LIMIT: i64 = 1000;
-        // Clamp non-negative: a negative first/skip → negative SQL LIMIT/OFFSET → 500.
+
         let limit = filters
             .first
             .map(|f| f.clamp(0, MAX_LIMIT))
@@ -164,7 +174,7 @@ impl CollectionsComponent {
             offset_idx = offset_idx,
         );
 
-        let mut q = sqlx::query_as::<_, DbCollection>(&select_sql);
+        let mut q = sqlx::query_as::<_, DbCollection>(sqlx::AssertSqlSafe(select_sql));
         if let Some(ref s) = contract_address_lower {
             q = q.bind(s);
         }
@@ -191,7 +201,7 @@ impl CollectionsComponent {
             schema = MARKETPLACE_SQUID_SCHEMA,
             where_ = where_sql,
         );
-        let mut cq = sqlx::query_scalar::<_, i64>(&count_sql);
+        let mut cq = sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(count_sql));
         if let Some(ref s) = contract_address_lower {
             cq = cq.bind(s);
         }

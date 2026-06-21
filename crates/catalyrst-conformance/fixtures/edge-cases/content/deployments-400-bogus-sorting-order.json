@@ -10,9 +10,9 @@
   "response": {
     "status": 400,
     "headers": {"content-type": "application/json"},
-    "body_json": {"error": "Bad request", "message": "Found an unrecognized sort order param"}
+    "body_json": {"error": "Found an unrecognized sort order param"}
   },
-  "captured_from": "hand-authored from handler source (get_deployments.rs)",
-  "captured_at": "2026-05-23T20:00:00Z",
+  "captured_from": "re-derived from peer.decentraland.org",
+  "captured_at": "2026-07-03T00:00:00Z",
   "volatile_paths": []
 }

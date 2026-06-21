@@ -1,40 +1,22 @@
-//! Scene-admin extra-address resolution — port of comms-gatekeeper
-//! `sceneAdmins.getAdminsAndExtraAddresses` (`adapters/scene-admins.ts`) and
-//! `lands.getLeaseHoldersForParcels` (`adapters/lands/component.ts`).
-//!
-//! The GET /scene-admin response is not just the explicit `scene_admin` rows: it
-//! also surfaces every address that *implicitly* administers the place (world
-//! deployment/streaming ACL wallets + world owner for worlds; LAND owner /
-//! operator / updateOperator / updateManagers / approvedForAll for Genesis City),
-//! plus the off-chain land-lease holders. Those extra addresses are emitted with
-//! `canBeRemoved: false`, and any explicit admin that is *also* an extra address
-//! becomes `canBeRemoved: false` too (you can't revoke an implicit grant).
-//!
-//! Each upstream source degrades to empty on failure (a flaky lambdas / world
-//! content server must not drop the whole admin list), matching the upstream
-//! try/catch + swallow behaviour.
-
 use std::collections::BTreeSet;
 
 use serde::Deserialize;
 use sqlx::Row;
 
+use crate::http::encode_path_segment;
 use crate::AppState;
 
 const LEASE_AUTHORIZATIONS_URL: &str =
     "https://decentraland.github.io/linker-server-authorizations/authorizations.json";
 
-/// Place fields needed to resolve the extra-address set.
 pub struct PlaceInfo {
     pub world: bool,
     pub world_name: Option<String>,
-    /// Parcel coordinates ("x,y") of the place.
+
     pub positions: Vec<String>,
     pub base_position: Option<String>,
 }
 
-/// LAND on-chain operators, mirroring upstream `LandsParcelOperatorsResponse`
-/// (`adapters/lands/types.ts`): the lambdas `parcels/:x/:y/operators` payload.
 #[derive(Debug, Deserialize)]
 struct LandOperators {
     owner: String,
@@ -54,8 +36,6 @@ struct ParcelAddressesResponse {
     addresses: Vec<String>,
 }
 
-// --- World action permissions (subset used here) ---
-
 #[derive(Debug, Deserialize)]
 struct WorldPermissions {
     #[serde(default)]
@@ -72,9 +52,6 @@ struct WorldPermissionSettings {
     streaming: Option<AllowListSetting>,
 }
 
-/// An allow-list permission setting (`{ type, wallets }`). `wallets` is absent
-/// for non-allow-list types (`unrestricted`/`shared-secret`/`nft-ownership`), so
-/// it defaults to empty — matching upstream's `type === AllowList` guard.
 #[derive(Debug, Deserialize)]
 struct AllowListSetting {
     #[serde(default, rename = "type")]
@@ -99,9 +76,6 @@ fn parse_xy(s: &str) -> Option<(i32, i32)> {
     ))
 }
 
-/// Load the place's world flag / world-name / positions / base position from the
-/// places_events archive. Returns `None` when the place is unknown or the pool is
-/// unavailable (callers then emit only the explicit admins).
 pub async fn load_place_info(state: &AppState, place_id: &str) -> Option<PlaceInfo> {
     let pool = state.places_pool.as_ref()?;
     let row = sqlx::query(
@@ -147,7 +121,7 @@ async fn fetch_world_permissions(state: &AppState, world_name: &str) -> Option<W
     let url = format!(
         "{}/world/{}/permissions",
         state.world_content_url,
-        world_name.to_lowercase()
+        encode_path_segment(&world_name.to_lowercase())
     );
     let resp = state.http.get(&url).send().await.ok()?;
     if !resp.status().is_success() {
@@ -156,10 +130,6 @@ async fn fetch_world_permissions(state: &AppState, world_name: &str) -> Option<W
     resp.json::<WorldPermissions>().await.ok()
 }
 
-/// POST `/world/:world/permissions/:permission/parcels` with `{ parcels }`;
-/// ports `getWorldParcelPermissionAddresses`. Returns `Err` on any non-2xx so the
-/// caller can fall back to the all-allow-listed-wallets path, exactly as upstream
-/// does via its try/catch.
 async fn fetch_world_parcel_permission_addresses(
     state: &AppState,
     world_name: &str,
@@ -172,8 +142,8 @@ async fn fetch_world_parcel_permission_addresses(
     let url = format!(
         "{}/world/{}/permissions/{}/parcels",
         state.world_content_url,
-        world_name.to_lowercase(),
-        permission
+        encode_path_segment(&world_name.to_lowercase()),
+        encode_path_segment(permission)
     );
     let resp = state
         .http
@@ -194,7 +164,7 @@ async fn fetch_world_parcel_permission_addresses(
 
 async fn fetch_land_operators(state: &AppState, parcel: &str) -> Option<LandOperators> {
     let (x, y) = parse_xy(parcel)?;
-    // upstream ensureSlashAtTheEnd(lambdasUrl) + `parcels/:x/:y/operators`.
+
     let base = state.lambdas_url.trim_end_matches('/');
     let url = format!("{base}/parcels/{x}/{y}/operators");
     let resp = state.http.get(&url).send().await.ok()?;
@@ -204,9 +174,6 @@ async fn fetch_land_operators(state: &AppState, parcel: &str) -> Option<LandOper
     resp.json::<LandOperators>().await.ok()
 }
 
-/// The extra (implicit) administrator addresses for a place. World scenes draw on
-/// the world ACL + owner; Genesis City scenes draw on the LAND operator set. All
-/// returned addresses are lowercased.
 pub async fn get_extra_addresses(state: &AppState, place: &PlaceInfo) -> BTreeSet<String> {
     let mut extra: BTreeSet<String> = BTreeSet::new();
 
@@ -215,8 +182,6 @@ pub async fn get_extra_addresses(state: &AppState, place: &PlaceInfo) -> BTreeSe
             return extra;
         };
 
-        // Preferred path: bulk per-parcel deployment/streaming address lookup +
-        // owner. If either bulk call fails, fall back to the full allow-list.
         let deployment = fetch_world_parcel_permission_addresses(
             state,
             world_name,
@@ -246,7 +211,6 @@ pub async fn get_extra_addresses(state: &AppState, place: &PlaceInfo) -> BTreeSe
                 }
             }
             _ => {
-                // Bulk endpoint not available — fall back to all allow-listed wallets.
                 if let Some(p) = perms {
                     if let Some(settings) = p.permissions.as_ref() {
                         if let Some(dep) = settings.deployment.as_ref() {
@@ -271,7 +235,6 @@ pub async fn get_extra_addresses(state: &AppState, place: &PlaceInfo) -> BTreeSe
             }
         }
     } else {
-        // Genesis City: resolve LAND operators for the base parcel.
         let parcel = place
             .base_position
             .clone()
@@ -298,10 +261,6 @@ pub async fn get_extra_addresses(state: &AppState, place: &PlaceInfo) -> BTreeSe
     extra
 }
 
-/// Off-chain land-lease holders for any of `parcels`. Ports
-/// `lands.getLeaseHoldersForParcels`: pulls the static linker-server
-/// authorizations JSON, then unions the addresses of every authorization whose
-/// `plots` overlap `parcels`. Failures degrade to empty (upstream swallows them).
 pub async fn get_lease_holders_for_parcels(
     state: &AppState,
     parcels: &[String],

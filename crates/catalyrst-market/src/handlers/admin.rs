@@ -1,26 +1,14 @@
-//! Admin console controls owned by catalyrst-market (docs/admin-console.md §4):
-//! moderation flags on local listings/trades, trade dispute status, operator
-//! force-cancel of a local listing, and an append-only admin audit log.
-//!
-//! Every route here is gated by a bearer token compared in constant time against
-//! the crate's admin token env (`CATALYRST_MARKET_ADMIN_TOKEN`, surfaced as
-//! `AppStateInner::admin_token`). When that env is unset the gate fails closed
-//! (403) so a default deploy exposes no admin surface. These controls are
-//! OPERATOR-authored and act on this node's local marketplace state only — they
-//! are NOT minted as EIP-712 federation actions, with one deliberate exception:
-//! force-cancel appends an operator-authored row to the existing
-//! `market_cancellations` log so it propagates over the changes feed.
-
 use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
+use axum::response::{IntoResponse, Response};
 use axum::Json;
-use serde::Deserialize;
-use serde_json::{json, Value};
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use sha2::{Digest, Sha256};
 
 use crate::AppState;
 
-type AdminResponse = (StatusCode, Json<Value>);
+type AdminResponse = Response;
 type FlagRow = (String, String, String, String, String, i64);
 type DisputeRow = (
     String,
@@ -34,9 +22,130 @@ type DisputeRow = (
 );
 type AuditRow = (i64, String, String, String, String, Value, i64);
 
-/// Constant-time compare, mirroring catalyrst-comms `authorize_moderator` /
-/// catalyrst-badges `timing_safe_eq`. Length is allowed to leak (same as
-/// upstream); only the byte comparison is non-short-circuiting.
+#[derive(Debug, Serialize)]
+struct AdminError {
+    ok: bool,
+    message: String,
+}
+
+#[derive(Debug, Serialize)]
+struct ListEnvelope<T> {
+    data: Vec<T>,
+    total: usize,
+}
+
+impl<T> ListEnvelope<T> {
+    fn of(data: Vec<T>) -> Self {
+        let total = data.len();
+        Self { data, total }
+    }
+}
+
+#[derive(Debug, Serialize)]
+struct SetFlagResponse {
+    ok: bool,
+    target_kind: String,
+    target_hash: String,
+    severity: String,
+}
+
+#[derive(Debug, Serialize)]
+struct ClearFlagResponse {
+    ok: bool,
+    target_hash: String,
+    removed: bool,
+}
+
+#[derive(Debug, Serialize)]
+struct FlagEntry {
+    target_hash: String,
+    target_kind: String,
+    severity: String,
+    reason: String,
+    flagged_by: String,
+    flagged_at: i64,
+}
+
+#[derive(Debug, Serialize)]
+struct DisputeActionResponse {
+    ok: bool,
+    trade_hash: String,
+    status: String,
+}
+
+#[derive(Debug, Serialize)]
+struct DisputeEntry {
+    trade_hash: String,
+    status: String,
+    reason: String,
+    resolution: String,
+    opened_by: String,
+    opened_at: i64,
+    resolved_by: Option<String>,
+    resolved_at: Option<i64>,
+}
+
+#[derive(Debug, Serialize)]
+struct ForceCancelResponse {
+    ok: bool,
+    target_hash: String,
+    cancellation_hash: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    already_cancelled: Option<bool>,
+}
+
+#[derive(Debug, Serialize)]
+struct AuditEntry {
+    id: i64,
+    actor: String,
+    action: String,
+    target_kind: String,
+    target_hash: String,
+    detail: Value,
+    created_at: i64,
+}
+
+#[derive(Debug, Serialize)]
+struct FlagSetDetail<'a> {
+    severity: &'a str,
+    reason: &'a str,
+}
+
+#[derive(Debug, Serialize)]
+struct EmptyDetail {}
+
+#[derive(Debug, Serialize)]
+struct ReasonDetail<'a> {
+    reason: &'a str,
+}
+
+#[derive(Debug, Serialize)]
+struct DisputeResolveDetail<'a> {
+    status: &'a str,
+    resolution: &'a str,
+}
+
+#[derive(Debug, Serialize)]
+struct ForceCancelDetail<'a> {
+    reason: &'a str,
+    cancellation_hash: &'a str,
+}
+
+#[derive(Debug, Serialize)]
+struct OperatorCancelPayload<'a> {
+    operator_force_cancel: bool,
+    actor: &'a str,
+    reason: &'a str,
+    target_kind: &'a str,
+}
+
+fn to_detail_value(detail: impl Serialize, context: &str) -> Value {
+    serde_json::to_value(detail).unwrap_or_else(|e| {
+        tracing::error!(error = %e, context, "admin detail serialization failed; storing null");
+        Value::Null
+    })
+}
+
 fn timing_safe_eq(a: &[u8], b: &[u8]) -> bool {
     if a.len() != b.len() {
         return false;
@@ -58,12 +167,15 @@ fn bearer_token(headers: &HeaderMap) -> Option<&str> {
 fn err(code: StatusCode, message: impl Into<String>) -> AdminResponse {
     (
         code,
-        Json(json!({ "ok": false, "message": message.into() })),
+        Json(AdminError {
+            ok: false,
+            message: message.into(),
+        }),
     )
+        .into_response()
 }
 
-/// Returns the authenticated admin identity, or a 403 response. Fails closed
-/// (403) when no admin token is configured.
+#[allow(clippy::result_large_err)]
 fn require_admin(state: &AppState, headers: &HeaderMap) -> Result<String, AdminResponse> {
     let Some(expected) = state.admin_token.as_deref() else {
         return Err(err(
@@ -83,18 +195,15 @@ fn now_secs() -> i64 {
     chrono::Utc::now().timestamp()
 }
 
-/// Append an append-only audit row. Best-effort: a failure to write the audit
-/// row is logged but does not mask the primary mutation's result — the primary
-/// mutation and the audit write share the same connection pool and the primary
-/// has already committed by the time this is called.
 async fn write_audit(
     state: &AppState,
     actor: &str,
     action: &str,
     target_kind: &str,
     target_hash: &str,
-    detail: Value,
+    detail: impl Serialize,
 ) {
+    let detail = to_detail_value(detail, action);
     let res = sqlx::query(
         "INSERT INTO market_admin_audit (actor, action, target_kind, target_hash, detail, created_at) \
          VALUES ($1, $2, $3, $4, $5, $6)",
@@ -116,8 +225,6 @@ fn valid_target_kind(kind: &str) -> bool {
     matches!(kind, "bid" | "order" | "trade")
 }
 
-/// Confirm the target exists in this node's local federation log before we let
-/// an operator flag/dispute/cancel it. Returns Ok(true) if present.
 async fn target_exists(state: &AppState, kind: &str, hash: &str) -> Result<bool, sqlx::Error> {
     let table = match kind {
         "bid" => "market_bids_local",
@@ -125,30 +232,23 @@ async fn target_exists(state: &AppState, kind: &str, hash: &str) -> Result<bool,
         "trade" => "market_trades_local",
         _ => return Ok(false),
     };
-    let row: Option<(i64,)> = sqlx::query_as(&format!(
+    let row: Option<(i64,)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
         "SELECT 1 FROM {table} WHERE signature_hash = $1 LIMIT 1"
-    ))
+    )))
     .bind(hash)
     .fetch_optional(&state.pool)
     .await?;
     Ok(row.is_some())
 }
 
-// ---------------------------------------------------------------------------
-// Moderation flags
-// ---------------------------------------------------------------------------
-
 #[derive(Debug, Default, Deserialize)]
 pub struct FlagBody {
-    /// review | hide | block (default review)
     #[serde(default)]
     pub severity: Option<String>,
     #[serde(default)]
     pub reason: Option<String>,
 }
 
-/// `POST /v1/admin/moderation/{kind}/{hash}/flag` — bearer-gated. Sets (upserts)
-/// a moderation flag on a local bid/order/trade. Body `{ severity?, reason? }`.
 pub async fn set_flag(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -207,17 +307,24 @@ pub async fn set_flag(
         "flag.set",
         &kind,
         &hash,
-        json!({ "severity": severity, "reason": reason }),
+        FlagSetDetail {
+            severity: &severity,
+            reason: &reason,
+        },
     )
     .await;
     (
         StatusCode::OK,
-        Json(json!({ "ok": true, "target_kind": kind, "target_hash": hash, "severity": severity })),
+        Json(SetFlagResponse {
+            ok: true,
+            target_kind: kind,
+            target_hash: hash,
+            severity,
+        }),
     )
+        .into_response()
 }
 
-/// `DELETE /v1/admin/moderation/{kind}/{hash}/flag` — bearer-gated. Clears the
-/// moderation flag (if any). Idempotent.
 pub async fn clear_flag(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -242,12 +349,17 @@ pub async fn clear_flag(
         }
     };
     if removed {
-        write_audit(&state, &actor, "flag.clear", &kind, &hash, json!({})).await;
+        write_audit(&state, &actor, "flag.clear", &kind, &hash, EmptyDetail {}).await;
     }
     (
         StatusCode::OK,
-        Json(json!({ "ok": true, "target_hash": hash, "removed": removed })),
+        Json(ClearFlagResponse {
+            ok: true,
+            target_hash: hash,
+            removed,
+        }),
     )
+        .into_response()
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -258,8 +370,6 @@ pub struct ListFlagsQuery {
     pub severity: Option<String>,
 }
 
-/// `GET /v1/admin/moderation/flags` — bearer-gated. Lists active moderation
-/// flags, optionally filtered by `?kind=` and `?severity=`. Capped at 500.
 pub async fn list_flags(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -282,25 +392,22 @@ pub async fn list_flags(
 
     match rows {
         Ok(rows) => {
-            let data: Vec<Value> = rows
+            let data: Vec<FlagEntry> = rows
                 .into_iter()
                 .map(
                     |(target_hash, target_kind, severity, reason, flagged_by, flagged_at)| {
-                        json!({
-                            "target_hash": target_hash,
-                            "target_kind": target_kind,
-                            "severity": severity,
-                            "reason": reason,
-                            "flagged_by": flagged_by,
-                            "flagged_at": flagged_at,
-                        })
+                        FlagEntry {
+                            target_hash,
+                            target_kind,
+                            severity,
+                            reason,
+                            flagged_by,
+                            flagged_at,
+                        }
                     },
                 )
                 .collect();
-            (
-                StatusCode::OK,
-                Json(json!({ "data": data, "total": data.len() })),
-            )
+            (StatusCode::OK, Json(ListEnvelope::of(data))).into_response()
         }
         Err(e) => {
             tracing::error!(error = %e, "list_flags failed");
@@ -309,18 +416,12 @@ pub async fn list_flags(
     }
 }
 
-// ---------------------------------------------------------------------------
-// Disputes (trades only)
-// ---------------------------------------------------------------------------
-
 #[derive(Debug, Default, Deserialize)]
 pub struct OpenDisputeBody {
     #[serde(default)]
     pub reason: Option<String>,
 }
 
-/// `POST /v1/admin/disputes/{trade_hash}/open` — bearer-gated. Opens (or
-/// re-opens) a dispute against a recorded local trade. Body `{ reason? }`.
 pub async fn open_dispute(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -366,26 +467,28 @@ pub async fn open_dispute(
         "dispute.open",
         "trade",
         &trade_hash,
-        json!({ "reason": reason }),
+        ReasonDetail { reason: &reason },
     )
     .await;
     (
         StatusCode::OK,
-        Json(json!({ "ok": true, "trade_hash": trade_hash, "status": "open" })),
+        Json(DisputeActionResponse {
+            ok: true,
+            trade_hash,
+            status: "open".to_string(),
+        }),
     )
+        .into_response()
 }
 
 #[derive(Debug, Default, Deserialize)]
 pub struct ResolveDisputeBody {
-    /// resolved | rejected (default resolved)
     #[serde(default)]
     pub status: Option<String>,
     #[serde(default)]
     pub resolution: Option<String>,
 }
 
-/// `POST /v1/admin/disputes/{trade_hash}/resolve` — bearer-gated. Closes an
-/// open dispute. Body `{ status?: resolved|rejected, resolution? }`.
 pub async fn resolve_dispute(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -432,13 +535,21 @@ pub async fn resolve_dispute(
         "dispute.resolve",
         "trade",
         &trade_hash,
-        json!({ "status": status, "resolution": resolution }),
+        DisputeResolveDetail {
+            status: &status,
+            resolution: &resolution,
+        },
     )
     .await;
     (
         StatusCode::OK,
-        Json(json!({ "ok": true, "trade_hash": trade_hash, "status": status })),
+        Json(DisputeActionResponse {
+            ok: true,
+            trade_hash,
+            status,
+        }),
     )
+        .into_response()
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -447,8 +558,6 @@ pub struct ListDisputesQuery {
     pub status: Option<String>,
 }
 
-/// `GET /v1/admin/disputes` — bearer-gated. Lists disputes, optionally filtered
-/// by `?status=open|resolved|rejected`. Capped at 500.
 pub async fn list_disputes(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -470,7 +579,7 @@ pub async fn list_disputes(
 
     match rows {
         Ok(rows) => {
-            let data: Vec<Value> = rows
+            let data: Vec<DisputeEntry> = rows
                 .into_iter()
                 .map(
                     |(
@@ -483,23 +592,20 @@ pub async fn list_disputes(
                         resolved_by,
                         resolved_at,
                     )| {
-                        json!({
-                            "trade_hash": trade_hash,
-                            "status": status,
-                            "reason": reason,
-                            "resolution": resolution,
-                            "opened_by": opened_by,
-                            "opened_at": opened_at,
-                            "resolved_by": resolved_by,
-                            "resolved_at": resolved_at,
-                        })
+                        DisputeEntry {
+                            trade_hash,
+                            status,
+                            reason,
+                            resolution,
+                            opened_by,
+                            opened_at,
+                            resolved_by,
+                            resolved_at,
+                        }
                     },
                 )
                 .collect();
-            (
-                StatusCode::OK,
-                Json(json!({ "data": data, "total": data.len() })),
-            )
+            (StatusCode::OK, Json(ListEnvelope::of(data))).into_response()
         }
         Err(e) => {
             tracing::error!(error = %e, "list_disputes failed");
@@ -508,22 +614,12 @@ pub async fn list_disputes(
     }
 }
 
-// ---------------------------------------------------------------------------
-// Operator force-cancel
-// ---------------------------------------------------------------------------
-
 #[derive(Debug, Default, Deserialize)]
 pub struct ForceCancelBody {
     #[serde(default)]
     pub reason: Option<String>,
 }
 
-/// `POST /v1/admin/listings/{kind}/{hash}/force-cancel` — bearer-gated. Records
-/// an operator-authored cancellation of a local bid/order by appending a row to
-/// the existing `market_cancellations` log (so it propagates over the changes
-/// feed). `kind` must be bid|order (trades are immutable on-chain settlements;
-/// use a dispute instead). Idempotent: a second call for the same target is a
-/// no-op once a cancellation already exists.
 pub async fn force_cancel(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -551,7 +647,6 @@ pub async fn force_cancel(
         }
     }
 
-    // Already cancelled? Treat as a no-op success (idempotent).
     let existing: Result<Option<(String,)>, _> = sqlx::query_as(
         "SELECT signature_hash FROM market_cancellations WHERE target_signature_hash = $1 LIMIT 1",
     )
@@ -562,10 +657,14 @@ pub async fn force_cancel(
         Ok(Some((sig,))) => {
             return (
                 StatusCode::OK,
-                Json(
-                    json!({ "ok": true, "target_hash": hash, "cancellation_hash": sig, "already_cancelled": true }),
-                ),
-            );
+                Json(ForceCancelResponse {
+                    ok: true,
+                    target_hash: hash,
+                    cancellation_hash: sig,
+                    already_cancelled: Some(true),
+                }),
+            )
+                .into_response();
         }
         Ok(None) => {}
         Err(e) => {
@@ -575,9 +674,7 @@ pub async fn force_cancel(
     }
 
     let now = now_secs();
-    // Deterministic, non-forgeable operator cancellation hash. It is NOT an
-    // EIP-712 signature hash — the `operator:` prefix marks it as an authority
-    // override, and `signer` is recorded as `operator:<actor>`.
+
     let mut h = Sha256::new();
     h.update(b"operator-force-cancel:");
     h.update(kind.as_bytes());
@@ -587,12 +684,15 @@ pub async fn force_cancel(
     h.update(now.to_le_bytes());
     let cancellation_hash = format!("operator:{}", hex::encode(h.finalize()));
     let operator_signer = format!("operator:{actor}");
-    let payload = json!({
-        "operator_force_cancel": true,
-        "actor": actor,
-        "reason": reason,
-        "target_kind": kind,
-    });
+    let payload = to_detail_value(
+        OperatorCancelPayload {
+            operator_force_cancel: true,
+            actor: &actor,
+            reason: &reason,
+            target_kind: &kind,
+        },
+        "force_cancel.payload",
+    );
 
     let res = sqlx::query(
         "INSERT INTO market_cancellations \
@@ -619,18 +719,23 @@ pub async fn force_cancel(
         "listing.force_cancel",
         &kind,
         &hash,
-        json!({ "reason": reason, "cancellation_hash": cancellation_hash }),
+        ForceCancelDetail {
+            reason: &reason,
+            cancellation_hash: &cancellation_hash,
+        },
     )
     .await;
     (
         StatusCode::OK,
-        Json(json!({ "ok": true, "target_hash": hash, "cancellation_hash": cancellation_hash })),
+        Json(ForceCancelResponse {
+            ok: true,
+            target_hash: hash,
+            cancellation_hash,
+            already_cancelled: None,
+        }),
     )
+        .into_response()
 }
-
-// ---------------------------------------------------------------------------
-// Audit log read
-// ---------------------------------------------------------------------------
 
 #[derive(Debug, Default, Deserialize)]
 pub struct AuditQuery {
@@ -642,9 +747,6 @@ pub struct AuditQuery {
     pub limit: Option<i64>,
 }
 
-/// `GET /v1/admin/audit` — bearer-gated. Reads the append-only admin audit log,
-/// most-recent first, optionally filtered by `?target_hash=` and `?action=`.
-/// `?limit=` is clamped to [1, 1000], default 200.
 pub async fn list_audit(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -669,26 +771,23 @@ pub async fn list_audit(
 
     match rows {
         Ok(rows) => {
-            let data: Vec<Value> = rows
+            let data: Vec<AuditEntry> = rows
                 .into_iter()
                 .map(
                     |(id, actor, action, target_kind, target_hash, detail, created_at)| {
-                        json!({
-                            "id": id,
-                            "actor": actor,
-                            "action": action,
-                            "target_kind": target_kind,
-                            "target_hash": target_hash,
-                            "detail": detail,
-                            "created_at": created_at,
-                        })
+                        AuditEntry {
+                            id,
+                            actor,
+                            action,
+                            target_kind,
+                            target_hash,
+                            detail,
+                            created_at,
+                        }
                     },
                 )
                 .collect();
-            (
-                StatusCode::OK,
-                Json(json!({ "data": data, "total": data.len() })),
-            )
+            (StatusCode::OK, Json(ListEnvelope::of(data))).into_response()
         }
         Err(e) => {
             tracing::error!(error = %e, "list_audit failed");
@@ -700,6 +799,7 @@ pub async fn list_audit(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     #[test]
     fn timing_safe_eq_matches_and_mismatches() {
@@ -729,5 +829,312 @@ mod tests {
         assert!(valid_target_kind("trade"));
         assert!(!valid_target_kind("listing"));
         assert!(!valid_target_kind(""));
+    }
+
+    #[test]
+    fn wire_identity_error_envelope() {
+        let dto = AdminError {
+            ok: false,
+            message: "admin bearer token required".to_string(),
+        };
+        assert_eq!(
+            serde_json::to_value(&dto).unwrap(),
+            json!({ "ok": false, "message": "admin bearer token required" })
+        );
+
+        let dto = AdminError {
+            ok: false,
+            message: "admin controls disabled (CATALYRST_MARKET_ADMIN_TOKEN unset)".to_string(),
+        };
+        assert_eq!(
+            serde_json::to_value(&dto).unwrap(),
+            json!({
+                "ok": false,
+                "message": "admin controls disabled (CATALYRST_MARKET_ADMIN_TOKEN unset)"
+            })
+        );
+    }
+
+    #[test]
+    fn wire_identity_set_flag_ok() {
+        let dto = SetFlagResponse {
+            ok: true,
+            target_kind: "bid".to_string(),
+            target_hash: "0xabc".to_string(),
+            severity: "hide".to_string(),
+        };
+        assert_eq!(
+            serde_json::to_value(&dto).unwrap(),
+            json!({ "ok": true, "target_kind": "bid", "target_hash": "0xabc", "severity": "hide" })
+        );
+    }
+
+    #[test]
+    fn wire_identity_clear_flag_ok() {
+        let removed = ClearFlagResponse {
+            ok: true,
+            target_hash: "0xabc".to_string(),
+            removed: true,
+        };
+        assert_eq!(
+            serde_json::to_value(&removed).unwrap(),
+            json!({ "ok": true, "target_hash": "0xabc", "removed": true })
+        );
+
+        let noop = ClearFlagResponse {
+            ok: true,
+            target_hash: "0xdef".to_string(),
+            removed: false,
+        };
+        assert_eq!(
+            serde_json::to_value(&noop).unwrap(),
+            json!({ "ok": true, "target_hash": "0xdef", "removed": false })
+        );
+    }
+
+    #[test]
+    fn wire_identity_list_flags() {
+        let entry = FlagEntry {
+            target_hash: "0xabc".to_string(),
+            target_kind: "order".to_string(),
+            severity: "review".to_string(),
+            reason: "spam".to_string(),
+            flagged_by: "admin-token".to_string(),
+            flagged_at: 1_700_000_000,
+        };
+        let dto = ListEnvelope::of(vec![entry]);
+        assert_eq!(
+            serde_json::to_value(&dto).unwrap(),
+            json!({
+                "data": [{
+                    "target_hash": "0xabc",
+                    "target_kind": "order",
+                    "severity": "review",
+                    "reason": "spam",
+                    "flagged_by": "admin-token",
+                    "flagged_at": 1_700_000_000_i64,
+                }],
+                "total": 1
+            })
+        );
+
+        let empty: ListEnvelope<FlagEntry> = ListEnvelope::of(vec![]);
+        assert_eq!(
+            serde_json::to_value(&empty).unwrap(),
+            json!({ "data": [], "total": 0 })
+        );
+    }
+
+    #[test]
+    fn wire_identity_dispute_action() {
+        let opened = DisputeActionResponse {
+            ok: true,
+            trade_hash: "0xtrade".to_string(),
+            status: "open".to_string(),
+        };
+        assert_eq!(
+            serde_json::to_value(&opened).unwrap(),
+            json!({ "ok": true, "trade_hash": "0xtrade", "status": "open" })
+        );
+
+        for status in ["resolved", "rejected"] {
+            let dto = DisputeActionResponse {
+                ok: true,
+                trade_hash: "0xtrade".to_string(),
+                status: status.to_string(),
+            };
+            assert_eq!(
+                serde_json::to_value(&dto).unwrap(),
+                json!({ "ok": true, "trade_hash": "0xtrade", "status": status })
+            );
+        }
+    }
+
+    #[test]
+    fn wire_identity_list_disputes() {
+        let open = DisputeEntry {
+            trade_hash: "0xtrade".to_string(),
+            status: "open".to_string(),
+            reason: "fraud".to_string(),
+            resolution: String::new(),
+            opened_by: "admin-token".to_string(),
+            opened_at: 1_700_000_000,
+            resolved_by: None,
+            resolved_at: None,
+        };
+        let v = serde_json::to_value(&open).unwrap();
+        assert_eq!(
+            v,
+            json!({
+                "trade_hash": "0xtrade",
+                "status": "open",
+                "reason": "fraud",
+                "resolution": "",
+                "opened_by": "admin-token",
+                "opened_at": 1_700_000_000_i64,
+                "resolved_by": null,
+                "resolved_at": null,
+            })
+        );
+        let obj = v.as_object().unwrap();
+        assert!(obj.contains_key("resolved_by"));
+        assert!(obj.contains_key("resolved_at"));
+
+        let resolved = DisputeEntry {
+            trade_hash: "0xtrade".to_string(),
+            status: "resolved".to_string(),
+            reason: "fraud".to_string(),
+            resolution: "refunded".to_string(),
+            opened_by: "admin-token".to_string(),
+            opened_at: 1_700_000_000,
+            resolved_by: Some("admin-token".to_string()),
+            resolved_at: Some(1_700_000_100),
+        };
+        let dto = ListEnvelope::of(vec![resolved]);
+        assert_eq!(
+            serde_json::to_value(&dto).unwrap(),
+            json!({
+                "data": [{
+                    "trade_hash": "0xtrade",
+                    "status": "resolved",
+                    "reason": "fraud",
+                    "resolution": "refunded",
+                    "opened_by": "admin-token",
+                    "opened_at": 1_700_000_000_i64,
+                    "resolved_by": "admin-token",
+                    "resolved_at": 1_700_000_100_i64,
+                }],
+                "total": 1
+            })
+        );
+
+        let empty: ListEnvelope<DisputeEntry> = ListEnvelope::of(vec![]);
+        assert_eq!(
+            serde_json::to_value(&empty).unwrap(),
+            json!({ "data": [], "total": 0 })
+        );
+    }
+
+    #[test]
+    fn wire_identity_force_cancel() {
+        let fresh = ForceCancelResponse {
+            ok: true,
+            target_hash: "0xh".to_string(),
+            cancellation_hash: "operator:deadbeef".to_string(),
+            already_cancelled: None,
+        };
+        let v = serde_json::to_value(&fresh).unwrap();
+        assert_eq!(
+            v,
+            json!({ "ok": true, "target_hash": "0xh", "cancellation_hash": "operator:deadbeef" })
+        );
+        assert!(!v.as_object().unwrap().contains_key("already_cancelled"));
+
+        let replay = ForceCancelResponse {
+            ok: true,
+            target_hash: "0xh".to_string(),
+            cancellation_hash: "operator:prior".to_string(),
+            already_cancelled: Some(true),
+        };
+        assert_eq!(
+            serde_json::to_value(&replay).unwrap(),
+            json!({
+                "ok": true,
+                "target_hash": "0xh",
+                "cancellation_hash": "operator:prior",
+                "already_cancelled": true,
+            })
+        );
+    }
+
+    #[test]
+    fn wire_identity_list_audit() {
+        let entry = AuditEntry {
+            id: 42,
+            actor: "admin-token".to_string(),
+            action: "flag.set".to_string(),
+            target_kind: "bid".to_string(),
+            target_hash: "0xabc".to_string(),
+            detail: json!({ "severity": "hide", "reason": "spam", "legacy_extra": [1, 2] }),
+            created_at: 1_700_000_000,
+        };
+        let dto = ListEnvelope::of(vec![entry]);
+        assert_eq!(
+            serde_json::to_value(&dto).unwrap(),
+            json!({
+                "data": [{
+                    "id": 42,
+                    "actor": "admin-token",
+                    "action": "flag.set",
+                    "target_kind": "bid",
+                    "target_hash": "0xabc",
+                    "detail": { "severity": "hide", "reason": "spam", "legacy_extra": [1, 2] },
+                    "created_at": 1_700_000_000_i64,
+                }],
+                "total": 1
+            })
+        );
+
+        let empty: ListEnvelope<AuditEntry> = ListEnvelope::of(vec![]);
+        assert_eq!(
+            serde_json::to_value(&empty).unwrap(),
+            json!({ "data": [], "total": 0 })
+        );
+    }
+
+    #[test]
+    fn wire_identity_audit_details() {
+        assert_eq!(
+            to_detail_value(
+                FlagSetDetail {
+                    severity: "hide",
+                    reason: "spam"
+                },
+                "test"
+            ),
+            json!({ "severity": "hide", "reason": "spam" })
+        );
+        assert_eq!(to_detail_value(EmptyDetail {}, "test"), json!({}));
+        assert_eq!(
+            to_detail_value(ReasonDetail { reason: "fraud" }, "test"),
+            json!({ "reason": "fraud" })
+        );
+        assert_eq!(
+            to_detail_value(
+                DisputeResolveDetail {
+                    status: "resolved",
+                    resolution: "refunded"
+                },
+                "test"
+            ),
+            json!({ "status": "resolved", "resolution": "refunded" })
+        );
+        assert_eq!(
+            to_detail_value(
+                ForceCancelDetail {
+                    reason: "rug",
+                    cancellation_hash: "operator:deadbeef"
+                },
+                "test"
+            ),
+            json!({ "reason": "rug", "cancellation_hash": "operator:deadbeef" })
+        );
+        assert_eq!(
+            to_detail_value(
+                OperatorCancelPayload {
+                    operator_force_cancel: true,
+                    actor: "admin-token",
+                    reason: "rug",
+                    target_kind: "order",
+                },
+                "test"
+            ),
+            json!({
+                "operator_force_cancel": true,
+                "actor": "admin-token",
+                "reason": "rug",
+                "target_kind": "order",
+            })
+        );
     }
 }

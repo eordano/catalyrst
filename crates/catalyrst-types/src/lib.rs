@@ -1,8 +1,8 @@
 pub mod deployment;
 pub mod entity;
-pub mod env;
 pub mod error;
 pub mod pagination;
+pub mod snapshot;
 pub mod sorting;
 
 pub use entity::{
@@ -24,8 +24,6 @@ pub use sorting::{
     happened_before, DeploymentSortingField, EntityComparable, IntoEntityComparable, SortingField,
     SortingOrder,
 };
-
-pub use env::{DatabaseConfig, EnvironmentConfig};
 
 pub use error::{
     ContentError, ContentResult, FailedDeploymentReason, HttpError, InvalidParameterError,

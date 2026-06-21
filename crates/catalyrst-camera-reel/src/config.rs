@@ -1,4 +1,5 @@
-use anyhow::{anyhow, Context, Result};
+use anyhow::Result;
+use catalyrst_envcfg::{get_port, get_u64, required};
 use std::env;
 
 pub struct Config {
@@ -19,8 +20,6 @@ pub struct Config {
     pub places_cache_ttl_seconds: u64,
     pub places_cache_max_size: u64,
 
-    /// Bearer token gating the moderator `/admin/*` routes. When unset, those
-    /// routes fail closed (403). Compared in constant time.
     pub admin_token: Option<String>,
 }
 
@@ -43,23 +42,5 @@ impl Config {
                 .ok()
                 .filter(|s| !s.is_empty()),
         })
-    }
-}
-
-fn required(key: &str) -> Result<String> {
-    env::var(key).map_err(|_| anyhow!("missing required env var: {}", key))
-}
-
-fn get_port(key: &str, default: u16) -> Result<u16> {
-    match env::var(key) {
-        Ok(s) => s.parse::<u16>().with_context(|| format!("invalid {}", key)),
-        Err(_) => Ok(default),
-    }
-}
-
-fn get_u64(key: &str, default: u64) -> Result<u64> {
-    match env::var(key) {
-        Ok(s) => s.parse::<u64>().with_context(|| format!("invalid {}", key)),
-        Err(_) => Ok(default),
     }
 }

@@ -1,15 +1,3 @@
-//! Bearer-gated runtime configuration for the relay.
-//!
-//! These routes let an operator view and amend the JSON-RPC method allowlist
-//! (today seeded from [`crate::state::READ_ONLY_METHODS`]) and the network →
-//! upstream map at runtime, without restarting the service. Both stores live
-//! behind `RwLock`s on [`crate::state::AppStateInner`] and are read on the hot
-//! relay path, so amendments take effect immediately.
-//!
-//! Every route is gated by a constant-time bearer-token compare against
-//! `CATALYRST_RPC_ADMIN_TOKEN`. If that env is unset the routes fail closed
-//! (403) — mirroring the timing-safe gate used in `catalyrst-comms`.
-
 use crate::state::AppState;
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode};
@@ -45,7 +33,6 @@ fn bearer_token(headers: &HeaderMap) -> Option<String> {
         .map(|s| s.to_string())
 }
 
-/// Constant-time string compare (mirrors `catalyrst-comms::moderator::timing_safe_eq`).
 fn timing_safe_eq(a: &str, b: &str) -> bool {
     if a.len() != b.len() {
         return false;
@@ -57,8 +44,6 @@ fn timing_safe_eq(a: &str, b: &str) -> bool {
     diff == 0
 }
 
-/// Fail-closed bearer authorization. Returns `Ok(())` only when the admin token
-/// env is configured *and* a matching `Authorization: Bearer` header is present.
 fn authorize_admin(state: &AppState, headers: &HeaderMap) -> Result<(), StatusCode> {
     let expected = state.admin_token.as_deref().ok_or(StatusCode::FORBIDDEN)?;
     let token = bearer_token(headers).ok_or(StatusCode::FORBIDDEN)?;
@@ -80,8 +65,6 @@ struct NetworkBody {
     url: String,
 }
 
-// ----- combined config view -----
-
 async fn get_config(State(state): State<AppState>, headers: HeaderMap) -> impl IntoResponse {
     if let Err(s) = authorize_admin(&state, &headers) {
         return (s, Json(json!({ "error": "forbidden" }))).into_response();
@@ -95,8 +78,6 @@ async fn get_config(State(state): State<AppState>, headers: HeaderMap) -> impl I
     )
         .into_response()
 }
-
-// ----- methods -----
 
 async fn list_methods(State(state): State<AppState>, headers: HeaderMap) -> impl IntoResponse {
     if let Err(s) = authorize_admin(&state, &headers) {
@@ -186,8 +167,6 @@ async fn reset_methods(State(state): State<AppState>, headers: HeaderMap) -> imp
         .into_response()
 }
 
-// ----- networks -----
-
 async fn list_networks(State(state): State<AppState>, headers: HeaderMap) -> impl IntoResponse {
     if let Err(s) = authorize_admin(&state, &headers) {
         return (s, Json(json!({ "error": "forbidden" }))).into_response();
@@ -199,14 +178,11 @@ async fn list_networks(State(state): State<AppState>, headers: HeaderMap) -> imp
         .into_response()
 }
 
-/// True if `url`'s host is a loopback/private/link-local/metadata literal
-/// that the RPC relay must not be pointed at (SSRF guard for the admin upstream
-/// setter). Literal-host check only — DNS names are not resolved here.
 fn is_blocked_upstream_host(url: &str) -> bool {
     let after = url.split("://").nth(1).unwrap_or(url);
     let hostport = after.split(['/', '?', '#']).next().unwrap_or("");
-    let host = hostport.rsplit('@').next().unwrap_or(hostport); // strip userinfo
-                                                                // strip port (but keep IPv6 brackets intact)
+    let host = hostport.rsplit('@').next().unwrap_or(hostport);
+
     let host = if host.starts_with('[') {
         host.split(']')
             .next()
@@ -256,11 +232,7 @@ async fn upsert_network(
         )
             .into_response();
     }
-    // Defense-in-depth: this admin route otherwise turns the relay into an SSRF
-    // primitive (set an internal upstream, then relay reflects its response).
-    // Block loopback/private/link-local/metadata literal hosts. (Full
-    // resolve-and-pin would also catch DNS names resolving internal; this admin
-    // path is already gated, so the literal blocklist is the proportionate fix.)
+
     if is_blocked_upstream_host(&url) {
         return (
             StatusCode::BAD_REQUEST,

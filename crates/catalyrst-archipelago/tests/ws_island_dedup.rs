@@ -1,13 +1,4 @@
-//! Protocol-level ws tests: a real signed handshake against the served router,
-//! asserting IslandChanged delivery semantics.
-//!
-//! Regression coverage for two production bugs found 2026-06-11:
-//! - the reconnect catch-up push + a kicked-recluster broadcast double-delivered
-//!   the SAME IslandChanged back-to-back (raced bevy-explorer's manage_islands
-//!   despawn handling);
-//! - a stale socket's close cleanup deleted the peer a newer same-wallet socket
-//!   had just registered (generation guard).
-
+use alloy::signers::{local::PrivateKeySigner, SignerSync};
 use catalyrst_archipelago::config::{
     AuthConfig, ClusterConfig, Config, GossipConfig, LivekitConfig, ServerConfig,
 };
@@ -17,7 +8,6 @@ use catalyrst_archipelago::proto::archipelago::{
 };
 use catalyrst_archipelago::proto::Position;
 use catalyrst_archipelago::{api_router, build_state};
-use ethers_signers::{LocalWallet, Signer};
 use futures::{SinkExt, StreamExt};
 use prost::Message as _;
 use std::time::Duration;
@@ -36,6 +26,7 @@ fn test_config() -> Config {
             require_signed_challenge: true,
             challenge_ttl_secs: 120,
             signature_max_age_secs: 300,
+            deny_list_url: None,
         },
         livekit: LivekitConfig::default(),
         gossip: GossipConfig::default(),
@@ -58,8 +49,8 @@ async fn start_server() -> u16 {
     port
 }
 
-fn encode(msg: client_packet::Message) -> Vec<u8> {
-    ClientPacket { message: Some(msg) }.encode_to_vec()
+fn encode(msg: client_packet::Message) -> tokio_tungstenite::tungstenite::Bytes {
+    ClientPacket { message: Some(msg) }.encode_to_vec().into()
 }
 
 async fn recv_msg(ws: &mut WsStream, timeout: Duration) -> Option<server_packet::Message> {
@@ -67,7 +58,7 @@ async fn recv_msg(ws: &mut WsStream, timeout: Duration) -> Option<server_packet:
         let frame = tokio::time::timeout(timeout, ws.next()).await.ok()??;
         match frame.ok()? {
             WsMessage::Binary(bytes) => {
-                return ServerPacket::decode(bytes.as_slice()).ok()?.message;
+                return ServerPacket::decode(bytes.as_ref()).ok()?.message;
             }
             WsMessage::Ping(_) | WsMessage::Pong(_) => continue,
             _ => return None,
@@ -75,8 +66,7 @@ async fn recv_msg(ws: &mut WsStream, timeout: Duration) -> Option<server_packet:
     }
 }
 
-/// Full signed handshake; returns the open socket ready for heartbeats.
-async fn connect_and_handshake(port: u16, wallet: &LocalWallet) -> WsStream {
+async fn connect_and_handshake(port: u16, wallet: &PrivateKeySigner) -> WsStream {
     let (mut ws, _) = tokio_tungstenite::connect_async(format!("ws://127.0.0.1:{port}/ws"))
         .await
         .expect("ws connect");
@@ -95,11 +85,11 @@ async fn connect_and_handshake(port: u16, wallet: &LocalWallet) -> WsStream {
         other => panic!("expected ChallengeResponse, got {other:?}"),
     };
 
-    let hash = ethers_core::utils::hash_message(challenge.as_bytes());
-    let sig = wallet.sign_hash(hash).expect("sign");
+    let hash = alloy::primitives::eip191_hash_message(challenge.as_bytes());
+    let sig = wallet.sign_hash_sync(&hash).expect("sign");
     let chain = serde_json::json!([
         { "type": "SIGNER", "payload": address, "signature": "" },
-        { "type": "ECDSA_SIGNED_ENTITY", "payload": challenge, "signature": format!("0x{sig}") }
+        { "type": "ECDSA_SIGNED_ENTITY", "payload": challenge, "signature": sig.to_string() }
     ]);
 
     ws.send(WsMessage::Binary(encode(
@@ -132,7 +122,6 @@ async fn send_heartbeat(ws: &mut WsStream) {
     .expect("send heartbeat");
 }
 
-/// Drain the socket for `window`, counting IslandChanged frames.
 async fn count_island_changed(ws: &mut WsStream, window: Duration) -> usize {
     let mut n = 0;
     let deadline = tokio::time::Instant::now() + window;
@@ -150,14 +139,11 @@ async fn count_island_changed(ws: &mut WsStream, window: Duration) -> usize {
 #[tokio::test]
 async fn island_changed_is_delivered_exactly_once() {
     let port = start_server().await;
-    let wallet = LocalWallet::new(&mut rand::thread_rng());
+    let wallet = PrivateKeySigner::random();
 
     let mut ws = connect_and_handshake(port, &wallet).await;
     send_heartbeat(&mut ws).await;
 
-    // The window spans the first-heartbeat catch-up push, the kicked recluster's
-    // broadcast AND the next periodic recluster tick (2s) — all of which could
-    // each have produced a frame before the per-socket dedup.
     let n = count_island_changed(&mut ws, Duration::from_millis(3500)).await;
     assert_eq!(
         n, 1,
@@ -168,9 +154,8 @@ async fn island_changed_is_delivered_exactly_once() {
 #[tokio::test]
 async fn second_socket_same_wallet_gets_one_island_and_survives_stale_close() {
     let port = start_server().await;
-    let wallet = LocalWallet::new(&mut rand::thread_rng());
+    let wallet = PrivateKeySigner::random();
 
-    // Socket A connects, heartbeats, gets its island.
     let mut ws_a = connect_and_handshake(port, &wallet).await;
     send_heartbeat(&mut ws_a).await;
     assert_eq!(
@@ -178,9 +163,6 @@ async fn second_socket_same_wallet_gets_one_island_and_survives_stale_close() {
         1
     );
 
-    // Socket B (same wallet) connects while A is still open: the island is
-    // already assigned and unchanged, so ONLY the catch-up push may deliver
-    // it — exactly once.
     let mut ws_b = connect_and_handshake(port, &wallet).await;
     send_heartbeat(&mut ws_b).await;
     let n_b = count_island_changed(&mut ws_b, Duration::from_millis(3000)).await;
@@ -189,9 +171,6 @@ async fn second_socket_same_wallet_gets_one_island_and_survives_stale_close() {
         "reconnect socket must receive its inherited island exactly once, got {n_b}"
     );
 
-    // A (the stale socket) closes: its generation-guarded cleanup must NOT
-    // delete B's registration — B keeps heartbeating and must NOT be evicted
-    // into a new island (which would manifest as another IslandChanged).
     ws_a.close(None).await.ok();
     send_heartbeat(&mut ws_b).await;
     tokio::time::sleep(Duration::from_millis(500)).await;

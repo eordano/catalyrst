@@ -22,12 +22,28 @@ pub struct PageQuery {
     pub limit: u64,
 }
 
+fn capped_limit(limit: u64) -> i64 {
+    limit.min(MAX_LIMIT) as i64
+}
+
+fn validate_places_ids(places_ids: &[String]) -> Result<(), ApiError> {
+    if places_ids.is_empty() {
+        return Err(ApiError::BadRequest("no place IDs provided".to_string()));
+    }
+    if places_ids.len() > MAX_PLACES_IDS {
+        return Err(ApiError::BadRequest(format!(
+            "too many place IDs provided, maximum is {MAX_PLACES_IDS}"
+        )));
+    }
+    Ok(())
+}
+
 pub async fn get_place_images(
     State(state): State<AppState>,
     Path(place_id): Path<String>,
     Query(q): Query<PageQuery>,
 ) -> Result<Response, ApiError> {
-    let limit = q.limit.min(MAX_LIMIT) as i64;
+    let limit = capped_limit(q.limit);
     if place_id.ends_with(".eth") {
         let place_ids = state
             .places
@@ -98,16 +114,9 @@ pub async fn get_multiple_places_images(
     Query(q): Query<PageQuery>,
     Json(body): Json<GetMultiplePlacesImagesBody>,
 ) -> Result<Response, ApiError> {
-    if body.places_ids.is_empty() {
-        return Err(ApiError::BadRequest("no place IDs provided".to_string()));
-    }
-    if body.places_ids.len() > MAX_PLACES_IDS {
-        return Err(ApiError::BadRequest(format!(
-            "too many place IDs provided, maximum is {MAX_PLACES_IDS}"
-        )));
-    }
+    validate_places_ids(&body.places_ids)?;
 
-    let limit = q.limit.min(MAX_LIMIT) as i64;
+    let limit = capped_limit(q.limit);
     let mut resolved_ids: Vec<String> = Vec::new();
     for id in body.places_ids {
         if id.ends_with(".eth") {
@@ -155,4 +164,46 @@ pub async fn get_multiple_places_images(
         }),
     )
         .into_response())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{capped_limit, validate_places_ids, MAX_PLACES_IDS};
+    use crate::handlers::MAX_LIMIT;
+    use crate::http::ApiError;
+
+    #[test]
+    fn capped_limit_passes_values_at_or_below_max() {
+        assert_eq!(capped_limit(0), 0);
+        assert_eq!(capped_limit(20), 20);
+        assert_eq!(capped_limit(MAX_LIMIT), MAX_LIMIT as i64);
+    }
+
+    #[test]
+    fn capped_limit_clamps_values_above_max() {
+        assert_eq!(capped_limit(MAX_LIMIT + 1), MAX_LIMIT as i64);
+        assert_eq!(capped_limit(1_000), MAX_LIMIT as i64);
+        assert_eq!(capped_limit(u64::MAX), MAX_LIMIT as i64);
+    }
+
+    #[test]
+    fn validate_places_ids_rejects_empty() {
+        let err = validate_places_ids(&[]).unwrap_err();
+        assert!(matches!(err, ApiError::BadRequest(_)));
+    }
+
+    #[test]
+    fn validate_places_ids_accepts_up_to_max() {
+        let ids: Vec<String> = (0..MAX_PLACES_IDS).map(|i| i.to_string()).collect();
+        assert_eq!(ids.len(), MAX_PLACES_IDS);
+        assert!(validate_places_ids(&ids).is_ok());
+    }
+
+    #[test]
+    fn validate_places_ids_rejects_over_max() {
+        let ids: Vec<String> = (0..=MAX_PLACES_IDS).map(|i| i.to_string()).collect();
+        assert_eq!(ids.len(), MAX_PLACES_IDS + 1);
+        let err = validate_places_ids(&ids).unwrap_err();
+        assert!(matches!(err, ApiError::BadRequest(_)));
+    }
 }

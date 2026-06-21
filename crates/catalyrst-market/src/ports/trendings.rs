@@ -17,8 +17,7 @@ const TRENDING_SALES_LIMIT: i64 = 1000;
 pub struct TrendingFilters {
     pub size: Option<i64>,
     pub picked_by: Option<String>,
-    /// Social emotes are included by default; only `includeSocialEmotes=false`
-    /// excludes them (mirrors the trending handler's param parsing).
+
     pub include_social_emotes: bool,
 }
 
@@ -67,7 +66,7 @@ LIMIT $2 OFFSET 0
         );
 
         let rows: Vec<(Option<String>, String)> =
-            sqlx::query_as::<_, (Option<String>, String)>(&sql)
+            sqlx::query_as::<_, (Option<String>, String)>(sqlx::AssertSqlSafe(sql))
                 .bind(from_ts)
                 .bind(TRENDING_SALES_LIMIT)
                 .fetch_all(&self.pool)
@@ -177,9 +176,6 @@ LIMIT $2 OFFSET 0
             }
         }
 
-        // Deterministic shuffle of `slicedTrendingBySales.concat(slicedTrendingByVolume)`
-        // using `seedrandom(item1.id + item2.id)()` as the comparator, byte-faithful
-        // to upstream's V8 `Array.sort` ordering (component.ts:92).
         crate::ports::seedrandom::det_shuffle(&mut out, |it| it.id.as_str());
 
         Ok(out)
@@ -206,8 +202,36 @@ pub fn parse_filters(pairs: &[(String, String)]) -> Result<TrendingFilters, Inva
     Ok(TrendingFilters {
         size: p.get_number("size", None).map(|v| v as i64),
         picked_by: p.get_string("pickedBy", None),
-        // Included by default; excluded only when includeSocialEmotes=false.
+
         include_social_emotes: p.get_string("includeSocialEmotes", None).as_deref()
             != Some("false"),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn volume_uses_full_wei_precision() {
+        let one_mana = 1_000_000_000_000_000_000u128;
+        assert_eq!(parse_u128_saturating("1000000000000000000"), one_mana);
+        assert_eq!(one_mana.saturating_mul(3), 3_000_000_000_000_000_000u128);
+    }
+
+    #[test]
+    fn volume_parse_is_lossless_and_saturating() {
+        assert_eq!(
+            parse_u128_saturating("18446744073709551616"),
+            18_446_744_073_709_551_616u128
+        );
+
+        assert_eq!(parse_u128_saturating(""), 0);
+        assert_eq!(parse_u128_saturating("not-a-number"), 0);
+    }
+
+    #[test]
+    fn empty_size_returns_empty() {
+        assert_eq!(DEFAULT_SIZE, 20);
+    }
 }

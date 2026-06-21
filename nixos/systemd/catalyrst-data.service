@@ -7,10 +7,8 @@ Wants=postgresql.service
 [Service]
 Type=exec
 WorkingDirectory=<WORKSPACE>
-# env layering mirrors the validated shell launch: content.env, every
-# per-service catalyrst env (alphabetical), shared overrides, bundle ports.
 EnvironmentFile=<WORKSPACE>/env/content.env
-EnvironmentFile=<WORKSPACE>/env/catalyrst-ab-cdn.env
+EnvironmentFile=<WORKSPACE>/env/catalyrst-abgen.env
 EnvironmentFile=<WORKSPACE>/env/catalyrst-ab-registry.env
 EnvironmentFile=<WORKSPACE>/env/catalyrst-archipelago.env
 EnvironmentFile=<WORKSPACE>/env/catalyrst-builder.env

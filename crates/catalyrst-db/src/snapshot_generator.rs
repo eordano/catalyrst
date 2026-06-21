@@ -71,6 +71,8 @@ pub async fn generate_snapshot(
 ) -> Result<SnapshotMetadata, Box<dyn std::error::Error + Send + Sync>> {
     let time_range = TimeRange::new(init_timestamp_ms, end_timestamp_ms);
 
+    let generation_timestamp = chrono::Utc::now().timestamp_millis() as f64;
+
     let deployments =
         snapshots_repository::stream_active_deployments_in_time_range(pool, time_range).await?;
 
@@ -106,8 +108,6 @@ pub async fn generate_snapshot(
             .filter_map(|s| s.hash)
             .filter(|h| h != &hash)
             .collect::<Vec<_>>();
-
-    let generation_timestamp = chrono::Utc::now().timestamp_millis() as f64;
 
     let metadata = SnapshotMetadata {
         hash: Some(hash),
@@ -189,12 +189,14 @@ pub async fn generate_snapshots_multi(
             )
             .await
             .unwrap_or_default();
-            snapshots_repository::delete_snapshots_in_time_range(pool, &stale_hashes, interval)
+            if snapshots_repository::delete_snapshots_in_time_range(pool, &stale_hashes, interval)
                 .await
-                .ok();
-            for h in &stale_hashes {
-                if !keep.contains(h) {
-                    content_storage.delete(h).await.ok();
+                .is_ok()
+            {
+                for h in &stale_hashes {
+                    if !keep.contains(h) {
+                        content_storage.delete(h).await.ok();
+                    }
                 }
             }
         }
@@ -223,12 +225,14 @@ pub async fn generate_snapshots_multi(
                 if matches_interval {
                     continue;
                 }
-                snapshots_repository::delete_snapshot_by_time_range(pool, snap.time_range)
+                if snapshots_repository::delete_snapshot_by_time_range(pool, snap.time_range)
                     .await
-                    .ok();
-                if let Some(h) = &snap.hash {
-                    if !valid_hashes.contains(h) {
-                        content_storage.delete(h).await.ok();
+                    .is_ok()
+                {
+                    if let Some(h) = &snap.hash {
+                        if !valid_hashes.contains(h) {
+                            content_storage.delete(h).await.ok();
+                        }
                     }
                 }
                 info!(

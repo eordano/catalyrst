@@ -39,11 +39,6 @@ pub struct PriceFilters {
     pub emote_outcome_type: Option<String>,
 }
 
-// Keyed by NumericKey so the serialized JSON object preserves NUMERIC price
-// order (BTreeMap iterates in Ord order). Upstream marketplace-server sorts the
-// price histogram by bignum (`new BN(a).gt(new BN(b))`); a plain
-// BTreeMap<String, _> would re-sort lexicographically ("1000…0" before
-// "100…311…"), diverging from upstream.
 pub type PricesResponse = BTreeMap<NumericKey, i64>;
 
 pub struct PricesComponent {
@@ -114,7 +109,7 @@ impl PricesComponent {
             inner_sql
         );
 
-        let rows = sqlx::query_with(&sql, inner_args)
+        let rows = sqlx::query_with(sqlx::AssertSqlSafe(sql), inner_args)
             .fetch_all(&self.pool)
             .await
             .unwrap_or_default();
@@ -219,7 +214,6 @@ mod tests {
 
     #[test]
     fn consolidate_prices_tallies_and_serializes_in_numeric_order() {
-        // mixed lengths: lexicographic order would put "1000" before "999"
         let input = vec![
             "999".into(),
             "1000".into(),
@@ -228,18 +222,17 @@ mod tests {
             "100".into(),
         ];
         let out = consolidate_prices(input);
-        // counts correct
+
         assert_eq!(out.get(&NumericKey("999".into())), Some(&2));
         assert_eq!(out.get(&NumericKey("1000".into())), Some(&1));
-        // BTreeMap<NumericKey,_> iterates in NUMERIC order — this is the order
-        // axum's Json (direct serde_json::to_vec) emits, NOT lexicographic.
+
         let keys: Vec<&str> = out.keys().map(|k| k.0.as_str()).collect();
         assert_eq!(
             keys,
             vec!["0", "100", "999", "1000"],
             "must be numeric, not lexicographic"
         );
-        // and the directly-serialized JSON string has them in that order too
+
         let s = serde_json::to_string(&out).unwrap();
         assert!(
             s.find("\"999\"").unwrap() < s.find("\"1000\"").unwrap(),
@@ -249,9 +242,8 @@ mod tests {
 
     #[test]
     fn numeric_key_orders_by_value_for_huge_wei_strings() {
-        // real wei-scale values of differing length
-        let a = NumericKey("999999999999999999000000000000000000".into()); // 36 digits
-        let b = NumericKey("1000000000000000000000000000000000000000".into()); // 40 digits
+        let a = NumericKey("999999999999999999000000000000000000".into());
+        let b = NumericKey("1000000000000000000000000000000000000000".into());
         assert!(a < b, "shorter (smaller) wei value must sort first");
     }
 }

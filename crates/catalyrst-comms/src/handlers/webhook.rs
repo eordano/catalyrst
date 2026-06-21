@@ -6,7 +6,7 @@ use axum::response::{IntoResponse, Response};
 use crate::http::{unauthorized, ApiError};
 use crate::livekit::{
     address_from_identity, is_community_voice_chat_room, is_private_voice_chat_room,
-    verify_webhook_signature,
+    verify_webhook_token,
 };
 use crate::voice_logic::DisconnectReason;
 use crate::AppState;
@@ -16,13 +16,18 @@ pub async fn livekit_webhook(
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<Response, ApiError> {
-    if let Some(key) = state.livekit_webhook_key.as_deref() {
-        let sig = headers
+    if state.livekit_configured {
+        let auth = headers
             .get("authorization")
             .or_else(|| headers.get("x-livekit-signature"))
             .and_then(|v| v.to_str().ok())
             .unwrap_or("");
-        if !verify_webhook_signature(key, &body, sig) {
+        if !verify_webhook_token(
+            &state.livekit_api_key,
+            &state.livekit_api_secret,
+            &body,
+            auth,
+        ) {
             return Err(unauthorized("invalid livekit webhook signature"));
         }
     }
@@ -52,15 +57,18 @@ async fn dispatch(
             let (Some(room), Some(addr)) = (room_name(event), participant_address(event)) else {
                 return Ok(());
             };
-            // Only voice-chat rooms drive the voice state machine. Private rooms
-            // run the full active-room / join-and-evict logic; community rooms
-            // mark the joining user connected (mirrors upstream
-            // `handleCommunityParticipantJoined`).
+
             if is_private_voice_chat_room(&room) {
                 crate::voice_logic::handle_private_participant_joined(state, &addr, &room).await?;
             } else if is_community_voice_chat_room(&room) {
-                crate::voice_logic::handle_community_participant_joined(state, &addr, &room)
-                    .await?;
+                let sid = participant_sid(event);
+                crate::voice_logic::handle_community_participant_joined(
+                    state,
+                    &addr,
+                    &room,
+                    sid.as_deref(),
+                )
+                .await?;
             }
         }
         "participant_left" => {
@@ -81,15 +89,15 @@ async fn dispatch(
                 )
                 .await?;
             } else if is_community_voice_chat_room(&room) {
-                // Full community teardown: branch on disconnect reason, tear down
-                // the room when the last active moderator leaves / the room is
-                // deleted, and publish CommunityStreamingEnded. Faithful port of
-                // `handleCommunityParticipantLeft`.
+                let sid = participant_sid(event);
+                let leave_event_time_ms = leave_event_time_ms(event);
                 crate::voice_logic::handle_community_participant_left(
                     state,
                     &addr,
                     &room,
                     disconnect_reason,
+                    sid.as_deref(),
+                    Some(leave_event_time_ms),
                 )
                 .await?;
             }
@@ -143,6 +151,42 @@ fn participant_address(event: &serde_json::Value) -> Option<String> {
         address_from_identity(identity)
             .unwrap_or_else(|| identity.to_lowercase().chars().take(42).collect::<String>()),
     )
+}
+
+fn participant_sid(event: &serde_json::Value) -> Option<String> {
+    event
+        .get("participant")
+        .and_then(|p| p.get("sid"))
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .map(String::from)
+}
+
+fn leave_event_time_ms(event: &serde_json::Value) -> i64 {
+    let created_at = event
+        .get("createdAt")
+        .and_then(|v| {
+            v.as_i64()
+                .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
+        })
+        .unwrap_or(0);
+    if created_at > 0 {
+        if created_at < 1_000_000_000_000 {
+            created_at * 1000
+        } else {
+            created_at
+        }
+    } else {
+        now_ms()
+    }
+}
+
+fn now_ms() -> i64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
 }
 
 fn ingress_id(event: &serde_json::Value) -> Option<String> {

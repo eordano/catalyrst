@@ -1,3 +1,4 @@
+use axum::http::HeaderMap;
 use serde::de::DeserializeOwned;
 use serde_json::json;
 
@@ -5,6 +6,22 @@ use crate::http::ApiError;
 
 pub trait SchemaValidate {
     fn schema_validate(value: &serde_json::Value) -> Result<(), String>;
+}
+
+pub fn get_request_ip(headers: &HeaderMap) -> Option<String> {
+    headers
+        .get("cf-connecting-ip")
+        .and_then(|v| v.to_str().ok())
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+}
+
+pub fn device_identifier(metadata: &serde_json::Value) -> Option<String> {
+    metadata
+        .get("deviceIdentifier")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
 }
 
 fn is_json_content_type(value: Option<&str>) -> bool {

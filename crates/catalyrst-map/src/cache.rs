@@ -51,10 +51,6 @@ pub fn not_modified(
     }
 }
 
-/// A weak ETag built from the dataset generation (`last_modified_ms`) and a
-/// resource-specific key (e.g. the render params). Two responses share an
-/// ETag iff they were derived from the same snapshot with the same params,
-/// which is exactly the condition under which the cached bytes are reused.
 pub fn etag_for(last_modified_ms: i64, key: &str) -> String {
     let mut h: u64 = 0xcbf29ce484222325;
     for b in key.bytes() {
@@ -64,8 +60,6 @@ pub fn etag_for(last_modified_ms: i64, key: &str) -> String {
     format!("W/\"{:x}-{:x}\"", last_modified_ms, h)
 }
 
-/// 304 short-circuit honoring both `If-None-Match` (against `etag`) and
-/// `If-Modified-Since` (against the dataset generation).
 pub fn not_modified_etag(
     req_headers: &HeaderMap,
     last_modified_ms: i64,
@@ -90,7 +84,6 @@ pub fn not_modified_etag(
     not_modified(req_headers, last_modified_ms, max_age, swr)
 }
 
-/// Like [`apply`], but also sets the `ETag` header.
 pub fn apply_etag(resp: &mut Response, last_modified_ms: i64, etag: &str, max_age: u32, swr: u32) {
     apply(resp, last_modified_ms, max_age, swr);
     if let Ok(v) = HeaderValue::from_str(etag) {

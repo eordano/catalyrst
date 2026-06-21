@@ -1,9 +1,5 @@
 use crate::hash::{hash_bytes, hash_bytes_v1};
 
-/// Returns `true` if `s` is a syntactically valid IPFS content hash — a CIDv0
-/// (`Qm…`, base58btc) or CIDv1 (`ba…`, base32). This is a cheap structural check
-/// (no multihash decode) used to reject malformed/path-traversal keys before they
-/// reach storage. It is the Rust analog of `IPFSv1.validate || IPFSv2.validate`.
 pub fn is_canonical_cid(s: &str) -> bool {
     if s.is_empty() || s.len() > 100 {
         return false;

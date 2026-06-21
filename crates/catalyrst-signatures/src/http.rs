@@ -5,8 +5,6 @@ use serde::Serialize;
 use serde_json::{json, Value};
 use thiserror::Error;
 
-/// Upstream signatures-server wraps every response in `{ ok: boolean, ... }`.
-/// Success: `{ ok: true, data: <T> }`. Error: `{ ok: false, message, data? }`.
 pub struct Ok2<T: Serialize>(pub StatusCode, pub T);
 
 impl<T: Serialize> IntoResponse for Ok2<T> {
@@ -29,7 +27,6 @@ pub enum ApiError {
     #[error("{0}")]
     Conflict(String),
 
-    /// 501 — endpoint depends on subgraph/cron machinery not wired locally.
     #[error("{0}")]
     NotImplemented(String),
 
@@ -48,8 +45,6 @@ impl ApiError {
         Self::NotFound(msg.into())
     }
 
-    /// Error envelope with an attached `data` object, matching upstream's
-    /// typed-error responses (e.g. RentalAlreadyExists carries contractAddress).
     pub fn with_data(self, data: Value) -> ApiErrorWithData {
         ApiErrorWithData { error: self, data }
     }

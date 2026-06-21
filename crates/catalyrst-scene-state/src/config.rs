@@ -1,106 +1,78 @@
-//! Runtime configuration. Mirrors the env vars read by the upstream
-//! `createDotEnvConfigComponent` flow plus our `HTTP_SERVER_*` convention.
-
-use anyhow::{Context, Result};
+use anyhow::Result;
+use catalyrst_envcfg::get_port;
 use std::env;
+
+pub const DEFAULT_FETCH_MAX_BODY_BYTES: usize = 50 * 1024 * 1024;
 
 #[derive(Clone, Debug)]
 pub struct Config {
     pub http_host: String,
     pub http_port: u16,
 
-    /// Local path to a compiled scene `game.js`. Upstream `LOCAL_SCENE_PATH`.
-    /// When set, the scene is loaded under the name `localScene` at startup.
     pub local_scene_path: Option<String>,
 
-    /// World content-server base URL. Upstream `WORLD_SERVER_URL`. Used by
-    /// `/debugging/reload` to pull a deployed world's scene.
     pub world_server_url: Option<String>,
 
-    /// Shared secret guarding `/debugging/reload`. Upstream `DEBUGGING_SECRET`.
     pub debugging_secret: Option<String>,
 
-    /// Bearer token gating the admin control routes (`/admin/scene/*`):
-    /// kick-all, CRDT inspect, reset-state. Compared in constant time against
-    /// `Authorization: Bearer <token>`. Sourced from
-    /// `CATALYRST_SCENE_STATE_ADMIN_TOKEN`, falling back to `DEBUGGING_SECRET`
-    /// so a single-host deploy that already armed the scene-control secret need
-    /// not set a second value. Unset (both) ⇒ every admin route returns 403
-    /// (fail-closed / default-safe).
     pub admin_token: Option<String>,
 
-    /// Base URL the server signs auth payloads against. Upstream `HTTP_BASE_URL`.
     pub http_base_url: Option<String>,
 
-    /// Seconds a client has to send its Auth frame before being dropped.
-    /// Upstream hardcodes 5s (`authTimeout`).
     pub auth_timeout_secs: u64,
 
-    /// When true, scenes load with the scene-logic-free [`RelayRuntime`] instead
-    /// of executing their `game.js` in V8. `DISABLE_JS_RUNTIME=1`.
-    ///
-    /// [`RelayRuntime`]: crate::runtime::RelayRuntime
     pub disable_js_runtime: bool,
 
-    /// Realm name reported to scenes via `~system/Runtime.getRealm()`.
-    /// `REALM_NAME` (defaults to `dcl-one`).
     pub realm_name: Option<String>,
 
     pub commit_hash: String,
 
-    // --- Per-scene V8 sandbox safety limits ---
-    /// Hard V8 heap cap, in MiB, for each scene isolate. When the heap nears
-    /// this limit V8 invokes the near-heap-limit callback, which terminates the
-    /// scene's execution (rather than letting V8 abort the whole process).
-    /// `JS_HEAP_LIMIT_MB` (default 384).
     pub js_heap_limit_mb: usize,
 
-    /// Wall-clock budget, in milliseconds, for a single `onStart`/`onUpdate`
-    /// tick. A watchdog thread terminates the isolate's execution if one tick
-    /// runs longer (catches infinite loops in scene JS). `JS_TICK_BUDGET_MS`
-    /// (default 250).
     pub js_tick_budget_ms: u64,
 
-    /// How long `shutdown()` waits for the JS thread to unwind after asking it
-    /// to stop, in milliseconds, before giving up the join (so a wedged scene
-    /// can't block `/debugging/reload` forever). `JS_SHUTDOWN_JOIN_MS`
-    /// (default 2000).
     pub js_shutdown_join_ms: u64,
 
-    // --- Per-client / per-scene backpressure caps ---
-    /// Max queued outbound frames per client before the slow client is
-    /// disconnected (its outbound sink is bounded). `CLIENT_OUTBOUND_MAX`
-    /// (default 1024).
+    pub js_update_failure_cap: usize,
+
     pub client_outbound_max: usize,
 
-    /// Max queued inbound CRDT batches per client awaiting the scene's
-    /// `getMessages()` pull. Beyond this the client is dropped.
-    /// `CLIENT_INBOUND_MAX` (default 1024).
     pub client_inbound_max: usize,
 
-    /// Max authoritative (entity, component) cells the CRDT engine will hold
-    /// per scene; writes beyond the cap are rejected. `CRDT_MAX_COMPONENTS`
-    /// (default 100000).
     pub crdt_max_components: usize,
 
-    /// Max WebSocket frame size accepted on `/ws`, in bytes (axum's default is
-    /// 64 MiB). `WS_MAX_FRAME_BYTES` (default 2 MiB).
     pub ws_max_frame_bytes: usize,
+
+    pub fetch_max_body_bytes: usize,
+
+    pub storage_url: Option<String>,
+
+    pub storage_allow_http: bool,
+
+    pub delegation_minter_url: Option<String>,
+
+    pub delegation_minter_token: Option<String>,
+
+    pub storage_delegation: Option<String>,
+
+    pub signed_fetch_max_response_bytes: usize,
+
+    pub signed_fetch_max_body_bytes: usize,
+
+    pub signed_fetch_max_in_flight: usize,
+
+    pub signed_fetch_timeout_ms: u64,
 }
 
 impl Config {
     pub fn from_env() -> Result<Self> {
         let http_host = env::var("HTTP_SERVER_HOST").unwrap_or_else(|_| "127.0.0.1".into());
-        let http_port: u16 = env::var("HTTP_SERVER_PORT")
-            .unwrap_or_else(|_| "5153".into())
-            .parse()
-            .context("HTTP_SERVER_PORT must be u16")?;
+        let http_port = get_port("HTTP_SERVER_PORT", 5209)?;
 
         let opt = |k: &str| env::var(k).ok().filter(|s| !s.is_empty());
 
         let debugging_secret = opt("DEBUGGING_SECRET");
-        // Prefer a dedicated admin bearer; fall back to DEBUGGING_SECRET so the
-        // existing scene-control secret also unlocks the admin routes.
+
         let admin_token =
             opt("CATALYRST_SCENE_STATE_ADMIN_TOKEN").or_else(|| debugging_secret.clone());
 
@@ -123,15 +95,30 @@ impl Config {
             js_heap_limit_mb: parse_or("JS_HEAP_LIMIT_MB", 384),
             js_tick_budget_ms: parse_or("JS_TICK_BUDGET_MS", 250),
             js_shutdown_join_ms: parse_or("JS_SHUTDOWN_JOIN_MS", 2000),
+            js_update_failure_cap: parse_or("JS_UPDATE_FAILURE_CAP", 30),
             client_outbound_max: parse_or("CLIENT_OUTBOUND_MAX", 1024),
             client_inbound_max: parse_or("CLIENT_INBOUND_MAX", 1024),
             crdt_max_components: parse_or("CRDT_MAX_COMPONENTS", 100_000),
             ws_max_frame_bytes: parse_or("WS_MAX_FRAME_BYTES", 2 * 1024 * 1024),
+            fetch_max_body_bytes: parse_or("FETCH_MAX_BODY_BYTES", DEFAULT_FETCH_MAX_BODY_BYTES),
+            storage_url: opt("STORAGE_URL"),
+            storage_allow_http: opt("STORAGE_ALLOW_HTTP")
+                .map(|s| s == "1" || s.eq_ignore_ascii_case("true"))
+                .unwrap_or(false),
+            delegation_minter_url: opt("DELEGATION_MINTER_URL"),
+            delegation_minter_token: opt("DELEGATION_MINTER_TOKEN"),
+            storage_delegation: opt("STORAGE_DELEGATION"),
+            signed_fetch_max_response_bytes: parse_or(
+                "SIGNED_FETCH_MAX_RESPONSE_BYTES",
+                2 * 1024 * 1024,
+            ),
+            signed_fetch_max_body_bytes: parse_or("SIGNED_FETCH_MAX_BODY_BYTES", 1024 * 1024),
+            signed_fetch_max_in_flight: parse_or("SIGNED_FETCH_MAX_IN_FLIGHT", 8),
+            signed_fetch_timeout_ms: parse_or("SIGNED_FETCH_TIMEOUT_MS", 10_000),
         })
     }
 }
 
-/// Parse an env var as `T`, falling back to `default` if unset or unparseable.
 fn parse_or<T: std::str::FromStr>(key: &str, default: T) -> T {
     env::var(key)
         .ok()

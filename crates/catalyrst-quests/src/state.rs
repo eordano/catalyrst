@@ -1,16 +1,3 @@
-//! Quest progression state machine — faithful port of
-//! `decentraland/quests` crates/protocol/src/quests/{graph,state}.rs over the
-//! generated protobuf types (`Quest`, `Event`, `QuestState`, `StepContent`,
-//! `Task`, `Action`).
-//!
-//! A quest is a DAG of steps wired by `connections`; synthetic `_START_` /
-//! `_END_` nodes bracket it. The initial state activates every step reachable
-//! from `_START_` (i.e. steps with no incoming connection). Each event removes
-//! a matched action-item from a current task; emptying a task completes it;
-//! emptying a step's to-dos completes the step, decrements `steps_left`, and
-//! activates its successors. `required_steps` are the steps directly pointing
-//! to `_END_`. Action matching is case-insensitive on both type and parameters.
-
 use std::collections::{HashMap, HashSet};
 
 use crate::proto::{
@@ -21,8 +8,6 @@ pub const START_STEP_ID: &str = "_START_";
 pub const END_STEP_ID: &str = "_END_";
 
 pub type StepID = String;
-
-// ---- Quest / QuestDefinition graph helpers (port of quests/mod.rs) ----
 
 fn quest_definition(quest: &Quest) -> Option<&QuestDefinition> {
     quest.definition.as_ref()
@@ -35,7 +20,6 @@ fn contains_step(quest: &Quest, step_id: &str) -> bool {
     }
 }
 
-/// Steps that never appear as the `from` of a connection — they point to `_END_`.
 fn steps_without_to(quest: &Quest) -> HashSet<StepID> {
     let mut steps = HashSet::new();
     let Some(def) = quest_definition(quest) else {
@@ -53,7 +37,6 @@ fn steps_without_to(quest: &Quest) -> HashSet<StepID> {
     steps
 }
 
-/// Steps that never appear as the `to` of a connection — they branch off `_START_`.
 fn steps_without_from(quest: &Quest) -> HashSet<StepID> {
     let mut steps = HashSet::new();
     let Some(def) = quest_definition(quest) else {
@@ -71,13 +54,10 @@ fn steps_without_from(quest: &Quest) -> HashSet<StepID> {
     steps
 }
 
-/// Clear all action_items off a task (upstream `Task::hide_actions`).
 pub fn hide_task_actions(task: &mut Task) {
     task.action_items.clear();
 }
 
-/// Strip action_items off every to-do in the live state (upstream
-/// `QuestState::hide_actions`) so streamed updates don't leak the answer set.
 pub fn hide_state_actions(state: &mut QuestState) {
     for step in state.current_steps.values_mut() {
         for task in &mut step.to_dos {
@@ -86,7 +66,6 @@ pub fn hide_state_actions(state: &mut QuestState) {
     }
 }
 
-/// Strip action_items off a quest's full definition (upstream `Quest::hide_actions`).
 pub fn hide_quest_actions(quest: &mut Quest) {
     if let Some(def) = quest.definition.as_mut() {
         for step in &mut def.steps {
@@ -97,15 +76,11 @@ pub fn hide_quest_actions(quest: &mut Quest) {
     }
 }
 
-// ---- QuestGraph (port of quests/graph.rs) ----
-
-/// Directed adjacency over the quest's steps, bracketed by `_START_` / `_END_`.
 pub struct QuestGraph {
-    /// step -> successors
     next: HashMap<String, Vec<String>>,
-    /// step -> predecessors
+
     prev: HashMap<String, Vec<String>>,
-    /// real step count (excludes the two synthetic nodes)
+
     total_steps: usize,
     pub tasks_by_step: HashMap<StepID, Vec<Task>>,
 }
@@ -153,19 +128,16 @@ impl From<&Quest> for QuestGraph {
             };
         };
 
-        // Inter-step connections. With no connections, every step is isolated
-        // (each is both a start and an end node, matching upstream).
         for Connection { step_from, step_to } in &def.connections {
             if contains_step(quest, step_from) && contains_step(quest, step_to) {
                 add_edge(step_from, step_to);
             }
         }
 
-        // Edges to the synthetic END node.
         for step in steps_without_to(quest) {
             add_edge(&step, END_STEP_ID);
         }
-        // Edges from the synthetic START node.
+
         for step in steps_without_from(quest) {
             add_edge(START_STEP_ID, &step);
         }
@@ -189,8 +161,6 @@ fn build_tasks_by_step(quest: &Quest) -> HashMap<StepID, Vec<Task>> {
     map
 }
 
-/// Case-insensitive equality on action type and parameters (port of
-/// `quests/graph.rs::matches_action`).
 pub fn matches_action(action: &Action, other_action: &Action) -> bool {
     if !action.r#type.eq_ignore_ascii_case(&other_action.r#type) {
         return false;
@@ -207,9 +177,6 @@ pub fn matches_action(action: &Action, other_action: &Action) -> bool {
     true
 }
 
-// ---- QuestState (port of quests/state.rs) ----
-
-/// Whether all `required_steps` are present in `steps_completed`.
 pub fn is_completed(state: &QuestState) -> bool {
     state
         .required_steps
@@ -217,8 +184,6 @@ pub fn is_completed(state: &QuestState) -> bool {
         .all(|step| state.steps_completed.contains(step))
 }
 
-/// Initial state for a fresh instance — every step branching off `_START_`,
-/// `required_steps` from the `_END_` predecessors, `steps_left == total_steps`.
 fn initial_state(graph: &QuestGraph) -> QuestState {
     let current_steps = graph
         .next(START_STEP_ID)
@@ -243,8 +208,6 @@ fn initial_state(graph: &QuestGraph) -> QuestState {
     }
 }
 
-/// Apply a single event to a state, returning the next state (port of
-/// `QuestState::apply_event`). A `None` action returns the state unchanged.
 pub fn apply_event(state: &QuestState, graph: &QuestGraph, event: &Event) -> QuestState {
     let mut next = state.clone();
     let Some(event_action) = event.action.as_ref() else {
@@ -294,8 +257,6 @@ pub fn apply_event(state: &QuestState, graph: &QuestGraph, event: &Event) -> Que
     next
 }
 
-/// Fold the ordered event log over the initial state (port of
-/// `quests/state.rs::get_state`).
 pub fn get_state(quest: &Quest, events: &[Event]) -> QuestState {
     let graph = QuestGraph::from(quest);
     let initial = initial_state(&graph);
@@ -304,9 +265,6 @@ pub fn get_state(quest: &Quest, events: &[Event]) -> QuestState {
         .fold(initial, |state, event| apply_event(&state, &graph, event))
 }
 
-/// Compute an instance's `QuestState` for a pre-decoded quest by folding its
-/// stored event log (upstream `get_instance_state` over an already-loaded
-/// quest). Used by the RPC service's StartQuest/GetAllQuests success paths.
 pub async fn compute_instance_state_quest(
     db: &crate::db::Db,
     quest: &Quest,
@@ -320,8 +278,6 @@ pub async fn compute_instance_state_quest(
         .collect();
     Ok(get_state(quest, &events))
 }
-
-// ---- Test helpers mirroring quests/builders.rs ----
 
 #[cfg(test)]
 fn connection(from: &str, to: &str) -> Connection {
@@ -430,15 +386,14 @@ mod tests {
 
     #[test]
     fn full_run_completes_and_decrements_steps_left() {
-        // Mirrors upstream quest_graph_apply_event_task_simple_works ordering.
         let q = linear_quest();
         let s = get_state(
             &q,
             &[
-                event(location(10, 10)), // A1_1 needs both items
-                event(jump(10, 11)),     // completes A1 -> activates B, steps_left 2
-                event(jump(20, 10)),     // completes B -> activates C, steps_left 1
-                event(jump(20, 20)),     // completes C -> END, steps_left 0
+                event(location(10, 10)),
+                event(jump(10, 11)),
+                event(jump(20, 10)),
+                event(jump(20, 20)),
             ],
         );
         assert!(s.current_steps.is_empty());

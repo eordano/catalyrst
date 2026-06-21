@@ -1,8 +1,3 @@
-//! Auth-chain extraction + verification, mirroring catalyrst-camera-reel's
-//! auth_chain.rs. Ports decentraland-crypto-middleware.wellKnownComponents:
-//! the POST /v1/rentals-listings route requires a valid auth-chain whose
-//! recovered signer becomes the lessor.
-
 use axum::http::HeaderMap;
 use catalyrst_crypto::verify::verify_auth_chain;
 use catalyrst_crypto::AuthError;
@@ -47,11 +42,6 @@ fn build_payload(method: &str, path: &str, timestamp: &str, metadata: &str) -> S
     format!("{}:{}:{}:{}", method, path, timestamp, metadata).to_lowercase()
 }
 
-/// Behind the front-host proxy, nginx strips the service prefix before
-/// proxying but the client signs the full external path (incl. prefix). nginx
-/// forwards the original path in `x-original-path`; prefer it for signed-fetch
-/// payload reconstruction so it matches what the client signed. Falls back to the
-/// hardcoded route path for direct/loopback requests (no header).
 fn signed_fetch_path<'a>(headers: &HeaderMap, fallback: &'a str) -> std::borrow::Cow<'a, str> {
     match headers.get("x-original-path").and_then(|v| v.to_str().ok()) {
         Some(raw) => std::borrow::Cow::Owned(raw.split('?').next().unwrap_or(raw).to_string()),
@@ -95,10 +85,6 @@ fn validate_signature(
     expiration_secs: i64,
     now: i64,
 ) -> Result<EthAddress, AuthChainError> {
-    // Freshness window: read the timestamp from the authoritative
-    // `x-identity-timestamp` header value (`timestamp`), NOT by splitting the
-    // payload on ':'. Paths containing ':' (URNs) would shift the field and
-    // silently skip the freshness check.
     if let Ok(signed_at_ms) = timestamp.parse::<i64>() {
         let signed_at = signed_at_ms / 1000;
         if (now - signed_at).abs() > expiration_secs {
@@ -141,8 +127,6 @@ fn map_auth_error(err: AuthError) -> AuthChainError {
     }
 }
 
-/// Verify the auth-chain over `<method>:<path>:<ts>:<metadata>` and return the
-/// lowercased signer address.
 pub fn require_signer(
     headers: &HeaderMap,
     method: &str,

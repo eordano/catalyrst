@@ -27,7 +27,23 @@ sol! {
         uint256 _price,
         uint256 _duration
     ) external;
+
+    function reclaim(address collection, uint256 tokenId) external;
+    function release(address collection, uint256 tokenId, address buyer) external;
+
+    function safeTransferFrom(address from, address to, uint256 tokenId, bytes data) external;
+
+    function register(string _name, address _beneficiary) external;
+
+    function approve(address spender, uint256 amount) external returns (bool);
+
+    function getNonce(address user) external view returns (uint256 nonce);
 }
+
+pub const ERC721_TRANSFER_TOPIC0: [u8; 32] = [
+    0xdd, 0xf2, 0x52, 0xad, 0x1b, 0xe2, 0xc8, 0x9b, 0x69, 0xc2, 0xb0, 0x68, 0xfc, 0x37, 0x8d, 0xaa,
+    0x95, 0x2b, 0xa7, 0xf1, 0x63, 0xc4, 0xa1, 0x16, 0x28, 0xf5, 0x5a, 0x4d, 0xf5, 0x23, 0xb3, 0xef,
+];
 
 pub enum SaleKind {
     CollectionStore,
@@ -90,5 +106,11 @@ mod tests {
         assert!(!is_execute_meta_tx(&[0xa9, 0x05, 0x9c, 0xbb]));
         assert!(!is_execute_meta_tx(&[0x0c, 0x53, 0xc5]));
         assert!(!is_execute_meta_tx(&[]));
+    }
+
+    #[test]
+    fn erc721_transfer_topic0_matches_keccak() {
+        let computed = alloy::primitives::keccak256("Transfer(address,address,uint256)".as_bytes());
+        assert_eq!(computed.as_slice(), &ERC721_TRANSFER_TOPIC0);
     }
 }

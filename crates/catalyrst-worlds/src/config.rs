@@ -1,4 +1,5 @@
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, Result};
+use catalyrst_envcfg::{env_bool, get_int, get_port, get_u64, required};
 use std::env;
 
 pub struct Config {
@@ -7,6 +8,8 @@ pub struct Config {
     pub database_url: String,
     pub http_base_url: String,
     pub network_id: i64,
+
+    pub squid_database_url: Option<String>,
     pub global_scenes_urn: Option<String>,
     pub content_public_url: String,
     pub lambdas_public_url: String,
@@ -25,9 +28,13 @@ pub struct Config {
     pub comms_gatekeeper_url: Option<String>,
     pub comms_gatekeeper_auth_token: Option<String>,
 
-    /// Bearer token gating the `/admin/*` query + world-owned mutation routes.
-    /// Unset ⇒ every admin route fails closed (403).
+    pub denylist_json_url: Option<String>,
+
+    pub dcl_lists_url: Option<String>,
+
     pub admin_token: Option<String>,
+
+    pub max_in_flight_upload_bytes: u64,
 }
 
 impl Config {
@@ -39,12 +46,17 @@ impl Config {
         let livekit_configured = !livekit_api_key.is_empty() && !livekit_api_secret.is_empty();
         let (livekit_api_key, livekit_api_secret) = if livekit_configured {
             (livekit_api_key, livekit_api_secret)
-        } else {
+        } else if env_bool("LIVEKIT_ALLOW_DEV_CREDS", false) {
             tracing::warn!(
                 "LIVEKIT_API_KEY / LIVEKIT_API_SECRET not set; defaulting to devkey/devsecret — \
                  tokens will parse locally but will NOT be accepted by a real LiveKit cluster"
             );
             ("devkey".to_string(), "devsecret".to_string())
+        } else {
+            return Err(anyhow!(
+                "LIVEKIT_API_KEY / LIVEKIT_API_SECRET are not set; set both, or set \
+                 LIVEKIT_ALLOW_DEV_CREDS=1 to run with the devkey/devsecret dev defaults"
+            ));
         };
 
         let http_base_url = env::var("HTTP_BASE_URL")
@@ -58,6 +70,9 @@ impl Config {
             database_url: required("WORLDS_PG_CONNECTION_STRING")?,
             http_base_url,
             network_id: get_int("NETWORK_ID", 1)?,
+            squid_database_url: env::var("SQUID_PG_CONNECTION_STRING")
+                .ok()
+                .filter(|s| !s.is_empty()),
             global_scenes_urn: env::var("GLOBAL_SCENES_URN").ok().filter(|s| !s.is_empty()),
             content_public_url: env::var("CONTENT_PUBLIC_URL")
                 .unwrap_or_else(|_| "https://peer.decentraland.org/content".to_string()),
@@ -95,27 +110,18 @@ impl Config {
             comms_gatekeeper_auth_token: env::var("COMMS_GATEKEEPER_AUTH_TOKEN")
                 .ok()
                 .filter(|s| !s.is_empty()),
+            denylist_json_url: env::var("DENYLIST_JSON_URL").ok().filter(|s| !s.is_empty()),
+            dcl_lists_url: env::var("DCL_LISTS_URL")
+                .ok()
+                .filter(|s| !s.is_empty())
+                .map(|s| s.trim_end_matches('/').to_string()),
             admin_token: env::var("CATALYRST_WORLDS_ADMIN_TOKEN")
                 .ok()
                 .filter(|s| !s.is_empty()),
+            max_in_flight_upload_bytes: get_u64(
+                "MAX_IN_FLIGHT_UPLOAD_BYTES",
+                crate::handlers::deploy::DEFAULT_MAX_IN_FLIGHT_UPLOAD_BYTES,
+            )?,
         })
-    }
-}
-
-fn required(key: &str) -> Result<String> {
-    env::var(key).map_err(|_| anyhow!("missing required env var: {}", key))
-}
-
-fn get_port(key: &str, default: u16) -> Result<u16> {
-    match env::var(key) {
-        Ok(s) => s.parse::<u16>().with_context(|| format!("invalid {}", key)),
-        Err(_) => Ok(default),
-    }
-}
-
-fn get_int(key: &str, default: i64) -> Result<i64> {
-    match env::var(key) {
-        Ok(s) => s.parse::<i64>().with_context(|| format!("invalid {}", key)),
-        Err(_) => Ok(default),
     }
 }

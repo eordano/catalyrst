@@ -17,6 +17,10 @@ fn is_hex_address(s: &str) -> bool {
     rest.len() == 40 && rest.bytes().all(|b| b.is_ascii_hexdigit())
 }
 
+fn invalid_collection_urn_message(urn: &str) -> String {
+    format!("Invalid URN format: {urn}")
+}
+
 fn is_valid_collection_urn(urn: &str) -> bool {
     let p: Vec<&str> = urn.split(':').collect();
     if p.len() < 5 || p[0] != "urn" || p[1] != "decentraland" {
@@ -42,12 +46,9 @@ pub async fn get_entities_by_collection(
     request: Request,
 ) -> AppResult<impl IntoResponse> {
     if !is_valid_collection_urn(&collection_urn) {
-        return Err(InvalidRequestError::new(format!(
-            "Invalid collection urn param, it must be a valid urn prefix of a collection \
-             or a third party id, instead: '{}'",
-            collection_urn
-        ))
-        .into());
+        return Err(
+            InvalidRequestError::new(invalid_collection_urn_message(&collection_urn)).into(),
+        );
     }
 
     let query_string = request.uri().query().unwrap_or("");
@@ -75,4 +76,40 @@ pub async fn get_entities_by_collection(
         "total": result.total,
         "entities": entities,
     })))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::http::StatusCode;
+    use axum::response::IntoResponse;
+
+    #[test]
+    fn invalid_collection_urn_message_matches_upstream_text() {
+        assert_eq!(
+            invalid_collection_urn_message("not-a-real-urn"),
+            "Invalid URN format: not-a-real-urn"
+        );
+    }
+
+    #[test]
+    fn not_a_real_urn_is_rejected() {
+        assert!(!is_valid_collection_urn("not-a-real-urn"));
+    }
+
+    #[tokio::test]
+    async fn invalid_collection_urn_response_is_400_with_upstream_body() {
+        let err: AppError =
+            InvalidRequestError::new(invalid_collection_urn_message("not-a-real-urn")).into();
+        let resp = err.into_response();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(
+            body,
+            json!({ "error": "Invalid URN format: not-a-real-urn" })
+        );
+    }
 }

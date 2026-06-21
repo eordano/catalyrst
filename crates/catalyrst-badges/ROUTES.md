@@ -1,9 +1,8 @@
 # catalyrst-badges routes
 
-Rust port of `badges.decentraland.org` (key=`badges`). Read-only profile badge
-state over a dedicated `badges` postgres DB on a shared PostgreSQL cluster.
-
-Port: the deployment's assigned port (`5141`). Success envelope: bare `{"data": ...}` (NOT `{ok, data}`).
+Rust port of `badges.decentraland.org` (key=`badges`). Read-only profile badge state over a dedicated
+`badges` postgres DB on a shared PostgreSQL cluster. Port: the deployment's assigned port (`5145`; see
+the deployment's `catalyrst-badges` env file). Success envelope: bare `{"data": ...}` (NOT `{ok, data}`).
 All routes are `auth:none`. `{address}` is lowercased before lookup.
 
 | Method | Path | Status | Response shape | Unity client |
@@ -14,50 +13,36 @@ All routes are `auth:none`. `{address}` is lowercased before lookup.
 | GET | `/badges/{badgeId}/tiers` | implemented | `{"data":{"tiers":[{tierId,tierName,description,assets,criteria{steps}}]}}` | `FetchTiersAsync` |
 | POST | `/users/{address}/badges/{badgeId}` | implemented | `{"data":{"granted":true,address,badgeId,tierId}}` | admin (bearer) |
 | DELETE | `/users/{address}/badges/{badgeId}` | implemented | `{"data":{"revoked":true,address,badgeId}}` | admin (bearer) |
-| GET | `/ping` | implemented | `pong` (health) | — |
+| GET | `/ping` | implemented | `pong` (health) | - |
 
 ## Admin grant/revoke (bearer-gated)
 
-`POST`/`DELETE /users/{address}/badges/{badgeId}` are the only mutating routes.
-They are gated by `Authorization: Bearer <CATALYRST_BADGES_ADMIN_TOKEN>`, compared
-in constant time. If the env var is unset the routes fail closed (403). Read-only
-routes above are unaffected.
-
-- **Grant** (`POST`): for a non-tier badge, marks it complete (`completed_at=now`,
-  `steps_done>=1`). For a tier badge, records an achieved tier — optional body
-  `{"tierId":"<id>"}` selects the tier; default is the highest-ordinal tier.
-  Idempotent. `404` if the badge id is unknown.
-- **Revoke** (`DELETE`): deletes the user's progress + achieved-tier rows for the
-  badge. Idempotent. `404` if the badge id is unknown.
+`POST`/`DELETE /users/{address}/badges/{badgeId}` are the only mutating routes, gated by
+`Authorization: Bearer <CATALYRST_BADGES_ADMIN_TOKEN>`, compared in constant time; unset env fails
+closed (403). Read-only routes are unaffected. Both are idempotent and 404 on unknown badge id.
+Grant (`POST`): non-tier badge -> mark complete (`completed_at=now`, `steps_done>=1`); tier badge ->
+record an achieved tier, optional body `{"tierId":"<id>"}` selects it, default is the highest-ordinal
+tier. Revoke (`DELETE`): deletes the user's progress + achieved-tier rows for the badge.
 
 `BadgeData` = `{id,name,description,category,isTier,completedAt,assets{2d{normal,hrm,baseColor},3d{...}},progress{stepsDone,nextStepsTarget,totalStepsTarget,lastCompletedTierAt,lastCompletedTierName,lastCompletedTierImage,achievedTiers[{tierId,completedAt}]}}`
-— matches Unity `DCL.BadgesAPIService.BadgeData` exactly (assets keys `2d`/`3d`).
+- matches Unity `DCL.BadgesAPIService.BadgeData` exactly (assets keys `2d`/`3d`).
 
-All timestamp fields (`completedAt`, `lastCompletedTierAt`, `achievedTiers[].completedAt`)
-are emitted as Unix-epoch-millisecond **strings** (e.g. `"1749470400000"`), because
-the Unity client parses them with `long.Parse(...)` + `FromUnixTimeMilliseconds`
-(`BadgesUtils.FormatTimestampDate`). RFC3339/ISO strings would throw a
-`FormatException` in the passport date renderer.
+All timestamp fields (`completedAt`, `lastCompletedTierAt`, `achievedTiers[].completedAt`) are emitted
+as Unix-epoch-millisecond strings (e.g. `"1749470400000"`): the Unity client parses them with
+`long.Parse(...)` + `FromUnixTimeMilliseconds` (`BadgesUtils.FormatTimestampDate`); RFC3339/ISO strings
+would throw a `FormatException` in the passport date renderer.
 
 ## Schema (migrations/)
 
-- `0001_initial.sql` — `badge_definitions`, `badge_tiers`, `user_badge_progress`,
-  `user_achieved_tiers`. Categories derived via `DISTINCT category`.
-- `0002_seed_fixture.sql` — Stage-1 static fixture for definitions + tiers so the
-  Unity passport renders against a fresh DB (idempotent `ON CONFLICT DO NOTHING`).
-- `0003_admin_grant_audit.sql` — adds nullable `granted_by` (both user tables) and
-  `granted_at` (achieved-tiers) to record provenance of admin grants.
+- `0001_initial.sql` - `badge_definitions`, `badge_tiers`, `user_badge_progress`, `user_achieved_tiers`. Categories derived via `DISTINCT category`.
+- `0002_seed_fixture.sql` - Stage-1 static fixture for definitions + tiers so the Unity passport renders against a fresh DB (idempotent `ON CONFLICT DO NOTHING`).
+- `0003_admin_grant_audit.sql` - nullable `granted_by` (both user tables) and `granted_at` (achieved-tiers) recording provenance of admin grants.
 
-## Staging
+Staging: Stage 1 (done) = read API over the DB, definitions/tiers seeded from fixture, per-user
+progress tables populated out-of-band. Stage 2 (deferred until an event source is chosen) = event
+consumer advancing `user_badge_progress` / `user_achieved_tiers`; the read routes already source
+progress live from those tables once written.
 
-- **Stage 1 (done):** read API over the DB; definitions/tiers seeded from fixture;
-  per-user progress tables treated as populated out-of-band.
-- **Stage 2 (deferred):** event consumer to advance `user_badge_progress` /
-  `user_achieved_tiers`. Deferred until an event source is chosen. The four read
-  routes are complete and source progress live from those tables once written.
-
-## Caching
-
-In-process `moka` TTL caches (300s): derived category list and per-badge tier
-definitions. Per-user reads are uncached (progress changes frequently). No
-Redis/S3/SQS — disk + postgres + in-process cache only.
+Caching: in-process `moka` TTL caches (300s) for the derived category list and per-badge tier
+definitions. Per-user reads are uncached (progress changes frequently). No Redis/S3/SQS - disk +
+postgres + in-process cache only.

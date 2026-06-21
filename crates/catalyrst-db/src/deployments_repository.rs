@@ -108,8 +108,10 @@ pub struct DeploymentFilters {
     pub only_currently_pointed: Option<bool>,
 }
 
+const DEPLOYMENT_EXISTS_SQL: &str = "SELECT 1 FROM deployments WHERE entity_id = $1 LIMIT 1";
+
 pub async fn deployment_exists(pool: &PgPool, entity_id: &str) -> Result<bool, sqlx::Error> {
-    let row: Option<(i32,)> = sqlx::query_as("SELECT 1 FROM deployments WHERE entity_id = $1")
+    let row: Option<(i32,)> = sqlx::query_as(DEPLOYMENT_EXISTS_SQL)
         .bind(entity_id)
         .fetch_optional(pool)
         .await?;
@@ -256,7 +258,7 @@ pub async fn get_historical_deployments(
 
     sql.push_str(&format!(" LIMIT ${} OFFSET ${}", param_idx, param_idx + 1));
 
-    let mut query = sqlx::query_as::<_, HistoricalDeploymentsRow>(&sql);
+    let mut query = sqlx::query_as::<_, HistoricalDeploymentsRow>(sqlx::AssertSqlSafe(sql));
 
     if let Some(f) = filters {
         if let Some(from) = f.from {
@@ -307,6 +309,7 @@ pub async fn get_active_deployments_by_content_hash(
         INNER JOIN content_files ON content_files.deployment = deployment.id
         WHERE content_hash = $1
           AND deployment.deleter_deployment IS NULL
+        LIMIT 15000
         "#,
     )
     .bind(content_hash)
@@ -620,4 +623,19 @@ pub async fn calculate_overwritten_by_slow(
     .await?;
 
     Ok(rows.into_iter().map(|r| r.0).collect())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn deployment_exists_query_keeps_limit_1_fast_path() {
+        assert!(
+            DEPLOYMENT_EXISTS_SQL.contains("LIMIT 1"),
+            "deployment_exists lost its LIMIT 1 fast-path: {DEPLOYMENT_EXISTS_SQL}"
+        );
+        assert!(DEPLOYMENT_EXISTS_SQL.contains("FROM deployments"));
+        assert!(DEPLOYMENT_EXISTS_SQL.contains("entity_id = $1"));
+    }
 }

@@ -13,9 +13,6 @@ let
     PrivateTmp = true;
     PrivateDevices = true;
     KeyringMode = "private";
-    # PrivateUsers OMITTED: postgres SO_PEERCRED can't see UIDs from a child
-    # userns, so catalyrst-sync + squid-* would fail peer auth. Added back on
-    # non-postgres services via `noPgSandbox` below.
     ProtectKernelTunables = true;
     ProtectKernelModules = true;
     ProtectKernelLogs = true;
@@ -32,21 +29,15 @@ let
     CapabilityBoundingSet = "";
     AmbientCapabilities = "";
     SystemCallArchitectures = "native";
-    # ~@resources dropped: .NET 10 (pulse) needs mbind/set_mempolicy/sched_setattr.
     SystemCallFilter = [ "@system-service" "~@privileged" ];
     UMask = "0077";
     DevicePolicy = "closed";
-    # RestrictFileSystems disabled: needs BPF LSM hook, NixOS 25.11 kernel
-    # doesn't enable it (services exit 244). Revisit when nixpkgs ships bpf-lsm.
   };
 
   commsHardening = baseSandbox // { ProtectHome = true; };
   noPgSandbox = commsHardening // { PrivateUsers = true; };
-  # MDWE excludes pulse (.NET RyuJIT) and archipelago-* (V8) — both SIGTRAP.
   noJitHardening = noPgSandbox // { MemoryDenyWriteExecute = true; };
 
-  # No IP-level egress allowlist for squid-eth/polygon: operators may switch
-  # RPC providers, brittle to pin.
   squidRpcEgress = {};
 
   mkSquidService = { description, exec, socketBindAllow, extraEnvironment ? {} }: {
@@ -231,7 +222,6 @@ in
       zramSwap.enable = true;
       networking.domain = lib.mkDefault "";
 
-      # PerSourcePenalties off: avoids locking out trusted automation sources.
       services.openssh = {
         enable = lib.mkDefault true;
         settings = {
@@ -291,7 +281,6 @@ in
             limit_req zone=catread burst=60 nodelay;
           '';
           locations."= /" = { root = "${landingRoot}"; extraConfig = "try_files /index.html =404;"; };
-          # Block leakage of internal endpoints via the catch-all proxy.
           locations."= /metrics" = { extraConfig = "return 404;"; };
           locations."= /admin"   = { extraConfig = "return 404;"; };
           locations."= /debug"   = { extraConfig = "return 404;"; };
@@ -320,14 +309,18 @@ in
               proxy_buffering off;
             '';
           };
-          # PERF-B: internal target for X-Accel-Redirect zero-copy on
-          # /content/contents/{hash} (+ entity thumbnail/image). `internal;`
-          # blocks direct external access — only nginx-internal redirects
-          # from catalyrst-live's response header can reach it.
           locations."/__protected_storage/" = {
             extraConfig = ''
               internal;
               alias ${cfg.contentStorageRoot}/contents/;
+              # X-Accel-Redirect drops the upstream response headers and nginx's static
+              # module would generate its default mtime-size ETag, breaking parity with
+              # the TS catalyst whose ETag is the quoted content CID. Disable the auto
+              # ETag and re-emit the app's headers (kept in $upstream_http_* across the
+              # internal redirect).
+              etag off;
+              add_header ETag $upstream_http_etag always;
+              add_header Access-Control-Expose-Headers $upstream_http_access_control_expose_headers always;
               add_header Cache-Control "public, max-age=31536000, immutable" always;
               add_header X-Content-Type-Options "nosniff" always;
               sendfile on;
@@ -344,15 +337,9 @@ in
       users.users.squid = { isSystemUser = true; group = "squid"; home = "/var/lib/squid"; };
       users.groups.squid = {};
 
-      # DigitalOcean's monitoring agent is intentionally NOT enabled here. The
-      # example config is provider-neutral; operators on DigitalOcean can opt in
-      # by setting `services.do-agent.enable = true;` from their own host config.
-
       nix.gc = { automatic = true; dates = "weekly"; options = "--delete-older-than 14d"; };
       nix.settings.auto-optimise-store = true;
 
-      # Peer auth, socket-only. catalyrst+squid are non-superuser; per-DB grants
-      # are applied by postgresql-ownership.service.
       services.postgresql = {
         enable = true;
         package = pkgs.postgresql_18;
@@ -376,10 +363,8 @@ in
           max_connections = 300;
           random_page_cost = 1.1;
           effective_io_concurrency = 200;
-          # Single-node: no replication, cut WAL volume.
           wal_level = "minimal";
           max_wal_senders = 0;
-          # TODO: pgaudit — not in nixpkgs postgresql_18; needs withPackages build.
           log_connections = true;
           log_disconnections = true;
           log_line_prefix = "%m [%p] %q%u@%d/%a ";
@@ -389,11 +374,9 @@ in
           log_temp_files = 0;
         };
       };
-      # Reach the 0770 socket dir.
       users.users.catalyrst.extraGroups = [ "postgres" ];
       users.users.squid.extraGroups = [ "postgres" ];
 
-      # Idempotent least-priv grants at boot. NOSUPERUSER strips prior emergency grants.
       systemd.services.postgresql-ownership = {
         description = "least-priv DB ownership + grants for catalyrst / squid";
         after = [ "postgresql.service" "squid-search-path.service" ];
@@ -456,15 +439,12 @@ in
           TasksMax = 4096;
           SocketBindAllow = [ "tcp:5141" ];
           SocketBindDeny = "any";
-          # No IPAddress filter: SYNC_SOURCE pool includes non-CF peers
-          # (some peers in the SYNC_SOURCE pool are not behind Cloudflare) and
-          # operators may rotate the pool.
         };
         environment = {
           RUST_LOG = "info";
           COMMIT_HASH = cfg.commitHash;
           HTTP_SERVER_HOST = "127.0.0.1";
-          CATALYRST_PORT = "5141";
+          HTTP_SERVER_PORT = "5141";
           PUBLIC_URL = cfg.publicUrl;
           COMMS_PROTOCOL = "v3";
           COMMS_FIXED_ADAPTER = "archipelago:archipelago:wss://${cfg.domain}/ws";
@@ -476,15 +456,11 @@ in
           POSTGRES_HOST = "/run/postgresql";
           POSTGRES_PORT = "5432";
           POSTGRES_CONTENT_USER = "catalyrst";
-          # Peer auth: value unused, but the binary panics if unset.
           POSTGRES_CONTENT_PASSWORD = "x";
           POSTGRES_CONTENT_DB = "content";
           SYNC_DB_NAME = "content";
           STORAGE_ROOT_FOLDER = cfg.contentStorageRoot;
           SYNC_STORAGE_ROOT = cfg.syncStorageRoot;
-          # PERF-B: hand /content/contents/{hash} byte transfer to nginx via
-          # X-Accel-Redirect. Must match the `locations."/__protected_storage/"`
-          # block above. Unsetting reverts to Rust-side streaming.
           STORAGE_X_ACCEL_BASE = "/__protected_storage";
           SYNC_ENABLED = lib.boolToString cfg.syncEnabled;
           ENABLE_DEPLOYMENTS = lib.boolToString cfg.enableDeployments;
@@ -496,7 +472,6 @@ in
         };
       };
 
-      # Per-role search_path state is dropped by pg_upgrade/restore; re-apply on boot.
       systemd.services.squid-search-path = {
         description = "ensure squid processor search_path is set";
         after = [ "postgresql.service" ]; wants = [ "postgresql.service" ];
@@ -534,8 +509,6 @@ in
         };
       };
 
-      # Prometheus + exporters are loopback; query via SSH tunnel to :9090.
-      # TODO: Alertmanager delivery.
       services.prometheus.exporters.node = {
         enable = true;
         listenAddress = "127.0.0.1";
@@ -613,6 +586,14 @@ in
                 expr = "node_filesystem_avail_bytes{mountpoint=\"/\"} / node_filesystem_size_bytes{mountpoint=\"/\"} < 0.05";
                 for = "5m"; labels.severity = "critical";
                 annotations.summary = "Root filesystem < 5% free — content sync may stall"; }
+              { alert = "SyncHeartbeatStale";
+                expr = "time() - catalyrst_sync_heartbeat_timestamp_seconds > 900";
+                for = "5m"; labels.severity = "critical";
+                annotations.summary = "catalyrst sync loop has not heartbeat in >15 min — live forward sync is dead or every upstream stream is failing"; }
+              { alert = "SyncIngestSilent";
+                expr = "increase(catalyrst_sync_deployments_total[2h]) == 0";
+                for = "30m"; labels.severity = "warning";
+                annotations.summary = "No deployments ingested in >2h — upstream network idle (unlikely on mainnet) or ingest is broken while the loop still beats"; }
             ];
           }];
         }) ];
@@ -630,8 +611,6 @@ in
       environment.systemPackages = with pkgs; [ git tmux htop curl jq nodejs_24 postgresql_18 ];
     }
 
-    # ACME: only configure if the operator opted in via acmeEmail. Otherwise
-    # the operator sets security.acme.defaults.email themselves.
     (lib.mkIf (cfg.acmeEmail != null) {
       security.acme = {
         acceptTerms = true;
@@ -640,8 +619,6 @@ in
     })
 
     {
-      # ACME apex+wildcard via Cloudflare DNS-01 (independent of acmeEmail —
-      # the per-cert config still needs to exist for nginx).
       security.acme = {
         acceptTerms = true;
         certs.${cfg.domain} = {
@@ -655,15 +632,12 @@ in
       };
     }
 
-    # Cloudflare-fronted firewall + nginx real-IP wiring.
     (lib.mkIf cfg.cloudflareFronted {
-      # 80/443 accept only from Cloudflare ranges. UDP media/game bypasses CF.
       networking.firewall.extraInputRules = ''
         ip saddr { 173.245.48.0/20, 103.21.244.0/22, 103.22.200.0/22, 103.31.4.0/22, 141.101.64.0/18, 108.162.192.0/18, 190.93.240.0/20, 188.114.96.0/20, 197.234.240.0/22, 198.41.128.0/17, 162.158.0.0/15, 104.16.0.0/13, 104.24.0.0/14, 172.64.0.0/13, 131.0.72.0/22 } tcp dport { 80, 443 } accept
         ip6 saddr { 2400:cb00::/32, 2606:4700::/32, 2803:f800::/32, 2405:b500::/32, 2405:8100::/32, 2a06:98c0::/29, 2c0f:f248::/32 } tcp dport { 80, 443 } accept
       '';
 
-      # CF real-IP seed for first boot before cloudflare-ips-refresh.service runs.
       environment.etc."cf-nginx-real-ip-seed.conf".text = ''
         set_real_ip_from 173.245.48.0/20;
         set_real_ip_from 103.21.244.0/22;
@@ -699,8 +673,6 @@ in
         '';
       };
 
-      # Fail-soft: on any HTTP error the previous snapshot stays intact (never an
-      # empty list, never a hard fail).
       systemd.services.cloudflare-ips-refresh = {
         description = "Refresh Cloudflare edge IP ranges (nginx real-ip include)";
         after = [ "network-online.target" "cloudflare-ips-seed.service" ];
@@ -708,8 +680,6 @@ in
         serviceConfig = {
           Type = "oneshot";
           User = "root";
-          # Hardened oneshot: needs root only to rewrite the nginx include +
-          # reload nginx; everything else stripped.
           ProtectSystem = "strict";
           ProtectHome = true;
           PrivateTmp = true;
@@ -779,7 +749,6 @@ in
       };
     })
 
-    # Comms stack — archipelago + livekit + pulse + nats. Opt-in.
     (lib.mkIf commsEnabled {
       services.nginx.virtualHosts."livekit.${cfg.domain}" = {
         onlySSL = true;
@@ -787,8 +756,6 @@ in
         extraConfig = ''
           add_header Strict-Transport-Security "max-age=63072000; includeSubDomains; preload" always;
         '';
-        # /rtc only — explicit `/` → 404 keeps the Twirp admin API off the internet
-        # even if a default location is added later.
         locations."/rtc" = {
           proxyPass = "http://127.0.0.1:5880";
           proxyWebsockets = true;
@@ -813,16 +780,11 @@ in
         };
       };
 
-      # Atomic rotation: write new files, restart livekit, health-check; on failure
-      # restore .prev and abort.
       systemd.services.livekit-rotate = {
         description = "Rotate LiveKit API key + secret";
         serviceConfig = {
           Type = "oneshot";
           User = "root";
-          # Hardened oneshot: still runs as root because it must rewrite
-          # /var/lib/secrets/* and restart livekit + archipelago, but stripped of
-          # everything else.
           ProtectSystem = "strict";
           ProtectHome = true;
           PrivateTmp = true;
@@ -915,8 +877,6 @@ in
           TasksMax = 1024;
           SocketBindAllow = [ "tcp:5880" "tcp:5881" "udp:7882" ];
           SocketBindDeny = "any";
-          # NO IPAddress filter: LiveKit ICE/STUN candidates are arbitrary; an
-          # allowlist would break media.
         };
       };
 
@@ -949,7 +909,6 @@ in
           TasksMax = 256;
           SocketBindAllow = [ "tcp:5000" ];
           SocketBindDeny = "any";
-          # CF ranges only — comms-gatekeeper.decentraland.org is CF-fronted.
           IPAddressAllow = [ "localhost" "104.16.0.0/13" "172.64.0.0/13" ];
           IPAddressDeny = "any";
         };
@@ -999,33 +958,20 @@ in
       };
 
       systemd.services.pulse = {
-        description = "Pulse authoritative comms server (.NET, ENet/UDP)";
+        description = "Pulse authoritative comms server (Rust, ENet/UDP)";
         wantedBy = [ "multi-user.target" ];
         after = [ "network-online.target" ]; wants = [ "network-online.target" ];
         environment = {
-          DOTNET_SYSTEM_GLOBALIZATION_INVARIANT = "1";
-          ENV = "prd";
-          Transport__Port = "7777";
-          HttpService__Port = "5005";
-          HttpService__Host = "127.0.0.1";
-          # Kestrel (.NET ASP.NET) ignores HttpService__Host; ASPNETCORE_URLS wins.
-          ASPNETCORE_URLS = "http://127.0.0.1:5005";
-          Metrics__Type = "Prometheus";
-          Peers__MaxWorkerThreads = "2";
-          Transport__MaxConcurrentConnections = "1024";
-          Transport__MaxPeers = "1200";
+          RUST_LOG = "info";
+          PULSE_BIND = "0.0.0.0:7777";
         };
-        # noPgSandbox (not noJitHardening): .NET RyuJIT needs W+X pages.
-        # No IPAddress filter — public ENet/UDP game server.
         serviceConfig = noPgSandbox // {
-          ExecStart = "${cfg.commsPackages.pulse}/bin/DCLPulse";
-          # WorkingDirectory pins .NET content-root so appsettings.json loads.
-          WorkingDirectory = "${cfg.commsPackages.pulse}/lib/dclpulse";
+          ExecStart = "${cfg.commsPackages.pulse}/bin/catalyrst-pulse";
           Restart = "always"; RestartSec = 10; DynamicUser = true;
           MemoryHigh = "4G";
           MemoryMax = "6G";
           TasksMax = 512;
-          SocketBindAllow = [ "udp:7777" "tcp:5005" ];
+          SocketBindAllow = [ "udp:7777" ];
           SocketBindDeny = "any";
         };
       };

@@ -23,8 +23,6 @@ pub async fn get_entity_image(
         .map_err(|e| AppError::Internal(e.to_string()))?
         .ok_or_else(|| NotFoundError::new("Entity not found."))?;
 
-    // Treat a denylisted entity as not found so its content (and its very existence) isn't exposed
-    // through the image endpoint, mirroring the listing endpoints that already filter the denylist.
     let entity_id = entity.get("id").and_then(|id| id.as_str()).unwrap_or("");
     if state.denylist.is_denylisted(entity_id) {
         return Err(NotFoundError::new("Entity not found.").into());
@@ -33,7 +31,6 @@ pub async fn get_entity_image(
     let hash =
         extract_image_hash(&entity).ok_or_else(|| NotFoundError::new("Entity has no image."))?;
 
-    // Also guard against a specific content hash being denylisted independently of its entity.
     if state.denylist.is_denylisted(&hash) {
         return Err(NotFoundError::new("Entity has no image.").into());
     }

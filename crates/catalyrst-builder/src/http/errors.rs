@@ -48,6 +48,9 @@ impl ApiError {
     pub fn not_found_with(msg: impl Into<String>, data: Value) -> Self {
         Self::http(404, msg, data)
     }
+    pub fn service_unavailable(msg: impl Into<String>) -> Self {
+        Self::http(503, msg, json!({}))
+    }
 }
 
 impl From<AuthChainError> for ApiError {

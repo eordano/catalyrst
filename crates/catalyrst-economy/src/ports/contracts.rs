@@ -21,6 +21,10 @@ struct WhitelistCache {
     fetched_at: Option<Instant>,
 }
 
+fn whitelist_accept_header() -> (&'static str, &'static str) {
+    ("accept", "application/json")
+}
+
 impl ContractsComponent {
     pub fn new(
         pool: PgPool,
@@ -57,7 +61,7 @@ impl ContractsComponent {
             "SELECT 1 FROM {}.collection WHERE id = $1 LIMIT 1",
             self.squid_schema
         );
-        let found = sqlx::query_scalar::<_, i32>(&sql)
+        let found = sqlx::query_scalar::<_, i32>(sqlx::AssertSqlSafe(sql))
             .bind(&addr)
             .fetch_optional(&self.pool)
             .await?;
@@ -92,10 +96,11 @@ impl ContractsComponent {
     }
 
     async fn fetch_whitelist(&self) -> Result<Vec<String>, ApiError> {
+        let (accept_name, accept_value) = whitelist_accept_header();
         let resp = self
             .http
             .get(&self.addresses_url)
-            .header("content-type", "application/json")
+            .header(accept_name, accept_value)
             .send()
             .await
             .map_err(|e| ApiError::Internal(format!("whitelist fetch failed: {e}")))?;
@@ -122,5 +127,18 @@ impl ContractsComponent {
                     .collect()
             })
             .unwrap_or_default())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn whitelist_get_uses_accept_not_content_type() {
+        let (name, value) = whitelist_accept_header();
+        assert_eq!(name, "accept");
+        assert_ne!(name, "content-type");
+        assert_eq!(value, "application/json");
     }
 }

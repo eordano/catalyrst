@@ -4,7 +4,6 @@ use std::time::{Duration, SystemTime};
 use bytes::Bytes;
 use sha2::{Digest, Sha256};
 
-/// The two image kinds the upstream service produces per profile entity.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ImageKind {
     Face,
@@ -20,10 +19,6 @@ impl ImageKind {
     }
 }
 
-/// Filesystem cache for rendered profile images, sharded by a 2-byte hex
-/// prefix of the entity id (same `<prefix>/<id>` layout the content-server
-/// uses for content files). Layout:
-///   `<root>/<prefix>/<entity>/{face,body}.png`
 pub struct ImageCache {
     root: PathBuf,
     ttl: Option<Duration>,
@@ -49,8 +44,6 @@ impl ImageCache {
         self.entity_dir(entity).join(kind.filename())
     }
 
-    /// Returns the cached bytes if a fresh entry exists. A `None` means the
-    /// caller should pull from origin (missing or stale).
     pub async fn get(&self, entity: &str, kind: ImageKind) -> Option<Bytes> {
         let path = self.path(entity, kind);
         let meta = tokio::fs::metadata(&path).await.ok()?;
@@ -70,8 +63,6 @@ impl ImageCache {
         Some(Bytes::from(data))
     }
 
-    /// Writes bytes atomically (temp file + rename) so a concurrent reader
-    /// never observes a partial PNG.
     pub async fn put(&self, entity: &str, kind: ImageKind, data: &Bytes) -> std::io::Result<()> {
         let dir = self.entity_dir(entity);
         tokio::fs::create_dir_all(&dir).await?;
@@ -88,7 +79,6 @@ impl ImageCache {
     }
 }
 
-/// First two bytes of sha256(entity) as lowercase hex — the shard directory.
 fn hex_prefix(entity: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(entity.as_bytes());
@@ -96,8 +86,6 @@ fn hex_prefix(entity: &str) -> String {
     format!("{:02x}{:02x}", digest[0], digest[1])
 }
 
-/// Profile entity ids are IPFS CIDs (`Qm…` v0 or `ba…` v1). Reject anything
-/// else so a request can never name a path component (`/`, `..`, NUL, …).
 pub fn is_valid_entity_id(id: &str) -> bool {
     if id.is_empty() || id.len() > 100 {
         return false;
@@ -114,8 +102,6 @@ pub fn is_valid_entity_id(id: &str) -> bool {
     cidv0 || cidv1
 }
 
-/// Defensive: never let an id escape the cache root even if validation above
-/// is loosened later.
 #[allow(dead_code)]
 pub(crate) fn stays_within(root: &Path, candidate: &Path) -> bool {
     candidate.starts_with(root)
@@ -149,10 +135,9 @@ mod tests {
         assert!(cache.get(QM, ImageKind::Face).await.is_none());
         cache.put(QM, ImageKind::Face, &data).await.unwrap();
         assert_eq!(cache.get(QM, ImageKind::Face).await.unwrap(), data);
-        // body is a separate file under the same entity dir
+
         assert!(cache.get(QM, ImageKind::Body).await.is_none());
 
-        // file landed under <root>/<prefix>/<entity>/face.png
         let expected = dir.join(hex_prefix(QM)).join(QM).join("face.png");
         assert!(tokio::fs::metadata(&expected).await.is_ok());
 

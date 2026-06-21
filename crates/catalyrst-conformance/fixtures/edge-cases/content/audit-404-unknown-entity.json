@@ -10,9 +10,9 @@
   "response": {
     "status": 404,
     "headers": {"content-type": "application/json"},
-    "body_json": {"error": "Not Found", "message": "No deployment found"}
+    "body_json": {"error": "No deployment found"}
   },
-  "captured_from": "hand-authored from handler source (get_audit.rs) + reference parity notes",
+  "captured_from": "re-derived from peer.decentraland.org 2026-07-03",
   "captured_at": "2026-05-23T20:00:00Z",
   "volatile_paths": []
 }

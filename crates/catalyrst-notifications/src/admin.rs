@@ -1,10 +1,3 @@
-//! Bearer-token gate for the admin broadcast route.
-//!
-//! Mirrors the timing-safe compare used by catalyrst-comms `authorize_moderator`.
-//! The token is read from `CATALYRST_NOTIFICATIONS_ADMIN_TOKEN`; when it is unset
-//! the route fails closed (403) so the broadcast surface can never be reached
-//! without an explicitly configured secret.
-
 use axum::http::HeaderMap;
 
 use crate::http::ApiError;
@@ -17,7 +10,6 @@ fn bearer_token(headers: &HeaderMap) -> Option<&str> {
         .and_then(|s| s.strip_prefix("Bearer "))
 }
 
-/// Constant-time string comparison (no early return on first mismatch).
 pub fn timing_safe_eq(a: &str, b: &str) -> bool {
     if a.len() != b.len() {
         return false;
@@ -29,14 +21,10 @@ pub fn timing_safe_eq(a: &str, b: &str) -> bool {
     diff == 0
 }
 
-/// Authorize an admin request. Returns 403 when the token env is unset (fail
-/// closed) or when the presented bearer token does not match.
 pub fn authorize_admin(state: &AppState, headers: &HeaderMap) -> Result<(), ApiError> {
     check_admin(state.admin_token.as_deref(), bearer_token(headers))
 }
 
-/// Core gate, independent of `AppState`/`HeaderMap` so it can be unit-tested.
-/// Fails closed: `expected == None` is always rejected.
 fn check_admin(expected: Option<&str>, presented: Option<&str>) -> Result<(), ApiError> {
     let Some(expected) = expected else {
         return Err(ApiError::Forbidden(
@@ -61,7 +49,6 @@ mod tests {
 
     #[test]
     fn fails_closed_when_token_unset() {
-        // Even a "correct-looking" bearer is rejected when no token configured.
         assert!(is_forbidden(check_admin(None, Some("anything"))));
         assert!(is_forbidden(check_admin(None, None)));
     }

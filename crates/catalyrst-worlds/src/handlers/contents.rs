@@ -2,6 +2,8 @@ use axum::body::Body;
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, HeaderName, HeaderValue, Method, StatusCode};
 use axum::response::{IntoResponse, Response};
+use tokio::io::{AsyncReadExt, AsyncSeekExt};
+use tokio_util::io::ReaderStream;
 
 use crate::http::ApiError;
 use crate::AppState;
@@ -12,8 +14,43 @@ const EXPOSED_HEADERS: &str = "ETag, Accept-Ranges, Content-Range";
 
 const IMMUTABLE_CACHE_CONTROL: &str = "public,max-age=31536000,s-maxage=31536000,immutable";
 
+const DEFAULT_CONTENT_TYPE: &str = "application/octet-stream";
+
+const MIME_SNIFF_BYTES: u64 = 4100;
+
 fn is_ipfs_v2(hash: &str) -> bool {
     hash.len() == 59 && hash.starts_with("ba") && hash.bytes().all(|b| b.is_ascii_alphanumeric())
+}
+
+fn is_sha256_hex(hash: &str) -> bool {
+    hash.len() == 64 && hash.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+}
+
+pub(crate) fn is_retrievable_content_key(hash: &str) -> bool {
+    is_ipfs_v2(hash) || is_sha256_hex(hash)
+}
+
+async fn detect_content_type(path: &std::path::Path) -> String {
+    let file = match tokio::fs::File::open(path).await {
+        Ok(f) => f,
+        Err(_) => return DEFAULT_CONTENT_TYPE.to_string(),
+    };
+    let mut head = Vec::with_capacity(MIME_SNIFF_BYTES as usize);
+    if file
+        .take(MIME_SNIFF_BYTES)
+        .read_to_end(&mut head)
+        .await
+        .is_err()
+    {
+        return DEFAULT_CONTENT_TYPE.to_string();
+    }
+    sniff_content_type(&head).to_string()
+}
+
+fn sniff_content_type(head: &[u8]) -> &'static str {
+    infer::get(head)
+        .map(|t| t.mime_type())
+        .unwrap_or(DEFAULT_CONTENT_TYPE)
 }
 
 fn parse_range(header: &str, size: u64) -> Option<Option<(u64, u64)>> {
@@ -74,13 +111,36 @@ pub async fn head_content(
     proxy(state, hash, headers, Method::HEAD).await
 }
 
+pub async fn available_content(
+    State(state): State<AppState>,
+    axum::extract::RawQuery(query): axum::extract::RawQuery,
+) -> Result<axum::Json<Vec<serde_json::Value>>, ApiError> {
+    let cids: Vec<&str> = query
+        .as_deref()
+        .unwrap_or("")
+        .split('&')
+        .filter_map(|kv| kv.strip_prefix("cid="))
+        .filter(|c| !c.is_empty())
+        .collect();
+    let mut out = Vec::with_capacity(cids.len());
+    for cid in cids {
+        let available = is_retrievable_content_key(cid)
+            && tokio::fs::metadata(state.cfg.contents_dir.join(cid))
+                .await
+                .map(|m| m.is_file())
+                .unwrap_or(false);
+        out.push(serde_json::json!({ "cid": cid, "available": available }));
+    }
+    Ok(axum::Json(out))
+}
+
 async fn proxy(
     State(state): State<AppState>,
     Path(hash): Path<String>,
     headers: HeaderMap,
     method: Method,
 ) -> Result<Response, ApiError> {
-    if !is_ipfs_v2(&hash) {
+    if !is_retrievable_content_key(&hash) {
         return Ok(StatusCode::BAD_REQUEST.into_response());
     }
 
@@ -102,9 +162,10 @@ async fn proxy(
                         .unwrap());
                 }
                 Some(Some((start, end))) => {
+                    let content_type = detect_content_type(&local).await;
                     let builder = Response::builder()
                         .status(StatusCode::PARTIAL_CONTENT)
-                        .header("content-type", "application/octet-stream")
+                        .header("content-type", content_type)
                         .header("content-range", format!("bytes {start}-{end}/{size}"))
                         .header("content-length", end - start + 1)
                         .header("etag", format!("\"{hash}\""))
@@ -114,17 +175,21 @@ async fn proxy(
                     if method == Method::HEAD {
                         return Ok(builder.body(Body::empty()).unwrap());
                     }
-                    let bytes = tokio::fs::read(&local)
+                    let mut file = tokio::fs::File::open(&local)
                         .await
-                        .map_err(|e| ApiError::internal(format!("local content read: {e}")))?;
-                    let slice = bytes[start as usize..=end as usize].to_vec();
-                    return Ok(builder.body(Body::from(slice)).unwrap());
+                        .map_err(|e| ApiError::internal(format!("local content open: {e}")))?;
+                    file.seek(std::io::SeekFrom::Start(start))
+                        .await
+                        .map_err(|e| ApiError::internal(format!("local content seek: {e}")))?;
+                    let stream = ReaderStream::new(file.take(end - start + 1));
+                    return Ok(builder.body(Body::from_stream(stream)).unwrap());
                 }
                 None => {}
             }
+            let content_type = detect_content_type(&local).await;
             let builder = Response::builder()
                 .status(StatusCode::OK)
-                .header("content-type", "application/octet-stream")
+                .header("content-type", content_type)
                 .header("content-length", size)
                 .header("etag", format!("\"{hash}\""))
                 .header("cache-control", IMMUTABLE_CACHE_CONTROL)
@@ -133,10 +198,12 @@ async fn proxy(
             if method == Method::HEAD {
                 return Ok(builder.body(Body::empty()).unwrap());
             }
-            let bytes = tokio::fs::read(&local)
+            let file = tokio::fs::File::open(&local)
                 .await
-                .map_err(|e| ApiError::internal(format!("local content read: {e}")))?;
-            return Ok(builder.body(Body::from(bytes)).unwrap());
+                .map_err(|e| ApiError::internal(format!("local content open: {e}")))?;
+            return Ok(builder
+                .body(Body::from_stream(ReaderStream::new(file)))
+                .unwrap());
         }
     }
 
@@ -210,7 +277,40 @@ async fn proxy(
 
 #[cfg(test)]
 mod tests {
-    use super::parse_range;
+    use super::{
+        is_retrievable_content_key, parse_range, sniff_content_type, DEFAULT_CONTENT_TYPE,
+    };
+
+    #[test]
+    fn sniff_mime_from_magic_bytes() {
+        let png: &[u8] = &[0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
+        assert_eq!(sniff_content_type(png), "image/png");
+
+        let jpeg: &[u8] = &[0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46, 0x49, 0x46];
+        assert_eq!(sniff_content_type(jpeg), "image/jpeg");
+
+        assert_eq!(
+            sniff_content_type(b"just some plain text, not a known file format\n"),
+            DEFAULT_CONTENT_TYPE
+        );
+        assert_eq!(sniff_content_type(br#"{"a":1}"#), DEFAULT_CONTENT_TYPE);
+        assert_eq!(sniff_content_type(&[]), DEFAULT_CONTENT_TYPE);
+    }
+
+    #[test]
+    fn retrievable_content_keys() {
+        assert!(is_retrievable_content_key(
+            "bafkreiahsvnr4x4rnskhkwfbnbplkbqhzb3xagdwpyfy44lgcndmhyizde"
+        ));
+        assert!(is_retrievable_content_key(&"a".repeat(64)));
+        assert!(is_retrievable_content_key(
+            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+        ));
+        assert!(!is_retrievable_content_key(&"A".repeat(64)));
+        assert!(!is_retrievable_content_key(&"a".repeat(63)));
+        assert!(!is_retrievable_content_key(&"g".repeat(64)));
+        assert!(!is_retrievable_content_key("../etc/passwd"));
+    }
 
     #[test]
     fn ranges() {

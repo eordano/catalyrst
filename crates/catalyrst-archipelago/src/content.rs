@@ -75,6 +75,8 @@ struct CacheEntry {
     at: Instant,
 }
 
+const MAX_CACHE_ENTRIES: usize = 512;
+
 pub struct ContentResolver {
     pool: Option<PgPool>,
 
@@ -121,13 +123,28 @@ impl ContentResolver {
 
         let scenes = self.query_scenes(pool, &key_tiles).await?;
 
-        self.cache.write().insert(
-            cache_key,
-            CacheEntry {
-                scenes: scenes.clone(),
-                at: Instant::now(),
-            },
-        );
+        {
+            let ttl = self.ttl;
+            let mut guard = self.cache.write();
+            guard.retain(|_, entry| entry.at.elapsed() < ttl);
+            while guard.len() >= MAX_CACHE_ENTRIES {
+                let Some(oldest) = guard
+                    .iter()
+                    .min_by_key(|(_, e)| e.at)
+                    .map(|(k, _)| k.clone())
+                else {
+                    break;
+                };
+                guard.remove(&oldest);
+            }
+            guard.insert(
+                cache_key,
+                CacheEntry {
+                    scenes: scenes.clone(),
+                    at: Instant::now(),
+                },
+            );
+        }
         Ok(scenes)
     }
 
@@ -137,15 +154,6 @@ impl ContentResolver {
         tiles: &[String],
     ) -> Result<Vec<Scene>, FetchError> {
         let rows: Vec<(String, serde_json::Value)> = match sqlx::query_as(
-            // DISTINCT ON (entity_id) rather than a plain SELECT DISTINCT: a
-            // multi-parcel scene has one active_pointers row per parcel, all
-            // mapping to the same entity_id, so the JOIN yields duplicate rows.
-            // A bare DISTINCT would compare whole rows including entity_metadata,
-            // which is Postgres `json` (not `jsonb`) and has no equality operator
-            // ("could not identify an equality operator for type json") — so the
-            // query 500'd whenever any peer was connected. DISTINCT ON only needs
-            // equality on entity_id (text); each entity_id has exactly one
-            // metadata row, so the arbitrary pick is well-defined.
             r#"
             SELECT DISTINCT ON (d.entity_id) d.entity_id, d.entity_metadata
             FROM active_pointers ap

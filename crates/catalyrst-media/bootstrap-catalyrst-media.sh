@@ -1,14 +1,6 @@
 #!/usr/bin/env bash
-# Bootstrap catalyrst-media.
-#   - mints a db role (reuse if present) in the shared content DB
-#   - grants it CRUD on translation_cache (the migration creates the table on boot)
-#   - writes env/catalyrst-media.env (MEDIA_PG_CONNECTION_STRING + backend config)
-#
-# Drop this into <WORKSPACE>/scripts/ next to bootstrap-catalyrst-places.sh.
-# Idempotent. Run via: nix-shell --run scripts/bootstrap-catalyrst-media.sh shell.nix
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=_lib.sh
 source "$HERE/_lib.sh"
 
 MED_ENV="$ENV_DIR/catalyrst-media.env"
@@ -17,7 +9,6 @@ log "loading db credentials"
 load_db_creds
 set -a; source "$ENV_DIR/db.env"; set +a
 
-# content DB credentials (table lives in the shared content DB).
 if ! grep -q '^POSTGRES_CONTENT_USER=' "$ENV_DIR/content.env"; then
   warn "content DB credentials not in env/content.env — bring up the content stack first"
   exit 1

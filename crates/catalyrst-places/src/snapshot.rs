@@ -1,28 +1,12 @@
-//! Snapshot voting-power lookup (port of `Snapshot/utils.ts` `fetchScore`).
-//!
-//! At vote time upstream fetches the voter's MANA/LAND/NAMES voting power from
-//! Snapshot's `score.snapshot.org` `get_vp` endpoint and stores it on the
-//! `user_likes` row as `user_activity`. The VP-weighted anti-Sybil ranking in
-//! `buildUpdateLikesQuery` only counts likes whose `user_activity >=
-//! MIN_USER_ACTIVITY` (100) toward `like_rate`/`like_score`, so capturing the
-//! real score is load-bearing — a hardcoded 0 silently drops every vote below
-//! the threshold.
-
 use std::sync::OnceLock;
 use std::time::Duration;
 
 use serde_json::{json, Value};
 
-/// `score.snapshot.org` endpoint (matches upstream `fetch("https://score.snapshot.org/")`).
 const SCORE_URL: &str = "https://score.snapshot.org/";
 
-/// Minimum user activity (voting power) for a like to count toward `like_rate`
-/// and `like_score` (`entityInteractions.ts` `MIN_USER_ACTIVITY = 100`). Bound
-/// as a query parameter so it stays in lockstep with the read path.
 pub const MIN_USER_ACTIVITY: f64 = 100.0;
 
-/// The exact strategy set posted upstream (`Snapshot/utils.ts` `strategies`).
-/// Order and parameters are byte-faithful so the returned `vp` matches.
 fn strategies() -> Value {
     json!([
         {
@@ -79,7 +63,6 @@ fn is_ethereum_address(address: &str) -> bool {
 fn client() -> &'static reqwest::Client {
     static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
     CLIENT.get_or_init(|| {
-        // Upstream uses `timeout: 10000` on the score.snapshot.org request.
         reqwest::Client::builder()
             .timeout(Duration::from_secs(10))
             .build()
@@ -87,10 +70,6 @@ fn client() -> &'static reqwest::Client {
     })
 }
 
-/// Fetch a voter's Snapshot voting power (`get_vp`). Mirrors `fetchScore`:
-/// returns `0` for non-eth addresses, and on any network/parse error returns
-/// `0` (upstream catch returns 0). The result is truncated to i32 via the
-/// `(body?.result?.vp || 0) | 0` bitwise-or-zero semantics.
 pub async fn fetch_score(address: &str) -> f64 {
     if !is_ethereum_address(address) {
         return 0.0;
@@ -126,7 +105,6 @@ pub async fn fetch_score(address: &str) -> f64 {
     .await;
 
     match result {
-        // `(vp || 0) | 0` — JS bitwise OR truncates toward zero to a 32-bit int.
         Ok(vp) => to_int32(vp) as f64,
         Err(err) => {
             tracing::error!(error = %err, address = %address, "Error loading user score");
@@ -135,13 +113,12 @@ pub async fn fetch_score(address: &str) -> f64 {
     }
 }
 
-/// Replicate JavaScript `x | 0`: ToInt32 (truncate toward zero, wrap mod 2^32).
 fn to_int32(value: f64) -> i32 {
     if !value.is_finite() {
         return 0;
     }
     let truncated = value.trunc();
-    let modulo = truncated.rem_euclid(4_294_967_296.0); // 2^32
+    let modulo = truncated.rem_euclid(4_294_967_296.0);
     if modulo >= 2_147_483_648.0 {
         (modulo - 4_294_967_296.0) as i32
     } else {
@@ -174,7 +151,7 @@ mod tests {
         assert_eq!(to_int32(123.9), 123);
         assert_eq!(to_int32(0.0), 0);
         assert_eq!(to_int32(100.0), 100);
-        // (4294967297 | 0) === 1 in JS
+
         assert_eq!(to_int32(4_294_967_297.0), 1);
     }
 }

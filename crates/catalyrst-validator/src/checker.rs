@@ -300,12 +300,6 @@ pub async fn validate_profile_access(
     ValidationResponse::Ok
 }
 
-/// Pure-local pointer ownership: the `pointer == signer` gate that does NOT
-/// touch the blockchain. Must run even when `ignore_blockchain_access` is set —
-/// that flag is for sync-only nodes and is meant to skip chain queries (LAND,
-/// collection, name ownership), NOT to let any wallet overwrite another user's
-/// profile/store/outfits. Returns Ok for types whose authorization is inherently
-/// chain-based (scene/wearable/emote have nothing local to assert here).
 pub fn validate_local_pointer_ownership(
     deployment: &DeploymentToValidate,
     deployer_address: &str,
@@ -314,8 +308,6 @@ pub fn validate_local_pointer_ownership(
     let deployer = deployer_address.to_lowercase();
     match entity.entity_type {
         EntityType::Profile => {
-            // default* profiles are gated separately (DCL allowlist) and only
-            // reachable on the full-validation path; leave them to it.
             if let Some(p) = entity.pointers.first() {
                 let p = p.to_lowercase();
                 if !p.starts_with("default") && is_valid_eth_address(&p) && p != deployer {
@@ -753,9 +745,6 @@ mod tests {
         }
     }
 
-    // Regression: ignore_blockchain_access must NOT disable the pure-local
-    // pointer==signer gate (found 2026-06-11 — any wallet could deploy a
-    // profile/store/outfits to another user's pointer).
     #[test]
     fn local_ownership_rejects_foreign_pointer() {
         let me = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -790,7 +779,6 @@ mod tests {
                 EntityType::Store,
                 &format!("urn:decentraland:off-chain:marketplace-stores:{me}"),
             ),
-            // scenes/wearables have no local pointer to assert — must pass through.
             ownership_deployment(EntityType::Scene, "10,10"),
         ] {
             assert!(

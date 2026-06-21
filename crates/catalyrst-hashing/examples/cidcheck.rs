@@ -1,5 +1,3 @@
-// One-off: compute the CIDv1 of a file via catalyrst-hashing and (optionally)
-// compare to an expected CID.  usage: cidcheck <file> [expected-cid]
 fn main() {
     let mut a = std::env::args().skip(1);
     let path = a.next().expect("usage: cidcheck <file> [expected]");

@@ -164,7 +164,12 @@ async fn replay_one(
     let url = format!("{}{}", candidate, fixture.request.path);
     let mut req = client.request(method, &url);
     if !fixture.request.query.is_empty() {
-        let qp: Vec<(&String, &String)> = fixture.request.query.iter().collect();
+        let qp: Vec<(&str, &str)> = fixture
+            .request
+            .query
+            .iter()
+            .flat_map(|(k, vs)| vs.iter().map(move |v| (k.as_str(), v.as_str())))
+            .collect();
         req = req.query(&qp);
     }
     for (k, v) in &fixture.request.headers {

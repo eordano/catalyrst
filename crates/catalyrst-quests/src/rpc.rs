@@ -1,9 +1,3 @@
-//! dcl-rpc server lifecycle + signed WebSocket handshake. Mirrors upstream
-//! `decentraland/quests` crates/server/src/rpc/mod.rs: each connection's first
-//! frame is the signed auth-chain (verified with `verify_handshake`), the
-//! recovered address is attached to the transport, and the dcl-rpc server keys
-//! the per-connection identity by transport id for the service.
-
 use crate::auth_chain::{verify_handshake, FIVE_MINUTES_SECS};
 use crate::context::{Context, SharedContext};
 use crate::proto::QuestsServiceRegistration;
@@ -20,8 +14,6 @@ use std::time::Duration;
 use tokio::sync::OnceCell;
 use tokio::time::timeout;
 
-/// Holds the live context plus the (lazily started) dcl-rpc server's events
-/// sender so the axum WS handler can attach authenticated transports.
 pub struct RpcRuntime {
     ctx: SharedContext,
     auth_window_secs: i64,
@@ -41,7 +33,6 @@ impl RpcRuntime {
         &self.ctx
     }
 
-    /// Start the dcl-rpc server once (idempotent).
     pub async fn init(self: &Arc<Self>) {
         let ctx = self.ctx.clone();
         let _ = self
@@ -102,7 +93,7 @@ impl RpcRuntime {
         };
 
         let now_secs = Utc::now().timestamp();
-        // Upstream signs `get` `/` (authenticate_dcl_user_with_signed_headers("get","/",...)).
+
         let signer = verify_handshake(&text, "get", "/", FIVE_MINUTES_SECS, now_secs)
             .map_err(|e| anyhow!("handshake: {e}"))?;
         Ok(signer)
@@ -136,7 +127,6 @@ fn spawn_rpc_server(
     (sender, run)
 }
 
-/// axum WS upgrade endpoint for the dcl-rpc QuestsService transport.
 pub async fn ws_upgrade(
     State(rt): State<Arc<RpcRuntime>>,
     ws: WebSocketUpgrade,

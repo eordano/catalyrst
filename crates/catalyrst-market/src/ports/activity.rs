@@ -20,6 +20,8 @@ pub struct ActivityEvent {
     pub network: String,
     #[serde(rename = "type")]
     pub event_type: String,
+    #[serde(rename = "txHash", skip_serializing_if = "Option::is_none")]
+    pub tx_hash: Option<String>,
     #[serde(rename = "contractAddress", skip_serializing_if = "Option::is_none")]
     pub contract_address: Option<String>,
     #[serde(rename = "tokenId", skip_serializing_if = "Option::is_none")]
@@ -72,11 +74,6 @@ impl ActivityComponent {
         let per = INTERNAL_FETCH_CAP;
         let lower = address.to_lowercase();
 
-        // The six component reads are independent — run them concurrently
-        // (tokio::join!) instead of sequentially. Previously each .await blocked
-        // the next, so the route cost was the SUM of all six round-trips; now it
-        // is the slowest single one. Filters are bound to locals first so they
-        // outlive the borrowed futures inside join! (else they'd be dropped).
         let f_sales_buyer = SaleFilters {
             buyer: Some(lower.clone()),
             first: Some(per),
@@ -159,7 +156,7 @@ impl ActivityComponent {
         events.sort_by_key(|b| std::cmp::Reverse(b.timestamp));
 
         let mut seen = std::collections::HashSet::new();
-        events.retain(|e| seen.insert((e.id.clone(), e.event_type.clone())));
+        events.retain(|e| seen.insert(dedup_key(e)));
         let total = events.len() as i64;
         let page: Vec<ActivityEvent> = events
             .into_iter()
@@ -167,6 +164,22 @@ impl ActivityComponent {
             .take(limit as usize)
             .collect();
         Ok((page, total))
+    }
+}
+
+fn dedup_key(e: &ActivityEvent) -> String {
+    match &e.tx_hash {
+        Some(tx) => format!("tx:{}:{}", tx.to_lowercase(), e.event_type),
+        None => format!(
+            "{}|{}|{}|{}",
+            e.contract_address.as_deref().unwrap_or("-"),
+            e.token_id
+                .as_deref()
+                .or(e.item_id.as_deref())
+                .unwrap_or("-"),
+            e.timestamp,
+            e.event_type
+        ),
     }
 }
 
@@ -179,6 +192,7 @@ fn sale_to_event(s: &crate::ports::sales::Sale, ty: &str) -> ActivityEvent {
             .trim_matches('"')
             .to_string(),
         event_type: ty.to_string(),
+        tx_hash: Some(s.tx_hash.clone()),
         contract_address: Some(s.contract_address.clone()),
         token_id: s.token_id.clone(),
         item_id: s.item_id.clone(),
@@ -201,6 +215,7 @@ fn bid_to_event(b: &crate::ports::bids::Bid, ty: &str) -> ActivityEvent {
             .trim_matches('"')
             .to_string(),
         event_type: ty.to_string(),
+        tx_hash: None,
         contract_address: Some(b.contract_address.clone()),
         token_id: b.token_id.clone(),
         item_id: b.item_id.clone(),
@@ -223,6 +238,7 @@ fn order_to_event(o: &crate::ports::orders::Order, ty: &str) -> ActivityEvent {
             .trim_matches('"')
             .to_string(),
         event_type: ty.to_string(),
+        tx_hash: None,
         contract_address: Some(o.contract_address.clone()),
         token_id: o.token_id.clone(),
         item_id: None,
@@ -248,6 +264,7 @@ fn trade_to_event(t: &TradeView) -> ActivityEvent {
         timestamp: t.trade.created_at.timestamp_millis(),
         network: t.trade.network.clone(),
         event_type: "trade_created".to_string(),
+        tx_hash: None,
         contract_address: non_payment.map(|a| a.contract_address.clone()),
         token_id: non_payment.and_then(|a| a.token_id.clone()),
         item_id: non_payment.and_then(|a| a.item_id.clone()),
@@ -323,5 +340,89 @@ mod tests {
         let ev = trade_to_event(&t);
         assert_eq!(ev.price.as_deref(), Some("500"));
         assert_eq!(ev.contract_address.as_deref(), Some("0xnft"));
+    }
+
+    #[test]
+    fn trade_event_has_no_tx_hash() {
+        let t = trade(
+            vec![asset(3, Some("1"), None)],
+            vec![asset(1, None, Some("9"))],
+        );
+        assert_eq!(trade_to_event(&t).tx_hash, None);
+    }
+
+    fn ev(
+        event_type: &str,
+        tx_hash: Option<&str>,
+        contract: Option<&str>,
+        token: Option<&str>,
+        item: Option<&str>,
+        timestamp: i64,
+    ) -> ActivityEvent {
+        ActivityEvent {
+            id: format!("{event_type}:x"),
+            timestamp,
+            network: "ETHEREUM".into(),
+            event_type: event_type.into(),
+            tx_hash: tx_hash.map(|s| s.to_string()),
+            contract_address: contract.map(|s| s.to_string()),
+            token_id: token.map(|s| s.to_string()),
+            item_id: item.map(|s| s.to_string()),
+            price: None,
+            counterparty: None,
+            details: json!({}),
+        }
+    }
+
+    #[test]
+    fn dedup_key_uses_lowercased_txhash_and_type_when_present() {
+        let e = ev(
+            "sale_buyer",
+            Some("0xABCdef"),
+            Some("0xnft"),
+            Some("42"),
+            None,
+            100,
+        );
+        assert_eq!(dedup_key(&e), "tx:0xabcdef:sale_buyer");
+    }
+
+    #[test]
+    fn dedup_key_keeps_buyer_and_seller_of_same_tx_distinct() {
+        let buyer = ev("sale_buyer", Some("0xdead"), None, None, None, 1);
+        let seller = ev("sale_seller", Some("0xdead"), None, None, None, 1);
+        assert_ne!(dedup_key(&buyer), dedup_key(&seller));
+    }
+
+    #[test]
+    fn dedup_key_falls_back_to_composite_without_txhash() {
+        let e = ev("bid_placed", None, Some("0xNFT"), None, Some("7"), 55);
+        assert_eq!(dedup_key(&e), "0xNFT|7|55|bid_placed");
+        let bare = ev("trade_created", None, None, None, None, 9);
+        assert_eq!(dedup_key(&bare), "-|-|9|trade_created");
+    }
+
+    #[test]
+    fn sale_event_threads_and_serializes_tx_hash() {
+        use crate::dcl_schemas::{ChainId, Network};
+        use crate::ports::sales::Sale;
+        let sale = Sale {
+            id: "s1".into(),
+            item_id: None,
+            contract_address: "0xnft".into(),
+            buyer: "0xbuyer".into(),
+            chain_id: ChainId::EthereumMainnet,
+            network: Network::Ethereum,
+            price: "1000".into(),
+            seller: "0xseller".into(),
+            timestamp: 100,
+            token_id: Some("42".into()),
+            tx_hash: "0xTXHASH".into(),
+            sale_type: "order".into(),
+        };
+        let e = sale_to_event(&sale, "sale_buyer");
+        assert_eq!(e.tx_hash.as_deref(), Some("0xTXHASH"));
+        let j = serde_json::to_value(&e).unwrap();
+        assert_eq!(j.get("txHash").and_then(|v| v.as_str()), Some("0xTXHASH"));
     }
 }

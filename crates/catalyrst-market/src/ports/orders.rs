@@ -36,6 +36,11 @@ pub struct OrderFilters {
 }
 
 #[derive(Debug, Serialize)]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "market/", rename_all = "camelCase")
+)]
 pub struct Order {
     pub id: String,
     #[serde(rename = "marketplaceAddress")]
@@ -49,13 +54,17 @@ pub struct Order {
     pub price: String,
     pub status: String,
     #[serde(rename = "expiresAt")]
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub expires_at: i64,
     #[serde(rename = "createdAt")]
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub created_at: i64,
     #[serde(rename = "updatedAt")]
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub updated_at: i64,
     pub network: Network,
     #[serde(rename = "chainId")]
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub chain_id: ChainId,
     #[serde(rename = "issuedId")]
     pub issued_id: Option<String>,
@@ -76,16 +85,6 @@ impl OrdersComponent {
         let limit = crate::logic::sql_filters::clamp_first(filters.first, 1000);
         let offset = crate::logic::sql_filters::clamp_skip(filters.skip);
 
-        // Sort on the RAW (uncast) `sort_*` passthrough columns the inner
-        // subquery exposes (ord.created_at/updated_at/price/token_id are already
-        // numeric, ord.id is varchar) rather than the ::text/::float8 output
-        // aliases. A cast in the sort key (e.g. created_at::float8) is an
-        // expression the cat_order_created_at_id_idx can't satisfy, which forced
-        // a full top-N sort over the whole join; ordering on the raw column lets
-        // the planner pull the subquery up and stream from the index, so the
-        // created_at page early-terminates at LIMIT. Numeric/varchar ordering is
-        // identical to the previous ::numeric/::text casts. Every arm keeps
-        // `, sort_id ASC` as a stable tie-breaker for deterministic paging.
         let order_by = match filters.sort_by {
             Some(OrderSortBy::Oldest) => "sort_created_at ASC, sort_id ASC",
             Some(OrderSortBy::RecentlyUpdated) => "sort_updated_at DESC, sort_id ASC",
@@ -110,12 +109,7 @@ impl OrdersComponent {
             ));
             bind_strings.push(v.clone());
         }
-        // owner/buyer are stored lowercased by the squid indexer (verified: 0 of
-        // 1.15M rows differ from lower(owner)), so compare the plain column and
-        // lowercase the bind in Rust. The previous LOWER(owner)=LOWER($1) wrapper
-        // made the predicate unindexable, forcing a full created_at-index scan on
-        // owner-filtered queries (e.g. /v1/activity, ~900ms each). Plain `owner=$1`
-        // uses cat_order_owner_created_idx (owner, created_at DESC, id).
+
         if let Some(ref v) = filters.owner {
             where_parts.push(format!("owner = {}", next_param()));
             bind_strings.push(v.to_lowercase());
@@ -133,16 +127,14 @@ impl OrdersComponent {
             bind_strings.push(v.clone());
         }
         if let Some(ref v) = filters.item_id {
-            where_parts.push(format!("item_id = {}", next_param()));
+            where_parts.push(item_id_predicate_sql(&next_param()));
             bind_strings.push(v.clone());
         }
         if let Some(ref v) = filters.token_id {
             where_parts.push(format!("token_id = {}", next_param()));
             bind_strings.push(v.clone());
         }
-        // network filter: upstream applies `network = ANY(getDBNetworks(network))`
-        // (ETHEREUM -> [ETHEREUM]; MATIC -> [MATIC, POLYGON]). Was parsed but never
-        // applied here, so ?network= leaked rows from the other chain.
+
         if let Some(net) = filters.network {
             let db_nets: &[&str] = match net {
                 Network::Ethereum => &["ETHEREUM"],
@@ -161,67 +153,12 @@ impl OrdersComponent {
             format!(" WHERE {}", where_parts.join(" AND "))
         };
 
-        // Shared inner subquery (join + expiry). The page rows and the total
-        // count are run as TWO separate statements instead of `COUNT(*) OVER()`
-        // in one: the window function forced Postgres to materialize the entire
-        // ~90k-row join on every call before it could return a single page.
-        // Split, the page early-terminates through the created_at index (see the
-        // SET LOCAL hints below) while the count runs concurrently.
-        let inner = format!(
-            r#"
-  SELECT
-    ord.id::text                  AS id,
-    ''                            AS trade_id,
-    ord.marketplace_address       AS marketplace_address,
-    ord.category                  AS category,
-    ord.nft_address               AS nft_address,
-    ord.token_id::text            AS token_id,
-    ord.price::text               AS price,
-    ord.item_id                   AS item_id,
-    nft.issued_id::text           AS issued_id,
-    ord.nft_id                    AS nft_id,
-    nft.name                      AS nft_name,
-    ord.owner                     AS owner,
-    ord.buyer                     AS buyer,
-    ord.tx_hash                   AS tx_hash,
-    ord.block_number              AS block_number,
-    ord.status                    AS status,
-    ord.created_at::float8        AS created_at,
-    ord.updated_at::float8        AS updated_at,
-    ord.expires_at::float8        AS expires_at,
-    ord.network                   AS network,
-    ord.created_at                AS sort_created_at,
-    ord.updated_at                AS sort_updated_at,
-    ord.price                     AS sort_price,
-    ord.token_id                  AS sort_token_id,
-    ord.id                        AS sort_id
-  FROM {schema}."order" ord
-  JOIN {schema}."nft" nft ON ord.nft_id = nft.id AND nft.owner_address = ord.owner
-  WHERE ord.expires_at_normalized > NOW()
-"#,
-            schema = MARKETPLACE_SQUID_SCHEMA,
-        );
-
         let limit_param = next_param();
         let offset_param = next_param();
 
-        let page_sql = format!(
-            "SELECT combined_orders.* FROM ({inner}) AS combined_orders{where_clause} \
-             ORDER BY {order_by} LIMIT {limit_param} OFFSET {offset_param}"
-        );
-        let count_sql = format!(
-            "SELECT COUNT(*)::int8 AS count FROM ({inner}) AS combined_orders{where_clause}"
-        );
-
-        // Apply enable_sort=off ONLY for the unfiltered created_at default — the
-        // broad listing it was designed to early-terminate. With a narrowing
-        // equality filter (owner/buyer/item/token — e.g. /v1/activity) the result
-        // is tiny and a normal sort is cheap; forcing index order there instead
-        // streamed the entire created_at index applying the filter (~900ms each).
-        // So gate on "created_at sort AND no filter". random_page_cost=1.1 is
-        // SSD-correct and always safe. Both are SET LOCAL: scoped to these
-        // statements' transactions, never the shared cluster config.
-        let index_sort = order_by.starts_with("sort_created_at") && where_parts.is_empty();
+        let page_sql =
+            build_combined_orders_page_sql(&where_clause, order_by, &limit_param, &offset_param);
+        let count_sql = build_combined_orders_count_sql(&where_clause);
 
         let page_binds = bind_strings.clone();
         let count_binds = bind_strings.clone();
@@ -233,12 +170,7 @@ impl OrdersComponent {
             sqlx::query("SET LOCAL random_page_cost = 1.1")
                 .execute(&mut *tx)
                 .await?;
-            if index_sort {
-                sqlx::query("SET LOCAL enable_sort = off")
-                    .execute(&mut *tx)
-                    .await?;
-            }
-            let mut q = sqlx::query(&page_sql);
+            let mut q = sqlx::query(sqlx::AssertSqlSafe(page_sql));
             for s in &page_binds {
                 q = q.bind(s);
             }
@@ -252,7 +184,7 @@ impl OrdersComponent {
             sqlx::query("SET LOCAL random_page_cost = 1.1")
                 .execute(&mut *tx)
                 .await?;
-            let mut q = sqlx::query(&count_sql);
+            let mut q = sqlx::query(sqlx::AssertSqlSafe(count_sql));
             for s in &count_binds {
                 q = q.bind(s);
             }
@@ -267,6 +199,128 @@ impl OrdersComponent {
     }
 }
 
+pub(crate) fn item_id_predicate_sql(param: &str) -> String {
+    format!(
+        "(item_id = {param} OR (item_id = NULLIF(split_part({param}, '-', 2), '') \
+         AND LOWER(nft_address) = LOWER(split_part({param}, '-', 1))) \
+         OR item_id IN (SELECT id FROM {schema}.item WHERE (collection_id || '-' || blockchain_id::text) = LOWER({param})))",
+        schema = MARKETPLACE_SQUID_SCHEMA,
+    )
+}
+
+fn orders_trades_cte() -> &'static str {
+    " WITH unified_trades AS ( SELECT * FROM marketplace.mv_trades ) "
+}
+
+fn orders_trades_branch() -> &'static str {
+    r#"
+  SELECT
+    trades.id::text                                              AS id,
+    trades.id::text                                              AS trade_id,
+    trades.trade_contract                                        AS marketplace_address,
+    trades.sent_nft_category::text                              AS category,
+    trades.contract_address_sent                                AS nft_address,
+    (trades.sent_token_id)::numeric(78)::text                   AS token_id,
+    (trades.amount_received)::numeric(78)::text                 AS price,
+    trades.sent_item_id::text                                   AS item_id,
+    (trades.assets -> 'sent' ->> 'issued_id')::numeric(78)::text AS issued_id,
+    trades.assets -> 'sent' ->> 'nft_id'                        AS nft_id,
+    trades.assets -> 'sent' ->> 'nft_name'                      AS nft_name,
+    trades.assets -> 'sent' ->> 'owner'                         AS owner,
+    ''                                                          AS buyer,
+    ''                                                          AS tx_hash,
+    0                                                          AS block_number,
+    trades.status::text                                        AS status,
+    EXTRACT(EPOCH FROM trades.created_at)::float8               AS created_at,
+    EXTRACT(EPOCH FROM trades.created_at)::float8               AS updated_at,
+    EXTRACT(EPOCH FROM trades.expires_at)::float8              AS expires_at,
+    trades.network::text                                       AS network,
+    EXTRACT(EPOCH FROM trades.created_at)                       AS sort_created_at,
+    EXTRACT(EPOCH FROM trades.created_at)                       AS sort_updated_at,
+    (trades.amount_received)::numeric(78)                       AS sort_price,
+    (trades.sent_token_id)::numeric(78)                         AS sort_token_id,
+    trades.id::text                                            AS sort_id
+  FROM (
+    SELECT * FROM unified_trades WHERE type = 'public_nft_order' AND status = 'open'
+  ) AS trades
+  WHERE trades.signer = trades.assets -> 'sent' ->> 'owner'
+"#
+}
+
+fn orders_legacy_branch() -> String {
+    format!(
+        r#"
+  SELECT
+    ord.id::text                  AS id,
+    ''                            AS trade_id,
+    ord.marketplace_address       AS marketplace_address,
+    ord.category::text            AS category,
+    ord.nft_address               AS nft_address,
+    ord.token_id::text            AS token_id,
+    ord.price::text               AS price,
+    ord.item_id::text             AS item_id,
+    nft.issued_id::text           AS issued_id,
+    ord.nft_id                    AS nft_id,
+    nft.name                      AS nft_name,
+    ord.owner                     AS owner,
+    ord.buyer                     AS buyer,
+    ord.tx_hash                   AS tx_hash,
+    ord.block_number              AS block_number,
+    ord.status::text              AS status,
+    ord.created_at::float8        AS created_at,
+    ord.updated_at::float8        AS updated_at,
+    ord.expires_at::float8        AS expires_at,
+    ord.network::text             AS network,
+    ord.created_at                AS sort_created_at,
+    ord.updated_at                AS sort_updated_at,
+    ord.price                     AS sort_price,
+    ord.token_id                  AS sort_token_id,
+    ord.id::text                  AS sort_id
+  FROM {schema}."order" ord
+  JOIN {schema}."nft" nft ON ord.nft_id = nft.id AND nft.owner_address = ord.owner
+  WHERE ord.expires_at_normalized > NOW()
+"#,
+        schema = MARKETPLACE_SQUID_SCHEMA,
+    )
+}
+
+pub(crate) fn build_open_orders_by_nft_ids_sql(with_owner: bool) -> String {
+    let owner_clause = if with_owner {
+        " AND LOWER(combined_orders.owner) = LOWER($2)"
+    } else {
+        ""
+    };
+    format!(
+        "{cte}SELECT combined_orders.* FROM ( ({trades}) UNION ALL ({legacy}) ) AS combined_orders WHERE combined_orders.status = 'open' AND combined_orders.nft_id = ANY($1){owner_clause} ORDER BY sort_created_at DESC, sort_id ASC",
+        cte = orders_trades_cte(),
+        trades = orders_trades_branch(),
+        legacy = orders_legacy_branch(),
+    )
+}
+
+pub(crate) fn build_combined_orders_page_sql(
+    where_clause: &str,
+    order_by: &str,
+    limit_param: &str,
+    offset_param: &str,
+) -> String {
+    format!(
+        "{cte}SELECT combined_orders.* FROM ( ({trades}) UNION ALL ({legacy}) ) AS combined_orders{where_clause} ORDER BY {order_by} LIMIT {limit_param} OFFSET {offset_param}",
+        cte = orders_trades_cte(),
+        trades = orders_trades_branch(),
+        legacy = orders_legacy_branch(),
+    )
+}
+
+pub(crate) fn build_combined_orders_count_sql(where_clause: &str) -> String {
+    format!(
+        "{cte}SELECT COUNT(*)::int8 AS count FROM ( ({trades}) UNION ALL ({legacy}) ) AS combined_orders{where_clause}",
+        cte = orders_trades_cte(),
+        trades = orders_trades_branch(),
+        legacy = orders_legacy_branch(),
+    )
+}
+
 pub(crate) fn row_to_order(r: &sqlx::postgres::PgRow) -> Order {
     let network_str: String = r.try_get("network").unwrap_or_default();
     let (network, chain_id) = network_and_chain(&network_str);
@@ -279,14 +333,9 @@ pub(crate) fn row_to_order(r: &sqlx::postgres::PgRow) -> Order {
         buyer: r.try_get::<Option<String>, _>("buyer").unwrap_or(None),
         price: r.try_get("price").unwrap_or_default(),
         status: r.try_get("status").unwrap_or_default(),
-        // expires_at is left as seconds (matches upstream `Number(dbOrder.expires_at)`,
-        // which the client uses to identify old orders).
+
         expires_at: r.try_get::<f64, _>("expires_at").unwrap_or(0.0) as i64,
-        // created_at/updated_at are stored in epoch seconds in the squid `order`
-        // table; upstream's fromDBOrderToOrder runs them through
-        // fromSecondsToMilliseconds before serializing. Emitting raw seconds
-        // produces 1970-era millisecond timestamps (1000x too small) for any
-        // client that treats them as ms.
+
         created_at: from_seconds_to_milliseconds(r.try_get::<f64, _>("created_at").unwrap_or(0.0)),
         updated_at: from_seconds_to_milliseconds(r.try_get::<f64, _>("updated_at").unwrap_or(0.0)),
         network,
@@ -296,15 +345,7 @@ pub(crate) fn row_to_order(r: &sqlx::postgres::PgRow) -> Order {
     }
 }
 
-/// Port of marketplace-server's `fromSecondsToMilliseconds` (logic/date.ts):
-/// when the value has <= 10 integer digits (i.e. epoch < 1e11, an epoch in
-/// seconds) it is scaled to milliseconds; an already-millisecond value (>= 1e11)
-/// is passed through. Rounding matches upstream's `Math.round`.
 pub(crate) fn from_seconds_to_milliseconds(time: f64) -> i64 {
-    // `time.toString().length <= 10` in JS == integer-digit count <= 10 == value
-    // strictly below 1e11 (10^11 is the first 12-digit integer; 10^10 = 1e10 has
-    // 11 digits). Upstream compares against the rendered integer length, so the
-    // boundary is the integer magnitude, not the float.
     if time < 1e11_f64 {
         (time * 1000.0).round() as i64
     } else {
@@ -375,28 +416,196 @@ mod ms_tests {
 
     #[test]
     fn seconds_are_scaled_to_milliseconds() {
-        // 10-digit epoch seconds -> 13-digit epoch milliseconds (x1000).
         assert_eq!(
             from_seconds_to_milliseconds(1_700_000_000.0),
             1_700_000_000_000
         );
-        // Smallest 10-digit second value still scales.
+
         assert_eq!(
             from_seconds_to_milliseconds(1_000_000_000.0),
             1_000_000_000_000
         );
-        // Zero stays zero.
+
         assert_eq!(from_seconds_to_milliseconds(0.0), 0);
     }
 
     #[test]
     fn millisecond_values_pass_through() {
-        // 13-digit epoch milliseconds (>= 1e11) are passed through unchanged.
         assert_eq!(
             from_seconds_to_milliseconds(1_700_000_000_000.0),
             1_700_000_000_000
         );
-        // Boundary: 1e11 is the first value treated as already-milliseconds.
+
         assert_eq!(from_seconds_to_milliseconds(1e11_f64), 100_000_000_000);
+    }
+}
+
+#[cfg(test)]
+mod query_tests {
+    use super::{
+        build_combined_orders_count_sql, build_combined_orders_page_sql, item_id_predicate_sql,
+    };
+
+    fn count_occurrences(haystack: &str, needle: &str) -> usize {
+        haystack.matches(needle).count()
+    }
+
+    #[test]
+    fn page_query_unions_offchain_trades_with_legacy_orders() {
+        let sql = build_combined_orders_page_sql(
+            " WHERE owner = $1",
+            "sort_created_at DESC, sort_id ASC",
+            "$2",
+            "$3",
+        );
+
+        assert!(
+            sql.contains("UNION ALL"),
+            "must UNION the two branches: {sql}"
+        );
+        assert!(
+            sql.contains("WITH unified_trades AS ( SELECT * FROM marketplace.mv_trades )"),
+            "off-chain trades CTE must be present: {sql}"
+        );
+        assert!(
+            sql.contains("WHERE type = 'public_nft_order' AND status = 'open'"),
+            "trades branch must select public_nft_order open listings: {sql}"
+        );
+        assert!(
+            sql.contains(r#"squid_marketplace."order" ord"#),
+            "legacy order table must remain: {sql}"
+        );
+        assert!(sql.contains("AS combined_orders"), "{sql}");
+        assert!(
+            sql.contains(" WHERE owner = $1"),
+            "outer filter applied: {sql}"
+        );
+        assert!(
+            sql.contains("ORDER BY sort_created_at DESC, sort_id ASC LIMIT $2 OFFSET $3"),
+            "outer sort + paginate: {sql}"
+        );
+    }
+
+    #[test]
+    fn both_branches_expose_the_same_response_columns() {
+        let sql =
+            build_combined_orders_page_sql("", "sort_created_at DESC, sort_id ASC", "$1", "$2");
+        for col in [
+            "AS trade_id",
+            "AS marketplace_address",
+            "AS nft_address",
+            "AS token_id",
+            "AS price",
+            "AS item_id",
+            "AS issued_id",
+            "AS owner",
+            "AS buyer",
+            "AS status",
+            "AS created_at",
+            "AS updated_at",
+            "AS expires_at",
+            "AS network",
+            "AS sort_price",
+            "AS sort_id",
+        ] {
+            assert_eq!(
+                count_occurrences(&sql, col),
+                2,
+                "column `{col}` must be projected by BOTH the trades and legacy branch"
+            );
+        }
+    }
+
+    #[test]
+    fn item_id_filter_matches_composite_and_plain_forms() {
+        let sql = item_id_predicate_sql("$1");
+
+        assert!(
+            sql.contains("item_id = $1"),
+            "composite form must still match exactly: {sql}"
+        );
+        assert!(
+            sql.contains("item_id = NULLIF(split_part($1, '-', 2), '')"),
+            "plain form must match the id suffix of the composite param: {sql}"
+        );
+        assert!(
+            sql.contains("LOWER(nft_address) = LOWER(split_part($1, '-', 1))"),
+            "plain-form match must be scoped to the contract (plain ids are only unique per collection): {sql}"
+        );
+        assert!(
+            sql.contains(" OR "),
+            "the two forms are alternatives over the UNION branches: {sql}"
+        );
+        assert!(
+            !sql.contains("$2"),
+            "predicate must reuse the one bind: {sql}"
+        );
+    }
+
+    #[test]
+    fn item_id_filter_is_embedded_in_page_and_count_sql() {
+        let clause = format!(" WHERE {}", item_id_predicate_sql("$1"));
+        let page = build_combined_orders_page_sql(
+            &clause,
+            "sort_created_at DESC, sort_id ASC",
+            "$2",
+            "$3",
+        );
+        let count = build_combined_orders_count_sql(&clause);
+        for sql in [&page, &count] {
+            assert!(
+                sql.contains("NULLIF(split_part($1, '-', 2), '')"),
+                "combined query must carry the dual-form item filter: {sql}"
+            );
+        }
+    }
+
+    #[test]
+    fn open_orders_by_nft_ids_spans_trades_and_legacy() {
+        let sql = super::build_open_orders_by_nft_ids_sql(false);
+        assert!(sql.contains("UNION ALL"), "must span both branches: {sql}");
+        assert!(
+            sql.contains("WHERE type = 'public_nft_order' AND status = 'open'"),
+            "trade listings (e.g. ENS names listed off-chain) must surface as orders: {sql}"
+        );
+        assert!(sql.contains(r#"squid_marketplace."order" ord"#), "{sql}");
+        assert!(
+            sql.contains("combined_orders.status = 'open' AND combined_orders.nft_id = ANY($1)"),
+            "{sql}"
+        );
+        assert!(
+            sql.contains("ORDER BY sort_created_at DESC, sort_id ASC"),
+            "most recent listing must win per nft: {sql}"
+        );
+        assert!(!sql.contains("$2"), "{sql}");
+
+        let with_owner = super::build_open_orders_by_nft_ids_sql(true);
+        assert!(
+            with_owner.contains("LOWER(combined_orders.owner) = LOWER($2)"),
+            "{with_owner}"
+        );
+    }
+
+    #[test]
+    fn count_query_covers_the_same_union() {
+        let sql = build_combined_orders_count_sql(" WHERE status = $1");
+        assert!(sql.contains("COUNT(*)::int8 AS count"), "{sql}");
+        assert!(
+            sql.contains("UNION ALL"),
+            "count must span both branches: {sql}"
+        );
+        assert!(
+            sql.contains("WHERE type = 'public_nft_order'"),
+            "count must include off-chain trades: {sql}"
+        );
+        assert!(
+            sql.contains(r#"squid_marketplace."order" ord"#),
+            "count must include legacy orders: {sql}"
+        );
+        assert!(
+            sql.contains(" WHERE status = $1"),
+            "count applies the same filter: {sql}"
+        );
+        assert!(!sql.contains("LIMIT"), "count must not paginate: {sql}");
     }
 }

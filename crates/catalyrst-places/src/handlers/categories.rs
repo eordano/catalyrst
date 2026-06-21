@@ -29,14 +29,17 @@ fn category_i18n_en(name: &str) -> Option<&'static str> {
 }
 
 #[derive(Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "places/"))]
 pub struct CategoryOut {
     pub name: String,
     pub active: bool,
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub count: i64,
     pub i18n: I18n,
 }
 
 #[derive(Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "places/"))]
 pub struct I18n {
     pub en: Option<String>,
 }

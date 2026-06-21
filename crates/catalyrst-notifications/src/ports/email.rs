@@ -1,28 +1,24 @@
 use std::sync::OnceLock;
 
-use rand::Rng;
+use rand::RngExt;
 use serde_json::json;
 
 use crate::config::EmailConfig;
 use crate::http::ApiError;
 
-/// Charset + length of the confirmation code, matching upstream `makeId(32)`.
 const CODE_CHARSET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
 pub const CODE_LEN: usize = 32;
 
-/// Generate a 32-char alphanumeric confirmation code (upstream `makeId`).
 pub fn make_code() -> String {
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     (0..CODE_LEN)
         .map(|_| {
-            let idx = rng.gen_range(0..CODE_CHARSET.len());
+            let idx = rng.random_range(0..CODE_CHARSET.len());
             CODE_CHARSET[idx] as char
         })
         .collect()
 }
 
-/// Which confirmation-email template/flow to render. Mirrors upstream's
-/// VALIDATE_EMAIL vs VALIDATE_CREDITS_EMAIL split.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EmailSource {
     Account,
@@ -63,14 +59,12 @@ impl EmailSender {
         Self { cfg }
     }
 
-    /// True when a real SendGrid send is wired (api key + from + template).
     pub fn is_enabled(&self, source: EmailSource) -> bool {
         self.cfg.sendgrid_api_key.is_some()
             && self.cfg.from_email.is_some()
             && self.template_id(source).is_some()
     }
 
-    /// Is the email domain on the configured blacklist? Lowercased compare.
     pub fn is_domain_blacklisted(&self, email: &str) -> bool {
         if self.cfg.domain_blacklist.is_empty() {
             return false;
@@ -103,11 +97,6 @@ impl EmailSender {
         }
     }
 
-    /// Path segment of the confirm-email page for this source, matching the
-    /// `account` repo route contract (locations.ts):
-    /// - account  -> `/confirm-email-challenge/<code>` (unifiedEmailConfirmation;
-    ///   the legacy `/confirm-email/<code>` route redirects here)
-    /// - credits  -> `/credits-email-confirmed/<code>`
     fn confirm_path(source: EmailSource, code: &str) -> String {
         match source {
             EmailSource::Account => format!("/confirm-email-challenge/{code}"),
@@ -115,11 +104,6 @@ impl EmailSender {
         }
     }
 
-    /// The confirm-email link the recipient clicks. The page is unprotected, so
-    /// the address travels as a query param alongside the source (the
-    /// UnifiedEmailConfirmation page reads `address` + `source` from the query).
-    /// `address` is a normalized `0x`-prefixed hex eth address — query-safe — so
-    /// it is interpolated raw, matching upstream's link construction.
     pub fn confirm_url(&self, source: EmailSource, address: &str, code: &str) -> String {
         format!(
             "{}{}?address={}&source={}",
@@ -130,14 +114,6 @@ impl EmailSender {
         )
     }
 
-    /// Render and send the confirmation email via SendGrid v3. Returns the
-    /// SendGrid message id on success.
-    ///
-    /// When delivery is NOT configured this fails with a 500 rather than
-    /// silently succeeding: the upstream feature is non-functional without a
-    /// real send (the user never receives the code), so reporting success would
-    /// strand the confirm loop. The caller surfaces this as a hard 5xx, never a
-    /// silent 204.
     pub async fn send_confirmation(
         &self,
         source: EmailSource,
@@ -163,9 +139,6 @@ impl EmailSender {
             ));
         };
 
-        // SendGrid v3 dynamic-template payload. The template renders the link
-        // from `confirmUrl`; `code`/`address` are passed for templates that
-        // build their own CTA.
         let body = json!({
             "personalizations": [{
                 "to": [{ "email": to }],
@@ -208,14 +181,11 @@ impl EmailSender {
     }
 }
 
-/// Verify a Cloudflare Turnstile token server-side via siteverify. Returns
-/// `Ok(true)` on a verified token, `Ok(false)` when the token is rejected.
-/// When no secret is configured returns `Ok(true)` (turnstile disabled).
 pub async fn verify_turnstile(secret: Option<&str>, token: Option<&str>) -> Result<bool, ApiError> {
     let Some(secret) = secret else {
         return Ok(true);
     };
-    // A secret is configured -> a token is required.
+
     let Some(token) = token.filter(|t| !t.is_empty()) else {
         return Ok(false);
     };
@@ -263,9 +233,6 @@ mod tests {
     const ADDR: &str = "0x1234567890abcdef1234567890abcdef12345678";
     const CODE: &str = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdef";
 
-    // Account confirm links land on the `/confirm-email-challenge/<code>` route
-    // (account repo locations.ts: unifiedEmailConfirmation), NOT the legacy
-    // `/confirm-email/<code>` path.
     #[test]
     fn account_confirm_url_uses_challenge_route() {
         let url = sender().confirm_url(EmailSource::Account, ADDR, CODE);
@@ -281,7 +248,6 @@ mod tests {
         );
     }
 
-    // Credits confirm links land on `/credits-email-confirmed/<code>`.
     #[test]
     fn credits_confirm_url_uses_credits_route() {
         let url = sender().confirm_url(EmailSource::Credits, ADDR, CODE);
@@ -293,7 +259,6 @@ mod tests {
         );
     }
 
-    // A trailing slash on the base URL must not double up before the route.
     #[test]
     fn base_url_trailing_slash_trimmed() {
         let s = EmailSender::new(EmailConfig {
@@ -305,8 +270,6 @@ mod tests {
         assert!(!url.contains(".org//"));
     }
 
-    // With no SendGrid config, a send must NOT silently succeed (which would let
-    // the handler return a 204 with no email delivered) — it must hard-fail 5xx.
     #[tokio::test]
     async fn unconfigured_mailer_hard_fails() {
         let err = sender()

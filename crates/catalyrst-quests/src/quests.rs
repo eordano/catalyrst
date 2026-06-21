@@ -1,6 +1,3 @@
-//! Quest domain operations — port of `decentraland/quests`
-//! crates/server/src/domain/{quests,events}.rs plus crates/system/src/rewards.rs.
-
 use crate::db::{Db, DbError};
 use crate::proto::EventRequest;
 use crate::proto::{Action, Event, ProtocolMessage};
@@ -35,8 +32,6 @@ impl From<DbError> for QuestError {
     }
 }
 
-/// `start_quest`: the quest must be active and the user must not already have an
-/// active instance of it; returns the new instance id.
 pub async fn start_quest(
     db: &Db,
     user_address: &str,
@@ -51,8 +46,6 @@ pub async fn start_quest(
     Ok(db.start_quest(quest_id, user_address).await?)
 }
 
-/// `abandon_quest`: only the instance owner may abandon, and only if the quest
-/// is not already completed.
 pub async fn abandon_quest(
     db: &Db,
     user_address: &str,
@@ -72,8 +65,6 @@ pub async fn abandon_quest(
     Ok(())
 }
 
-/// Compute an instance's current `QuestState` by folding its event log against
-/// the decoded quest definition (upstream `get_instance_state`).
 pub async fn compute_instance_state(
     db: &Db,
     quest_id: &str,
@@ -85,13 +76,10 @@ pub async fn compute_instance_state(
         .iter()
         .filter_map(|e| Event::decode(e.event.as_slice()).ok())
         .collect();
-    let _ = QuestGraph::from(&quest); // validate definition shape early
+    let _ = QuestGraph::from(&quest);
     Ok(get_state(&quest, &events))
 }
 
-/// `add_event_controller`: wrap a SendEvent action into an `Event` with a fresh
-/// id and return it for queueing. Returns None when the request has no action
-/// (upstream `AddEventError::NoAction`).
 pub fn build_event(user_address: &str, request: EventRequest) -> Option<(Uuid, Event)> {
     let action: Action = request.action?;
     let id = Uuid::new_v4();
@@ -103,23 +91,17 @@ pub fn build_event(user_address: &str, request: EventRequest) -> Option<(Uuid, E
     Some((id, event))
 }
 
-// ---- Rewards (port of crates/system/src/rewards.rs) ----
-
 #[derive(Debug, serde::Deserialize)]
 struct RewardsHookResponse {
     ok: bool,
 }
 
-/// `{user_address}` / `{quest_id}` placeholder substitution (port of
-/// crates/protocol/src/rewards.rs::rewards_parser).
 fn rewards_parser(to_be_parsed: &str, quest_id: &str, user_address: &str) -> String {
     to_be_parsed
         .replace("{user_address}", user_address)
         .replace("{quest_id}", quest_id)
 }
 
-/// Fire the quest's reward webhook on completion (port of `give_rewards_to_user`).
-/// No-op when the quest has no reward hook.
 pub async fn give_rewards_to_user(db: &Db, quest_id: &str, user_address: &str) {
     let hook = match db.get_quest_reward_hook(quest_id).await {
         Ok(h) => h,

@@ -1,18 +1,3 @@
-//! HTTP clients for the comms-gatekeeper and Events services, used by the
-//! `/destinations` path to populate `connected_addresses` and `live` exactly as
-//! upstream `entities/Destination/utils.ts` does.
-//!
-//! - `CommsGatekeeper` -> `GET /scene-participants?pointer=<base>&realm_name=main`
-//!   (scenes) or `?realm_name=<world_name>` (worlds), returns `{ ok, data:
-//!   { addresses: string[] } }`.
-//! - `Events` -> `POST /events/search?list=live` with `{ placeIds: [...] }`,
-//!   returns `{ ok, data: { events: [{ place_id, ... }], total } }`; a
-//!   destination id is "live" iff it appears as some event's `place_id`.
-//!
-//! Both clients carry a 5-minute per-key in-memory TTL cache and a 10s request
-//! timeout, mirroring the upstream API clients. On any error the upstream
-//! returns empty (`[]` / `false`), and so do we.
-
 use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -58,7 +43,132 @@ struct Cached<T> {
     expires_at: Instant,
 }
 
-/// Client for comms-gatekeeper scene/world participant lists.
+#[derive(Debug, Deserialize)]
+struct CurrentScenesResponse {
+    #[serde(default)]
+    scenes: Vec<PresenceSceneRow>,
+}
+
+#[derive(Debug, Deserialize)]
+struct PresenceSceneRow {
+    #[serde(default)]
+    pointer: String,
+    #[serde(default)]
+    count: i32,
+}
+
+#[derive(Debug, Deserialize)]
+struct CurrentWorldsResponse {
+    #[serde(default)]
+    worlds: Vec<PresenceWorldRow>,
+}
+
+#[derive(Debug, Deserialize)]
+struct PresenceWorldRow {
+    #[serde(default)]
+    world_name: String,
+    #[serde(default)]
+    count: i32,
+    #[serde(default)]
+    live_users: Option<i32>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct LiveUserCounts {
+    pub places: Vec<(String, i32)>,
+    pub worlds: Vec<(String, i32)>,
+}
+
+const PRESENCE_CACHE_TTL: Duration = Duration::from_secs(30);
+
+pub struct Presence {
+    base_url: String,
+    http: reqwest::Client,
+    cache: Mutex<Option<Cached<LiveUserCounts>>>,
+}
+
+impl Presence {
+    pub fn new(base_url: String) -> Self {
+        Self {
+            base_url: base_url.trim_end_matches('/').to_string(),
+            http: reqwest::Client::new(),
+            cache: Mutex::new(None),
+        }
+    }
+
+    fn cache_get(&self) -> Option<LiveUserCounts> {
+        let cache = self.cache.lock().unwrap();
+        cache
+            .as_ref()
+            .filter(|c| c.expires_at > Instant::now())
+            .map(|c| c.value.clone())
+    }
+
+    fn cache_put(&self, value: LiveUserCounts) {
+        let mut cache = self.cache.lock().unwrap();
+        *cache = Some(Cached {
+            value,
+            expires_at: Instant::now() + PRESENCE_CACHE_TTL,
+        });
+    }
+
+    async fn fetch_scenes(&self) -> Vec<(String, i32)> {
+        let url = format!("{}/current/scenes", self.base_url);
+        let resp = self.http.get(&url).timeout(REQUEST_TIMEOUT).send().await;
+        match resp {
+            Ok(r) => match r.json::<CurrentScenesResponse>().await {
+                Ok(body) => body
+                    .scenes
+                    .into_iter()
+                    .filter(|s| !s.pointer.is_empty())
+                    .map(|s| (s.pointer, s.count))
+                    .collect(),
+                Err(e) => {
+                    tracing::debug!(error = %e, "presence current/scenes decode failed");
+                    Vec::new()
+                }
+            },
+            Err(e) => {
+                tracing::debug!(error = %e, "presence current/scenes request failed");
+                Vec::new()
+            }
+        }
+    }
+
+    async fn fetch_worlds(&self) -> Vec<(String, i32)> {
+        let url = format!("{}/current/worlds", self.base_url);
+        let resp = self.http.get(&url).timeout(REQUEST_TIMEOUT).send().await;
+        match resp {
+            Ok(r) => match r.json::<CurrentWorldsResponse>().await {
+                Ok(body) => body
+                    .worlds
+                    .into_iter()
+                    .filter(|w| !w.world_name.is_empty())
+                    .map(|w| (w.world_name, w.live_users.unwrap_or(w.count)))
+                    .collect(),
+                Err(e) => {
+                    tracing::debug!(error = %e, "presence current/worlds decode failed");
+                    Vec::new()
+                }
+            },
+            Err(e) => {
+                tracing::debug!(error = %e, "presence current/worlds request failed");
+                Vec::new()
+            }
+        }
+    }
+
+    pub async fn live_user_counts(&self) -> LiveUserCounts {
+        if let Some(v) = self.cache_get() {
+            return v;
+        }
+        let (places, worlds) = tokio::join!(self.fetch_scenes(), self.fetch_worlds());
+        let counts = LiveUserCounts { places, worlds };
+        self.cache_put(counts.clone());
+        counts
+    }
+}
+
 pub struct CommsGatekeeper {
     base_url: String,
     http: reqwest::Client,
@@ -117,8 +227,6 @@ impl CommsGatekeeper {
         }
     }
 
-    /// `getSceneParticipants(pointer)` -> addresses connected to the scene room
-    /// (realm defaults to "main"). Cache key `scene:<pointer>:<realm>`.
     pub async fn get_scene_participants(&self, pointer: &str) -> Vec<String> {
         let realm = "main";
         let key = format!("scene:{}:{}", pointer, realm);
@@ -132,9 +240,6 @@ impl CommsGatekeeper {
         addrs
     }
 
-    /// `getWorldParticipants(worldName)` -> addresses connected to the world
-    /// room. The gatekeeper treats `realm_name` as the world name when no
-    /// `pointer` is provided. Cache key `world:<worldName>`.
     pub async fn get_world_participants(&self, world_name: &str) -> Vec<String> {
         let key = format!("world:{}", world_name);
         if let Some(v) = self.cache_get(&key) {
@@ -146,7 +251,6 @@ impl CommsGatekeeper {
     }
 }
 
-/// Client for the Events live-status batch endpoint.
 pub struct Events {
     base_url: String,
     http: reqwest::Client,
@@ -162,10 +266,6 @@ impl Events {
         }
     }
 
-    /// `checkLiveEventsForDestinations(ids)` -> map id -> isLive. Land places
-    /// pass the place UUID, worlds pass the world name. Caches each id for 5
-    /// minutes; only uncached ids hit the network. Mirrors upstream: an id is
-    /// live iff it is the `place_id` of a returned live event.
     pub async fn check_live_events(&self, ids: &[String]) -> HashMap<String, bool> {
         let mut out: HashMap<String, bool> = HashMap::new();
         if ids.is_empty() {
@@ -189,7 +289,6 @@ impl Events {
             return out;
         }
 
-        // Default uncached to false, then mark live ones from the response.
         for id in &uncached {
             out.insert(id.clone(), false);
         }
@@ -224,7 +323,6 @@ impl Events {
             Err(e) => tracing::debug!(error = %e, "events search request failed"),
         }
 
-        // Cache each uncached result.
         {
             let mut cache = self.cache.lock().unwrap();
             let expires_at = Instant::now() + CACHE_TTL;

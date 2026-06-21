@@ -56,8 +56,6 @@ pub struct SetEmailBody {
     pub is_credits_workflow: bool,
 }
 
-/// PUT /set-email — signed-fetch authed. Persists the pending email and sends
-/// the confirmation email. Returns 204 (empty), matching upstream.
 pub async fn put_set_email(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -66,8 +64,7 @@ pub async fn put_set_email(
     let signer = require_signer(&headers, "put", "/set-email")?;
 
     let email = body.email.trim();
-    // A non-empty email must be well-formed; an empty email is the explicit
-    // "clear my email" path and is handled by set_email.
+
     if !email.is_empty() && (!email.contains('@') || email.starts_with('@') || email.ends_with('@'))
     {
         return Err(ApiError::bad_request("Invalid email"));
@@ -106,10 +103,6 @@ pub struct ConfirmEmailBody {
     pub source: Option<String>,
 }
 
-/// PUT /confirm-email — intentionally UNAUTHENTICATED upstream (the email link
-/// the user clicks cannot carry a signed-fetch). Identity is asserted by the
-/// `{ address, code }` body plus the (optional) Turnstile challenge. Returns
-/// 204 (empty) on success.
 pub async fn put_confirm_email(
     State(state): State<AppState>,
     Json(body): Json<ConfirmEmailBody>,
@@ -122,12 +115,11 @@ pub async fn put_confirm_email(
         .ok_or_else(|| ApiError::bad_request("Missing address"))?;
 
     let code = body.code.trim();
-    // Codes are fixed-length 32-char makeId strings.
+
     if code.len() != CODE_LEN {
         return Err(ApiError::bad_request("Invalid confirmation code"));
     }
 
-    // Server-side Turnstile verification (no-op when no secret configured).
     let verified = email::verify_turnstile(
         state.notifications.email.turnstile_secret(),
         body.turnstile_token.as_deref(),
@@ -137,8 +129,6 @@ pub async fn put_confirm_email(
         return Err(ApiError::unauthorized("Turnstile verification failed"));
     }
 
-    // `source` is accepted for wire-compatibility with the account confirm page
-    // but is authoritative server-side from the pending row, not the request.
     match state.notifications.confirm_email(address, code).await? {
         Some(_) => Ok(StatusCode::NO_CONTENT),
         None => Err(ApiError::bad_request("Invalid confirmation code")),

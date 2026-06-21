@@ -75,7 +75,6 @@ pub struct GrantBody {
     pub tier_id: Option<String>,
 }
 
-/// Admin grant. Bearer-gated; authorize first, before any DB work.
 pub async fn grant_user_badge(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -108,7 +107,6 @@ pub async fn grant_user_badge(
     } })))
 }
 
-/// Admin revoke. Bearer-gated; authorize first, before any DB work.
 pub async fn revoke_user_badge(
     State(state): State<AppState>,
     headers: HeaderMap,

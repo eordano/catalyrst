@@ -1,15 +1,3 @@
-//! Signed DCL auth-chain verification for the quests dcl-rpc WebSocket
-//! handshake. Mirrors upstream `decentraland/quests` crates/server/src/rpc/mod.rs
-//! which authenticates each connection via
-//! `authenticate_dcl_user_with_signed_headers("get", "/", ...)`: the client's
-//! first WS frame carries the signed-fetch headers as a JSON object, and the
-//! recovered signer becomes the per-connection user address.
-//!
-//! Identical contract/implementation to catalyrst-social-rpc's handshake — the
-//! same EIP-712 ephemeral-key auth chain the explorer mints for any signed
-//! WebSocket. REST routes carry the same headers in HTTP form (see
-//! `require_signer`).
-
 use axum::http::HeaderMap;
 use catalyrst_crypto::verify::verify_auth_chain;
 use catalyrst_crypto::AuthError;
@@ -64,9 +52,6 @@ pub fn build_payload(method: &str, path: &str, timestamp: &str, metadata: &str) 
     format!("{}:{}:{}:{}", method, path, timestamp, metadata).to_lowercase()
 }
 
-/// Behind the front-host proxy, nginx strips the service prefix but the client
-/// signs the full external path; it forwards the original in `x-original-path`.
-/// Prefer it for the signed-fetch payload, falling back to the route path.
 fn signed_fetch_path<'a>(headers: &HeaderMap, fallback: &'a str) -> std::borrow::Cow<'a, str> {
     match headers.get("x-original-path").and_then(|v| v.to_str().ok()) {
         Some(raw) => std::borrow::Cow::Owned(raw.split('?').next().unwrap_or(raw).to_string()),
@@ -210,9 +195,6 @@ fn map_auth_error(err: AuthError) -> AuthChainError {
     }
 }
 
-/// Verify the WS handshake frame (JSON object of signed-fetch headers) and
-/// return the recovered signer (lowercased). Mirrors upstream's
-/// `authenticate_dcl_user_with_signed_headers("get", "/", ...)`.
 pub fn verify_handshake(
     frame_json: &str,
     method: &str,
@@ -235,9 +217,6 @@ pub fn verify_handshake(
     validate_signature(&chain, &payload, timestamp, expiration_secs, now_secs)
 }
 
-/// Recover the signer of an HTTP signed-fetch request from its headers
-/// (lowercased). Used by REST routes that gate on quest creator identity
-/// (GET /quests/{id} definition, /quests/{id}/instances, instance state, ...).
 pub fn require_signer(
     headers: &HeaderMap,
     method: &str,
@@ -263,12 +242,7 @@ pub fn require_signer(
     validate_signature(&chain, &payload, &timestamp, FIVE_MINUTES_SECS, now)
 }
 
-/// Optional signed-fetch: returns the signer if present and valid, else None.
-/// Mirrors upstream's `OptionalAuthUser` extractor used by the read routes
-/// (e.g. GET /quests/{id}, GET /creators/{addr}/quests) which return the
-/// decoded definition only when the authed signer is the creator.
 pub fn optional_signer(headers: &HeaderMap, method: &str, path: &str) -> Option<String> {
-    // Only attempt verification when a chain is actually present.
     if !headers.keys().any(|k| {
         k.as_str()
             .eq_ignore_ascii_case(&format!("{}0", AUTH_CHAIN_HEADER_PREFIX))
@@ -281,15 +255,16 @@ pub fn optional_signer(headers: &HeaderMap, method: &str, path: &str) -> Option<
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ethers_signers::{LocalWallet, Signer};
+    use alloy::signers::{local::PrivateKeySigner, Signer};
 
     async fn make_chain(method: &str, path: &str, ts_ms: i64) -> (String, String) {
-        let root: LocalWallet = "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
-            .parse()
-            .unwrap();
+        let root: PrivateKeySigner =
+            "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
+                .parse()
+                .unwrap();
         let root_address = format!("{:#x}", root.address());
 
-        let ephemeral: LocalWallet =
+        let ephemeral: PrivateKeySigner =
             "59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d"
                 .parse()
                 .unwrap();
@@ -317,12 +292,12 @@ mod tests {
             "x-identity-auth-chain-1": serde_json::json!({
                 "type": "ECDSA_EPHEMERAL",
                 "payload": ephemeral_payload,
-                "signature": format!("0x{}", ephemeral_sig)
+                "signature": ephemeral_sig.to_string()
             }).to_string(),
             "x-identity-auth-chain-2": serde_json::json!({
                 "type": "ECDSA_SIGNED_ENTITY",
                 "payload": payload,
-                "signature": format!("0x{}", entity_sig)
+                "signature": entity_sig.to_string()
             }).to_string(),
             "x-identity-timestamp": ts_ms.to_string(),
             "x-identity-metadata": metadata

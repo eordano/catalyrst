@@ -1,7 +1,3 @@
-//! Postgres layer for catalyrst-quests — faithful port of
-//! `decentraland/quests` crates/db (SQL queries) returning the generated
-//! protobuf types decoded from the stored `definition`/`event` blobs.
-
 use chrono::NaiveDateTime;
 use sqlx::postgres::{PgPool, PgPoolOptions};
 use sqlx::Row;
@@ -11,8 +7,6 @@ use crate::proto::{ProtocolMessage, Quest, QuestDefinition};
 
 const SCHEMA: &str = include_str!("../migrations/0001_quests.sql");
 
-/// A quest row as stored, mirroring upstream `StoredQuest`. `definition` is the
-/// raw protobuf blob; `created_at` is unix seconds.
 #[derive(Debug, Clone)]
 pub struct StoredQuest {
     pub id: String,
@@ -25,7 +19,6 @@ pub struct StoredQuest {
     pub created_at: i64,
 }
 
-/// A quest instance row, mirroring upstream `QuestInstance`.
 #[derive(Debug, Clone)]
 pub struct QuestInstance {
     pub id: String,
@@ -34,7 +27,6 @@ pub struct QuestInstance {
     pub start_timestamp: i64,
 }
 
-/// A stored event row, mirroring upstream `Event` (db::core::definitions).
 #[derive(Debug, Clone)]
 pub struct StoredEvent {
     pub id: String,
@@ -44,7 +36,6 @@ pub struct StoredEvent {
     pub event: Vec<u8>,
 }
 
-/// A reward item, mirroring upstream `QuestRewardItem` (camelCase imageLink).
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct QuestRewardItem {
@@ -52,7 +43,6 @@ pub struct QuestRewardItem {
     pub image_link: String,
 }
 
-/// A reward hook, mirroring upstream `QuestRewardHook`.
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct QuestRewardHook {
@@ -126,9 +116,6 @@ impl Db {
         })
     }
 
-    // ---- Quests (read) ----
-
-    /// `get_active_quests`: quests not in deactivated_quests, paged.
     pub async fn get_active_quests(&self, offset: i64, limit: i64) -> DbResult<Vec<StoredQuest>> {
         let rows = sqlx::query(
             "SELECT * FROM quests \
@@ -153,7 +140,6 @@ impl Db {
         .await?)
     }
 
-    /// `get_quest`: a single stored quest by id, with its computed `active`.
     pub async fn get_stored_quest(&self, id: &str) -> DbResult<StoredQuest> {
         let uuid = parse_uuid(id)?;
         let row = sqlx::query(
@@ -169,8 +155,6 @@ impl Db {
         Self::row_to_stored_quest(&row, active)
     }
 
-    /// `get_quests_by_creator_address`: a creator's quests that were not
-    /// superseded by an update (uq.id IS NULL), newest first, with `active`.
     pub async fn get_quests_by_creator(
         &self,
         creator: &str,
@@ -209,7 +193,6 @@ impl Db {
         .await?)
     }
 
-    /// `is_active_quest`: quest exists and is not deactivated.
     pub async fn is_active_quest(&self, quest_id: &str) -> DbResult<bool> {
         let uuid = parse_uuid(quest_id)?;
         Ok(sqlx::query_scalar(
@@ -221,7 +204,6 @@ impl Db {
         .await?)
     }
 
-    /// `is_quest_creator`: the quest exists and `creator_address` matches.
     pub async fn is_quest_creator(&self, quest_id: &str, creator: &str) -> DbResult<bool> {
         let uuid = parse_uuid(quest_id)?;
         Ok(sqlx::query_scalar(
@@ -233,8 +215,6 @@ impl Db {
         .await?)
     }
 
-    /// Decode the protobuf definition for a quest id into a full `Quest`
-    /// (upstream `get_quest_with_decoded_definition`).
     pub async fn get_quest_with_decoded_definition(&self, quest_id: &str) -> DbResult<Quest> {
         let stored = self.get_stored_quest(quest_id).await?;
         let definition = QuestDefinition::decode(stored.definition.as_slice())
@@ -251,9 +231,6 @@ impl Db {
         })
     }
 
-    // ---- Instances (read + write) ----
-
-    /// `get_quest_instance`.
     pub async fn get_quest_instance(&self, id: &str) -> DbResult<QuestInstance> {
         let uuid = parse_uuid(id)?;
         let row = sqlx::query("SELECT * FROM quest_instances WHERE id = $1")
@@ -264,7 +241,6 @@ impl Db {
         Self::row_to_instance(&row)
     }
 
-    /// `has_active_quest_instance`: user already has a non-abandoned instance.
     pub async fn has_active_quest_instance(&self, user: &str, quest_id: &str) -> DbResult<bool> {
         let uuid = parse_uuid(quest_id)?;
         Ok(sqlx::query_scalar(
@@ -278,7 +254,6 @@ impl Db {
         .await?)
     }
 
-    /// `start_quest`: insert a new instance, returning its id.
     pub async fn start_quest(&self, quest_id: &str, user_address: &str) -> DbResult<String> {
         let quest_uuid = parse_uuid(quest_id)?;
         let id = Uuid::new_v4();
@@ -291,7 +266,6 @@ impl Db {
         Ok(id.to_string())
     }
 
-    /// `abandon_quest_instance`.
     pub async fn abandon_quest_instance(&self, instance_id: &str) -> DbResult<String> {
         let instance_uuid = parse_uuid(instance_id)?;
         let id = Uuid::new_v4();
@@ -305,7 +279,6 @@ impl Db {
         Ok(id.to_string())
     }
 
-    /// `complete_quest_instance`.
     pub async fn complete_quest_instance(&self, instance_id: &str) -> DbResult<String> {
         let instance_uuid = parse_uuid(instance_id)?;
         let id = Uuid::new_v4();
@@ -319,7 +292,6 @@ impl Db {
         Ok(id.to_string())
     }
 
-    /// `get_active_user_quest_instances`: a user's non-abandoned instances.
     pub async fn get_active_user_quest_instances(
         &self,
         user: &str,
@@ -335,7 +307,6 @@ impl Db {
         rows.iter().map(Self::row_to_instance).collect()
     }
 
-    /// `get_active_quest_instances_by_quest_id`: paged non-abandoned instances.
     pub async fn get_active_quest_instances_by_quest_id(
         &self,
         quest_id: &str,
@@ -369,9 +340,6 @@ impl Db {
         .await?)
     }
 
-    // ---- Events ----
-
-    /// `add_event`: persist a protobuf-encoded event against an instance.
     pub async fn add_event(
         &self,
         event_id: &str,
@@ -393,7 +361,6 @@ impl Db {
         Ok(())
     }
 
-    /// `get_events`: an instance's event log, oldest first.
     pub async fn get_events(&self, instance_id: &str) -> DbResult<Vec<StoredEvent>> {
         let uuid = parse_uuid(instance_id)?;
         let rows =
@@ -417,9 +384,6 @@ impl Db {
             .collect()
     }
 
-    // ---- Rewards ----
-
-    /// `get_quest_reward_items`: a quest's reward items (camelCase imageLink).
     pub async fn get_quest_reward_items(&self, quest_id: &str) -> DbResult<Vec<QuestRewardItem>> {
         let uuid = parse_uuid(quest_id)?;
         let rows = sqlx::query(
@@ -437,7 +401,6 @@ impl Db {
             .collect())
     }
 
-    /// `get_quest_reward_hook`: a quest's reward webhook (creator-only path).
     pub async fn get_quest_reward_hook(&self, quest_id: &str) -> DbResult<QuestRewardHook> {
         let uuid = parse_uuid(quest_id)?;
         let row = sqlx::query(

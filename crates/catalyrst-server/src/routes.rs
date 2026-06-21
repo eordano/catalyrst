@@ -37,12 +37,6 @@ async fn not_found() -> impl axum::response::IntoResponse {
     (axum::http::StatusCode::NOT_FOUND, "Not found")
 }
 
-/// Per-request read-only gate for the deploy route. The `read_only` flag is now
-/// an `AtomicBool` on `AppState` (an admin can flip it at runtime via
-/// `POST /admin/api/content/read-only`), so the `POST /entities` route is always
-/// registered and the check happens here, per request, rather than at
-/// router-build time. When read-only is set the deploy is rejected with `403`
-/// before the (potentially large) multipart body is parsed.
 async fn read_only_gate(
     State(state): State<Arc<AppState>>,
     request: axum::extract::Request,
@@ -123,9 +117,6 @@ fn content_routes(state: &Arc<AppState>) -> Router<Arc<AppState>> {
             "/queries/erc721/{chainId}/{contract}/{option}/{emission}",
             get(handlers::get_erc721_entity::get_erc721_entity),
         )
-        // The deploy route is now always registered; the runtime read-only flag
-        // is enforced per request by `read_only_gate` (route-scoped middleware),
-        // so an admin can toggle write access without rebuilding the router.
         .route(
             "/entities",
             post(handlers::create_entity::create_entity_multipart)
@@ -134,6 +125,12 @@ fn content_routes(state: &Arc<AppState>) -> Router<Arc<AppState>> {
                     state.clone(),
                     read_only_gate,
                 )),
+        )
+        .route(
+            "/scenes/{coord}",
+            axum::routing::delete(handlers::unpublish_scene::unpublish_scene).route_layer(
+                axum::middleware::from_fn_with_state(state.clone(), read_only_gate),
+            ),
         )
 }
 
@@ -151,9 +148,6 @@ fn lambdas_routes() -> Router<Arc<AppState>> {
             "/lambdas/profile/{id}",
             get(handlers::lambdas::profile_alias),
         )
-        // Legacy catalyst-lambdas thumbnail/image paths. Web tools built against
-        // the classic catalyst surface (e.g. wearable-preview) request these;
-        // they map to the same handlers as the newer /queries/items/* routes.
         .route(
             "/lambdas/collections/contents/{pointer}/thumbnail",
             get(handlers::get_entity_thumbnail::get_entity_thumbnail)
@@ -181,6 +175,10 @@ fn lambdas_routes() -> Router<Arc<AppState>> {
             get(handlers::lambdas::emotes_by_owner),
         )
         .route("/lambdas/status", get(handlers::lambdas::lambdas_status))
+        .route(
+            "/lambdas/crypto/validate-signature",
+            post(handlers::lambdas_crypto::validate_signature),
+        )
         .route(
             "/lambdas/contracts/servers",
             get(handlers::lambdas_contracts::contracts_servers),
@@ -253,9 +251,6 @@ fn lambdas_routes() -> Router<Arc<AppState>> {
             "/lambdas/outfits/{id}",
             get(handlers::lambdas_catalog::outfits),
         )
-        // Root-level aliases: the unity client builds these against the bare realm
-        // host (its lambdas base loses the /lambdas path on URL join), so the
-        // explorer/backpack endpoints must also answer without the prefix.
         .route(
             "/explorer/{address}/wearables",
             get(handlers::lambdas_explorer::explorer_wearables),
@@ -268,30 +263,20 @@ fn lambdas_routes() -> Router<Arc<AppState>> {
 }
 
 pub fn build_router(state: Arc<AppState>) -> Router {
-    // Install the process-global audit pool so the no-State proxy handlers can
-    // record audit rows (the State-carrying handlers use AppState::audit_pool).
     admin::audit::set_global_pool(state.audit_pool.clone());
 
     let top: Router<Arc<AppState>> = Router::new()
         .route("/", get(handlers::console::index))
         .route("/admin", get(handlers::console::admin))
         .route("/admin/{service}", get(handlers::console::admin_service))
-        // Admin auth (sign-in handshake). The per-handler `AdminSession` extractor
-        // gates mutations (WO-2); the GET /admin views above stay public so any
-        // /admin URL remains shareable/read-only.
         .route("/admin/auth/nonce", get(admin::auth::nonce))
         .route("/admin/auth/verify", post(admin::auth::verify))
         .route("/admin/auth/logout", post(admin::auth::logout))
         .route("/admin/auth/me", get(admin::auth::me))
-        // Admin mutation controls (WO-2). Every handler takes the `AdminSession`
-        // extractor as its first arg, so each one 403s without a valid session
-        // cookie; targets/tokens that aren't configured surface as 502/403.
         .route(
             "/admin/api/content/flush-cache",
             post(admin::api::flush_deployments_cache),
         )
-        // Content-local mutations (WO-3 / LATER tranche). Each writes to the
-        // shared `admin_audit` log keyed by the authenticated address.
         .route(
             "/admin/api/content/failed-deployments/retry",
             post(admin::api::content_retry_failed),
@@ -366,9 +351,6 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             post(admin::api::social_user_warning),
         )
         .route("/admin/api/scene/reload", post(admin::api::scene_reload))
-        // ── sibling-crate admin proxies (each AdminSession-gated, audited,
-        //    forwards the crate's bearer token; see admin/api.rs) ──
-        // places (bundle: explore)
         .route(
             "/admin/api/places/reports",
             post(admin::api::places_reports_list),
@@ -413,13 +395,11 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             "/admin/api/places/world-rating",
             post(admin::api::places_world_rating),
         )
-        // events (bundle: explore)
         .route("/admin/api/events/create", post(admin::api::events_create))
         .route(
             "/admin/api/events/moderate",
             post(admin::api::events_moderate),
         )
-        // worlds (bundle: explore)
         .route("/admin/api/worlds/list", post(admin::api::worlds_list))
         .route("/admin/api/worlds/detail", post(admin::api::worlds_detail))
         .route("/admin/api/worlds/enable", post(admin::api::worlds_enable))
@@ -447,7 +427,6 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             "/admin/api/worlds/access-log",
             post(admin::api::worlds_access_log),
         )
-        // ab-registry (bundle: create)
         .route(
             "/admin/api/create/queues-retry",
             post(admin::api::create_queues_retry),
@@ -472,7 +451,6 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             "/admin/api/create/denylist-remove",
             post(admin::api::create_denylist_remove),
         )
-        // camera-reel (bundle: create)
         .route(
             "/admin/api/camera-reel/image-delete",
             post(admin::api::camera_reel_image_delete),
@@ -481,7 +459,6 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             "/admin/api/camera-reel/image-review",
             post(admin::api::camera_reel_image_review),
         )
-        // builder (bundle: create)
         .route(
             "/admin/api/builder/item-status",
             post(admin::api::builder_item_status),
@@ -490,7 +467,6 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             "/admin/api/builder/items-status",
             post(admin::api::builder_items_status_bulk),
         )
-        // communities (bundle: social)
         .route(
             "/admin/api/communities/list",
             post(admin::api::communities_list),
@@ -503,15 +479,12 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             "/admin/api/communities/unsuspend",
             post(admin::api::communities_unsuspend),
         )
-        // notifications (bundle: social)
         .route(
             "/admin/api/notifications/broadcast",
             post(admin::api::notifications_broadcast),
         )
-        // badges (bundle: social)
         .route("/admin/api/badges/grant", post(admin::api::badges_grant))
         .route("/admin/api/badges/revoke", post(admin::api::badges_revoke))
-        // social-rpc (bundle: social-rpc)
         .route(
             "/admin/api/social-rpc/presence",
             post(admin::api::social_rpc_presence),
@@ -536,7 +509,6 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             "/admin/api/social-rpc/reset-settings",
             post(admin::api::social_rpc_reset_settings),
         )
-        // scene-state (bundle: scene-state)
         .route(
             "/admin/api/scene-state/crdt",
             post(admin::api::scene_state_crdt),
@@ -549,7 +521,6 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             "/admin/api/scene-state/reset",
             post(admin::api::scene_state_reset),
         )
-        // credits (bundle: data)
         .route(
             "/admin/api/credits/seasons-list",
             post(admin::api::credits_seasons_list),
@@ -591,7 +562,6 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             "/admin/api/credits/user-block",
             post(admin::api::credits_user_block),
         )
-        // price (bundle: data)
         .route(
             "/admin/api/price/override-set",
             post(admin::api::price_override_set),
@@ -600,7 +570,6 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             "/admin/api/price/override-delete",
             post(admin::api::price_override_delete),
         )
-        // rpc (bundle: data)
         .route("/admin/api/rpc/config", post(admin::api::rpc_config))
         .route(
             "/admin/api/rpc/methods-list",
@@ -630,7 +599,6 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             "/admin/api/rpc/networks-delete",
             post(admin::api::rpc_networks_delete),
         )
-        // explorer-api (bundle: explorer-api)
         .route(
             "/admin/api/explorer-api/flags-toggle",
             post(admin::api::explorer_api_flags_toggle),
@@ -687,7 +655,6 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             "/admin/api/explorer-api/identity-revoke",
             post(admin::api::explorer_api_identity_revoke),
         )
-        // telemetry (bundle: telemetry)
         .route(
             "/admin/api/telemetry/purge",
             post(admin::api::telemetry_purge),
@@ -730,6 +697,9 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/metrics", get(crate::metrics::metrics_handler))
         .layer(axum::middleware::from_fn(crate::metrics::track_http))
         .layer(TraceLayer::new_for_http())
+        .layer(axum::middleware::from_fn(
+            crate::nul_guard::nul_guard_middleware,
+        ))
         .layer(axum::middleware::from_fn(crate::cors::cors_middleware));
 
     if let Some(timeout) = request_timeout() {

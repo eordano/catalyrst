@@ -35,12 +35,11 @@ impl SnapshotStorage {
         let seq = TMP_SEQ.fetch_add(1, Ordering::Relaxed);
         let tmp_path = path.with_file_name(format!("{}.{}.{}.tmp", base, std::process::id(), seq));
 
-        let mut file = tokio::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .custom_flags(libc::O_NOFOLLOW)
-            .open(&tmp_path)
-            .await?;
+        let mut opts = tokio::fs::OpenOptions::new();
+        opts.write(true).create_new(true);
+        #[cfg(unix)]
+        opts.custom_flags(libc::O_NOFOLLOW);
+        let mut file = opts.open(&tmp_path).await?;
         if let Err(e) = file.write_all(&data).await {
             let _ = tokio::fs::remove_file(&tmp_path).await;
             return Err(e.into());

@@ -9,8 +9,6 @@ Type=exec
 WorkingDirectory=<WORKSPACE>
 EnvironmentFile=<WORKSPACE>/env/catalyrst-price.env
 ExecStartPre=/bin/sh -c 'for i in $(seq 1 30); do pg_isready -h <HOST> -p 5433 -U <DB_USER> -q && exit 0; sleep 1; done; exit 1'
-# Read-only serving layer over mana_price.price_snapshots (a separate archive
-# job polls CoinGecko; this crate never calls it live).
 ExecStart=<WORKSPACE>/bin/catalyrst-price
 Restart=always
 RestartSec=30

@@ -14,14 +14,16 @@
   "response": {
     "status": 204,
     "headers": {
-      "access-control-allow-origin": "https://decentraland.org",
       "access-control-allow-methods": "GET,HEAD,POST,PUT,DELETE,PATCH,OPTIONS",
-      "access-control-allow-headers": "content-type",
+      "access-control-allow-headers": "Cache-Control,Content-Type,Origin,Accept,User-Agent,X-Upload-Origin,Range,If-None-Match,If-Modified-Since,X-Identity-Timestamp,X-Identity-Metadata,X-Identity-Auth-Chain-0,X-Identity-Auth-Chain-1,X-Identity-Auth-Chain-2,X-Identity-Auth-Chain-3",
+      "access-control-max-age": "86400",
+      "access-control-allow-origin": "https://decentraland.org",
+      "access-control-allow-credentials": "true",
       "vary": "Origin"
     },
     "body_bytes_b64": ""
   },
-  "captured_from": "hand-authored from crates/catalyrst-server/src/cors.rs",
+  "captured_from": "INTENTIONAL DIVERGENCE from upstream \u2014 allow-credentials now matches upstream; we deliberately keep the extra allow-headers (X-Identity-* are REQUIRED for signed-fetch; Range/If-* for content). Golden asserts OUR (post-fix) headers.",
   "captured_at": "2026-05-23T20:30:00Z",
   "volatile_paths": []
 }

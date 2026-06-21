@@ -4,6 +4,10 @@ version = "0.0.0"
 publish = false
 edition = "2021"
 
+# Standalone workspace (the canonical cargo-fuzz layout): keeps this crate out of the parent
+# workspace so it resolves on its own and can be built directly, not only via `cargo fuzz`.
+[workspace]
+
 [package.metadata]
 cargo-fuzz = true
 
@@ -12,8 +16,10 @@ libfuzzer-sys = "0.4"
 catalyrst-validator = { path = "../../catalyrst-validator" }
 catalyrst-crypto = { path = "../../catalyrst-crypto" }
 catalyrst-hashing = { path = "../../catalyrst-hashing" }
-catalyrst-sync = { path = "../../catalyrst-sync" }
 catalyrst-types = { path = "../../catalyrst-types" }
+catalyrst-builder = { path = "../../catalyrst-builder" }
+catalyrst-pulse = { path = "../../catalyrst-pulse", features = ["fuzzing"] }
+axum = { version = "0.8", default-features = false }
 serde_json = "1"
 
 [[bin]]
@@ -40,6 +46,27 @@ bench = false
 [[bin]]
 name = "snapshot_parser"
 path = "fuzz_targets/snapshot_parser.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "builder_signed_fetch"
+path = "fuzz_targets/builder_signed_fetch.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "pulse_dispatch"
+path = "fuzz_targets/pulse_dispatch.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "pulse_wt_framing"
+path = "fuzz_targets/pulse_wt_framing.rs"
 test = false
 doc = false
 bench = false

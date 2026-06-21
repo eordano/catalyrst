@@ -3,6 +3,11 @@ use serde::{Deserialize, Serialize};
 use crate::ports::db::DbImage;
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "camera-reel/")
+)]
 #[serde(rename_all = "camelCase")]
 pub struct Image {
     pub id: String,
@@ -13,6 +18,11 @@ pub struct Image {
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "camera-reel/")
+)]
 #[serde(rename_all = "camelCase")]
 pub struct GalleryImage {
     pub id: String,
@@ -23,6 +33,11 @@ pub struct GalleryImage {
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "camera-reel/")
+)]
 #[serde(rename_all = "camelCase")]
 pub struct GalleryImageWithPlace {
     pub id: String,
@@ -34,6 +49,11 @@ pub struct GalleryImageWithPlace {
 }
 
 #[derive(Deserialize, Serialize, Debug, Default, Clone)]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "camera-reel/")
+)]
 #[serde(rename_all = "camelCase")]
 pub struct Metadata {
     pub user_name: String,
@@ -46,6 +66,11 @@ pub struct Metadata {
 }
 
 #[derive(Deserialize, Serialize, Debug, Default, Clone)]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "camera-reel/")
+)]
 #[serde(rename_all = "camelCase")]
 pub struct Scene {
     pub name: String,
@@ -53,6 +78,11 @@ pub struct Scene {
 }
 
 #[derive(Deserialize, Serialize, Debug, Default, Clone)]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "camera-reel/")
+)]
 #[serde(rename_all = "camelCase")]
 pub struct Location {
     pub x: String,
@@ -60,6 +90,11 @@ pub struct Location {
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "camera-reel/")
+)]
 #[serde(rename_all = "camelCase")]
 pub struct User {
     pub user_name: String,
@@ -109,19 +144,37 @@ impl From<DbImage> for GalleryImageWithPlace {
 }
 
 #[derive(Serialize, Debug, Clone)]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "camera-reel/")
+)]
 #[serde(rename_all = "camelCase")]
 pub struct UserDataResponse {
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub current_images: u64,
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub max_images: u64,
 }
 
 #[derive(Serialize, Debug, Clone)]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "camera-reel/")
+)]
 #[serde(rename_all = "camelCase")]
 pub struct PlaceDataResponse {
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub max_images: u64,
 }
 
 #[derive(Serialize, Debug, Clone)]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "camera-reel/")
+)]
 #[serde(rename_all = "camelCase")]
 pub struct UploadResponse {
     pub image: Image,
@@ -130,6 +183,11 @@ pub struct UploadResponse {
 }
 
 #[derive(Serialize, Debug, Clone)]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "camera-reel/")
+)]
 #[serde(rename_all = "camelCase")]
 pub struct GetImagesResponse {
     pub images: Vec<Image>,
@@ -138,6 +196,11 @@ pub struct GetImagesResponse {
 }
 
 #[derive(Serialize, Debug, Clone)]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "camera-reel/")
+)]
 #[serde(rename_all = "camelCase")]
 pub struct GetGalleryImagesResponse {
     pub images: Vec<GalleryImage>,
@@ -146,6 +209,11 @@ pub struct GetGalleryImagesResponse {
 }
 
 #[derive(Serialize, Debug, Clone)]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "camera-reel/")
+)]
 #[serde(rename_all = "camelCase")]
 pub struct GetPlaceImagesResponse {
     pub images: Vec<GalleryImage>,
@@ -154,6 +222,11 @@ pub struct GetPlaceImagesResponse {
 }
 
 #[derive(Serialize, Debug, Clone)]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "camera-reel/")
+)]
 #[serde(rename_all = "camelCase")]
 pub struct GetMultiplePlacesImagesResponse {
     pub images: Vec<GalleryImageWithPlace>,
@@ -166,8 +239,6 @@ pub struct UpdateVisibility {
     pub is_public: bool,
 }
 
-/// Body for the moderator review PATCH. `review_status` must be one of
-/// `ok` | `flagged` | `rejected`.
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateReview {

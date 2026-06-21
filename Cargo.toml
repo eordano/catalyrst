@@ -2,33 +2,32 @@
 resolver = "2"
 members = [
     "crates/catalyrst-types",
+    "crates/catalyrst-envcfg",
     "crates/catalyrst-hashing",
     "crates/catalyrst-crypto",
     "crates/catalyrst-storage",
     "crates/catalyrst-db",
     "crates/catalyrst-validator",
-    "crates/catalyrst-sync",
-    "crates/catalyrst-deployer",
+    "crates/catalyrst-deploy-signer",
+    "crates/catalyrst-preview-tunnel",
+    "crates/dcl-one-sdk",
     "crates/catalyrst-server",
     "crates/catalyrst-market",
     "crates/catalyrst-fed",
     "crates/catalyrst-places",
     "crates/catalyrst-events",
-    "crates/catalyrst-communities",
+    "crates/catalyrst-social-service",
     "crates/catalyrst-explorer-api",
-    "crates/catalyrst-social-rpc",
     "crates/catalyrst-telemetry",
     "crates/catalyrst-comms",
     "crates/catalyrst-archipelago",
-    "crates/catalyrst-ab-registry",
-    "crates/catalyrst-ab-cdn",
     "crates/catalyrst-builder",
+    "crates/catalyrst-bvimposters",
     "crates/catalyrst-worlds",
     "crates/catalyrst-badges",
     "crates/catalyrst-notifications",
     "crates/catalyrst-camera-reel",
     "crates/catalyrst-credits",
-    "crates/catalyrst-lists",
     "crates/catalyrst-map",
     "crates/catalyrst-rpc",
     "crates/catalyrst-economy",
@@ -46,39 +45,50 @@ members = [
     "crates/catalyrst-oracle-tests",
     "crates/catalyrst-bench",
     "crates/catalyrst-fuzz",
-    "crates/catalyrst-enet",
     "crates/catalyrst-pulse",
     "crates/catalyrst-quests",
+    "crates/catalyrst-governance",
+    "crates/catalyrst-presence",
 ]
-exclude = ["crates/catalyrst-fuzz/fuzz"]
+exclude = [
+    "crates/catalyrst-fuzz/fuzz",
+    "third_party/rusty_enet",
+]
+
+# rusty_enet, patched to the decentraland-pulse ENet header-flag variant (crates.io 0.4.0 + the
+# 3-constant patch in third_party/rusty_enet.patch) so the native-ENet transport interoperates with
+# the C# Pulse server and the bevy-explorer #919 client. WebTransport is unaffected. See
+# third_party/README.md.
+[patch.crates-io]
+rusty_enet = { path = "third_party/rusty_enet" }
 
 [workspace.dependencies]
 tokio = { version = "1", features = ["full"] }
 axum = { version = "0.8", features = ["multipart"] }
 tower = { version = "0.5", features = ["limit"] }
-tower-http = { version = "0.6", features = ["cors", "trace", "timeout"] }
-reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls", "http2", "charset"] }
-sqlx = { version = "0.8", features = ["runtime-tokio", "postgres", "json", "chrono"] }
-# feruca: Unicode Collation Algorithm matches JS String.localeCompare() (lamb2 uses it for all name/urn sorts) byte-exactly.
-feruca = "0.11"
+tower-http = { version = "0.7", features = ["cors", "trace", "timeout"] }
+reqwest = { version = "0.13", default-features = false, features = ["json", "stream", "rustls", "http2", "charset", "query", "multipart", "form"] }
+sqlx = { version = "0.9", features = ["runtime-tokio", "postgres", "json", "chrono"] }
+feruca = "0.12"
 serde = { version = "1", features = ["derive"] }
-# float_roundtrip: re-serialized numbers must match stored bytes exactly (content-addressed CIDs; lamb2 /profiles colors).
+ts-rs = "10"
 serde_json = { version = "1", features = ["float_roundtrip"] }
-alloy = { version = "1", features = ["full"] }
-sha2 = "0.10"
-hmac = "0.12"
+alloy = { version = "2", default-features = false, features = ["std", "reqwest-rustls-tls", "provider-http", "rpc-types-eth", "signer-local", "sol-types"] }
+alloy-primitives = "1"
+sha2 = "0.11"
+hmac = "0.13"
 base64 = "0.22"
 multihash = "0.19"
 cid = "0.11"
 bs58 = "0.5"
-ipfs-cid = "0.1"
+ipfs-cid = "2.0"
 chrono = { version = "0.4", features = ["serde"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 anyhow = "1"
 thiserror = "2"
 clap = { version = "4", features = ["derive"] }
-colored = "2"
+colored = "3"
 url = { version = "2", features = ["serde"] }
 futures = "0.3"
 async-trait = "0.1"
@@ -88,18 +98,16 @@ tokio-util = { version = "0.7", features = ["io"] }
 dashmap = "6"
 parking_lot = "0.12"
 metrics = "0.24"
-metrics-exporter-prometheus = { version = "0.16", default-features = false }
-ethers-core = "2.0.3"
-ethers-signers = "2.0.3"
+metrics-exporter-prometheus = { version = "0.18", default-features = false }
 catalyrst-types = { path = "crates/catalyrst-types" }
+catalyrst-envcfg = { path = "crates/catalyrst-envcfg" }
 catalyrst-hashing = { path = "crates/catalyrst-hashing" }
 catalyrst-crypto = { path = "crates/catalyrst-crypto" }
 catalyrst-storage = { path = "crates/catalyrst-storage" }
 catalyrst-db = { path = "crates/catalyrst-db" }
 catalyrst-validator = { path = "crates/catalyrst-validator" }
-catalyrst-sync = { path = "crates/catalyrst-sync" }
-catalyrst-deployer = { path = "crates/catalyrst-deployer" }
 catalyrst-server = { path = "crates/catalyrst-server" }
 catalyrst-fed = { path = "crates/catalyrst-fed" }
 catalyrst-comms = { path = "crates/catalyrst-comms" }
-catalyrst-enet = { path = "crates/catalyrst-enet" }
+catalyrst-preview-tunnel = { path = "crates/catalyrst-preview-tunnel" }
+tokio-tungstenite = "=0.29.0"

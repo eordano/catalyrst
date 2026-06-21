@@ -1,5 +1,3 @@
-//! HTTP handlers — ports controllers/handlers/rentals-handlers.ts.
-
 use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use serde_json::json;
@@ -30,9 +28,6 @@ fn pagination(params: &HashMap<String, String>) -> (i64, i64) {
 }
 
 fn all_values(raw_query: &str, key: &str) -> Vec<String> {
-    // axum's HashMap<String,String> collapses repeated keys; re-parse the raw
-    // query for the multi-value filters (contractAddresses, nftIds, status,
-    // rentalDays) that the marketplace sends as repeated params.
     raw_query
         .split('&')
         .filter_map(|pair| {
@@ -67,7 +62,6 @@ fn urldecode(s: &str) -> String {
     out
 }
 
-/// GET /v1/rentals-listings
 pub async fn get_rentals_listings(
     State(state): State<AppState>,
     axum::extract::RawQuery(raw): axum::extract::RawQuery,
@@ -138,7 +132,6 @@ pub async fn get_rentals_listings(
     Ok(Ok2(StatusCode::OK, page))
 }
 
-/// POST /v1/rentals-listings  (auth-chain required)
 pub async fn create_rentals_listing(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -146,11 +139,9 @@ pub async fn create_rentals_listing(
 ) -> Result<axum::response::Response, axum::response::Response> {
     use axum::response::IntoResponse;
 
-    // Auth-chain: recover the signer (the lessor). Path is the request path.
     let signer = catalyrst_crypto_require_signer(&state, &headers, "post", "/v1/rentals-listings")
         .map_err(|e| ApiError::Unauthorized(e).into_response())?;
 
-    // expiration is epoch-ms; reject already-expired listings.
     let now_ms = chrono::Utc::now().timestamp_millis();
     if body.expiration < now_ms {
         return Err(
@@ -164,7 +155,6 @@ pub async fn create_rentals_listing(
         );
     }
 
-    // Verify the EIP-712 listing signature was produced by the auth-chain signer.
     let contract = ContractRentalListing::from_creation(&signer, &body);
     let chain_id = body.chain_id as u64;
     match verify_rentals_listing_signature(&contract, chain_id) {
@@ -182,13 +172,6 @@ pub async fn create_rentals_listing(
         }
     }
 
-    // NFT-ownership + existence + estate-size cross-checks (ports
-    // createRentalListing §"Verifying that the NFT exists and is owned by the
-    // lessor"). Upstream queried the marketplace subgraph; we read the same
-    // facts from the local squid `nft` table. The on-chain "rental already
-    // exists" check (upstream's rentals-subgraph query) has no local data
-    // source — the rentals indexer is not mirrored into squid — so it degrades
-    // to the DB unique-open-rental constraint handled below (409).
     let (
         nft_id,
         category,
@@ -212,10 +195,6 @@ pub async fn create_rentals_listing(
                 .into_response()
         })?;
 
-        // The NFT must be owned by the lessor. (Upstream also accepts
-        // ownership *through* the rental contract via the rentals indexer;
-        // that path needs on-chain rental state we don't index locally, so
-        // we enforce direct ownership only.)
         if !nft.owner_address.eq_ignore_ascii_case(&signer) {
             return Err(ApiError::Unauthorized(format!(
                 "The owner of the NFT {} is not the lessor {}",
@@ -224,7 +203,6 @@ pub async fn create_rentals_listing(
             .into_response());
         }
 
-        // Estates must have a non-zero size (ports InvalidEstate).
         if nft.category.eq_ignore_ascii_case("estate") && nft.estate_size.unwrap_or(0) == 0 {
             return Err(ApiError::BadRequest(
                 "The provided Estate does not have any parcels".to_string(),
@@ -249,8 +227,6 @@ pub async fn create_rentals_listing(
             updated,
         )
     } else {
-        // No squid reader: signature + DB-integrity checks only. Synthesize
-        // a minimal metadata row keyed by <contract>-<tokenId>.
         let now = chrono::Utc::now().naive_utc();
         (
             format!("{}-{}", body.contract_address, body.token_id),
@@ -294,20 +270,6 @@ pub async fn create_rentals_listing(
     }
 }
 
-/// PATCH /v1/rentals-listings/:id  — refresh the listing's NFT metadata.
-///
-/// Ports the metadata half of `refreshRentalListing`: re-resolve the NFT
-/// (category / search_text / distance / adjacency / estate_size / updatedAt)
-/// and write it back to the listing's `metadata` row, then return the updated
-/// listing. Upstream resolved this from the marketplace subgraph; we read the
-/// local squid `nft` table instead.
-///
-/// NOT ported: the on-chain *rental-status* reconciliation (upstream's
-/// rentals-subgraph query that flips a listing to EXECUTED/CANCELLED based on
-/// chain events). The rentals indexer is not mirrored into the local squid DB,
-/// so there is no data source for it here — the listing's status stays whatever
-/// this server last set. When `DAPPS_PG_COMPONENT_PSQL_CONNECTION_STRING` is
-/// unset entirely we fall back to returning the current row unchanged.
 pub async fn refresh_rentals_listing(
     State(state): State<AppState>,
     Path(id): Path<String>,
@@ -319,8 +281,6 @@ pub async fn refresh_rentals_listing(
         .ok_or_else(|| ApiError::not_found("Rental listing was not found"))?;
 
     let Some(squid) = &state.squid else {
-        // No squid reader: best-effort return current state (metadata cannot be
-        // re-resolved without the local index).
         return Ok(Ok2(StatusCode::OK, listing));
     };
 
@@ -346,9 +306,6 @@ pub async fn refresh_rentals_listing(
                 .await?;
         }
         None => {
-            // NFT no longer indexed; leave the stored metadata as-is and return
-            // the current listing (parity with upstream's "NFT not found" path,
-            // which does not delete the listing).
             tracing::debug!(rental_id = %id, "NFT not found in squid during refresh; metadata unchanged");
         }
     }
@@ -361,7 +318,6 @@ pub async fn refresh_rentals_listing(
     Ok(Ok2(StatusCode::OK, refreshed))
 }
 
-/// GET /v1/rental-listings/prices
 pub async fn get_rental_listings_prices(
     State(state): State<AppState>,
     axum::extract::RawQuery(raw): axum::extract::RawQuery,
@@ -404,8 +360,6 @@ pub async fn get_rental_listings_prices(
     Ok(Ok2(StatusCode::OK, serde_json::Value::Object(map)))
 }
 
-/// Bridge to the auth-chain verifier (catalyrst-crypto), mirroring the badges /
-/// camera-reel `require_signer` helper. Returns the lowercased signer address.
 fn catalyrst_crypto_require_signer(
     state: &AppState,
     headers: &HeaderMap,

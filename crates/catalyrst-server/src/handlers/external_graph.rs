@@ -251,10 +251,6 @@ pub async fn owned_nfts(
     owner: &str,
     contracts_by_network: &std::collections::HashMap<String, Vec<String>>,
 ) -> Vec<String> {
-    // Cache per (owner, contracts-set): each call otherwise fans out an uncached
-    // POST per network to the remote NFT worker on the hot third-party-wearables
-    // path (the ~405ms p50 was that cross-internet round-trip). A short TTL keeps
-    // repeat lookups for the same wallet off the remote origin.
     let mut parts: Vec<String> = contracts_by_network
         .iter()
         .map(|(n, cs)| {
@@ -384,6 +380,50 @@ fn parcel_cache() -> &'static Arc<ResponseCache<(String, i64, i64), Option<Parce
     })
 }
 
+#[derive(Debug, Clone, PartialEq)]
+struct ResolvedOperators {
+    owner: String,
+    operator: Option<String>,
+    update_operator: Option<String>,
+    belongs_to_estate: bool,
+}
+
+fn str_field(v: &Value, key: &str) -> Option<String> {
+    v.get(key).and_then(|x| x.as_str()).map(|s| s.to_string())
+}
+
+fn owner_address(v: &Value) -> String {
+    v.get("owner")
+        .and_then(|o| o.get("address"))
+        .and_then(|a| a.as_str())
+        .unwrap_or("")
+        .to_string()
+}
+
+fn resolve_operators(estates: &[Value], parcels: &[Value]) -> Option<ResolvedOperators> {
+    let first_estate = estates.first();
+    let first_parcel = parcels.first();
+
+    if let Some(e) = first_estate {
+        let update_operator = first_parcel
+            .and_then(|p| str_field(p, "updateOperator"))
+            .or_else(|| str_field(e, "updateOperator"));
+        Some(ResolvedOperators {
+            owner: owner_address(e),
+            operator: str_field(e, "operator"),
+            update_operator,
+            belongs_to_estate: true,
+        })
+    } else {
+        first_parcel.map(|p| ResolvedOperators {
+            owner: owner_address(p),
+            operator: str_field(p, "operator"),
+            update_operator: str_field(p, "updateOperator"),
+            belongs_to_estate: false,
+        })
+    }
+}
+
 pub async fn parcel_operators(
     eth_network: &str,
     x: i64,
@@ -396,59 +436,36 @@ pub async fn parcel_operators(
             let url = subgraph_urls(&eth_network_owned).land;
             let data = graph_query(url, QUERY_OPERATORS_PARCEL, json!({ "x": x, "y": y })).await?;
 
-            let estates = data.get("estates").and_then(|e| e.as_array());
-            let parcels = data.get("parcels").and_then(|p| p.as_array());
+            let estates = data
+                .get("estates")
+                .and_then(|e| e.as_array())
+                .cloned()
+                .unwrap_or_default();
+            let parcels = data
+                .get("parcels")
+                .and_then(|p| p.as_array())
+                .cloned()
+                .unwrap_or_default();
 
-            let first_estate = estates.and_then(|e| e.first());
-            let first_parcel = parcels.and_then(|p| p.first());
-            let belongs_to_estate = first_estate.is_some();
-
-            let (owner, operator, update_operator) = if let Some(e) = first_estate {
-                (
-                    e.get("owner")
-                        .and_then(|o| o.get("address"))
-                        .and_then(|a| a.as_str())
-                        .unwrap_or("")
-                        .to_string(),
-                    e.get("operator")
-                        .and_then(|v| v.as_str())
-                        .map(|s| s.to_string()),
-                    e.get("updateOperator")
-                        .and_then(|v| v.as_str())
-                        .map(|s| s.to_string()),
-                )
-            } else if let Some(p) = first_parcel {
-                (
-                    p.get("owner")
-                        .and_then(|o| o.get("address"))
-                        .and_then(|a| a.as_str())
-                        .unwrap_or("")
-                        .to_string(),
-                    p.get("operator")
-                        .and_then(|v| v.as_str())
-                        .map(|s| s.to_string()),
-                    p.get("updateOperator")
-                        .and_then(|v| v.as_str())
-                        .map(|s| s.to_string()),
-                )
-            } else {
-                return Ok::<Option<ParcelOperators>, String>(None);
+            let resolved = match resolve_operators(&estates, &parcels) {
+                Some(r) => r,
+                None => return Ok::<Option<ParcelOperators>, String>(None),
             };
 
             let contracts = land_contracts(&eth_network_owned);
-            let token_address = if belongs_to_estate {
+            let token_address = if resolved.belongs_to_estate {
                 contracts.estate
             } else {
                 contracts.land
             };
 
             let (update_managers, approved_for_all) =
-                update_managers_and_approved_for_all(url, &owner, token_address).await?;
+                update_managers_and_approved_for_all(url, &resolved.owner, token_address).await?;
 
             Ok(Some(ParcelOperators {
-                owner,
-                operator,
-                update_operator,
+                owner: resolved.owner,
+                operator: resolved.operator,
+                update_operator: resolved.update_operator,
                 update_managers,
                 approved_for_all,
             }))
@@ -542,9 +559,6 @@ pub async fn parcels_by_update_operator(
     eth_network: &str,
     update_operator: &str,
 ) -> Result<Vec<Value>, String> {
-    // Cache per (network, operator), mirroring parcel_operators: lands-permissions
-    // otherwise paid a full remote land-manager subgraph round-trip on every
-    // request (the ~240ms p50), including the common empty-result case.
     let key = (eth_network.to_string(), update_operator.to_lowercase());
     let eth = eth_network.to_string();
     let operator = update_operator.to_string();
@@ -600,29 +614,8 @@ pub async fn parcels_by_update_operator(
 const QUERY_COLLECTIONS: &str =
     "{ collections (first: 1000, orderBy: urn, orderDirection: asc) { urn name } }";
 
-/// Per-network page size used by both the subgraph (`first: 1000`) and the
-/// local-squid port, so the two paths truncate identically.
 pub const COLLECTIONS_PAGE_SIZE: i64 = 1000;
 
-/// Read the collection list from the local marketplace squid mirror instead of
-/// the external collections subgraphs.
-///
-/// Parity with the subgraph query (`{ collections(first:1000, orderBy:urn,
-/// orderDirection:asc) { urn name } }`, run once per network):
-///   - squid `collection` rows mirror the subgraph entities 1:1 (no
-///     `is_approved`/`is_completed` filter — the subgraph applies none either),
-///   - we take the first `COLLECTIONS_PAGE_SIZE` per network ordered by `urn`,
-///   - squid stores ethereum collection urns under the `:mainnet:` network
-///     token; the subgraph (and every downstream consumer) expects
-///     `:ethereum:`, so we rewrite it on the way out. Because the rewrite only
-///     swaps the network token, `ORDER BY urn` in squid yields the same order
-///     as the subgraph's `orderBy: urn` on the rewritten urns.
-///
-/// Verified against prod (`peer.decentraland.org/lambdas/collections`) and the
-/// live cached `:5141` response: exact urn-set, ordering, and name parity
-/// (1042 collections + 2 base). `squid_network` is the squid network token for
-/// the chain ("ETHEREUM" / "POLYGON"); `urn_network_rewrite` is the
-/// `(from, to)` network-token swap applied to each urn (empty for matic).
 pub async fn collections_from_squid(
     pool: &sqlx::PgPool,
     squid_network: &str,
@@ -631,7 +624,7 @@ pub async fn collections_from_squid(
     let rows: Vec<(String, Option<String>)> = sqlx::query_as(
         "SELECT urn, name FROM squid_marketplace.collection \
          WHERE network = $1 AND urn IS NOT NULL \
-         ORDER BY urn ASC LIMIT $2",
+         ORDER BY urn COLLATE \"C\" ASC LIMIT $2",
     )
     .bind(squid_network)
     .bind(COLLECTIONS_PAGE_SIZE)
@@ -734,6 +727,89 @@ mod tests {
     fn unknown_type_does_not_match() {
         let m = mappings_with(json!({ "type": "bogus" }));
         assert!(!mappings_includes_nft(&m, "amoy", "0xcontract", "1"));
+    }
+
+    fn estate(owner: &str, operator: Option<&str>, update_operator: Option<&str>) -> Value {
+        let mut v = json!({ "owner": { "address": owner } });
+        if let Some(op) = operator {
+            v["operator"] = json!(op);
+        }
+        if let Some(uo) = update_operator {
+            v["updateOperator"] = json!(uo);
+        }
+        v
+    }
+
+    fn parcel(owner: &str, operator: Option<&str>, update_operator: Option<&str>) -> Value {
+        estate(owner, operator, update_operator)
+    }
+
+    #[test]
+    fn resolve_operators_parcel_update_operator_takes_precedence_over_estate() {
+        let estates = vec![estate("0xestateowner", None, Some("0xestateupdate"))];
+        let parcels = vec![parcel(
+            "0xparcelowner",
+            Some("0xparcelop"),
+            Some("0xparcelupdate"),
+        )];
+        let r = resolve_operators(&estates, &parcels).unwrap();
+        assert!(r.belongs_to_estate);
+        assert_eq!(r.owner, "0xestateowner");
+        assert_eq!(r.operator, None);
+        assert_eq!(r.update_operator.as_deref(), Some("0xparcelupdate"));
+    }
+
+    #[test]
+    fn resolve_operators_estate_update_operator_used_when_parcel_has_none() {
+        let estates = vec![estate("0xestateowner", None, Some("0xestateupdate"))];
+        let parcels = vec![parcel("0xparcelowner", None, None)];
+        let r = resolve_operators(&estates, &parcels).unwrap();
+        assert!(r.belongs_to_estate);
+        assert_eq!(r.update_operator.as_deref(), Some("0xestateupdate"));
+    }
+
+    #[test]
+    fn resolve_operators_estate_update_operator_used_when_no_parcels_row() {
+        let estates = vec![estate(
+            "0xestateowner",
+            Some("0xestateop"),
+            Some("0xestateupdate"),
+        )];
+        let parcels: Vec<Value> = Vec::new();
+        let r = resolve_operators(&estates, &parcels).unwrap();
+        assert!(r.belongs_to_estate);
+        assert_eq!(r.owner, "0xestateowner");
+        assert_eq!(r.operator.as_deref(), Some("0xestateop"));
+        assert_eq!(r.update_operator.as_deref(), Some("0xestateupdate"));
+    }
+
+    #[test]
+    fn resolve_operators_estate_none_update_operator_when_neither_set() {
+        let estates = vec![estate("0xestateowner", None, None)];
+        let parcels = vec![parcel("0xparcelowner", None, None)];
+        let r = resolve_operators(&estates, &parcels).unwrap();
+        assert!(r.belongs_to_estate);
+        assert_eq!(r.update_operator, None);
+    }
+
+    #[test]
+    fn resolve_operators_standalone_parcel_uses_its_own_values() {
+        let estates: Vec<Value> = Vec::new();
+        let parcels = vec![parcel(
+            "0xparcelowner",
+            Some("0xparcelop"),
+            Some("0xparcelupdate"),
+        )];
+        let r = resolve_operators(&estates, &parcels).unwrap();
+        assert!(!r.belongs_to_estate);
+        assert_eq!(r.owner, "0xparcelowner");
+        assert_eq!(r.operator.as_deref(), Some("0xparcelop"));
+        assert_eq!(r.update_operator.as_deref(), Some("0xparcelupdate"));
+    }
+
+    #[test]
+    fn resolve_operators_none_when_neither_present() {
+        assert_eq!(resolve_operators(&[], &[]), None);
     }
 
     #[test]

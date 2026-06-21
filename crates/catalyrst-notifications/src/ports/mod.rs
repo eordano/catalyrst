@@ -10,15 +10,23 @@ use crate::http::ApiError;
 use email::{EmailSender, EmailSource};
 
 #[derive(Debug, Serialize)]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "notifications/")
+)]
 pub struct NotificationItem {
+    #[cfg_attr(feature = "ts", ts(type = "string"))]
     pub id: Uuid,
     #[serde(rename = "type")]
     pub kind: String,
     pub address: String,
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub timestamp: i64,
     pub read: bool,
     pub created_at: String,
     pub updated_at: String,
+    #[cfg_attr(feature = "ts", ts(type = "Record<string, unknown>"))]
     pub metadata: Json,
 }
 
@@ -37,6 +45,7 @@ pub const NOTIFICATION_TYPES: &[&str] = &[
     "bid_accepted",
     "bid_received",
     "events_started",
+    "friend_first_wear",
     "events_starts_soon",
     "event_created",
     "event_approved",
@@ -139,9 +148,13 @@ pub fn validate_subscription_details(body: &Json) -> Result<(), String> {
     }
 
     for ty in NOTIFICATION_TYPES {
-        let channel = mt
-            .get(*ty)
-            .ok_or_else(|| format!("message_type.{} is required", ty))?
+        let Some(entry) = mt.get(*ty) else {
+            if *ty == "friend_first_wear" {
+                continue;
+            }
+            return Err(format!("message_type.{} is required", ty));
+        };
+        let channel = entry
             .as_object()
             .ok_or_else(|| format!("message_type.{} must be an object", ty))?;
         for chan_field in ["email", "in_app"] {
@@ -221,22 +234,24 @@ impl Default for SubscriptionDetails {
 }
 
 #[derive(Debug, Serialize)]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "notifications/", rename_all = "camelCase")
+)]
 pub struct Subscription {
     pub address: String,
     pub email: Option<String>,
     #[serde(rename = "unconfirmedEmail", skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
     pub unconfirmed_email: Option<String>,
+    #[cfg_attr(feature = "ts", ts(type = "Record<string, unknown>"))]
     pub details: Json,
 }
 
-/// Outcome of a `set_email` call. The HTTP layer always replies 204 (no body);
-/// this enum exists so business-rule rejections (cross-account uniqueness,
-/// blacklist) surface as `ApiError` from the handler, while the no-op paths
-/// (empty-email clear, same-confirmed-email short-circuit) skip email delivery.
 pub enum SetEmailOutcome {
-    /// Nothing further to do (cleared, or already confirmed to the same email).
     NoEmailSent,
-    /// A pending row was written; deliver this confirmation.
+
     SendConfirmation { source: EmailSource, code: String },
 }
 
@@ -252,6 +267,18 @@ impl NotificationsComponent {
             pool,
             email: EmailSender::new(email_cfg),
         }
+    }
+
+    pub async fn touch_reader_seen(&self, address: &str) {
+        let now_ms = chrono::Utc::now().timestamp_millis();
+        let _ = sqlx::query(
+            "INSERT INTO notification_reader_seen (address, last_fetch_at) VALUES ($1, $2)
+             ON CONFLICT (address) DO UPDATE SET last_fetch_at = EXCLUDED.last_fetch_at",
+        )
+        .bind(address)
+        .bind(now_ms)
+        .execute(&self.pool)
+        .await;
     }
 
     pub async fn list(
@@ -309,12 +336,6 @@ impl NotificationsComponent {
             .collect())
     }
 
-    /// Insert one admin broadcast notification per target address.
-    ///
-    /// When `addresses` is `None` the broadcast targets every address known to
-    /// the `subscriptions` table. `broadcast_id` is recorded on every inserted
-    /// row (via `broadcast_address`) so the whole fan-out can be correlated.
-    /// Returns the number of rows inserted.
     pub async fn broadcast(
         &self,
         broadcast_id: &str,
@@ -337,8 +358,6 @@ impl NotificationsComponent {
             return Ok(0);
         }
 
-        // One row per address; a fresh UUID per row. UNNEST keeps this a single
-        // round-trip regardless of audience size.
         let ids: Vec<Uuid> = (0..targets.len()).map(|_| Uuid::new_v4()).collect();
         let res = sqlx::query(
             r#"
@@ -432,18 +451,6 @@ impl NotificationsComponent {
         })
     }
 
-    /// Apply the upstream set-email state machine over a single transaction and
-    /// return what (if anything) needs to be emailed. The HTTP layer performs
-    /// delivery and replies 204 in all non-error cases.
-    ///
-    /// Branches (mirroring notifications-workers' set-email-handler):
-    /// - empty email: clear any pending row + confirmed email, set
-    ///   `ignore_all_email`, no email sent.
-    /// - same confirmed email: short-circuit, no email sent.
-    /// - cross-account: the email is already confirmed by a DIFFERENT address,
-    ///   so reject with 400 (ApiError::BadRequest).
-    /// - otherwise: upsert a pending `unconfirmed_emails` row with a fresh
-    ///   32-char code and request delivery.
     pub async fn set_email(
         &self,
         address: &str,
@@ -455,7 +462,6 @@ impl NotificationsComponent {
 
         let mut tx = self.pool.begin().await?;
 
-        // Empty email -> clear and disable all email notifications.
         if email.is_empty() {
             sqlx::query("DELETE FROM unconfirmed_emails WHERE address = $1")
                 .bind(&address)
@@ -486,7 +492,6 @@ impl NotificationsComponent {
 
         let email_lc = email.to_lowercase();
 
-        // Already confirmed to the same email by this address -> short-circuit.
         let current_email: Option<String> =
             sqlx::query_scalar("SELECT email FROM subscriptions WHERE address = $1")
                 .bind(&address)
@@ -503,8 +508,6 @@ impl NotificationsComponent {
             return Ok(SetEmailOutcome::NoEmailSent);
         }
 
-        // Cross-account uniqueness: the email is confirmed by a DIFFERENT
-        // address -> reject.
         let taken_by_other: Option<String> = sqlx::query_scalar(
             "SELECT address FROM subscriptions WHERE lower(email) = $1 AND address <> $2 LIMIT 1",
         )
@@ -538,8 +541,6 @@ impl NotificationsComponent {
         .execute(&mut *tx)
         .await?;
 
-        // Ensure a subscriptions row exists and mirror the pending email +
-        // credits flag for read-back via GET /subscription.
         sqlx::query(
             r#"
             INSERT INTO subscriptions
@@ -564,9 +565,6 @@ impl NotificationsComponent {
         Ok(SetEmailOutcome::SendConfirmation { source, code })
     }
 
-    /// Promote a pending email to confirmed when the presented code matches.
-    /// Returns the resolved `EmailSource` (for the redirect the caller logs) on
-    /// success, `None` when no matching pending row exists.
     pub async fn confirm_email(
         &self,
         address: &str,

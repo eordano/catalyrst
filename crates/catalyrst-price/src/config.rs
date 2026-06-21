@@ -1,13 +1,19 @@
-use anyhow::{anyhow, Context, Result};
+use anyhow::Result;
+use catalyrst_envcfg::{env_bool, get_port, get_u64, required};
 use std::env;
 
 pub struct Config {
     pub http_host: String,
     pub http_port: u16,
     pub price_database_url: String,
-    /// Bearer token gating the admin price-override set/clear routes
-    /// (`CATALYRST_PRICE_ADMIN_TOKEN`). Unset ⇒ those routes fail closed (403).
+
     pub admin_token: Option<String>,
+
+    pub price_poll_enabled: bool,
+
+    pub coingecko_url: String,
+
+    pub price_poll_interval_secs: u64,
 }
 
 impl Config {
@@ -19,17 +25,13 @@ impl Config {
             admin_token: env::var("CATALYRST_PRICE_ADMIN_TOKEN")
                 .ok()
                 .filter(|s| !s.is_empty()),
+            price_poll_enabled: env_bool("PRICE_POLL_ENABLED", false),
+            coingecko_url: env::var("COINGECKO_URL")
+                .ok()
+                .map(|s| s.trim_end_matches('/').to_string())
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| "https://api.coingecko.com/api/v3".to_string()),
+            price_poll_interval_secs: get_u64("PRICE_POLL_INTERVAL_SECS", 300)?,
         })
-    }
-}
-
-fn required(key: &str) -> Result<String> {
-    env::var(key).map_err(|_| anyhow!("missing required env var: {}", key))
-}
-
-fn get_port(key: &str, default: u16) -> Result<u16> {
-    match env::var(key) {
-        Ok(s) => s.parse::<u16>().with_context(|| format!("invalid {}", key)),
-        Err(_) => Ok(default),
     }
 }

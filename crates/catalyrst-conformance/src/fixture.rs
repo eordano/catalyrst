@@ -1,5 +1,7 @@
+use serde::de::{Deserializer, MapAccess, Visitor};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use std::fmt;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Fixture {
@@ -17,12 +19,60 @@ pub struct Fixture {
 pub struct RecordedRequest {
     pub method: String,
     pub path: String,
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub query: BTreeMap<String, String>,
+    #[serde(
+        default,
+        skip_serializing_if = "BTreeMap::is_empty",
+        deserialize_with = "deserialize_query"
+    )]
+    pub query: BTreeMap<String, Vec<String>>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub headers: BTreeMap<String, String>,
     #[serde(default)]
     pub body: Option<serde_json::Value>,
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum StringOrSeq {
+    One(String),
+    Many(Vec<String>),
+}
+
+impl From<StringOrSeq> for Vec<String> {
+    fn from(v: StringOrSeq) -> Self {
+        match v {
+            StringOrSeq::One(s) => vec![s],
+            StringOrSeq::Many(v) => v,
+        }
+    }
+}
+
+fn deserialize_query<'de, D>(deserializer: D) -> Result<BTreeMap<String, Vec<String>>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    struct QueryVisitor;
+
+    impl<'de> Visitor<'de> for QueryVisitor {
+        type Value = BTreeMap<String, Vec<String>>;
+
+        fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            f.write_str("a map of query params where each value is a string or an array of strings")
+        }
+
+        fn visit_map<M>(self, mut access: M) -> Result<Self::Value, M::Error>
+        where
+            M: MapAccess<'de>,
+        {
+            let mut out = BTreeMap::new();
+            while let Some((key, value)) = access.next_entry::<String, StringOrSeq>()? {
+                out.insert(key, value.into());
+            }
+            Ok(out)
+        }
+    }
+
+    deserializer.deserialize_map(QueryVisitor)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

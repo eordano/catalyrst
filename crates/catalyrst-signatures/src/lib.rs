@@ -23,9 +23,7 @@ use crate::squid::SquidMarketplace;
 pub struct AppStateInner {
     pub config: Config,
     pub db: Database,
-    /// Local squid marketplace reader for NFT-ownership + metadata cross-checks.
-    /// `None` when `DAPPS_PG_COMPONENT_PSQL_CONNECTION_STRING` is unset (the
-    /// checks then degrade to signature + DB-integrity only).
+
     pub squid: Option<SquidMarketplace>,
 }
 

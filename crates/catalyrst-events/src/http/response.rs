@@ -8,12 +8,13 @@ use thiserror::Error;
 pub use catalyrst_types::{HttpError, InvalidParameterError};
 
 #[derive(Debug, Serialize)]
-pub struct ApiOk<T: Serialize> {
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "events/"))]
+pub struct ApiOk<T> {
     pub ok: bool,
     pub data: T,
 }
 
-impl<T: Serialize> ApiOk<T> {
+impl<T> ApiOk<T> {
     pub fn new(data: T) -> Self {
         Self { ok: true, data }
     }
@@ -50,6 +51,9 @@ impl ApiError {
     pub fn not_implemented(msg: impl Into<String>) -> Self {
         ApiError::Http(HttpError::new(501, msg))
     }
+    pub fn gone(msg: impl Into<String>) -> Self {
+        ApiError::Http(HttpError::new(410, msg))
+    }
 }
 
 impl IntoResponse for ApiError {
@@ -66,5 +70,20 @@ impl IntoResponse for ApiError {
         let status = StatusCode::from_u16(code).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
         let body = json!({ "ok": false, "error": message });
         (status, Json(body)).into_response()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn wire_identity_api_ok_envelope() {
+        let new = serde_json::to_value(ApiOk::new(vec![1, 2])).unwrap();
+        assert_eq!(new, json!({ "ok": true, "data": [1, 2] }));
+
+        let doc = json!({ "name": "x", "description": null });
+        let new = serde_json::to_value(ApiOk::new(doc.clone())).unwrap();
+        assert_eq!(new, json!({ "ok": true, "data": doc }));
     }
 }

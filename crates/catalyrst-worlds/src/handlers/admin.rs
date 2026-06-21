@@ -1,14 +1,3 @@
-//! Bearer-gated admin views + world-owned mutations
-//! (docs/admin-console.md §4 — catalyrst-worlds row).
-//!
-//! Every handler here calls [`authorize_admin`] first, so the bearer gate is
-//! impossible to forget. Reads expose the world realm's own state (worlds,
-//! platform block list, access log). Mutations are limited to what
-//! catalyrst-worlds genuinely owns: world enable/disable (the `blocked_since`
-//! over-storage marker) and the platform block list. User/scene *ban* mutation
-//! lives in comms-gatekeeper and is intentionally not duplicated here; the ban
-//! *status* read is proxied through the existing BansComponent.
-
 use axum::extract::{Path, Query, State};
 use axum::http::HeaderMap;
 use axum::Json;
@@ -36,8 +25,6 @@ fn clamp_page(q: &PageQuery) -> (i64, i64) {
     (limit, offset)
 }
 
-/// GET /admin/worlds — paginated list of worlds with owner, access type, block
-/// status and scene count.
 pub async fn list_worlds(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -69,8 +56,6 @@ pub async fn list_worlds(
     })))
 }
 
-/// GET /admin/worlds/{world_name} — detail for a single world: record, scene
-/// count, and permission grants.
 pub async fn world_detail(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -103,7 +88,6 @@ pub async fn world_detail(
     })))
 }
 
-/// POST /admin/worlds/{world_name}/disable — set the over-storage block marker.
 pub async fn disable_world(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -113,7 +97,6 @@ pub async fn disable_world(
     set_world_blocked(&state, &world_name, true).await
 }
 
-/// POST /admin/worlds/{world_name}/enable — clear the over-storage block marker.
 pub async fn enable_world(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -143,8 +126,6 @@ async fn set_world_blocked(
     ))
 }
 
-/// GET /admin/blocked — list the platform block list (wallets blocked from the
-/// realm).
 pub async fn list_blocked(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -164,7 +145,6 @@ pub async fn list_blocked(
     Ok(Json(json!({ "blocked": blocked })))
 }
 
-/// POST /admin/blocked/{wallet} — add a wallet to the platform block list.
 pub async fn block_wallet(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -177,7 +157,6 @@ pub async fn block_wallet(
     ))
 }
 
-/// DELETE /admin/blocked/{wallet} — remove a wallet from the platform block list.
 pub async fn unblock_wallet(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -208,9 +187,6 @@ pub struct AccessLogQuery {
     pub offset: Option<i64>,
 }
 
-/// GET /admin/access-log — query the world access log (join/leave events
-/// recorded from the LiveKit webhook), optionally filtered by world and/or
-/// address.
 pub async fn access_log(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -250,11 +226,6 @@ pub struct BanStatusQuery {
     pub parcel: Option<String>,
 }
 
-/// GET /admin/worlds/{world_name}/ban-status?address=0x..&parcel=.. — proxy the
-/// ban *status* reads from comms-gatekeeper (the realm reads these; mutation
-/// lives in comms-gatekeeper). Returns the platform ban status and, when a
-/// parcel is supplied, the scene ban status. Requires the comms-gatekeeper
-/// integration to be configured (502 otherwise).
 pub async fn world_ban_status(
     State(state): State<AppState>,
     headers: HeaderMap,

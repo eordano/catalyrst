@@ -23,6 +23,14 @@ pub async fn get_status(State(state): State<Arc<AppState>>) -> impl IntoResponse
         "synchronizationState".to_string(),
         Value::String(sync_state.clone()),
     );
+    if let Some(frontier) = state.synchronization_state.sync_frontier_ms() {
+        sync_status.insert("syncFrontier".to_string(), json!(frontier));
+    }
+    if let Some(heartbeat) = state.synchronization_state.sync_heartbeat_ms() {
+        let age_ms = chrono::Utc::now().timestamp_millis() - heartbeat;
+        sync_status.insert("lastHeartbeat".to_string(), json!(heartbeat));
+        sync_status.insert("up".to_string(), json!(age_ms < 300_000));
+    }
 
     let body = json!({
         "version": state.content_version,

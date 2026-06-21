@@ -41,11 +41,6 @@ fn is_federation_envelope(body: &Option<Json<Value>>) -> bool {
         .unwrap_or(false)
 }
 
-/// Object metadata for the S3 PUT, mirroring upstream's
-/// `{ ...userAuth.metadata, address: userAuth.address }`. The signed-fetch
-/// metadata (the `x-identity-metadata` header JSON) is spread first; `address`
-/// is appended last (and so wins on collision, as `{...spread, address}` does
-/// in JS). Only string-valued metadata keys are kept (S3 metadata is string).
 fn report_metadata(headers: &HeaderMap, address: &str) -> Vec<(String, String)> {
     let mut out: Vec<(String, String)> = Vec::new();
     if let Some(raw) = headers
@@ -67,8 +62,6 @@ fn report_metadata(headers: &HeaderMap, address: &str) -> Vec<(String, String)> 
     out
 }
 
-/// Build the upstream filename: `address.slice(-8).toLowerCase() +
-/// floor(now_ms/1000).toString(16) + ".json"`.
 fn report_filename(address: &str, now_seconds: i64) -> String {
     let user_hash: String = {
         let chars: Vec<char> = address.chars().collect();
@@ -86,8 +79,6 @@ pub async fn post_report(
     headers: HeaderMap,
     body: Option<Json<Value>>,
 ) -> Result<Json<Value>, ApiError> {
-    // Signed federation report (places.md §3): Signed<PlaceReport> envelope ->
-    // verify -> replay -> log -> gossip. Advisory-only per ADR.
     if is_federation_envelope(&body) {
         return crate::handlers::federation::fed_post_report(&state, &headers, &body).await;
     }
@@ -102,20 +93,6 @@ pub async fn post_report(
     let now = chrono::Utc::now();
     let filename = report_filename(&user, now.timestamp());
 
-    // Upstream mints a real AWS S3 presigned PUT URL via aws-sdk-js v2
-    // `s3.getSignedUrl("putObject", ...)` (signatureVersion "s3" == SigV2:
-    // AWSAccessKeyId + absolute Expires + base64 Signature + the request headers
-    // folded into query params; 60000s expiry, ContentType application/json, ACL
-    // private, CacheControl, object Metadata). When the bucket creds
-    // (AWS_ACCESS_KEY / AWS_ACCESS_SECRET / AWS_BUCKET_NAME) are configured we
-    // produce a byte-faithful presigned URL and the client uploads the report
-    // JSON directly to S3 — this is the upstream-compatible production path,
-    // taken whenever the creds are present.
-    //
-    // Without creds the endpoint is misconfigured for production (upstream has
-    // no fallback at all). We fail closed with a 503 unless the operator has
-    // *explicitly* opted into the DEV-ONLY same-origin local-upload route via
-    // `PLACES_REPORT_LOCAL_FALLBACK`. The local route is never a silent default.
     let signed_url = match ReportUploadMode::from_env() {
         ReportUploadMode::S3(cfg) => {
             let metadata = report_metadata(&headers, &user);
@@ -198,18 +175,15 @@ mod tests {
 
     #[test]
     fn filename_matches_upstream() {
-        // address.slice(-8).toLowerCase() + floor(ms/1000).toString(16) + ".json"
         let addr = "0x1234567890ABCDEF1234567890abcdef12345678";
-        // last 8 chars: "12345678"
-        let now_seconds = 0x6500_0000_i64; // hex 65000000
+
+        let now_seconds = 0x6500_0000_i64;
         let f = report_filename(addr, now_seconds);
         assert_eq!(f, "1234567865000000.json");
     }
 
     #[test]
     fn misconfigured_report_mode_is_fail_closed_503() {
-        // The branch the handler takes when no creds + no local-fallback opt-in:
-        // it must produce a 503 ServiceUnavailable, never a local-upload URL.
         let mode = ReportUploadMode::resolve(None, None);
         assert!(matches!(mode, ReportUploadMode::Misconfigured));
         let err = ApiError::service_unavailable(
@@ -227,7 +201,7 @@ mod tests {
             r#"{"signer":"dcl:explorer","intent":"report"}"#.parse().unwrap(),
         );
         let md = report_metadata(&headers, "0xabc");
-        // signer + intent + address (string-only, address last)
+
         assert!(md.contains(&("signer".to_string(), "dcl:explorer".to_string())));
         assert!(md.contains(&("intent".to_string(), "report".to_string())));
         assert_eq!(

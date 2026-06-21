@@ -1,6 +1,6 @@
 [package]
 name = "catalyrst-comms"
-version = "0.1.0"
+version = "0.12.0"
 edition = "2021"
 description = "Rust port of decentraland/comms-gatekeeper — LiveKit token minting, scene bans, voice chat, Cast 2.0. Port 5138."
 
@@ -11,10 +11,9 @@ path = "src/main.rs"
 [dependencies]
 catalyrst-types = { workspace = true }
 catalyrst-crypto = { workspace = true }
-catalyrst-fed = { workspace = true }
+catalyrst-envcfg = { workspace = true }
 tokio = { workspace = true }
 axum = { workspace = true }
-tower = { workspace = true }
 tower-http = { workspace = true }
 sqlx = { workspace = true, features = ["uuid"] }
 serde = { workspace = true }
@@ -25,30 +24,24 @@ tracing-subscriber = { workspace = true }
 thiserror = { workspace = true }
 anyhow = { workspace = true }
 reqwest = { workspace = true }
-url = { workspace = true }
 uuid = { workspace = true, features = ["v4", "serde"] }
-parking_lot = { workspace = true }
 dashmap = { workspace = true }
 hex = "0.4"
 sha2 = { workspace = true }
-hmac = "0.12"
+hmac = "0.13"
 base64 = "0.22"
-# MLS (RFC 9420) delivery service — docs/federation/messaging.md pins
-# 0.6.0 <= openmls < 0.7.0. The server parses opaque MLS framing only; it never
-# joins a group or decrypts. tls_codec provides the DeserializeBytes entry point.
-openmls = "0.6"
-openmls_rust_crypto = "0.3"
-openmls_traits = "0.3"
+openmls = "0.8"
+openmls_rust_crypto = "0.5"
+openmls_traits = "0.5"
 tls_codec = "0.4"
+ts-rs = { workspace = true, optional = true }
+
+[features]
+ts = ["dep:ts-rs"]
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
-# MLS happy-path harness (examples/mls_client.rs): generates valid MLS
-# artifacts (KeyPackage / Add commit+Welcome / application PrivateMessage) for a
-# given wallet identity so the HTTP delivery flow can be exercised end-to-end
-# against a real openmls 0.6 client. openmls_basic_credential supplies the
-# SignatureKeyPair + BasicCredential the server's parse/validate path expects.
-openmls_basic_credential = "0.3"
+openmls_basic_credential = "0.5"
 
 [[example]]
 name = "mls_client"

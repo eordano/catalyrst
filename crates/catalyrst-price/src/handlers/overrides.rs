@@ -1,19 +1,3 @@
-//! Admin price-override config store (docs/admin-console.md §4 "Price override").
-//!
-//! - `GET    /admin/api/price/overrides`             — list all overrides (public read).
-//! - `PUT    /admin/api/price/overrides/{token}/{vs}` — set/upsert one (bearer-gated).
-//! - `DELETE /admin/api/price/overrides/{token}/{vs}` — clear one (bearer-gated).
-//!
-//! Mutations are gated by a constant-time bearer compare against
-//! `CATALYRST_PRICE_ADMIN_TOKEN`; the gate fails closed (403) when that env is
-//! unset. This is additive: the public `/api/v3/simple/price` route is
-//! unchanged.
-//!
-//! The override `value` is an exact NUMERIC carried as a decimal *string* —
-//! never a JSON number / f64 (mirrors the credits crate's never-f64 stance).
-//! Every successful set/clear writes an audit row attributed to the
-//! console-set `X-Catalyrst-Admin` identity.
-
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
@@ -46,7 +30,7 @@ fn override_json(o: &PriceOverride) -> serde_json::Value {
     json!({
         "token_id": o.token_id,
         "vs_currency": o.vs_currency,
-        // exact NUMERIC, emitted as a decimal string (never a JSON number).
+
         "value": o.value,
         "note": o.note,
         "updated_by": o.updated_by,
@@ -58,10 +42,6 @@ fn normalize(s: &str) -> String {
     s.trim().to_ascii_lowercase()
 }
 
-/// Validate a decimal override value given as a string. We require a string
-/// (never a JSON number) so the value keeps full precision and never passes
-/// through f64. Accepts an optional leading sign and a single decimal point;
-/// rejects anything non-numeric. Returns the trimmed canonical string.
 fn validate_decimal(raw: &str) -> Result<String, Response> {
     let s = raw.trim();
     if s.is_empty() || s.len() > 78 {
@@ -86,11 +66,6 @@ fn validate_decimal(raw: &str) -> Result<String, Response> {
     Ok(s.to_string())
 }
 
-/// Console-attributed admin identity for the audit trail. The trustworthy
-/// source is the `X-Catalyrst-Admin` request header, set server-side by the
-/// admin console (not the spoofable client body). Falls back to "console" when
-/// the header is absent — these mutations are already bearer/AdminSession gated,
-/// so an unattributed call is a direct console operator.
 fn admin_identity(headers: &HeaderMap) -> String {
     headers
         .get("x-catalyrst-admin")
@@ -101,7 +76,6 @@ fn admin_identity(headers: &HeaderMap) -> String {
         .unwrap_or_else(|| "console".to_string())
 }
 
-/// `GET /admin/api/price/overrides` — list all overrides. Read-only, public.
 pub async fn list_overrides(State(state): State<AppState>) -> Response {
     match state.overrides.list().await {
         Ok(rows) => {
@@ -114,16 +88,11 @@ pub async fn list_overrides(State(state): State<AppState>) -> Response {
 
 #[derive(Deserialize)]
 pub struct SetOverrideBody {
-    /// Exact decimal override value as a string (never a JSON number / f64).
     pub value: String,
     #[serde(default)]
     pub note: Option<String>,
-    // NB: an `updated_by` body field is intentionally *not* honored — the admin
-    // identity is taken from the console-set `X-Catalyrst-Admin` header so a
-    // client cannot forge the audit attribution. Any such field is ignored.
 }
 
-/// `PUT /admin/api/price/overrides/{token}/{vs}` — set/upsert an override.
 pub async fn set_override(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -153,7 +122,6 @@ pub async fn set_override(
     }
 }
 
-/// `DELETE /admin/api/price/overrides/{token}/{vs}` — clear an override.
 pub async fn clear_override(
     State(state): State<AppState>,
     headers: HeaderMap,

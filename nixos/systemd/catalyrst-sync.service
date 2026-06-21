@@ -8,7 +8,7 @@ Wants=postgresql.service
 Type=exec
 WorkingDirectory=<WORKSPACE>
 EnvironmentFile=<WORKSPACE>/env/content.env
-Environment="CATALYRST_PORT=5149" "REALM_NAME=<REALM_NAME>"
+Environment="HTTP_SERVER_PORT=5149" "REALM_NAME=<REALM_NAME>"
 Environment="COMMS_WS_CONNECTOR_URL=http://127.0.0.1:5143" "COMMS_STATS_URL=http://127.0.0.1:5143"
 Environment="COMMS_PROTOCOL=v3" "COMMS_FIXED_ADAPTER=archipelago:archipelago:wss://<HOST>/ws"
 Environment="MAP_SATELLITE_BASE_URL=http://127.0.0.1:5080/static/genesis-map" "MAP_PARCEL_VIEW_URL=http://127.0.0.1:5143/v1/minimap.png"

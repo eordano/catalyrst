@@ -1,5 +1,6 @@
 # Rust build artifacts
 /target
+crates/catalyrst-abgen/kernel-ptx/target/
 **/*.rs.bk
 
 # Editor / OS
@@ -21,6 +22,7 @@ env/
 # Host-specific NixOS files (generated per machine by nixos-infect / nixos-generate-config)
 nixos/hardware-configuration.nix
 nixos/networking.nix
+catalyrst/result
 
 # Operator identity (SSH keys, ACME email) — copy operator.nix.example to operator.nix and fill in
 nixos/operator.nix
@@ -36,3 +38,9 @@ scripts/schemathesis/.venv/
 # Local bench results (per-endpoint p50/p99 history; regenerable)
 .bench/
 .claude/
+
+# local deploy keys — never commit
+secrets/
+
+# ts-rs default export dir (real exports go to sites/app/lib/catalyst/_generated via TS_RS_EXPORT_DIR)
+crates/*/bindings/

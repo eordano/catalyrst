@@ -1,18 +1,3 @@
-//! Admin control surface — bearer-gated scene operations for the catalyrst
-//! admin console (`docs/admin-console.md` §4: catalyrst-scene-state owns
-//! kick-all, CRDT inspect, reset-state).
-//!
-//! Every route here is gated by a constant-time `Authorization: Bearer <token>`
-//! compare against [`Config::admin_token`] (sourced from
-//! `CATALYRST_SCENE_STATE_ADMIN_TOKEN`, falling back to `DEBUGGING_SECRET`).
-//! When no token is configured the gate fails closed with `403` — read-only by
-//! default, matching the console's default-safe invariant. These routes are
-//! purely additive: the existing `/ping`, `/status`, and `/debugging/reload`
-//! handlers are untouched.
-//!
-//! The console reaches these over the loopback/private network port; like `/admin*` on
-//! catalyrst-server they must never be exposed on the public edge.
-
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
@@ -31,7 +16,6 @@ pub fn routes() -> Router<AppState> {
         .route("/admin/scene/{scene}/reset", post(reset_state))
 }
 
-/// Extract the bearer token from `Authorization: Bearer <token>`.
 fn bearer_token(headers: &HeaderMap) -> Option<&str> {
     headers
         .get("authorization")
@@ -39,11 +23,6 @@ fn bearer_token(headers: &HeaderMap) -> Option<&str> {
         .and_then(|s| s.strip_prefix("Bearer "))
 }
 
-/// Constant-time bearer check against the configured admin token. Fails closed
-/// (`403`) when no token is configured, so the routes are inert until an
-/// operator opts in by setting `CATALYRST_SCENE_STATE_ADMIN_TOKEN` (or
-/// `DEBUGGING_SECRET`). Returns the `403` response on failure for the caller to
-/// short-circuit.
 fn authorize(state: &AppState, headers: &HeaderMap) -> Result<(), axum::response::Response> {
     let forbidden = || (StatusCode::FORBIDDEN, "Not authorized").into_response();
     let Some(expected) = state.cfg.admin_token.as_deref() else {
@@ -55,10 +34,6 @@ fn authorize(state: &AppState, headers: &HeaderMap) -> Result<(), axum::response
     }
 }
 
-/// Compare two byte slices in time independent of where (or whether) they
-/// differ. Mirrors the timing-safe compares used elsewhere in the workspace
-/// (catalyrst-comms `timing_safe_eq`, this crate's `handlers::constant_time_eq`)
-/// without pulling in a `subtle` dependency (offline-build self-contained).
 fn timing_safe_eq(a: &[u8], b: &[u8]) -> bool {
     let mut diff: u8 = (a.len() ^ b.len()) as u8 | ((a.len() ^ b.len()) >> 8) as u8;
     let n = a.len().max(b.len());
@@ -76,10 +51,6 @@ struct KickAllResp {
     kicked: usize,
 }
 
-/// `POST /admin/scene/{scene}/kick-all` — forcibly disconnect every client
-/// connected to a loaded scene. The scene stays loaded (its runtime keeps
-/// running); only the WS connections are torn down. 404 if the scene is not
-/// loaded.
 async fn kick_all(
     State(s): State<AppState>,
     headers: HeaderMap,
@@ -122,10 +93,10 @@ struct InspectResp {
     snapshot_bytes: usize,
     #[serde(rename = "messageCount")]
     message_count: usize,
-    /// Hex-encoded raw snapshot batch (the exact bytes sent in an `Init` frame).
+
     #[serde(rename = "snapshotHex")]
     snapshot_hex: String,
-    /// Decoded per-message summary (no component payloads, just shape + lengths).
+
     messages: Vec<CrdtMsgView>,
 }
 
@@ -185,9 +156,6 @@ fn to_hex(bytes: &[u8]) -> String {
     s
 }
 
-/// `GET /admin/scene/{scene}/crdt` — inspect a loaded scene's authoritative
-/// CRDT snapshot (the same bytes a late-joining client receives). Returns the
-/// raw hex batch plus a decoded per-message summary. 404 if not loaded.
 async fn inspect_crdt(
     State(s): State<AppState>,
     headers: HeaderMap,
@@ -220,18 +188,6 @@ struct ResetResp {
     reloaded: bool,
 }
 
-/// `POST /admin/scene/{scene}/reset` — reset a scene's authoritative state.
-///
-/// Implemented as a safe full restart: kick every connected client, then
-/// re-run the scene's load path (`load_or_reload`), which tears down the
-/// existing runtime (the JS isolate's `onUpdate` loop and its `crdtState`, or
-/// the relay engine) and rebuilds a fresh one from source. Clearing the CRDT
-/// buffer *without* restarting the JS scene is deliberately avoided: the
-/// running scene's JavaScript owns its `crdtState` via `updateCRDTState`, so a
-/// snapshot-only wipe would desync the authoritative buffer from the live
-/// scene. A full reload is the only correct reset.
-///
-/// 404 if the scene is not loaded; 503 if the source can no longer be acquired.
 async fn reset_state(
     State(s): State<AppState>,
     headers: HeaderMap,
@@ -288,7 +244,7 @@ mod tests {
     fn test_cfg() -> crate::config::Config {
         crate::config::Config {
             http_host: "127.0.0.1".into(),
-            http_port: 5153,
+            http_port: 5209,
             local_scene_path: None,
             world_server_url: None,
             debugging_secret: None,
@@ -301,10 +257,21 @@ mod tests {
             js_heap_limit_mb: 384,
             js_tick_budget_ms: 250,
             js_shutdown_join_ms: 2000,
+            js_update_failure_cap: 30,
             client_outbound_max: 1024,
             client_inbound_max: 1024,
             crdt_max_components: 100_000,
             ws_max_frame_bytes: 2 * 1024 * 1024,
+            fetch_max_body_bytes: crate::config::DEFAULT_FETCH_MAX_BODY_BYTES,
+            storage_url: None,
+            storage_allow_http: false,
+            delegation_minter_url: None,
+            delegation_minter_token: None,
+            storage_delegation: None,
+            signed_fetch_max_response_bytes: 2 * 1024 * 1024,
+            signed_fetch_max_body_bytes: 1024 * 1024,
+            signed_fetch_max_in_flight: 8,
+            signed_fetch_timeout_ms: 10_000,
         }
     }
 
@@ -317,15 +284,15 @@ mod tests {
     #[test]
     fn unconfigured_token_fails_closed() {
         let s = state_with(None);
-        // Even a present bearer is rejected when no token is configured.
+
         assert!(authorize(&s, &bearer("anything")).is_err());
     }
 
     #[test]
     fn wrong_and_missing_bearer_rejected() {
         let s = state_with(Some("secret"));
-        assert!(authorize(&s, &HeaderMap::new()).is_err()); // missing
-        assert!(authorize(&s, &bearer("nope")).is_err()); // wrong
+        assert!(authorize(&s, &HeaderMap::new()).is_err());
+        assert!(authorize(&s, &bearer("nope")).is_err());
     }
 
     #[test]

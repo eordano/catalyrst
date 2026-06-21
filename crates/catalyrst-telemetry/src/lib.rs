@@ -12,21 +12,13 @@ use axum::Router;
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use sqlx::PgPool;
 
-/// Runtime ingest gate, mirrored from the `admin_settings` / `project_quota`
-/// tables at boot and kept in sync by the admin routes. The hot ingest path
-/// (sentry/segment handlers) consults this in-memory state only — it never hits
-/// the DB to decide acceptance, so the additive enforcement adds no per-event
-/// query. Default-open: a fresh deployment with no settings ingests exactly as
-/// before (enabled=true, no quotas).
 pub struct IngestControl {
-    /// Master ingest toggle. When false, ingest handlers drop events.
     pub enabled: AtomicBool,
-    /// project -> daily event quota (UTC day). Absent = unlimited.
+
     pub quotas: RwLock<HashMap<String, i64>>,
-    /// UTC day (YYYY-MM-DD) the per-project counters below belong to. When the
-    /// day rolls over, counters reset.
+
     pub counter_day: RwLock<String>,
-    /// project -> events accepted so far on `counter_day`.
+
     pub counters: RwLock<HashMap<String, i64>>,
 }
 
@@ -40,18 +32,19 @@ impl IngestControl {
         }
     }
 
-    /// Decide whether to accept one event for `project`. Returns true to accept.
-    /// Default-open: enabled + no configured quota => always accept. When a quota
-    /// is configured, counts per UTC day in memory (O(1), resets on day rollover).
     pub fn admit(&self, project: &str) -> bool {
-        if !self.enabled.load(Ordering::Relaxed) {
-            return false;
+        self.admit_n(project, 1) > 0
+    }
+
+    pub fn admit_n(&self, project: &str, count: usize) -> usize {
+        if count == 0 || !self.enabled.load(Ordering::Relaxed) {
+            return 0;
         }
         let limit = {
             let q = self.quotas.read().unwrap();
             match q.get(project) {
                 Some(&l) => l,
-                None => return true, // no quota configured -> unlimited
+                None => return count,
             }
         };
         let today = today_utc();
@@ -66,13 +59,13 @@ impl IngestControl {
                 }
             }
         }
+        let requested = i64::try_from(count).unwrap_or(i64::MAX);
         let mut counters = self.counters.write().unwrap();
         let used = counters.entry(project.to_string()).or_insert(0);
-        if *used >= limit {
-            return false;
-        }
-        *used += 1;
-        true
+        let remaining = (limit - *used).max(0);
+        let granted = remaining.min(requested);
+        *used += granted;
+        granted as usize
     }
 }
 
@@ -83,8 +76,7 @@ fn today_utc() -> String {
 pub struct AppStateInner {
     pub pool: PgPool,
     pub ingest: IngestControl,
-    /// Admin bearer token (constant-time compared). `None` => all admin routes
-    /// fail closed with 403.
+
     pub admin_token: Option<String>,
 }
 
@@ -102,12 +94,8 @@ impl Config {
         Ok(Self {
             http_host: std::env::var("HTTP_SERVER_HOST")
                 .unwrap_or_else(|_| "127.0.0.1".to_string()),
-            http_port: std::env::var("HTTP_SERVER_PORT")
-                .ok()
-                .and_then(|s| s.parse().ok())
-                .unwrap_or(5150),
-            database_url: std::env::var("TELEMETRY_PG_CONNECTION_STRING")
-                .context("missing TELEMETRY_PG_CONNECTION_STRING")?,
+            http_port: catalyrst_envcfg::get_port("HTTP_SERVER_PORT", 5150)?,
+            database_url: catalyrst_envcfg::required("TELEMETRY_PG_CONNECTION_STRING")?,
             admin_token: std::env::var("CATALYRST_TELEMETRY_ADMIN_TOKEN")
                 .ok()
                 .filter(|s| !s.is_empty()),
@@ -132,9 +120,7 @@ pub async fn build_state(cfg: &Config) -> Result<AppState> {
         .context("failed to run telemetry migrations")?;
 
     let ingest = IngestControl::new();
-    // Seed the in-memory ingest gate from the persisted admin settings so a
-    // restart preserves a prior disable/quota. Missing rows leave the defaults
-    // (enabled=true, no quotas).
+
     if let Ok(Some((v,))) = sqlx::query_as::<_, (String,)>(
         "SELECT value FROM admin_settings WHERE key = 'ingest_enabled'",
     )
@@ -161,13 +147,35 @@ pub async fn build_state(cfg: &Config) -> Result<AppState> {
     }))
 }
 
-pub fn api_router() -> Router<AppState> {
+async fn require_telemetry_admin(
+    axum::extract::State(state): axum::extract::State<AppState>,
+    headers: axum::http::HeaderMap,
+    request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    use axum::response::IntoResponse;
+    if let Err(rejection) = handlers::admin::authorize(&state, &headers) {
+        return rejection.into_response();
+    }
+    next.run(request).await
+}
+
+fn gated_reads(state: AppState) -> Router<AppState> {
     Router::new()
-        // Read-only dashboard UI + JSON API (Sentry-style view of the store).
-        // Real path-based routes (no #) — each is server-side rendered by
-        // handlers::ssr::page (real content on first paint, works without JS) and
-        // ships an embedded BOOT cache the client hydrates from without
-        // refetching. The client still drives every interaction from the path.
+        .route("/dash/events", get(handlers::dashboard::events))
+        .route("/dash/event/{id}", get(handlers::dashboard::event_detail))
+        .route("/dash/stats", get(handlers::dashboard::stats))
+        .route("/dash/sql", post(handlers::dashboard::sql_query))
+        .route("/dash/story/{id}", get(handlers::dashboard::story))
+        .route("/dash/session/{id}", get(handlers::dashboard::session))
+        .route_layer(axum::middleware::from_fn_with_state(
+            state,
+            require_telemetry_admin,
+        ))
+}
+
+pub fn api_router(state: AppState) -> Router<AppState> {
+    Router::new()
         .route("/", get(handlers::ssr::page))
         .route("/events", get(handlers::ssr::page))
         .route("/issues/{fp}", get(handlers::ssr::page))
@@ -179,25 +187,24 @@ pub fn api_router() -> Router<AppState> {
         .route("/flags", get(handlers::ssr::page))
         .route("/sql", get(handlers::ssr::page))
         .route("/session/{id}", get(handlers::ssr::page))
-        .route("/dash/events", get(handlers::dashboard::events))
-        .route("/dash/event/{id}", get(handlers::dashboard::event_detail))
-        .route("/dash/stats", get(handlers::dashboard::stats))
         .route("/dash/metrics", get(handlers::dashboard::metrics))
         .route("/dash/health", get(handlers::dashboard::health))
         .route("/dash/funnel", get(handlers::dashboard::funnel))
         .route("/dash/breakdown", get(handlers::dashboard::breakdown))
         .route("/dash/flags", get(handlers::dashboard::flags))
-        .route("/dash/sql", post(handlers::dashboard::sql_query))
-        .route("/dash/story/{id}", get(handlers::dashboard::story))
-        .route("/dash/session/{id}", get(handlers::dashboard::session))
+        .merge(gated_reads(state))
         .route(
             "/dash/issue/state",
             post(handlers::dashboard::set_issue_state),
         )
-        // Admin controls (admin-console §4 LATER). Bearer-gated; fail closed 403
-        // when CATALYRST_TELEMETRY_ADMIN_TOKEN is unset. Loopback-trusted like
-        // the rest of /dash/*, but these mutate so they additionally require the
-        // bearer. Every mutation writes an admin_audit row.
+        .route(
+            "/dash/experiments",
+            get(handlers::dashboard::experiments_get),
+        )
+        .route(
+            "/dash/experiment",
+            post(handlers::dashboard::experiment_set),
+        )
         .route("/dash/admin/purge", post(handlers::admin::purge))
         .route("/dash/admin/ingest", post(handlers::admin::ingest_toggle))
         .route("/dash/admin/quota", post(handlers::admin::quota))

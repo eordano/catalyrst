@@ -4,7 +4,7 @@ use axum::Json;
 use base64::engine::general_purpose::{STANDARD as B64_STANDARD, URL_SAFE_NO_PAD};
 use base64::Engine;
 use bytes::Bytes;
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 
@@ -48,32 +48,41 @@ pub async fn livekit_webhook(
 
     let is_valid_event = evt.event == "participant_joined" || evt.event == "participant_left";
 
-    if !is_valid_event || !room.name.ends_with(".dcl.eth") {
+    let Some(RoomWorld {
+        world,
+        is_scene_room,
+    }) = world_from_room(&room.name)
+    else {
+        return Ok(Json(json!({ "message": "Skipping event" })));
+    };
+
+    if !is_valid_event {
         return Ok(Json(json!({ "message": "Skipping event" })));
     }
 
-    if let Some(world) = world_from_room(&room.name) {
-        let action = match evt.event.as_str() {
-            "participant_joined" => {
-                state.presence.set_peer_world(&participant.identity, &world);
-                Some("join")
-            }
-            "participant_left" => {
-                state.presence.remove_peer(&participant.identity);
-                Some("leave")
-            }
-            _ => None,
-        };
-        // Persist the access event for the bearer-gated GET /admin/access-log
-        // view. Best-effort: a logging failure must not fail the webhook.
-        if let Some(action) = action {
-            if let Err(e) = state
-                .worlds
-                .record_access(&world, &participant.identity, action, &room.name)
-                .await
-            {
-                tracing::warn!(error = %e, "failed to persist world access log row");
-            }
+    let action = match evt.event.as_str() {
+        "participant_joined" => {
+            state
+                .presence
+                .peer_joined(&participant.identity, &world, &room.name, is_scene_room);
+            Some("join")
+        }
+        "participant_left" => {
+            state
+                .presence
+                .peer_left(&participant.identity, &room.name, is_scene_room);
+            Some("leave")
+        }
+        _ => None,
+    };
+
+    if let Some(action) = action {
+        if let Err(e) = state
+            .worlds
+            .record_access(&world, &participant.identity, action, &room.name)
+            .await
+        {
+            tracing::warn!(error = %e, "failed to persist world access log row");
         }
     }
 
@@ -158,12 +167,57 @@ pub struct ParticipantInfo {
     pub identity: String,
 }
 
-fn world_from_room(room: &str) -> Option<String> {
-    if let Some(rest) = room.strip_prefix(WORLD_ROOM_PREFIX) {
-        return Some(rest.to_string());
-    }
+const DCL_ETH_SUFFIX: &str = ".dcl.eth";
+
+pub struct RoomWorld {
+    pub world: String,
+    pub is_scene_room: bool,
+}
+
+fn world_from_room(room: &str) -> Option<RoomWorld> {
     if let Some(rest) = room.strip_prefix(SCENE_ROOM_PREFIX) {
-        return rest.rsplit_once('-').map(|(w, _)| w.to_string());
+        return Some(RoomWorld {
+            world: extract_scene_world(rest),
+            is_scene_room: true,
+        });
+    }
+    if let Some(rest) = room.strip_prefix(WORLD_ROOM_PREFIX) {
+        return Some(RoomWorld {
+            world: rest.to_string(),
+            is_scene_room: false,
+        });
     }
     None
+}
+
+fn extract_scene_world(rest: &str) -> String {
+    if let Some(idx) = rest.find(DCL_ETH_SUFFIX) {
+        return rest[..idx + DCL_ETH_SUFFIX.len()].to_lowercase();
+    }
+    rest.rsplit_once('-')
+        .map(|(w, _)| w)
+        .unwrap_or(rest)
+        .to_lowercase()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn world_from_room_classifies_world_and_scene_rooms() {
+        let w = world_from_room("world-foo.dcl.eth").expect("world room");
+        assert_eq!(w.world, "foo.dcl.eth");
+        assert!(!w.is_scene_room);
+
+        let s = world_from_room("scene-foo.dcl.eth-bafybeihash").expect("scene room");
+        assert_eq!(s.world, "foo.dcl.eth");
+        assert!(s.is_scene_room);
+
+        let s2 = world_from_room("scene-my-cool-world.dcl.eth-sid").expect("scene room");
+        assert_eq!(s2.world, "my-cool-world.dcl.eth");
+        assert!(s2.is_scene_room);
+
+        assert!(world_from_room("lobby").is_none());
+    }
 }

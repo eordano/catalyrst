@@ -1,6 +1,6 @@
 [package]
 name = "catalyrst-market"
-version = "0.1.0"
+version = "0.12.0"
 edition = "2021"
 description = "Rust port of decentraland/marketplace-server REST API — reads from squid_marketplace schema"
 
@@ -9,6 +9,7 @@ name = "catalyrst-market"
 path = "src/main.rs"
 
 [dependencies]
+bytes = { workspace = true }
 axum = { workspace = true }
 tokio = { workspace = true }
 serde = { workspace = true }
@@ -24,6 +25,7 @@ chrono = { workspace = true }
 url = { workspace = true }
 catalyrst-server = { path = "../catalyrst-server" }
 catalyrst-db = { workspace = true }
+catalyrst-envcfg = { workspace = true }
 catalyrst-types = { workspace = true }
 catalyrst-crypto = { workspace = true }
 catalyrst-fed = { workspace = true }
@@ -31,14 +33,21 @@ sha2 = { workspace = true }
 hex = "0.4"
 parking_lot = { workspace = true }
 uuid = { workspace = true, features = ["serde"] }
+reqwest = { workspace = true }
+ts-rs = { workspace = true, optional = true }
+
+[features]
+ts = ["dep:ts-rs"]
 
 [dev-dependencies]
-ethers-signers = { workspace = true }
-ethers-core = { workspace = true }
+alloy = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
-rand = "0.8"
-reqwest = { workspace = true }
+rand = "0.10"
 
 [[example]]
 name = "smoke_bid"
 path = "examples/smoke_bid.rs"
+
+[[example]]
+name = "smoke_order"
+path = "examples/smoke_order.rs"

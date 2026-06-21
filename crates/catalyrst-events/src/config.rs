@@ -1,5 +1,7 @@
-use anyhow::{anyhow, Context, Result};
+use anyhow::Result;
+use catalyrst_envcfg::{get_port, required};
 use std::env;
+use std::path::PathBuf;
 
 pub struct Config {
     pub http_host: String,
@@ -7,10 +9,11 @@ pub struct Config {
 
     pub places_events_database_url: String,
 
-    /// Bearer token gating the admin moderation routes
-    /// (`POST /api/events`, `PATCH /api/events/{id}`). When unset, every admin
-    /// route fails closed (403). See docs/admin-console.md §4 (catalyrst-events).
     pub admin_token: Option<String>,
+
+    pub content_dir: PathBuf,
+
+    pub comms_gatekeeper_url: String,
 }
 
 impl Config {
@@ -24,17 +27,15 @@ impl Config {
             admin_token: env::var("CATALYRST_EVENTS_ADMIN_TOKEN")
                 .ok()
                 .filter(|s| !s.is_empty()),
+
+            content_dir: env::var("CATALYRST_EVENTS_CONTENT_DIR")
+                .map(PathBuf::from)
+                .unwrap_or_else(|_| PathBuf::from("/tmp/catalyrst-events-content")),
+
+            comms_gatekeeper_url: env::var("COMMS_GATEKEEPER_URL")
+                .ok()
+                .filter(|s| !s.trim().is_empty())
+                .unwrap_or_else(|| "http://127.0.0.1:5138".to_string()),
         })
-    }
-}
-
-fn required(key: &str) -> Result<String> {
-    env::var(key).map_err(|_| anyhow!("missing required env var: {}", key))
-}
-
-fn get_port(key: &str, default: u16) -> Result<u16> {
-    match env::var(key) {
-        Ok(s) => s.parse::<u16>().with_context(|| format!("invalid {}", key)),
-        Err(_) => Ok(default),
     }
 }

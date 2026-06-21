@@ -13,21 +13,20 @@
       "content-type": "application/json"
     },
     "body_json": {
-      "name": "<<VOLATILE>>",
       "version": "<<VOLATILE>>",
-      "currentTime": 0,
+      "commitHash": "<<VOLATILE>>",
+      "ethNetwork": "mainnet",
       "synchronizationStatus": {
-        "synchronizationState": "Syncing",
-        "lastSyncWithDAO": 0
+        "lastSyncWithDAO": "<<VOLATILE>>",
+        "synchronizationState": "Syncing"
       }
     }
   },
-  "captured_from": "hand-authored from crates/catalyrst-server/src/cors.rs (no Origin → no headers reflected)",
+  "captured_from": "re-derived from peer.decentraland.org 2026-07-03",
   "captured_at": "2026-05-23T20:30:00Z",
   "volatile_paths": [
-    "name",
     "version",
-    "currentTime",
+    "commitHash",
     "synchronizationStatus.lastSyncWithDAO"
   ]
 }

@@ -8,6 +8,8 @@ import "decentraland/pulse/pulse_shared.proto";
 message HandshakeResponse {
   bool success = 1;
   optional string error = 2;
+  // The capability bitmask this server supports, advertised on every response so a client learns which features were negotiated.
+  uint32 protocol_features = 3;
 }
 
 message PlayerProfileVersionsAnnounced {
@@ -18,56 +20,40 @@ message PlayerProfileVersionsAnnounced {
 message PlayerStateDeltaTier0 {
   uint32 subject_id = 1;
 
-  // Between two consecutive server simulation ticks, the subject may have sent multiple inputs, each incrementing Seq by 1. So
-  // the delta's NewSeq will naturally jump by more than 1 compared to the previous delta — even with zero packet loss.
-  // Without the "BaselineSeq" the client has no way to detect the package loss
   uint32 baseline_seq = 2;
   uint32 new_seq = 3;
   uint32 server_tick = 4;
 
-  // While the player doesn't cross the parcel, this field is omitted from diff
   optional int32 parcel_index = 5;
 
-  // X position inside the parcel
   optional uint32 position_x = 6 [(decentraland.common.quantized) = { min:  0,  max:   16, bits: 8 }];
 
-  // Y position
   optional uint32 position_y = 7 [(decentraland.common.quantized) = { min:  0,  max:   200, bits: 13 }];
 
-  // Z position inside the parcel
   optional uint32 position_z = 8 [(decentraland.common.quantized) = { min:  0,  max:   16, bits: 8 }];
 
-  optional uint32 velocity_x = 9 [(decentraland.common.quantized) = { min:  -50,  max:   50, bits: 8 }];
-  optional uint32 velocity_y = 10 [(decentraland.common.quantized) = { min:  -50,  max:   50, bits: 8 }];
-  optional uint32 velocity_z = 11 [(decentraland.common.quantized) = { min:  -50,  max:   50, bits: 8 }];
+  // Power-law quantized: sign bit + 7-bit magnitude curve over [-50, 50]. Zero is exactly
+  // representable and pow=2 concentrates resolution at low speeds.
+  optional uint32 velocity_x = 9 [(decentraland.common.quantized_power) = { max: 50, pow: 2, bits: 8 }];
+  optional uint32 velocity_y = 10 [(decentraland.common.quantized_power) = { max: 50, pow: 2, bits: 8 }];
+  optional uint32 velocity_z = 11 [(decentraland.common.quantized_power) = { max: 50, pow: 2, bits: 8 }];
 
   optional uint32 rotation_y = 12 [(decentraland.common.quantized) = { min:  0,  max:   360.0, bits: 7 }];
   optional uint32 movement_blend = 13 [(decentraland.common.quantized) = { min:  0,  max:   3, bits: 5 }];
   optional uint32 slide_blend = 14 [(decentraland.common.quantized) = { min:  0,  max:   1, bits: 4 }];
   optional uint32 head_yaw = 15 [(decentraland.common.quantized) = { min:  0,  max:   360.0, bits: 7 }];
-  optional uint32 head_pitch = 16 [(decentraland.common.quantized) = { min:  0,  max:   180.0, bits: 6 }];
+  optional uint32 head_pitch = 16 [(decentraland.common.quantized) = { min:  0,  max:   360.0, bits: 7 }];
 
   optional uint32 state_flags = 17;
   optional GlideState glide_state = 18;
 
   optional int32 jump_count = 19;
 
-  // Absolute world hit position the player is pointing at.
-  // Only meaningful when POINTING_AT is set in `state_flags`.
-  //
-  // X/Z use 17 bits over the world span (~±3000m, covers GenesisCity + border +
-  // raycast cutoff) which yields ~0.046m steps — at least as fine as the player's
-  // own parcel_index + position_x/z combined precision (0.0625m), so no separate
-  // parcel index is needed for point-at.
-  //
-  // Y uses 7 bits over the player altitude range (matches position_y), step ~1.6m.
-  // Point At is not supposed to change frequently so the wire overhead should be minimal
   optional uint32 point_at_x = 20 [(decentraland.common.quantized) = { min: -3000.0, max: 3000.0, bits: 17 }];
   optional uint32 point_at_y = 21 [(decentraland.common.quantized) = { min:     0.0, max:  200.0, bits:  7 }];
   optional uint32 point_at_z = 22 [(decentraland.common.quantized) = { min: -3000.0, max: 3000.0, bits: 17 }];
 }
 
-// Full State is sent to the client when it is out of sync, and can't recover with a diff only
 message PlayerStateFull {
   uint32 subject_id = 1;
   uint32 sequence = 2;
@@ -75,26 +61,32 @@ message PlayerStateFull {
   PlayerState state = 4;
 }
 
-// Notification to the client, that a peer has joined, it can mean connection or entering the area of interest, it's up to the server to decide
+// Protocol-version-1 (scheme C) batched egress: one message carries every due per-observer delta
+// for a tick. Still a valid protobuf message; only `payload`'s internal bit-layout is out-of-band
+// (MSB-first bit-packing, see `crate::batch`). `subject_count` is authoritative for the decode loop
+// (a trailing pad byte is ambiguous with a zero-valued element).
+message PlayerStateDeltaBatch {
+  uint32 server_tick = 1;
+  uint32 subject_count = 2;
+  bytes payload = 3;
+}
+
 message PlayerJoined {
   string user_id = 1;
   int32 profile_version = 2;
   PlayerStateFull state = 3;
+  string realm = 4;
 }
 
-// Notification to the client, that a peer has left, it can mean disconnection or leaving the area of interest
 message PlayerLeft {
   uint32 subject_id = 1;
 }
 
 enum EmoteStopReason {
-  COMPLETED = 0;  // one-shot timer expired on the server
-  CANCELLED = 1;  // client sent EmoteStop (looping emotes)
+  COMPLETED = 0;
+  CANCELLED = 1;
 }
 
-// Server → All Observers
-// Full player state is piggybacked to ensure the emote is played in the right place.
-// Observers use server_tick to scrub animation forward by transit latency.
 message EmoteStarted {
   uint32 subject_id = 1;
   uint32 sequence = 2;
@@ -104,9 +96,6 @@ message EmoteStarted {
   optional int32 mask = 6;
 }
 
-// Server → All Observers
-// Client resumes MovementInput only after receiving this.
-// Carries full PlayerState so the client can snap to the correct position on resume.
 message EmoteStopped {
   uint32 subject_id = 1;
   uint32 server_tick = 2;
@@ -115,12 +104,12 @@ message EmoteStopped {
   PlayerState player_state = 5;
 }
 
-// Server → All Observers
 message TeleportPerformed {
   uint32 subject_id = 1;
   uint32 sequence = 2;
   uint32 server_tick = 3;
   PlayerState state = 4;
+  string realm = 5;
 }
 
 message ServerMessage {
@@ -134,5 +123,9 @@ message ServerMessage {
       EmoteStarted emote_started = 7;
       EmoteStopped emote_stopped = 8;
       TeleportPerformed teleported = 9;
+      // Batched deltas. Sent only to peers that negotiated the FEATURE_DELTA_BATCH capability bit;
+      // peers without it keep receiving per-message player_state_delta (arm 3). Arm 10 does not
+      // collide with bevy PR 919, whose ServerMessage oneof uses arms 1 through 9 only.
+      PlayerStateDeltaBatch player_state_delta_batch = 10;
   }
 }

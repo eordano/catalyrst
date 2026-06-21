@@ -39,12 +39,12 @@ pub async fn get_storage_content(
     resp
 }
 
-/// Existence cache for HEAD /v1/storage/contents/{hash}/exists. Content hashes
-/// are immutable, so a positive result is valid indefinitely; entries still
-/// expire so a not-yet-uploaded hash that appears later isn't pinned as missing.
-/// Without this, every probe paid a full remote HEAD round-trip to the content
-/// bucket (~330ms p50). The lock is never held across the await.
 const EXISTS_TTL: std::time::Duration = std::time::Duration::from_secs(300);
+const EXISTS_CACHE_MAX: usize = 8192;
+
+fn is_valid_content_hash(hash: &str) -> bool {
+    (32..=128).contains(&hash.len()) && hash.bytes().all(|b| b.is_ascii_alphanumeric())
+}
 
 fn exists_cache(
 ) -> &'static std::sync::Mutex<std::collections::HashMap<String, (std::time::Instant, bool)>> {
@@ -54,17 +54,42 @@ fn exists_cache(
     C.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
 }
 
+fn exists_cache_insert(
+    map: &mut std::collections::HashMap<String, (std::time::Instant, bool)>,
+    key: String,
+    val: (std::time::Instant, bool),
+) {
+    if map.len() >= EXISTS_CACHE_MAX && !map.contains_key(&key) {
+        map.retain(|_, (at, _)| at.elapsed() < EXISTS_TTL);
+        while map.len() >= EXISTS_CACHE_MAX {
+            let oldest = map
+                .iter()
+                .min_by_key(|(_, (at, _))| *at)
+                .map(|(k, _)| k.clone());
+            match oldest {
+                Some(k) => {
+                    map.remove(&k);
+                }
+                None => break,
+            }
+        }
+    }
+    map.insert(key, val);
+}
+
 pub async fn head_storage_content_exists(
     State(state): State<AppState>,
     Path(hash): Path<String>,
     Query(params): Query<ContentParams>,
 ) -> Response {
-    let target = content_url(&state, &hash, &params);
+    if !is_valid_content_hash(&hash) {
+        return StatusCode::NOT_FOUND.into_response();
+    }
 
     if let Some((at, ok)) = exists_cache()
         .lock()
         .ok()
-        .and_then(|m| m.get(&target).copied())
+        .and_then(|m| m.get(&hash).copied())
     {
         if at.elapsed() < EXISTS_TTL {
             return if ok {
@@ -76,9 +101,10 @@ pub async fn head_storage_content_exists(
         }
     }
 
+    let target = content_url(&state, &hash, &params);
     let ok = matches!(state.http.head(&target).send().await, Ok(r) if r.status().is_success());
     if let Ok(mut m) = exists_cache().lock() {
-        m.insert(target, (std::time::Instant::now(), ok));
+        exists_cache_insert(&mut m, hash, (std::time::Instant::now(), ok));
     }
     if ok {
         StatusCode::OK.into_response()

@@ -16,7 +16,7 @@ async fn main() -> Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| {
-                "catalyrst_social=info,catalyrst_communities=info,catalyrst_comms=info,\
+                "catalyrst_social=info,catalyrst_social_service=info,catalyrst_comms=info,\
                  catalyrst_notifications=info,catalyrst_badges=info,catalyrst_media=info,\
                  tower_http=info"
                     .into()
@@ -99,9 +99,9 @@ fn health_body(members: &[(&'static str, bool)]) -> String {
 }
 
 async fn build_communities() -> Result<Router> {
-    let cfg = catalyrst_communities::config::Config::from_env()?;
-    let state = catalyrst_communities::build_state(&cfg).await?;
-    Ok(catalyrst_communities::api_router().with_state(state))
+    let cfg = catalyrst_social_service::rest::config::Config::from_env()?;
+    let state = catalyrst_social_service::rest::build_state(&cfg).await?;
+    Ok(catalyrst_social_service::rest::api_router().with_state(state))
 }
 
 async fn build_comms() -> Result<Router> {

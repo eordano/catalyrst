@@ -26,6 +26,7 @@ pub struct AccountFilters {
 }
 
 #[derive(Debug, Clone, Serialize, sqlx::FromRow)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "market/"))]
 pub struct Account {
     pub id: String,
     pub address: String,
@@ -51,9 +52,7 @@ impl AccountsComponent {
         filters: &AccountFilters,
     ) -> Result<(Vec<Account>, i64), ApiError> {
         const MAX_LIMIT: i64 = 1000;
-        // Clamp to non-negative: a negative `first`/`skip` becomes a negative
-        // SQL LIMIT/OFFSET which Postgres rejects (500). Matches the clamp_first/
-        // clamp_skip guards on the other market list endpoints.
+
         let limit = filters
             .first
             .map(|f| f.clamp(0, MAX_LIMIT))
@@ -125,7 +124,7 @@ impl AccountsComponent {
             offset_idx = offset_idx,
         );
 
-        let mut q = sqlx::query_as::<_, DbAccount>(&select_sql);
+        let mut q = sqlx::query_as::<_, DbAccount>(sqlx::AssertSqlSafe(select_sql));
         if let Some(ids) = &id_values {
             q = q.bind(ids);
         }
@@ -143,7 +142,7 @@ impl AccountsComponent {
             schema = MARKETPLACE_SQUID_SCHEMA,
             where_ = where_sql,
         );
-        let mut cq = sqlx::query_scalar::<_, i64>(&count_sql);
+        let mut cq = sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(count_sql));
         if let Some(ids) = &id_values {
             cq = cq.bind(ids);
         }

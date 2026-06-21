@@ -201,6 +201,7 @@
     <option value="ignored">ignored</option>
     <option value="all">all states</option>
   </select>
+  <input id="f-prop" placeholder="prop key:value" title="filter events: body.properties key:value (e.g. variant:guided)" style="min-width:150px;text-transform:none;letter-spacing:0">
   <span class="chip" id="tagchip" style="display:none;cursor:pointer;border-color:var(--acc);color:var(--fg)"></span>
   <span class="spacer" style="flex:1"></span>
   <span class="total" id="count">—</span>
@@ -226,7 +227,6 @@
 <div id="scrim"></div>
 <aside id="drawer"><div class="dhead" id="dhead"></div><div class="dbody" id="dbody"></div></aside>
 
-<!--SSR:boot-->
 <script>
 const $=s=>document.querySelector(s);
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -236,7 +236,7 @@ function rel(ts){ if(!ts)return''; const d=(Date.now()-new Date(ts).getTime())/1
   if(d<60)return Math.max(0,d|0)+'s ago'; if(d<3600)return (d/60|0)+'m ago';
   if(d<86400)return (d/3600|0)+'h ago'; return (d/86400|0)+'d ago'; }
 const LIMIT=100;
-const state={surface:'errors', tab:'issues', hours:24, q:'', level:'', kind:'', env:'', release:'', tag:'', sort:'recent', status:'unresolved', fingerprint:null, sessionId:null, imeta:null, live:true, offset:0, items:[]};
+const state={surface:'errors', tab:'issues', hours:24, q:'', level:'', kind:'', env:'', release:'', tag:'', prop:'', fprop:'', sort:'recent', status:'unresolved', fingerprint:null, sessionId:null, imeta:null, live:true, offset:0, items:[]};
 const isMetrics=()=>state.surface==='metrics';
 let timer=null, lastDetail=null, lastEventId=null, restoring=false, navLock=false;
 
@@ -318,6 +318,9 @@ const BOOT=(window.__BOOT__||{}), BOOT_CACHE=BOOT.cache||{};
 async function jget(u){
   if(Object.prototype.hasOwnProperty.call(BOOT_CACHE,u)){const d=BOOT_CACHE[u];delete BOOT_CACHE[u];return d;}
   const r=await fetch(u);if(!r.ok)throw new Error(await r.text());return r.json();}
+async function jpost(u,body){
+  const r=await fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  if(!r.ok)throw new Error(await r.text());return r.json();}
 function fillSelect(sel,pairs,cur){
   const keep=sel.querySelector('option').outerHTML;
   sel.innerHTML=keep+pairs.map(([k,c])=>`<option value="${esc(k)}"${k===cur?' selected':''}>${esc(k)} (${c})</option>`).join('');
@@ -418,7 +421,7 @@ async function assignIssue(fp,cur){
 async function loadList(reset=true){
   if(reset){state.offset=0;state.items=[];}
   const issues = state.tab==='issues' && !state.fingerprint;
-  const d=await jget('/dash/events?'+qs({group:issues?1:0,limit:LIMIT,offset:state.offset}));
+  const d=await jget('/dash/events?'+qs(Object.assign({group:issues?1:0,limit:LIMIT,offset:state.offset}, state.prop?{prop:state.prop}:{})));
   const got=d.items||[];
   state.items = reset ? got : state.items.concat(got);
   state.offset += got.length;
@@ -544,11 +547,11 @@ $('#tab-funnel').onclick=()=>setTab('funnel');
 $('#tab-breakdown').onclick=()=>setTab('breakdown');
 // top-level product-surface switch: Errors (sentry) / Metrics (segment) / Health (sessions) / Flags
 function setSurface(s){
-  state.surface=s; state.fingerprint=null; state.sessionId=null; state.q=''; state.level=''; state.env=''; state.release=''; state.tab='issues';
+  state.surface=s; state.fingerprint=null; state.sessionId=null; state.q=''; state.level=''; state.env=''; state.release=''; state.prop=''; state.tab='issues';
   state.kind = s==='errors'?'event':'';            // Issues = real errors only (sessions live under Health)
   state.status = s==='metrics'?'all':'unresolved';
   state.sort = s==='metrics'?'frequent':'recent';
-  $('#search').value=''; $('#search').placeholder = s==='metrics'?'search event…':'search title + body…';
+  $('#search').value=''; $('#f-prop').value=''; $('#search').placeholder = s==='metrics'?'search event…':'search title + body…';
   ['errors','metrics','health','flags','sql'].forEach(x=>$('#surf-'+x).classList.toggle('on',x===s));
   $('#ihead').classList.remove('show');
   const tableSurface = (s==='errors'||s==='metrics');
@@ -579,6 +582,7 @@ $('#f-source').style.display='none';  // source is selected by the Errors/Metric
 $('#f-env').onchange=e=>{state.env=e.target.value;refreshAll();};
 $('#f-release').onchange=e=>{state.release=e.target.value;refreshAll();};
 $('#f-status').onchange=e=>{state.status=e.target.value;loadList(true);};
+$('#f-prop').onchange=e=>{state.prop=e.target.value.trim();loadList(true);};
 $('#refresh').onclick=()=>{state.live=!state.live;$('#refresh').classList.toggle('on',state.live);schedule();};
 
 function showPanel(){$('#tableview').style.display='none';$('#panel').style.display='';}
@@ -626,8 +630,38 @@ async function loadFlags(){
     return `<tr><td><span class="lvl ${on?'ok':'none'}"></span> ${esc(n)}</td>
       <td>${on?'<span class="sbadge resolved">on</span>':'<span class="sbadge ignored">off</span>'}</td>
       <td class="tag">${v?esc(v.name||''):''}</td><td class="cnt">${obs[n]?obs[n].toLocaleString():'—'}</td></tr>`;}).join('');
+  let xp={}; try{xp=await jget('/dash/experiments');}catch(e){xp={};}
+  const xkeys=Object.keys(xp).sort();
+  const xrows=xkeys.map(k=>{const o=xp[k]||{};
+    const fl=(o.flags&&Object.keys(o.flags).length)?esc(JSON.stringify(o.flags)):'';
+    return `<tr><td>${esc(k)}</td>
+      <td>${o.killed?'<span class="sbadge" style="color:var(--err);border-color:var(--err)">killed</span>':'<span class="sbadge resolved">live</span>'}</td>
+      <td class="tag">${o.variant?esc(o.variant):'—'}</td>
+      <td class="tag" style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${fl}">${fl||'—'}</td>
+      <td class="acts"><button class="act" data-xedit="${esc(k)}" title="load into form">edit</button><button class="act" data-xclear="${esc(k)}" title="clear override">⊘</button></td></tr>`;}).join('');
   $('#panel').innerHTML=`<div class="when" style="margin-bottom:10px">${names.length} flags · live config from <b>${esc(f.source_url)}</b> · "observed" = times a flag appeared in event data (contexts.flags)</div>
-    <table><thead><tr><th>flag</th><th>state</th><th>variant</th><th class="cnt">observed</th></tr></thead><tbody>${rows||'<tr><td colspan=4 class="empty">flag service unreachable</td></tr>'}</tbody></table>`;
+    <table><thead><tr><th>flag</th><th>state</th><th>variant</th><th class="cnt">observed</th></tr></thead><tbody>${rows||'<tr><td colspan=4 class="empty">flag service unreachable</td></tr>'}</tbody></table>
+    <h3 class="sec" style="margin-top:22px">experiment overrides</h3>
+    <div class="when" style="margin-bottom:10px">${xkeys.length} active override${xkeys.length===1?'':'s'} · server-side kill switch / forced variant for sites experiments (POST /dash/experiment · read by /dash/experiments)</div>
+    <table><thead><tr><th>experiment</th><th>state</th><th>forced variant</th><th>flags</th><th></th></tr></thead><tbody>${xrows||'<tr><td colspan=5 class="empty">no overrides</td></tr>'}</tbody></table>
+    <div class="row" style="margin-top:14px;flex-wrap:wrap;gap:8px;align-items:center">
+      <input id="x-key" placeholder="exp_key" style="min-width:200px;text-transform:none;letter-spacing:0">
+      <label class="when" style="display:flex;align-items:center;gap:5px;margin:0"><input type="checkbox" id="x-killed" style="width:auto;min-width:0;padding:0"> kill</label>
+      <input id="x-variant" placeholder="force variant (optional)" style="min-width:170px;text-transform:none;letter-spacing:0">
+      <button id="x-save" class="on">save</button>
+      <button id="x-clear">clear</button>
+    </div>`;
+  $('#panel').querySelectorAll('[data-xedit]').forEach(b=>b.onclick=()=>{const k=b.dataset.xedit,o=xp[k]||{};
+    $('#x-key').value=k; $('#x-killed').checked=!!o.killed; $('#x-variant').value=o.variant||''; toast('loaded '+k);});
+  $('#panel').querySelectorAll('[data-xclear]').forEach(b=>b.onclick=()=>saveExperiment(b.dataset.xclear,{clear:true}));
+  $('#x-save').onclick=()=>{const k=$('#x-key').value.trim(); if(!k){toast('exp_key required');return;}
+    saveExperiment(k,{killed:$('#x-killed').checked, variant:$('#x-variant').value.trim()||null});};
+  $('#x-clear').onclick=()=>{const k=$('#x-key').value.trim(); if(!k){toast('exp_key required');return;} saveExperiment(k,{clear:true});};
+}
+async function saveExperiment(exp_key,opts){
+  try{ await jpost('/dash/experiment',Object.assign({exp_key},opts));
+    toast(opts.clear?('cleared '+exp_key):('saved '+exp_key)); loadFlags().catch(()=>{}); }
+  catch(e){ toast('failed: '+e.message); }
 }
 async function loadFunnel(){
   state._fsteps=state._fsteps||[];
@@ -635,16 +669,18 @@ async function loadFunnel(){
   const opts=(ev.by_event||[]).map(x=>`<option value="${esc(x[0])}">${esc(x[0])} (${x[1]})</option>`).join('');
   let res='<div class="when">add ≥2 steps to compute the funnel</div>';
   if(state._fsteps.length>=2){
-    const f=await jget('/dash/funnel?hours='+state.hours+'&steps='+encodeURIComponent(state._fsteps.join('|')));
+    const f=await jget('/dash/funnel?hours='+state.hours+'&steps='+encodeURIComponent(state._fsteps.join('|'))+(state.fprop?'&prop='+encodeURIComponent(state.fprop):''));
     const mx=Math.max(1,...f.steps.map(s=>s.users),1);
     res='<div class="funnel">'+f.steps.map((s,i)=>`<div class="fstep"><div class="fbar" style="width:${Math.max(2,Math.round(s.users/mx*100))}%"></div>
       <div class="flab"><b>${i+1}. ${esc(s.step)}</b> · ${s.users} users · ${s.pct_of_first.toFixed(0)}% of start${i>0?` · ${s.pct_of_prev.toFixed(0)}% of prev`:''}</div></div>`).join('')+'</div>';
   }
   $('#panel').innerHTML=`<h3 class="sec">conversion funnel</h3>
-    <div class="row" style="margin-bottom:12px"><select id="fadd"><option value="">+ add step…</option>${opts}</select>
+    <div class="row" style="margin-bottom:12px;flex-wrap:wrap"><select id="fadd"><option value="">+ add step…</option>${opts}</select>
+    <input id="fprop" placeholder="segment (prop key:value)" value="${esc(state.fprop||'')}" title="restrict the funnel population to events with body.properties key:value (e.g. variant:guided)" style="min-width:210px;text-transform:none;letter-spacing:0">
     ${state._fsteps.map((s,i)=>`<span class="chip">${i+1}. ${esc(s)}</span>`).join(' ')}
     ${state._fsteps.length?'<button id="fclear">clear</button>':''}</div>${res}`;
   $('#fadd').onchange=e=>{if(e.target.value){state._fsteps.push(e.target.value);loadFunnel();}};
+  $('#fprop').onchange=e=>{state.fprop=e.target.value.trim();loadFunnel();};
   if($('#fclear'))$('#fclear').onclick=()=>{state._fsteps=[];loadFunnel();};
 }
 async function loadBreakdown(){

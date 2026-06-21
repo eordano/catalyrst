@@ -1,18 +1,12 @@
-//! Verifies every new admin route fails closed (403) without a valid bearer.
-//!
-//! These routes are gated by `CATALYRST_EXPLORER_API_ADMIN_TOKEN`. With the env
-//! var unset the gate must 403 regardless of any (or no) Authorization header.
-
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use axum::Router;
-use tower::ServiceExt; // for `oneshot`
+use tower::ServiceExt;
 
 use catalyrst_explorer_api::config::Config;
 use catalyrst_explorer_api::{api_router, build_state};
 
 async fn app() -> Router {
-    // SAFETY-equivalent: ensure the token env is unset so the gate fails closed.
     std::env::remove_var("CATALYRST_EXPLORER_API_ADMIN_TOKEN");
     let cfg = Config::from_env().expect("config from env defaults");
     let state = build_state(&cfg).await.expect("build state");

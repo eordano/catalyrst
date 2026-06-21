@@ -4,8 +4,10 @@ use axum::Json;
 use serde::Deserialize;
 
 use crate::auth_chain::verify_signed_fetch;
+use crate::extract::{device_identifier, get_request_ip};
 use crate::http::{service_unavailable, unauthorized, ApiError};
 use crate::livekit::{build_adapter_url, community_voice_chat_room_name, AccessToken, VideoGrants};
+use crate::ports::player_connection::UpsertPlayerConnection;
 use crate::AppState;
 
 fn require_livekit(state: &AppState) -> Result<(), ApiError> {
@@ -33,27 +35,37 @@ pub async fn private_messages_token(
 ) -> Result<Json<serde_json::Value>, ApiError> {
     require_livekit(&state)?;
 
-    // Upstream gates this route with `authExplorer`, an authVerificationMiddleware
-    // whose `metadataValidator` requires `metadata.signer === 'dcl:explorer'`
-    // (routes.ts:102-105,157). Enforce the same signer-surface constraint via
-    // verify_signed_fetch: a chain minted for any other surface (a scene, a
-    // social-service request) is rejected before a token is ever issued.
-    let identity = verify_signed_fetch(
+    let sf = verify_signed_fetch(
         &headers,
         "get",
         "/private-messages/token",
         &["dcl:explorer"],
     )
-    .map(|sf| sf.signer)
-    .map_err(|e| ApiError::http(e.status, e.message))?
-    .to_lowercase();
+    .map_err(|e| ApiError::http(e.status, e.message))?;
+    let identity = sf.signer.to_lowercase();
 
-    // Defensive: an empty identity should never reach here past verify_signed_fetch.
     if identity.is_empty() {
         return Err(unauthorized("Access denied, invalid identity"));
     }
 
-    let banned = state.user_bans.is_banned(&identity).await?;
+    let ip_address = get_request_ip(&headers);
+    let device_id = device_identifier(&sf.metadata);
+    if let Err(e) = state
+        .player_connection
+        .upsert(UpsertPlayerConnection {
+            address: identity.clone(),
+            ip_address,
+            device_id: device_id.clone(),
+        })
+        .await
+    {
+        tracing::warn!(error = %e, address = %identity, "failed to store player connection info");
+    }
+
+    let banned = state
+        .user_bans
+        .is_banned_for_connection(&identity, device_id.as_deref())
+        .await?;
     if banned {
         return Err(unauthorized("Access denied, deny-listed wallet"));
     }
@@ -148,8 +160,6 @@ pub async fn create_private_voice_chat(
         ));
     }
 
-    // Mint MICROPHONE-only credentials and insert the users as `not_connected`;
-    // they flip to `connected` only when LiveKit fires participant_joined.
     let out = crate::voice_logic::get_private_voice_chat_room_credentials(
         &state,
         &body.room_id,
@@ -185,8 +195,6 @@ pub async fn end_private_voice_chat(
         ));
     }
 
-    // Removes every user from the room (404 if the caller was never in it),
-    // then tears down the LiveKit room. Faithful port of `endPrivateVoiceChat`.
     let users_in_room = crate::voice_logic::end_private_voice_chat(&state, &id, &address).await?;
 
     Ok(Json(
@@ -199,8 +207,7 @@ pub async fn get_voice_chat_status(
     Path(address): Path<String>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let address = address.to_lowercase();
-    // `getRoomUserIsIn` semantics: connected, interrupted-within-TTL, or
-    // not-connected-within-initial-TTL all count as "in a voice chat".
+
     let is_user_in_voice_chat = crate::voice_logic::is_user_in_voice_chat(&state, &address).await?;
 
     Ok(Json(serde_json::json!({
@@ -219,6 +226,29 @@ pub struct CommunityVoiceChatBody {
 
 fn is_moderator_role(role: &str) -> bool {
     matches!(role, "owner" | "moderator")
+}
+
+fn community_join_metadata(
+    role: &str,
+    is_speaker: bool,
+    profile_data: Option<&serde_json::Value>,
+) -> serde_json::Map<String, serde_json::Value> {
+    let mut metadata = serde_json::Map::new();
+    metadata.insert("role".into(), serde_json::json!(role));
+    metadata.insert("isSpeaker".into(), serde_json::json!(is_speaker));
+    metadata.insert("muted".into(), serde_json::json!(false));
+    if let Some(profile) = profile_data.and_then(|v| v.as_object()) {
+        if let Some(name) = profile.get("name") {
+            metadata.insert("name".into(), name.clone());
+        }
+        if let Some(claimed) = profile.get("has_claimed_name") {
+            metadata.insert("hasClaimedName".into(), claimed.clone());
+        }
+        if let Some(pic) = profile.get("profile_picture_url") {
+            metadata.insert("profilePictureUrl".into(), pic.clone());
+        }
+    }
+    metadata
 }
 
 pub async fn community_voice_chat_create_or_join(
@@ -245,21 +275,7 @@ pub async fn community_voice_chat_create_or_join(
 
     let room_name = community_voice_chat_room_name(&body.community_id);
 
-    let mut metadata = serde_json::Map::new();
-    metadata.insert("role".into(), serde_json::json!(role));
-    metadata.insert("isSpeaker".into(), serde_json::json!(is_speaker));
-    metadata.insert("muted".into(), serde_json::json!(false));
-    if let Some(profile) = body.profile_data.as_ref().and_then(|v| v.as_object()) {
-        if let Some(name) = profile.get("name") {
-            metadata.insert("name".into(), name.clone());
-        }
-        if let Some(claimed) = profile.get("has_claimed_name") {
-            metadata.insert("hasClaimedName".into(), claimed.clone());
-        }
-        if let Some(pic) = profile.get("profile_picture_url") {
-            metadata.insert("profilePictureUrl".into(), pic.clone());
-        }
-    }
+    let metadata = community_join_metadata(&role, is_speaker, body.profile_data.as_ref());
 
     let mut grants = VideoGrants::join(&room_name);
     grants.can_publish = is_speaker;
@@ -278,10 +294,6 @@ pub async fn community_voice_chat_create_or_join(
 
     let connection_url = build_adapter_url(&state.livekit_ws_url, &token);
 
-    // Insert the user as `not_connected` (upstream `joinUserToCommunityRoom`).
-    // They flip to `connected` only when LiveKit fires `participant_joined`;
-    // until then they count as active solely within the initial-connection TTL
-    // window driven by `isActiveCommunityUser`.
     state
         .voice_db
         .join_user_to_community_room(&user_address, &room_name, is_moderator_role(&role))
@@ -292,11 +304,6 @@ pub async fn community_voice_chat_create_or_join(
     ))
 }
 
-/// Computes the `(active, participantCount, moderatorCount)` triple for a
-/// community room using the upstream `isActiveCommunityUser` 3-tier predicate
-/// (connected, OR interrupted-within-TTL, OR not-connected-within-initial-TTL).
-/// A room is active iff it has at least one active moderator. Faithful port of
-/// `getCommunityVoiceChatStatus`.
 async fn community_status(
     state: &AppState,
     community_id: &str,
@@ -338,6 +345,12 @@ pub async fn community_voice_chat_status(
     }
     let (active, participant_count, moderator_count) =
         community_status(&state, &community_id).await?;
+
+    let (participant_count, moderator_count) = if active {
+        (participant_count, moderator_count)
+    } else {
+        (0, 0)
+    };
     Ok(Json(serde_json::json!({
         "active": active,
         "participant_count": participant_count,
@@ -350,10 +363,22 @@ pub struct BulkCommunityStatusBody {
     pub community_ids: Vec<String>,
 }
 
+const MAX_BULK_COMMUNITY_IDS: usize = 100;
+
+fn validate_bulk_community_ids(ids: &[String]) -> Result<(), ApiError> {
+    if ids.len() > MAX_BULK_COMMUNITY_IDS {
+        return Err(ApiError::bad_request(format!(
+            "community_ids must contain at most {MAX_BULK_COMMUNITY_IDS} items"
+        )));
+    }
+    Ok(())
+}
+
 pub async fn community_voice_chat_bulk_status(
     State(state): State<AppState>,
     Json(body): Json<BulkCommunityStatusBody>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
+    validate_bulk_community_ids(&body.community_ids)?;
     let mut data = Vec::with_capacity(body.community_ids.len());
     for community_id in &body.community_ids {
         let (active, participant_count, moderator_count) =
@@ -371,9 +396,6 @@ pub async fn community_voice_chat_bulk_status(
 pub async fn community_voice_chat_active(
     State(state): State<AppState>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    // Faithful port of `getAllActiveCommunityVoiceChats`: rooms with at least
-    // one active moderator, with their active participant + moderator counts
-    // computed by the shared 3-tier predicate.
     let active = state
         .voice_db
         .get_all_active_community_voice_chats()
@@ -421,16 +443,7 @@ pub async fn community_voice_chat_end(
         ));
     }
 
-    let room_name = community_voice_chat_room_name(&community_id);
-
-    sqlx::query("DELETE FROM community_voice_chat_users WHERE room_name = $1")
-        .bind(&room_name)
-        .execute(&state.pool)
-        .await?;
-
-    if let Err(e) = state.room_service().delete_room(&room_name).await {
-        tracing::warn!(error = %e, room = %room_name, "failed to delete livekit community voice room");
-    }
+    crate::voice_logic::end_community_voice_chat(&state, &community_id).await?;
 
     Ok(Json(serde_json::json!({
         "message": "Community voice chat ended successfully"
@@ -465,7 +478,6 @@ async fn merge_metadata(
         .map_err(|e| ApiError::internal(format!("livekit update participant metadata: {e}")))
 }
 
-/// POST .../speak-request — raise hand (request to speak).
 pub async fn community_request_to_speak(
     State(state): State<AppState>,
     Path((community_id, user_address)): Path<(String, String)>,
@@ -481,7 +493,6 @@ pub async fn community_request_to_speak(
     })))
 }
 
-/// DELETE .../speak-request — lower hand / reject a pending speak request.
 pub async fn community_reject_speak_request(
     State(state): State<AppState>,
     Path((community_id, user_address)): Path<(String, String)>,
@@ -497,7 +508,6 @@ pub async fn community_reject_speak_request(
     })))
 }
 
-/// POST .../speaker — promote a listener to speaker (grant publish).
 pub async fn community_promote_speaker(
     State(state): State<AppState>,
     Path((community_id, user_address)): Path<(String, String)>,
@@ -531,7 +541,6 @@ pub async fn community_promote_speaker(
     })))
 }
 
-/// DELETE .../speaker — demote a speaker to listener (revoke publish).
 pub async fn community_demote_speaker(
     State(state): State<AppState>,
     Path((community_id, user_address)): Path<(String, String)>,
@@ -565,7 +574,6 @@ pub async fn community_demote_speaker(
     })))
 }
 
-/// DELETE .../users/:userAddress — kick a participant out of the room.
 pub async fn community_kick_player(
     State(state): State<AppState>,
     Path((community_id, user_address)): Path<(String, String)>,
@@ -599,8 +607,6 @@ pub struct MuteSpeakerBody {
     pub muted: bool,
 }
 
-/// PATCH .../mute — mute / unmute a speaker. Metadata flag only; the client
-/// enforces the mute (matches upstream).
 pub async fn community_mute_speaker(
     State(state): State<AppState>,
     Path((community_id, user_address)): Path<(String, String)>,
@@ -623,9 +629,7 @@ pub async fn check_user_community_status(
     Path(user_address): Path<String>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let user_address = user_address.to_lowercase();
-    // Faithful port of `isUserInAnyCommunityVoiceChat`: the user is "in" a
-    // community voice chat when they have an active status (connected, OR
-    // interrupted-within-TTL, OR not-connected-within-initial-TTL) in any room.
+
     let is_in = state
         .voice_db
         .is_user_in_any_community_voice_chat(&user_address)
@@ -635,4 +639,148 @@ pub async fn check_user_community_status(
         "userAddress": user_address,
         "isInCommunityVoiceChat": is_in,
     })))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn private_voice_chat_body_deserializes_snake_case() {
+        let body: PrivateVoiceChatBody = serde_json::from_str(
+            r#"{ "room_id": "call-1", "user_addresses": ["0xAAA", "0xBBB"] }"#,
+        )
+        .unwrap();
+        assert_eq!(body.room_id, "call-1");
+        assert_eq!(body.user_addresses, vec!["0xAAA", "0xBBB"]);
+    }
+
+    #[test]
+    fn end_private_voice_chat_body_optional_address() {
+        let with: EndPrivateVoiceChatBody =
+            serde_json::from_str(r#"{ "address": "0xabc" }"#).unwrap();
+        assert_eq!(with.address.as_deref(), Some("0xabc"));
+        let without: EndPrivateVoiceChatBody = serde_json::from_str("{}").unwrap();
+        assert!(without.address.is_none());
+    }
+
+    #[test]
+    fn community_voice_chat_body_optional_fields() {
+        let full: CommunityVoiceChatBody = serde_json::from_str(
+            r#"{ "community_id": "c1", "user_address": "0xabc", "user_role": "owner",
+                 "action": "create",
+                 "profile_data": { "name": "Foo", "has_claimed_name": true,
+                                   "profile_picture_url": "http://x/y.png" } }"#,
+        )
+        .unwrap();
+        assert_eq!(full.community_id, "c1");
+        assert_eq!(full.user_role.as_deref(), Some("owner"));
+        assert_eq!(full.action.as_deref(), Some("create"));
+        assert!(full.profile_data.is_some());
+
+        let minimal: CommunityVoiceChatBody =
+            serde_json::from_str(r#"{ "community_id": "c1", "user_address": "0xabc" }"#).unwrap();
+        assert!(minimal.user_role.is_none());
+        assert!(minimal.action.is_none());
+        assert!(minimal.profile_data.is_none());
+    }
+
+    #[test]
+    fn mute_and_bulk_bodies_deserialize() {
+        let mute: MuteSpeakerBody = serde_json::from_str(r#"{ "muted": true }"#).unwrap();
+        assert!(mute.muted);
+        let bulk: BulkCommunityStatusBody =
+            serde_json::from_str(r#"{ "community_ids": ["a", "b"] }"#).unwrap();
+        assert_eq!(bulk.community_ids, vec!["a", "b"]);
+    }
+
+    #[test]
+    fn bulk_community_ids_bounded_at_100() {
+        let at_limit: Vec<String> = (0..100).map(|i| format!("c{i}")).collect();
+        assert!(validate_bulk_community_ids(&at_limit).is_ok());
+
+        let over_limit: Vec<String> = (0..101).map(|i| format!("c{i}")).collect();
+        let err = validate_bulk_community_ids(&over_limit).unwrap_err();
+        assert_eq!(err.code, 400);
+    }
+
+    #[test]
+    fn create_action_with_moderator_role_is_speaker() {
+        assert!(is_moderator_role("owner"));
+        assert!(is_moderator_role("moderator"));
+        assert!(!is_moderator_role("member"));
+        assert!(!is_moderator_role("none"));
+    }
+
+    #[test]
+    fn community_join_metadata_create_owner_is_speaker() {
+        let md = community_join_metadata("owner", true, None);
+        assert_eq!(md["role"], "owner");
+        assert_eq!(md["isSpeaker"], true);
+        assert_eq!(md["muted"], false);
+
+        assert!(!md.contains_key("name"));
+        assert_eq!(md.len(), 3);
+    }
+
+    #[test]
+    fn community_join_metadata_carries_profile_camelcased() {
+        let profile = serde_json::json!({
+            "name": "Foo",
+            "has_claimed_name": true,
+            "profile_picture_url": "http://x/y.png"
+        });
+        let md = community_join_metadata("member", false, Some(&profile));
+        assert_eq!(md["isSpeaker"], false);
+        assert_eq!(md["name"], "Foo");
+        assert_eq!(md["hasClaimedName"], true);
+        assert_eq!(md["profilePictureUrl"], "http://x/y.png");
+    }
+
+    #[test]
+    fn community_join_metadata_omits_absent_profile_keys() {
+        let profile = serde_json::json!({ "name": "Foo" });
+        let md = community_join_metadata("member", false, Some(&profile));
+        assert_eq!(md["name"], "Foo");
+        assert!(!md.contains_key("hasClaimedName"));
+        assert!(!md.contains_key("profilePictureUrl"));
+    }
+
+    #[test]
+    fn single_status_response_keys_are_snake_case() {
+        let body = serde_json::json!({
+            "active": true,
+            "participant_count": 3,
+            "moderator_count": 1,
+        });
+        let obj = body.as_object().unwrap();
+        assert_eq!(obj.len(), 3);
+        assert!(obj.contains_key("active"));
+        assert!(obj.contains_key("participant_count"));
+        assert!(obj.contains_key("moderator_count"));
+    }
+
+    #[test]
+    fn active_list_response_keys_are_camel_case() {
+        let entry = serde_json::json!({
+            "communityId": "c1",
+            "participantCount": 2,
+            "moderatorCount": 1,
+        });
+        let obj = entry.as_object().unwrap();
+        assert!(obj.contains_key("communityId"));
+        assert!(obj.contains_key("participantCount"));
+        assert!(obj.contains_key("moderatorCount"));
+    }
+
+    #[test]
+    fn user_community_status_response_keys_are_camel_case() {
+        let body = serde_json::json!({
+            "userAddress": "0xabc",
+            "isInCommunityVoiceChat": false,
+        });
+        let obj = body.as_object().unwrap();
+        assert!(obj.contains_key("userAddress"));
+        assert!(obj.contains_key("isInCommunityVoiceChat"));
+    }
 }

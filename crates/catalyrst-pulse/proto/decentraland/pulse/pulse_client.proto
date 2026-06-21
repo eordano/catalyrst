@@ -2,47 +2,39 @@ syntax = "proto3";
 
 package decentraland.pulse;
 
-import "decentraland/common/vectors.proto";
+import "decentraland/common/options.proto";
 import "decentraland/pulse/pulse_shared.proto";
 
 message HandshakeRequest {
 	bytes auth_chain = 1;
   int32 profile_version = 2;
   optional PlayerInitialState initial_state = 3;
+  // Capability bitmask the client offers (absent/0 = the baseline quantized wire; the server masks off unknown bits and negotiates the intersection with its own features, so an old or new peer stays interoperable).
+  uint32 protocol_features = 4;
 }
 
-// Describes the initial state of the player if (re-)connected in the middle of the session
 message PlayerInitialState {
   PlayerState state = 1;
   optional string emote_id = 2;
   optional uint32 emote_duration_ms = 3;
-  // Indicates how many milliseconds ago the emote was started
   optional uint32 emote_start_offset_ms = 4;
-  // Non-empty realm identifier. Rejected if empty.
   string realm = 5;
   optional int32 emote_mask = 6;
 }
 
-// Similarly to the LiveKit pipeline, a peer announces the version of its profile but
-// it only does it when it's changed as it's sent reliably and stored on the server for other peers
 message ProfileVersionAnnouncement {
   int32 version = 1;
 }
 
-// Since the server doesn't simulate the scenes state, it trusts the values from the client
 message PlayerStateInput {
   PlayerState state = 1;
 }
 
-// Client sends resync request if it has a gap in the known sequences and, thus, can't apply a delta.
-// It's sent reliably to prevent further desynchronization
 message ResyncRequest {
   uint32 subject_id = 1;
-  // highest seq the client actually has for this subject
   uint32 known_seq = 2;
 }
 
-// Client → Server. Client requests to start an emote.
 message EmoteStart {
   string emote_id = 1;
   optional uint32 duration_ms = 2;
@@ -50,18 +42,36 @@ message EmoteStart {
   optional int32 mask = 4;
 }
 
-// Client → Server. Client requests to stop a looping emote.
-// One-shot emotes are terminated by the server timer.
 message EmoteStop {
 }
 
-// Client → Server. Also announces the peer's realm; peers in different realms never see each
-// other. Must be the first gameplay message after handshake. Same-realm re-teleports are valid.
+// Also announces the peer's realm; peers in different realms never see each other.
 message TeleportRequest {
   int32 parcel_index = 1;
-  decentraland.common.Vector3 position = 2;
+  uint32 position_x = 2 [(decentraland.common.quantized) = { min: 0, max: 16, bits: 8 }];
+  uint32 position_y = 3 [(decentraland.common.quantized) = { min: 0, max: 200, bits: 13 }];
+  uint32 position_z = 4 [(decentraland.common.quantized) = { min: 0, max: 16, bits: 8 }];
   // Non-empty realm identifier. Rejected if empty.
-  string realm = 3;
+  string realm = 5;
+}
+
+// Rectangular parcel-coordinate span, inclusive on both corners. sint32 so negative parcel
+// coords (Genesis City is centered on 0,0) stay compact.
+message ParcelRect {
+  sint32 min_x = 1;
+  sint32 min_z = 2;
+  sint32 max_x = 3;
+  sint32 max_z = 4;
+}
+
+// Scene-listener connect: same signed-fetch auth chain as HandshakeRequest, plus an immutable
+// rect-set area of interest. Never sends state; never becomes a subject.
+message SceneListenerHandshakeRequest {
+  bytes auth_chain = 1;
+  string realm = 2;
+  repeated ParcelRect parcel_rects = 3;
+  // Local extension mirroring HandshakeRequest.protocol_features; a #29 client omitting it decodes to 0 = baseline wire.
+  uint32 protocol_features = 4;
 }
 
 message ClientMessage {
@@ -73,5 +83,6 @@ message ClientMessage {
     EmoteStart emote_start = 5;
     EmoteStop emote_stop = 6;
     TeleportRequest teleport = 7;
+    SceneListenerHandshakeRequest scene_listener_handshake = 8;
   }
 }

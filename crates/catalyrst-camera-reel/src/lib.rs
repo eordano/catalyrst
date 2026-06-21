@@ -70,6 +70,7 @@ pub async fn build_state(cfg: Config) -> Result<AppState> {
 pub fn api_router() -> Router<AppState> {
     let api = Router::new()
         .route("/images", post(handlers::images::upload_image))
+        .route("/images-json", post(handlers::images::upload_image_json))
         .route("/images/{image_id}", get(handlers::images::get_image))
         .route("/images/{image_id}", delete(handlers::images::delete_image))
         .route(
@@ -98,8 +99,6 @@ pub fn api_router() -> Router<AppState> {
         .route("/docs/ui/", get(docs::swagger_ui))
         .route("/docs/ui/{*rest}", get(docs::swagger_ui));
 
-    // Moderator admin routes. Bearer-gated (CATALYRST_CAMERA_REEL_ADMIN_TOKEN),
-    // mounted at top level to match the admin-console spec paths exactly.
     let admin = Router::new()
         .route(
             "/admin/images/{image_id}",

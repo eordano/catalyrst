@@ -1,10 +1,10 @@
 use std::env;
 
+use alloy::signers::{local::PrivateKeySigner, Signer};
 use catalyrst_fed::Signed;
 use catalyrst_market::fed::market_domain;
 use catalyrst_market::fed::messages::BidPlace;
-use ethers_signers::{LocalWallet, Signer};
-use rand::RngCore;
+use rand::Rng;
 use serde_json::Value;
 
 #[tokio::main]
@@ -17,12 +17,12 @@ async fn main() -> anyhow::Result<()> {
         .unwrap_or_else(|| "0xdeadbeef0000000000000000000000000000beef-0".into());
 
     let mut key = [0u8; 32];
-    rand::thread_rng().fill_bytes(&mut key);
+    rand::rng().fill_bytes(&mut key);
     key[0] |= 1;
-    let wallet: LocalWallet = LocalWallet::from_bytes(&key)?;
+    let wallet: PrivateKeySigner = PrivateKeySigner::from_slice(&key)?;
     let addr = format!("{:#x}", wallet.address());
 
-    let ephemeral: LocalWallet = LocalWallet::new(&mut rand::thread_rng());
+    let ephemeral: PrivateKeySigner = PrivateKeySigner::random();
     let ephemeral_addr = format!("{:#x}", ephemeral.address());
 
     let ephemeral_payload = format!(
@@ -30,17 +30,17 @@ async fn main() -> anyhow::Result<()> {
         ephemeral_addr
     );
     let ephemeral_sig = wallet.sign_message(ephemeral_payload.as_bytes()).await?;
-    let ephemeral_sig_hex = format!("0x{}", ephemeral_sig);
+    let ephemeral_sig_hex = ephemeral_sig.to_string();
 
     let ts_ms = chrono::Utc::now().timestamp_millis();
     let path = "/v1/federation/bid";
     let metadata = "{}";
     let canonical = format!("post:{}:{}:{}", path, ts_ms, metadata).to_lowercase();
     let entity_sig = ephemeral.sign_message(canonical.as_bytes()).await?;
-    let entity_sig_hex = format!("0x{}", entity_sig);
+    let entity_sig_hex = entity_sig.to_string();
 
     let mut nonce = [0u8; 16];
-    rand::thread_rng().fill_bytes(&mut nonce);
+    rand::rng().fill_bytes(&mut nonce);
 
     let now_s = ts_ms / 1000;
     let message = BidPlace {
@@ -59,8 +59,8 @@ async fn main() -> anyhow::Result<()> {
         signature: String::new(),
     };
     let hash = signed.hash();
-    let inner = wallet.sign_message(hash).await?;
-    signed.signature = format!("0x{}", inner);
+    let inner = wallet.sign_message(&hash).await?;
+    signed.signature = inner.to_string();
 
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(10))

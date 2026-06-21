@@ -1,14 +1,3 @@
-//! In-memory runtime config store.
-//!
-//! The crate's `Config` (see `config.rs`) is loaded once from env at startup and
-//! is immutable thereafter. This module adds a separate, bearer-gated key/value
-//! store that lives only in memory (an `RwLock<BTreeMap>`), so an operator can
-//! stash runtime overrides / notes that the console can read back during a
-//! process lifetime. It is intentionally *not* persisted and does not mutate the
-//! startup `Config` — nothing in the request path reads it yet, so there is no
-//! risk of it silently changing realm/upstream behavior. It is a durable place
-//! for the console to record operator intent until per-key wiring lands.
-
 use crate::modules::admin_auth::require_admin;
 use crate::AppState;
 use axum::extract::{Path, State};

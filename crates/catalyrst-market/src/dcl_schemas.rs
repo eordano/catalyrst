@@ -1,6 +1,11 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "market/", rename_all = "snake_case")
+)]
 #[serde(rename_all = "snake_case")]
 pub enum NftCategory {
     Parcel,
@@ -10,21 +15,26 @@ pub enum NftCategory {
     Emote,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "market/", rename_all = "UPPERCASE")
+)]
 #[serde(rename_all = "UPPERCASE")]
 pub enum Network {
     Ethereum,
     Matic,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "UPPERCASE")]
 pub enum SquidNetwork {
     Ethereum,
     Polygon,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(into = "u64", try_from = "u64")]
 pub enum ChainId {
     EthereumMainnet = 1,
@@ -53,12 +63,18 @@ impl TryFrom<u64> for ChainId {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "market/", rename_all = "camelCase")
+)]
 pub struct Contract {
     pub name: String,
     pub address: String,
     pub category: NftCategory,
     pub network: Network,
     #[serde(rename = "chainId")]
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub chain_id: ChainId,
 }
 
@@ -80,5 +96,58 @@ pub fn polygon_chain_id() -> ChainId {
     match std::env::var("POLYGON_CHAIN_ID").as_deref() {
         Ok("80002") => ChainId::MaticAmoy,
         _ => ChainId::MaticMainnet,
+    }
+}
+
+pub fn peer_base_url() -> Option<String> {
+    match std::env::var("PEER_BASE_URL") {
+        Ok(v) if !v.trim().is_empty() => Some(v.trim().trim_end_matches('/').to_string()),
+        _ => None,
+    }
+}
+
+pub fn repoint_content_url(url: &str) -> String {
+    match peer_base_url() {
+        Some(base) => repoint_content_url_to(url, &base),
+        None => url.to_string(),
+    }
+}
+
+pub fn repoint_content_url_to(url: &str, base: &str) -> String {
+    let Some(scheme_end) = url.find("://") else {
+        return url.to_string();
+    };
+    match url[scheme_end + 3..].find('/') {
+        Some(path_at) => format!("{base}{}", &url[scheme_end + 3 + path_at..]),
+        None => url.to_string(),
+    }
+}
+
+#[cfg(test)]
+mod repoint_tests {
+    use super::repoint_content_url_to;
+
+    #[test]
+    fn repoints_host_keeps_path() {
+        assert_eq!(
+            repoint_content_url_to(
+                "https://peer.decentraland.org/lambdas/collections/contents/urn:x/thumbnail",
+                "https://catalyst.example.org",
+            ),
+            "https://catalyst.example.org/lambdas/collections/contents/urn:x/thumbnail"
+        );
+    }
+
+    #[test]
+    fn leaves_non_urls_untouched() {
+        assert_eq!(
+            repoint_content_url_to("urn:decentraland:x", "https://c"),
+            "urn:decentraland:x"
+        );
+        assert_eq!(repoint_content_url_to("", "https://c"), "");
+        assert_eq!(
+            repoint_content_url_to("https://host-no-path", "https://c"),
+            "https://host-no-path"
+        );
     }
 }

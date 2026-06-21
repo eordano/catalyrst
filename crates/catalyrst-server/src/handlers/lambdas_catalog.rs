@@ -18,9 +18,6 @@ use crate::state::AppState;
 const OUTFITS_CACHE_TTL: Duration = Duration::from_secs(60);
 const OUTFITS_CACHE_MAX_ENTRIES: usize = 50_000;
 
-// The full collection list comes from two external subgraph round-trips (~4s)
-// and changes slowly; without a cache every /nfts/collections hit paid that
-// cost. Cache the assembled response for a few minutes, keyed by network.
 const COLLECTIONS_CACHE_TTL: Duration = Duration::from_secs(300);
 
 fn collections_cache() -> &'static Arc<ResponseCache<String, Value>> {
@@ -276,7 +273,7 @@ async fn fetch_item_urns(
     sql.push_str(&format!(" ORDER BY urn ASC LIMIT ${idx}"));
     binds.push(Bind::Int(limit + 1));
 
-    let mut q = sqlx::query_scalar::<_, String>(&sql);
+    let mut q = sqlx::query_scalar::<_, String>(sqlx::AssertSqlSafe(sql));
     for b in binds {
         q = match b {
             Bind::Text(s) => q.bind(s),
@@ -582,10 +579,6 @@ pub async fn nfts_collections(State(state): State<Arc<AppState>>) -> Response {
                 json!({ "id": BASE_EMOTES_COLLECTION_ID, "name": "Base Emotes" }),
             ];
 
-            // Prefer the LOCAL marketplace squid (self-contained, instant) —
-            // verified urn-set/ordering parity with the subgraph. Fall back to
-            // the external collections subgraphs when no squid pool is wired or
-            // the local query yields nothing.
             let local: Vec<(String, String)> = if let Some(pool) = pool.as_ref() {
                 let (eth, poly) = tokio::join!(
                     external_graph::collections_from_squid(
@@ -626,8 +619,7 @@ pub async fn nfts_collections(State(state): State<Arc<AppState>>) -> Response {
 
     match cached {
         Ok(v) => Json(v).into_response(),
-        // Cache helper is infallible here (closure returns Ok); fall back to the
-        // base collections if it ever errors.
+
         Err(_) => Json(json!({ "collections": [
             json!({ "id": BASE_AVATARS_COLLECTION_ID, "name": "Base Wearables" }),
             json!({ "id": BASE_EMOTES_COLLECTION_ID, "name": "Base Emotes" }),
@@ -649,15 +641,9 @@ pub async fn outfits(State(state): State<Arc<AppState>>, Path(id): Path<String>)
             };
 
             let owned_names: Vec<String> = match state_arc.squid_pool.as_ref() {
-                Some(pool) => sqlx::query_scalar::<_, String>(
-                    "SELECT name FROM squid_marketplace.nft \
-                     WHERE category = 'ens' AND owner_address = lower($1) \
-                     ORDER BY id ASC",
-                )
-                .bind(&address_for_fetch)
-                .fetch_all(pool)
-                .await
-                .unwrap_or_default(),
+                Some(pool) => {
+                    super::profile_processing::fetch_owned_ens_names(pool, &address_for_fetch).await
+                }
                 None => Vec::new(),
             };
 

@@ -24,8 +24,6 @@ pub async fn get_trades(
     State(state): State<AppState>,
     Query(pairs): Query<Vec<(String, String)>>,
 ) -> Result<Json<TradesEnvelope>, ApiError> {
-    // `first`/`skip` are honored only when the trades_pagination flag is on;
-    // otherwise list_trades ignores them and returns the full table (parity).
     let first = get_number_parameter("first", &pairs)?;
     let skip = get_number_parameter("skip", &pairs)?;
     let (data, count) = state.trades.list_trades(first, skip).await?;

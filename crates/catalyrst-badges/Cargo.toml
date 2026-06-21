@@ -1,6 +1,6 @@
 [package]
 name = "catalyrst-badges"
-version = "0.1.0"
+version = "0.12.0"
 edition = "2021"
 description = "Rust port of decentraland/badges (REST API for badges.decentraland.org), read-only profile badge state over a dedicated postgres DB"
 
@@ -9,9 +9,9 @@ name = "catalyrst-badges"
 path = "src/main.rs"
 
 [dependencies]
+catalyrst-envcfg = { workspace = true }
 tokio = { workspace = true }
 axum = { workspace = true }
-tower = { workspace = true }
 tower-http = { workspace = true }
 sqlx = { workspace = true, features = ["migrate"] }
 serde = { workspace = true }
@@ -21,5 +21,4 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 thiserror = { workspace = true }
 anyhow = { workspace = true }
-url = { workspace = true }
 moka = { version = "0.12", features = ["future"] }

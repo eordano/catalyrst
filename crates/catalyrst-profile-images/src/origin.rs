@@ -6,17 +6,14 @@ use crate::cache::ImageKind;
 
 const MAX_IMAGE_BYTES: usize = 8 * 1024 * 1024;
 
-/// Result of an origin pull.
 pub enum OriginResult {
-    /// Image bytes (PNG) fetched successfully.
     Hit(Bytes),
-    /// Origin returned 404 — the entity has no rendered image (yet).
+
     NotFound,
-    /// Origin or transport failure; the caller should surface 502.
+
     Error(String),
 }
 
-/// Pulls `{face,body}.png` from an upstream profile-images deployment.
 pub struct Origin {
     client: reqwest::Client,
     base_url: String,
@@ -36,7 +33,6 @@ impl Origin {
         }
     }
 
-    /// Mirrors the upstream S3/CDN key: `/entities/{entity}/{face|body}.png`.
     pub async fn fetch(&self, entity: &str, kind: ImageKind) -> OriginResult {
         let url = format!("{}/entities/{}/{}", self.base_url, entity, kind.filename());
         let resp = match self.client.get(&url).send().await {

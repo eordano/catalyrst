@@ -20,11 +20,6 @@ pub fn auth_address_required(headers: &HeaderMap) -> Result<String, crate::http:
         .ok_or_else(|| crate::http::errors::ApiError::unauthorized("Invalid authentication"))
 }
 
-/// Authoritative auth for write paths: verify the full signed-fetch auth chain
-/// (signature + ephemeral + timestamp) over `method:path:ts:metadata` and return
-/// the *verified* lowercased signer. Upstream places gates favorites/likes/report
-/// behind `withAuth` (decentraland-gatsby signed-fetch); reading the unverified
-/// SIGNER address would let any wallet forge actions as any user.
 pub fn auth_address_verified(
     headers: &HeaderMap,
     method: &str,
@@ -64,9 +59,26 @@ pub fn require_bearer_token(
     }
 }
 
-/// Constant-time string comparison (mirrors catalyrst-comms
-/// `moderator::timing_safe_eq`). Avoids leaking the admin token via the
-/// early-exit timing of `==`.
+pub fn require_ranking_token(
+    headers: &HeaderMap,
+    data_team: Option<&str>,
+    admin: Option<&str>,
+) -> Result<(), crate::http::errors::ApiError> {
+    let token = bearer_token(headers)
+        .ok_or_else(|| crate::http::errors::ApiError::unauthorized("Invalid authentication"))?;
+    if [data_team, admin]
+        .into_iter()
+        .flatten()
+        .any(|expected| timing_safe_eq(&token, expected))
+    {
+        Ok(())
+    } else {
+        Err(crate::http::errors::ApiError::unauthorized(
+            "Invalid authentication",
+        ))
+    }
+}
+
 pub fn timing_safe_eq(a: &str, b: &str) -> bool {
     if a.len() != b.len() {
         return false;
@@ -78,11 +90,6 @@ pub fn timing_safe_eq(a: &str, b: &str) -> bool {
     diff == 0
 }
 
-/// Gate for the LATER admin-console routes (moderation queue, place
-/// disable/soft-delete, POI CRUD). **Fails closed:** when the admin token env
-/// is unset, `expected` is `None` and every call returns 403 (default-safe per
-/// admin-console.md §4). Compares the presented `Authorization: Bearer <token>`
-/// in constant time.
 pub fn require_admin_bearer(
     headers: &HeaderMap,
     expected: Option<&str>,

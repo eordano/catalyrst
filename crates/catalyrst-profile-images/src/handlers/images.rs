@@ -21,29 +21,24 @@ async fn serve(state: AppState, entity: String, kind: ImageKind) -> Response {
         return (StatusCode::BAD_REQUEST, "invalid entity id").into_response();
     }
 
-    // 1. Serve from disk cache if fresh.
     if let Some(bytes) = state.cache.get(&entity, kind).await {
         return png_response(bytes, "HIT");
     }
 
-    // 2. Cache miss — primary path: render locally.
     if let Some(queue) = state.render_queue.as_ref() {
         match queue.render_once(&entity).await {
             RenderOutcome::Rendered => {
-                // The render wrote both PNGs into the cache; re-read the one
-                // this request wants.
                 if let Some(bytes) = state.cache.get(&entity, kind).await {
                     return png_response(bytes, "RENDER");
                 }
                 tracing::error!(entity = %entity, kind = ?kind, "render reported success but cache miss");
-                // Fall through to fallback / error below.
             }
             RenderOutcome::NotFound => {
                 return (StatusCode::NOT_FOUND, "image not available").into_response();
             }
             RenderOutcome::Failed(e) => {
                 tracing::error!(entity = %entity, kind = ?kind, error = %e, "local render failed");
-                // Only fall back to the proxy if explicitly enabled.
+
                 if !state.render_fallback_proxy {
                     return (StatusCode::BAD_GATEWAY, "avatar render failed").into_response();
                 }
@@ -51,10 +46,6 @@ async fn serve(state: AppState, entity: String, kind: ImageKind) -> Response {
         }
     }
 
-    // 3. Proxy: the primary path for `proxy` backend, or the explicit
-    //    last-resort fallback for `render` (only reached when a render failed
-    //    and PROFILE_IMAGES_RENDER_FALLBACK_PROXY is set, or when render
-    //    succeeded-but-vanished from cache).
     let Some(origin) = state.origin.as_ref() else {
         return (StatusCode::NOT_FOUND, "image not available").into_response();
     };

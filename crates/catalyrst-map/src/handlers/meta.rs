@@ -66,15 +66,16 @@ async fn get_parcel_inner(state: &AppState, x: String, y: String) -> Response {
         LIMIT 1
         "#
     );
-    let row: Option<(String, Option<String>, Option<String>)> = match sqlx::query_as(&sql)
-        .bind(xi as i64)
-        .bind(yi as i64)
-        .fetch_optional(&state.pool)
-        .await
-    {
-        Ok(r) => r,
-        Err(e) => return internal_error(&e),
-    };
+    let row: Option<(String, Option<String>, Option<String>)> =
+        match sqlx::query_as(sqlx::AssertSqlSafe(sql))
+            .bind(xi as i64)
+            .bind(yi as i64)
+            .fetch_optional(&state.pool)
+            .await
+        {
+            Ok(r) => r,
+            Err(e) => return internal_error(&e),
+        };
 
     let Some((token_id, name, description)) = row else {
         return not_found();
@@ -143,16 +144,17 @@ async fn build_estate_nft(state: &AppState, id: &str) -> Result<Option<Value>, s
         LIMIT 1
         "#
     );
-    let row: Option<(Option<i32>, Option<String>, Option<String>)> = sqlx::query_as(&sql)
-        .bind(&full_id)
-        .fetch_optional(&state.pool)
-        .await?;
+    let row: Option<(Option<i32>, Option<String>, Option<String>)> =
+        sqlx::query_as(sqlx::AssertSqlSafe(sql))
+            .bind(&full_id)
+            .fetch_optional(&state.pool)
+            .await?;
     let Some((size, name, description)) = row else {
         return Ok(None);
     };
 
     let coords_sql = format!("SELECT x::int4, y::int4 FROM {schema}.parcel WHERE estate_id = $1");
-    let coords: Vec<(i32, i32)> = sqlx::query_as(&coords_sql)
+    let coords: Vec<(i32, i32)> = sqlx::query_as(sqlx::AssertSqlSafe(coords_sql))
         .bind(&full_id)
         .fetch_all(&state.pool)
         .await?;
@@ -188,7 +190,7 @@ async fn build_dissolved_estate(state: &AppState, id: &str) -> Result<Option<Val
         LIMIT 1
         "#
     );
-    let row: Option<(Option<String>, Option<String>)> = sqlx::query_as(&sql)
+    let row: Option<(Option<String>, Option<String>)> = sqlx::query_as(sqlx::AssertSqlSafe(sql))
         .bind(&full_id)
         .fetch_optional(&state.pool)
         .await?;
@@ -196,17 +198,31 @@ async fn build_dissolved_estate(state: &AppState, id: &str) -> Result<Option<Val
         return Ok(None);
     };
 
-    Ok(Some(json!({
+    Ok(Some(dissolved_estate_nft(
+        id,
+        name.unwrap_or_default(),
+        description.unwrap_or_default(),
+        state.map.estate_contract(),
+    )))
+}
+
+fn dissolved_estate_nft(
+    id: &str,
+    name: String,
+    description: String,
+    estate_contract: &str,
+) -> Value {
+    json!({
         "id": id,
-        "name": name.unwrap_or_default(),
-        "description": description.unwrap_or_default(),
+        "name": name,
+        "description": description,
         "image": format!("{IMAGE_BASE_URL}/estates/{id}/map.png?size=24&width=1024&height=1024"),
-        "external_url": format!("{EXTERNAL_BASE_URL}/contracts/{}/tokens/{}", state.map.estate_contract(), id),
+        "external_url": format!("{EXTERNAL_BASE_URL}/contracts/{estate_contract}/tokens/{id}"),
         "background_color": "000000",
         "attributes": [
             { "trait_type": "Size", "value": 0, "display_type": "number" },
         ],
-    })))
+    })
 }
 
 pub async fn get_token(
@@ -238,7 +254,7 @@ async fn get_token_inner(state: &AppState, address: String, id: String) -> (Resp
         let sql = format!(
             "SELECT x::int4, y::int4 FROM {schema}.parcel WHERE token_id = $1::numeric LIMIT 1"
         );
-        let row: Option<(i32, i32)> = match sqlx::query_as(&sql)
+        let row: Option<(i32, i32)> = match sqlx::query_as(sqlx::AssertSqlSafe(sql))
             .bind(&id)
             .fetch_optional(&state.pool)
             .await
@@ -312,4 +328,64 @@ pub async fn get_contributions(
     let resp = Json(json!({ "ok": true, "data": crate::districts::contributions_for(&address) }))
         .into_response();
     finalize(resp, last)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dissolved_estate_fallback_shape() {
+        let v = dissolved_estate_nft("42", "Old Estate".into(), "gone".into(), "0xestate");
+        assert_eq!(v["id"], "42");
+        assert_eq!(v["name"], "Old Estate");
+        assert_eq!(v["description"], "gone");
+        assert_eq!(v["background_color"], "000000");
+        assert_eq!(
+            v["external_url"],
+            "https://market.decentraland.org/contracts/0xestate/tokens/42"
+        );
+        assert_eq!(
+            v["image"],
+            "https://api.decentraland.org/v1/estates/42/map.png?size=24&width=1024&height=1024"
+        );
+        let attrs = v["attributes"].as_array().unwrap();
+        assert_eq!(attrs.len(), 1);
+        assert_eq!(
+            attrs[0],
+            json!({ "trait_type": "Size", "value": 0, "display_type": "number" })
+        );
+    }
+
+    #[test]
+    fn proximity_attributes_appended_for_known_coord() {
+        let mut attrs: Vec<Value> = vec![
+            json!({ "trait_type": "X", "value": 102, "display_type": "number" }),
+            json!({ "trait_type": "Y", "value": -33, "display_type": "number" }),
+        ];
+
+        crate::proximity::append_attributes(&mut attrs, &[(102, -33)]);
+        assert!(attrs.len() > 2, "expected proximity traits appended");
+        for a in &attrs[2..] {
+            let tt = a["trait_type"].as_str().unwrap();
+            assert!(
+                tt.starts_with("Distance to "),
+                "unexpected trait_type: {tt}"
+            );
+            assert_eq!(a["display_type"], "number");
+            assert!(a["value"].is_i64(), "proximity value must be an integer");
+        }
+        assert!(attrs.contains(&json!({
+            "trait_type": "Distance to Road", "value": 4, "display_type": "number"
+        })));
+
+        assert_eq!(attrs[2]["trait_type"], "Distance to Road");
+    }
+
+    #[test]
+    fn proximity_noop_for_unknown_coord() {
+        let mut attrs: Vec<Value> = vec![];
+        crate::proximity::append_attributes(&mut attrs, &[(99999, 99999)]);
+        assert!(attrs.is_empty());
+    }
 }

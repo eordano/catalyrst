@@ -1,15 +1,11 @@
-//! Admin item-curation routes, gated by a bearer admin token (not a signed
-//! auth-chain) so the admin console can proxy them. `Authorization: Bearer
-//! <token>` is compared in constant time against `CATALYRST_BUILDER_ADMIN_TOKEN`
-//! and fails closed (403) when that env is unset.
-
-use axum::extract::{Path, State};
+use axum::extract::{OriginalUri, Path, State};
 use axum::http::HeaderMap;
 use axum::Json;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use uuid::Uuid;
 
+use crate::auth_chain::require_signer;
 use crate::http::errors::ApiError;
 use crate::http::response::ApiData;
 use crate::AppState;
@@ -36,18 +32,27 @@ fn timing_safe_eq(a: &str, b: &str) -> bool {
     diff == 0
 }
 
-fn authorize_admin(state: &AppState, headers: &HeaderMap) -> Result<(), ApiError> {
-    let expected = state
-        .admin_token
-        .as_deref()
-        .ok_or_else(|| ApiError::forbidden("Admin token not configured"))?;
-    let token = bearer_token(headers)
-        .ok_or_else(|| ApiError::forbidden("Missing or invalid bearer token"))?;
-    if timing_safe_eq(&token, expected) {
-        Ok(())
-    } else {
-        Err(ApiError::forbidden("Missing or invalid bearer token"))
+pub fn authorize_admin(
+    admin_token: Option<&str>,
+    admin_addresses: &[String],
+    headers: &HeaderMap,
+    method: &str,
+    path: &str,
+) -> Result<(), ApiError> {
+    if let (Some(expected), Some(token)) = (admin_token, bearer_token(headers)) {
+        if !expected.is_empty() && timing_safe_eq(&token, expected) {
+            return Ok(());
+        }
     }
+    if let Ok(signer) = require_signer(headers, method, path) {
+        let signer = signer.to_ascii_lowercase();
+        if admin_addresses.iter().any(|a| a == &signer) {
+            return Ok(());
+        }
+    }
+    Err(ApiError::forbidden(
+        "Not authorized: curation requires the admin token or a committee-address signed request",
+    ))
 }
 
 fn validate_status(status: &str) -> Result<(), ApiError> {
@@ -66,6 +71,34 @@ fn parse_uuid(raw: &str) -> Result<Uuid, ApiError> {
         .map_err(|_| ApiError::not_found_with("Not found", json!({ "id": raw })))
 }
 
+pub async fn get_curation_collections(
+    State(state): State<AppState>,
+    OriginalUri(uri): OriginalUri,
+    headers: HeaderMap,
+) -> Result<Json<ApiData<Value>>, ApiError> {
+    authorize_admin(
+        state.admin_token.as_deref(),
+        &state.admin_addresses,
+        &headers,
+        "get",
+        uri.path(),
+    )?;
+
+    let (committee, collections) = match &state.marketplace {
+        Some(mp) => {
+            let committee = mp.committee_members().await?;
+            let collections = mp.collections_under_review().await?;
+            (committee, collections)
+        }
+        None => (Vec::new(), Vec::new()),
+    };
+
+    Ok(Json(ApiData::ok(json!({
+        "committee": committee,
+        "collections": collections,
+    }))))
+}
+
 #[derive(Debug, Deserialize)]
 pub struct ItemStatusBody {
     pub status: String,
@@ -74,10 +107,17 @@ pub struct ItemStatusBody {
 pub async fn patch_item_status(
     State(state): State<AppState>,
     Path((id, item)): Path<(String, String)>,
+    OriginalUri(uri): OriginalUri,
     headers: HeaderMap,
     Json(body): Json<ItemStatusBody>,
 ) -> Result<Json<ApiData<Value>>, ApiError> {
-    authorize_admin(&state, &headers)?;
+    authorize_admin(
+        state.admin_token.as_deref(),
+        &state.admin_addresses,
+        &headers,
+        "patch",
+        uri.path(),
+    )?;
     validate_status(&body.status)?;
 
     let collection_id = parse_uuid(&id)?;
@@ -113,10 +153,17 @@ pub struct BulkItemStatusBody {
 pub async fn patch_items_status_bulk(
     State(state): State<AppState>,
     Path(id): Path<String>,
+    OriginalUri(uri): OriginalUri,
     headers: HeaderMap,
     Json(body): Json<BulkItemStatusBody>,
 ) -> Result<Json<ApiData<Value>>, ApiError> {
-    authorize_admin(&state, &headers)?;
+    authorize_admin(
+        state.admin_token.as_deref(),
+        &state.admin_addresses,
+        &headers,
+        "patch",
+        uri.path(),
+    )?;
     validate_status(&body.status)?;
 
     if body.item_ids.is_empty() {
@@ -192,5 +239,51 @@ mod tests {
         assert!(bearer_token(&headers_with(None)).is_none());
         let got = bearer_token(&headers_with(Some("Bearer nope"))).unwrap();
         assert!(!timing_safe_eq(&got, expected));
+    }
+
+    const NO_ADMINS: &[String] = &[];
+
+    #[test]
+    fn authorize_admin_accepts_the_configured_bearer() {
+        let h = headers_with(Some("Bearer the-real-token"));
+        assert!(authorize_admin(Some("the-real-token"), NO_ADMINS, &h, "get", "/x").is_ok());
+    }
+
+    #[test]
+    fn authorize_admin_rejects_a_wrong_bearer() {
+        let h = headers_with(Some("Bearer wrong"));
+        assert!(authorize_admin(Some("the-real-token"), NO_ADMINS, &h, "get", "/x").is_err());
+    }
+
+    #[test]
+    fn authorize_admin_rejects_when_no_credentials_present() {
+        let h = headers_with(None);
+        assert!(authorize_admin(Some("the-real-token"), NO_ADMINS, &h, "get", "/x").is_err());
+        assert!(authorize_admin(None, NO_ADMINS, &h, "get", "/x").is_err());
+    }
+
+    #[test]
+    fn authorize_admin_rejects_a_bearer_scheme_that_is_not_bearer() {
+        let h = headers_with(Some("Basic the-real-token"));
+        assert!(authorize_admin(Some("the-real-token"), NO_ADMINS, &h, "get", "/x").is_err());
+    }
+
+    #[test]
+    fn authorize_admin_never_authorizes_on_an_empty_token() {
+        let empty_bearer = headers_with(Some("Bearer "));
+        assert_eq!(bearer_token(&empty_bearer), Some(String::new()));
+        assert!(authorize_admin(Some(""), NO_ADMINS, &empty_bearer, "get", "/x").is_err());
+        assert!(authorize_admin(Some(""), NO_ADMINS, &headers_with(None), "get", "/x").is_err());
+    }
+
+    #[test]
+    fn authorize_admin_forbidden_error_is_403() {
+        use axum::response::IntoResponse;
+        let err =
+            authorize_admin(Some("real"), NO_ADMINS, &headers_with(None), "get", "/x").unwrap_err();
+        assert_eq!(
+            err.into_response().status(),
+            axum::http::StatusCode::FORBIDDEN
+        );
     }
 }

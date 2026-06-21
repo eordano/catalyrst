@@ -9,8 +9,6 @@ Type=exec
 WorkingDirectory=<WORKSPACE>
 EnvironmentFile=<WORKSPACE>/env/catalyrst-camera-reel.env
 ExecStartPre=/bin/sh -c 'for i in $(seq 1 30); do pg_isready -h <HOST> -p 5433 -U <DB_USER> -q && exit 0; sleep 1; done; exit 1'
-# Content-addressed disk store + places_events DB (table camera_reel_images).
-# World .eth resolution proxies to catalyrst-places (5134).
 ExecStart=<WORKSPACE>/bin/catalyrst-camera-reel
 Restart=always
 RestartSec=30

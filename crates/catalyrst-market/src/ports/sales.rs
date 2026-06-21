@@ -52,6 +52,11 @@ pub struct SaleFilters {
 }
 
 #[derive(Debug, Serialize)]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "market/", rename_all = "camelCase")
+)]
 pub struct Sale {
     pub id: String,
     #[serde(rename = "itemId")]
@@ -60,16 +65,19 @@ pub struct Sale {
     pub contract_address: String,
     pub buyer: String,
     #[serde(rename = "chainId")]
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub chain_id: ChainId,
     pub network: Network,
     pub price: String,
     pub seller: String,
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub timestamp: i64,
     #[serde(rename = "tokenId")]
     pub token_id: Option<String>,
     #[serde(rename = "txHash")]
     pub tx_hash: String,
     #[serde(rename = "type")]
+    #[cfg_attr(feature = "ts", ts(rename = "type"))]
     pub sale_type: String,
 }
 
@@ -86,12 +94,6 @@ impl SalesComponent {
         let limit = clamp_first(f.first, 100);
         let offset = clamp_skip(f.skip);
         let order_by = match f.sort_by {
-            // Sort on the RAW (uncast) sort_* passthrough columns (sale.price and
-            // sale.timestamp are both numeric) rather than the ::text/(*1000)
-            // output aliases. A cast in the sort key blocks the sale(timestamp)
-            // index and forced a full top-N sort over every matching sale;
-            // ordering on the raw column lets the timestamp page early-terminate.
-            // Numeric ordering is identical to the previous ::numeric/bigint cast.
             Some(SaleSortBy::MostExpensive) => "sort_price DESC",
             _ => "sort_timestamp DESC",
         };
@@ -152,9 +154,7 @@ impl SalesComponent {
             bind_str.push(format!("{{{}}}", f.categories.join(",")));
             kinds.push('s');
         }
-        // network filter: upstream applies `network = ANY(getDBNetworks(network))`
-        // (ETHEREUM -> [ETHEREUM]; MATIC -> [MATIC, POLYGON]). Was parsed but never
-        // applied here, so ?network= leaked sales from the other chain.
+
         if let Some(net) = f.network {
             let db_nets: &[&str] = match net {
                 Network::Ethereum => &["ETHEREUM"],
@@ -184,11 +184,6 @@ impl SalesComponent {
         let limit_p = next();
         let offset_p = next();
 
-        // Split the COUNT(*) OVER() into a page + a concurrent count, same as
-        // get_orders. The window forced Postgres to materialize every matching
-        // sale before returning a page; split, the page early-terminates through
-        // the sale(timestamp) index. SET LOCAL hints are scoped to each
-        // statement's transaction, never the shared cluster config.
         let inner = format!(
             r#"
   SELECT
@@ -220,8 +215,6 @@ impl SalesComponent {
         let count_sql =
             format!("SELECT COUNT(*)::int8 AS sales_count FROM ({inner}) AS legacy_sales");
 
-        // Only the timestamp sort has a supporting index; gate enable_sort=off
-        // on it. random_page_cost=1.1 (SSD-correct) is always safe.
         let index_sort = order_by.starts_with("sort_timestamp");
 
         let bind_str_p = bind_str.clone();
@@ -243,7 +236,7 @@ impl SalesComponent {
                     .execute(&mut *tx)
                     .await?;
             }
-            let mut q = sqlx::query(&page_sql);
+            let mut q = sqlx::query(sqlx::AssertSqlSafe(page_sql));
             let mut si = bind_str_p.iter();
             let mut ii = bind_i64_p.iter();
             for k in &kinds_p {
@@ -263,7 +256,7 @@ impl SalesComponent {
             sqlx::query("SET LOCAL random_page_cost = 1.1")
                 .execute(&mut *tx)
                 .await?;
-            let mut q = sqlx::query(&count_sql);
+            let mut q = sqlx::query(sqlx::AssertSqlSafe(count_sql));
             let mut si = bind_str_c.iter();
             let mut ii = bind_i64_c.iter();
             for k in &kinds_c {

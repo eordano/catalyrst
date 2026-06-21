@@ -1,11 +1,6 @@
 use chrono::{DateTime, Utc};
 use sqlx::{postgres::PgPool, Row};
 
-/// One manual price override row (docs/admin-console.md §4 "Price override").
-///
-/// `value` is an exact NUMERIC carried as a decimal string — never f64.
-/// Mirrors the credits crate's never-f64 stance so an operator override keeps
-/// full decimal precision and never round-trips through binary float.
 #[derive(Debug, Clone)]
 pub struct PriceOverride {
     pub token_id: String,
@@ -16,9 +11,6 @@ pub struct PriceOverride {
     pub updated_at: DateTime<Utc>,
 }
 
-/// The dynamic price-override config store. Reads are public (the store is a
-/// read-only projection to unauthenticated callers); set/clear are bearer-gated
-/// by the handler layer.
 #[derive(Clone)]
 pub struct OverridesComponent {
     pool: PgPool,
@@ -39,12 +31,6 @@ impl OverridesComponent {
         Ok(rows.into_iter().map(row_to_override).collect())
     }
 
-    /// Upsert an override for `(token_id, vs_currency)` and append an audit row.
-    ///
-    /// `value` is a validated decimal string bound as exact NUMERIC. `admin` is
-    /// the console-attributed identity recorded in the audit trail. The override
-    /// row and its audit row are written in one transaction so an override never
-    /// lands without an attributed audit entry.
     pub async fn set(
         &self,
         token_id: &str,
@@ -93,9 +79,6 @@ impl OverridesComponent {
         Ok(row_to_override(row))
     }
 
-    /// Delete the override for `(token_id, vs_currency)` and append an audit row.
-    /// Returns true if a row was removed. The audit row is only written when a
-    /// row was actually removed (a no-op clear is not recorded).
     pub async fn clear(
         &self,
         token_id: &str,
@@ -132,8 +115,6 @@ impl OverridesComponent {
 }
 
 fn row_to_override(r: sqlx::postgres::PgRow) -> PriceOverride {
-    // `value` is selected as `::text` so it arrives as the exact NUMERIC string
-    // without any f64 intermediary.
     PriceOverride {
         token_id: r.get("token_id"),
         vs_currency: r.get("vs_currency"),

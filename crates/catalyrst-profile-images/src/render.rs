@@ -1,21 +1,3 @@
-//! Headless Godot avatar renderer driver.
-//!
-//! This is the Rust analogue of upstream `decentraland/profile-images`'s
-//! `src/adapters/godot.ts`: it writes an `avatars.json` payload, invokes the
-//! exported Godot client in `--avatar-renderer` mode, and lets the client
-//! rasterize the equipped 3D wearables to two PNGs (body 256x512, face
-//! 256x256). The exact invocation upstream uses is:
-//!
-//! ```text
-//! <client> --rendering-method gl_compatibility --rendering-driver opengl3 \
-//!          --avatar-renderer --avatars <avatars.json> [--dclenv <env>]
-//! ```
-//!
-//! Unlike upstream (which is an SQS producer/consumer rig), we render
-//! synchronously on a cache miss, one entity at a time, behind a single-flight
-//! lock owned by `RenderQueue`. One render produces *both* face and body, so a
-//! concurrent face+body request pair collapses to a single Godot invocation.
-
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::Duration;
@@ -26,10 +8,9 @@ use tokio::process::Command;
 use crate::cache::ImageKind;
 use crate::config::RenderConfig;
 
-/// Body image dimensions (must match the upstream contract).
 pub const BODY_W: u32 = 256;
 pub const BODY_H: u32 = 512;
-/// Face image dimensions.
+
 pub const FACE_W: u32 = 256;
 pub const FACE_H: u32 = 256;
 
@@ -51,13 +32,11 @@ pub enum RenderError {
     Serde(#[from] serde_json::Error),
 }
 
-/// Where a render writes its two PNGs (absolute paths under a temp workdir).
 pub struct RenderOutputs {
     pub body_path: PathBuf,
     pub face_path: PathBuf,
 }
 
-/// Drives a single headless Godot avatar render for one entity.
 pub struct GodotRenderer {
     cfg: RenderConfig,
 }
@@ -67,9 +46,6 @@ impl GodotRenderer {
         Self { cfg }
     }
 
-    /// Render `entity`'s `avatar` payload against `content_base`, producing a
-    /// body and face PNG in `workdir`. The caller is responsible for moving
-    /// the results into the content-addressed cache and cleaning `workdir`.
     pub async fn render(
         &self,
         entity: &str,
@@ -87,7 +63,6 @@ impl GodotRenderer {
         let face_path = workdir.join(format!("{entity}_face.png"));
         let payload_path = workdir.join("avatars.json");
 
-        // Mirror the avatars.json schema from PROFILE_IMAGE.md / godot.ts.
         let payload = json!({
             "baseUrl": content_base,
             "payload": [{
@@ -103,10 +78,6 @@ impl GodotRenderer {
         });
         tokio::fs::write(&payload_path, serde_json::to_vec(&payload)?).await?;
 
-        // Build the argv. Upstream's godot.ts uses:
-        //   --rendering-driver opengl3 --avatar-renderer --avatars <json>
-        // and the local snapshot scripts add --rendering-method gl_compatibility
-        // (Compatibility renderer) which is what works without a Vulkan device.
         let mut args: Vec<String> = vec![
             "--rendering-method".into(),
             self.cfg.rendering_method.clone(),
@@ -114,8 +85,6 @@ impl GodotRenderer {
             self.cfg.rendering_driver.clone(),
         ];
         if self.cfg.headless {
-            // Off-screen: needs Xvfb / EGL surfaceless to actually draw. Off by
-            // default for the same reason the local script keeps it off.
             args.push("--headless".into());
         }
         args.push("--avatar-renderer".into());
@@ -129,8 +98,6 @@ impl GodotRenderer {
 
         let mut cmd = Command::new(&bin);
         cmd.args(&args)
-            // Run from the godot project root so the gdextension's relative
-            // libdclgodot.so path resolves (see local_profile_snapshot.sh).
             .current_dir(&self.cfg.work_root)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
@@ -164,8 +131,6 @@ impl GodotRenderer {
             });
         }
 
-        // Godot can exit 0 yet fail to draw (e.g. blank avatar). Verify both
-        // PNGs exist and are non-trivial before declaring success.
         verify_output(&body_path, ImageKind::Body).await?;
         verify_output(&face_path, ImageKind::Face).await?;
 
@@ -176,9 +141,6 @@ impl GodotRenderer {
     }
 }
 
-/// A render that exits 0 but writes a missing/blank PNG should be treated as a
-/// failure so we don't cache garbage. We reuse the same blank threshold the
-/// upstream classifier (`local_entity_snapshot.sh`) uses (~3 KB).
 const BLANK_BYTES_THRESHOLD: u64 = 3000;
 
 async fn verify_output(path: &Path, kind: ImageKind) -> Result<(), RenderError> {
@@ -192,7 +154,6 @@ async fn verify_output(path: &Path, kind: ImageKind) -> Result<(), RenderError> 
     }
 }
 
-/// Last ~2 KB of stderr (falling back to stdout) for error reporting.
 fn tail_of(stderr: &[u8], stdout: &[u8]) -> String {
     let src = if stderr.is_empty() { stdout } else { stderr };
     let s = String::from_utf8_lossy(src);

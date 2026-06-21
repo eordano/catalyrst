@@ -1,33 +1,45 @@
 [package]
 name = "catalyrst-pulse"
-version = "0.1.0"
+version = "0.12.0"
 edition = "2021"
 description = "Pulse real-time social/MMO server over ENet (port of decentraland/Pulse): sessions, rooms, presence, message routing."
 
 [lib]
 path = "src/lib.rs"
 
+[features]
+# Exposes the in-process fuzzing surface (`fuzz` module helpers) for the `fuzz/` cargo-fuzz
+# target. The proptest suite in that module runs under `cfg(test)` without this feature.
+fuzzing = []
+
 [[bin]]
 name = "catalyrst-pulse"
 path = "src/main.rs"
 
 [dependencies]
-catalyrst-enet = { workspace = true }
 catalyrst-types = { workspace = true }
 catalyrst-crypto = { workspace = true }
 tokio = { workspace = true }
 bytes = { workspace = true }
-dashmap = { workspace = true }
-serde = { workspace = true }
 serde_json = { workspace = true }
 chrono = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 anyhow = { workspace = true }
-prost = "0.13"
+prost = "0.14"
+metrics = { workspace = true }
+rusty_enet = "0.4"
+# Generic Rust WebTransport server (browser front door), built for Pulse: an ENet-shaped byte
+# pipe over web-transport-quinn (QUIC/HTTP3). Pulse channel semantics live in `transport::webtransport`.
+web_transport = { git = "https://github.com/decentraland/rust-web-transport", rev = "c5416501f6ffc4a11303980f9811426ae34c77ef" }
 
 [dev-dependencies]
-ethers-signers = "2.0.14"
+alloy = { workspace = true }
+# WebTransport loopback integration test: self-signed dev cert + its SHA-256 for the client to pin.
+rcgen = "0.13"
+sha2 = "0.10"
+# In-gate property fuzzing of the packet-handling path (upstream Fuzzer/ strategies, CI-native).
+proptest = "1"
 
 [build-dependencies]
-prost-build = "0.13"
+prost-build = "0.14"

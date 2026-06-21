@@ -12,6 +12,7 @@ pub mod code {
     pub const SALE_PRICE_TOO_LOW: &str = "sale_price_too_low";
     pub const QUOTA_REACHED: &str = "quota_reached";
     pub const HIGH_CONGESTION: &str = "high_congestion";
+    pub const CONFLICT: &str = "conflict";
 }
 
 #[derive(Debug, Error)]
@@ -44,6 +45,10 @@ pub enum ApiError {
     MissingTransactionData(String),
     #[error("{0}")]
     MalformedBody(String),
+    #[error("{0}")]
+    NotImplemented(String),
+    #[error("{0}")]
+    Conflict(String),
     #[error("database error: {0}")]
     Database(#[from] sqlx::Error),
     #[error("{0}")]
@@ -65,7 +70,9 @@ impl ApiError {
             ApiError::Forbidden(_) => (403, Some(code::UNKNOWN)),
             ApiError::NotFound(_) => (404, Some(code::UNKNOWN)),
             ApiError::MissingTransactionData(_) => (400, None),
-            ApiError::MalformedBody(_) => (500, None),
+            ApiError::MalformedBody(_) => (400, None),
+            ApiError::NotImplemented(_) => (501, Some(code::UNKNOWN)),
+            ApiError::Conflict(_) => (409, Some(code::CONFLICT)),
             ApiError::Database(_) => (500, Some(code::UNKNOWN)),
             ApiError::RelayerFailed(_) => (500, Some(code::UNKNOWN)),
             ApiError::Internal(_) => (500, Some(code::UNKNOWN)),

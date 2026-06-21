@@ -1,23 +1,3 @@
-//! WebSocket endpoint + connection lifecycle.
-//!
-//! Port of `src/controllers/handlers/ws-handler.ts` + the per-client wiring in
-//! `src/adapters/scene.ts`.
-//!
-//! Lifecycle (matching upstream):
-//! 1. `GET /ws/:scene` upgrades. The scene must already be loaded (else 404).
-//! 2. The connection counter increments (`wsRegistry.onWsConnected`).
-//! 3. The server waits up to `auth_timeout_secs` for the first frame. It must be
-//!    an `Auth` frame whose body is the signed-fetch headers JSON; the server
-//!    verifies it against `GET <pathname>` (see [`crate::auth`]). On failure or
-//!    timeout the socket is closed.
-//! 4. On success the client is registered, assigned an integer index + entity
-//!    range, and immediately sent an `Init` frame with the range + CRDT
-//!    snapshot.
-//! 5. Steady state: inbound `Crdt` frames are handed to the runtime
-//!    (`on_client_crdt`), whose outputs are fanned out to the *other* clients.
-//!    Outbound frames queued by the runtime/peers are flushed to the socket.
-//! 6. On close the client is removed and the counter decrements.
-
 use std::sync::Arc;
 
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
@@ -50,14 +30,12 @@ async fn ws_upgrade(
         )
             .into_response();
     };
-    // Honor the front-host X-Original-Path (set by nginx) so the signed-fetch
-    // path matches what the client signed; fall back to the native route path.
+
     let fallback = format!("/ws/{scene_name}");
     let pathname = crate::auth::signed_fetch_path(&headers, &fallback).into_owned();
     let timeout_secs = state.cfg.auth_timeout_secs;
     let outbound_cap = state.cfg.client_outbound_max.max(1);
-    // Clamp the inbound WS frame/message size from axum's 64 MiB default to a
-    // sane limit so one client can't make the server buffer a huge frame.
+
     let ws = ws
         .max_frame_size(state.cfg.ws_max_frame_bytes)
         .max_message_size(state.cfg.ws_max_frame_bytes);
@@ -79,7 +57,6 @@ async fn handle_socket(
 ) {
     let (mut sink, mut stream) = socket.split();
 
-    // --- Phase 1: authenticate (first frame, bounded by timeout) ---
     let auth = tokio::time::timeout(std::time::Duration::from_secs(timeout_secs), async {
         while let Some(Ok(msg)) = stream.next().await {
             if let Message::Binary(bytes) = msg {
@@ -102,10 +79,6 @@ async fn handle_socket(
         }
     };
 
-    // --- Phase 2: register client + send Init ---
-    // Bounded outbound queue: a slow-reading client backs up here; once full,
-    // the runtime/peers drop frames (try_send) rather than buffering without
-    // bound. (Reconnect-to-recover is the upstream story for missed state.)
     let (tx, mut rx) = mpsc::channel::<Vec<u8>>(outbound_cap);
     let (client, init) = scene.add_client(authed.signer.clone(), tx);
     let index = client.index;
@@ -122,17 +95,16 @@ async fn handle_socket(
     }
     tracing::info!(scene = %scene.name, index, address = %authed.signer, "ws authenticated");
 
-    // --- Phase 3: steady-state relay loop ---
     loop {
         tokio::select! {
-            // Outbound frames queued by the runtime / peers.
+
             queued = rx.recv() => {
                 let Some(frame) = queued else { break };
                 if sink.send(Message::Binary(frame.into())).await.is_err() {
                     break;
                 }
             }
-            // Inbound frames from this client.
+
             incoming = stream.next() => {
                 let Some(Ok(msg)) = incoming else { break };
                 match msg {

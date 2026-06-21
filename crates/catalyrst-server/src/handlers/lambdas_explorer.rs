@@ -58,9 +58,6 @@ struct ExplorerQuery {
 
     collection_types: Vec<String>,
 
-    // The unity backpack always requests trimmed=true and deserializes
-    // elements[].entity.{id,thumbnail,metadata,individualData} — a different
-    // element shape than the default (un-trimmed) response.
     trimmed: bool,
 }
 
@@ -182,6 +179,37 @@ async fn fetch_owned_items(state: &AppState, owner: &str, category: &str) -> Vec
         None => return Vec::new(),
     };
 
+    let grant_leg = if super::lease_overlay::usage_grants_present(pool).await {
+        " UNION ALL \
+             SELECT replace(ug.urn, ':mainnet:', ':ethereum:') AS urn, \
+                    COALESCE(ug.token_id, '') AS token_id, \
+                    extract(epoch FROM ug.granted_at)::bigint::text AS transferred_at, \
+                    NULL::text AS rarity, \
+                    NULL::text AS price, \
+                    NULL::text AS item_type \
+             FROM marketplace.usage_grants ug \
+             WHERE ug.status = 'active' AND ug.category = $1 \
+               AND ug.urn IS NOT NULL AND ug.grantee_address = lower($2)"
+    } else {
+        ""
+    };
+    let sql = format!(
+        "SELECT urn, token_id, transferred_at, rarity, price, item_type FROM ( \
+             SELECT replace(n.urn, ':mainnet:', ':ethereum:') AS urn, \
+                    n.token_id::text AS token_id, \
+                    n.transferred_at::bigint::text AS transferred_at, \
+                    COALESCE(i.rarity, n.search_wearable_rarity, n.search_emote_rarity) AS rarity, \
+                    i.price::text AS price, \
+                    n.item_type::text AS item_type \
+             FROM squid_marketplace.nft n \
+             LEFT JOIN squid_marketplace.item i ON i.id = n.item_id \
+             WHERE n.category = $1 \
+               AND n.urn IS NOT NULL \
+               AND n.owner_address = lower($2) \
+           {grant_leg} \
+         ) owned \
+         ORDER BY transferred_at::bigint DESC"
+    );
     let rows: Vec<(
         String,
         String,
@@ -189,25 +217,12 @@ async fn fetch_owned_items(state: &AppState, owner: &str, category: &str) -> Vec
         Option<String>,
         Option<String>,
         Option<String>,
-    )> = sqlx::query_as(
-        "SELECT replace(n.urn, ':mainnet:', ':ethereum:') AS urn, \
-                    n.token_id::text AS token_id, \
-                    n.transferred_at::bigint::text AS transferred_at, \
-                    COALESCE(i.rarity, n.search_wearable_rarity, n.search_emote_rarity) AS rarity, \
-                    i.price::text AS price, \
-                    n.item_type AS item_type \
-             FROM squid_marketplace.nft n \
-             LEFT JOIN squid_marketplace.item i ON i.id = n.item_id \
-             WHERE n.category = $1 \
-               AND n.urn IS NOT NULL \
-               AND n.owner_address = lower($2) \
-             ORDER BY n.transferred_at DESC",
-    )
-    .bind(category)
-    .bind(owner)
-    .fetch_all(pool)
-    .await
-    .unwrap_or_default();
+    )> = sqlx::query_as(sqlx::AssertSqlSafe(sql))
+        .bind(category)
+        .bind(owner)
+        .fetch_all(pool)
+        .await
+        .unwrap_or_default();
 
     if rows.is_empty() {
         return Vec::new();
@@ -300,9 +315,7 @@ async fn fetch_owned_items(state: &AppState, owner: &str, category: &str) -> Vec
 
 fn extract_name_category(entity: &Value, category: &str) -> (String, String) {
     let md = entity.get("metadata").cloned().unwrap_or(Value::Null);
-    // v1-collection metadata ships name:"" with the display name only in the i18n
-    // table — fall back to the first i18n text so sorting/searching and the
-    // backpack grid label get a real name.
+
     let mut name = md
         .get("name")
         .and_then(|n| n.as_str())
@@ -451,9 +464,7 @@ fn item_to_value(item: &OwnedItem, include_item_type: bool) -> Value {
     }
     obj.insert("type".to_string(), json!("on-chain"));
     obj.insert("urn".to_string(), json!(item.urn));
-    // amount is a NUMBER (upstream catalyst lambdas types.ts: `amount: number`);
-    // the base/third-party/trimmed branches and /users all emit a number — only
-    // this on-chain branch stringified it. Keep it numeric for consistency.
+
     obj.insert("amount".to_string(), json!(item.amount));
     obj.insert(
         "individualData".to_string(),
@@ -472,11 +483,6 @@ fn item_to_value(item: &OwnedItem, include_item_type: bool) -> Value {
     Value::Object(obj)
 }
 
-/// lamb2's `trimmed=true` element shape: everything the client reads lives INSIDE
-/// `entity` — `id`, `thumbnail` (the content HASH of the thumbnail file, not its
-/// name), `metadata` (must carry `name`; v1 wearables only store it in i18n) and
-/// `individualData`. The unity backpack deserializes exactly this and silently
-/// drops elements that miss it.
 fn item_to_trimmed_value(item: &OwnedItem) -> Value {
     let mut entity = match &item.entity {
         Value::Object(m) => m.clone(),
@@ -507,8 +513,6 @@ fn item_to_trimmed_value(item: &OwnedItem) -> Value {
     }
 
     if let Some(Value::Object(md)) = entity.get_mut("metadata") {
-        // v1-collection metadata often carries name:"" with the display name only
-        // in i18n — item.name was already resolved from there, so fill on empty too.
         let name_missing = md
             .get("name")
             .and_then(|n| n.as_str())
@@ -603,10 +607,7 @@ async fn explorer_items(
         q.rarity.as_deref().unwrap_or(""),
         q.trimmed,
     );
-    // The cache holds the FULL computed item set (page params excluded from the
-    // key, -1 sentinels keep the key type); pages are sliced per request. The
-    // previous per-page keys recomputed the whole inventory for every page of a
-    // backpack scroll (~600ms x pages).
+
     let cache_key: ExplorerKey = (
         addr_lc.clone(),
         q.sort.clone(),
@@ -689,7 +690,6 @@ async fn compute_explorer_items(
 
     let total = items.len() as i64;
 
-    // Materialize the FULL set — the caller caches it and slices pages.
     let include_item_type = category == "wearable";
     let elements: Vec<Value> = items
         .iter()

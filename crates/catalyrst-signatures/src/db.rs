@@ -1,6 +1,3 @@
-//! Postgres access layer. Ports the data-access half of
-//! `src/ports/rentals/component.ts` and `queries/`.
-
 use chrono::{DateTime, NaiveDateTime, Utc};
 use sqlx::postgres::PgRow;
 use sqlx::{PgPool, Postgres, QueryBuilder, Row};
@@ -13,7 +10,6 @@ pub struct Database {
     pool: PgPool,
 }
 
-/// Filters accepted by GET /v1/rentals-listings — RentalsListingsFilterBy.
 #[derive(Debug, Default)]
 pub struct ListingFilters {
     pub category: Option<String>,
@@ -46,7 +42,6 @@ pub struct ListingQuery {
     pub history: bool,
 }
 
-/// Prices filter — GetRentalListingsPricesFilters.
 #[derive(Debug, Default)]
 pub struct PriceFilters {
     pub category: Option<String>,
@@ -67,11 +62,6 @@ impl Database {
         Self { pool }
     }
 
-    /// Insert a freshly-signed listing (metadata + rentals + rentals_listings +
-    /// periods) in a single transaction. Mirrors createRentalListing's INSERTs.
-    /// `nft` carries the (optionally subgraph-resolved) metadata; when no
-    /// subgraph is configured we synthesize a minimal metadata row keyed by
-    /// `<contract>-<tokenId>`.
     #[allow(clippy::too_many_arguments)]
     pub async fn insert_listing(
         &self,
@@ -145,13 +135,11 @@ impl Database {
 
         tx.commit().await?;
 
-        // Re-read as a single canonical listing row.
         self.get_listing_by_id(&rental_id.to_string())
             .await?
             .ok_or(sqlx::Error::RowNotFound)
     }
 
-    /// Detect the unique-open-rental violation so the handler can map it to 409.
     pub fn is_open_conflict(err: &sqlx::Error) -> bool {
         if let sqlx::Error::Database(db) = err {
             return db
@@ -162,10 +150,6 @@ impl Database {
         false
     }
 
-    /// Refresh a listing's metadata row from freshly-resolved NFT facts (ports
-    /// the metadata half of `refreshRentalListing`). Keyed by the rental's
-    /// `metadata_id` (which is `<contract>-<tokenId>`). Returns the number of
-    /// rows updated (0 if the listing's metadata row no longer exists).
     #[allow(clippy::too_many_arguments)]
     pub async fn update_metadata_for_rental(
         &self,
@@ -235,7 +219,6 @@ impl Database {
 
         let f = &q.filter;
 
-        // rentalDays sub-select join (CROSS reference applied in WHERE below).
         if !f.rental_days.is_empty() {
             qb.push(", (SELECT DISTINCT rental_id FROM periods WHERE ");
             let mut sep = qb.separated(" OR ");
@@ -302,7 +285,6 @@ impl Database {
 
         qb.push("GROUP BY rentals.id, rentals_listings.id, periods.rental_id ");
 
-        // HAVING (min/max price per day)
         let mut having_started = false;
         if let Some(min) = &f.min_price_per_day {
             qb.push(" HAVING max(periods.price_per_day) >= ")
@@ -322,7 +304,6 @@ impl Database {
                  WHERE metadata.id = rentals.metadata_id ",
         );
 
-        // metadata filters
         if let Some(c) = &f.category {
             qb.push("AND metadata.category = ")
                 .push_bind(c.clone())
@@ -364,7 +345,6 @@ impl Database {
                 .push(" ");
         }
 
-        // ORDER BY
         let dir = match q.sort_direction.as_deref() {
             Some("desc") => "desc",
             _ => "asc",
@@ -374,7 +354,7 @@ impl Database {
             Some("name") => format!("ORDER BY metadata.search_text {dir} "),
             Some("max_rental_price") => format!("ORDER BY rentals.max_price_per_day {dir} "),
             Some("min_rental_price") => format!("ORDER BY rentals.min_price_per_day {dir} "),
-            // default: rental_listing_date
+
             _ => format!("ORDER BY rentals.created_at {dir} "),
         };
         qb.push(order);
@@ -405,7 +385,6 @@ impl Database {
         })
     }
 
-    /// GET /v1/rental-listings/prices — { "<pricePerDay>": count, ... }
     pub async fn get_prices(&self, f: &PriceFilters) -> Result<Vec<(String, i64)>, sqlx::Error> {
         let mut qb: QueryBuilder<Postgres> = QueryBuilder::new(
             "SELECT periods.price_per_day::text as price_per_day, COUNT(DISTINCT rentals.id) as count \
@@ -474,8 +453,6 @@ impl Database {
     }
 }
 
-/// Single canonical listing row, identical projection to the refresh return
-/// query in component.ts, used by get_listing_by_id and insert re-read.
 const LISTING_BY_ID_SQL: &str = r#"
 SELECT rentals.*, metadata.category, metadata.search_text, metadata.created_at as metadata_created_at
 FROM metadata,
@@ -487,9 +464,7 @@ FROM metadata,
 WHERE metadata.id = rentals.metadata_id AND rentals.id = $1
 "#;
 
-/// fromDBGetRentalsListingsToRentalListings — map a DB row to the API shape.
 fn row_to_listing(r: &PgRow) -> RentalListing {
-    // `periods` is a jsonb array of `[min, max, price]` string triples.
     let periods_raw: serde_json::Value = r.try_get("periods").unwrap_or(serde_json::Value::Null);
     let periods = periods_raw
         .as_array()

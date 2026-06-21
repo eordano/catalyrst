@@ -14,6 +14,23 @@ use crate::state::AppState;
 const PROFILE_CACHE_TTL: Duration = Duration::from_secs(30);
 const PROFILE_CACHE_MAX_ENTRIES: usize = 50_000;
 const PROFILE_BATCH_MAX: usize = 50;
+const PROFILE_IDS_MAX: usize = 1000;
+const PROFILE_PROCESS_CONCURRENCY: usize = 8;
+
+async fn process_profiles_concurrent(
+    entities: Vec<Value>,
+    squid_pool: Option<&sqlx::PgPool>,
+    cdn_base: &str,
+) -> Vec<Value> {
+    use futures::stream::StreamExt;
+    futures::stream::iter(entities.into_iter().map(|entity| async move {
+        super::profile_processing::process_profile(&entity, squid_pool, cdn_base).await
+    }))
+    .buffered(PROFILE_PROCESS_CONCURRENCY)
+    .filter_map(|p| async move { p })
+    .collect()
+    .await
+}
 
 fn profile_cache() -> &'static Arc<ResponseCache<String, Value>> {
     static C: OnceLock<Arc<ResponseCache<String, Value>>> = OnceLock::new();
@@ -37,10 +54,6 @@ fn profiles_batch_cache() -> &'static Arc<ResponseCache<String, Value>> {
     })
 }
 
-/// `default`, `default0`..`defaultN` are not deployed profiles — the classic
-/// catalyst lambdas synthesizes a built-in starter avatar for them. We mirror
-/// that so tools requesting `default` (e.g. wearable-preview) get a usable base
-/// avatar instead of a 404.
 fn is_default_profile_id(id: &str) -> bool {
     let id = id.to_ascii_lowercase();
     id == "default"
@@ -118,23 +131,49 @@ pub struct ProfilesRequest {
     pub ids: Option<Vec<String>>,
 }
 
+const MISSING_PROFILE_IDS_MSG: &str =
+    "No profile ids were specified. Expected ids:string[] in body";
+
+#[derive(Debug, PartialEq, Eq)]
+enum ProfileIdsCheck {
+    MissingOrEmpty,
+    Valid,
+    TooMany,
+}
+
+fn validate_profile_ids(ids: Option<&[String]>) -> ProfileIdsCheck {
+    match ids {
+        None => ProfileIdsCheck::MissingOrEmpty,
+        Some([]) => ProfileIdsCheck::MissingOrEmpty,
+        Some(ids) if ids.len() > PROFILE_IDS_MAX => ProfileIdsCheck::TooMany,
+        Some(_) => ProfileIdsCheck::Valid,
+    }
+}
+
+fn early_profiles_response(check: ProfileIdsCheck) -> Option<Response> {
+    match check {
+        ProfileIdsCheck::MissingOrEmpty => {
+            Some(crate::errors::bad_request(MISSING_PROFILE_IDS_MSG))
+        }
+        ProfileIdsCheck::TooMany => Some(crate::errors::bad_request(&format!(
+            "Too many profile ids were specified. Maximum allowed is {}",
+            PROFILE_IDS_MAX
+        ))),
+        ProfileIdsCheck::Valid => None,
+    }
+}
+
 pub async fn profiles(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
-    Json(body): Json<ProfilesRequest>,
+    crate::extractors::JsonBody(body): crate::extractors::JsonBody<ProfilesRequest>,
 ) -> Response {
-    let ids = match body.ids {
-        Some(ids) => ids,
-        None => {
-            return crate::errors::bad_request(
-                "No profile ids were specified. Expected ids:string[] in body",
-            )
-        }
-    };
-
-    if ids.is_empty() {
-        return Json(Value::Array(vec![])).into_response();
+    if let Some(resp) = early_profiles_response(validate_profile_ids(body.ids.as_deref())) {
+        return resp;
     }
+    let ids = body
+        .ids
+        .expect("validate_profile_ids guarantees a non-empty id list");
 
     let modified_since: Option<i64> = headers
         .get("if-modified-since")
@@ -165,15 +204,7 @@ pub async fn profiles(
                     .map_err(|_| ())?;
                 let squid_pool = state_arc.squid_pool.as_ref();
                 let cdn_base = &state_arc.profile_cdn_base_url;
-                let mut profiles: Vec<Value> = Vec::with_capacity(entities.len());
-                for entity in &entities {
-                    if let Some(processed) =
-                        super::profile_processing::process_profile(entity, squid_pool, cdn_base)
-                            .await
-                    {
-                        profiles.push(processed);
-                    }
-                }
+                let profiles = process_profiles_concurrent(entities, squid_pool, cdn_base).await;
                 Ok::<Value, ()>(Value::Array(profiles))
             })
             .await;
@@ -203,14 +234,7 @@ pub async fn profiles(
 
     let squid_pool = state.squid_pool.as_ref();
     let cdn_base = &state.profile_cdn_base_url;
-    let mut profiles: Vec<Value> = Vec::with_capacity(entities.len());
-    for entity in &entities {
-        if let Some(processed) =
-            super::profile_processing::process_profile(entity, squid_pool, cdn_base).await
-        {
-            profiles.push(processed);
-        }
-    }
+    let profiles = process_profiles_concurrent(entities, squid_pool, cdn_base).await;
 
     Json(Value::Array(profiles)).into_response()
 }
@@ -232,38 +256,115 @@ pub async fn profile_alias(
     }
 }
 
+fn third_party_collection_name(collection_id: &str) -> Option<String> {
+    let cleaned: String = collection_id
+        .split(':')
+        .take(5)
+        .collect::<Vec<_>>()
+        .join(":");
+    if !super::lambdas_user_items::is_third_party_name_urn(&cleaned) {
+        return None;
+    }
+    cleaned.split(':').nth(4).map(|s| s.to_string())
+}
+
+async fn third_party_items_by_owner(
+    state: &AppState,
+    owner: &str,
+    collection_id: &str,
+    include_definitions: bool,
+    extract: impl Fn(&Value, &str) -> Option<Value>,
+) -> Response {
+    let name = match third_party_collection_name(collection_id) {
+        Some(name) => name,
+        None => {
+            return crate::errors::bad_request(
+                "'collectionId' must be a valid third-party collection URN",
+            );
+        }
+    };
+
+    let elements =
+        super::lambdas_user_items::fetch_all_third_party_wearables(state, owner, Some(&name)).await;
+
+    let content_public_url = &state.content_public_url;
+    let body: Vec<Value> = elements
+        .iter()
+        .map(|e| {
+            let mut obj = json!({ "urn": e.urn, "amount": e.individual_data.len() });
+            if include_definitions {
+                if let Some(def) = extract(&e.entity, content_public_url) {
+                    obj["definition"] = def;
+                }
+            }
+            obj
+        })
+        .collect();
+    Json(json!(body)).into_response()
+}
+
 async fn items_by_owner(
     state: &AppState,
     owner: &str,
     category: &str,
     include_definitions: bool,
+    collection_id: Option<&str>,
     extract: impl Fn(&Value, &str) -> Option<Value>,
 ) -> Response {
+    if let Some(collection_id) = collection_id {
+        return third_party_items_by_owner(
+            state,
+            owner,
+            collection_id,
+            include_definitions,
+            extract,
+        )
+        .await;
+    }
+
     let pool = match state.squid_pool.as_ref() {
         Some(p) => p,
         None => return Json(json!([])).into_response(),
     };
-    let rows: Vec<(String, i64)> = sqlx::query_as(
-        "SELECT replace(urn, ':mainnet:', ':ethereum:') AS urn, count(*) \
-         FROM squid_marketplace.nft \
-         WHERE category = $1 AND urn IS NOT NULL AND owner_address = lower($2) \
-         GROUP BY replace(urn, ':mainnet:', ':ethereum:') ORDER BY 1",
-    )
-    .bind(category)
-    .bind(owner)
-    .fetch_all(pool)
-    .await
-    .unwrap_or_default();
+
+    let sql = if super::lease_overlay::usage_grants_present(pool).await {
+        "SELECT urn, count(*) AS amount, COALESCE(max(rarity), '') AS rarity FROM ( \
+             SELECT replace(n.urn, ':mainnet:', ':ethereum:') AS urn, i.rarity AS rarity \
+             FROM squid_marketplace.nft n \
+             LEFT JOIN squid_marketplace.item i ON n.item_id = i.id \
+             WHERE n.category = $1 AND n.urn IS NOT NULL AND n.owner_address = lower($2) \
+           UNION ALL \
+             SELECT replace(ug.urn, ':mainnet:', ':ethereum:') AS urn, NULL::text AS rarity \
+             FROM marketplace.usage_grants ug \
+             WHERE ug.status = 'active' AND ug.category = $1 \
+               AND ug.urn IS NOT NULL AND ug.grantee_address = lower($2) \
+         ) owned \
+         GROUP BY urn"
+    } else {
+        "SELECT replace(n.urn, ':mainnet:', ':ethereum:') AS urn, count(*) AS amount, \
+                COALESCE(max(i.rarity), '') AS rarity \
+         FROM squid_marketplace.nft n \
+         LEFT JOIN squid_marketplace.item i ON n.item_id = i.id \
+         WHERE n.category = $1 AND n.urn IS NOT NULL AND n.owner_address = lower($2) \
+         GROUP BY 1"
+    };
+    let mut rows: Vec<(String, i64, String)> = sqlx::query_as(sql)
+        .bind(category)
+        .bind(owner)
+        .fetch_all(pool)
+        .await
+        .unwrap_or_default();
+    sort_owned_by_rarity_then_urn(&mut rows);
 
     if !include_definitions {
         let body: Vec<Value> = rows
             .into_iter()
-            .map(|(urn, amount)| json!({ "urn": urn, "amount": amount }))
+            .map(|(urn, amount, _)| json!({ "urn": urn, "amount": amount }))
             .collect();
         return Json(json!(body)).into_response();
     }
 
-    let pointers: Vec<String> = rows.iter().map(|(urn, _)| urn.to_lowercase()).collect();
+    let pointers: Vec<String> = rows.iter().map(|(urn, ..)| urn.to_lowercase()).collect();
     let entities = if pointers.is_empty() {
         Vec::new()
     } else {
@@ -286,7 +387,7 @@ async fn items_by_owner(
 
     let body: Vec<Value> = rows
         .into_iter()
-        .map(|(urn, amount)| {
+        .map(|(urn, amount, _)| {
             let mut obj = json!({ "urn": urn, "amount": amount });
             if let Some(def) = defs_by_id.get(&urn.to_lowercase()) {
                 obj["definition"] = def.clone();
@@ -297,6 +398,15 @@ async fn items_by_owner(
     Json(json!(body)).into_response()
 }
 
+fn sort_owned_by_rarity_then_urn(rows: &mut [(String, i64, String)]) {
+    use super::definitions::{locale_cmp, rarity_rank};
+    rows.sort_by(|a, b| {
+        rarity_rank(&b.2)
+            .cmp(&rarity_rank(&a.2))
+            .then_with(|| locale_cmp(&a.0, &b.0))
+    });
+}
+
 fn has_include_definitions(req: &Request) -> bool {
     req.uri()
         .query()
@@ -305,17 +415,24 @@ fn has_include_definitions(req: &Request) -> bool {
         .any(|p| p == "includeDefinitions" || p.starts_with("includeDefinitions="))
 }
 
+fn collection_id_param(req: &Request) -> Option<String> {
+    let params = crate::query_params::parse_query_string(req.uri().query().unwrap_or(""));
+    crate::query_params::qs_get_string(&params, "collectionId").filter(|s| !s.is_empty())
+}
+
 pub async fn wearables_by_owner(
     State(state): State<Arc<AppState>>,
     Path(owner): Path<String>,
     req: Request,
 ) -> impl IntoResponse {
     let include = has_include_definitions(&req);
+    let collection_id = collection_id_param(&req);
     items_by_owner(
         &state,
         &owner,
         "wearable",
         include,
+        collection_id.as_deref(),
         super::definitions::extract_wearable_definition,
     )
     .await
@@ -327,11 +444,13 @@ pub async fn emotes_by_owner(
     req: Request,
 ) -> impl IntoResponse {
     let include = has_include_definitions(&req);
+    let collection_id = collection_id_param(&req);
     items_by_owner(
         &state,
         &owner,
         "emote",
         include,
+        collection_id.as_deref(),
         super::definitions::extract_emote_definition,
     )
     .await
@@ -391,6 +510,33 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
     use std::time::Duration;
+
+    #[test]
+    fn by_owner_rows_sort_rarity_desc_then_urn_asc() {
+        let row = |urn: &str, rarity: &str| (urn.to_string(), 1_i64, rarity.to_string());
+        let mut rows = vec![
+            row("urn:z:common", "common"),
+            row("urn:b:mythic", "mythic"),
+            row("urn:a:unknown", ""),
+            row("urn:a:mythic", "mythic"),
+            row("urn:a:unique", "unique"),
+            row("urn:a:common", "common"),
+        ];
+        sort_owned_by_rarity_then_urn(&mut rows);
+        let urns: Vec<&str> = rows.iter().map(|(urn, ..)| urn.as_str()).collect();
+        assert_eq!(
+            urns,
+            vec![
+                "urn:a:unique",
+                "urn:a:mythic",
+                "urn:b:mythic",
+                "urn:a:common",
+                "urn:z:common",
+                "urn:a:unknown",
+            ],
+            "rarity rank DESC (unknown last), then URN ASC"
+        );
+    }
 
     #[tokio::test]
     async fn profile_cache_second_call_is_a_hit() {
@@ -454,5 +600,118 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(counter.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn validate_profile_ids_rejects_missing() {
+        assert_eq!(validate_profile_ids(None), ProfileIdsCheck::MissingOrEmpty);
+    }
+
+    #[test]
+    fn validate_profile_ids_empty_array_is_rejected_like_missing() {
+        let empty: Vec<String> = Vec::new();
+        assert_eq!(
+            validate_profile_ids(Some(&empty)),
+            ProfileIdsCheck::MissingOrEmpty
+        );
+    }
+
+    #[test]
+    fn validate_profile_ids_accepts_single() {
+        let ids = vec!["0xabc".to_string()];
+        assert_eq!(validate_profile_ids(Some(&ids)), ProfileIdsCheck::Valid);
+    }
+
+    #[test]
+    fn validate_profile_ids_accepts_exactly_1000() {
+        let ids: Vec<String> = (0..PROFILE_IDS_MAX).map(|i| format!("0x{i}")).collect();
+        assert_eq!(ids.len(), 1000);
+        assert_eq!(validate_profile_ids(Some(&ids)), ProfileIdsCheck::Valid);
+    }
+
+    #[test]
+    fn validate_profile_ids_rejects_over_1000() {
+        let ids: Vec<String> = (0..=PROFILE_IDS_MAX).map(|i| format!("0x{i}")).collect();
+        assert_eq!(ids.len(), 1001);
+        assert_eq!(validate_profile_ids(Some(&ids)), ProfileIdsCheck::TooMany);
+    }
+
+    #[test]
+    fn validate_profile_ids_batch_max_is_only_cache_eligibility() {
+        const { assert!(PROFILE_BATCH_MAX < PROFILE_IDS_MAX) };
+        let ids: Vec<String> = (0..=PROFILE_BATCH_MAX).map(|i| format!("0x{i}")).collect();
+        assert!(ids.len() > PROFILE_BATCH_MAX);
+        assert_eq!(validate_profile_ids(Some(&ids)), ProfileIdsCheck::Valid);
+    }
+
+    #[tokio::test]
+    async fn early_profiles_response_empty_array_is_400() {
+        let resp = early_profiles_response(validate_profile_ids(Some(&[])))
+            .expect("empty ids must produce a terminal response");
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[test]
+    fn early_profiles_response_missing_field_is_400() {
+        let resp = early_profiles_response(validate_profile_ids(None))
+            .expect("missing ids must produce a terminal response");
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[test]
+    fn early_profiles_response_valid_ids_proceeds() {
+        let ids = vec!["0xabc".to_string()];
+        assert!(early_profiles_response(validate_profile_ids(Some(&ids))).is_none());
+    }
+
+    #[test]
+    fn third_party_collection_name_accepts_valid_third_party_name_urn() {
+        assert_eq!(
+            third_party_collection_name(
+                "urn:decentraland:matic:collections-thirdparty:cryptomotors"
+            ),
+            Some("cryptomotors".to_string())
+        );
+        assert_eq!(
+            third_party_collection_name(
+                "urn:decentraland:matic:collections-thirdparty:cryptomotors:car:1"
+            ),
+            Some("cryptomotors".to_string())
+        );
+    }
+
+    #[test]
+    fn third_party_collection_name_rejects_non_third_party_urns() {
+        assert_eq!(
+            third_party_collection_name("urn:decentraland:matic:collections-v2:0xabc:0"),
+            None
+        );
+        assert_eq!(
+            third_party_collection_name("urn:decentraland:off-chain:base-avatars:eyebrows_00"),
+            None
+        );
+        assert_eq!(third_party_collection_name("not-a-urn"), None);
+        assert_eq!(
+            third_party_collection_name("urn:decentraland:matic:collections-thirdparty:"),
+            None
+        );
+    }
+
+    #[test]
+    fn collection_id_param_absent_and_empty_are_none() {
+        let req = |q: &str| {
+            axum::http::Request::builder()
+                .uri(format!("http://x/collections/wearables-by-owner/0xabc?{q}"))
+                .body(axum::body::Body::empty())
+                .unwrap()
+        };
+        assert_eq!(collection_id_param(&req("includeDefinitions")), None);
+        assert_eq!(collection_id_param(&req("collectionId=")), None);
+        assert_eq!(
+            collection_id_param(&req(
+                "collectionId=urn:decentraland:matic:collections-thirdparty:cryptomotors"
+            )),
+            Some("urn:decentraland:matic:collections-thirdparty:cryptomotors".to_string())
+        );
     }
 }

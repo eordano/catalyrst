@@ -64,6 +64,7 @@ pub struct ChallengeRecord {
     pub status: ChallengeStatus,
 }
 
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone)]
 pub enum ChallengeStatus {
     Pending,
@@ -202,8 +203,6 @@ pub fn routes() -> Router<AppState> {
         )
         .route("/auth/identities", post(create_identity))
         .route("/auth/identities/{id}", get(get_identity))
-        // Admin (bearer-gated) introspection — read + revoke the in-memory
-        // challenge/identity stores. Additive; does not touch the routes above.
         .route("/admin/auth/challenges", get(admin_list_challenges))
         .route("/admin/auth/challenges/{id}", get(admin_get_challenge))
         .route(
@@ -365,7 +364,7 @@ async fn create_request(
     let request_id = Uuid::new_v4().to_string();
     let now = Utc::now();
     let expiration = now + Duration::seconds(REQUEST_TTL_SECONDS);
-    let code = now.timestamp_subsec_nanos() % 100;
+    let code = random_pairing_code();
     let challenge = build_challenge(&request_id, code, &now, &body.method, &body.params);
 
     let record = ChallengeRecord {
@@ -437,11 +436,6 @@ async fn get_request_outcome(State(state): State<AppState>, Path(id): Path<Strin
     };
 
     match outcome_opt {
-        // Pending: a bare 204 with no body. Attaching a Json body here is an
-        // HTTP framing bug — hyper suppresses the body for 204 but the Json
-        // IntoResponse still stamps Content-Type + a non-zero Content-Length,
-        // so a strict keep-alive client waits for body bytes that never come.
-        // Upstream auth-api also returns an empty 204 while pending.
         None => StatusCode::NO_CONTENT.into_response(),
         Some(outcome) => {
             if let Some(mut entry) = state.auth_api.requests.get_mut(&id) {
@@ -665,6 +659,18 @@ async fn get_identity(
         )
             .into_response();
     }
+    if !record.is_mobile
+        && !record.ip_address.is_empty()
+        && !request_ip.is_empty()
+        && normalize_ip(&record.ip_address) != normalize_ip(&request_ip)
+    {
+        tracing::warn!(
+            stored = %record.ip_address,
+            request = %request_ip,
+            %signer,
+            "identity IP matched only by /24 prefix"
+        );
+    }
 
     state.auth_api.identities.remove(&id);
     update_identity_status(
@@ -806,6 +812,20 @@ fn derive_final_authority(chain: &AuthChain) -> Result<String, String> {
     }
 }
 
+fn random_pairing_code() -> u32 {
+    loop {
+        let bytes = *Uuid::new_v4().as_bytes();
+        for (i, byte) in bytes.into_iter().enumerate() {
+            if i == 6 || i == 8 {
+                continue;
+            }
+            if byte < 200 {
+                return u32::from(byte % 100);
+            }
+        }
+    }
+}
+
 fn build_challenge(
     request_id: &str,
     code: u32,
@@ -882,17 +902,15 @@ fn is_valid_uuid(s: &str) -> bool {
 }
 
 fn client_ip(headers: &HeaderMap) -> String {
-    for header in ["true-client-ip", "x-real-ip", "cf-connecting-ip"] {
-        if let Some(value) = headers.get(header).and_then(|v| v.to_str().ok()) {
-            let ip = value.trim();
-            if !ip.is_empty() {
-                return normalize_ip(ip);
-            }
+    if let Some(value) = headers.get("x-real-ip").and_then(|v| v.to_str().ok()) {
+        let ip = value.trim();
+        if !ip.is_empty() {
+            return normalize_ip(ip);
         }
     }
     if let Some(value) = headers.get("x-forwarded-for").and_then(|v| v.to_str().ok()) {
-        if let Some(first) = value.split(',').next() {
-            let ip = first.trim();
+        if let Some(last) = value.rsplit(',').next() {
+            let ip = last.trim();
             if !ip.is_empty() {
                 return normalize_ip(ip);
             }
@@ -924,4 +942,68 @@ fn ips_match(stored: &str, request: &str) -> bool {
         return octets_a[..3] == octets_b[..3];
     }
     false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::http::HeaderName;
+
+    fn headers(pairs: &[(&str, &str)]) -> HeaderMap {
+        let mut map = HeaderMap::new();
+        for (name, value) in pairs {
+            map.insert(
+                HeaderName::from_bytes(name.as_bytes()).unwrap(),
+                value.parse().unwrap(),
+            );
+        }
+        map
+    }
+
+    #[test]
+    fn client_ip_ignores_client_settable_spoof_headers() {
+        let map = headers(&[
+            ("true-client-ip", "6.6.6.6"),
+            ("cf-connecting-ip", "7.7.7.7"),
+            ("x-real-ip", "203.0.113.9"),
+        ]);
+        assert_eq!(client_ip(&map), "203.0.113.9");
+    }
+
+    #[test]
+    fn client_ip_takes_proxy_appended_forwarded_entry() {
+        let map = headers(&[
+            ("true-client-ip", "6.6.6.6"),
+            ("x-forwarded-for", "6.6.6.6, 203.0.113.9"),
+        ]);
+        assert_eq!(client_ip(&map), "203.0.113.9");
+    }
+
+    #[test]
+    fn client_ip_empty_when_only_spoofable_headers_present() {
+        let map = headers(&[
+            ("true-client-ip", "6.6.6.6"),
+            ("cf-connecting-ip", "7.7.7.7"),
+        ]);
+        assert_eq!(client_ip(&map), "");
+    }
+
+    #[test]
+    fn pairing_code_within_range() {
+        for _ in 0..1000 {
+            assert!(random_pairing_code() < 100);
+        }
+    }
+
+    #[test]
+    fn pairing_code_independent_of_challenge_timestamp() {
+        let now = Utc::now();
+        let stamp_code = now.timestamp_subsec_nanos() % 100;
+        let codes: std::collections::HashSet<u32> =
+            (0..128).map(|_| random_pairing_code()).collect();
+        assert!(codes.len() > 1);
+        assert!(codes.iter().any(|c| *c != stamp_code));
+        let challenge = build_challenge("req-1", 42, &now, DCL_PERSONAL_SIGN_METHOD, &[]);
+        assert!(challenge.contains("Code: 42"));
+    }
 }

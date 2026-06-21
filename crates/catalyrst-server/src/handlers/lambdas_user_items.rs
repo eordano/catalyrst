@@ -71,23 +71,41 @@ async fn fetch_owned_grouped(
 
     const OWNED_FETCH_LIMIT: i64 = (MAX_PAGE_SIZE as i64) * 100;
 
+    let grant_leg = if super::lease_overlay::usage_grants_present(pool).await {
+        " UNION ALL \
+             SELECT replace(ug.urn, ':mainnet:', ':ethereum:') AS urn, \
+                    COALESCE(ug.token_id, '') AS token_id, \
+                    extract(epoch FROM ug.granted_at)::bigint AS transferred_at, \
+                    NULL::text AS rarity, \
+                    NULL::text AS price, \
+                    NULL::text AS name, \
+                    ug.category::text AS category \
+             FROM marketplace.usage_grants ug \
+             WHERE ug.status = 'active' AND ug.category = $1 \
+               AND ug.urn IS NOT NULL AND ug.grantee_address = lower($2)"
+    } else {
+        ""
+    };
     let sql = format!(
-        "SELECT replace(n.urn, ':mainnet:', ':ethereum:') AS urn, \
-                n.token_id::text AS token_id, \
-                n.transferred_at::bigint AS transferred_at, \
-                i.rarity AS rarity, \
-                i.price::text AS price, \
-                md.name AS name, \
-                md.category AS category \
-         FROM squid_marketplace.nft n \
-         LEFT JOIN squid_marketplace.item i ON n.item_id = i.id \
-         {meta_join} \
-         WHERE n.category = $1 AND n.urn IS NOT NULL AND n.owner_address = lower($2) \
-         ORDER BY n.transferred_at DESC \
+        "SELECT urn, token_id, transferred_at, rarity, price, name, category FROM ( \
+             SELECT replace(n.urn, ':mainnet:', ':ethereum:') AS urn, \
+                    n.token_id::text AS token_id, \
+                    n.transferred_at::bigint AS transferred_at, \
+                    i.rarity AS rarity, \
+                    i.price::text AS price, \
+                    md.name AS name, \
+                    md.category AS category \
+             FROM squid_marketplace.nft n \
+             LEFT JOIN squid_marketplace.item i ON n.item_id = i.id \
+             {meta_join} \
+             WHERE n.category = $1 AND n.urn IS NOT NULL AND n.owner_address = lower($2) \
+           {grant_leg} \
+         ) owned \
+         ORDER BY transferred_at DESC \
          LIMIT $3"
     );
 
-    let rows: Vec<ItemRow> = sqlx::query_as(&sql)
+    let rows: Vec<ItemRow> = sqlx::query_as(sqlx::AssertSqlSafe(sql))
         .bind(item_category)
         .bind(owner)
         .bind(OWNED_FETCH_LIMIT)
@@ -701,7 +719,7 @@ async fn finish_tpw_response(
     .into_response()
 }
 
-fn is_third_party_name_urn(urn: &str) -> bool {
+pub(crate) fn is_third_party_name_urn(urn: &str) -> bool {
     let p: Vec<&str> = urn.split(':').collect();
     p.len() == 5
         && p[0] == "urn"

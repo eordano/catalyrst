@@ -49,6 +49,19 @@ pub async fn generate(
     Ok((StatusCode::OK, [(header::CONTENT_TYPE, "image/png")], png).into_response())
 }
 
+pub fn slider_solved(answer: f64, submitted: f64) -> bool {
+    (answer - submitted).abs() <= CLAIM_TOLERANCE
+}
+
+fn rejected() -> Response {
+    Json(ClaimCreditsResponse {
+        ok: false,
+        credits_granted: 0.0,
+        is_blocked_for_claiming: false,
+    })
+    .into_response()
+}
+
 pub async fn claim(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -77,16 +90,20 @@ pub async fn claim(
         .map(|r| r.get::<f64, _>("answer_x"))
         .ok_or_else(|| ApiError::bad_request("no active captcha challenge"))?;
 
-    if (answer - claim.x).abs() > CLAIM_TOLERANCE {
-        return Ok(Json(ClaimCreditsResponse {
-            ok: false,
-            credits_granted: 0.0,
-            is_blocked_for_claiming: false,
-        })
-        .into_response());
+    if !slider_solved(answer, claim.x) {
+        return Ok(rejected());
     }
 
-    let outcome = state.credits.claim_credits(&signer).await?;
+    if let Some(provider) = &state.captcha_provider {
+        let Some(token) = claim.token.as_deref().filter(|t| !t.is_empty()) else {
+            return Ok(rejected());
+        };
+        if !provider.verify(token, None).await? {
+            return Ok(rejected());
+        }
+    }
+
+    let outcome = state.credits.claim_credits(&signer, now).await?;
 
     Ok(Json(ClaimCreditsResponse {
         ok: outcome.ok,
@@ -94,4 +111,23 @@ pub async fn claim(
         is_blocked_for_claiming: outcome.is_blocked_for_claiming,
     })
     .into_response())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn slider_within_tolerance_passes() {
+        assert!(slider_solved(50.0, 50.0));
+        assert!(slider_solved(50.0, 50.0 + CLAIM_TOLERANCE));
+        assert!(slider_solved(50.0, 50.0 - CLAIM_TOLERANCE));
+    }
+
+    #[test]
+    fn slider_outside_tolerance_fails() {
+        assert!(!slider_solved(50.0, 50.0 + CLAIM_TOLERANCE + 0.1));
+        assert!(!slider_solved(50.0, 0.0));
+        assert!(!slider_solved(0.0, 100.0));
+    }
 }

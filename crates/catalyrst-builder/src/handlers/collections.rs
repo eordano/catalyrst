@@ -13,6 +13,37 @@ use crate::AppState;
 
 const CURATION_STATUSES: [&str; 3] = ["pending", "approved", "rejected"];
 
+pub async fn get_collection(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+) -> Result<Json<ApiData<Value>>, ApiError> {
+    let path = format!("/v1/collections/{}", id);
+    let signer = require_signer(&headers, "get", &path)?.to_ascii_lowercase();
+
+    let collection_id = Uuid::parse_str(id.trim()).map_err(|_| {
+        ApiError::not_found_with("Not found", json!({ "id": id, "eth_address": signer }))
+    })?;
+
+    let meta = state
+        .items
+        .collection_by_id(&collection_id)
+        .await?
+        .ok_or_else(|| {
+            ApiError::not_found_with("Not found", json!({ "id": id, "eth_address": signer }))
+        })?;
+
+    let is_admin = state.admin_addresses.iter().any(|a| a == &signer);
+    if signer != meta.eth_address.to_ascii_lowercase() && !is_admin {
+        return Err(ApiError::unauthorized_with(
+            "Unauthorized",
+            json!({ "eth_address": signer }),
+        ));
+    }
+
+    Ok(Json(ApiData::ok(meta.to_meta_json())))
+}
+
 #[derive(Debug, Default, Deserialize)]
 pub struct CollectionItemsParams {
     pub status: Option<String>,

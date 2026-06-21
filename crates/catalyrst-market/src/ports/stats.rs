@@ -30,10 +30,6 @@ pub struct StatsResourceFilters {
     pub max_price: Option<String>,
 }
 
-// NumericKey-keyed so the estate-size histogram serializes in NUMERIC order
-// ("2" before "10"). Upstream marketplace-server returns it via a JS object whose
-// small-integer keys (<2^32) are iterated in ascending numeric order; a plain
-// BTreeMap<String,_> would sort lexicographically ("10" before "2"). See prices.rs.
 pub type StatsResponse = BTreeMap<NumericKey, i64>;
 
 pub struct StatsComponent {
@@ -126,7 +122,7 @@ LIMIT {limit}
             )
         };
 
-        let sizes: Vec<Option<i32>> = sqlx::query_scalar(&sql)
+        let sizes: Vec<Option<i32>> = sqlx::query_scalar(sqlx::AssertSqlSafe(sql))
             .fetch_all(&self.pool)
             .await
             .unwrap_or_default();

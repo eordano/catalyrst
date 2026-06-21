@@ -27,10 +27,7 @@ pub struct SnapshotSyncDeployment {
     pub pointers: Vec<String>,
     #[sqlx(rename = "authChain")]
     pub auth_chain: serde_json::Value,
-    // Integer ms — the canonical Decentraland snapshot format. Emitting a float
-    // here (`...515.0`) makes every line unparseable by clients that deserialize
-    // entityTimestamp as an integer, silently breaking snapshot bootstrap (the
-    // whole sync then falls back to the slow per-entity pointer-changes path).
+
     #[sqlx(rename = "entityTimestamp")]
     pub entity_timestamp: i64,
 }

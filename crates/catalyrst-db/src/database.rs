@@ -17,6 +17,22 @@ pub struct DatabaseConfig {
     pub query_timeout_secs: u64,
 }
 
+pub const DEFAULT_PG_POOL_SIZE: u32 = 20;
+
+pub fn parse_pg_pool_size() -> u32 {
+    parse_pg_pool_size_from(std::env::var("PG_POOL_SIZE").ok().as_deref())
+}
+
+fn parse_pg_pool_size_from(raw: Option<&str>) -> u32 {
+    match raw {
+        Some(raw) => match raw.trim().parse::<i64>() {
+            Ok(parsed) => parsed.max(1) as u32,
+            Err(_) => DEFAULT_PG_POOL_SIZE,
+        },
+        None => DEFAULT_PG_POOL_SIZE,
+    }
+}
+
 impl Default for DatabaseConfig {
     fn default() -> Self {
         Self {
@@ -25,7 +41,7 @@ impl Default for DatabaseConfig {
             database: "content".into(),
             user: "postgres".into(),
             password: String::new(),
-            max_connections: 10,
+            max_connections: parse_pg_pool_size(),
             idle_timeout_secs: 30,
             query_timeout_secs: 60,
         }
@@ -115,5 +131,36 @@ impl Database {
     pub async fn close(&self) {
         info!("Draining database connections");
         self.pool.close().await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pg_pool_size_defaults_when_unset() {
+        assert_eq!(parse_pg_pool_size_from(None), DEFAULT_PG_POOL_SIZE);
+        assert_eq!(DEFAULT_PG_POOL_SIZE, 20);
+    }
+
+    #[test]
+    fn pg_pool_size_defaults_when_non_numeric() {
+        assert_eq!(parse_pg_pool_size_from(Some("abc")), DEFAULT_PG_POOL_SIZE);
+        assert_eq!(parse_pg_pool_size_from(Some("")), DEFAULT_PG_POOL_SIZE);
+        assert_eq!(parse_pg_pool_size_from(Some("12x")), DEFAULT_PG_POOL_SIZE);
+    }
+
+    #[test]
+    fn pg_pool_size_honors_override() {
+        assert_eq!(parse_pg_pool_size_from(Some("50")), 50);
+        assert_eq!(parse_pg_pool_size_from(Some("1000")), 1000);
+        assert_eq!(parse_pg_pool_size_from(Some("  30  ")), 30);
+    }
+
+    #[test]
+    fn pg_pool_size_floors_at_one() {
+        assert_eq!(parse_pg_pool_size_from(Some("0")), 1);
+        assert_eq!(parse_pg_pool_size_from(Some("-5")), 1);
     }
 }

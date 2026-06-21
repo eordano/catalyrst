@@ -79,7 +79,7 @@ impl NamesComponent {
             schema = self.schema
         );
 
-        match sqlx::query_as::<_, (String, String)>(&sql)
+        match sqlx::query_as::<_, (String, String)>(sqlx::AssertSqlSafe(sql))
             .bind(&misses)
             .fetch_all(pool)
             .await

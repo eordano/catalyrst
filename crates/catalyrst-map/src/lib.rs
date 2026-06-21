@@ -1,4 +1,3 @@
-// large error enum; boxing every Result hurts ergonomics
 #![allow(clippy::result_large_err)]
 
 pub mod cache;
@@ -9,6 +8,7 @@ pub mod map;
 pub mod proximity;
 pub mod render;
 pub mod rentals;
+pub mod satellite;
 
 use std::str::FromStr;
 use std::sync::Arc;
@@ -22,11 +22,13 @@ use sqlx::PgPool;
 
 use crate::config::Config;
 use crate::map::MapComponent;
+use crate::satellite::SatelliteState;
 
 pub struct AppStateInner {
     pub map: MapComponent,
     pub pool: PgPool,
     pub map_schema: String,
+    pub satellite: Arc<SatelliteState>,
 }
 
 pub type AppState = Arc<AppStateInner>;
@@ -52,10 +54,21 @@ pub async fn build_state(cfg: &Config) -> Result<AppState> {
         cfg.estate_contract_address.clone(),
     );
 
+    let satellite = SatelliteState::new(
+        cfg.satellite_dir.clone(),
+        cfg.satellite_source_budget_bytes,
+        cfg.satellite_output_entries,
+    );
+    tracing::info!(
+        dir = %cfg.satellite_dir.display(),
+        "satellite tile renderer ready"
+    );
+
     let state = Arc::new(AppStateInner {
         map: map.clone(),
         pool: pool.clone(),
         map_schema: cfg.schema.clone(),
+        satellite: satellite.clone(),
     });
 
     tracing::info!("building initial tile grid...");
@@ -81,6 +94,21 @@ pub async fn build_state(cfg: &Config) -> Result<AppState> {
                     Ok(()) => tracing::debug!("tile grid refreshed"),
                     Err(e) => tracing::warn!(error = %e, "tile grid refresh failed"),
                 }
+            }
+        });
+    }
+
+    {
+        let satellite = satellite.clone();
+        let interval = cfg.satellite_scan_secs.max(1);
+        tokio::spawn(async move {
+            let mut tick = tokio::time::interval(Duration::from_secs(interval));
+            tick.tick().await;
+            loop {
+                tick.tick().await;
+                let s = satellite.clone();
+
+                let _ = tokio::task::spawn_blocking(move || s.scan()).await;
             }
         });
     }
@@ -127,5 +155,9 @@ pub fn api_router() -> Router<AppState> {
         .route(
             "/v2/addresses/{address}/contributions",
             get(handlers::meta::get_contributions),
+        )
+        .route(
+            "/satellite/{z}/{x}/{y}",
+            get(handlers::satellite::satellite_tile),
         )
 }

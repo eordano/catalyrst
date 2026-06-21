@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "credits/"))]
 pub struct SeasonsData {
     #[serde(rename = "lastSeason")]
     pub last_season: SeasonData,
@@ -11,12 +12,14 @@ pub struct SeasonsData {
 }
 
 #[derive(Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "credits/"))]
 pub struct CurrentSeasonInfo {
     pub season: SeasonData,
     pub week: Week,
 }
 
 #[derive(Debug, Default, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "credits/"))]
 pub struct SeasonData {
     pub id: i32,
     pub name: String,
@@ -27,6 +30,7 @@ pub struct SeasonData {
     #[serde(rename = "maxMana")]
     pub max_mana: String,
     #[serde(rename = "timeLeft")]
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub time_left: i64,
     #[serde(rename = "amountOfWeeks")]
     pub amount_of_weeks: i32,
@@ -34,20 +38,24 @@ pub struct SeasonData {
 }
 
 #[derive(Debug, Default, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "credits/"))]
 pub struct Week {
     #[serde(rename = "weekNumber")]
     pub week_number: i32,
     #[serde(rename = "timeLeft")]
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub time_left: u64,
     #[serde(rename = "startDate")]
     pub start_date: String,
     #[serde(rename = "endDate")]
     pub end_date: String,
     #[serde(rename = "secondsRemaining")]
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub seconds_remaining: u64,
 }
 
 #[derive(Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "credits/"))]
 pub struct CreditsProgramProgressResponse {
     pub user: UserData,
     pub credits: CreditsData,
@@ -55,21 +63,27 @@ pub struct CreditsProgramProgressResponse {
 }
 
 #[derive(Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "credits/"))]
 pub struct UserData {
     #[serde(rename = "hasStartedProgram")]
     pub has_started_program: bool,
 }
 
 #[derive(Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "credits/"))]
 pub struct CreditsData {
     pub available: f64,
+    pub earned: f64,
+    pub paid: f64,
     #[serde(rename = "expiresIn")]
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub expires_in: u64,
     #[serde(rename = "isBlockedForClaiming")]
     pub is_blocked_for_claiming: bool,
 }
 
 #[derive(Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "credits/"))]
 pub struct GoalData {
     pub title: String,
     pub description: String,
@@ -81,25 +95,26 @@ pub struct GoalData {
 }
 
 #[derive(Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "credits/"))]
 pub struct GoalProgressData {
     #[serde(rename = "totalSteps")]
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub total_steps: u64,
     #[serde(rename = "completedSteps")]
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub completed_steps: u64,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct ClaimCreditsBody {
     pub x: f64,
+
+    #[serde(default)]
+    pub token: Option<String>,
 }
 
-// Wire shape is dictated by Unity's `ClaimCreditsResponse` struct
-// (MarketplaceCreditsAPIService/ClaimCreditsResponse.cs), deserialized by
-// JsonUtility, which is case-sensitive. Fields must match its mixed casing
-// exactly: `ok`, `credits_granted` (snake_case), `isBlockedForClaiming`.
-// A blanket `rename_all = camelCase` would mis-emit `creditsGranted`, leaving
-// the client's `credits_granted` unbound (always 0).
 #[derive(Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "credits/"))]
 pub struct ClaimCreditsResponse {
     pub ok: bool,
     pub credits_granted: f64,

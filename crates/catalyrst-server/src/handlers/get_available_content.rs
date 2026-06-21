@@ -9,9 +9,6 @@ use crate::errors::{AppResult, InvalidRequestError};
 use crate::query_params::{parse_query_string, qs_get_array};
 use crate::state::AppState;
 
-// Upper bound on the number of `cid`s accepted in a single request. `exist_multiple` issues one
-// storage existence check (fs stat) per cid, so an uncapped list lets one unauthenticated request
-// fan out into thousands of backend ops. Matches the 1000-item cap on POST /entities/active.
 const MAX_AVAILABLE_CONTENT_CIDS: usize = 1000;
 
 pub async fn get_available_content(

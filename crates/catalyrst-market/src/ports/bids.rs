@@ -32,40 +32,56 @@ pub struct BidFilters {
 }
 
 #[derive(Debug, Serialize)]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "market/", rename_all = "camelCase")
+)]
 pub struct Bid {
     pub id: String,
     pub bidder: String,
     pub price: String,
     #[serde(rename = "createdAt")]
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub created_at: i64,
     #[serde(rename = "updatedAt")]
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub updated_at: i64,
     pub fingerprint: String,
     pub status: String,
     pub seller: String,
     pub network: Network,
     #[serde(rename = "chainId")]
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub chain_id: ChainId,
     #[serde(rename = "contractAddress")]
     pub contract_address: String,
     #[serde(rename = "expiresAt")]
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub expires_at: i64,
     #[serde(rename = "tokenId", skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
     pub token_id: Option<String>,
     #[serde(rename = "itemId", skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
     pub item_id: Option<String>,
     #[serde(rename = "tradeId", skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
     pub trade_id: Option<String>,
     #[serde(
         rename = "tradeContractAddress",
         skip_serializing_if = "Option::is_none"
     )]
+    #[cfg_attr(feature = "ts", ts(optional))]
     pub trade_contract_address: Option<String>,
     #[serde(rename = "bidAddress", skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
     pub bid_address: Option<String>,
     #[serde(rename = "blockchainId", skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
     pub blockchain_id: Option<String>,
     #[serde(rename = "blockNumber", skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
     pub block_number: Option<String>,
 }
 
@@ -81,8 +97,7 @@ impl BidsComponent {
     pub async fn get_bids(&self, f: &BidFilters) -> Result<(Vec<Bid>, i64), ApiError> {
         let order_by = match f.sort_by {
             Some(BidSortBy::RecentlyUpdated) => "updated_at DESC",
-            // outer `price` alias is price::text — sort numerically (same lex bug
-            // as sales most_expensive). updated_at/created_at are numeric (ok).
+
             Some(BidSortBy::MostExpensive) => "price::numeric DESC",
             _ => "created_at DESC",
         };
@@ -139,10 +154,145 @@ impl BidsComponent {
         let limit_p = next();
         let offset_p = next();
 
-        let sql = format!(
-            r#"
-SELECT *, COUNT(*) OVER() AS bids_count FROM (
-  (
+        let sql = build_combined_bids_sql(
+            &where_sql,
+            order_by,
+            &limit_p,
+            &offset_p,
+            legacy_item_id_clause,
+        );
+
+        let mut q = sqlx::query(sqlx::AssertSqlSafe(sql));
+        for s in &binds {
+            q = q.bind(s);
+        }
+        q = q.bind(f.limit);
+        q = q.bind(f.offset);
+
+        let rows = q.fetch_all(&self.pool).await?;
+        let mut total: i64 = 0;
+        let bids: Vec<Bid> = rows
+            .into_iter()
+            .map(|r| {
+                if total == 0 {
+                    if let Ok(c) = r.try_get::<i64, _>("bids_count") {
+                        total = c;
+                    }
+                }
+                row_to_bid(&r)
+            })
+            .collect();
+        Ok((bids, total))
+    }
+}
+
+fn bid_trades_source() -> String {
+    format!(
+        r#"
+    SELECT
+      t.id,
+      t.contract                  AS trade_contract_address,
+      t.created_at,
+      t.signer,
+      t.expires_at,
+      t.checks,
+      t.network,
+      t.chain_id,
+      json_object_agg(av.direction, json_build_object(
+        'contract_address', av.contract_address,
+        'direction',        av.direction,
+        'beneficiary',      av.beneficiary,
+        'extra',            av.extra,
+        'token_id',         av.token_id,
+        'item_id',          av.item_id,
+        'amount',           av.amount,
+        'creator',          av.creator,
+        'owner',            av.owner,
+        'category',         av.category,
+        'nft_id',           av.nft_id,
+        'issued_id',        av.issued_id,
+        'nft_name',         av.nft_name
+      )) AS assets,
+      CASE
+        WHEN exec.executions >= (t.checks ->> 'uses')::int THEN 'sold'
+        WHEN canc.cancellations > 0                        THEN 'cancelled'
+        WHEN t.expires_at < now()::timestamptz(3)          THEN 'cancelled'
+        ELSE 'open'
+      END AS status
+    FROM marketplace.trades AS t
+    JOIN (
+      SELECT
+        ta.trade_id,
+        ta.contract_address,
+        ta.direction::text AS direction,
+        ta.beneficiary,
+        ta.extra,
+        erc721_asset.token_id,
+        coalesce(item_asset.item_id, nft.item_blockchain_id::text) AS item_id,
+        erc20_asset.amount,
+        item.creator,
+        nft.owner_address AS owner,
+        nft.category,
+        nft.id            AS nft_id,
+        nft.issued_id     AS issued_id,
+        nft.name          AS nft_name
+      FROM marketplace.trade_assets AS ta
+      LEFT JOIN marketplace.trade_assets_erc721 AS erc721_asset ON ta.id = erc721_asset.asset_id
+      LEFT JOIN marketplace.trade_assets_erc20  AS erc20_asset  ON ta.id = erc20_asset.asset_id
+      LEFT JOIN marketplace.trade_assets_item   AS item_asset   ON ta.id = item_asset.asset_id
+      LEFT JOIN {schema}.item AS item
+        ON (ta.contract_address = item.collection_id AND item_asset.item_id::numeric = item.blockchain_id)
+      LEFT JOIN {schema}.nft AS nft
+        ON (ta.contract_address = nft.contract_address AND erc721_asset.token_id::numeric = nft.token_id)
+    ) AS av ON t.id = av.trade_id
+    LEFT JOIN (
+      SELECT order_signature_hash AS hashed_signature, COUNT(*) AS executions
+      FROM marketplace.market_trades_local GROUP BY order_signature_hash
+    ) AS exec ON exec.hashed_signature = t.hashed_signature
+    LEFT JOIN (
+      SELECT target_signature_hash AS hashed_signature, COUNT(*) AS cancellations
+      FROM marketplace.market_cancellations GROUP BY target_signature_hash
+    ) AS canc ON canc.hashed_signature = t.hashed_signature
+    WHERE t.type = 'bid'
+    GROUP BY t.id, t.contract, t.created_at, t.network, t.chain_id, t.signer,
+             t.checks, t.expires_at, exec.executions, canc.cancellations
+"#,
+        schema = MARKETPLACE_SQUID_SCHEMA,
+    )
+}
+
+fn bid_trades_branch() -> String {
+    format!(
+        r#"
+    SELECT
+      trades.id::text             AS trade_id,
+      NULL::text                  AS legacy_bid_id,
+      trades.trade_contract_address AS trade_contract_address,
+      NULL::text                  AS bid_address,
+      NULL::text                  AS blockchain_id,
+      NULL::text                  AS block_number,
+      trades.signer               AS bidder,
+      (EXTRACT(EPOCH FROM trades.created_at) * 1000)::float8 AS created_at,
+      (EXTRACT(EPOCH FROM trades.created_at) * 1000)::float8 AS updated_at,
+      (EXTRACT(EPOCH FROM trades.expires_at) * 1000)::float8 AS expires_at,
+      trades.network              AS network,
+      trades.chain_id             AS chain_id,
+      (trades.assets -> 'sent' ->> 'amount')::numeric(78)::text AS price,
+      trades.assets -> 'received' ->> 'token_id'         AS token_id,
+      trades.assets -> 'received' ->> 'item_id'          AS item_id,
+      trades.assets -> 'received' ->> 'contract_address' AS contract_address,
+      trades.assets -> 'received' ->> 'extra'            AS fingerprint,
+      COALESCE(trades.assets -> 'received' ->> 'creator', trades.assets -> 'received' ->> 'owner') AS seller,
+      trades.status               AS status
+    FROM ({source}) AS trades
+"#,
+        source = bid_trades_source(),
+    )
+}
+
+fn legacy_bids_branch(legacy_item_id_clause: &str) -> String {
+    format!(
+        r#"
     SELECT
       NULL::text                AS trade_id,
       id::text                  AS legacy_bid_id,
@@ -165,42 +315,24 @@ SELECT *, COUNT(*) OVER() AS bids_count FROM (
       status                    AS status
     FROM {schema}.bid
     WHERE expires_at > extract(epoch from now()) * 1000 {legacy_item_id_clause}
-  )
-) AS combined_bids
-{where_sql}
-ORDER BY {order_by}
-LIMIT {limit_p} OFFSET {offset_p}
 "#,
-            schema = MARKETPLACE_SQUID_SCHEMA,
-            legacy_item_id_clause = legacy_item_id_clause,
-            where_sql = where_sql,
-            order_by = order_by,
-            limit_p = limit_p,
-            offset_p = offset_p,
-        );
+        schema = MARKETPLACE_SQUID_SCHEMA,
+        legacy_item_id_clause = legacy_item_id_clause,
+    )
+}
 
-        let mut q = sqlx::query(&sql);
-        for s in &binds {
-            q = q.bind(s);
-        }
-        q = q.bind(f.limit);
-        q = q.bind(f.offset);
-
-        let rows = q.fetch_all(&self.pool).await?;
-        let mut total: i64 = 0;
-        let bids: Vec<Bid> = rows
-            .into_iter()
-            .map(|r| {
-                if total == 0 {
-                    if let Ok(c) = r.try_get::<i64, _>("bids_count") {
-                        total = c;
-                    }
-                }
-                row_to_bid(&r)
-            })
-            .collect();
-        Ok((bids, total))
-    }
+pub(crate) fn build_combined_bids_sql(
+    where_sql: &str,
+    order_by: &str,
+    limit_p: &str,
+    offset_p: &str,
+    legacy_item_id_clause: &str,
+) -> String {
+    format!(
+        "SELECT *, COUNT(*) OVER() AS bids_count FROM ( ({trades}) UNION ALL ({legacy}) ) AS combined_bids {where_sql} ORDER BY {order_by} LIMIT {limit_p} OFFSET {offset_p}",
+        trades = bid_trades_branch(),
+        legacy = legacy_bids_branch(legacy_item_id_clause),
+    )
 }
 
 fn row_to_bid(r: &sqlx::postgres::PgRow) -> Bid {
@@ -299,4 +431,98 @@ pub fn parse_filters(pairs: &[(String, String)]) -> Result<BidFilters, InvalidPa
         network_db_filter,
         status,
     })
+}
+
+#[cfg(test)]
+mod query_tests {
+    use super::build_combined_bids_sql;
+
+    fn count_occurrences(haystack: &str, needle: &str) -> usize {
+        haystack.matches(needle).count()
+    }
+
+    #[test]
+    fn unions_offchain_bid_trades_with_legacy_bids() {
+        let sql = build_combined_bids_sql(
+            " WHERE LOWER(bidder) = LOWER($1)",
+            "created_at DESC",
+            "$2",
+            "$3",
+            "",
+        );
+
+        assert!(
+            sql.contains("UNION ALL"),
+            "must UNION the two branches: {sql}"
+        );
+        assert!(
+            sql.contains("WHERE t.type = 'bid'"),
+            "off-chain bid_trades branch must select bid trades: {sql}"
+        );
+        assert!(
+            sql.contains("FROM marketplace.trades AS t"),
+            "off-chain bids come from marketplace.trades: {sql}"
+        );
+        assert!(sql.contains("marketplace.market_trades_local"), "{sql}");
+        assert!(sql.contains("marketplace.market_cancellations"), "{sql}");
+        assert!(
+            sql.contains("FROM squid_marketplace.bid"),
+            "legacy bid table must remain: {sql}"
+        );
+        assert!(sql.contains("COUNT(*) OVER() AS bids_count"), "{sql}");
+        assert!(sql.contains("AS combined_bids"), "{sql}");
+        assert!(
+            sql.contains(" WHERE LOWER(bidder) = LOWER($1)"),
+            "outer filter applied: {sql}"
+        );
+        assert!(
+            sql.contains("ORDER BY created_at DESC LIMIT $2 OFFSET $3"),
+            "outer sort + paginate: {sql}"
+        );
+    }
+
+    #[test]
+    fn item_id_path_excludes_legacy_via_false() {
+        let with_item = build_combined_bids_sql("", "created_at DESC", "$1", "$2", "AND FALSE");
+        assert!(
+            with_item.contains("AND FALSE"),
+            "legacy excluded on itemId path: {with_item}"
+        );
+
+        let without_item = build_combined_bids_sql("", "created_at DESC", "$1", "$2", "");
+        assert!(
+            !without_item.contains("AND FALSE"),
+            "no exclusion without itemId: {without_item}"
+        );
+        assert!(with_item.contains("WHERE t.type = 'bid'"), "{with_item}");
+    }
+
+    #[test]
+    fn both_branches_expose_the_same_response_columns() {
+        let sql = build_combined_bids_sql("", "created_at DESC", "$1", "$2", "");
+        for col in [
+            "AS trade_id",
+            "AS legacy_bid_id",
+            "AS bid_address",
+            "AS blockchain_id",
+            "AS block_number",
+            "AS bidder",
+            "AS created_at",
+            "AS updated_at",
+            "AS expires_at",
+            "AS network",
+            "AS chain_id",
+            "AS price",
+            "AS token_id",
+            "AS contract_address",
+            "AS fingerprint",
+            "AS seller",
+        ] {
+            assert_eq!(
+                count_occurrences(&sql, col),
+                2,
+                "column `{col}` must be projected by BOTH the bid_trades and legacy branch"
+            );
+        }
+    }
 }

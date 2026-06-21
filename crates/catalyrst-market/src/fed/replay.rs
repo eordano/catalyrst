@@ -98,10 +98,7 @@ impl Replay {
         }
 
         let expires_at = signed_at + MAX_SKEW_PAST_SECS;
-        // The INSERT ... ON CONFLICT DO NOTHING is the AUTHORITATIVE gate (the
-        // SELECT above is only a fast-path): two concurrent requests can both pass
-        // the SELECT, so rely on rows_affected()==0 (conflict ⇒ already seen) to
-        // reject the duplicate. Mirrors the communities/places replay fix.
+
         let res = sqlx::query(
             "INSERT INTO market_seen_nonces (signer, nonce, expires_at) VALUES ($1, $2, $3) \
              ON CONFLICT (signer, nonce) DO NOTHING",

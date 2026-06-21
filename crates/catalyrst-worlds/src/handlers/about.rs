@@ -12,6 +12,13 @@ pub async fn get_about(
 ) -> Result<Json<Value>, ApiError> {
     let cfg = &state.cfg;
 
+    if !state.name_denylist.check_name_deny_list(&world_name).await {
+        return Err(ApiError::not_found(format!(
+            "World \"{}\" has no scene deployed.",
+            world_name
+        )));
+    }
+
     let world = state.worlds.get_world(&world_name).await?;
     let scenes = state.worlds.get_scenes(&world_name).await?;
 

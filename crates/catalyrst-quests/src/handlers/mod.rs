@@ -1,8 +1,3 @@
-//! REST handlers — port of `decentraland/quests` crates/server/src/api/routes.
-//! Every route is mounted under `/api` and returns the protobuf-defined message
-//! shapes (camelCase via the generated serde attributes), byte-compatible with
-//! upstream's actix routes.
-
 use crate::auth_chain::optional_signer;
 use crate::db::{Db, DbError, QuestRewardHook, QuestRewardItem};
 use crate::proto::{Quest, QuestState};
@@ -35,8 +30,6 @@ pub struct GetQuestResponse {
     quest: Quest,
 }
 
-/// Decode a stored quest into a `Quest`, with `definition` set only when
-/// `include_definition` (upstream gates this on creator identity).
 fn to_quest(
     stored: &crate::db::StoredQuest,
     include_definition: bool,
@@ -62,7 +55,6 @@ fn to_quest(
     })
 }
 
-/// GET /api/quests — active quests; definitions are never included on the list.
 pub async fn get_quests(
     State(s): State<AppState>,
     Query(p): Query<Page>,
@@ -85,8 +77,6 @@ pub async fn get_quests(
     Ok(Json(GetQuestsResponse { quests, total }))
 }
 
-/// GET /api/quests/{quest_id} — definition included only when the signed-fetch
-/// signer is the quest creator (upstream OptionalAuthUser gate).
 pub async fn get_quest(
     State(s): State<AppState>,
     Path(id): Path<String>,
@@ -120,9 +110,6 @@ pub struct GetQuestRewardResponse {
     hook: Option<QuestRewardHook>,
 }
 
-/// GET /api/quests/{quest_id}/reward — `{items:[{name,imageLink}], hook?}`.
-/// The hook is included only when `with_hook=true` AND the signer is the quest
-/// creator. 404 when the quest has no reward items (upstream QuestHasNoReward).
 pub async fn get_quest_reward(
     State(s): State<AppState>,
     Path(id): Path<String>,
@@ -167,8 +154,6 @@ pub async fn get_quest_reward(
     }
 }
 
-/// GET /api/creators/{user_address}/quests — a creator's quests; definitions
-/// included only when the authed signer IS that creator (upstream is_owner).
 pub async fn get_quests_by_creator(
     State(s): State<AppState>,
     Path(creator): Path<String>,
@@ -220,8 +205,6 @@ pub struct GetQuestInstancesResponse {
     total: i64,
 }
 
-/// GET /api/quests/{quest_id}/instances — creator-gated list of active
-/// instances (upstream RequiredAuthUser + is_quest_creator).
 pub async fn get_quest_instances(
     State(s): State<AppState>,
     Path(quest_id): Path<String>,
@@ -275,8 +258,6 @@ pub struct GetInstanceStateResponse {
     events: Vec<StoredEventJson>,
 }
 
-/// GET /api/instances/{quest_instance}/state — creator-gated current state +
-/// raw event log (upstream get_quest_instance_state).
 pub async fn get_instance_state(
     State(s): State<AppState>,
     Path(instance_id): Path<String>,
@@ -320,7 +301,7 @@ pub async fn get_instance_state(
             event: e.event,
         })
         .collect();
-    let _ = compute_instance_state_quest; // keep referenced for the RPC path
+    let _ = compute_instance_state_quest;
     Ok(Json(GetInstanceStateResponse { state, events }))
 }
 
@@ -333,9 +314,6 @@ fn instance_json(i: crate::db::QuestInstance) -> InstanceJson {
     }
 }
 
-/// Require the signed-fetch signer to be the creator of `quest_id` (upstream
-/// RequiredAuthUser + is_quest_creator). 401 when unauthenticated, 403 when the
-/// signer is not the creator.
 async fn require_creator(
     db: &Db,
     quest_id: &str,

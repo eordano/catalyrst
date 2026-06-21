@@ -1,13 +1,6 @@
-//! AES-256-GCM encryption for env variables, byte-compatible with the upstream
-//! `encryption` component.
-//!
-//! Wire format: `version (1 byte = 0x01) || IV (12 bytes) || ciphertext || authTag (16 bytes)`.
-//! This is the same layout node's `crypto` AES-256-GCM produces in the upstream
-//! service, so ciphertext written by either implementation is interchangeable.
-
 use aes_gcm::aead::{Aead, KeyInit, Payload};
 use aes_gcm::{Aes256Gcm, Nonce};
-use rand::RngCore;
+use rand::Rng;
 
 use crate::http::errors::ApiError;
 
@@ -27,16 +20,16 @@ impl Encryptor {
         Self { cipher }
     }
 
-    /// Encrypt plaintext into `version || IV || ciphertext+tag`.
     pub fn encrypt(&self, plaintext: &str) -> Result<Vec<u8>, ApiError> {
         let mut iv = [0u8; IV_LENGTH];
-        rand::thread_rng().fill_bytes(&mut iv);
-        let nonce = Nonce::from_slice(&iv);
+        rand::rng().fill_bytes(&mut iv);
+        let nonce =
+            Nonce::try_from(iv.as_slice()).map_err(|_| ApiError::internal("encryption failed"))?;
 
         let ciphertext = self
             .cipher
             .encrypt(
-                nonce,
+                &nonce,
                 Payload {
                     msg: plaintext.as_bytes(),
                     aad: &[],
@@ -44,8 +37,6 @@ impl Encryptor {
             )
             .map_err(|_| ApiError::internal("encryption failed"))?;
 
-        // aes-gcm appends the 16-byte tag to the ciphertext, matching the
-        // upstream `ciphertext || authTag` ordering.
         let mut out = Vec::with_capacity(VERSION_LENGTH + IV_LENGTH + ciphertext.len());
         out.push(FORMAT_VERSION);
         out.extend_from_slice(&iv);
@@ -53,7 +44,6 @@ impl Encryptor {
         Ok(out)
     }
 
-    /// Decrypt a `version || IV || ciphertext+tag` buffer back to plaintext.
     pub fn decrypt(&self, encrypted: &[u8]) -> Result<String, ApiError> {
         let min_len = VERSION_LENGTH + IV_LENGTH + AUTH_TAG_LENGTH;
         if encrypted.len() < min_len {
@@ -70,12 +60,13 @@ impl Encryptor {
 
         let iv = &encrypted[VERSION_LENGTH..VERSION_LENGTH + IV_LENGTH];
         let ct_and_tag = &encrypted[VERSION_LENGTH + IV_LENGTH..];
-        let nonce = Nonce::from_slice(iv);
+        let nonce = Nonce::try_from(iv)
+            .map_err(|_| ApiError::internal("Decryption failed: invalid IV length"))?;
 
         let plaintext = self
             .cipher
             .decrypt(
-                nonce,
+                &nonce,
                 Payload {
                     msg: ct_and_tag,
                     aad: &[],
@@ -102,7 +93,7 @@ mod tests {
         let enc = Encryptor::new(&key);
         let blob = enc.encrypt("super-secret-value").unwrap();
         assert_eq!(blob[0], FORMAT_VERSION);
-        // version(1) + iv(12) + tag(16) overhead = 29 bytes.
+
         assert_eq!(blob.len(), 1 + 12 + "super-secret-value".len() + 16);
         let back = enc.decrypt(&blob).unwrap();
         assert_eq!(back, "super-secret-value");

@@ -14,9 +14,6 @@ pub fn routes() -> Router<AppState> {
         .route("/v1/storage/contents/{hash}", get(get_storage_content))
 }
 
-// Append the inbound query string to the upstream URL — a transparent proxy must
-// forward it (e.g. storage's `?ts=` cache-buster, which the builder folds into
-// the redirect Location; dropping it silently broke cache-busting).
 fn with_query(mut url: String, q: Option<String>) -> String {
     if let Some(q) = q.filter(|s| !s.is_empty()) {
         url.push('?');
@@ -57,13 +54,6 @@ async fn get_storage_content(
     proxy(&state, &url).await
 }
 
-/// Non-redirect-following client for the builder proxy. The builder's
-/// `/v1/storage/contents/{hash}` replies with a 301 to the content CDN
-/// (`builder-items.decentraland.org`); the explorer client is meant to follow
-/// that redirect itself. The shared `state.http` client follows redirects
-/// server-side, which would (a) drop the 301 and proxy the CDN bytes through us,
-/// and (b) leak the CDN's S3 `AccessDenied` XML on a miss. Relay the redirect
-/// instead.
 fn no_redirect_client() -> &'static reqwest::Client {
     use std::sync::OnceLock;
     static C: OnceLock<reqwest::Client> = OnceLock::new();
@@ -102,7 +92,6 @@ async fn proxy(_state: &AppState, url: &str) -> Response {
         }
     }
 
-    // Relay redirects as-is (no body) so the client follows them to the CDN.
     if status.is_redirection() {
         return (status, headers).into_response();
     }

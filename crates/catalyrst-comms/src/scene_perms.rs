@@ -1,29 +1,8 @@
-//! Scene authorization — port of upstream comms-gatekeeper
-//! `sceneManager.isSceneOwnerOrAdmin`.
-//!
-//! The scene-bans and scene-admin write handlers must only let the scene's
-//! owner or an explicit scene admin act. `verify_signed_fetch` proves the
-//! caller controls *some* key with `metadata.signer = "decentraland-kernel-scene"`,
-//! but NOT that they own/administer the target place — so the per-place check
-//! here is what actually authorizes the mutation.
-//!
-//! Resolution: the `place_id` -> parcels/world via the places_events archive,
-//! then ownership via the marketplace squid (parcel/estate `owner_address`, or
-//! the world-name ENS owner). Upstream additionally honours LAND operators,
-//! world streaming/deploy ACLs and land leases; those are not yet ported, so a
-//! delegated operator must be added as a scene admin. The check fails CLOSED:
-//! if ownership cannot be resolved (pools unavailable / place not found), a
-//! non-admin caller is rejected.
-
 use sqlx::Row;
 
 use crate::http::ApiError;
 use crate::AppState;
 
-/// The marketplace squid lives in this fixed schema (matches catalyrst-market's
-/// `MARKETPLACE_SQUID_SCHEMA`). The `DAPPS_PG_COMPONENT_PSQL_SCHEMA` env var is
-/// "marketplace" here, which is a *different* schema and does not hold the
-/// parcel/estate/ens `nft` tables — so we pin the real one rather than trust it.
 const SQUID_SCHEMA: &str = "squid_marketplace";
 
 fn parse_xy(s: &str) -> Option<(i32, i32)> {
@@ -34,8 +13,6 @@ fn parse_xy(s: &str) -> Option<(i32, i32)> {
     ))
 }
 
-/// True iff `signer` may moderate (ban/admin) `place_id`: an explicit scene
-/// admin, or the owner of the underlying LAND parcel(s) / world name.
 pub async fn is_scene_owner_or_admin(
     state: &AppState,
     place_id: &str,
@@ -43,15 +20,12 @@ pub async fn is_scene_owner_or_admin(
 ) -> Result<bool, ApiError> {
     let signer = signer.to_lowercase();
 
-    // 1. Explicit scene admin (comms_gatekeeper.scene_admin) — cheap, short-circuit.
     if state.scene_admin.is_admin(place_id, &signer).await? {
         return Ok(true);
     }
 
-    // 2. Owner — resolve the place's parcels/world, then check squid ownership.
     let (Some(places), Some(squid)) = (state.places_pool.as_ref(), state.dapps_pool.as_ref())
     else {
-        // Cannot resolve ownership; admin already failed -> deny (fail closed).
         tracing::warn!(
             place_id,
             "scene authz: places/squid pool unavailable; denying non-admin caller"
@@ -71,14 +45,13 @@ pub async fn is_scene_owner_or_admin(
     .await?;
 
     let Some(row) = row else {
-        return Ok(false); // unknown place -> deny
+        return Ok(false);
     };
 
     let schema = SQUID_SCHEMA;
     let is_world: bool = row.try_get("world").unwrap_or(false);
 
     if is_world {
-        // World owner == owner of the world-name ENS.
         let Some(world_name) = row
             .try_get::<Option<String>, _>("world_name")
             .ok()
@@ -94,7 +67,7 @@ pub async fn is_scene_owner_or_admin(
             "SELECT 1 FROM {schema}.nft \
              WHERE category = 'ens' AND lower(name) = $1 AND lower(owner_address) = $2 LIMIT 1"
         );
-        let found = sqlx::query(&q)
+        let found = sqlx::query(sqlx::AssertSqlSafe(q))
             .bind(&base)
             .bind(&signer)
             .fetch_optional(squid)
@@ -102,7 +75,6 @@ pub async fn is_scene_owner_or_admin(
         return Ok(found.is_some());
     }
 
-    // Genesis City LAND: owner of any parcel (or its estate) at the place's positions.
     let mut coords: Vec<(i32, i32)> = Vec::new();
     if let Ok(serde_json::Value::Array(arr)) = row.try_get::<serde_json::Value, _>("positions") {
         for p in arr {
@@ -128,7 +100,7 @@ pub async fn is_scene_owner_or_admin(
          AND (lower(p.owner_address) = $3 OR lower(e.owner_address) = $3) LIMIT 1"
     );
     for (x, y) in coords {
-        let found = sqlx::query(&q)
+        let found = sqlx::query(sqlx::AssertSqlSafe(q.as_str()))
             .bind(x)
             .bind(y)
             .bind(&signer)

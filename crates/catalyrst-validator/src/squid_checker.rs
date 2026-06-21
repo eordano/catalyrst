@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use async_trait::async_trait;
 use sqlx::PgPool;
 use tracing::warn;
@@ -8,11 +10,25 @@ use crate::types::*;
 
 const DECENTRALAND_ADDRESS: &str = "0x1337e0507eb4ab47e08a179573ed4533d9e22a7b";
 
+#[derive(Debug, Clone, Default)]
+pub struct LandOperators {
+    pub operator: Option<String>,
+    pub update_operator: Option<String>,
+    pub update_managers: Vec<String>,
+    pub approved_for_all: Vec<String>,
+}
+
+#[async_trait]
+pub trait LandOperatorResolver: Send + Sync {
+    async fn operators(&self, x: i32, y: i32) -> Result<Option<LandOperators>, String>;
+}
+
 pub struct SquidBlockchainChecker {
     pool: PgPool,
     additional_decentraland_address: Option<String>,
     tp_subgraph: Option<crate::tp_subgraph::TpSubgraph>,
     tp_root_via_squid: bool,
+    operator_resolver: Option<Arc<dyn LandOperatorResolver>>,
 }
 
 impl SquidBlockchainChecker {
@@ -22,6 +38,7 @@ impl SquidBlockchainChecker {
             additional_decentraland_address,
             tp_subgraph: None,
             tp_root_via_squid: false,
+            operator_resolver: None,
         }
     }
 
@@ -36,7 +53,13 @@ impl SquidBlockchainChecker {
             additional_decentraland_address,
             tp_subgraph,
             tp_root_via_squid,
+            operator_resolver: None,
         }
+    }
+
+    pub fn with_operator_resolver(mut self, resolver: Arc<dyn LandOperatorResolver>) -> Self {
+        self.operator_resolver = Some(resolver);
+        self
     }
 
     async fn third_party_root_from_squid(
@@ -92,8 +115,17 @@ fn address_in_list(address: &str, list: &[String]) -> bool {
     list.iter().any(|a| a.to_lowercase() == lower)
 }
 
-async fn check_parcel_access(
+pub fn operator_grants(address: &str, operators: &LandOperators) -> bool {
+    let matches = |o: &Option<String>| o.as_deref().map(|v| addresses_match(address, v));
+    matches(&operators.operator).unwrap_or(false)
+        || matches(&operators.update_operator).unwrap_or(false)
+        || address_in_list(address, &operators.update_managers)
+        || address_in_list(address, &operators.approved_for_all)
+}
+
+pub async fn check_parcel_access(
     pool: &PgPool,
+    operator_resolver: Option<&dyn LandOperatorResolver>,
     address: &str,
     x: i32,
     y: i32,
@@ -126,6 +158,17 @@ async fn check_parcel_access(
     if let Some(ref owner_id) = estate_owner {
         if address_matches_account_id(address, owner_id) {
             return Ok(true);
+        }
+    }
+
+    if let Some(resolver) = operator_resolver {
+        match resolver.operators(x, y).await {
+            Ok(Some(operators)) => return Ok(operator_grants(address, &operators)),
+            Ok(None) => return Ok(false),
+            Err(e) => {
+                warn!(x, y, error = %e, "land operator resolver failed; denying operator leg (fail-closed)");
+                return Ok(false);
+            }
         }
     }
 
@@ -243,36 +286,109 @@ struct ItemAccessRow {
     minters: Vec<String>,
 }
 
+async fn usage_grants_present(pool: &PgPool) -> bool {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    static PRESENT: AtomicBool = AtomicBool::new(false);
+    if PRESENT.load(Ordering::Relaxed) {
+        return true;
+    }
+    let present: bool =
+        sqlx::query_scalar("SELECT to_regclass('marketplace.usage_grants') IS NOT NULL")
+            .fetch_one(pool)
+            .await
+            .unwrap_or(false);
+    if present {
+        PRESENT.store(true, Ordering::Relaxed);
+    }
+    present
+}
+
 async fn check_nft_ownership(
     pool: &PgPool,
     address: &str,
     urn: &str,
 ) -> Result<bool, ValidatorError> {
-    let count: Option<i64> = sqlx::query_scalar(
-        "SELECT count(*) FROM squid_marketplace.nft \
-         WHERE urn = $1 AND owner_address = lower($2)",
-    )
-    .bind(urn)
-    .bind(address)
-    .fetch_one(pool)
-    .await
-    .map_err(|e| ValidatorError::BlockchainQuery(format!("nft ownership query failed: {e}")))?;
+    let overlay = usage_grants_present(pool).await;
 
-    if count.unwrap_or(0) > 0 {
+    let parts: Vec<&str> = urn.split(':').collect();
+    if parts.len() == 7 && urn.contains(":collections-") {
+        let item_urn = parts[..6].join(":");
+        let token_id = parts[6];
+        let token_sql = if overlay {
+            "SELECT \
+                 EXISTS (SELECT 1 FROM squid_marketplace.nft \
+                         WHERE urn = $1 AND token_id = $3::numeric \
+                           AND owner_address = lower($2)) \
+              OR EXISTS (SELECT 1 FROM marketplace.usage_grants ug \
+                         WHERE ug.status = 'active' \
+                           AND ug.grantee_address = lower($2) \
+                           AND ug.urn = $1 AND ug.token_id = $3)"
+        } else {
+            "SELECT EXISTS (SELECT 1 FROM squid_marketplace.nft \
+                         WHERE urn = $1 AND token_id = $3::numeric \
+                           AND owner_address = lower($2))"
+        };
+        if token_id.chars().all(|c| c.is_ascii_digit()) {
+            let owns_token: bool = sqlx::query_scalar(token_sql)
+                .bind(&item_urn)
+                .bind(address)
+                .bind(token_id)
+                .fetch_one(pool)
+                .await
+                .map_err(|e| {
+                    ValidatorError::BlockchainQuery(format!(
+                        "nft token ownership query failed: {e}"
+                    ))
+                })?;
+            if owns_token {
+                return Ok(true);
+            }
+        }
+    }
+
+    let exact_sql = if overlay {
+        "SELECT \
+             EXISTS (SELECT 1 FROM squid_marketplace.nft \
+                     WHERE urn = $1 AND owner_address = lower($2)) \
+          OR EXISTS (SELECT 1 FROM marketplace.usage_grants ug \
+                     WHERE ug.status = 'active' \
+                       AND ug.grantee_address = lower($2) \
+                       AND ug.urn = $1)"
+    } else {
+        "SELECT EXISTS (SELECT 1 FROM squid_marketplace.nft \
+                     WHERE urn = $1 AND owner_address = lower($2))"
+    };
+    let owns_exact: bool = sqlx::query_scalar(exact_sql)
+        .bind(urn)
+        .bind(address)
+        .fetch_one(pool)
+        .await
+        .map_err(|e| ValidatorError::BlockchainQuery(format!("nft ownership query failed: {e}")))?;
+
+    if owns_exact {
         return Ok(true);
     }
 
-    let prefix_count: Option<i64> = sqlx::query_scalar(
-        "SELECT count(*) FROM squid_marketplace.nft \
-         WHERE urn LIKE $1 AND owner_address = lower($2)",
-    )
-    .bind(format!("{urn}:%"))
-    .bind(address)
-    .fetch_one(pool)
-    .await
-    .map_err(|e| ValidatorError::BlockchainQuery(format!("nft prefix query failed: {e}")))?;
+    let prefix_sql = if overlay {
+        "SELECT \
+             EXISTS (SELECT 1 FROM squid_marketplace.nft \
+                     WHERE urn LIKE $1 AND owner_address = lower($2)) \
+          OR EXISTS (SELECT 1 FROM marketplace.usage_grants ug \
+                     WHERE ug.status = 'active' \
+                       AND ug.grantee_address = lower($2) \
+                       AND ug.urn LIKE $1)"
+    } else {
+        "SELECT EXISTS (SELECT 1 FROM squid_marketplace.nft \
+                     WHERE urn LIKE $1 AND owner_address = lower($2))"
+    };
+    let owns_prefix: bool = sqlx::query_scalar(prefix_sql)
+        .bind(format!("{urn}:%"))
+        .bind(address)
+        .fetch_one(pool)
+        .await
+        .map_err(|e| ValidatorError::BlockchainQuery(format!("nft prefix query failed: {e}")))?;
 
-    Ok(prefix_count.unwrap_or(0) > 0)
+    Ok(owns_prefix)
 }
 
 #[async_trait]
@@ -300,7 +416,14 @@ impl BlockchainChecker for SquidBlockchainChecker {
     ) -> Result<Vec<bool>, ValidatorError> {
         let mut results = Vec::with_capacity(parcels.len());
         for &(x, y) in parcels {
-            let has_access = check_parcel_access(&self.pool, eth_address, x, y).await?;
+            let has_access = check_parcel_access(
+                &self.pool,
+                self.operator_resolver.as_deref(),
+                eth_address,
+                x,
+                y,
+            )
+            .await?;
             results.push(has_access);
         }
         Ok(results)
@@ -480,6 +603,7 @@ mod tests {
             additional_decentraland_address: Some("0xextra".to_string()),
             tp_subgraph: None,
             tp_root_via_squid: false,
+            operator_resolver: None,
         };
 
         assert!(checker.is_address_owned_by_decentraland(DECENTRALAND_ADDRESS));
@@ -496,5 +620,25 @@ mod tests {
         assert!(address_in_list("0xABC123", &list));
         assert!(address_in_list("0xdef456", &list));
         assert!(!address_in_list("0x999999", &list));
+    }
+
+    #[test]
+    fn operator_grants_each_leg() {
+        let ops = LandOperators {
+            operator: Some("0xAAA1".into()),
+            update_operator: Some("0xbbb2".into()),
+            update_managers: vec!["0xccc3".into()],
+            approved_for_all: vec!["0xDDD4".into()],
+        };
+        assert!(operator_grants("0xaaa1", &ops));
+        assert!(operator_grants("0xBBB2", &ops));
+        assert!(operator_grants("0xCCC3", &ops));
+        assert!(operator_grants("0xddd4", &ops));
+        assert!(!operator_grants("0xeee5", &ops));
+    }
+
+    #[test]
+    fn operator_grants_denies_on_empty() {
+        assert!(!operator_grants("0xaaa1", &LandOperators::default()));
     }
 }

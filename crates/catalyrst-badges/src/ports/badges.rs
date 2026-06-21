@@ -281,8 +281,6 @@ impl BadgesComponent {
         Ok(row.map(|r| r.get::<bool, _>("is_tier")))
     }
 
-    /// Resolve the tier to grant: supplied `tier_id` (must exist) or the
-    /// highest-ordinal tier. Returns `(tier_id, criteria_steps)`.
     async fn resolve_tier(
         &self,
         badge_id: &str,
@@ -321,8 +319,6 @@ impl BadgesComponent {
         }
     }
 
-    /// Grant a badge. Non-tier badges are marked complete; tier badges record an
-    /// achieved tier. Idempotent. Returns `false` if the badge id is unknown.
     pub async fn grant_badge(
         &self,
         address: &str,
@@ -405,9 +401,6 @@ impl BadgesComponent {
         Ok(true)
     }
 
-    /// Revoke a badge: delete the user's progress + achieved-tier rows. The
-    /// deleted rows can't carry provenance, so the append-only `badge_admin_audit`
-    /// log is the durable record. Idempotent. Returns `false` if the id is unknown.
     pub async fn revoke_badge(
         &self,
         address: &str,

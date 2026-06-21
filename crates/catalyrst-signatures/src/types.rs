@@ -1,6 +1,3 @@
-//! Request/response shapes, mirroring @dcl/schemas RentalListing,
-//! RentalListingCreation and RentalListingPeriod.
-
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -13,19 +10,18 @@ pub struct RentalListingPeriodInput {
     pub price_per_day: String,
 }
 
-/// POST /v1/rentals-listings body — @dcl/schemas RentalListingCreation.
 #[derive(Debug, Clone, Deserialize)]
 pub struct RentalListingCreation {
     pub network: String,
     #[serde(rename = "chainId")]
     pub chain_id: i64,
-    /// epoch milliseconds
+
     pub expiration: i64,
     #[serde(rename = "contractAddress")]
     pub contract_address: String,
     #[serde(rename = "tokenId")]
     pub token_id: String,
-    /// [contractNonce, signerNonce, assetNonce]
+
     pub nonces: Vec<String>,
     pub periods: Vec<RentalListingPeriodInput>,
     #[serde(rename = "rentalContractAddress")]
@@ -39,7 +35,6 @@ fn address_zero() -> String {
     "0x0000000000000000000000000000000000000000".to_string()
 }
 
-/// Response period.
 #[derive(Debug, Clone, Serialize)]
 pub struct RentalListingPeriod {
     #[serde(rename = "minDays")]
@@ -50,7 +45,6 @@ pub struct RentalListingPeriod {
     pub price_per_day: String,
 }
 
-/// Response object — @dcl/schemas RentalListing.
 #[derive(Debug, Clone, Serialize)]
 pub struct RentalListing {
     pub id: String,
@@ -62,7 +56,7 @@ pub struct RentalListing {
     pub network: String,
     #[serde(rename = "chainId")]
     pub chain_id: i64,
-    /// epoch milliseconds
+
     pub expiration: i64,
     pub signature: String,
     pub nonces: Vec<String>,
@@ -87,7 +81,6 @@ pub struct RentalListing {
     pub rented_days: Option<i64>,
 }
 
-/// Paginated GET envelope `data`.
 #[derive(Debug, Clone, Serialize)]
 pub struct PaginatedListings {
     pub results: Vec<RentalListing>,
@@ -97,14 +90,12 @@ pub struct PaginatedListings {
     pub limit: i64,
 }
 
-/// The contract-domain projection used for EIP-712 signature verification.
-/// Mirrors logic/rentals/types.ts ContractRentalListing.
 #[derive(Debug, Clone)]
 pub struct ContractRentalListing {
     pub signer: String,
     pub contract_address: String,
     pub token_id: String,
-    /// expiration in **seconds** since epoch (string)
+
     pub expiration: String,
     pub indexes: Vec<String>,
     pub price_per_day: Vec<String>,
@@ -115,7 +106,6 @@ pub struct ContractRentalListing {
 }
 
 impl ContractRentalListing {
-    /// fromRentalCreationToContractRentalListing(lessor, rental)
     pub fn from_creation(lessor: &str, r: &RentalListingCreation) -> Self {
         Self {
             signer: lessor.to_string(),

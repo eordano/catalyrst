@@ -1,9 +1,9 @@
-// large error enum; boxing every Result hurts ergonomics
 #![allow(clippy::result_large_err)]
 
 pub mod auth;
 pub mod config;
 pub mod handlers;
+pub mod poller;
 pub mod ports;
 
 use std::str::FromStr;
@@ -22,8 +22,7 @@ use crate::ports::prices::PricesComponent;
 pub struct AppStateInner {
     pub prices: PricesComponent,
     pub overrides: OverridesComponent,
-    /// Bearer token gating the admin price-override mutations. `None` ⇒ those
-    /// routes fail closed (403).
+
     pub admin_token: Option<String>,
 }
 
@@ -35,8 +34,6 @@ pub fn api_router() -> Router<AppState> {
             "/api/v3/simple/price",
             get(handlers::simple_price::simple_price),
         )
-        // Admin price-override config store (docs/admin-console.md §4).
-        // GET is a public read of the store; PUT/DELETE are bearer-gated.
         .route(
             "/admin/api/price/overrides",
             get(handlers::overrides::list_overrides),
@@ -65,6 +62,17 @@ pub async fn build_state(cfg: &Config) -> Result<AppState> {
         .run(&pool)
         .await
         .context("price-override migration failed")?;
+
+    if cfg.price_poll_enabled {
+        poller::spawn(pool.clone(), cfg);
+    } else {
+        tracing::warn!(
+            "PRICE_POLL_ENABLED=false: NOT polling — this crate only serves the last \
+             price_snapshots row. If no external ingester keeps it fresh, the MANA/USD \
+             reading will go stale and downstream credits /checkout will fail-close \
+             (\"MANA/USD oracle is stale\"). Set PRICE_POLL_ENABLED=true to self-refresh."
+        );
+    }
 
     Ok(Arc::new(AppStateInner {
         prices: PricesComponent::new(pool.clone()),

@@ -1,0 +1,27 @@
+[package]
+name = "catalyrst-bvimposters"
+version = "0.12.0"
+edition = "2021"
+description = "Imposter supply for the bevy-explorer web client: crc-keyed realm-independent zip store with community-CDN read-through and local bake-on-miss"
+
+[[bin]]
+name = "catalyrst-bvimposters"
+path = "src/main.rs"
+
+[dependencies]
+catalyrst-envcfg = { workspace = true }
+tokio = { workspace = true }
+reqwest = { workspace = true }
+axum = { workspace = true }
+tower-http = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+anyhow = { workspace = true }
+uuid = { workspace = true }
+libc = "0.2"
+zip = { version = "=8.6.0", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+
+[dev-dependencies]
+tempfile = "3"

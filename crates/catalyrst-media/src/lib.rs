@@ -21,10 +21,6 @@ use crate::backend::mock::MockBackend;
 use crate::backend::TranslationBackend;
 use crate::config::{BackendKind, Config};
 
-/// A cached upstream response for `/convert` (GET 2xx only). The handler already
-/// advertises `Cache-Control: public, max-age=86400`; this is the server-side
-/// counterpart so repeated proxies of the same URL are sub-millisecond instead of
-/// paying an external round-trip each time.
 pub struct CachedConvert {
     pub at: Instant,
     pub status: u16,
@@ -32,11 +28,8 @@ pub struct CachedConvert {
     pub body: Vec<u8>,
 }
 
-/// Server-side TTL for the `/convert` response cache (shorter than the 24h client
-/// hint so a changed source is re-fetched within minutes).
 pub const CONVERT_CACHE_TTL: Duration = Duration::from_secs(300);
-/// Only cache bodies up to this size (keeps the in-memory cache bounded; larger
-/// media still proxies, just uncached).
+
 pub const CONVERT_CACHE_MAX_BODY: usize = 2 * 1024 * 1024;
 const CONVERT_CACHE_MAX_ENTRIES: usize = 256;
 const PINNED_CLIENT_MAX_ENTRIES: usize = 256;
@@ -46,17 +39,13 @@ pub struct AppStateInner {
     pub backend: Arc<dyn TranslationBackend>,
     pub backend_label: &'static str,
     pub fetch_client: reqwest::Client,
-    /// Reusable SSRF-pinned clients keyed by (host, validated pinned addr) so the
-    /// TLS connection + pool survive across requests. Keyed by the *validated*
-    /// pinned IP, so reuse cannot widen the SSRF surface.
+
     pub pinned_clients: Mutex<HashMap<(String, SocketAddr), reqwest::Client>>,
-    /// TTL response cache for `/convert` GET 2xx.
+
     pub convert_cache: Mutex<HashMap<String, CachedConvert>>,
 }
 
 impl AppStateInner {
-    /// Get or build a redirect-disabled client pinned to `(host, addr)`. Reuses
-    /// the warm connection pool across requests; bounded by clear-on-overflow.
     pub fn pinned_client(&self, host: &str, addr: SocketAddr) -> Result<reqwest::Client> {
         let key = (host.to_string(), addr);
         if let Some(c) = self.pinned_clients.lock().unwrap().get(&key) {
@@ -79,7 +68,6 @@ impl AppStateInner {
         Ok(client)
     }
 
-    /// Return a fresh (non-expired) cached `/convert` response if present.
     pub fn convert_cache_get(&self, url: &str) -> Option<(u16, String, Vec<u8>)> {
         let c = self.convert_cache.lock().unwrap();
         let hit = c.get(url)?;
@@ -89,7 +77,6 @@ impl AppStateInner {
         Some((hit.status, hit.content_type.clone(), hit.body.clone()))
     }
 
-    /// Store a GET 2xx `/convert` response (bounded by size + entry count).
     pub fn convert_cache_put(&self, url: &str, status: u16, content_type: &str, body: &[u8]) {
         if body.len() > CONVERT_CACHE_MAX_BODY {
             return;
@@ -145,8 +132,6 @@ pub async fn build_state(cfg: &Config) -> Result<AppState> {
         .connect_timeout(Duration::from_secs(10))
         .timeout(Duration::from_secs(30))
         .user_agent("catalyrst-media-converter/0.1")
-        // Redirects are followed MANUALLY in the /convert handler so the SSRF
-        // host guard re-runs on every hop (auto-following would skip the check).
         .redirect(reqwest::redirect::Policy::none())
         .build()
         .context("failed to build fetch client")?;

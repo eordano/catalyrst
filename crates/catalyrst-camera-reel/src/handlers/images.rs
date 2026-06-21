@@ -5,6 +5,7 @@ use axum::extract::{Multipart, OriginalUri, Path, State};
 use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
+use base64::Engine as _;
 use bytes::Bytes;
 use image::guess_format;
 use uuid::Uuid;
@@ -24,19 +25,6 @@ pub async fn upload_image(
     mut multipart: Multipart,
 ) -> Result<Response, ApiError> {
     let address = require_auth(&headers, "post", uri.path())?;
-
-    let images_count = state
-        .db
-        .get_user_images_count(&address, false)
-        .await
-        .unwrap_or(0);
-    if images_count >= state.config.max_images_per_user {
-        let message = format!(
-            "you have reached the limit of {} max images",
-            state.config.max_images_per_user
-        );
-        return Err(ApiError::MaxLimitReached(message));
-    }
 
     let mut image_bytes: Option<Bytes> = None;
     let mut image_content_type: Option<String> = None;
@@ -90,7 +78,76 @@ pub async fn upload_image(
         ApiError::BadRequest("invalid metadata".to_string())
     })?;
 
-    if !metadata.user_address.eq_ignore_ascii_case(&address) {
+    finalize_upload(
+        &state,
+        &address,
+        image_bytes,
+        image_content_type,
+        metadata,
+        is_public,
+    )
+    .await
+}
+
+#[derive(serde::Deserialize)]
+pub struct JsonUpload {
+    pub image: String,
+    pub content_type: String,
+    pub metadata: Metadata,
+    #[serde(default)]
+    pub is_public: bool,
+}
+
+pub async fn upload_image_json(
+    State(state): State<AppState>,
+    OriginalUri(uri): OriginalUri,
+    headers: HeaderMap,
+    Json(req): Json<JsonUpload>,
+) -> Result<Response, ApiError> {
+    let address = require_auth(&headers, "post", uri.path())?;
+
+    let image_bytes = Bytes::from(
+        base64::engine::general_purpose::STANDARD
+            .decode(req.image.trim())
+            .map_err(|_| ApiError::BadRequest("invalid base64 image".to_string()))?,
+    );
+    if image_bytes.len() > 15 * 1024 * 1024 {
+        return Err(ApiError::BadRequest("image too large".to_string()));
+    }
+
+    finalize_upload(
+        &state,
+        &address,
+        image_bytes,
+        Some(req.content_type),
+        req.metadata,
+        req.is_public,
+    )
+    .await
+}
+
+async fn finalize_upload(
+    state: &AppState,
+    address: &str,
+    image_bytes: Bytes,
+    image_content_type: Option<String>,
+    metadata: Metadata,
+    is_public: bool,
+) -> Result<Response, ApiError> {
+    let images_count = state
+        .db
+        .get_user_images_count(address, false)
+        .await
+        .unwrap_or(0);
+    if images_count >= state.config.max_images_per_user {
+        let message = format!(
+            "you have reached the limit of {} max images",
+            state.config.max_images_per_user
+        );
+        return Err(ApiError::MaxLimitReached(message));
+    }
+
+    if !metadata.user_address.eq_ignore_ascii_case(address) {
         return Err(ApiError::BadRequest("invalid user address".to_string()));
     }
 
@@ -253,7 +310,6 @@ pub async fn get_image(
         .retrieve(&image_id)
         .await
         .map_err(|e| match e {
-            // A malformed/traversing image id is a client error (400), not a 500.
             catalyrst_storage::StorageError::InvalidId(_)
             | catalyrst_storage::StorageError::PathTraversal(_) => {
                 ApiError::BadRequest(format!("invalid image id: {e}"))
@@ -276,7 +332,6 @@ pub async fn get_image(
         .into_response())
 }
 
-/// Moderator delete: removes any image regardless of owner. Bearer-gated.
 pub async fn admin_delete_image(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -318,7 +373,6 @@ pub async fn admin_delete_image(
         .into_response())
 }
 
-/// Moderator review: flag/clear/reject any image. Bearer-gated.
 pub async fn admin_update_image_review(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -351,8 +405,6 @@ pub async fn admin_update_image_review(
 
 pub async fn get_metadata(
     State(state): State<AppState>,
-    OriginalUri(uri): OriginalUri,
-    headers: HeaderMap,
     Path(image_id): Path<String>,
 ) -> Result<Response, ApiError> {
     let db_image = match state.db.get_image(&image_id).await {
@@ -366,13 +418,6 @@ pub async fn get_metadata(
             return Err(ApiError::NotFound("image not found".to_string()));
         }
     };
-
-    if !db_image.is_public {
-        let address = require_auth(&headers, "get", uri.path())?;
-        if !db_image.user_address.eq_ignore_ascii_case(&address) {
-            return Err(ApiError::Forbidden("forbidden".to_string()));
-        }
-    }
 
     let image: Image = db_image.into();
     Ok((StatusCode::OK, Json(image)).into_response())

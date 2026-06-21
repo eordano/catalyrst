@@ -1,12 +1,13 @@
 [package]
 name = "catalyrst-crypto"
-version = "0.1.0"
+version = "0.12.0"
 edition = "2021"
 description = "Rust port of the Decentraland @dcl/crypto auth chain verification"
 
 [dependencies]
-catalyrst-types = { workspace = true }
-ethers-core = "2.0.3"
+catalyrst-types = { path = "../catalyrst-types", default-features = false }
+alloy-primitives = { workspace = true, features = ["k256"] }
+k256 = "0.13"
 sha2 = { workspace = true }
 thiserror = { workspace = true }
 serde = { workspace = true }
@@ -21,5 +22,4 @@ hex = "0.4"
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
-ethers-signers = "2.0.3"
-rand = "0.8"
+alloy = { workspace = true }

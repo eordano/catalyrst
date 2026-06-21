@@ -1,10 +1,3 @@
-//! Admin broadcast endpoint.
-//!
-//! `POST /notifications/broadcast` fans out a single admin notification to every
-//! known subscriber, or to a caller-supplied set of addresses. Gated by a bearer
-//! token (`CATALYRST_NOTIFICATIONS_ADMIN_TOKEN`) which fails closed when unset.
-//! This is additive: it does not alter the existing SignedFetch reader routes.
-
 use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
@@ -18,19 +11,16 @@ use crate::http::ApiError;
 use crate::ports::NOTIFICATION_TYPES;
 use crate::AppState;
 
-/// Max number of explicit target addresses accepted in one broadcast request.
 const MAX_ADDRESSES: usize = 10_000;
 
 #[derive(Debug, Deserialize)]
 pub struct BroadcastBody {
-    /// Notification type; must be one of the known `NOTIFICATION_TYPES`.
     #[serde(rename = "type")]
     pub kind: String,
-    /// Arbitrary metadata stored verbatim on each notification row.
+
     #[serde(default)]
     pub metadata: JsonValue,
-    /// Optional explicit recipient set. When omitted the broadcast targets every
-    /// address present in the `subscriptions` table.
+
     #[serde(default)]
     pub addresses: Option<Vec<String>>,
 }
@@ -58,8 +48,6 @@ pub async fn post_broadcast(
         body.metadata
     };
 
-    // Validate the explicit address set up-front (empty list is rejected so a
-    // caller never silently broadcasts to nobody when they meant to target some).
     let addresses: Option<Vec<String>> = match body.addresses {
         Some(list) => {
             if list.is_empty() {

@@ -8,11 +8,17 @@
     "body": null
   },
   "response": {
-    "status": 404,
+    "status": 200,
     "headers": {"content-type": "application/json"},
-    "body_json": {"error": "Bad Request", "message": "Parcel or estate rights not found for x: 0, y: 0"}
+    "body_json": {
+      "owner": "0x5188e308fee25ac49c10f9fd9270d953c4822ce5",
+      "operator": null,
+      "updateOperator": null,
+      "updateManagers": ["0x462ab09f1a75786e0c54ced394e0fb537af03734"],
+      "approvedForAll": []
+    }
   },
-  "captured_from": "hand-authored from handler source (lambdas_land.rs::parcel_or_estate_not_found) - status is 404 but the body says 'Bad Request' for parity",
+  "captured_from": "re-derived from peer.decentraland.org 2026-07-03",
   "captured_at": "2026-05-23T20:00:00Z",
   "volatile_paths": []
 }

@@ -1,6 +1,7 @@
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
+use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use serde::Serialize;
 use serde_json::{json, Value};
+use std::hint::black_box;
 
 fn bench_hashing(c: &mut Criterion) {
     let data_1kb = vec![0xABu8; 1024];
@@ -162,20 +163,20 @@ fn bench_json_serialization(c: &mut Criterion) {
 }
 
 fn bench_auth_chain_verification(c: &mut Criterion) {
+    use alloy::signers::{local::PrivateKeySigner, Signer};
     use catalyrst_crypto::auth_chain::{AuthLink, AuthLinkType};
     use catalyrst_crypto::verify::verify_auth_chain;
-    use ethers_signers::{LocalWallet, Signer};
 
     let rt = tokio::runtime::Runtime::new().unwrap();
 
     let (chain, entity_payload) = rt.block_on(async {
-        let root_key: LocalWallet =
+        let root_key: PrivateKeySigner =
             "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
                 .parse()
                 .unwrap();
         let root_address = format!("{:#x}", root_key.address());
 
-        let ephemeral_key: LocalWallet =
+        let ephemeral_key: PrivateKeySigner =
             "59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d"
                 .parse()
                 .unwrap();
@@ -190,7 +191,7 @@ fn bench_auth_chain_verification(c: &mut Criterion) {
             .sign_message(ephemeral_payload.as_bytes())
             .await
             .unwrap();
-        let ephemeral_sig_hex = format!("0x{}", ephemeral_sig);
+        let ephemeral_sig_hex = ephemeral_sig.to_string();
 
         let entity_payload =
             "bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi".to_string();
@@ -199,7 +200,7 @@ fn bench_auth_chain_verification(c: &mut Criterion) {
             .sign_message(entity_payload.as_bytes())
             .await
             .unwrap();
-        let entity_sig_hex = format!("0x{}", entity_sig);
+        let entity_sig_hex = entity_sig.to_string();
 
         let chain = vec![
             AuthLink {
@@ -323,10 +324,11 @@ mod http_handlers {
     use axum::body::Body;
     use axum::http::{Request, StatusCode};
     use bytes::Bytes;
-    use criterion::{black_box, Criterion};
+    use criterion::Criterion;
     use serde_json::{json, Value};
     use sqlx::postgres::PgPoolOptions;
     use sqlx::PgPool;
+    use std::hint::black_box;
     use tokio_util::io::ReaderStream;
     use tower::ServiceExt;
 
@@ -599,7 +601,7 @@ mod http_handlers {
                 content_json: Value,
             }
 
-            let mut query = sqlx::query_as::<_, DepRow>(&sql);
+            let mut query = sqlx::query_as::<_, DepRow>(sqlx::AssertSqlSafe(sql));
             if !options.entity_types.is_empty() {
                 query = query.bind(options.entity_types.clone());
             }
@@ -813,6 +815,7 @@ mod http_handlers {
                 content_server_address: "http://127.0.0.1:5141".to_string(),
                 read_only: std::sync::atomic::AtomicBool::new(true),
                 audit_pool: None,
+                content_pool: None,
                 entities_cache_control_max_age: 10,
                 content_public_url: "http://127.0.0.1:5141/content".to_string(),
                 lambdas_public_url: "http://127.0.0.1:5141/lambdas".to_string(),

@@ -1,4 +1,5 @@
-use anyhow::{anyhow, Context, Result};
+use anyhow::Result;
+use catalyrst_envcfg::{get_port, required};
 use std::env;
 
 pub struct Config {
@@ -11,12 +12,12 @@ pub struct Config {
     pub admin_addresses: Vec<String>,
     pub data_team_auth_token: Option<String>,
     pub admin_auth_token: Option<String>,
-    /// comms-gatekeeper base URL (scene/world participant lists for the
-    /// `/destinations` `with_connected_users` path).
+
     pub comms_gatekeeper_url: String,
-    /// Events API base URL (live-event status for the `/destinations`
-    /// `with_live_events` path).
+
     pub events_api_url: String,
+
+    pub presence_url: String,
 }
 
 impl Config {
@@ -56,17 +57,10 @@ impl Config {
                 .ok()
                 .filter(|s| !s.trim().is_empty())
                 .unwrap_or_else(|| "https://events.decentraland.zone/api".to_string()),
+            presence_url: env::var("PRESENCE_URL")
+                .ok()
+                .filter(|s| !s.trim().is_empty())
+                .unwrap_or_else(|| "http://127.0.0.1:5152".to_string()),
         })
-    }
-}
-
-fn required(key: &str) -> Result<String> {
-    env::var(key).map_err(|_| anyhow!("missing required env var: {}", key))
-}
-
-fn get_port(key: &str, default: u16) -> Result<u16> {
-    match env::var(key) {
-        Ok(s) => s.parse::<u16>().with_context(|| format!("invalid {}", key)),
-        Err(_) => Ok(default),
     }
 }

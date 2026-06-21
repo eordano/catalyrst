@@ -1,17 +1,6 @@
 #!/usr/bin/env bash
-# Bootstrap catalyrst-profile-images — the Rust port of profile-images.decentraland.org.
-#   - creates the disk cache + render scratch dirs
-#   - writes env/catalyrst-profile-images.env (render + cache config)
-#
-# No database. Primary backend is LOCAL RENDER: resolve the profile from the
-# local catalyrst content core (:5141) and rasterize the equipped wearables
-# with the headless godot-explorer avatar renderer. The prod proxy is an
-# explicit fallback only. Drop this into <WORKSPACE>/scripts/ next to
-# bootstrap-catalyrst-media.sh.
-# Idempotent. Run via: nix-shell --run scripts/bootstrap-catalyrst-profile-images.sh shell.nix
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=_lib.sh
 source "$HERE/_lib.sh"
 
 PI_ENV="$ENV_DIR/catalyrst-profile-images.env"

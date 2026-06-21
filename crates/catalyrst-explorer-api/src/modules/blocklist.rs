@@ -78,9 +78,6 @@ pub struct WalletBody {
 pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/denylist.json", get(get_denylist))
-        // Admin (bearer-gated) controls. The on-disk file at `blocklist_path` is
-        // the source of truth (the public GET reads it on each request), so these
-        // mutate the file directly and remain consistent with the read path.
         .route("/admin/blocklist/add", post(admin_add))
         .route("/admin/blocklist/remove", post(admin_remove))
         .route("/admin/blocklist/reload", post(admin_reload))
@@ -90,8 +87,6 @@ fn normalize_wallet(w: &str) -> String {
     w.trim().to_lowercase()
 }
 
-/// Read the current denylist from disk, returning an empty list if the file is
-/// missing/unparseable (matching the public read path's tolerance).
 async fn read_denylist(path: &str) -> Denylist {
     match fs::read(path).await {
         Ok(bytes) => serde_json::from_slice::<Denylist>(&bytes).unwrap_or_default(),
@@ -99,9 +94,6 @@ async fn read_denylist(path: &str) -> Denylist {
     }
 }
 
-/// Serialize a denylist as `{ "users": [{ "wallet": ... }] }` and write it to
-/// disk atomically (write tmp then rename) so a concurrent reader never sees a
-/// truncated file.
 async fn write_denylist(path: &str, list: &Denylist) -> Result<(), String> {
     let body =
         serde_json::to_vec_pretty(&json!({ "users": list.users })).map_err(|e| e.to_string())?;
@@ -190,9 +182,6 @@ async fn admin_remove(
         .into_response()
 }
 
-/// Reload-from-disk: re-read the file and return its current contents. Because
-/// the public GET reads the file on every request there is no in-memory cache to
-/// invalidate; this confirms the file parses and reports the active entry count.
 async fn admin_reload(State(state): State<AppState>, headers: HeaderMap) -> Response {
     if let Err(resp) = require_admin(&headers) {
         return resp;

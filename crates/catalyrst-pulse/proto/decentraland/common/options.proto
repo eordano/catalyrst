@@ -7,24 +7,32 @@ import "google/protobuf/descriptor.proto";
 // Options for quantizing a float value stored as a uint32 field.
 // The float is clamped to [min, max] and uniformly quantized to N bits;
 // protobuf encodes the resulting uint32 as a varint on the wire.
-// The generator emits a float {Name}Quantized accessor in the partial class.
 message QuantizedFloatOptions {
   float  min  = 1;
   float  max  = 2;
   uint32 bits = 3;
 }
 
-// Options for bit-packing an integer field into fewer than 32 bits.
+// Options for quantizing a signed float with a power-law curve, stored as a uint32 field.
+// The value is split into a (bits-1)-bit linear unorm magnitude `u in [0, 1]` plus a sign,
+// and reconstructed as `value = sign * max * u^pow`. Zero is exactly representable and
+// `pow > 1` concentrates resolution near zero. The range is symmetric ([-max, max]).
+// Encoded layout: `(magnitude << 1) | sign`, so varint cost tracks magnitude, not direction.
+message QuantizedPowerFloatOptions {
+  float  max  = 1;
+  float  pow  = 2;
+  uint32 bits = 3;
+}
+
 message BitPackedOptions {
   uint32 bits = 1;
 }
 
 extend google.protobuf.FieldOptions {
-  // Apply to uint32 fields to enable quantized float encoding.
-  // Example: uint32 dx = 1 [(decentraland.common.quantized) = { min: -100.0, max: 100.0, bits: 16 }];
   QuantizedFloatOptions quantized  = 50001;
 
-  // Apply to uint32 fields to pack into fewer bits.
-  // Example: uint32 entity_id = 4 [(decentraland.common.bit_packed) = { bits: 20 }];
   BitPackedOptions      bit_packed = 50002;
+
+  // A field carries either `quantized` or `quantized_power`, not both.
+  QuantizedPowerFloatOptions quantized_power = 50003;
 }

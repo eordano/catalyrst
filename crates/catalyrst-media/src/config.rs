@@ -1,4 +1,5 @@
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, Result};
+use catalyrst_envcfg::{get_port, required};
 use std::env;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -51,16 +52,5 @@ impl Config {
                 .ok()
                 .filter(|s| !s.is_empty()),
         })
-    }
-}
-
-fn required(key: &str) -> Result<String> {
-    env::var(key).map_err(|_| anyhow!("missing required env var: {}", key))
-}
-
-fn get_port(key: &str, default: u16) -> Result<u16> {
-    match env::var(key) {
-        Ok(s) => s.parse::<u16>().with_context(|| format!("invalid {}", key)),
-        Err(_) => Ok(default),
     }
 }

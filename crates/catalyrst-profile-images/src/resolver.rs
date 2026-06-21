@@ -1,33 +1,18 @@
-//! Resolves a profile **entity id** to its embedded avatar wire-format JSON by
-//! reading the entity manifest from the local catalyrst content core.
-//!
-//! Upstream's render pipeline (`local_entity_snapshot.sh`) does exactly this:
-//! it GETs `<content>/contents/<cid>`, parses the deployment manifest, and
-//! pulls `metadata.avatars[0].avatar` as the renderer payload. We talk to the
-//! local content core (`catalyrst` :5141, `/content`) instead of prod so a
-//! self-hosted realm never leaks to `peer.decentraland.org`.
-
 use std::time::Duration;
 
 use serde_json::Value;
 
-/// Outcome of resolving an entity id to its avatar payload.
 pub enum ResolveResult {
-    /// The avatar wire-format object (`metadata.avatars[0].avatar`).
     Avatar(Value),
-    /// The content core has no such entity (404) or it is not a profile /
-    /// carries no avatar. The caller should treat this as "no image".
+
     NotFound,
-    /// Transport / parse failure talking to the content core.
+
     Error(String),
 }
 
-/// Reads profile manifests from a catalyst content server.
 pub struct ProfileResolver {
     client: reqwest::Client,
-    /// Content base **including** the `/content` suffix, e.g.
-    /// `http://127.0.0.1:5141/content`. This is also handed to the renderer as
-    /// `baseUrl` so its wearable lookups hit the same server.
+
     content_base: String,
 }
 
@@ -45,12 +30,10 @@ impl ProfileResolver {
         }
     }
 
-    /// The content base URL the renderer should use for wearable fetches.
     pub fn content_base(&self) -> &str {
         &self.content_base
     }
 
-    /// Fetch the entity manifest for `entity` and extract the avatar payload.
     pub async fn resolve(&self, entity: &str) -> ResolveResult {
         let url = format!("{}/contents/{}", self.content_base, entity);
         let resp = match self.client.get(&url).send().await {
@@ -71,12 +54,7 @@ impl ProfileResolver {
     }
 }
 
-/// Pull `metadata.avatars[0].avatar` out of a deployment manifest. Mirrors the
-/// classification upstream's `local_entity_snapshot.sh` does in its payload
-/// builder (not-a-profile / no-avatars / missing-avatar-field all collapse to
-/// `NotFound` here since the client contract is "404 = no image").
 fn extract_avatar(manifest: &Value) -> ResolveResult {
-    // Reject non-profile entities explicitly when the type field is present.
     if let Some(t) = manifest.get("type").and_then(Value::as_str) {
         if t != "profile" {
             return ResolveResult::NotFound;

@@ -48,9 +48,6 @@ pub fn build_payload(method: &str, path: &str, timestamp: &str, metadata: &str) 
     format!("{}:{}:{}:{}", method, path, timestamp, metadata).to_lowercase()
 }
 
-/// nginx strips the service prefix but the client signs the full external path;
-/// it forwards the original in `x-original-path`. Prefer it so the reconstructed
-/// payload matches what was signed; fall back to the route path (direct requests).
 fn signed_fetch_path<'a>(headers: &HeaderMap, fallback: &'a str) -> std::borrow::Cow<'a, str> {
     match headers.get("x-original-path").and_then(|v| v.to_str().ok()) {
         Some(raw) => std::borrow::Cow::Owned(raw.split('?').next().unwrap_or(raw).to_string()),
@@ -128,9 +125,6 @@ pub fn validate_signature(
     expiration_secs: i64,
     now: i64,
 ) -> Result<EthAddress, AuthChainError> {
-    // Freshness window reads the authoritative `x-identity-timestamp` header, not
-    // a colon-split of the payload: paths containing ':' (wearable/credits URNs)
-    // would shift the field and silently skip the check.
     if let Ok(signed_at_ms) = timestamp.parse::<i64>() {
         let signed_at = signed_at_ms / 1000;
         if (now - signed_at).abs() > expiration_secs {

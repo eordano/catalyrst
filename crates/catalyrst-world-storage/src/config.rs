@@ -1,31 +1,41 @@
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, Result};
+use catalyrst_envcfg::{env_bool, get_int, get_port, get_u64, required};
 use std::env;
 
-/// Per-namespace byte-size limits, mirroring the upstream
-/// `*_STORAGE_MAX_VALUE_SIZE_BYTES` / `*_STORAGE_MAX_TOTAL_SIZE_BYTES` knobs.
 #[derive(Debug, Clone, Copy)]
 pub struct NamespaceLimits {
     pub max_value_size_bytes: i64,
     pub max_total_size_bytes: i64,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct StorageCacheConfig {
+    pub enabled: bool,
+    pub ttl_seconds: u64,
+    pub max_entries: u64,
+    pub max_value_bytes: usize,
+}
+
 pub struct Config {
     pub http_host: String,
     pub http_port: u16,
     pub database_url: String,
+    pub cors_allowed_origin_suffixes: Vec<String>,
 
-    /// 32-byte AES-256-GCM key, hex-encoded (64 hex chars).
     pub encryption_key: [u8; 32],
 
-    /// Lowercased authoritative-server address (env-var read access).
     pub authoritative_server_address: Option<String>,
-    /// Lowercased extra authorized addresses (comma-separated upstream).
+
     pub authorized_addresses: Vec<String>,
+
+    pub eip1654_rpc_url: Option<String>,
 
     pub worlds_content_server_url: String,
     pub lambdas_url: String,
     pub places_url: String,
     pub places_cache_ttl_seconds: u64,
+    pub world_permission_cache_ttl_seconds: u64,
+    pub storage_cache: StorageCacheConfig,
 
     pub env_limits: NamespaceLimits,
     pub world_limits: NamespaceLimits,
@@ -53,9 +63,18 @@ impl Config {
             http_host: env::var("HTTP_SERVER_HOST").unwrap_or_else(|_| "127.0.0.1".to_string()),
             http_port: get_port("HTTP_SERVER_PORT", 5151)?,
             database_url: required("WORLD_STORAGE_PG_CONNECTION_STRING")?,
+            cors_allowed_origin_suffixes: crate::cors::parse_origin_suffixes(
+                &env::var("CORS_ALLOWED_ORIGIN_SUFFIXES")
+                    .unwrap_or_else(|_| crate::cors::DEFAULT_ORIGIN_SUFFIXES.to_string()),
+            ),
             encryption_key,
             authoritative_server_address,
             authorized_addresses,
+            eip1654_rpc_url: env::var("RPC_ENDPOINT_ETH")
+                .ok()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .or_else(|| Some("https://rpc.decentraland.org/mainnet".to_string())),
             worlds_content_server_url: env::var("WORLDS_CONTENT_SERVER_URL")
                 .unwrap_or_else(|_| "https://worlds-content-server.decentraland.org".to_string()),
             lambdas_url: env::var("LAMBDAS_URL")
@@ -63,17 +82,24 @@ impl Config {
             places_url: env::var("PLACES_URL")
                 .unwrap_or_else(|_| "https://places.decentraland.org".to_string()),
             places_cache_ttl_seconds: get_u64("PLACES_CACHE_TTL_SECONDS", 300)?,
+            world_permission_cache_ttl_seconds: get_u64("WORLD_PERMISSIONS_CACHE_TTL_SECONDS", 30)?,
+            storage_cache: StorageCacheConfig {
+                enabled: env_bool("STORAGE_CACHE_ENABLED", true),
+                ttl_seconds: get_u64("STORAGE_CACHE_TTL_SECONDS", 60)?,
+                max_entries: get_u64("STORAGE_CACHE_MAX", 8_000)?,
+                max_value_bytes: get_u64("STORAGE_CACHE_MAX_VALUE_BYTES", 32_768)? as usize,
+            },
             env_limits: NamespaceLimits {
-                max_value_size_bytes: get_i64("ENV_STORAGE_MAX_VALUE_SIZE_BYTES", 10_240)?,
-                max_total_size_bytes: get_i64("ENV_STORAGE_MAX_TOTAL_SIZE_BYTES", 262_144)?,
+                max_value_size_bytes: get_int("ENV_STORAGE_MAX_VALUE_SIZE_BYTES", 10_240)?,
+                max_total_size_bytes: get_int("ENV_STORAGE_MAX_TOTAL_SIZE_BYTES", 262_144)?,
             },
             world_limits: NamespaceLimits {
-                max_value_size_bytes: get_i64("WORLD_STORAGE_MAX_VALUE_SIZE_BYTES", 524_288)?,
-                max_total_size_bytes: get_i64("WORLD_STORAGE_MAX_TOTAL_SIZE_BYTES", 10_485_760)?,
+                max_value_size_bytes: get_int("WORLD_STORAGE_MAX_VALUE_SIZE_BYTES", 524_288)?,
+                max_total_size_bytes: get_int("WORLD_STORAGE_MAX_TOTAL_SIZE_BYTES", 10_485_760)?,
             },
             player_limits: NamespaceLimits {
-                max_value_size_bytes: get_i64("PLAYER_STORAGE_MAX_VALUE_SIZE_BYTES", 102_400)?,
-                max_total_size_bytes: get_i64("PLAYER_STORAGE_MAX_TOTAL_SIZE_BYTES", 1_048_576)?,
+                max_value_size_bytes: get_int("PLAYER_STORAGE_MAX_VALUE_SIZE_BYTES", 102_400)?,
+                max_total_size_bytes: get_int("PLAYER_STORAGE_MAX_TOTAL_SIZE_BYTES", 1_048_576)?,
             },
         })
     }
@@ -91,29 +117,4 @@ fn parse_encryption_key(key_hex: &str) -> Result<[u8; 32]> {
     let mut key = [0u8; 32];
     key.copy_from_slice(&bytes);
     Ok(key)
-}
-
-fn required(key: &str) -> Result<String> {
-    env::var(key).map_err(|_| anyhow!("missing required env var: {}", key))
-}
-
-fn get_port(key: &str, default: u16) -> Result<u16> {
-    match env::var(key) {
-        Ok(s) => s.parse::<u16>().with_context(|| format!("invalid {}", key)),
-        Err(_) => Ok(default),
-    }
-}
-
-fn get_i64(key: &str, default: i64) -> Result<i64> {
-    match env::var(key) {
-        Ok(s) => s.parse::<i64>().with_context(|| format!("invalid {}", key)),
-        Err(_) => Ok(default),
-    }
-}
-
-fn get_u64(key: &str, default: u64) -> Result<u64> {
-    match env::var(key) {
-        Ok(s) => s.parse::<u64>().with_context(|| format!("invalid {}", key)),
-        Err(_) => Ok(default),
-    }
 }

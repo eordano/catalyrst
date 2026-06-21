@@ -1,38 +1,23 @@
-//! Rentals reader — port of marketplace-server's `ports/rentals` component as
-//! consumed by the NFTs query.
-//!
-//! Upstream fetches rental listings from the external signatures-server
-//! (`rentalsUrl/v1/rentals-listings`) over HTTP and the rentals subgraph.
-//! catalyrst already runs the signatures-server port (`catalyrst-signatures`),
-//! which owns the canonical `rentals` / `rentals_listings` / `periods` /
-//! `metadata` tables on the shared Postgres cluster. This component reads those
-//! tables directly (same data, no HTTP hop) and returns the exact `RentalListing`
-//! wire shape so `/v1/nfts` can attach `rental` and `openRentalId` to LAND NFTs
-//! and resolve the `isOnRent` filter.
-//!
-//! When `RENTALS_PG_CONNECTION_STRING` is unset the component is disabled and
-//! every method returns empty — `rental`/`openRentalId` then stay null, exactly
-//! as the previous stub, so the endpoint degrades gracefully rather than erroring.
-
 use chrono::NaiveDateTime;
 use serde::Serialize;
 use sqlx::{PgPool, Row};
 use uuid::Uuid;
 
-/// A rental listing period — `@dcl/schemas` RentalListingPeriod.
 #[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "market/"))]
 pub struct RentalListingPeriod {
     #[serde(rename = "minDays")]
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub min_days: i64,
     #[serde(rename = "maxDays")]
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub max_days: i64,
     #[serde(rename = "pricePerDay")]
     pub price_per_day: String,
 }
 
-/// A rental listing — `@dcl/schemas` RentalListing. Field set / casing / units
-/// match upstream byte-for-byte (timestamps in epoch milliseconds).
 #[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "market/"))]
 pub struct RentalListing {
     pub id: String,
     #[serde(rename = "nftId")]
@@ -42,8 +27,10 @@ pub struct RentalListing {
     pub search_text: String,
     pub network: String,
     #[serde(rename = "chainId")]
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub chain_id: i64,
-    /// epoch milliseconds
+
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub expiration: i64,
     pub signature: String,
     pub nonces: Vec<String>,
@@ -57,19 +44,21 @@ pub struct RentalListing {
     pub tenant: Option<String>,
     pub status: String,
     #[serde(rename = "createdAt")]
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub created_at: i64,
     #[serde(rename = "updatedAt")]
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub updated_at: i64,
     #[serde(rename = "startedAt")]
+    #[cfg_attr(feature = "ts", ts(type = "number | null"))]
     pub started_at: Option<i64>,
     pub periods: Vec<RentalListingPeriod>,
     pub target: String,
     #[serde(rename = "rentedDays")]
+    #[cfg_attr(feature = "ts", ts(type = "number | null"))]
     pub rented_days: Option<i64>,
 }
 
-/// Reads rental listings from the signatures-server's rentals database. `None`
-/// pool => disabled (no rentals data available); all methods return empty.
 #[derive(Clone)]
 pub struct RentalsComponent {
     pool: Option<PgPool>,
@@ -84,9 +73,6 @@ impl RentalsComponent {
         self.pool.is_some()
     }
 
-    /// Port of `getRentalsListingsOfNFTs(nftIds, status)`: every listing whose
-    /// `nftId` (== rentals.metadata_id) is in `nft_ids` and whose status is in
-    /// `statuses` (default `open`). Returns the full `RentalListing` shape.
     pub async fn get_rentals_listings_of_nfts(
         &self,
         nft_ids: &[String],
@@ -104,10 +90,6 @@ impl RentalsComponent {
             statuses.to_vec()
         };
 
-        // Same projection as catalyrst-signatures' listings query: one row per
-        // rental, periods aggregated as a jsonb array of [min,max,price] string
-        // triples, joined to metadata for category/search_text and to
-        // rentals_listings for lessor/tenant.
         let rows = sqlx::query(
             r#"
 SELECT rentals.*, metadata.category, metadata.search_text,
@@ -140,10 +122,6 @@ WHERE rentals.metadata_id = ANY($1)
         rows.iter().map(row_to_listing).collect()
     }
 
-    /// All rental listings in the given statuses (default `open`), regardless of
-    /// nftId. Port of upstream getNFTFilters' `getRentalsListings({ rentalStatus,
-    /// first: 1000, skip: 0 })` workaround, which fetches every open listing so
-    /// the NFT query can be pinned to the rented ids.
     pub async fn get_open_rentals(&self, statuses: &[String]) -> Vec<RentalListing> {
         let Some(pool) = &self.pool else {
             return Vec::new();
@@ -184,11 +162,6 @@ LIMIT 1000
         rows.iter().map(row_to_listing).collect()
     }
 
-    /// Port of `getRentalAssets({ lessors, contractAddresses, isClaimed:false })`
-    /// restricted to the catalyrst data model: the set of LAND/Estate NFT ids
-    /// (`category-contract-tokenId`) that `owner` currently has an OPEN rental
-    /// listing for, so the NFT owner-path query can surface them via
-    /// `rentalAssetsIds`.
     pub async fn get_rental_assets_ids_for_lessor(&self, owner: &str) -> Vec<String> {
         let Some(pool) = &self.pool else {
             return Vec::new();
@@ -216,7 +189,6 @@ fn to_millis(dt: NaiveDateTime) -> i64 {
     dt.and_utc().timestamp_millis()
 }
 
-/// fromDBGetRentalsListingsToRentalListings — map a DB row to the API shape.
 fn row_to_listing(r: &sqlx::postgres::PgRow) -> RentalListing {
     let periods_raw: serde_json::Value = r.try_get("periods").unwrap_or(serde_json::Value::Null);
     let periods = periods_raw

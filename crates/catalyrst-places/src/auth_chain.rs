@@ -1,13 +1,3 @@
-//! Signed-fetch auth-chain verification (ported from catalyrst-camera-reel).
-//!
-//! `auth.rs::auth_address_optional/required` only *reads* the SIGNER address out
-//! of `x-identity-auth-chain-0` without checking any signature — fine for the
-//! non-authoritative read paths (display-only "is this my favorite?"), but the
-//! write paths (favorites/likes/report) MUST verify the full chain, exactly as
-//! upstream places does via `withAuth` (decentraland-gatsby signed-fetch). This
-//! module recovers + verifies the chain over `method:path:ts:metadata` and
-//! returns the verified signer.
-
 use axum::http::HeaderMap;
 use catalyrst_crypto::verify::verify_auth_chain;
 use catalyrst_crypto::AuthError;
@@ -58,11 +48,6 @@ pub fn build_payload(method: &str, path: &str, timestamp: &str, metadata: &str) 
     format!("{}:{}:{}:{}", method, path, timestamp, metadata).to_lowercase()
 }
 
-/// Behind the front-host proxy, nginx strips the service prefix before
-/// proxying but the client signs the full external path (incl. prefix). nginx
-/// forwards the original path in `x-original-path`; prefer it for signed-fetch
-/// payload reconstruction so it matches what the client signed. Falls back to the
-/// hardcoded route path for direct/loopback requests (no header).
 fn signed_fetch_path<'a>(headers: &HeaderMap, fallback: &'a str) -> std::borrow::Cow<'a, str> {
     match headers.get("x-original-path").and_then(|v| v.to_str().ok()) {
         Some(raw) => std::borrow::Cow::Owned(raw.split('?').next().unwrap_or(raw).to_string()),
@@ -194,8 +179,6 @@ fn map_auth_error(err: AuthError) -> AuthChainError {
     }
 }
 
-/// Verify the signed-fetch auth chain over `method:path:ts:metadata` and return
-/// the verified, lowercased signer address.
 pub fn require_signer(
     headers: &HeaderMap,
     method: &str,
@@ -219,13 +202,6 @@ pub fn require_signer(
 mod tests {
     use super::*;
 
-    /// The freshness window must read the timestamp from the authoritative
-    /// header value, not by splitting the payload on ':'. A path containing a
-    /// ':' (e.g. a URN) shifts `payload.split(':').nth(2)` off the ts field, so
-    /// the old code silently skipped the replay-window check. Here the header ts
-    /// is far in the past, so a `:`-laden payload must still be rejected as
-    /// Expired (the ts check runs before signature recovery, so an empty chain
-    /// is fine for this test).
     #[test]
     fn stale_timestamp_rejected_even_with_colon_in_path() {
         let chain = AuthChain {
@@ -233,7 +209,7 @@ mod tests {
             signer: String::new(),
         };
         let payload = "get:/world/urn:decentraland:foo:1000000000000:{}";
-        let stale_ts = "1000000000000"; // 1e9 s, far before `now`
+        let stale_ts = "1000000000000";
         let now = 2_000_000_000_i64;
         let r = validate_signature(&chain, payload, stale_ts, FIVE_MINUTES, now);
         assert!(

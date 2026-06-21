@@ -76,10 +76,6 @@ async fn main_about(State(state): State<AppState>, Query(q): Query<AboutQuery>) 
         .map(|c| c.trim_end_matches('/').to_string())
         .unwrap_or_else(|| cfg.catalyst_url.trim_end_matches('/').to_string());
 
-    // No trailing slash — matches the prod content-server /about convention
-    // (peer.decentraland.org/content). A client that appends "/entities/active"
-    // to a trailing-slash publicUrl builds "content//entities/active", which the
-    // router 404s (bevy-explorer hit this: "found 0 entities over N parcels").
     let content_url = format!("{}/content", base);
     let lambdas_url = q
         .catalyst
@@ -199,10 +195,6 @@ async fn realms(State(state): State<AppState>) -> Json<Value> {
 }
 
 async fn hot_scenes(State(state): State<AppState>) -> Json<Value> {
-    // The explorer fetches /hot-scenes from the realm (this service). The live
-    // scene-occupancy computation lives in the archipelago (explore bundle), so
-    // proxy it. Fall back to an empty list — never let a hot-scenes hiccup break
-    // the realm handshake or the discover UI.
     let url = &state.cfg.hot_scenes_url;
     match state.http.get(url).send().await {
         Ok(resp) if resp.status().is_success() => match resp.json::<Value>().await {

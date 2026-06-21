@@ -1,6 +1,6 @@
 [package]
 name = "catalyrst-places"
-version = "0.1.0"
+version = "0.12.0"
 edition = "2021"
 description = "Rust port of decentraland/places (REST API for places.decentraland.org), federation-aware via catalyrst-fed"
 
@@ -10,10 +10,8 @@ path = "src/main.rs"
 
 [features]
 default = []
-# Enable live NATS JetStream federation gossip (publish + consumer apply-loop).
-# Off by default: a no-peer deploy applies locally and reconciles via snapshot
-# pull. Build with `--features nats` to wire the real broker (FED_GOSSIP=nats).
 nats = ["catalyrst-fed/nats"]
+ts = ["dep:ts-rs"]
 
 [dependencies]
 catalyrst-fed = { workspace = true }
@@ -27,10 +25,20 @@ reqwest = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 chrono = { workspace = true }
-sha1 = "0.10"
+sha1 = "0.11"
+sha2 = { workspace = true }
 hmac = { workspace = true }
 base64 = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 thiserror = { workspace = true }
 anyhow = { workspace = true }
+catalyrst-envcfg = { workspace = true }
+ts-rs = { workspace = true, optional = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+tower = { workspace = true }
+sqlx = { workspace = true }
+rand = "0.10"
+hex = "0.4"

@@ -1,14 +1,3 @@
-//! Loaded-scene registry and per-scene client roster.
-//!
-//! Port of `src/adapters/scene.ts` + `src/adapters/wsRegistry.ts` +
-//! the `scenes: Map<string, ISceneComponent>` component (`src/types.ts`).
-//!
-//! Upstream keys scenes by *name* (`localScene`, or a world name like
-//! `my-world.dcl.eth`) and assigns each connected client a monotonically
-//! increasing integer index used both as its id and to compute its entity
-//! range. We mirror that: [`SceneManager`] owns the name->[`Scene`] map, each
-//! [`Scene`] owns a runtime + a roster of [`Client`] handles.
-
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 
@@ -18,14 +7,10 @@ use tokio::sync::mpsc;
 
 use crate::runtime::SceneRuntime;
 
-/// A connected client's server-side handle. The WS task owns the receive side;
-/// this handle owns the send side, so the runtime/peers can push frames to it.
 pub struct Client {
     pub index: u32,
     pub address: String,
-    /// Outbound frames (already protocol-encoded) destined for this client.
-    /// Bounded so a slow client can't make the queue grow without bound; a full
-    /// queue drops the frame (best-effort fan-out) rather than blocking.
+
     pub tx: mpsc::Sender<Vec<u8>>,
 }
 
@@ -33,14 +18,25 @@ pub struct Scene {
     pub name: String,
     pub runtime: Arc<dyn SceneRuntime>,
     clients: DashMap<u32, Arc<Client>>,
+
+    renewal: Mutex<Option<tokio::task::JoinHandle<()>>>,
 }
 
 impl Scene {
     pub fn new(name: impl Into<String>, runtime: Arc<dyn SceneRuntime>) -> Self {
+        Self::new_with_renewal(name, runtime, None)
+    }
+
+    pub fn new_with_renewal(
+        name: impl Into<String>,
+        runtime: Arc<dyn SceneRuntime>,
+        renewal: Option<tokio::task::JoinHandle<()>>,
+    ) -> Self {
         Self {
             name: name.into(),
             runtime,
             clients: DashMap::new(),
+            renewal: Mutex::new(renewal),
         }
     }
 
@@ -52,10 +48,6 @@ impl Scene {
         self.clients.len()
     }
 
-    /// Registers a freshly-authenticated client, returning its handle and the
-    /// `Init` payload. The index is allocated by the runtime (so it stays
-    /// consistent with entity-range arithmetic), and the runtime is handed the
-    /// outbound sender so the scene can push frames asynchronously.
     pub fn add_client(
         &self,
         address: String,
@@ -68,16 +60,12 @@ impl Scene {
         (client, init)
     }
 
-    /// Fan a frame out to every connected client except `except` (echo
-    /// suppression). Frames are already protocol-encoded.
     pub fn broadcast(&self, frame: &[u8], except: u32) {
         for entry in self.clients.iter() {
             if *entry.key() == except {
                 continue;
             }
-            // Best-effort: a closed receiver just means that client is gone
-            // (its WS task removes it on close); a full bounded queue means the
-            // client is too slow — drop the frame rather than block the caller.
+
             let _ = entry.value().tx.try_send(frame.to_vec());
         }
     }
@@ -87,11 +75,6 @@ impl Scene {
         self.runtime.on_client_close(index);
     }
 
-    /// Forcibly disconnect every connected client (admin kick-all). Removing a
-    /// client from the roster drops the only [`Client::tx`] holder (plus, for
-    /// the JS runtime, `on_client_close` drops the runtime's outbound sender),
-    /// so the client's WS task sees its outbound channel close and breaks out
-    /// of its relay loop, tearing down the socket. Returns the number kicked.
     pub fn kick_all(&self) -> usize {
         let indices: Vec<u32> = self.clients.iter().map(|e| *e.key()).collect();
         let n = indices.len();
@@ -101,14 +84,19 @@ impl Scene {
         n
     }
 
-    /// The current authoritative CRDT snapshot bytes (admin inspect).
     pub fn snapshot(&self) -> Vec<u8> {
         self.runtime.snapshot()
     }
 }
 
-/// The top-level scene registry. Equivalent to the upstream `scenes` map plus
-/// the global WS connection counter.
+impl Drop for Scene {
+    fn drop(&mut self) {
+        if let Some(task) = self.renewal.lock().take() {
+            task.abort();
+        }
+    }
+}
+
 pub struct SceneManager {
     scenes: Mutex<std::collections::HashMap<String, Arc<Scene>>>,
     connection_count: AtomicU32,
@@ -132,8 +120,6 @@ impl SceneManager {
         self.scenes.lock().get(name).cloned()
     }
 
-    /// Insert or replace a loaded scene. Returns the previous scene if any
-    /// (caller should stop it). Port of `loadOrReload`'s map mutation.
     pub fn insert(&self, name: impl Into<String>, scene: Arc<Scene>) -> Option<Arc<Scene>> {
         self.scenes.lock().insert(name.into(), scene)
     }
@@ -142,7 +128,6 @@ impl SceneManager {
         self.scenes.lock().remove(name)
     }
 
-    /// `(name:hash)` strings for the `/status` endpoint.
     pub fn loaded(&self) -> Vec<String> {
         self.scenes
             .lock()

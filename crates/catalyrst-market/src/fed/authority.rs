@@ -8,11 +8,6 @@ pub async fn signer_owns_any_nft_for_item(
     signer: &str,
     item_id: &str,
 ) -> Result<bool, ApiError> {
-    // nft.item_id and account.address are stored lowercase by the squid indexer,
-    // so compare the plain (indexed) columns and lowercase the binds in Rust. The
-    // prior LOWER(col)=LOWER($n) wrapper made BOTH predicates unindexable and
-    // forced a full index-only scan of the 5.3M-row nft table (~615ms); plain
-    // equality uses IDX_…(item_id,owner_id) + account(address) → ~3ms.
     let sql = format!(
         "SELECT 1 FROM {schema}.nft nft \
            JOIN {schema}.account account ON nft.owner_id = account.id \
@@ -21,7 +16,31 @@ pub async fn signer_owns_any_nft_for_item(
           LIMIT 1",
         schema = MARKETPLACE_SQUID_SCHEMA
     );
-    let row: Option<(i32,)> = sqlx::query_as(&sql)
+    let row: Option<(i32,)> = sqlx::query_as(sqlx::AssertSqlSafe(sql))
+        .bind(item_id.to_lowercase())
+        .bind(signer.to_lowercase())
+        .fetch_optional(pool)
+        .await
+        .map_err(ApiError::from)?;
+    Ok(row.is_some())
+}
+
+pub async fn signer_has_active_lease_for_item(
+    pool: &PgPool,
+    signer: &str,
+    item_id: &str,
+) -> Result<bool, ApiError> {
+    let sql = format!(
+        "SELECT 1 \
+           FROM marketplace.usage_grants ug \
+           JOIN {schema}.nft nft ON nft.urn = ug.urn \
+          WHERE nft.item_id = $1 \
+            AND ug.grantee_address = $2 \
+            AND ug.status = 'active' \
+          LIMIT 1",
+        schema = MARKETPLACE_SQUID_SCHEMA
+    );
+    let row: Option<(i32,)> = sqlx::query_as(sqlx::AssertSqlSafe(sql))
         .bind(item_id.to_lowercase())
         .bind(signer.to_lowercase())
         .fetch_optional(pool)

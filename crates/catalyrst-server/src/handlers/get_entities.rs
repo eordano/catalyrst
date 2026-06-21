@@ -10,9 +10,6 @@ use crate::formatters::{mask_entity, EntityField};
 use crate::query_params::{parse_query_string, qs_get_array, qs_get_string};
 use crate::state::AppState;
 
-// Bound the request-controlled `id`/`pointer` arrays that feed the `ANY(...)`/overlap query, matching
-// the cap on POST /entities/active. This public, unauthenticated endpoint would otherwise let one
-// request push an unbounded number of values into the query.
 const MAX_IDS_OR_POINTERS: usize = 1000;
 
 pub async fn get_entities(
@@ -77,7 +74,6 @@ pub async fn get_entities(
             .map_err(|e| AppError::Internal(e.to_string()))?
     };
 
-    // Drop any denylisted entity, as the sibling listing endpoints (active-entities) do.
     let masked: Vec<Value> = entities
         .iter()
         .filter(|e| {
@@ -89,9 +85,6 @@ pub async fn get_entities(
         .map(|e| mask_entity(e, fields.as_deref()))
         .collect();
 
-    // Short, opt-in cache window (default 10s, via ENTITIES_CACHE_CONTROL_MAX_AGE; 0 disables).
-    // Active entities are mutable, so this is a small staleness/perf tradeoff, not the immutable
-    // caching used for content blobs.
     let mut response = Json(Value::Array(masked)).into_response();
     if let Some(cache_control) = entities_cache_control(state.entities_cache_control_max_age) {
         if let Ok(hv) = cache_control.parse() {
@@ -101,8 +94,6 @@ pub async fn get_entities(
     Ok(response)
 }
 
-/// Builds the opt-in `Cache-Control` value for the active-entity listing endpoints, or `None` when
-/// caching is disabled (`max_age == 0`).
 pub(crate) fn entities_cache_control(max_age: u64) -> Option<String> {
     if max_age > 0 {
         Some(format!("public, max-age={}", max_age))

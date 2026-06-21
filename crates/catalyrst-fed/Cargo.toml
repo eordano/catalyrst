@@ -1,11 +1,10 @@
 [package]
 name = "catalyrst-fed"
-version = "0.1.0"
+version = "0.12.0"
 edition = "2021"
 description = "Federation primitives shared by catalyrst-{places,events,communities,friends,messaging}: EIP-712 signed envelopes, session delegation, peer registry, rate limits, gossip + snapshot transport stubs"
 
 [dependencies]
-catalyrst-types = { workspace = true }
 catalyrst-crypto = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -16,18 +15,11 @@ tracing = { workspace = true }
 chrono = { workspace = true }
 parking_lot = { workspace = true }
 dashmap = { workspace = true }
-ed25519-dalek = { version = "2", features = ["std"] }
-ethers-core = { workspace = true }
-toml = "0.8"
+toml = "1.1"
 async-trait = { workspace = true }
 
-# Live NATS JetStream gossip transport. Off by default so the workspace builds
-# where async-nats is unavailable; the trait + envelope + NoopPublisher compile
-# with zero extra deps. Enable with `--features nats` to wire the real broker.
-async-nats = { version = "0.38", optional = true }
+async-nats = { version = "0.49", optional = true }
 futures-util = { version = "0.3", optional = true, default-features = false }
-# `sync` (mpsc) is needed unconditionally for the GossipPublisher::subscribe
-# signature; the rest of the runtime is pulled in only under the `nats` feature.
 tokio = { workspace = true, features = ["sync"] }
 
 [features]
@@ -35,5 +27,11 @@ default = []
 nats = ["dep:async-nats", "dep:futures-util", "tokio/rt", "tokio/macros"]
 
 [dev-dependencies]
-ethers-signers = { workspace = true }
-tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+alloy = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync"] }
+async-trait = { workspace = true }
+parking_lot = { workspace = true }
+hex = "0.4"
+chrono = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }

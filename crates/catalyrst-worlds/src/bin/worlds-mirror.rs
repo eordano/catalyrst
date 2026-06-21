@@ -1,23 +1,3 @@
-//! Full offline mirror of the upstream worlds-content-server into this catalyrst
-//! worlds store (the `worlds`/`world_scenes` tables + the local content dir).
-//!
-//! Reads upstream `/index`, then for every deployed world fetches its scene
-//! entity(ies) + all content blobs, writes the blobs to `contents_dir/<hash>`
-//! (the flat layout the `/contents` handler reads local-first) and upserts the
-//! `worlds` + `world_scenes` rows that `/world/<name>/about` + `/index` read.
-//!
-//! Idempotent + resumable: existing blobs are skipped, rows are upserted.
-//! Blocked (HTTP 401) and undeployed (404) worlds are logged and skipped.
-//! `deployer` + `deployment_auth_chain` are placeholders — neither `/about`,
-//! `/index`, nor the abgen build path read them, and upstream does not expose
-//! the auth chain via `/about` or `/entities/active`.
-//!
-//! Reuses `catalyrst_worlds::config::Config`, so it picks up the same
-//! WORLDS_PG_CONNECTION_STRING / WORLDS_CONTENT_DIR / CONTENTS_UPSTREAM_URL the
-//! running service uses. Run it with the service's env sourced:
-//!   set -a; . env/catalyrst-overrides.env; set +a
-//!   cargo run --release -p catalyrst-worlds --bin worlds-mirror -- -j 32
-
 use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -185,7 +165,6 @@ struct WorldStats {
     new_blobs: usize,
 }
 
-/// Returns Ok(None) when the world is blocked/undeployed (skip), Ok(Some(stats)) on success.
 async fn mirror_world(
     http: &reqwest::Client,
     pool: &PgPool,
@@ -194,12 +173,24 @@ async fn mirror_world(
     contents_dir: &Path,
     name: &str,
 ) -> Result<Option<WorldStats>> {
+    let locally_published: bool = sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM world_scenes WHERE world_name = $1 AND deployer <> $2)",
+    )
+    .bind(name)
+    .bind(ZERO_ADDR)
+    .fetch_one(pool)
+    .await
+    .with_context(|| format!("checking local publish for {name}"))?;
+    if locally_published {
+        return Ok(None);
+    }
+
     let resp = http
         .get(format!("{upstream}/world/{name}/about"))
         .send()
         .await?;
     if !resp.status().is_success() {
-        return Ok(None); // blocked (401) / undeployed (404)
+        return Ok(None);
     }
     let about: Value = resp.json().await?;
 
@@ -208,8 +199,6 @@ async fn mirror_world(
         return Ok(None);
     }
 
-    // World-settings overrides surfaced by upstream /about (worlds-content-server #459):
-    // skybox_time -> configurations.skybox.fixedHour, single_player -> comms.adapter.
     let skybox_time = about["configurations"]["skybox"]["fixedHour"].as_i64();
     let single_player = about["comms"]["adapter"].as_str() == Some("fixed-adapter:offline:offline");
 
@@ -247,11 +236,6 @@ async fn mirror_world(
         records.push((cid, entity, parcels, size));
     }
 
-    // Write the worlds row + its world_scenes in ONE transaction. A global lock
-    // serializes all writers' DB transactions (downloads above stay concurrent):
-    // concurrent per-world transactions otherwise hit spurious fk_world_name
-    // violations on the just-inserted parent row. DB writes are not the
-    // bottleneck (content downloads are), so this costs ~nothing.
     let _db = db_lock.lock().await;
     let mut tx = pool.begin().await.context("begin tx")?;
     sqlx::query(
@@ -321,7 +305,6 @@ fn scene_refs(about: &Value) -> Vec<(String, String)> {
         .unwrap_or_default()
 }
 
-/// Fetch `hash` to `contents_dir/<hash>` (skip if present); return its bytes.
 async fn fetch_blob(
     http: &reqwest::Client,
     contents_dir: &Path,

@@ -1,8 +1,3 @@
-//! External HTTP dependencies: the Places API (place-id resolution), the
-//! Worlds Content Server (world permissions) and the Lambdas API (Genesis City
-//! land permissions). Ports the upstream `places`, `worlds-content-server` and
-//! `world-permission` components.
-
 use std::time::Duration;
 
 use moka::future::Cache;
@@ -10,8 +5,11 @@ use serde::Deserialize;
 
 use crate::http::errors::ApiError;
 
-/// Genesis City sentinel realm name (upstream `GENESIS_CITY_REALM = "main"`).
 pub const GENESIS_CITY_REALM: &str = "main";
+
+pub fn is_shared_realm(world_name: &str) -> bool {
+    !world_name.to_ascii_lowercase().ends_with(".dcl.eth")
+}
 
 #[derive(Clone)]
 pub struct ExternalClient {
@@ -20,6 +18,7 @@ pub struct ExternalClient {
     worlds_content_server_url: String,
     lambdas_url: String,
     place_id_cache: Cache<String, String>,
+    world_permission_cache: Cache<String, bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -57,7 +56,6 @@ impl LandsParcelPermissions {
     }
 }
 
-/// Shape of `GET /world/{name}/permissions` on the worlds content server.
 #[derive(Debug, Deserialize)]
 struct WorldPermissions {
     #[serde(default)]
@@ -79,7 +77,7 @@ struct DeploymentPermission {
 }
 
 fn is_world(realm: &str) -> bool {
-    realm.ends_with(".dcl.eth")
+    !is_shared_realm(realm)
 }
 
 impl ExternalClient {
@@ -88,8 +86,10 @@ impl ExternalClient {
         worlds_content_server_url: String,
         lambdas_url: String,
         places_cache_ttl_seconds: u64,
+        world_permission_cache_ttl_seconds: u64,
     ) -> Self {
         let http = reqwest::Client::builder()
+            .connect_timeout(Duration::from_secs(5))
             .timeout(Duration::from_secs(30))
             .build()
             .expect("failed to build reqwest client");
@@ -97,17 +97,33 @@ impl ExternalClient {
             .max_capacity(4096)
             .time_to_live(Duration::from_secs(places_cache_ttl_seconds))
             .build();
+        let world_permission_cache = Cache::builder()
+            .max_capacity(16384)
+            .time_to_live(Duration::from_secs(world_permission_cache_ttl_seconds))
+            .build();
         Self {
             http,
             places_url: places_url.trim_end_matches('/').to_string(),
             worlds_content_server_url: worlds_content_server_url.trim_end_matches('/').to_string(),
             lambdas_url: lambdas_url.trim_end_matches('/').to_string(),
             place_id_cache,
+            world_permission_cache,
         }
     }
 
-    /// Resolve the scene's place-id (a UUID) from world name + parcel.
-    /// Genesis City scenes resolve by position only; worlds by name + position.
+    async fn get_with_retry(&self, url: &str) -> Result<reqwest::Response, reqwest::Error> {
+        match self.http.get(url).send().await {
+            Ok(resp) if !resp.status().is_server_error() => Ok(resp),
+            first => {
+                tokio::time::sleep(Duration::from_millis(200)).await;
+                match self.http.get(url).send().await {
+                    Ok(resp) => Ok(resp),
+                    Err(retry_err) => Err(first.err().unwrap_or(retry_err)),
+                }
+            }
+        }
+    }
+
     pub async fn resolve_place_id(
         &self,
         world_name: &str,
@@ -134,9 +150,7 @@ impl ExternalClient {
         };
 
         let resp = self
-            .http
-            .get(&url)
-            .send()
+            .get_with_retry(&url)
             .await
             .map_err(|e| ApiError::internal(format!("Places API request failed: {e}")))?;
         if !resp.status().is_success() {
@@ -163,19 +177,23 @@ impl ExternalClient {
         Ok(place_id)
     }
 
-    /// True when `address` may write/manage the given world or Genesis City
-    /// scene (owner, deployer, or land operator). Address must be lowercased.
     pub async fn has_world_permission(
         &self,
         world_name: &str,
         address: &str,
         parcel: &str,
     ) -> Result<bool, ApiError> {
-        if is_world(world_name) {
-            self.check_world_permission(world_name, address).await
-        } else {
-            self.check_genesis_city_permission(address, parcel).await
+        let cache_key = format!("{}:{}:{}", world_name, address, parcel);
+        if let Some(hit) = self.world_permission_cache.get(&cache_key).await {
+            return Ok(hit);
         }
+        let has = if is_world(world_name) {
+            self.check_world_permission(world_name, address).await?
+        } else {
+            self.check_genesis_city_permission(address, parcel).await?
+        };
+        self.world_permission_cache.insert(cache_key, has).await;
+        Ok(has)
     }
 
     async fn check_world_permission(
@@ -188,7 +206,7 @@ impl ExternalClient {
             self.worlds_content_server_url,
             urlencoding(world_name)
         );
-        let resp = self.http.get(&url).send().await.map_err(|e| {
+        let resp = self.get_with_retry(&url).await.map_err(|e| {
             ApiError::internal(format!(
                 "Failed to fetch world permissions for {world_name}: {e}"
             ))
@@ -231,9 +249,12 @@ impl ExternalClient {
         let y = parts.next().unwrap_or("0");
         let url = format!(
             "{}/users/{}/parcels/{}/{}/permissions",
-            self.lambdas_url, address, x, y
+            self.lambdas_url,
+            urlencoding(address),
+            urlencoding(x),
+            urlencoding(y)
         );
-        let resp = match self.http.get(&url).send().await {
+        let resp = match self.get_with_retry(&url).await {
             Ok(r) => r,
             Err(e) => {
                 tracing::warn!(error = %e, parcel, "Failed to check land permissions via LAMBDAS");
@@ -256,8 +277,6 @@ impl ExternalClient {
     }
 }
 
-/// Minimal percent-encoding for query values (matches `encodeURIComponent` for
-/// the characters that appear in world names and parcels: `.`, `,`, `:` etc.).
 fn urlencoding(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for b in s.bytes() {
@@ -269,4 +288,19 @@ fn urlencoding(s: &str) -> String {
         }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{is_shared_realm, is_world, GENESIS_CITY_REALM};
+
+    #[test]
+    fn shared_realm_is_anything_but_a_dcl_world_case_insensitively() {
+        assert!(is_shared_realm(GENESIS_CITY_REALM));
+        assert!(is_shared_realm("artemis"));
+        assert!(!is_shared_realm("foo.dcl.eth"));
+        assert!(!is_shared_realm("Foo.DCL.eth"));
+        assert!(is_world("foo.dcl.eth"));
+        assert!(!is_world("main"));
+    }
 }

@@ -1,15 +1,14 @@
 use std::collections::HashMap;
 
-use axum::extract::{Path, Query, State};
+use axum::extract::{FromRequest, Path, Query, State};
 use axum::http::HeaderMap;
-use axum::Json;
-use serde_json::{json, Value};
 
 use crate::handlers::common::{
-    is_js_falsy, parse_pagination, require_confirm_delete_all, UpsertBody,
+    check_content_length, get_value_response, parse_pagination, raw_paginated_response,
+    raw_value_response, reject_nul_characters, require_confirm_delete_all, validate_key, RawJson,
+    UpsertBody, ValidatedJson,
 };
 use crate::http::errors::ApiError;
-use crate::storage::{check_limits, value_size_bytes};
 use crate::{authorize, resolve_scene_context, signed_path, AppState, AuthPolicy};
 
 pub async fn get(
@@ -17,46 +16,49 @@ pub async fn get(
     Path(key): Path<String>,
     headers: HeaderMap,
     uri: axum::http::Uri,
-) -> Result<Json<Value>, ApiError> {
+) -> Result<RawJson, ApiError> {
     let path = signed_path(&uri);
     let ctx = resolve_scene_context(&state, &headers, "get", &path).await?;
     authorize(&state, &ctx, AuthPolicy::DEFAULT).await?;
+    validate_key(&key)?;
 
     let value = state
         .storage
         .world_get(&ctx.world_name, &ctx.place_id, &key)
         .await?;
-    match value {
-        Some(v) if !is_js_falsy(&v) => Ok(Json(json!({ "value": v }))),
-        _ => Err(ApiError::not_found("Value not found")),
-    }
+    get_value_response(value)
 }
 
 pub async fn upsert(
     State(state): State<AppState>,
     Path(key): Path<String>,
-    headers: HeaderMap,
-    uri: axum::http::Uri,
-    Json(body): Json<UpsertBody>,
-) -> Result<Json<Value>, ApiError> {
-    let path = signed_path(&uri);
-    let ctx = resolve_scene_context(&state, &headers, "put", &path).await?;
+    req: axum::extract::Request,
+) -> Result<RawJson, ApiError> {
+    let (parts, body) = req.into_parts();
+    let path = signed_path(&parts.uri);
+    let ctx = resolve_scene_context(&state, &parts.headers, "put", &path).await?;
     authorize(&state, &ctx, AuthPolicy::DEFAULT).await?;
+    validate_key(&key)?;
+    check_content_length(&parts.headers, state.cfg.world_limits.max_value_size_bytes)?;
+
+    let req = axum::http::Request::from_parts(parts, body);
+    let ValidatedJson(body) = ValidatedJson::<UpsertBody>::from_request(req, &()).await?;
 
     let serialized = serde_json::to_string(&body.value)
         .map_err(|e| ApiError::bad_request(format!("invalid value: {e}")))?;
-    let size = value_size_bytes(&serialized);
-    let info = state
-        .storage
-        .world_size_info(&ctx.world_name, Some(&key))
-        .await?;
-    check_limits(size, info, state.cfg.world_limits)?;
+    reject_nul_characters(&serialized)?;
 
-    let stored = state
+    state
         .storage
-        .world_set(&ctx.world_name, &ctx.place_id, &key, &body.value, size)
+        .world_upsert_with_quota(
+            &ctx.world_name,
+            &ctx.place_id,
+            &key,
+            &serialized,
+            state.cfg.world_limits,
+        )
         .await?;
-    Ok(Json(json!({ "value": stored })))
+    Ok(raw_value_response(&serialized))
 }
 
 pub async fn delete(
@@ -68,6 +70,7 @@ pub async fn delete(
     let path = signed_path(&uri);
     let ctx = resolve_scene_context(&state, &headers, "delete", &path).await?;
     authorize(&state, &ctx, AuthPolicy::DEFAULT).await?;
+    validate_key(&key)?;
 
     state
         .storage
@@ -81,7 +84,7 @@ pub async fn list(
     Query(params): Query<HashMap<String, String>>,
     headers: HeaderMap,
     uri: axum::http::Uri,
-) -> Result<Json<Value>, ApiError> {
+) -> Result<RawJson, ApiError> {
     let path = signed_path(&uri);
     let ctx = resolve_scene_context(&state, &headers, "get", &path).await?;
     authorize(&state, &ctx, AuthPolicy::DEFAULT).await?;
@@ -102,14 +105,7 @@ pub async fn list(
         .world_count(&ctx.world_name, &ctx.place_id, p.prefix.as_deref())
         .await?;
 
-    let data: Vec<Value> = entries
-        .into_iter()
-        .map(|e| json!({ "key": e.key, "value": e.value }))
-        .collect();
-    Ok(Json(json!({
-        "data": data,
-        "pagination": { "limit": p.limit, "offset": p.offset, "total": total }
-    })))
+    Ok(raw_paginated_response(&entries, p.limit, p.offset, total))
 }
 
 pub async fn clear(
@@ -120,9 +116,7 @@ pub async fn clear(
     let path = signed_path(&uri);
     let ctx = resolve_scene_context(&state, &headers, "delete", &path).await?;
     authorize(&state, &ctx, AuthPolicy::OWNERS_DEPLOYERS_ONLY).await?;
-    // Upstream checks the confirm header INSIDE the handler, i.e. after the
-    // signed-fetch + authorization middleware. Keep auth first so an
-    // unauthenticated caller gets 401, not a 400 that leaks the header name.
+
     require_confirm_delete_all(&headers)?;
 
     state

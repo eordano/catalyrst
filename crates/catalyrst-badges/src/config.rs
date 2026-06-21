@@ -1,11 +1,12 @@
-use anyhow::{anyhow, Context, Result};
+use anyhow::Result;
+use catalyrst_envcfg::{get_port, required};
 use std::env;
 
 pub struct Config {
     pub http_host: String,
     pub http_port: u16,
     pub badges_database_url: String,
-    /// Bearer token gating admin grant/revoke. Unset ⇒ those routes 403.
+
     pub admin_token: Option<String>,
 }
 
@@ -19,16 +20,5 @@ impl Config {
                 .ok()
                 .filter(|s| !s.is_empty()),
         })
-    }
-}
-
-fn required(key: &str) -> Result<String> {
-    env::var(key).map_err(|_| anyhow!("missing required env var: {}", key))
-}
-
-fn get_port(key: &str, default: u16) -> Result<u16> {
-    match env::var(key) {
-        Ok(s) => s.parse::<u16>().with_context(|| format!("invalid {}", key)),
-        Err(_) => Ok(default),
     }
 }

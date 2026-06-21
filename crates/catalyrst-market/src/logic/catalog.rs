@@ -64,6 +64,7 @@ const SORT_BY_VALUES: &[&str] = &[
     "cheapest",
     "most_expensive",
     "recently_listed",
+    "suggested",
 ];
 
 const SORT_DIRECTION_VALUES: &[&str] = &["asc", "desc"];
@@ -137,6 +138,9 @@ pub fn parse_catalog_filters(
     let urns = p.get_list("urn", &[]);
     let ids = p.get_list("id", &[]);
 
+    let include_social_emotes =
+        Some(p.get_string("includeSocialEmotes", None).as_deref() != Some("false"));
+
     Ok(CatalogFilters {
         first,
         skip,
@@ -169,6 +173,7 @@ pub fn parse_catalog_filters(
         urns,
         ids,
         picked_by: None,
+        include_social_emotes,
     })
 }
 

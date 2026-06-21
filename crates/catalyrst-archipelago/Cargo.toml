@@ -1,6 +1,6 @@
 [package]
 name = "catalyrst-archipelago"
-version = "0.1.0"
+version = "0.12.0"
 edition = "2021"
 description = "Rust port of decentraland/archipelago-workers — peer clustering, ws-connector, stats. Port 5139."
 
@@ -10,11 +10,10 @@ path = "src/main.rs"
 
 [dependencies]
 catalyrst-types = { workspace = true }
-catalyrst-fed = { workspace = true }
 catalyrst-crypto = { workspace = true }
+catalyrst-envcfg = { workspace = true }
 tokio = { workspace = true }
 axum = { workspace = true, features = ["ws"] }
-tower = { workspace = true }
 tower-http = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -30,18 +29,17 @@ parking_lot = { workspace = true }
 dashmap = { workspace = true }
 futures = { workspace = true }
 sqlx = { workspace = true }
-prost = "0.11"
-rand = "0.8"
-hmac = "0.12"
-sha2 = "0.10"
+prost = "0.14"
+rand = "0.10"
+hmac = "0.13"
+sha2 = "0.11"
 base64 = "0.22"
-toml = "0.8"
+toml = "1.1"
 
 [build-dependencies]
-prost-build = "0.11"
+prost-build = "0.14"
 
 [dev-dependencies]
+alloy = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
-ethers-signers = "2.0.3"
-ethers-core = "2.0.3"
-tokio-tungstenite = "0.21"
+tokio-tungstenite = "0.29"

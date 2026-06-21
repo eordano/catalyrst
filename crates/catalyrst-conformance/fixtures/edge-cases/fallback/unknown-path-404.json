@@ -2,7 +2,7 @@
   "description": "Any unknown path must 404 with text/plain body 'Not found' (lowercase 'f', lamb2 parity). NOT a JSON error body.",
   "request": {
     "method": "GET",
-    "path": "/this/path/does/not/exist",
+    "path": "/content/this-path-does-not-exist",
     "query": {},
     "headers": {},
     "body": null
@@ -14,7 +14,7 @@
     },
     "body_bytes_b64": "Tm90IGZvdW5k"
   },
-  "captured_from": "hand-authored from crates/catalyrst-server/src/routes.rs::not_found",
+  "captured_from": "re-derived from peer.decentraland.org \u2014 unknown /content/ API path 404s identically on both (the bare-root SPA is a separate front-door concern, not catalyst parity).",
   "captured_at": "2026-05-23T20:30:00Z",
   "volatile_paths": []
 }

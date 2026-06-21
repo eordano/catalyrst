@@ -1,15 +1,15 @@
 [package]
 name = "catalyrst-social"
-version = "0.1.0"
+version = "0.12.0"
 edition = "2021"
-description = "Social bundle: composes the catalyrst-communities, -comms, -notifications, -badges and -media API routers onto a single axum port (5145). Each member crate stays a standalone binary; this binary serves all of them at once."
+description = "Social bundle: composes the catalyrst-social-service (rest), -comms, -notifications, -badges and -media API routers onto a single axum port (5145). Each member crate stays a standalone binary; this binary serves all of them at once."
 
 [[bin]]
 name = "catalyrst-social"
 path = "src/main.rs"
 
 [dependencies]
-catalyrst-communities = { path = "../catalyrst-communities" }
+catalyrst-social-service = { path = "../catalyrst-social-service" }
 catalyrst-comms = { path = "../catalyrst-comms" }
 catalyrst-notifications = { path = "../catalyrst-notifications" }
 catalyrst-badges = { path = "../catalyrst-badges" }

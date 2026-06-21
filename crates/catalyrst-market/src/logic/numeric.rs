@@ -28,15 +28,9 @@ pub fn bn_cmp(a: &str, b: &str) -> std::cmp::Ordering {
     a.len().cmp(&b.len()).then_with(|| a.cmp(&b))
 }
 
-/// Port of ethers v6 `formatEther` (`formatUnits(value, 18)`): renders a
-/// non-negative wei amount as a fixed-point ether string. The 18-digit fraction
-/// is right-aligned and its trailing zeros are trimmed, but at least one
-/// fractional digit is always kept — so `1e18` → `"1.0"`, `1.5e18` → `"1.5"`,
-/// `0` → `"0.0"`. Used only to render the human-readable notification
-/// `description` (e.g. "a bid of 1.5 MANA"), byte-identical to upstream.
 pub fn format_ether(wei: &str) -> String {
-    let digits = sanitize(wei); // strips sign-free leading zeros; "0" for empty/invalid
-                                // Left-pad to at least 19 digits so there is >= 1 whole digit + 18 fraction.
+    let digits = sanitize(wei);
+
     let padded = if digits.len() < 19 {
         format!("{:0>19}", digits)
     } else {
@@ -91,7 +85,6 @@ mod tests {
 
     #[test]
     fn format_ether_matches_ethers_v6() {
-        // ethers v6 formatEther reference values.
         assert_eq!(format_ether("1000000000000000000"), "1.0");
         assert_eq!(format_ether("1500000000000000000"), "1.5");
         assert_eq!(format_ether("1"), "0.000000000000000001");
@@ -99,7 +92,7 @@ mod tests {
         assert_eq!(format_ether(""), "0.0");
         assert_eq!(format_ether("2340000000000000000000"), "2340.0");
         assert_eq!(format_ether("1234567890123456789"), "1.234567890123456789");
-        // leading-zero / whitespace input is sanitized like the bn helpers.
+
         assert_eq!(format_ether("  001000000000000000000 "), "1.0");
     }
 }

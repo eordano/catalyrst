@@ -64,8 +64,6 @@ fn extract_params(q: &HashMap<String, String>) -> Params {
 }
 
 impl Params {
-    /// Stable cache key for the rendered bytes (selected coords sorted so
-    /// order-insensitive requests share an entry).
     fn key_suffix(&self) -> String {
         let mut sel: Vec<(i32, i32)> = self.selected.iter().map(|c| (c.x, c.y)).collect();
         sel.sort_unstable();
@@ -84,10 +82,6 @@ impl Params {
     }
 }
 
-/// Serve `key` from the PNG byte cache if present, otherwise run `render`,
-/// store the result, and serve it. Bytes are generation-scoped to the current
-/// snapshot, so a refresh transparently invalidates them. Adds Last-Modified,
-/// Cache-Control and an ETag, and short-circuits to 304 on a conditional hit.
 fn cached_png_render<F>(
     state: &AppState,
     headers: &HeaderMap,
@@ -98,8 +92,6 @@ fn cached_png_render<F>(
     render: F,
 ) -> Response
 where
-    // Ok(bytes) is cacheable; Err(resp) is a terminal response (503/500/redirect)
-    // that must NOT be cached.
     F: FnOnce() -> Result<Vec<u8>, Response>,
 {
     let etag = cache::etag_for(last, &key);
@@ -261,8 +253,6 @@ pub async fn estate_map_png(
             }
 
             if selected.is_empty() {
-                // Dissolved estate -> 302 redirect. Returned as Err so it is
-                // not stored in the byte cache.
                 return Err(Response::builder()
                     .status(StatusCode::FOUND)
                     .header(

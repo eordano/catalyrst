@@ -1,34 +1,44 @@
-use ethers_core::types::{RecoveryMessage, Signature, H160};
+use alloy_primitives::{Address, Signature, B256};
 
 use crate::AuthError;
 
 pub fn recover_address(message: &[u8], signature: &str) -> Result<String, AuthError> {
     let sig_bytes = parse_signature_hex(signature)?;
     reject_high_s(&sig_bytes)?;
-    let sig = parse_ethers_signature(&sig_bytes)?;
+    let sig = parse_signature(&sig_bytes)?;
 
-    let recovered: H160 = sig
-        .recover(RecoveryMessage::Data(message.to_vec()))
+    let recovered: Address = sig
+        .recover_address_from_msg(message)
         .map_err(|e| AuthError::RecoveryFailed(format!("ecrecover failed: {}", e)))?;
 
     Ok(format!("{:#x}", recovered))
 }
 
-/// secp256k1 group order n.
+pub fn recover_address_from_digest(
+    digest: &[u8; 32],
+    signature: &str,
+) -> Result<String, AuthError> {
+    let sig_bytes = parse_signature_hex(signature)?;
+    reject_high_s(&sig_bytes)?;
+    let sig = parse_signature(&sig_bytes)?;
+
+    let recovered: Address = sig
+        .recover_address_from_prehash(&B256::from(*digest))
+        .map_err(|e| AuthError::RecoveryFailed(format!("ecrecover failed: {}", e)))?;
+
+    Ok(format!("{:#x}", recovered))
+}
+
 const SECP256K1_N: [u8; 32] = [
     0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xfe,
     0xba, 0xae, 0xdc, 0xe6, 0xaf, 0x48, 0xa0, 0x3b, 0xbf, 0xd2, 0x5e, 0x8c, 0xd0, 0x36, 0x41, 0x41,
 ];
-/// n/2 = 0x7fffffffffffffffffffffffffffffff5d576e7357a4501ddfe92f46681b20a0
+
 const SECP256K1_HALF_N: [u8; 32] = [
     0x7f, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
     0x5d, 0x57, 0x6e, 0x73, 0x57, 0xa4, 0x50, 0x1d, 0xdf, 0xe9, 0x2f, 0x46, 0x68, 0x1b, 0x20, 0xa0,
 ];
 
-/// Reject non-canonical (high-s) signatures. ethers-core's `recover()` silently
-/// normalizes a high-s value to low-s and flips the recovery id, so without this
-/// the two malleable twins (s and n-s) both recover the same address. We require
-/// `0 < s <= n/2` so the signature bytes reaching recovery are canonical.
 fn reject_high_s(bytes: &[u8; 65]) -> Result<(), AuthError> {
     let s = &bytes[32..64];
     if s.iter().all(|&b| b == 0) {
@@ -47,7 +57,6 @@ fn reject_high_s(bytes: &[u8; 65]) -> Result<(), AuthError> {
     Ok(())
 }
 
-/// Big-endian 32-byte unsigned comparison.
 fn cmp_be(a: &[u8], b: &[u8]) -> std::cmp::Ordering {
     a.iter().cmp(b.iter())
 }
@@ -70,7 +79,7 @@ fn parse_signature_hex(hex: &str) -> Result<[u8; 65], AuthError> {
     Ok(arr)
 }
 
-fn parse_ethers_signature(bytes: &[u8; 65]) -> Result<Signature, AuthError> {
+fn parse_signature(bytes: &[u8; 65]) -> Result<Signature, AuthError> {
     let mut v = bytes[64];
     if v >= 27 {
         v -= 27;
@@ -80,7 +89,7 @@ fn parse_ethers_signature(bytes: &[u8; 65]) -> Result<Signature, AuthError> {
     sig_bytes[..64].copy_from_slice(&bytes[..64]);
     sig_bytes[64] = v;
 
-    Signature::try_from(sig_bytes.as_slice())
+    Signature::from_raw_array(&sig_bytes)
         .map_err(|e| AuthError::RecoveryFailed(format!("Invalid signature bytes: {}", e)))
 }
 
@@ -101,33 +110,28 @@ mod tests {
         assert!(parse_signature_hex("0xdeadbeef").is_err());
     }
 
-    #[tokio::test]
-    async fn test_high_s_malleated_signature_rejected() {
-        use ethers_signers::{LocalWallet, Signer};
+    #[test]
+    fn test_high_s_malleated_signature_rejected() {
+        use alloy::signers::{local::PrivateKeySigner, SignerSync};
+        use alloy_primitives::U256;
 
-        // eth personal_sign over a signed-fetch-style payload.
-        let wallet: LocalWallet =
+        let wallet: PrivateKeySigner =
             "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
                 .parse()
                 .unwrap();
         let addr = format!("{:#x}", wallet.address());
         let msg = b"get:/foo:1700000000000:{}";
-        let sig = wallet.sign_message(&msg[..]).await.unwrap();
+        let sig = wallet.sign_message_sync(&msg[..]).unwrap();
 
-        // ethers always emits canonical low-s -> still recovers fine.
-        let sig_hex = format!("0x{}", sig);
+        let sig_hex = sig.to_string();
         let rec = recover_address(msg, &sig_hex).expect("low-s sig must verify");
         assert_eq!(rec, addr, "canonical sig recovers signer");
 
-        // Malleate: s' = n - s, flip v (27<->28). Same signer mathematically,
-        // but non-canonical -> MUST be rejected now.
         let mut raw = parse_signature_hex(&sig_hex).unwrap();
-        let s = ethers_core::types::U256::from_big_endian(&raw[32..64]);
-        let n = ethers_core::types::U256::from_big_endian(&SECP256K1_N);
+        let s = U256::from_be_slice(&raw[32..64]);
+        let n = U256::from_be_slice(&SECP256K1_N);
         let s2 = n - s;
-        let mut s2_be = [0u8; 32];
-        s2.to_big_endian(&mut s2_be);
-        raw[32..64].copy_from_slice(&s2_be);
+        raw[32..64].copy_from_slice(&s2.to_be_bytes::<32>());
         raw[64] = if raw[64] == 27 {
             28
         } else if raw[64] == 28 {
@@ -154,10 +158,32 @@ mod tests {
     }
 
     #[test]
+    fn test_recover_from_raw_digest() {
+        use alloy::signers::{local::PrivateKeySigner, SignerSync};
+        use alloy_primitives::keccak256;
+
+        let wallet: PrivateKeySigner =
+            "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
+                .parse()
+                .unwrap();
+        let addr = format!("{:#x}", wallet.address());
+
+        let digest = keccak256(b"some 32-byte typed-data digest input");
+        let sig = wallet.sign_hash_sync(&digest).unwrap();
+        let sig_hex = sig.to_string();
+
+        let rec = recover_address_from_digest(&digest.0, &sig_hex).expect("digest sig must verify");
+        assert_eq!(rec, addr);
+
+        let prefixed = recover_address(digest.as_slice(), &sig_hex).unwrap();
+        assert_ne!(prefixed, addr);
+    }
+
+    #[test]
     fn test_v_normalization() {
         let mut bytes = [0u8; 65];
         bytes[64] = 27;
-        let sig = parse_ethers_signature(&bytes);
-        assert!(sig.is_err() || sig.unwrap().v == 0);
+        let sig = parse_signature(&bytes);
+        assert!(sig.is_err() || !sig.unwrap().v());
     }
 }

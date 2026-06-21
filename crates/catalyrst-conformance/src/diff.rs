@@ -179,7 +179,11 @@ fn compare_recursive(
 fn truncate_value(val: &Value) -> String {
     let s = val.to_string();
     if s.len() > 120 {
-        format!("{}...", &s[..117])
+        let mut cut = 117;
+        while !s.is_char_boundary(cut) {
+            cut -= 1;
+        }
+        format!("{}...", &s[..cut])
     } else {
         s
     }

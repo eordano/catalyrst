@@ -60,7 +60,11 @@ pub struct AuthConfig {
     pub challenge_ttl_secs: u64,
     #[serde(default = "default_signature_max_age_secs")]
     pub signature_max_age_secs: u64,
+    #[serde(default)]
+    pub deny_list_url: Option<String>,
 }
+
+pub const DEFAULT_DENY_LIST_URL: &str = "https://config.decentraland.org/denylist.json";
 
 fn default_challenge_ttl_secs() -> u64 {
     120
@@ -79,6 +83,8 @@ pub struct LivekitConfig {
     pub ws_url: String,
     #[serde(default = "default_lk_ttl_secs")]
     pub token_ttl_secs: i64,
+    #[serde(default)]
+    pub comms_gatekeeper_url: Option<String>,
 }
 
 fn default_lk_ws_url() -> String {
@@ -126,10 +132,7 @@ struct FileConfig {
 impl Config {
     pub fn from_env() -> Result<Self> {
         let http_host = env::var("HTTP_SERVER_HOST").unwrap_or_else(|_| "127.0.0.1".into());
-        let http_port: u16 = env::var("HTTP_SERVER_PORT")
-            .unwrap_or_else(|_| "5139".into())
-            .parse()
-            .context("HTTP_SERVER_PORT must be u16")?;
+        let http_port = catalyrst_envcfg::get_port("HTTP_SERVER_PORT", 5139)?;
 
         let path = env::var("ARCHIPELAGO_CONFIG_PATH").ok().map(PathBuf::from);
         let (cluster, server, mut auth, mut livekit, mut gossip) = match path {
@@ -175,6 +178,20 @@ impl Config {
         if let Ok(v) = env::var("LIVEKIT_WS_URL") {
             if !v.is_empty() {
                 livekit.ws_url = v;
+            }
+        }
+        if livekit.comms_gatekeeper_url.is_none() {
+            if let Ok(v) = env::var("COMMS_GATEKEEPER_URL") {
+                if !v.is_empty() {
+                    livekit.comms_gatekeeper_url = Some(v);
+                }
+            }
+        }
+        if auth.deny_list_url.is_none() {
+            match env::var("DENY_LIST_URL") {
+                Ok(v) if v.is_empty() => {}
+                Ok(v) => auth.deny_list_url = Some(v),
+                Err(_) => auth.deny_list_url = Some(DEFAULT_DENY_LIST_URL.to_string()),
             }
         }
         if gossip.node_id.is_none() {

@@ -2,10 +2,6 @@ use std::collections::HashMap;
 
 pub const MAX_PAGE_SIZE: u32 = 1000;
 
-// Defense-in-depth cap on how many `key=value` pairs the parser will materialize from one query
-// string, mirroring qs's `parameterLimit`. Set above the per-endpoint array caps (1000) so a handler
-// still sees an oversized request (e.g. 1001 values) and rejects it with a clean 400, while a
-// pathological flood (tens of thousands of pairs) can't blow up parser memory/CPU.
 pub const MAX_QUERY_PARAMS: usize = 2000;
 
 pub type QueryParams = HashMap<String, Vec<String>>;
@@ -180,7 +176,8 @@ pub fn is_valid_eth_address(addr: &str) -> bool {
 }
 
 fn urlencoding_decode(s: &str) -> String {
-    let mut result = String::with_capacity(s.len());
+    let mut bytes: Vec<u8> = Vec::with_capacity(s.len());
+    let mut buf = [0u8; 4];
     let mut chars = s.chars();
     while let Some(ch) = chars.next() {
         if ch == '%' {
@@ -188,19 +185,19 @@ fn urlencoding_decode(s: &str) -> String {
             let lo = chars.next().unwrap_or('0');
             let hex = format!("{}{}", hi, lo);
             if let Ok(byte) = u8::from_str_radix(&hex, 16) {
-                result.push(byte as char);
+                bytes.push(byte);
             } else {
-                result.push('%');
-                result.push(hi);
-                result.push(lo);
+                bytes.push(b'%');
+                bytes.extend_from_slice(hi.encode_utf8(&mut buf).as_bytes());
+                bytes.extend_from_slice(lo.encode_utf8(&mut buf).as_bytes());
             }
         } else if ch == '+' {
-            result.push(' ');
+            bytes.push(b' ');
         } else {
-            result.push(ch);
+            bytes.extend_from_slice(ch.encode_utf8(&mut buf).as_bytes());
         }
     }
-    result
+    String::from_utf8_lossy(&bytes).into_owned()
 }
 
 fn urlencoding_encode(s: &str) -> String {
@@ -251,8 +248,6 @@ mod tests {
 
     #[test]
     fn parse_just_over_endpoint_cap_is_visible_to_handlers() {
-        // 1001 repeated keys (just over the per-endpoint array cap) must all parse, so a handler can
-        // see the overage and reject it with a clean 400 rather than silently truncating.
         let query: String = (0..1001)
             .map(|i| format!("cid={}", i))
             .collect::<Vec<_>>()
@@ -368,6 +363,23 @@ mod tests {
         )
         .unwrap();
         assert_eq!(p.offset, i64::MAX);
+    }
+
+    #[test]
+    fn decode_reassembles_multibyte_utf8() {
+        let params = parse_query_string("textSearch=caf%C3%A9&name=%E4%B8%AD%E6%96%87");
+        assert_eq!(
+            qs_get_string(&params, "textSearch").as_deref(),
+            Some("café")
+        );
+        assert_eq!(qs_get_string(&params, "name").as_deref(), Some("中文"));
+    }
+
+    #[test]
+    fn decode_plus_is_space_and_malformed_percent_preserved() {
+        let params = parse_query_string("q=a+b&bad=%ZZ");
+        assert_eq!(qs_get_string(&params, "q").as_deref(), Some("a b"));
+        assert_eq!(qs_get_string(&params, "bad").as_deref(), Some("%ZZ"));
     }
 
     #[test]

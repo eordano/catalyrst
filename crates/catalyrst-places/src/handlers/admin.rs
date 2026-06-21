@@ -1,11 +1,3 @@
-//! LATER admin-console controls owned by catalyrst-places (admin-console.md §4):
-//! moderation queue, place soft-delete/disable, and POI CRUD.
-//!
-//! Every route here is gated by [`require_admin_bearer`], which fails closed
-//! (403) when `PLACES_ADMIN_AUTH_TOKEN` is unset and compares the presented
-//! bearer in constant time. These are additive routes; existing user/data-team
-//! routes are untouched.
-
 use axum::extract::{Path, Query, State};
 use axum::http::HeaderMap;
 use axum::Json;
@@ -22,8 +14,6 @@ fn gate(state: &AppState, headers: &HeaderMap) -> Result<(), ApiError> {
     require_admin_bearer(headers, state.admin_auth_token.as_deref())
 }
 
-// ---- Moderation queue ----
-
 #[derive(Debug, Deserialize)]
 pub struct ReportQuery {
     pub status: Option<String>,
@@ -32,8 +22,6 @@ pub struct ReportQuery {
     pub offset: Option<i64>,
 }
 
-/// `GET /api/reports` — list the moderation queue (filter by status/entity,
-/// paginated). Admin-bearer gated.
 pub async fn get_reports(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -54,16 +42,13 @@ pub async fn get_reports(
 
 #[derive(Debug, Deserialize)]
 pub struct ReportPatch {
-    /// New status: e.g. "resolved", "dismissed", "open".
     pub status: String,
     pub resolution: Option<String>,
     pub notes: Option<String>,
-    /// Optional operator label recorded in `resolved_by`.
+
     pub resolved_by: Option<String>,
 }
 
-/// `PATCH /api/reports/{id}` — resolve/dismiss/reopen a report. Admin-bearer
-/// gated.
 pub async fn patch_report(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -92,19 +77,12 @@ pub async fn patch_report(
     Ok(Json(ApiData::ok(row)))
 }
 
-// ---- Place soft-delete / disable ----
-
 #[derive(Debug, Deserialize)]
 pub struct DisablePlace {
-    /// `true` to disable (soft-delete), `false` to re-enable. Defaults to true
-    /// for `DELETE`-style intent when omitted.
     pub disabled: Option<bool>,
     pub reason: Option<String>,
 }
 
-/// `PATCH /api/places/{place_id}/disable` — soft-delete (disable) or re-enable
-/// a place. Admin-bearer gated. Disabled places are already excluded from list
-/// queries (`disabled IS FALSE`).
 pub async fn patch_place_disable(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -132,8 +110,6 @@ pub async fn patch_place_disable(
     })))
 }
 
-// ---- POI CRUD ----
-
 pub async fn get_pois(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -145,7 +121,6 @@ pub async fn get_pois(
 
 #[derive(Debug, Deserialize)]
 pub struct PoiCreate {
-    /// Catalyst base position, e.g. "0,0". Primary key.
     pub position: String,
     pub entity_id: Option<String>,
     pub title: Option<String>,
@@ -153,7 +128,6 @@ pub struct PoiCreate {
     pub enabled: Option<bool>,
 }
 
-/// `POST /api/pois` — create (or upsert) a POI. Admin-bearer gated.
 pub async fn post_poi(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -186,8 +160,6 @@ pub struct PoiPatch {
     pub enabled: Option<bool>,
 }
 
-/// `PATCH /api/pois/{position}` — partial update of an existing POI.
-/// Admin-bearer gated.
 pub async fn patch_poi(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -209,7 +181,6 @@ pub async fn patch_poi(
     Ok(Json(ApiData::ok(row)))
 }
 
-/// `DELETE /api/pois/{position}` — remove a POI. Admin-bearer gated.
 pub async fn delete_poi(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -234,8 +205,6 @@ mod tests {
     use crate::auth::require_admin_bearer;
     use axum::http::HeaderMap;
 
-    // Unauth (no Authorization header) must fail closed even when a token is
-    // configured, and must 403 (not 401) so the gate is unambiguous.
     #[test]
     fn unauth_is_forbidden_with_token_set() {
         let headers = HeaderMap::new();
@@ -243,7 +212,6 @@ mod tests {
         assert!(matches!(err, ApiError::Forbidden(_)));
     }
 
-    // Default-safe: token unset ⇒ every admin route 403s.
     #[test]
     fn unset_token_is_forbidden() {
         let mut headers = HeaderMap::new();

@@ -9,6 +9,7 @@ use crate::AppState;
 pub async fn get_place(
     State(state): State<AppState>,
     headers: axum::http::HeaderMap,
+    Query(pairs): Query<Vec<(String, String)>>,
     Path(place_id): Path<String>,
 ) -> Result<Json<ApiData<PlaceRow>>, ApiError> {
     match state.places.find_by_id(&place_id).await? {
@@ -18,6 +19,7 @@ pub async fn get_place(
                 .places
                 .apply_user_interactions(user.as_deref(), std::slice::from_mut(&mut p))
                 .await;
+            p.apply_realms_detail(with_realms_detail(&pairs));
             Ok(Json(ApiData::ok(p)))
         }
         None => Err(ApiError::not_found(format!(
@@ -49,6 +51,7 @@ pub async fn get_place_list(
     }
 
     if let Some(owner) = pairs.iter().find(|(k, _)| k == "owner").map(|(_, v)| v) {
+        filters.owner_filtered = true;
         filters.operated_positions = state.places.operated_positions(owner).await?;
     }
 
@@ -60,6 +63,10 @@ pub async fn get_place_list(
         .places
         .apply_user_interactions(user.as_deref(), &mut data)
         .await;
+    let realms = with_realms_detail(&pairs);
+    for row in &mut data {
+        row.apply_realms_detail(realms);
+    }
     Ok(Json(ApiDataTotal::ok(data, total)))
 }
 
@@ -117,6 +124,12 @@ pub async fn post_place_status_list_by_id(
     Ok(Json(ApiDataTotal::ok(data, total)))
 }
 
+pub fn with_realms_detail(pairs: &[(String, String)]) -> bool {
+    pairs
+        .iter()
+        .any(|(k, v)| k == "with_realms_detail" && matches!(v.as_str(), "true" | "1"))
+}
+
 fn parse_filters(pairs: &[(String, String)]) -> PlaceListFilters {
     let get = |k: &str| pairs.iter().find(|(p, _)| p == k).map(|(_, v)| v.clone());
     let get_all = |k: &str| {
@@ -157,5 +170,52 @@ fn parse_filters(pairs: &[(String, String)]) -> PlaceListFilters {
         only_worlds: false,
         only_places: true,
         operated_positions: Vec::new(),
+        owner_filtered: false,
+        destinations_mode: false,
+        place_user_counts: Vec::new(),
+        world_user_counts: Vec::new(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn pairs(kvs: &[(&str, &str)]) -> Vec<(String, String)> {
+        kvs.iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
+    }
+
+    #[test]
+    fn with_realms_detail_is_truthy_only() {
+        assert!(with_realms_detail(&pairs(&[(
+            "with_realms_detail",
+            "true"
+        )])));
+        assert!(with_realms_detail(&pairs(&[("with_realms_detail", "1")])));
+        assert!(!with_realms_detail(&pairs(&[(
+            "with_realms_detail",
+            "false"
+        )])));
+        assert!(!with_realms_detail(&pairs(&[("with_realms_detail", "0")])));
+        assert!(!with_realms_detail(&pairs(&[])));
+    }
+
+    #[test]
+    fn parse_filters_reads_residual_filters() {
+        let f = parse_filters(&pairs(&[
+            ("names", "Foo.dcl.eth"),
+            ("names", "Bar.dcl.eth"),
+            ("sdk", "7"),
+            ("creator_address", "0xABC"),
+            ("only_highlighted", "true"),
+            ("positions", "1,2"),
+        ]));
+        assert_eq!(f.names, vec!["Foo.dcl.eth", "Bar.dcl.eth"]);
+        assert_eq!(f.sdk.as_deref(), Some("7"));
+        assert_eq!(f.creator_address.as_deref(), Some("0xabc"));
+        assert!(f.only_highlighted);
+        assert_eq!(f.positions, vec!["1,2"]);
     }
 }

@@ -2,7 +2,7 @@ use catalyrst_crypto::verify::verify_auth_chain;
 use catalyrst_types::AuthChain;
 use chrono::{DateTime, Utc};
 use parking_lot::Mutex;
-use rand::RngCore;
+use rand::Rng;
 use std::collections::HashMap;
 use std::sync::Arc;
 use thiserror::Error;
@@ -61,7 +61,7 @@ impl ChallengeStore {
 
     pub fn issue(&self, address: &str) -> String {
         let mut bytes = [0u8; 24];
-        rand::thread_rng().fill_bytes(&mut bytes);
+        rand::rng().fill_bytes(&mut bytes);
         let challenge = hex_encode(&bytes);
         let mut guard = self.by_address.lock();
         let addr_lc = address.to_ascii_lowercase();
@@ -108,10 +108,7 @@ impl ChallengeStore {
         if last_payload != challenge {
             return Err(AuthError::ChallengeMismatch);
         }
-        // The chain's final authority is the signed payload (the challenge text),
-        // not the wallet address — verify_auth_chain walks SIGNER -> EPHEMERAL ->
-        // SIGNED_ENTITY(payload=challenge). The address binding is enforced by the
-        // first-link check above.
+
         verify_auth_chain(chain, challenge, Some(now.timestamp_millis()))
             .map_err(|e| AuthError::InvalidChain(format!("{:?}", e)))?;
         Ok(())
@@ -142,6 +139,7 @@ mod tests {
             require_signed_challenge: require,
             challenge_ttl_secs: 120,
             signature_max_age_secs: 300,
+            deny_list_url: None,
         }
     }
 
@@ -167,26 +165,25 @@ mod tests {
         matches!(err, AuthError::UnknownChallenge);
     }
 
-    /// Happy path with a real signed chain (final authority = challenge text).
     #[test]
     fn redeem_with_valid_signed_chain_succeeds() {
-        use ethers_signers::{LocalWallet, Signer};
+        use alloy::signers::{local::PrivateKeySigner, SignerSync};
 
         let s = ChallengeStore::new(cfg(true));
-        let wallet = LocalWallet::new(&mut rand::thread_rng());
+        let wallet = PrivateKeySigner::random();
         let address = format!("{:#x}", wallet.address());
 
         let challenge = s.issue(&address);
 
-        let hash = ethers_core::utils::hash_message(challenge.as_bytes());
-        let sig = wallet.sign_hash(hash).expect("sign");
+        let hash = alloy::primitives::eip191_hash_message(challenge.as_bytes());
+        let sig = wallet.sign_hash_sync(&hash).expect("sign");
 
         let chain: AuthChain = serde_json::from_value(serde_json::json!([
             { "type": "SIGNER", "payload": address, "signature": "" },
             {
                 "type": "ECDSA_SIGNED_ENTITY",
                 "payload": challenge,
-                "signature": format!("0x{}", sig)
+                "signature": sig.to_string()
             }
         ]))
         .expect("chain json");
@@ -195,26 +192,25 @@ mod tests {
             .expect("valid signed challenge must verify");
     }
 
-    /// A chain signed by a DIFFERENT wallet than the claimed address must fail.
     #[test]
     fn redeem_with_wrong_signer_fails() {
-        use ethers_signers::{LocalWallet, Signer};
+        use alloy::signers::{local::PrivateKeySigner, SignerSync};
 
         let s = ChallengeStore::new(cfg(true));
-        let wallet = LocalWallet::new(&mut rand::thread_rng());
-        let impostor = LocalWallet::new(&mut rand::thread_rng());
+        let wallet = PrivateKeySigner::random();
+        let impostor = PrivateKeySigner::random();
         let address = format!("{:#x}", wallet.address());
 
         let challenge = s.issue(&address);
-        let hash = ethers_core::utils::hash_message(challenge.as_bytes());
-        let sig = impostor.sign_hash(hash).expect("sign");
+        let hash = alloy::primitives::eip191_hash_message(challenge.as_bytes());
+        let sig = impostor.sign_hash_sync(&hash).expect("sign");
 
         let chain: AuthChain = serde_json::from_value(serde_json::json!([
             { "type": "SIGNER", "payload": address, "signature": "" },
             {
                 "type": "ECDSA_SIGNED_ENTITY",
                 "payload": challenge,
-                "signature": format!("0x{}", sig)
+                "signature": sig.to_string()
             }
         ]))
         .expect("chain json");

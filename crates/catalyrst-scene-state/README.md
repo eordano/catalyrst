@@ -1,18 +1,12 @@
 # catalyrst-scene-state
 
-Rust port of [`decentraland/scene-state-server`]. Hosts **authoritative,
-server-side state for SDK7 multiplayer scenes**: an HTTP control surface plus a
-per-scene WebSocket transport carrying CRDT state sync. Listens on port 5153.
+Rust port of [`decentraland/scene-state-server`]. Hosts authoritative, server-side state for SDK7 multiplayer scenes: an HTTP control surface plus a per-scene WebSocket transport carrying CRDT state sync. Listens on **port 5209** by default (override with `HTTP_SERVER_PORT`).
 
 [`decentraland/scene-state-server`]: https://github.com/decentraland/scene-state-server
 
-The defining feature — and the reason this crate is not a dumb CRDT relay — is
-that it **runs the scene's own compiled SDK7 JavaScript (`bin/game.js`)
-headlessly** inside V8: a sandboxed `onStart` + 30 Hz `onUpdate` game loop where
-the scene declares its entity-range policy via `registerScene(...)` and
-authoritatively drives multiplayer CRDT state.
+Not a dumb CRDT relay: it runs the scene's own compiled SDK7 JavaScript (`bin/game.js`) headlessly inside V8 - a sandboxed `onStart` + 30 Hz `onUpdate` game loop where the scene declares its entity-range policy via `registerScene(...)` and authoritatively drives multiplayer CRDT state.
 
-## Architecture (upstream → this crate)
+## Architecture (upstream -> this crate)
 
 | upstream file                              | this crate                       |
 |--------------------------------------------|----------------------------------|
@@ -24,65 +18,28 @@ authoritatively drives multiplayer CRDT state.
 | `logic/scene-runtime/{sandbox,sdk7-runtime,apis}.ts` | **`jsruntime.rs`**     |
 | SDK7 CRDT wire format + LWW merge (`@dcl/ecs`) | **`crdt.rs`**                |
 
-### `crdt.rs` — the SDK7 CRDT engine
+### `crdt.rs` - the SDK7 CRDT engine
 
 Pure-Rust port of the `@dcl/ecs` CRDT wire format and LWW-element-set merge:
 
-- **Wire codec** (little-endian, matching `@dcl/ecs`'s `ByteBuffer`): the 8-byte
-  `[length u32, type u32]` header plus the per-type bodies for `PUT_COMPONENT`,
-  `DELETE_COMPONENT`, `DELETE_ENTITY` and `APPEND_VALUE`. Unknown message types
-  are skipped by length; truncated trailers are ignored.
-- **LWW merge** keyed by `(entity, componentId)`: highest Lamport `timestamp`
-  wins; on a tie the lexicographically-greater data wins (length first, then
-  bytes — the `dataCompare` rule), with `DELETE_COMPONENT` modelled as
-  `data = null` sorting below any present data. A `DELETE_ENTITY` tombstones the
-  entity (drops its components and masks every later op for it).
-- **Snapshot** serialization (the late-joiner `Init` state) and per-client
-  **range reclaim** (`reclaim_range`) for `on_client_close`.
+- Wire codec (little-endian, matching `@dcl/ecs`'s `ByteBuffer`): the 8-byte `[length u32, type u32]` header plus per-type bodies for `PUT_COMPONENT`, `DELETE_COMPONENT`, `DELETE_ENTITY` and `APPEND_VALUE`. Unknown message types are skipped by length; truncated trailers are ignored.
+- LWW merge keyed by `(entity, componentId)`: highest Lamport `timestamp` wins; on a tie the lexicographically-greater data wins (length first, then bytes - the `dataCompare` rule), with `DELETE_COMPONENT` modelled as `data = null` sorting below any present data. `DELETE_ENTITY` tombstones the entity (drops its components and masks every later op for it).
+- Snapshot serialization (the late-joiner `Init` state) and per-client range reclaim (`reclaim_range`) for `on_client_close`.
 
-### `jsruntime.rs` — the server-side JS runtime
+### `jsruntime.rs` - the server-side JS runtime
 
-Embeds V8 (via the [`v8`] crate — i.e. `rusty_v8`, the same engine `deno_core`
-wraps) on a **dedicated per-scene OS thread** (a V8 isolate is single-threaded).
-The async server talks to it over an MPSC `Command` channel plus a mutex-guarded
-`SharedState` the WS tasks read synchronously for the `Init` frame.
+Embeds V8 (via the [`v8`] crate - i.e. `rusty_v8`, the same engine `deno_core` wraps) on a dedicated per-scene OS thread (a V8 isolate is single-threaded). The async server talks to it over an MPSC `Command` channel plus a mutex-guarded `SharedState` the WS tasks read synchronously for the `Init` frame. Reproduces the upstream sandbox:
 
-Reproduces the upstream sandbox faithfully:
+- Globals (`sandbox.ts` / `sdk7-runtime.ts`): `module`/`exports`, `console`, `require('~system/*')`, `setImmediate`, `registerScene`, `updateCRDTState`, and restricted `fetch`/`WebSocket` (both throw).
+- `~system/*` host modules (`apis.ts`): `EngineApi.crdtSendToRenderer({data}) -> {data:[]}` (merges the scene's CRDT batch into the authoritative engine and refreshes the snapshot); `EngineApi.crdtGetState() -> {hasEntities, data:[Uint8Array]}`; `EngineApi.isServer() -> {isServer:true}`; `EngineApi.sendBatch() -> {events:[]}`; `Runtime.getRealm()`, `Runtime.getSceneInformation()`, `Runtime.readFile()`; `UserIdentity.getUserData() -> {}` and `SignedFetch.getHeaders() -> {}` (no-ops, exactly as upstream).
+- Game loop: `onStart` then a 30 Hz `onUpdate` (first tick `dt = 0.0`), draining `setImmediate` and pumping microtasks each tick.
+- Multiplayer wiring: `registerScene(config, observer)` captures the entity-range policy and the client observer; each connected client is surfaced to the scene as `{ sendCrdtMessage(bytes), getMessages() }`, and the scene pulls inbound client batches and pushes merged output from inside its own `onUpdate`, as upstream.
 
-- **Globals** (`sandbox.ts` / `sdk7-runtime.ts`): `module`/`exports`, `console`,
-  `require('~system/*')`, `setImmediate`, `registerScene`, `updateCRDTState`,
-  and restricted `fetch`/`WebSocket` (both throw).
-- **`~system/*` host modules** (`apis.ts`):
-  - `EngineApi.crdtSendToRenderer({data}) → {data:[]}` — merges the scene's CRDT
-    batch into the authoritative engine and refreshes the snapshot.
-  - `EngineApi.crdtGetState() → {hasEntities, data:[Uint8Array]}`.
-  - `EngineApi.isServer() → {isServer:true}`, `EngineApi.sendBatch() → {events:[]}`.
-  - `Runtime.getRealm()`, `Runtime.getSceneInformation()`, `Runtime.readFile()`.
-  - `UserIdentity.getUserData() → {}`, `SignedFetch.getHeaders() → {}` (no-ops,
-    exactly as upstream).
-- **Game loop**: `onStart` then a 30 Hz `onUpdate` (first tick `dt = 0.0`),
-  draining `setImmediate` and pumping microtasks each tick.
-- **Multiplayer wiring**: `registerScene(config, observer)` captures the entity-
-  range policy and the client observer. Each connected client is surfaced to the
-  scene as `{ sendCrdtMessage(bytes), getMessages() }`; the scene pulls inbound
-  client batches and pushes merged output from inside its own `onUpdate`, just
-  like upstream.
+`RelayRuntime` (also in `runtime.rs`) is the scene-logic-free fallback for scenes with no `game.js` or when `DISABLE_JS_RUNTIME=1` - backed by the same real CRDT engine (deduplicated snapshot, real LWW merge, range reclaim).
 
-`RelayRuntime` (also in `runtime.rs`) remains as a scene-logic-free fallback for
-scenes with no `game.js` or when `DISABLE_JS_RUNTIME=1` — now backed by the same
-real CRDT engine (deduplicated snapshot, real LWW merge, range reclaim).
+## V8 under Nix (offline build) - IMPORTANT
 
-## V8 under Nix (offline build) — IMPORTANT
-
-The `v8`/`rusty_v8` crate's `build.rs` normally **downloads** a prebuilt
-`librusty_v8_release_<target>.a` from GitHub. That download fails inside the Nix
-sandbox (no network). The fix — the same one nixpkgs uses for `deno`, `codex`,
-`windmill`, etc. — is to fetch that archive as a **fixed-output derivation**
-(pinned by hash, network allowed) and hand its path to the crate via the
-**`RUSTY_V8_ARCHIVE`** env var. The build then *links* the prebuilt static V8
-instead of downloading or compiling it.
-
-What the flake build needs (already wired in the workspace `flake.nix`):
+The `v8`/`rusty_v8` crate's `build.rs` normally downloads a prebuilt `librusty_v8_release_<target>.a` from GitHub, which fails inside the Nix sandbox (no network). The fix - the same one nixpkgs uses for `deno`, `codex`, `windmill`, etc. - is to fetch that archive as a fixed-output derivation (pinned by hash, network allowed) and hand its path to the crate via the `RUSTY_V8_ARCHIVE` env var; the build then links the prebuilt static V8. Already wired in the workspace `flake.nix`:
 
 ```nix
 librusty_v8 = pkgs.callPackage ./crates/catalyrst-scene-state/nix/librusty_v8.nix { };
@@ -97,11 +54,7 @@ catalyrst-scene-state = pkgs.rustPlatform.buildRustPackage {
 };
 ```
 
-`nix/librusty_v8.nix` is a `fetchurl` of
-`librusty_v8_release_x86_64-unknown-linux-gnu.a.gz` from the **rusty_v8
-v149.3.0** release (gunzipped into a single-file store path). The version
-**must** match the `v8` crate pin in `Cargo.toml` (`v8 = "=149.3.0"`); bump both
-together and refresh the hash with:
+`nix/librusty_v8.nix` is a `fetchurl` of `librusty_v8_release_x86_64-unknown-linux-gnu.a.gz` from the rusty_v8 v149.3.0 release (gunzipped into a single-file store path). The version must match the `v8` crate pin in `Cargo.toml` (`v8 = "=149.3.0"`); bump both together and refresh the hash with:
 
 ```sh
 nix-prefetch-url \
@@ -109,10 +62,7 @@ nix-prefetch-url \
   | xargs nix hash to-sri --type sha256
 ```
 
-No from-source V8 build, no `gn`/`ninja`, no debian sysroot download — just the
-~37 MB prebuilt archive. (nixpkgs also offers a from-source `rusty-v8`
-derivation if a prebuilt archive is ever unavailable for a target; the prebuilt
-path is faster and is what `deno` itself ships with.)
+No from-source V8 build, no `gn`/`ninja`, no debian sysroot download - just the ~37 MB prebuilt archive. (nixpkgs also offers a from-source `rusty-v8` derivation if a prebuilt archive is ever unavailable for a target; the prebuilt path is what `deno` itself ships with.)
 
 [`v8`]: https://crates.io/crates/v8
 
@@ -120,7 +70,7 @@ path is faster and is what `deno` itself ships with.)
 
 | env var              | meaning                                                        |
 |----------------------|----------------------------------------------------------------|
-| `HTTP_SERVER_HOST/PORT` | bind address (default `127.0.0.1:5153`)                     |
+| `HTTP_SERVER_HOST/PORT` | bind address (default `127.0.0.1:5209`) |
 | `LOCAL_SCENE_PATH`   | local compiled `game.js` to load as `localScene` at startup    |
 | `WORLD_SERVER_URL`   | worlds content-server for `/debugging/reload <world>`          |
 | `DEBUGGING_SECRET`   | shared secret gating `POST /debugging/reload`                  |
@@ -136,9 +86,4 @@ path is faster and is what `deno` itself ships with.)
 cargo test -p catalyrst-scene-state
 ```
 
-The suite covers the CRDT codec + LWW merge (`crdt.rs`), the relay merge/
-snapshot path (`runtime.rs`), and **three V8 integration tests** that compile and
-run real JavaScript through the runtime: a scene whose `onStart` writes to the
-engine via `EngineApi.crdtSendToRenderer`; a scene that relays client messages
-through the `registerScene` observer + `getMessages`/`sendCrdtMessage`; and
-entity-range reclaim on client close.
+Covers the CRDT codec + LWW merge (`crdt.rs`), the relay merge/snapshot path (`runtime.rs`), and three V8 integration tests running real JavaScript: an `onStart` write via `EngineApi.crdtSendToRenderer`; client-message relay through the `registerScene` observer + `getMessages`/`sendCrdtMessage`; and entity-range reclaim on client close.

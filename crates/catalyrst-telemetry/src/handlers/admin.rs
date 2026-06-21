@@ -1,17 +1,3 @@
-//! Admin controls owned by catalyrst-telemetry (admin-console §4 "LATER"
-//! tranche). Every route here is bearer-gated: `Authorization: Bearer <token>`
-//! compared in constant time against `CATALYRST_TELEMETRY_ADMIN_TOKEN`. When that
-//! env is unset the crate fails closed — every admin route returns 403.
-//!
-//! These are loopback-trusted, consistent with the rest of the `/dash/*` surface
-//! (which is fronted by the private network / loopback and never exposed publicly), but
-//! unlike the read-only `/dash/*` routes these mutate, so they additionally
-//! require the bearer. They are namespaced under `/dash/admin/*` so they never
-//! collide with the ingest or existing dashboard routes.
-//!
-//! Every mutation records a row in `admin_audit` (who/what/when), which doubles
-//! as the issue-history feed read back by `GET /dash/admin/audit`.
-
 use std::sync::atomic::Ordering;
 
 use axum::extract::{Query, State};
@@ -25,8 +11,6 @@ use crate::AppState;
 type AdminResult = Result<Json<Value>, (StatusCode, String)>;
 
 fn db_err(e: sqlx::Error) -> (StatusCode, String) {
-    // Log the detail server-side; return a generic message so raw sqlx/schema
-    // text isn't disclosed to clients.
     tracing::error!(error = %e, "telemetry admin db error");
     (StatusCode::INTERNAL_SERVER_ERROR, "database error".into())
 }
@@ -35,8 +19,6 @@ fn bad(msg: &str) -> (StatusCode, String) {
     (StatusCode::BAD_REQUEST, msg.to_string())
 }
 
-/// Constant-time bearer comparison, mirroring catalyrst-comms `timing_safe_eq` /
-/// `authorize_moderator`. Fails closed (403) when the admin token env is unset.
 fn timing_safe_eq(a: &str, b: &str) -> bool {
     if a.len() != b.len() {
         return false;
@@ -56,8 +38,6 @@ fn bearer_token(headers: &HeaderMap) -> Option<String> {
         .map(|s| s.to_string())
 }
 
-/// Core authorization decision, split out from `HeaderMap` so it is unit-testable.
-/// Fails closed when `expected` is None (admin token env unset).
 fn token_ok(expected: Option<&str>, presented: Option<&str>) -> bool {
     match (expected, presented) {
         (Some(e), Some(p)) => timing_safe_eq(p, e),
@@ -65,9 +45,7 @@ fn token_ok(expected: Option<&str>, presented: Option<&str>) -> bool {
     }
 }
 
-/// Returns Ok(()) iff the request carries a valid admin bearer. 403 otherwise
-/// (including when the env is unset — default-safe).
-fn authorize(state: &AppState, headers: &HeaderMap) -> Result<(), (StatusCode, String)> {
+pub(crate) fn authorize(state: &AppState, headers: &HeaderMap) -> Result<(), (StatusCode, String)> {
     if state.admin_token.is_none() {
         return Err((
             StatusCode::FORBIDDEN,
@@ -96,7 +74,6 @@ mod tests {
 
     #[test]
     fn fails_closed_when_token_unset() {
-        // env unset -> expected is None -> any presentation is rejected (403 path).
         assert!(!token_ok(None, Some("anything")));
         assert!(!token_ok(None, None));
     }
@@ -124,7 +101,7 @@ mod tests {
         let q = ActorQuery {
             actor: Some("mallory".into()),
         };
-        // Trusted header wins over the spoofable query param.
+
         assert_eq!(actor_of(&h, &q), "alice");
     }
 
@@ -142,7 +119,7 @@ mod tests {
         let h = HeaderMap::new();
         let q = ActorQuery::default();
         assert_eq!(actor_of(&h, &q), "loopback");
-        // Blank header + blank query also default to loopback.
+
         let mut h2 = HeaderMap::new();
         h2.insert("x-catalyrst-admin", "   ".parse().unwrap());
         let q2 = ActorQuery {
@@ -161,19 +138,12 @@ mod tests {
     }
 }
 
-/// Operator label for the audit log. The trustworthy source is the
-/// `X-Catalyrst-Admin` request header, set server-side by the admin console
-/// (not reachable by a browser fetch / spoofable client). The legacy `?actor=`
-/// query param is honored only as a last-resort fallback when the header is
-/// absent. When neither is present we default to "loopback" — these routes are
-/// loopback-trusted, so an unattributed call is a direct local operator.
 #[derive(Deserialize, Default)]
 pub struct ActorQuery {
     #[serde(default)]
     actor: Option<String>,
 }
 
-/// Truncate/trim a candidate actor label; None if blank after trimming.
 fn clean_actor(raw: &str) -> Option<String> {
     let trimmed = raw.trim();
     if trimmed.is_empty() {
@@ -183,7 +153,6 @@ fn clean_actor(raw: &str) -> Option<String> {
     }
 }
 
-/// Pull the console-set actor from the `X-Catalyrst-Admin` header.
 fn header_actor(headers: &HeaderMap) -> Option<String> {
     headers
         .get("x-catalyrst-admin")
@@ -191,15 +160,13 @@ fn header_actor(headers: &HeaderMap) -> Option<String> {
         .and_then(clean_actor)
 }
 
-/// Resolve the audit actor: trusted header first, then the spoofable `?actor=`
-/// query param as a last-resort fallback, else "loopback".
 fn actor_of(headers: &HeaderMap, q: &ActorQuery) -> String {
     header_actor(headers)
         .or_else(|| q.actor.as_deref().and_then(clean_actor))
         .unwrap_or_else(|| "loopback".to_string())
 }
 
-async fn audit(state: &AppState, actor: &str, action: &str, detail: Value) {
+pub(crate) async fn audit(state: &AppState, actor: &str, action: &str, detail: Value) {
     let _ = sqlx::query("INSERT INTO admin_audit (actor, action, detail) VALUES ($1, $2, $3)")
         .bind(actor)
         .bind(action)
@@ -208,19 +175,14 @@ async fn audit(state: &AppState, actor: &str, action: &str, detail: Value) {
         .await;
 }
 
-// ===================== Data retention / purge =====================
-
 #[derive(Deserialize)]
 pub struct PurgeBody {
-    /// Delete events strictly older than this many days. Required, must be >= 1.
     older_than_days: i64,
-    /// Optional scoping. When omitted, applies across all events.
+
     source: Option<String>,
     project: Option<String>,
 }
 
-/// Delete events older than N days (optionally scoped to a source/project).
-/// Distinct from bulk-delete: this is the retention guillotine keyed only on age.
 pub async fn purge(
     State(st): State<AppState>,
     headers: HeaderMap,
@@ -255,17 +217,11 @@ pub async fn purge(
     Ok(Json(json!({ "ok": true, "deleted": deleted })))
 }
 
-// ===================== Ingest enable/disable toggle =====================
-
 #[derive(Deserialize)]
 pub struct IngestBody {
     enabled: bool,
 }
 
-/// Flip the master ingest toggle. Persisted to `admin_settings` and mirrored into
-/// the in-memory `IngestControl` so the hot ingest path enforces it without a DB
-/// read. When disabled, sentry/segment ingest accepts the request shape but drops
-/// the payload (no client errors / retry storms).
 pub async fn ingest_toggle(
     State(st): State<AppState>,
     headers: HeaderMap,
@@ -293,19 +249,13 @@ pub async fn ingest_toggle(
     Ok(Json(json!({ "ok": true, "enabled": b.enabled })))
 }
 
-// ===================== Per-project quota =====================
-
 #[derive(Deserialize)]
 pub struct QuotaBody {
     project: String,
-    /// Daily event cap (UTC day) for this project. `null` clears the quota
-    /// (back to unlimited). When present, must be >= 0.
+
     daily_limit: Option<i64>,
 }
 
-/// Set or clear a per-project daily ingest quota. Persisted to `project_quota`
-/// and mirrored into the in-memory quota map. Counting is O(1) per event and
-/// resets each UTC day. Clearing (`daily_limit: null`) restores unlimited.
 pub async fn quota(
     State(st): State<AppState>,
     headers: HeaderMap,
@@ -358,17 +308,14 @@ pub async fn quota(
     ))
 }
 
-// ===================== Bulk delete =====================
-
 #[derive(Deserialize)]
 pub struct BulkFilter {
     source: Option<String>,
     project: Option<String>,
     fingerprint: Option<String>,
-    /// Only events received before this RFC3339/parseable timestamp (passed to
-    /// postgres as text, cast to timestamptz).
+
     before: Option<String>,
-    /// Restrict by event level (body->>'level').
+
     level: Option<String>,
 }
 
@@ -390,7 +337,7 @@ impl BulkFilter {
         }
         Ok(())
     }
-    /// The five NULL-skippable bind values for `BULK_WHERE`, in $1..$5 order.
+
     fn binds(&self) -> [Option<&str>; 5] {
         [
             self.source.as_deref().filter(|s| !s.is_empty()),
@@ -402,16 +349,12 @@ impl BulkFilter {
     }
 }
 
-/// Shared WHERE for bulk delete/export. $1 source, $2 project, $3 fingerprint,
-/// $4 before (timestamptz text), $5 level. Each NULL-skips.
 const BULK_WHERE: &str = "($1::text IS NULL OR source = $1) \
      AND ($2::text IS NULL OR project = $2) \
      AND ($3::text IS NULL OR fingerprint = $3) \
      AND ($4::text IS NULL OR received_at < $4::timestamptz) \
      AND ($5::text IS NULL OR body->>'level' = $5)";
 
-/// Delete events matching an explicit filter. Refuses a fully-unfiltered request
-/// (use /dash/admin/purge for blanket age-based retention).
 pub async fn bulk_delete(
     State(st): State<AppState>,
     headers: HeaderMap,
@@ -422,7 +365,7 @@ pub async fn bulk_delete(
     f.require_some()?;
     let sql = format!("DELETE FROM telemetry_events WHERE {BULK_WHERE}");
     let [b1, b2, b3, b4, b5] = f.binds();
-    let res = sqlx::query(&sql)
+    let res = sqlx::query(sqlx::AssertSqlSafe(sql))
         .bind(b1)
         .bind(b2)
         .bind(b3)
@@ -443,18 +386,14 @@ pub async fn bulk_delete(
     Ok(Json(json!({ "ok": true, "deleted": deleted })))
 }
 
-// ===================== Bulk export =====================
-
 #[derive(Deserialize)]
 pub struct ExportBody {
     #[serde(flatten)]
     filter: BulkFilter,
-    /// Max rows to return (default 1000, capped at 10000).
+
     limit: Option<i64>,
 }
 
-/// Export matching events as JSON (newest first). Same filter grammar as
-/// bulk-delete; an unfiltered export IS allowed (read-only) but capped.
 pub async fn export(
     State(st): State<AppState>,
     headers: HeaderMap,
@@ -462,14 +401,9 @@ pub async fn export(
     Json(b): Json<ExportBody>,
 ) -> AdminResult {
     authorize(&st, &headers)?;
-    // Default 100 (was 1000): each row carries a ~26KB body JSONB, so 1000 rows
-    // is a ~26MB payload that gets serialized here, transferred over the proxy
-    // hop, and re-parsed — dominating latency. Callers wanting more pass `limit`.
+
     let limit = b.limit.unwrap_or(100).clamp(1, 10_000);
-    // ORDER BY the RAW received_at column (qualified to dodge the to_char output
-    // alias of the same name) so the btree index drives the top-N instead of a
-    // full seq scan + heapsort over all rows. ISO-8601 text sorts identically, so
-    // the output order is unchanged.
+
     let sql = format!(
         "SELECT to_jsonb(t) AS row FROM ( \
            SELECT id, source, project, event_kind, fingerprint, \
@@ -480,7 +414,7 @@ pub async fn export(
          ) t"
     );
     let [b1, b2, b3, b4, b5] = b.filter.binds();
-    let rows: Vec<Value> = sqlx::query_scalar(&sql)
+    let rows: Vec<Value> = sqlx::query_scalar(sqlx::AssertSqlSafe(sql))
         .bind(b1)
         .bind(b2)
         .bind(b3)
@@ -503,13 +437,10 @@ pub async fn export(
     ))
 }
 
-// ===================== Issue history / audit =====================
-
 #[derive(Deserialize)]
 pub struct AuditQuery {
-    /// Filter to one fingerprint's history (issue audit drill-down).
     fingerprint: Option<String>,
-    /// Filter by action verb (exact, e.g. "regroup").
+
     action: Option<String>,
     #[serde(default = "d_audit_limit")]
     limit: i64,
@@ -518,8 +449,6 @@ fn d_audit_limit() -> i64 {
     200
 }
 
-/// Read the admin audit log (newest first). Doubles as issue history when filtered
-/// by `fingerprint`. Read-only, but still bearer-gated (the log names operators).
 pub async fn audit_list(
     State(st): State<AppState>,
     headers: HeaderMap,
@@ -535,7 +464,7 @@ pub async fn audit_list(
            AND ($2::text IS NULL OR action = $2) \
          ORDER BY at DESC LIMIT {limit}"
     );
-    let rows = sqlx::query_as::<_, (i64, String, String, String, Value)>(&sql)
+    let rows = sqlx::query_as::<_, (i64, String, String, String, Value)>(sqlx::AssertSqlSafe(sql))
         .bind(q.fingerprint.as_deref().filter(|s| !s.is_empty()))
         .bind(q.action.as_deref().filter(|s| !s.is_empty()))
         .fetch_all(&st.pool)
@@ -552,20 +481,13 @@ pub async fn audit_list(
     ))
 }
 
-// ===================== Regroup (issue merge) =====================
-
 #[derive(Deserialize)]
 pub struct RegroupBody {
-    /// Fingerprint(s) to fold into the canonical issue.
     sources: Vec<String>,
-    /// The surviving (canonical) fingerprint.
+
     canonical: String,
 }
 
-/// Merge one or more source fingerprints into a canonical one. Records the
-/// mapping in `issue_merge` (so the read path can resolve the effective
-/// fingerprint) and copies the canonical's workflow state forward where the
-/// source had none. Idempotent per source via upsert.
 pub async fn regroup(
     State(st): State<AppState>,
     headers: HeaderMap,
@@ -615,19 +537,14 @@ pub async fn regroup(
     ))
 }
 
-// ===================== Release state =====================
-
 #[derive(Deserialize)]
 pub struct ReleaseBody {
     release: String,
-    /// active | archived | broken
+
     state: String,
     note: Option<String>,
 }
 
-/// Set a release's lifecycle state (active / archived / broken). Upserts into
-/// `release_state`; read-only views can join on the release string to flag a
-/// known-bad or retired release.
 pub async fn release(
     State(st): State<AppState>,
     headers: HeaderMap,

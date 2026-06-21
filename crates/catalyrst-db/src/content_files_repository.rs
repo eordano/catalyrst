@@ -24,7 +24,7 @@ pub async fn get_content_files(
     }
 
     let rows: Vec<ContentFilesRow> = sqlx::query_as(
-        "SELECT deployment, key, content_hash FROM content_files WHERE deployment = ANY($1)",
+        "SELECT deployment, key, content_hash FROM content_files WHERE deployment = ANY($1) ORDER BY ctid",
     )
     .bind(deployment_ids)
     .fetch_all(pool)
@@ -122,6 +122,38 @@ pub async fn find_content_hashes_not_being_used_anymore(
         "#,
     )
     .bind(last_gc_timestamp_ms)
+    .fetch_all(pool)
+    .await?;
+
+    Ok(rows.into_iter().map(|r| r.0).collect())
+}
+
+pub const GC_UNUSED_HASHES_BATCH_SIZE: i64 = 1000;
+
+pub async fn find_content_hashes_not_being_used_anymore_batch(
+    pool: &PgPool,
+    last_gc_timestamp_ms: f64,
+    after: Option<&str>,
+    limit: i64,
+) -> Result<Vec<String>, sqlx::Error> {
+    let rows: Vec<(String,)> = sqlx::query_as(
+        r#"
+        SELECT content_files.content_hash
+        FROM content_files
+        INNER JOIN deployments ON content_files.deployment = id
+        LEFT JOIN deployments AS dd ON deployments.deleter_deployment = dd.id
+        WHERE (dd.local_timestamp IS NULL
+               OR dd.local_timestamp > to_timestamp($1 / 1000.0))
+          AND ($2::text IS NULL OR content_files.content_hash > $2)
+        GROUP BY content_files.content_hash
+        HAVING bool_or(deployments.deleter_deployment IS NULL) = FALSE
+        ORDER BY content_files.content_hash
+        LIMIT $3
+        "#,
+    )
+    .bind(last_gc_timestamp_ms)
+    .bind(after)
+    .bind(limit)
     .fetch_all(pool)
     .await?;
 

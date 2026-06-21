@@ -1,6 +1,6 @@
 [package]
 name = "catalyrst-profile-images"
-version = "0.1.0"
+version = "0.12.0"
 edition = "2021"
 description = "Rust port of decentraland/profile-images (profile-images.decentraland.org): serves avatar body/face thumbnails on the upstream /entities/{id}/{face|body}.png contract. Primary backend renders locally via the headless godot-explorer avatar renderer (resolve profile from the local content core -> render equipped wearables -> content-addressed disk cache, single-flight per entity); proxy of the prod service is an explicit last-resort fallback. See README."
 
@@ -11,14 +11,13 @@ path = "src/main.rs"
 [dependencies]
 tokio = { workspace = true }
 axum = { workspace = true }
-tower = { workspace = true }
 tower-http = { workspace = true }
 reqwest = { workspace = true }
-serde = { workspace = true }
 serde_json = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 thiserror = { workspace = true }
 anyhow = { workspace = true }
+catalyrst-envcfg = { workspace = true }
 bytes = { workspace = true }
 sha2 = { workspace = true }

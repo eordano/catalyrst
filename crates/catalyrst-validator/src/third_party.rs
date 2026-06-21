@@ -146,7 +146,7 @@ fn keccak256_hash(metadata: &serde_json::Value, keys: &[String]) -> String {
         }
     }
     s.push('}');
-    hex::encode(ethers_core::utils::keccak256(s.as_bytes()))
+    hex::encode(alloy_primitives::keccak256(s.as_bytes()))
 }
 
 pub fn get_third_party_id(urn: &str) -> Option<String> {
@@ -210,7 +210,7 @@ mod tests {
             "extra": "ignored"
         });
         let keys = vec!["name".to_string(), "description".to_string()];
-        let expected = hex::encode(ethers_core::utils::keccak256(
+        let expected = hex::encode(alloy_primitives::keccak256(
             br#"{"name":"Item","description":"desc"}"#,
         ));
         assert_eq!(keccak256_hash(&metadata, &keys), expected);

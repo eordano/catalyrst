@@ -1,6 +1,8 @@
 pub mod admin;
 pub mod auth_chain;
+pub mod clients;
 pub mod config;
+pub mod content_store;
 pub mod fed;
 pub mod handlers;
 pub mod http;
@@ -14,9 +16,13 @@ use std::time::Duration;
 use anyhow::{Context, Result};
 use axum::routing::{get, post};
 use axum::Router;
+use catalyrst_fed::sig::Eip712Domain;
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
+use sqlx::PgPool;
 
+use crate::clients::CommsGatekeeper;
 use crate::config::Config;
+use crate::content_store::ContentStore;
 use crate::ports::attendees::AttendeesComponent;
 use crate::ports::categories::CategoriesComponent;
 use crate::ports::events::EventsComponent;
@@ -27,8 +33,18 @@ pub struct AppStateInner {
     pub attendees: AttendeesComponent,
     pub categories: CategoriesComponent,
     pub schedules: SchedulesComponent,
-    /// Bearer token gating admin moderation routes; `None` ⇒ fail closed (403).
+
     pub admin_token: Option<String>,
+
+    pub pool: PgPool,
+
+    pub gossip: Arc<dyn catalyrst_fed::GossipPublisher>,
+
+    pub domain: Eip712Domain,
+
+    pub content_store: Arc<ContentStore>,
+
+    pub comms: CommsGatekeeper,
 }
 
 pub type AppState = Arc<AppStateInner>;
@@ -47,13 +63,39 @@ pub async fn build_state(cfg: &Config) -> Result<AppState> {
         .await
         .context("failed to connect places_events pool")?;
 
-    Ok(Arc::new(AppStateInner {
+    sqlx::migrate!("./migrations")
+        .run(&pool)
+        .await
+        .context("events migration failed")?;
+
+    let gossip = catalyrst_fed::build_publisher(&catalyrst_fed::GossipConfig::from_env()).await;
+    tracing::info!(
+        gossip_live = gossip.is_live(),
+        "events gossip publisher ready"
+    );
+
+    let content_store = Arc::new(ContentStore::new(cfg.content_dir.clone()));
+    content_store
+        .init()
+        .await
+        .with_context(|| format!("failed to init content dir at {:?}", cfg.content_dir))?;
+
+    let state = Arc::new(AppStateInner {
         events: EventsComponent::new(pool.clone()),
         attendees: AttendeesComponent::new(pool.clone()),
         categories: CategoriesComponent::new(pool.clone()),
-        schedules: SchedulesComponent::new(pool),
+        schedules: SchedulesComponent::new(pool.clone()),
         admin_token: cfg.admin_token.clone(),
-    }))
+        pool,
+        gossip,
+        domain: catalyrst_fed::sig::domains::events(),
+        content_store,
+        comms: CommsGatekeeper::new(cfg.comms_gatekeeper_url.clone()),
+    });
+
+    crate::fed::consumer::spawn(state.clone()).await;
+
+    Ok(state)
 }
 
 pub fn api_router() -> Router<AppState> {
@@ -71,12 +113,18 @@ pub fn api_router() -> Router<AppState> {
             get(handlers::events::get_attending_event_list),
         )
         .route(
+            "/api/events/moderation",
+            get(handlers::events::get_moderation_list),
+        )
+        .route(
             "/api/events/categories",
             get(handlers::categories::get_event_category_list),
         )
         .route(
             "/api/events/{event_id}",
-            get(handlers::events::get_event).patch(handlers::events::patch_event),
+            get(handlers::events::get_event)
+                .patch(handlers::events::patch_event)
+                .delete(handlers::events::delete_event),
         )
         .route(
             "/api/events/{event_id}/attendees",

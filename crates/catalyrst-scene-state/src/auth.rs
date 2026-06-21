@@ -1,22 +1,3 @@
-//! WebSocket authentication for scene-state-server.
-//!
-//! Upstream (`src/controllers/handlers/ws-handler.ts`) authenticates a WS
-//! connection by waiting for the first frame (`MessageType::Auth`), whose body
-//! is the JSON of the signed-fetch `x-identity-*` headers, then calling
-//! `verify(method, pathname, headers, { fetcher })` from
-//! `@dcl/platform-crypto-middleware`. The signed payload is
-//! `GET:/ws/<scene>:<timestamp>:<metadata>` (lowercased) — the standard DCL
-//! signed-fetch contract.
-//!
-//! This module ports that verification using the workspace
-//! [`catalyrst_crypto::verify::verify_auth_chain`] primitive. The header map
-//! arrives as a JSON object in the Auth frame (not as real HTTP headers), so we
-//! parse it into a [`HashMap`] and reconstruct the signed payload ourselves.
-//!
-//! Matches the signed-fetch logic already used by `catalyrst-comms`
-//! (`src/auth_chain.rs`) but keyed off a JSON map instead of an `axum`
-//! `HeaderMap`, since the headers come over the socket.
-
 use std::collections::HashMap;
 
 use catalyrst_crypto::verify::verify_auth_chain;
@@ -28,7 +9,7 @@ pub const AUTH_TIMESTAMP_HEADER: &str = "x-identity-timestamp";
 pub const AUTH_METADATA_HEADER: &str = "x-identity-metadata";
 
 pub const MAX_AUTH_CHAIN_LINKS: usize = 10;
-/// Upstream signed-fetch verifier default expiry window.
+
 pub const FIVE_MINUTES: i64 = 5 * 60;
 
 #[derive(Debug, Error)]
@@ -49,18 +30,11 @@ pub enum AuthError {
     InvalidSignature(String),
 }
 
-/// Outcome of a successful auth: the recovered signer address (lowercased).
 #[derive(Debug, Clone)]
 pub struct Authenticated {
     pub signer: String,
 }
 
-/// Verifies the signed-fetch headers carried in an `Auth` frame body.
-///
-/// * `frame_json` — the raw UTF-8 JSON body of the Auth frame.
-/// * `method` — HTTP method the client signed (always `GET` upstream).
-/// * `path` — request pathname the client signed, e.g. `/ws/my-world.dcl.eth`.
-/// * `now` — current unix seconds (injectable for tests).
 pub fn verify_auth_frame(
     frame_json: &[u8],
     method: &str,
@@ -95,17 +69,10 @@ pub fn verify_auth_frame(
     Ok(Authenticated { signer })
 }
 
-/// Reconstructs the signed-fetch payload string. Mirrors `catalyrst-comms`
-/// `build_payload`: `method:path:timestamp:metadata`, lowercased.
 pub fn build_payload(method: &str, path: &str, timestamp: &str, metadata: &str) -> String {
     format!("{method}:{path}:{timestamp}:{metadata}").to_lowercase()
 }
 
-/// Behind a front-host proxy that strips the service prefix, the WS upgrade
-/// request carries the original, un-stripped path in `x-original-path` (set by
-/// nginx). Prefer it (query-stripped) over the locally-built route path so the
-/// reconstructed signed-fetch payload matches what the client signed. Falls back
-/// to `fallback` for direct/loopback upgrades (no header).
 pub fn signed_fetch_path<'a>(
     headers: &axum::http::HeaderMap,
     fallback: &'a str,
@@ -144,10 +111,6 @@ fn validate_signature(
     expiration_secs: i64,
     now: i64,
 ) -> Result<(), AuthError> {
-    // Freshness window: the timestamp comes from the authoritative
-    // `x-identity-timestamp` header (`timestamp`), NOT the 3rd colon-delimited
-    // payload field. Paths containing ':' (URNs) would shift that field and
-    // silently skip the freshness check.
     if let Ok(signed_at_ms) = timestamp.parse::<i64>() {
         let signed_at = signed_at_ms / 1000;
         if (now - signed_at).abs() > expiration_secs {

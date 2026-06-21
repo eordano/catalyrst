@@ -1,42 +1,37 @@
-use anyhow::{anyhow, Context, Result};
+use anyhow::Result;
+use catalyrst_envcfg::{get_port, required};
 use std::env;
 
 pub struct Config {
     pub http_host: String,
     pub http_port: u16,
     pub database_url: String,
-    /// Bearer token gating the admin broadcast route. When unset the admin
-    /// route fails closed (403).
+
     pub admin_token: Option<String>,
     pub email: EmailConfig,
+
+    pub content_database_url: Option<String>,
+    pub social_database_url: Option<String>,
+    pub squid_database_url: Option<String>,
+    pub telemetry_database_url: Option<String>,
+    pub shop_item_base_url: String,
 }
 
-/// Configuration for the real confirmation-email delivery path. Mirrors the
-/// upstream notifications-workers env surface (SendGrid + ACCOUNT/MARKETPLACE
-/// base URLs + Turnstile + a blacklist of disposable email domains).
-///
-/// All fields are optional: when the SendGrid key is unset the renderer/sender
-/// is disabled and `set-email` skips delivery (still persisting the pending
-/// row), which keeps local/dev deployments runnable without secrets. When set,
-/// the path performs a genuine SendGrid v3 send.
 #[derive(Clone, Default)]
 pub struct EmailConfig {
     pub sendgrid_api_key: Option<String>,
     pub from_email: Option<String>,
-    /// Dynamic template id for the account email-validation flow.
+
     pub validate_email_template_id: Option<String>,
-    /// Dynamic template id for the marketplace-credits email-validation flow.
+
     pub validate_credits_email_template_id: Option<String>,
-    /// Base URL the account confirm-email page lives under (the link the user
-    /// clicks): `<base>/confirm-email-challenge/<code>?address=<addr>&source=account`.
+
     pub account_base_url: String,
-    /// Base URL for the credits confirm-email page:
-    /// `<base>/credits-email-confirmed/<code>?address=<addr>&source=credits`.
+
     pub marketplace_base_url: String,
-    /// Cloudflare Turnstile secret used for server-side siteverify. When unset,
-    /// turnstile validation on confirm-email is skipped.
+
     pub turnstile_secret_key: Option<String>,
-    /// Lowercased email domains that are rejected with 400 on set-email.
+
     pub domain_blacklist: Vec<String>,
 }
 
@@ -77,21 +72,16 @@ impl Config {
                 .ok()
                 .filter(|s| !s.is_empty()),
             email: EmailConfig::from_env(),
+            content_database_url: opt("CONTENT_PG_CONNECTION_STRING"),
+            social_database_url: opt("SOCIAL_PG_CONNECTION_STRING"),
+            squid_database_url: opt("SQUID_PG_CONNECTION_STRING"),
+            telemetry_database_url: opt("TELEMETRY_PG_CONNECTION_STRING"),
+            shop_item_base_url: env::var("SHOP_ITEM_BASE_URL")
+                .unwrap_or_else(|_| "https://decentraland.org/marketplace/".to_string()),
         })
     }
 }
 
 fn opt(key: &str) -> Option<String> {
     env::var(key).ok().filter(|s| !s.is_empty())
-}
-
-fn required(key: &str) -> Result<String> {
-    env::var(key).map_err(|_| anyhow!("missing required env var: {}", key))
-}
-
-fn get_port(key: &str, default: u16) -> Result<u16> {
-    match env::var(key) {
-        Ok(s) => s.parse::<u16>().with_context(|| format!("invalid {}", key)),
-        Err(_) => Ok(default),
-    }
 }

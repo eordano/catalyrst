@@ -1,7 +1,6 @@
 ﻿syntax = "proto3";
 package decentraland.common;
 
-// Defines indents from respective edges
 message BorderRect {
   float top = 1;
   float left = 2;
@@ -9,7 +8,6 @@ message BorderRect {
   float bottom = 4;
 }
 
-// Defines a rect with x, y, width and height
 message Rect {
   float x = 1;
   float y = 2;
