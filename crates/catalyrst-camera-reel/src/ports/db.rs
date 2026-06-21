@@ -41,17 +41,17 @@ impl Database {
 
     pub async fn get_image(&self, id: &str) -> Result<DbImage, sqlx::Error> {
         let sql = format!("SELECT * FROM {TABLE} WHERE id = $1");
-        sqlx::query_as::<_, DbImage>(&sql)
+        sqlx::query_as::<_, DbImage>(sqlx::AssertSqlSafe(sql))
             .bind(parse_uuid(id)?)
             .fetch_one(&self.pool)
             .await
     }
 
-    fn build_query<'a>(
-        select: &'a str,
-        filter: &Filter<'a>,
+    fn build_query(
+        select: &str,
+        filter: &Filter<'_>,
         public_only: bool,
-    ) -> Result<QueryBuilder<'a, Postgres>, sqlx::Error> {
+    ) -> Result<QueryBuilder<Postgres>, sqlx::Error> {
         let mut qb = QueryBuilder::new(select);
         qb.push(" WHERE ");
         match filter {
@@ -160,7 +160,7 @@ impl Database {
             "INSERT INTO {TABLE} (id, user_address, url, thumbnail_url, is_public, metadata) \
              VALUES ($1, $2, $3, $4, $5, $6)"
         );
-        sqlx::query(&sql)
+        sqlx::query(sqlx::AssertSqlSafe(sql))
             .bind(parse_uuid(&image.id)?)
             .bind(image.metadata.user_address.to_lowercase())
             .bind(&image.url)
@@ -174,7 +174,7 @@ impl Database {
 
     pub async fn delete_image(&self, id: &str) -> Result<(), sqlx::Error> {
         let sql = format!("DELETE FROM {TABLE} WHERE id = $1");
-        sqlx::query(&sql)
+        sqlx::query(sqlx::AssertSqlSafe(sql))
             .bind(parse_uuid(id)?)
             .execute(&self.pool)
             .await?;
@@ -187,7 +187,7 @@ impl Database {
         is_public: bool,
     ) -> Result<(), sqlx::Error> {
         let sql = format!("UPDATE {TABLE} SET is_public = $1 WHERE id = $2");
-        sqlx::query(&sql)
+        sqlx::query(sqlx::AssertSqlSafe(sql))
             .bind(is_public)
             .bind(parse_uuid(id)?)
             .execute(&self.pool)
@@ -203,7 +203,7 @@ impl Database {
         review_status: &str,
     ) -> Result<u64, sqlx::Error> {
         let sql = format!("UPDATE {TABLE} SET review_status = $1 WHERE id = $2");
-        let res = sqlx::query(&sql)
+        let res = sqlx::query(sqlx::AssertSqlSafe(sql))
             .bind(review_status)
             .bind(parse_uuid(id)?)
             .execute(&self.pool)

@@ -12,7 +12,7 @@ use axum::routing::get;
 use axum::Router;
 use catalyrst_types::AuthChain;
 use prost::Message as _;
-use rand::Rng;
+use rand::RngExt;
 use std::collections::HashMap;
 
 pub fn routes() -> Router<AppState> {
@@ -121,7 +121,7 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                                     break;
                                 }
                                 let addr = req.address.to_ascii_lowercase();
-                                challenge_to_sign = format!("dcl-{}", rand::thread_rng().gen::<u64>());
+                                challenge_to_sign = format!("dcl-{}", rand::rng().random::<u64>());
 
                                 state.challenges.put(&addr, &challenge_to_sign);
                                 address = Some(addr);

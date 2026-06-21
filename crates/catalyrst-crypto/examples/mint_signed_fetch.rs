@@ -8,8 +8,8 @@ async fn main() {
     let path = args.get(2).map(String::as_str).unwrap_or("/notifications");
     let metadata = args.get(3).map(String::as_str).unwrap_or("{}");
 
-    let root = LocalWallet::new(&mut rand::thread_rng());
-    let ephemeral = LocalWallet::new(&mut rand::thread_rng());
+    let root = LocalWallet::new(&mut ethers_core::rand::thread_rng());
+    let ephemeral = LocalWallet::new(&mut ethers_core::rand::thread_rng());
     let root_address = format!("{:#x}", root.address());
     let ephemeral_address = format!("{:#x}", ephemeral.address());
 

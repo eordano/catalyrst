@@ -60,9 +60,9 @@ impl RequestsComponent {
                 NaiveDateTime,
                 NaiveDateTime,
             ),
-        >(&select_sql)
+        >(sqlx::AssertSqlSafe(select_sql))
         .bind(community_id);
-        let mut cq = sqlx::query_scalar::<_, i64>(&count_sql).bind(community_id);
+        let mut cq = sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(count_sql)).bind(community_id);
         if let Some(k) = kind {
             q = q.bind(k);
             cq = cq.bind(k);
@@ -117,9 +117,9 @@ impl RequestsComponent {
                 i64,
                 bool,
             ),
-        >(&select_sql)
+        >(sqlx::AssertSqlSafe(select_sql))
         .bind(&lower);
-        let mut cq = sqlx::query_scalar::<_, i64>(&count_sql).bind(&lower);
+        let mut cq = sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(count_sql)).bind(&lower);
         if let Some(k) = kind {
             q = q.bind(k);
             cq = cq.bind(k);

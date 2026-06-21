@@ -17,6 +17,10 @@ catalyrst-crypto = { workspace = true }
 catalyrst-fed = { workspace = true }
 
 dcl-rpc = "2.3.6"
+# dcl-rpc 2.3.6 is pinned to prost 0.11.5 and its `RPCServiceGenerator` implements
+# prost-build 0.11's `ServiceGenerator`; the generated QuestsService messages must be
+# prost 0.11 `Message` impls to interoperate with the dcl-rpc transport, so the prost
+# stack stays on 0.11 here regardless of the workspace-wide 0.14 bump.
 prost = "0.11"
 prost-types = "0.11"
 
@@ -45,4 +49,6 @@ tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 
 [build-dependencies]
 dcl-rpc = { version = "2.3.6", features = ["codegen"] }
+# Must match dcl-rpc's `RPCServiceGenerator`, which implements prost-build 0.11's
+# `ServiceGenerator` trait (incompatible with prost-build 0.14's `Config`).
 prost-build = "0.11"

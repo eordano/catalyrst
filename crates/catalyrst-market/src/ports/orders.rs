@@ -238,7 +238,7 @@ impl OrdersComponent {
                     .execute(&mut *tx)
                     .await?;
             }
-            let mut q = sqlx::query(&page_sql);
+            let mut q = sqlx::query(sqlx::AssertSqlSafe(page_sql));
             for s in &page_binds {
                 q = q.bind(s);
             }
@@ -252,7 +252,7 @@ impl OrdersComponent {
             sqlx::query("SET LOCAL random_page_cost = 1.1")
                 .execute(&mut *tx)
                 .await?;
-            let mut q = sqlx::query(&count_sql);
+            let mut q = sqlx::query(sqlx::AssertSqlSafe(count_sql));
             for s in &count_binds {
                 q = q.bind(s);
             }

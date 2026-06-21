@@ -24,10 +24,10 @@ chrono = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 anyhow = { workspace = true }
-prost = "0.13"
+prost = "0.14"
 
 [dev-dependencies]
 ethers-signers = "2.0.14"
 
 [build-dependencies]
-prost-build = "0.13"
+prost-build = "0.14"

@@ -1,7 +1,7 @@
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine as _;
 use chrono::Utc;
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, Mac, KeyInit};
 use serde::Serialize;
 use sha2::Sha256;
 
@@ -115,7 +115,7 @@ impl LivekitMinter {
         let header_b64 = URL_SAFE_NO_PAD.encode(header_json);
         let claims_b64 = URL_SAFE_NO_PAD.encode(claims_json);
         let signing_input = format!("{}.{}", header_b64, claims_b64);
-        let mut mac = <Hmac<Sha256> as Mac>::new_from_slice(api_secret.as_bytes())
+        let mut mac = <Hmac<Sha256> as KeyInit>::new_from_slice(api_secret.as_bytes())
             .expect("HMAC accepts any key length");
         mac.update(signing_input.as_bytes());
         let sig = mac.finalize().into_bytes();
@@ -164,7 +164,7 @@ mod tests {
         let tok = g.token.unwrap();
         let parts: Vec<&str> = tok.split('.').collect();
         let signing_input = format!("{}.{}", parts[0], parts[1]);
-        let mut mac = <Hmac<Sha256> as Mac>::new_from_slice(secret.as_bytes()).unwrap();
+        let mut mac = <Hmac<Sha256> as KeyInit>::new_from_slice(secret.as_bytes()).unwrap();
         mac.update(signing_input.as_bytes());
         let want = URL_SAFE_NO_PAD.encode(mac.finalize().into_bytes());
         assert_eq!(parts[2], want);

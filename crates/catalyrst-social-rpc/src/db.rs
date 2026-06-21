@@ -219,7 +219,7 @@ impl Db {
             },
             blocking = BLOCKING_CONDITION,
         );
-        let rows = sqlx::query(&sql)
+        let rows = sqlx::query(sqlx::AssertSqlSafe(sql))
             .bind(&addr)
             .bind(limit)
             .bind(offset)
@@ -273,7 +273,7 @@ impl Db {
             },
             blocking = BLOCKING_CONDITION,
         );
-        let row = sqlx::query(&sql).bind(&addr).fetch_one(&self.pool).await?;
+        let row = sqlx::query(sqlx::AssertSqlSafe(sql)).bind(&addr).fetch_one(&self.pool).await?;
         Ok(row.get::<i64, _>("n"))
     }
 

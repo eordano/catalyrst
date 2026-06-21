@@ -7,7 +7,7 @@
 
 use aes_gcm::aead::{Aead, KeyInit, Payload};
 use aes_gcm::{Aes256Gcm, Nonce};
-use rand::RngCore;
+use rand::Rng;
 
 use crate::http::errors::ApiError;
 
@@ -30,7 +30,7 @@ impl Encryptor {
     /// Encrypt plaintext into `version || IV || ciphertext+tag`.
     pub fn encrypt(&self, plaintext: &str) -> Result<Vec<u8>, ApiError> {
         let mut iv = [0u8; IV_LENGTH];
-        rand::thread_rng().fill_bytes(&mut iv);
+        rand::rng().fill_bytes(&mut iv);
         let nonce = Nonce::from_slice(&iv);
 
         let ciphertext = self

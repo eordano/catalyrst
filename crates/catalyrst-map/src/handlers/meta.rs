@@ -66,7 +66,7 @@ async fn get_parcel_inner(state: &AppState, x: String, y: String) -> Response {
         LIMIT 1
         "#
     );
-    let row: Option<(String, Option<String>, Option<String>)> = match sqlx::query_as(&sql)
+    let row: Option<(String, Option<String>, Option<String>)> = match sqlx::query_as(sqlx::AssertSqlSafe(sql))
         .bind(xi as i64)
         .bind(yi as i64)
         .fetch_optional(&state.pool)
@@ -143,7 +143,7 @@ async fn build_estate_nft(state: &AppState, id: &str) -> Result<Option<Value>, s
         LIMIT 1
         "#
     );
-    let row: Option<(Option<i32>, Option<String>, Option<String>)> = sqlx::query_as(&sql)
+    let row: Option<(Option<i32>, Option<String>, Option<String>)> = sqlx::query_as(sqlx::AssertSqlSafe(sql))
         .bind(&full_id)
         .fetch_optional(&state.pool)
         .await?;
@@ -152,7 +152,7 @@ async fn build_estate_nft(state: &AppState, id: &str) -> Result<Option<Value>, s
     };
 
     let coords_sql = format!("SELECT x::int4, y::int4 FROM {schema}.parcel WHERE estate_id = $1");
-    let coords: Vec<(i32, i32)> = sqlx::query_as(&coords_sql)
+    let coords: Vec<(i32, i32)> = sqlx::query_as(sqlx::AssertSqlSafe(coords_sql))
         .bind(&full_id)
         .fetch_all(&state.pool)
         .await?;
@@ -188,7 +188,7 @@ async fn build_dissolved_estate(state: &AppState, id: &str) -> Result<Option<Val
         LIMIT 1
         "#
     );
-    let row: Option<(Option<String>, Option<String>)> = sqlx::query_as(&sql)
+    let row: Option<(Option<String>, Option<String>)> = sqlx::query_as(sqlx::AssertSqlSafe(sql))
         .bind(&full_id)
         .fetch_optional(&state.pool)
         .await?;
@@ -238,7 +238,7 @@ async fn get_token_inner(state: &AppState, address: String, id: String) -> (Resp
         let sql = format!(
             "SELECT x::int4, y::int4 FROM {schema}.parcel WHERE token_id = $1::numeric LIMIT 1"
         );
-        let row: Option<(i32, i32)> = match sqlx::query_as(&sql)
+        let row: Option<(i32, i32)> = match sqlx::query_as(sqlx::AssertSqlSafe(sql))
             .bind(&id)
             .fetch_optional(&state.pool)
             .await

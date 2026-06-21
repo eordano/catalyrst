@@ -16,5 +16,5 @@ async-trait = { workspace = true }
 futures = { workspace = true }
 sqlx = { workspace = true }
 reqwest = { workspace = true }
-ethers-core = "2.0.3"
+ethers-core = "2.0.14"
 hex = "0.4"

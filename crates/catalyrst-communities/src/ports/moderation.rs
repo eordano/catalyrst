@@ -50,9 +50,9 @@ impl ModerationComponent {
         let count_sql = format!("SELECT COUNT(*) FROM communities WHERE {where_sql}");
 
         let mut q = sqlx::query_as::<_, (Uuid, String, String, bool, bool, NaiveDateTime, i64)>(
-            &select_sql,
+            sqlx::AssertSqlSafe(select_sql),
         );
-        let mut cq = sqlx::query_scalar::<_, i64>(&count_sql);
+        let mut cq = sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(count_sql));
         for p in &params {
             q = q.bind(p);
             cq = cq.bind(p);

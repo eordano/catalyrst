@@ -114,7 +114,7 @@ impl PricesComponent {
             inner_sql
         );
 
-        let rows = sqlx::query_with(&sql, inner_args)
+        let rows = sqlx::query_with(sqlx::AssertSqlSafe(sql), inner_args)
             .fetch_all(&self.pool)
             .await
             .unwrap_or_default();

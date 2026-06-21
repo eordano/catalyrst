@@ -624,7 +624,7 @@ impl VoiceDb {
              RETURNING expired_rooms.room_name"
         );
         let now = now_ms();
-        let rows: Vec<(String,)> = sqlx::query_as(&query)
+        let rows: Vec<(String,)> = sqlx::query_as(sqlx::AssertSqlSafe(query))
             .bind(now - self.cfg.community_no_moderator_ttl_ms)
             .bind(self.cfg.expired_batch_size)
             .fetch_all(&self.pool)
@@ -656,7 +656,7 @@ impl VoiceDb {
              GROUP BY room_name \
              HAVING COUNT(CASE WHEN is_moderator = true AND ({connected}) THEN 1 END) > 0"
         );
-        let rows: Vec<(String, i64, i64)> = sqlx::query_as(&query)
+        let rows: Vec<(String, i64, i64)> = sqlx::query_as(sqlx::AssertSqlSafe(query))
             .bind(&prefix)
             .bind(format!("{prefix}%"))
             .fetch_all(&self.pool)
@@ -687,7 +687,7 @@ impl VoiceDb {
                 WHERE address = $1 AND ({connected}) \
              )"
         );
-        let exists: bool = sqlx::query_scalar(&query)
+        let exists: bool = sqlx::query_scalar(sqlx::AssertSqlSafe(query))
             .bind(user_address.to_lowercase())
             .fetch_one(&self.pool)
             .await?;

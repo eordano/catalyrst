@@ -256,7 +256,7 @@ pub async fn get_historical_deployments(
 
     sql.push_str(&format!(" LIMIT ${} OFFSET ${}", param_idx, param_idx + 1));
 
-    let mut query = sqlx::query_as::<_, HistoricalDeploymentsRow>(&sql);
+    let mut query = sqlx::query_as::<_, HistoricalDeploymentsRow>(sqlx::AssertSqlSafe(sql));
 
     if let Some(f) = filters {
         if let Some(from) = f.from {

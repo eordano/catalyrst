@@ -75,7 +75,7 @@ impl ContractsComponent {
             where_ = where_sql,
         );
 
-        let mut q = sqlx::query_as::<_, DbCollection>(&select_sql)
+        let mut q = sqlx::query_as::<_, DbCollection>(sqlx::AssertSqlSafe(select_sql))
             .bind(limit)
             .bind(offset);
         if let Some(ref nets) = networks {
@@ -88,7 +88,7 @@ impl ContractsComponent {
             schema = MARKETPLACE_SQUID_SCHEMA,
             where_ = build_where_count(networks.is_some()),
         );
-        let mut cq = sqlx::query_scalar::<_, i64>(&count_sql);
+        let mut cq = sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(count_sql));
         if let Some(ref nets) = networks {
             cq = cq.bind(nets);
         }
@@ -105,7 +105,7 @@ impl ContractsComponent {
                     "SELECT COUNT(c.id) FROM {schema}.collection c WHERE c.is_approved = true",
                     schema = MARKETPLACE_SQUID_SCHEMA
                 );
-                let total: i64 = sqlx::query_scalar(&count_sql)
+                let total: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(count_sql))
                     .fetch_one(&self.pool)
                     .await
                     .unwrap_or(0);

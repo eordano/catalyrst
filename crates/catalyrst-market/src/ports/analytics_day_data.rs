@@ -77,7 +77,7 @@ GROUP BY id
 "#,
                 schema = MARKETPLACE_SQUID_SCHEMA,
             );
-            sqlx::query_as::<_, (String, i32, i64, String, String, String)>(&sql)
+            sqlx::query_as::<_, (String, i32, i64, String, String, String)>(sqlx::AssertSqlSafe(sql))
                 .fetch_all(&self.pool)
                 .await?
                 .into_iter()
@@ -106,7 +106,7 @@ WHERE date > $1
 "#,
                 schema = MARKETPLACE_SQUID_SCHEMA,
             );
-            sqlx::query_as::<_, (String, i32, i64, String, String, String)>(&sql)
+            sqlx::query_as::<_, (String, i32, i64, String, String, String)>(sqlx::AssertSqlSafe(sql))
                 .bind(from_s)
                 .fetch_all(&self.pool)
                 .await?

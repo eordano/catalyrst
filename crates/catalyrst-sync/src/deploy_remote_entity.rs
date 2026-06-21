@@ -143,7 +143,7 @@ async fn download_file_with_retries(
     }
 
     let mut last_error = None;
-    let start = rand::random::<usize>() % servers.len();
+    let start = rand::random_range(0..servers.len());
     for attempt in 0..MAX_DOWNLOAD_RETRIES {
         let server = &servers[(start + attempt as usize) % servers.len()];
         let url = format!("{}/contents/{}", server, hash);

@@ -208,12 +208,12 @@ impl UserBansComponent {
 
     pub async fn get_status(&self, address: &str) -> Result<BanStatus, ApiError> {
         let address = address.to_lowercase();
-        let row = sqlx::query_as::<_, BanRow>(&format!(
+        let row = sqlx::query_as::<_, BanRow>(sqlx::AssertSqlSafe(format!(
             "SELECT {BAN_SELECT_FIELDS} FROM user_bans \
              WHERE banned_address = $1 AND lifted_at IS NULL \
                AND (expires_at IS NULL OR expires_at > now()) \
              ORDER BY banned_at DESC LIMIT 1"
-        ))
+        )))
         .bind(&address)
         .fetch_optional(&self.pool)
         .await?;
@@ -246,12 +246,12 @@ impl UserBansComponent {
             .duration_ms
             .map(|d| Utc::now() + Duration::milliseconds(d));
 
-        let row = sqlx::query_as::<_, BanRow>(&format!(
+        let row = sqlx::query_as::<_, BanRow>(sqlx::AssertSqlSafe(format!(
             "INSERT INTO user_bans \
                (banned_address, banned_by, reason, custom_message, expires_at, active) \
              VALUES ($1, $2, $3, $4, $5, TRUE) \
              RETURNING {BAN_SELECT_FIELDS}"
-        ))
+        )))
         .bind(&banned_address)
         .bind(&banned_by)
         .bind(&input.reason)
@@ -266,13 +266,13 @@ impl UserBansComponent {
     pub async fn lift_ban(&self, address: &str, lifted_by: &str) -> Result<UserBan, LiftError> {
         let address = address.to_lowercase();
         let lifted_by = lifted_by.to_lowercase();
-        let row = sqlx::query_as::<_, BanRow>(&format!(
+        let row = sqlx::query_as::<_, BanRow>(sqlx::AssertSqlSafe(format!(
             "UPDATE user_bans \
              SET lifted_at = now(), lifted_by = $2, active = FALSE \
              WHERE banned_address = $1 AND lifted_at IS NULL \
                AND (expires_at IS NULL OR expires_at > now()) \
              RETURNING {BAN_SELECT_FIELDS}"
-        ))
+        )))
         .bind(&address)
         .bind(&lifted_by)
         .fetch_optional(&self.pool)
@@ -282,11 +282,11 @@ impl UserBansComponent {
     }
 
     pub async fn get_active_bans(&self) -> Result<Vec<UserBan>, ApiError> {
-        let rows = sqlx::query_as::<_, BanRow>(&format!(
+        let rows = sqlx::query_as::<_, BanRow>(sqlx::AssertSqlSafe(format!(
             "SELECT {BAN_SELECT_FIELDS} FROM user_bans \
              WHERE lifted_at IS NULL AND (expires_at IS NULL OR expires_at > now()) \
              ORDER BY banned_at DESC"
-        ))
+        )))
         .fetch_all(&self.pool)
         .await?;
         Ok(rows.into_iter().map(ban_from_row).collect())
@@ -295,11 +295,11 @@ impl UserBansComponent {
     pub async fn create_warning(&self, input: CreateWarning) -> Result<UserWarning, ApiError> {
         let warned_address = input.warned_address.to_lowercase();
         let warned_by = input.warned_by.to_lowercase();
-        let row = sqlx::query_as::<_, WarningRow>(&format!(
+        let row = sqlx::query_as::<_, WarningRow>(sqlx::AssertSqlSafe(format!(
             "INSERT INTO user_warnings (warned_address, warned_by, reason) \
              VALUES ($1, $2, $3) \
              RETURNING {WARNING_SELECT_FIELDS}"
-        ))
+        )))
         .bind(&warned_address)
         .bind(&warned_by)
         .bind(&input.reason)
@@ -310,10 +310,10 @@ impl UserBansComponent {
 
     pub async fn get_warnings(&self, address: &str) -> Result<Vec<UserWarning>, ApiError> {
         let address = address.to_lowercase();
-        let rows = sqlx::query_as::<_, WarningRow>(&format!(
+        let rows = sqlx::query_as::<_, WarningRow>(sqlx::AssertSqlSafe(format!(
             "SELECT {WARNING_SELECT_FIELDS} FROM user_warnings \
              WHERE warned_address = $1 ORDER BY warned_at DESC"
-        ))
+        )))
         .bind(&address)
         .fetch_all(&self.pool)
         .await?;

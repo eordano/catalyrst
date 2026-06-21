@@ -125,7 +125,7 @@ impl AccountsComponent {
             offset_idx = offset_idx,
         );
 
-        let mut q = sqlx::query_as::<_, DbAccount>(&select_sql);
+        let mut q = sqlx::query_as::<_, DbAccount>(sqlx::AssertSqlSafe(select_sql));
         if let Some(ids) = &id_values {
             q = q.bind(ids);
         }
@@ -143,7 +143,7 @@ impl AccountsComponent {
             schema = MARKETPLACE_SQUID_SCHEMA,
             where_ = where_sql,
         );
-        let mut cq = sqlx::query_scalar::<_, i64>(&count_sql);
+        let mut cq = sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(count_sql));
         if let Some(ids) = &id_values {
             cq = cq.bind(ids);
         }

@@ -239,7 +239,7 @@ impl EventsComponent {
         let off_p = next_placeholder(&mut binds, EventBind::Int64(f.offset.max(0)));
         let sql = format!("{base}{order_clause} LIMIT {lim_p} OFFSET {off_p}");
 
-        let mut q = sqlx::query_as::<_, EventRow>(&sql);
+        let mut q = sqlx::query_as::<_, EventRow>(sqlx::AssertSqlSafe(sql));
         for b in &binds {
             q = bind_one(q, b);
         }
@@ -254,7 +254,7 @@ impl EventsComponent {
             let mut cbinds: Vec<EventBind> = Vec::new();
             let cwhere = self.build_where(f, &mut cbinds);
             let count_sql = format!("SELECT count(*) FROM event{}", cwhere);
-            let mut cq = sqlx::query_scalar::<_, i64>(&count_sql);
+            let mut cq = sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(count_sql));
             for b in &cbinds {
                 cq = bind_one_scalar(cq, b);
             }

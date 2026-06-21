@@ -27,7 +27,7 @@ impl ListsComponent {
     }
 
     async fn column(&self, query: &str) -> Result<Vec<String>, ApiError> {
-        match sqlx::query_as::<_, (String,)>(query)
+        match sqlx::query_as::<_, (String,)>(sqlx::AssertSqlSafe(query))
             .fetch_all(&self.pool)
             .await
         {

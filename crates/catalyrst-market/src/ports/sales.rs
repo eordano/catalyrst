@@ -243,7 +243,7 @@ impl SalesComponent {
                     .execute(&mut *tx)
                     .await?;
             }
-            let mut q = sqlx::query(&page_sql);
+            let mut q = sqlx::query(sqlx::AssertSqlSafe(page_sql));
             let mut si = bind_str_p.iter();
             let mut ii = bind_i64_p.iter();
             for k in &kinds_p {
@@ -263,7 +263,7 @@ impl SalesComponent {
             sqlx::query("SET LOCAL random_page_cost = 1.1")
                 .execute(&mut *tx)
                 .await?;
-            let mut q = sqlx::query(&count_sql);
+            let mut q = sqlx::query(sqlx::AssertSqlSafe(count_sql));
             let mut si = bind_str_c.iter();
             let mut ii = bind_i64_c.iter();
             for k in &kinds_c {

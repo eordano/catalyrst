@@ -57,7 +57,7 @@ impl ContractsComponent {
             "SELECT 1 FROM {}.collection WHERE id = $1 LIMIT 1",
             self.squid_schema
         );
-        let found = sqlx::query_scalar::<_, i32>(&sql)
+        let found = sqlx::query_scalar::<_, i32>(sqlx::AssertSqlSafe(sql))
             .bind(&addr)
             .fetch_optional(&self.pool)
             .await?;

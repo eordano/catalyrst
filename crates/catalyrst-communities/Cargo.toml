@@ -44,7 +44,7 @@ reqwest = { workspace = true }
 ethers-signers = { workspace = true }
 ethers-core = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
-rand = "0.8"
+rand = "0.10"
 reqwest = { workspace = true }
 
 [[example]]

@@ -316,7 +316,7 @@ impl CommunitiesComponent {
                 String,
                 bool,
             ),
-        >(&select_sql);
+        >(sqlx::AssertSqlSafe(select_sql));
         for p in &params {
             q = q.bind(p);
         }
@@ -324,7 +324,7 @@ impl CommunitiesComponent {
         let rows = q.fetch_all(&self.pool).await?;
 
         let count_sql = format!("SELECT COUNT(*) FROM communities c WHERE {where_sql}");
-        let mut cq = sqlx::query_scalar::<_, i64>(&count_sql);
+        let mut cq = sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(count_sql));
         for p in &params {
             cq = cq.bind(p);
         }
@@ -408,9 +408,9 @@ impl CommunitiesComponent {
              WHERE {where_sql} AND c.active = TRUE"
         );
 
-        let mut q = sqlx::query_as::<_, (Uuid, String, String, String, NaiveDateTime)>(&select_sql)
+        let mut q = sqlx::query_as::<_, (Uuid, String, String, String, NaiveDateTime)>(sqlx::AssertSqlSafe(select_sql))
             .bind(&lower);
-        let mut cq = sqlx::query_scalar::<_, i64>(&count_sql).bind(&lower);
+        let mut cq = sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(count_sql)).bind(&lower);
         if let Some(rs) = roles {
             if !rs.is_empty() {
                 let owned: Vec<String> = rs.iter().map(|s| s.to_string()).collect();
@@ -510,7 +510,7 @@ impl CommunitiesComponent {
                 NaiveDateTime,
                 i64,
             ),
-        >(&select_sql);
+        >(sqlx::AssertSqlSafe(select_sql));
         for p in &params {
             q = q.bind(p);
         }
@@ -518,7 +518,7 @@ impl CommunitiesComponent {
         let rows = q.fetch_all(&self.pool).await?;
 
         let count_sql = format!("SELECT COUNT(*) FROM communities c WHERE {where_sql}");
-        let mut cq = sqlx::query_scalar::<_, i64>(&count_sql);
+        let mut cq = sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(count_sql));
         for p in &params {
             cq = cq.bind(p);
         }

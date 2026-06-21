@@ -21,7 +21,7 @@ pub async fn signer_owns_any_nft_for_item(
           LIMIT 1",
         schema = MARKETPLACE_SQUID_SCHEMA
     );
-    let row: Option<(i32,)> = sqlx::query_as(&sql)
+    let row: Option<(i32,)> = sqlx::query_as(sqlx::AssertSqlSafe(sql))
         .bind(item_id.to_lowercase())
         .bind(signer.to_lowercase())
         .fetch_optional(pool)

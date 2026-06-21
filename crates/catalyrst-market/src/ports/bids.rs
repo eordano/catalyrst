@@ -179,7 +179,7 @@ LIMIT {limit_p} OFFSET {offset_p}
             offset_p = offset_p,
         );
 
-        let mut q = sqlx::query(&sql);
+        let mut q = sqlx::query(sqlx::AssertSqlSafe(sql));
         for s in &binds {
             q = q.bind(s);
         }

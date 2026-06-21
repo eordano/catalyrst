@@ -276,7 +276,7 @@ async fn fetch_item_urns(
     sql.push_str(&format!(" ORDER BY urn ASC LIMIT ${idx}"));
     binds.push(Bind::Int(limit + 1));
 
-    let mut q = sqlx::query_scalar::<_, String>(&sql);
+    let mut q = sqlx::query_scalar::<_, String>(sqlx::AssertSqlSafe(sql));
     for b in binds {
         q = match b {
             Bind::Text(s) => q.bind(s),

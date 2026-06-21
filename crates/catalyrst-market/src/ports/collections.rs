@@ -164,7 +164,7 @@ impl CollectionsComponent {
             offset_idx = offset_idx,
         );
 
-        let mut q = sqlx::query_as::<_, DbCollection>(&select_sql);
+        let mut q = sqlx::query_as::<_, DbCollection>(sqlx::AssertSqlSafe(select_sql));
         if let Some(ref s) = contract_address_lower {
             q = q.bind(s);
         }
@@ -191,7 +191,7 @@ impl CollectionsComponent {
             schema = MARKETPLACE_SQUID_SCHEMA,
             where_ = where_sql,
         );
-        let mut cq = sqlx::query_scalar::<_, i64>(&count_sql);
+        let mut cq = sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(count_sql));
         if let Some(ref s) = contract_address_lower {
             cq = cq.bind(s);
         }

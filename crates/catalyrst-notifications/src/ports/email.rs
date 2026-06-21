@@ -1,6 +1,6 @@
 use std::sync::OnceLock;
 
-use rand::Rng;
+use rand::RngExt;
 use serde_json::json;
 
 use crate::config::EmailConfig;
@@ -12,10 +12,10 @@ pub const CODE_LEN: usize = 32;
 
 /// Generate a 32-char alphanumeric confirmation code (upstream `makeId`).
 pub fn make_code() -> String {
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     (0..CODE_LEN)
         .map(|_| {
-            let idx = rng.gen_range(0..CODE_CHARSET.len());
+            let idx = rng.random_range(0..CODE_CHARSET.len());
             CODE_CHARSET[idx] as char
         })
         .collect()

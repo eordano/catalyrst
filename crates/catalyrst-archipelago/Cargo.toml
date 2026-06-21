@@ -30,18 +30,18 @@ parking_lot = { workspace = true }
 dashmap = { workspace = true }
 futures = { workspace = true }
 sqlx = { workspace = true }
-prost = "0.11"
-rand = "0.8"
-hmac = "0.12"
-sha2 = "0.10"
+prost = "0.14"
+rand = "0.10"
+hmac = "0.13"
+sha2 = "0.11"
 base64 = "0.22"
-toml = "0.8"
+toml = "1.1"
 
 [build-dependencies]
-prost-build = "0.11"
+prost-build = "0.14"
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
-ethers-signers = "2.0.3"
-ethers-core = "2.0.3"
-tokio-tungstenite = "0.21"
+ethers-signers = "2.0.14"
+ethers-core = "2.0.14"
+tokio-tungstenite = "0.29"

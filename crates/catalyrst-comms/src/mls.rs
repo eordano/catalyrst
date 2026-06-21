@@ -136,7 +136,7 @@ pub fn parse_message_routing(bytes: &[u8]) -> Result<MessageRouting, MlsError> {
     let kind = body_kind(&body);
     let proto: ProtocolMessage = match body {
         MlsMessageBodyIn::PrivateMessage(m) => ProtocolMessage::PrivateMessage(m),
-        MlsMessageBodyIn::PublicMessage(m) => ProtocolMessage::PublicMessage(m),
+        MlsMessageBodyIn::PublicMessage(m) => ProtocolMessage::PublicMessage(Box::new(m)),
         _ => {
             return Err(MlsError::WrongType {
                 expected: "private_message|public_message",

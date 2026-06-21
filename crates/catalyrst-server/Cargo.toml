@@ -13,7 +13,7 @@ name = "catalyrst-live"
 path = "src/bin/live.rs"
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
-tikv-jemallocator = "0.6"
+tikv-jemallocator = "0.7"
 
 [dependencies]
 axum = { workspace = true }

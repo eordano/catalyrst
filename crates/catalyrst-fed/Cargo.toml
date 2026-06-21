@@ -18,13 +18,13 @@ parking_lot = { workspace = true }
 dashmap = { workspace = true }
 ed25519-dalek = { version = "2", features = ["std"] }
 ethers-core = { workspace = true }
-toml = "0.8"
+toml = "1.1"
 async-trait = { workspace = true }
 
 # Live NATS JetStream gossip transport. Off by default so the workspace builds
 # where async-nats is unavailable; the trait + envelope + NoopPublisher compile
 # with zero extra deps. Enable with `--features nats` to wire the real broker.
-async-nats = { version = "0.38", optional = true }
+async-nats = { version = "0.49", optional = true }
 futures-util = { version = "0.3", optional = true, default-features = false }
 # `sync` (mpsc) is needed unconditionally for the GossipPublisher::subscribe
 # signature; the rest of the runtime is pulled in only under the `nats` feature.

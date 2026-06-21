@@ -513,7 +513,7 @@ impl UserAssetsComponent {
             offset_idx = offset_idx,
         );
 
-        let mut q = sqlx::query_as::<_, GroupedWearableRow>(&data_sql).bind(owner);
+        let mut q = sqlx::query_as::<_, GroupedWearableRow>(sqlx::AssertSqlSafe(data_sql)).bind(owner);
         for b in &binds {
             q = q.bind(b);
         }
@@ -560,7 +560,7 @@ impl UserAssetsComponent {
              WHERE owner_address = $1 {} {}",
             count_where, count_item_type,
         );
-        let mut cq = sqlx::query_scalar::<_, i64>(&count_sql).bind(owner);
+        let mut cq = sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(count_sql)).bind(owner);
         for b in &count_binds {
             cq = cq.bind(b);
         }
@@ -641,7 +641,7 @@ impl UserAssetsComponent {
             offset_idx = offset_idx,
         );
 
-        let mut q = sqlx::query_as::<_, GroupedEmoteRow>(&data_sql).bind(owner);
+        let mut q = sqlx::query_as::<_, GroupedEmoteRow>(sqlx::AssertSqlSafe(data_sql)).bind(owner);
         for b in &binds {
             q = q.bind(b);
         }
@@ -674,7 +674,7 @@ impl UserAssetsComponent {
              WHERE owner_address = $1 AND nft.item_type = 'emote_v1' {}",
             count_where,
         );
-        let mut cq = sqlx::query_scalar::<_, i64>(&count_sql).bind(owner);
+        let mut cq = sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(count_sql)).bind(owner);
         for b in &count_binds {
             cq = cq.bind(b);
         }

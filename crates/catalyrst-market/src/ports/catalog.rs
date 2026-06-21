@@ -1480,7 +1480,7 @@ impl CatalogComponent {
         if let Some(ref search) = filters.search.clone() {
             if !search.trim().is_empty() {
                 let (sql, args) = build_search_query(&filters);
-                let rows = sqlx::query_with(&sql, args)
+                let rows = sqlx::query_with(sqlx::AssertSqlSafe(sql), args)
                     .fetch_all(&self.pool)
                     .await
                     .map_err(|_e| {
@@ -1507,8 +1507,10 @@ impl CatalogComponent {
         };
         let (count_sql, count_args) = build_collections_items_count_query(&filters);
 
-        let items_q: Query<'_, Postgres, PgArguments> = sqlx::query_with(&items_sql, items_args);
-        let count_q: Query<'_, Postgres, PgArguments> = sqlx::query_with(&count_sql, count_args);
+        let items_q: Query<'_, Postgres, PgArguments> =
+            sqlx::query_with(sqlx::AssertSqlSafe(items_sql), items_args);
+        let count_q: Query<'_, Postgres, PgArguments> =
+            sqlx::query_with(sqlx::AssertSqlSafe(count_sql), count_args);
 
         let items_fut = items_q.fetch_all(&self.pool);
         let count_fut = count_q.fetch_one(&self.pool);

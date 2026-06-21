@@ -278,14 +278,17 @@ pub async fn build_state(cfg: &Config) -> Result<AppState> {
     let dapps_read = dapps_read_db.pool().clone();
     let dapps_write = dapps_db.pool().clone();
 
-    sqlx::query(&format!(
+    sqlx::query(sqlx::AssertSqlSafe(format!(
         "SET search_path TO {}, public",
         cfg.dapps_read_schema
-    ))
+    )))
     .execute(&dapps_read)
     .await
     .ok();
-    sqlx::query(&format!("SET search_path TO {}, public", cfg.dapps_schema))
+    sqlx::query(sqlx::AssertSqlSafe(format!(
+        "SET search_path TO {}, public",
+        cfg.dapps_schema
+    )))
         .execute(&dapps_write)
         .await
         .ok();

@@ -9,7 +9,7 @@ use catalyrst_communities::fed::messages::{CommunityCreate, CommunityPost};
 use catalyrst_fed::sig::{domains, Eip712Domain};
 use catalyrst_fed::{Signed, TypedMessage};
 use ethers_signers::{LocalWallet, Signer};
-use rand::RngCore;
+use rand::Rng;
 use sha2::{Digest, Sha256};
 use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
@@ -17,7 +17,7 @@ use sqlx::PgPool;
 fn unique_dir(tag: &str) -> PathBuf {
     let mut p = std::env::temp_dir();
     let mut rnd = [0u8; 8];
-    rand::thread_rng().fill_bytes(&mut rnd);
+    rand::rng().fill_bytes(&mut rnd);
     p.push(format!("cmm-content-{}-{}", tag, hex::encode(rnd)));
     p
 }
@@ -128,7 +128,7 @@ fn pg_url() -> Option<String> {
 
 fn unique_schema() -> String {
     let mut b = [0u8; 8];
-    rand::thread_rng().fill_bytes(&mut b);
+    rand::rng().fill_bytes(&mut b);
     format!("test_content_{}", hex::encode(b))
 }
 
@@ -141,7 +141,7 @@ async fn setup_db() -> Option<(PgPool, String, String)> {
         .await
         .ok()?;
     let schema = unique_schema();
-    sqlx::query(&format!("CREATE SCHEMA {}", schema))
+    sqlx::query(sqlx::AssertSqlSafe(format!("CREATE SCHEMA {}", schema)))
         .execute(&admin)
         .await
         .ok()?;
@@ -170,7 +170,7 @@ async fn apply_migration(pool: &PgPool, sql: &str) {
         buf.push('\n');
         if trimmed.contains("$$ LANGUAGE plpgsql;") {
             in_func = false;
-            sqlx::query(&buf)
+            sqlx::query(sqlx::AssertSqlSafe(buf.as_str()))
                 .execute(pool)
                 .await
                 .unwrap_or_else(|_| panic!("{}", buf.clone()));
@@ -181,7 +181,7 @@ async fn apply_migration(pool: &PgPool, sql: &str) {
             in_func = true;
         }
         if !in_func && trimmed.ends_with(';') {
-            sqlx::query(&buf)
+            sqlx::query(sqlx::AssertSqlSafe(buf.as_str()))
                 .execute(pool)
                 .await
                 .unwrap_or_else(|_| panic!("{}", buf.clone()));
@@ -189,7 +189,7 @@ async fn apply_migration(pool: &PgPool, sql: &str) {
         }
     }
     if !buf.trim().is_empty() {
-        sqlx::query(&buf).execute(pool).await.expect("trailing sql");
+        sqlx::query(sqlx::AssertSqlSafe(buf.as_str())).execute(pool).await.expect("trailing sql");
     }
 }
 
@@ -212,7 +212,7 @@ async fn cleanup(admin_url: &str, schema: &str) {
         .connect(admin_url)
         .await
     {
-        let _ = sqlx::query(&format!("DROP SCHEMA {} CASCADE", schema))
+        let _ = sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA {} CASCADE", schema)))
             .execute(&admin)
             .await;
     }
@@ -231,7 +231,7 @@ fn addr(w: &LocalWallet) -> String {
 
 fn rand_nonce() -> [u8; 16] {
     let mut n = [0u8; 16];
-    rand::thread_rng().fill_bytes(&mut n);
+    rand::rng().fill_bytes(&mut n);
     n
 }
 

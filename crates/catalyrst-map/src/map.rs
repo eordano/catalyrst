@@ -253,7 +253,7 @@ impl MapComponent {
             schema = self.schema
         );
 
-        let rows = sqlx::query_as::<_, ParcelRow>(&sql)
+        let rows = sqlx::query_as::<_, ParcelRow>(sqlx::AssertSqlSafe(sql))
             .fetch_all(&self.pool)
             .await?;
 

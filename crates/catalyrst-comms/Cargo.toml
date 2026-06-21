@@ -31,14 +31,14 @@ parking_lot = { workspace = true }
 dashmap = { workspace = true }
 hex = "0.4"
 sha2 = { workspace = true }
-hmac = "0.12"
+hmac = "0.13"
 base64 = "0.22"
 # MLS (RFC 9420) delivery service — docs/federation/messaging.md pins
 # 0.6.0 <= openmls < 0.7.0. The server parses opaque MLS framing only; it never
 # joins a group or decrypts. tls_codec provides the DeserializeBytes entry point.
-openmls = "0.6"
-openmls_rust_crypto = "0.3"
-openmls_traits = "0.3"
+openmls = "0.8"
+openmls_rust_crypto = "0.5"
+openmls_traits = "0.5"
 tls_codec = "0.4"
 
 [dev-dependencies]
@@ -48,7 +48,7 @@ tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 # given wallet identity so the HTTP delivery flow can be exercised end-to-end
 # against a real openmls 0.6 client. openmls_basic_credential supplies the
 # SignatureKeyPair + BasicCredential the server's parse/validate path expects.
-openmls_basic_credential = "0.3"
+openmls_basic_credential = "0.5"
 
 [[example]]
 name = "mls_client"

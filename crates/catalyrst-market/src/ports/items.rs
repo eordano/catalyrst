@@ -418,7 +418,7 @@ impl ItemsComponent {
 
     pub async fn get_items(&self, filters: &ItemFilters) -> Result<(Vec<Item>, i64), ApiError> {
         let (sql, binds) = build_items_query(filters);
-        let mut q = sqlx::query_as::<_, DbItem>(&sql);
+        let mut q = sqlx::query_as::<_, DbItem>(sqlx::AssertSqlSafe(sql));
         for b in &binds {
             q = match b {
                 Bind::Text(s) => q.bind(s.clone()),

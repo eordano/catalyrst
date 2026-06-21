@@ -1018,7 +1018,7 @@ impl PlacesComponent {
 
     pub async fn find_by_id(&self, place_id: &str) -> Result<Option<PlaceRow>, ApiError> {
         let sql = format!("SELECT {PLACE_COLUMNS} FROM place WHERE id = $1");
-        let row_opt = sqlx::query(&sql)
+        let row_opt = sqlx::query(sqlx::AssertSqlSafe(sql))
             .bind(place_id)
             .fetch_optional(&self.pool)
             .await?;
@@ -1030,7 +1030,7 @@ impl PlacesComponent {
             return Ok(vec![]);
         }
         let sql = format!("SELECT {PLACE_COLUMNS} FROM place WHERE id = ANY($1)");
-        let rows = sqlx::query(&sql).bind(ids).fetch_all(&self.pool).await?;
+        let rows = sqlx::query(sqlx::AssertSqlSafe(sql)).bind(ids).fetch_all(&self.pool).await?;
         Ok(rows.into_iter().map(row_to_place).collect())
     }
 
@@ -1103,7 +1103,7 @@ impl PlacesComponent {
             limit = f.limit.clamp(0, 100),
             offset = f.offset.max(0),
         );
-        let mut q = sqlx::query(&sql);
+        let mut q = sqlx::query(sqlx::AssertSqlSafe(sql));
         for b in &binds {
             q = bind_param(q, b);
         }
@@ -1120,7 +1120,7 @@ impl PlacesComponent {
         }
         let (where_clause, binds) = build_where(f);
         let sql = format!("SELECT count(*)::bigint AS total FROM place WHERE {where_clause}");
-        let mut q = sqlx::query(&sql);
+        let mut q = sqlx::query(sqlx::AssertSqlSafe(sql));
         for b in &binds {
             q = bind_param(q, b);
         }
@@ -1146,7 +1146,7 @@ impl PlacesComponent {
             ORDER BY count DESC, name ASC
             "#,
         );
-        let rows = sqlx::query(&sql).fetch_all(&self.pool).await?;
+        let rows = sqlx::query(sqlx::AssertSqlSafe(sql)).fetch_all(&self.pool).await?;
         Ok(rows
             .into_iter()
             .map(|r| (r.get::<String, _>("name"), r.get::<i64, _>("count")))
@@ -1172,7 +1172,7 @@ impl PlacesComponent {
              WHERE COALESCE((raw->>'world')::bool,false) IS TRUE \
              AND (id = $1 OR lower(raw->>'world_name') = lower($1))"
         );
-        let row_opt = sqlx::query(&sql)
+        let row_opt = sqlx::query(sqlx::AssertSqlSafe(sql))
             .bind(world_id)
             .fetch_optional(&self.pool)
             .await?;
@@ -1209,7 +1209,7 @@ impl PlacesComponent {
                OR lower(n."owner_address") = $1
             "#,
         );
-        let rows = match sqlx::query(&sql).bind(&owner).fetch_all(squid).await {
+        let rows = match sqlx::query(sqlx::AssertSqlSafe(sql)).bind(&owner).fetch_all(squid).await {
             Ok(r) => r,
             Err(_) => {
                 let sql2 = format!(
@@ -1221,7 +1221,7 @@ impl PlacesComponent {
                     WHERE lower(a.address) = $1
                     "#,
                 );
-                sqlx::query(&sql2).bind(&owner).fetch_all(squid).await?
+                sqlx::query(sqlx::AssertSqlSafe(sql2)).bind(&owner).fetch_all(squid).await?
             }
         };
         Ok(rows

@@ -74,7 +74,7 @@ impl SquidMarketplace {
              LIMIT 1",
             schema = self.schema
         );
-        let row = sqlx::query(&sql)
+        let row = sqlx::query(sqlx::AssertSqlSafe(sql))
             .bind(contract_address)
             .bind(token_id)
             .fetch_optional(&self.pool)

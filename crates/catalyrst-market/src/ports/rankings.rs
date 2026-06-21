@@ -184,7 +184,7 @@ ORDER BY {order_by}
             order_by = order_by,
             limit_clause = limit_clause,
         );
-        let mut q = sqlx::query_as::<_, (Option<String>, i64, String)>(&sql);
+        let mut q = sqlx::query_as::<_, (Option<String>, i64, String)>(sqlx::AssertSqlSafe(sql));
         let mut s_iter = binds.iter();
         let mut i_iter = bind_i64.iter();
         for k in &kinds {
@@ -253,7 +253,7 @@ ORDER BY {order_by} DESC
             order_by = order_by,
             limit_clause = limit_clause,
         );
-        let rows = sqlx::query_as::<_, (String, i64, String, i64, i64)>(&sql)
+        let rows = sqlx::query_as::<_, (String, i64, String, i64, i64)>(sqlx::AssertSqlSafe(sql))
             .fetch_all(&self.pool)
             .await?;
         Ok(rows
@@ -310,7 +310,7 @@ ORDER BY {order_by} DESC
             order_by = order_by,
             limit_clause = limit_clause,
         );
-        let rows = sqlx::query_as::<_, (String, i64, String, i64, i64)>(&sql)
+        let rows = sqlx::query_as::<_, (String, i64, String, i64, i64)>(sqlx::AssertSqlSafe(sql))
             .fetch_all(&self.pool)
             .await?;
         Ok(rows

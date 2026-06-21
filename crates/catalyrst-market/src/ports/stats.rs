@@ -126,7 +126,7 @@ LIMIT {limit}
             )
         };
 
-        let sizes: Vec<Option<i32>> = sqlx::query_scalar(&sql)
+        let sizes: Vec<Option<i32>> = sqlx::query_scalar(sqlx::AssertSqlSafe(sql))
             .fetch_all(&self.pool)
             .await
             .unwrap_or_default();

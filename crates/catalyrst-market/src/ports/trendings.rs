@@ -67,7 +67,7 @@ LIMIT $2 OFFSET 0
         );
 
         let rows: Vec<(Option<String>, String)> =
-            sqlx::query_as::<_, (Option<String>, String)>(&sql)
+            sqlx::query_as::<_, (Option<String>, String)>(sqlx::AssertSqlSafe(sql))
                 .bind(from_ts)
                 .bind(TRENDING_SALES_LIMIT)
                 .fetch_all(&self.pool)

@@ -599,7 +599,7 @@ mod http_handlers {
                 content_json: Value,
             }
 
-            let mut query = sqlx::query_as::<_, DepRow>(&sql);
+            let mut query = sqlx::query_as::<_, DepRow>(sqlx::AssertSqlSafe(sql));
             if !options.entity_types.is_empty() {
                 query = query.bind(options.entity_types.clone());
             }

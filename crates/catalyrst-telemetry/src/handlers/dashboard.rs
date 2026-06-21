@@ -212,7 +212,7 @@ pub async fn events(
             sample_title = TITLE1.replace("body", "s.body"),
             order_col = if p.sort.as_deref() == Some("frequent") { "count DESC" } else { "last_seen DESC" },
         );
-        let rows = sqlx::query_as::<_, IssueRow>(&sql)
+        let rows = sqlx::query_as::<_, IssueRow>(sqlx::AssertSqlSafe(sql))
             .bind(&source)
             .bind(&kind)
             .bind(&level)
@@ -242,7 +242,7 @@ pub async fn events(
         // $11 (status) is referenced only by the grouped query, but the shared
         // tag filter binds $12/$13, so we must still occupy position $11 here to
         // keep the positional numbering aligned. Bind a typed NULL placeholder.
-        let rows = sqlx::query_as::<_, EventRow>(&sql)
+        let rows = sqlx::query_as::<_, EventRow>(sqlx::AssertSqlSafe(sql))
             .bind(&source)
             .bind(&kind)
             .bind(&level)
@@ -267,10 +267,10 @@ pub async fn event_detail(
     State(st): State<AppState>,
     Path(id): Path<i64>,
 ) -> Result<Json<Value>, (StatusCode, String)> {
-    let row = sqlx::query_as::<_, (i64, String, String, String, String, Value)>(&format!(
+    let row = sqlx::query_as::<_, (i64, String, String, String, String, Value)>(sqlx::AssertSqlSafe(format!(
         "SELECT id, source, project, event_kind, {TS} AS received_at, body \
          FROM telemetry.telemetry_events WHERE id = $1"
-    ))
+    )))
     .bind(id)
     .fetch_optional(&st.pool)
     .await
@@ -318,7 +318,7 @@ pub async fn stats(
         fp: &Option<String>,
         src: &Option<String>,
     ) -> Result<Vec<(Option<String>, i64)>, sqlx::Error> {
-        sqlx::query_as::<_, (Option<String>, i64)>(sql)
+        sqlx::query_as::<_, (Option<String>, i64)>(sqlx::AssertSqlSafe(sql))
             .bind(hours)
             .bind(fp)
             .bind(src)
@@ -346,10 +346,10 @@ pub async fn stats(
 
     // hourly buckets for the activity chart (bucket size scales with the window)
     let bucket = if hours <= 48 { "hour" } else { "day" };
-    let series = sqlx::query_as::<_, (String, i64)>(&format!(
+    let series = sqlx::query_as::<_, (String, i64)>(sqlx::AssertSqlSafe(format!(
         "SELECT to_char(date_trunc('{bucket}', received_at AT TIME ZONE 'UTC'),'YYYY-MM-DD\"T\"HH24:MI') AS b, \
            count(*) AS c FROM telemetry.telemetry_events WHERE {win} GROUP BY 1 ORDER BY 1"
-    ))
+    )))
     .bind(hours)
     .bind(&fp)
     .bind(&src)
@@ -395,10 +395,10 @@ pub async fn health(
     let win = "source='sentry' AND event_kind='session' \
                AND received_at > now() - make_interval(hours => $1::int) \
                AND ($2::text IS NULL OR body->'attrs'->>'release' = $2)";
-    let by_status = sqlx::query_as::<_, (Option<String>, i64)>(&format!(
+    let by_status = sqlx::query_as::<_, (Option<String>, i64)>(sqlx::AssertSqlSafe(format!(
         "SELECT COALESCE(NULLIF(body->>'status',''),'ok') AS k, count(*) c \
          FROM telemetry.telemetry_events WHERE {win} GROUP BY 1 ORDER BY 2 DESC"
-    ))
+    )))
     .bind(hours)
     .bind(&rel)
     .fetch_all(&st.pool)
@@ -433,30 +433,30 @@ pub async fn health(
     // Crash-free USERS (Sentry-style): a user is "crashed" if ANY of their
     // sessions in the window has status='crashed'. Sessions key on body->>'did'
     // (sessions don't carry body.user, so USERKEY doesn't apply here).
-    let (total_users, crashed_users) = sqlx::query_as::<_, (i64, i64)>(&format!(
+    let (total_users, crashed_users) = sqlx::query_as::<_, (i64, i64)>(sqlx::AssertSqlSafe(format!(
         "SELECT count(DISTINCT body->>'did') AS total_users, \
            count(DISTINCT body->>'did') FILTER (WHERE body->>'status' = 'crashed') AS crashed_users \
-         FROM telemetry.telemetry_events WHERE {win}"))
+         FROM telemetry.telemetry_events WHERE {win}")))
         .bind(hours).bind(&rel).fetch_one(&st.pool).await.map_err(err)?;
     let crash_free_users = if total_users > 0 {
         (1.0 - crashed_users as f64 / total_users as f64) * 100.0
     } else {
         100.0
     };
-    let by_release = sqlx::query_as::<_, (Option<String>, i64, i64)>(&format!(
+    let by_release = sqlx::query_as::<_, (Option<String>, i64, i64)>(sqlx::AssertSqlSafe(format!(
         "SELECT body->'attrs'->>'release' AS rel, count(*) total, \
            count(*) FILTER (WHERE body->>'status' = 'crashed') bad \
          FROM telemetry.telemetry_events WHERE {win} GROUP BY 1 ORDER BY 2 DESC LIMIT 30"
-    ))
+    )))
     .bind(hours)
     .bind(&rel)
     .fetch_all(&st.pool)
     .await
     .map_err(err)?;
     let bucket = if hours <= 48 { "hour" } else { "day" };
-    let series = sqlx::query_as::<_, (String, i64)>(&format!(
+    let series = sqlx::query_as::<_, (String, i64)>(sqlx::AssertSqlSafe(format!(
         "SELECT to_char(date_trunc('{bucket}', received_at AT TIME ZONE 'UTC'),'YYYY-MM-DD\"T\"HH24:MI') b, count(*) c \
-         FROM telemetry.telemetry_events WHERE {win} GROUP BY 1 ORDER BY 1"))
+         FROM telemetry.telemetry_events WHERE {win} GROUP BY 1 ORDER BY 1")))
         .bind(hours).bind(&rel).fetch_all(&st.pool).await.map_err(err)?;
     Ok(Json(json!({
         "total": total, "crash_free_rate": crash_free, "healthy_rate": healthy_rate,
@@ -502,14 +502,14 @@ pub async fn funnel(
         ));
     }
     // earliest time each user did each step in the window
-    let rows = sqlx::query_as::<_, (Option<String>, String, String)>(&format!(
+    let rows = sqlx::query_as::<_, (Option<String>, String, String)>(sqlx::AssertSqlSafe(format!(
         "SELECT {USERKEY} AS uk, body->>'event' AS ev, \
            to_char(min(received_at) AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS') AS t \
          FROM telemetry.telemetry_events \
          WHERE source='segment' AND received_at > now() - make_interval(hours => $1::int) \
            AND body->>'event' = ANY($2) AND {USERKEY} IS NOT NULL \
          GROUP BY 1,2"
-    ))
+    )))
     .bind(hours)
     .bind(&steps)
     .fetch_all(&st.pool)
@@ -573,20 +573,20 @@ pub async fn breakdown(
                AND ($2::text IS NULL OR body->>'event' = $2)";
     let Some(prop) = prop else {
         // discover available property keys for this event
-        let keys = sqlx::query_as::<_, (String,)>(&format!(
+        let keys = sqlx::query_as::<_, (String,)>(sqlx::AssertSqlSafe(format!(
             "SELECT DISTINCT jsonb_object_keys(body->'properties') k \
-             FROM telemetry.telemetry_events WHERE {win} AND jsonb_typeof(body->'properties')='object' ORDER BY 1 LIMIT 100"))
+             FROM telemetry.telemetry_events WHERE {win} AND jsonb_typeof(body->'properties')='object' ORDER BY 1 LIMIT 100")))
             .bind(hours).bind(&event).fetch_all(&st.pool).await.map_err(err)?;
         return Ok(Json(
             json!({ "props": keys.into_iter().map(|(k,)| k).collect::<Vec<_>>(), "rows": [] }),
         ));
     };
-    let rows = sqlx::query_as::<_, (Option<String>, i64, i64)>(&format!(
+    let rows = sqlx::query_as::<_, (Option<String>, i64, i64)>(sqlx::AssertSqlSafe(format!(
         "SELECT body->'properties'->>$3 AS v, count(*) c, \
            count(DISTINCT {USERKEY}) u \
          FROM telemetry.telemetry_events WHERE {win} AND body->'properties' ? $3 \
          GROUP BY 1 ORDER BY 2 DESC LIMIT 100"
-    ))
+    )))
     .bind(hours)
     .bind(&event)
     .bind(&prop)
@@ -622,9 +622,9 @@ pub async fn story(
     State(st): State<AppState>,
     Path(id): Path<i64>,
 ) -> Result<Json<Value>, (StatusCode, String)> {
-    let anchor: Option<(String,)> = sqlx::query_as(&format!(
+    let anchor: Option<(String,)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
         "SELECT {USERKEY} FROM telemetry.telemetry_events WHERE id = $1"
-    ))
+    )))
     .bind(id)
     .fetch_optional(&st.pool)
     .await
@@ -636,7 +636,7 @@ pub async fn story(
     };
     let uk_t = USERKEY.replace("body", "t.body");
     let title_t = TITLE1.replace("body", "t.body");
-    let events = sqlx::query_as::<_, StoryRow>(&format!(
+    let events = sqlx::query_as::<_, StoryRow>(sqlx::AssertSqlSafe(format!(
         "SELECT t.id, \
            to_char(t.received_at AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS received_at, \
            t.source, t.event_kind AS kind, t.body->>'level' AS level, {title_t} AS title, \
@@ -646,19 +646,19 @@ pub async fn story(
          WHERE {uk_t} = $1 \
            AND t.received_at BETWEEN a.ts - interval '6 hours' AND a.ts + interval '1 hour' \
          ORDER BY t.received_at LIMIT 200"
-    ))
+    )))
     .bind(&user_key)
     .bind(id)
     .fetch_all(&st.pool)
     .await
     .map_err(err)?;
     // UTM acquisition: most recent Segment campaign object for this user.
-    let utm: Option<Value> = sqlx::query_scalar(&format!(
+    let utm: Option<Value> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
         "SELECT COALESCE(body->'context'->'campaign', body->'properties'->'campaign') \
          FROM telemetry.telemetry_events WHERE {USERKEY} = $1 \
            AND COALESCE(body->'context'->'campaign', body->'properties'->'campaign') IS NOT NULL \
          ORDER BY received_at DESC LIMIT 1"
-    ))
+    )))
     .bind(&user_key)
     .fetch_optional(&st.pool)
     .await
@@ -683,7 +683,7 @@ pub async fn metrics(
         sql: &str,
         hours: i64,
     ) -> Result<Vec<(Option<String>, i64)>, sqlx::Error> {
-        sqlx::query_as::<_, (Option<String>, i64)>(sql)
+        sqlx::query_as::<_, (Option<String>, i64)>(sqlx::AssertSqlSafe(sql))
             .bind(hours)
             .fetch_all(pool)
             .await
@@ -701,18 +701,18 @@ pub async fn metrics(
     let by_type = q(&st.pool, &format!(
         "SELECT event_kind AS k, count(*) AS c FROM telemetry.telemetry_events WHERE {win} GROUP BY 1 ORDER BY 2 DESC"), hours).await.map_err(err)?;
     let total: i64 = by_type.iter().map(|(_, c)| c).sum();
-    let users: i64 = sqlx::query_scalar(&format!(
+    let users: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
         "SELECT count(DISTINCT COALESCE(body->>'userId', body->>'anonymousId')) \
          FROM telemetry.telemetry_events WHERE {win}"
-    ))
+    )))
     .bind(hours)
     .fetch_one(&st.pool)
     .await
     .map_err(err)?;
     let bucket = if hours <= 48 { "hour" } else { "day" };
-    let series = sqlx::query_as::<_, (String, i64)>(&format!(
+    let series = sqlx::query_as::<_, (String, i64)>(sqlx::AssertSqlSafe(format!(
         "SELECT to_char(date_trunc('{bucket}', received_at AT TIME ZONE 'UTC'),'YYYY-MM-DD\"T\"HH24:MI') AS b, \
-           count(*) AS c FROM telemetry.telemetry_events WHERE {win} GROUP BY 1 ORDER BY 1"))
+           count(*) AS c FROM telemetry.telemetry_events WHERE {win} GROUP BY 1 ORDER BY 1")))
         .bind(hours).fetch_all(&st.pool).await.map_err(err)?;
     let pair = |v: Vec<(Option<String>, i64)>| -> Vec<Value> {
         v.into_iter()
@@ -762,32 +762,32 @@ pub async fn session(
     // same user + same app-launch timestamp (when the event carries one)
     let cond = "source='sentry' AND event_kind='event' AND body->'user'->>'id' = $1 \
                 AND ($2::text IS NULL OR body->'contexts'->'app'->>'app_start_time' = $2)";
-    let events = sqlx::query_as::<_, SessEvent>(&format!(
+    let events = sqlx::query_as::<_, SessEvent>(sqlx::AssertSqlSafe(format!(
         "SELECT id, {TS} AS received_at, body->>'level' AS level, {TITLE1} AS title, \
            COALESCE(NULLIF(body#>>'{{exception,values,0,type}}',''), event_kind) AS kind \
          FROM telemetry.telemetry_events WHERE {cond} ORDER BY received_at ASC LIMIT 1000"
-    ))
+    )))
     .bind(&user)
     .bind(&app_start)
     .fetch_all(&st.pool)
     .await
     .map_err(err)?;
     let (total, errors, first, last): (i64, i64, Option<String>, Option<String>) =
-        sqlx::query_as(&format!(
+        sqlx::query_as(sqlx::AssertSqlSafe(format!(
             "SELECT count(*), count(*) FILTER (WHERE body->>'level' IN ('error','fatal')), \
                to_char(min(received_at) AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"'), \
                to_char(max(received_at) AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') \
              FROM telemetry.telemetry_events WHERE {cond}"
-        ))
+        )))
         .bind(&user)
         .bind(&app_start)
         .fetch_one(&st.pool)
         .await
         .map_err(err)?;
-    let by_level = sqlx::query_as::<_, (Option<String>, i64)>(&format!(
+    let by_level = sqlx::query_as::<_, (Option<String>, i64)>(sqlx::AssertSqlSafe(format!(
         "SELECT COALESCE(body->>'level','(none)'), count(*) FROM telemetry.telemetry_events \
          WHERE {cond} GROUP BY 1 ORDER BY 2 DESC"
-    ))
+    )))
     .bind(&user)
     .bind(&app_start)
     .fetch_all(&st.pool)
@@ -871,7 +871,7 @@ pub async fn sql_query(
         sqlx::query("SET LOCAL statement_timeout = 15000")
             .execute(&mut *tx)
             .await?;
-        sqlx::query_scalar::<_, Value>(&wrapped)
+        sqlx::query_scalar::<_, Value>(sqlx::AssertSqlSafe(wrapped))
             .fetch_all(&mut *tx)
             .await
     }

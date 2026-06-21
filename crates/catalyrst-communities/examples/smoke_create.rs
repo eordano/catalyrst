@@ -4,7 +4,7 @@ use catalyrst_communities::fed::messages::CommunityCreate;
 use catalyrst_fed::sig::domains;
 use catalyrst_fed::Signed;
 use ethers_signers::{LocalWallet, Signer};
-use rand::RngCore;
+use rand::Rng;
 use serde_json::Value;
 
 #[tokio::main]
@@ -13,12 +13,12 @@ async fn main() -> anyhow::Result<()> {
         .nth(1)
         .unwrap_or_else(|| "http://127.0.0.1:5136".into());
     let mut key = [0u8; 32];
-    rand::thread_rng().fill_bytes(&mut key);
+    rand::rng().fill_bytes(&mut key);
     key[0] |= 1;
     let wallet: LocalWallet = LocalWallet::from_bytes(&key)?;
     let addr = format!("{:#x}", wallet.address());
 
-    let ephemeral: LocalWallet = LocalWallet::new(&mut rand::thread_rng());
+    let ephemeral: LocalWallet = LocalWallet::new(&mut ethers_core::rand::thread_rng());
     let ephemeral_addr = format!("{:#x}", ephemeral.address());
 
     let ephemeral_payload = format!(
@@ -36,7 +36,7 @@ async fn main() -> anyhow::Result<()> {
     let entity_sig_hex = format!("0x{}", entity_sig);
 
     let mut nonce = [0u8; 16];
-    rand::thread_rng().fill_bytes(&mut nonce);
+    rand::rng().fill_bytes(&mut nonce);
 
     let now_s = ts_ms / 1000;
     let message = CommunityCreate {

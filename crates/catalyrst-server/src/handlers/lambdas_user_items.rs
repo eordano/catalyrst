@@ -87,7 +87,7 @@ async fn fetch_owned_grouped(
          LIMIT $3"
     );
 
-    let rows: Vec<ItemRow> = sqlx::query_as(&sql)
+    let rows: Vec<ItemRow> = sqlx::query_as(sqlx::AssertSqlSafe(sql))
         .bind(item_category)
         .bind(owner)
         .bind(OWNED_FETCH_LIMIT)

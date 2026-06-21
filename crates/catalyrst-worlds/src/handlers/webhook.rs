@@ -4,7 +4,7 @@ use axum::Json;
 use base64::engine::general_purpose::{STANDARD as B64_STANDARD, URL_SAFE_NO_PAD};
 use base64::Engine;
 use bytes::Bytes;
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, Mac, KeyInit};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 

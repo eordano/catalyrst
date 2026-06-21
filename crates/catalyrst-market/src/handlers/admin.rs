@@ -125,9 +125,9 @@ async fn target_exists(state: &AppState, kind: &str, hash: &str) -> Result<bool,
         "trade" => "market_trades_local",
         _ => return Ok(false),
     };
-    let row: Option<(i64,)> = sqlx::query_as(&format!(
+    let row: Option<(i64,)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
         "SELECT 1 FROM {table} WHERE signature_hash = $1 LIMIT 1"
-    ))
+    )))
     .bind(hash)
     .fetch_optional(&state.pool)
     .await?;

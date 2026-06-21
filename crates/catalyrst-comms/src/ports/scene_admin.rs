@@ -46,7 +46,7 @@ impl SceneAdminComponent {
         if admin.is_some() {
             sql.push_str(" AND admin = $2");
         }
-        let mut q = sqlx::query_as::<_, SceneAdminRow>(&sql).bind(place_id);
+        let mut q = sqlx::query_as::<_, SceneAdminRow>(sqlx::AssertSqlSafe(sql)).bind(place_id);
         if let Some(a) = admin {
             q = q.bind(a.to_lowercase());
         }

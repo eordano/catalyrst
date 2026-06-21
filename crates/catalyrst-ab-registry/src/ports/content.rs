@@ -151,7 +151,7 @@ impl ContentComponent {
             "SELECT entity_id FROM ({}) u ORDER BY entity_timestamp DESC LIMIT ${limit_idx}",
             branches.join(" UNION ALL ")
         );
-        let mut q = sqlx::query(&sql);
+        let mut q = sqlx::query(sqlx::AssertSqlSafe(sql));
         for t in types {
             q = q.bind(*t);
         }

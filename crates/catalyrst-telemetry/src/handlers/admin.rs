@@ -422,7 +422,7 @@ pub async fn bulk_delete(
     f.require_some()?;
     let sql = format!("DELETE FROM telemetry_events WHERE {BULK_WHERE}");
     let [b1, b2, b3, b4, b5] = f.binds();
-    let res = sqlx::query(&sql)
+    let res = sqlx::query(sqlx::AssertSqlSafe(sql))
         .bind(b1)
         .bind(b2)
         .bind(b3)
@@ -480,7 +480,7 @@ pub async fn export(
          ) t"
     );
     let [b1, b2, b3, b4, b5] = b.filter.binds();
-    let rows: Vec<Value> = sqlx::query_scalar(&sql)
+    let rows: Vec<Value> = sqlx::query_scalar(sqlx::AssertSqlSafe(sql))
         .bind(b1)
         .bind(b2)
         .bind(b3)
@@ -535,7 +535,7 @@ pub async fn audit_list(
            AND ($2::text IS NULL OR action = $2) \
          ORDER BY at DESC LIMIT {limit}"
     );
-    let rows = sqlx::query_as::<_, (i64, String, String, String, Value)>(&sql)
+    let rows = sqlx::query_as::<_, (i64, String, String, String, Value)>(sqlx::AssertSqlSafe(sql))
         .bind(q.fingerprint.as_deref().filter(|s| !s.is_empty()))
         .bind(q.action.as_deref().filter(|s| !s.is_empty()))
         .fetch_all(&st.pool)

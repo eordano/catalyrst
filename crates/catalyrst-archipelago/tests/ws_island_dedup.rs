@@ -58,8 +58,8 @@ async fn start_server() -> u16 {
     port
 }
 
-fn encode(msg: client_packet::Message) -> Vec<u8> {
-    ClientPacket { message: Some(msg) }.encode_to_vec()
+fn encode(msg: client_packet::Message) -> tokio_tungstenite::tungstenite::Bytes {
+    ClientPacket { message: Some(msg) }.encode_to_vec().into()
 }
 
 async fn recv_msg(ws: &mut WsStream, timeout: Duration) -> Option<server_packet::Message> {
@@ -67,7 +67,7 @@ async fn recv_msg(ws: &mut WsStream, timeout: Duration) -> Option<server_packet:
         let frame = tokio::time::timeout(timeout, ws.next()).await.ok()??;
         match frame.ok()? {
             WsMessage::Binary(bytes) => {
-                return ServerPacket::decode(bytes.as_slice()).ok()?.message;
+                return ServerPacket::decode(bytes.as_ref()).ok()?.message;
             }
             WsMessage::Ping(_) | WsMessage::Pong(_) => continue,
             _ => return None,
@@ -150,7 +150,7 @@ async fn count_island_changed(ws: &mut WsStream, window: Duration) -> usize {
 #[tokio::test]
 async fn island_changed_is_delivered_exactly_once() {
     let port = start_server().await;
-    let wallet = LocalWallet::new(&mut rand::thread_rng());
+    let wallet = LocalWallet::new(&mut ethers_core::rand::thread_rng());
 
     let mut ws = connect_and_handshake(port, &wallet).await;
     send_heartbeat(&mut ws).await;
@@ -168,7 +168,7 @@ async fn island_changed_is_delivered_exactly_once() {
 #[tokio::test]
 async fn second_socket_same_wallet_gets_one_island_and_survives_stale_close() {
     let port = start_server().await;
-    let wallet = LocalWallet::new(&mut rand::thread_rng());
+    let wallet = LocalWallet::new(&mut ethers_core::rand::thread_rng());
 
     // Socket A connects, heartbeats, gets its island.
     let mut ws_a = connect_and_handshake(port, &wallet).await;

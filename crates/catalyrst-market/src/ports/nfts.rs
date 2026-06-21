@@ -419,7 +419,7 @@ impl NftsComponent {
         }
 
         let (sql, binds) = build_nfts_query(&effective);
-        let mut q = sqlx::query_as::<_, DbNft>(&sql);
+        let mut q = sqlx::query_as::<_, DbNft>(sqlx::AssertSqlSafe(sql));
         for b in &binds {
             q = match b {
                 Bind::Text(s) => q.bind(s.clone()),
@@ -532,7 +532,7 @@ WHERE ord.status = 'open'
             sql.push_str(" AND LOWER(ord.owner) = LOWER($2)");
         }
 
-        let mut q = sqlx::query(&sql).bind(nft_ids);
+        let mut q = sqlx::query(sqlx::AssertSqlSafe(sql)).bind(nft_ids);
         if let Some(o) = owner {
             q = q.bind(o.to_string());
         }

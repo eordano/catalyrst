@@ -1146,7 +1146,7 @@ impl Database for LiveDatabase {
             deleter_deployment: Option<i32>,
         }
 
-        let mut query = sqlx::query_as::<_, DepRow>(&sql);
+        let mut query = sqlx::query_as::<_, DepRow>(sqlx::AssertSqlSafe(sql));
 
         if let Some(from) = from_val {
             if ts_col == "local_timestamp" {
@@ -1418,7 +1418,7 @@ impl Database for LiveDatabase {
             auth_chain: Value,
         }
 
-        let mut query = sqlx::query_as::<_, PointerChangeRow>(&sql);
+        let mut query = sqlx::query_as::<_, PointerChangeRow>(sqlx::AssertSqlSafe(sql));
 
         if let Some(from) = options.from {
             query = query.bind(from as f64);

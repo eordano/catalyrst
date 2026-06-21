@@ -3,7 +3,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use rand::Rng;
+use rand::RngExt;
 use rand::SeedableRng;
 use tokio::sync::Barrier;
 
@@ -217,13 +217,13 @@ async fn test_failed_deployments_cache_stress() {
 
         handles.push(tokio::spawn(async move {
             barrier.wait().await;
-            let mut rng = rand::rngs::StdRng::from_entropy();
+            let mut rng = rand::rngs::StdRng::from_rng(&mut rand::rng());
 
             for _ in 0..100 {
-                let idx = rng.gen_range(0..entity_ids.len());
+                let idx = rng.random_range(0..entity_ids.len());
                 let eid = &entity_ids[idx];
 
-                if rng.gen_bool(0.6) {
+                if rng.random_bool(0.6) {
                     let fd = FailedDeployment {
                         entity_id: eid.clone(),
                         entity_type: EntityType::Scene,
@@ -299,13 +299,13 @@ async fn test_pointer_lock_manager_stress() {
 
         handles.push(tokio::spawn(async move {
             barrier.wait().await;
-            let mut rng = rand::rngs::StdRng::from_entropy();
+            let mut rng = rand::rngs::StdRng::from_rng(&mut rand::rng());
 
             for _ in 0..50 {
-                let count = rng.gen_range(2..=5);
+                let count = rng.random_range(2..=5);
                 let mut indices: Vec<usize> = Vec::new();
                 while indices.len() < count {
-                    let idx = rng.gen_range(0..all_pointers.len());
+                    let idx = rng.random_range(0..all_pointers.len());
                     if !indices.contains(&idx) {
                         indices.push(idx);
                     }
@@ -323,7 +323,7 @@ async fn test_pointer_lock_manager_stress() {
                         }
                     }
 
-                    tokio::time::sleep(Duration::from_micros(rng.gen_range(10..200))).await;
+                    tokio::time::sleep(Duration::from_micros(rng.random_range(10..200))).await;
 
                     for &idx in &indices {
                         occupancy[idx].fetch_sub(1, Ordering::SeqCst);
@@ -400,11 +400,11 @@ impl EntityFetcher for MockFetcher {
         entity_id: &str,
         servers: &[String],
     ) -> Result<FetchedEntity, FetchError> {
-        let mut rng = rand::rngs::StdRng::from_entropy();
-        let delay = rng.gen_range(0..10);
+        let mut rng = rand::rngs::StdRng::from_rng(&mut rand::rng());
+        let delay = rng.random_range(0..10);
         tokio::time::sleep(Duration::from_millis(delay)).await;
 
-        if rng.gen_bool(self.fail_rate) {
+        if rng.random_bool(self.fail_rate) {
             return Err(FetchError::AllServersFailed {
                 entity_id: entity_id.to_string(),
                 last_error: "mock failure".to_string(),
@@ -901,18 +901,18 @@ async fn test_active_entities_cache_stress() {
         let entity_ids = entity_ids.clone();
         let any_panic = any_panic.clone();
         handles.push(tokio::spawn(async move {
-            let mut rng = rand::rngs::StdRng::from_entropy();
+            let mut rng = rand::rngs::StdRng::from_rng(&mut rand::rng());
             while start.elapsed() < duration && !any_panic.load(Ordering::Relaxed) {
-                if rng.gen_bool(0.5) {
-                    let n = rng.gen_range(1..=5);
+                if rng.random_bool(0.5) {
+                    let n = rng.random_range(1..=5);
                     let ids: Vec<String> = (0..n)
-                        .map(|_| entity_ids[rng.gen_range(0..entity_ids.len())].clone())
+                        .map(|_| entity_ids[rng.random_range(0..entity_ids.len())].clone())
                         .collect();
                     let _ = ae.with_ids(&ids).await;
                 } else {
-                    let n = rng.gen_range(1..=5);
+                    let n = rng.random_range(1..=5);
                     let ptrs: Vec<Pointer> = (0..n)
-                        .map(|_| pointers[rng.gen_range(0..pointers.len())].clone())
+                        .map(|_| pointers[rng.random_range(0..pointers.len())].clone())
                         .collect();
                     let _ = ae.with_pointers(&ptrs).await;
                 }
@@ -927,14 +927,14 @@ async fn test_active_entities_cache_stress() {
         let any_panic = any_panic.clone();
         let db = db.clone();
         handles.push(tokio::spawn(async move {
-            let mut rng = rand::rngs::StdRng::from_entropy();
+            let mut rng = rand::rngs::StdRng::from_rng(&mut rand::rng());
             while start.elapsed() < duration && !any_panic.load(Ordering::Relaxed) {
-                let n = rng.gen_range(1..=3);
+                let n = rng.random_range(1..=3);
                 let ptrs: Vec<Pointer> = (0..n)
-                    .map(|_| pointers[rng.gen_range(0..pointers.len())].clone())
+                    .map(|_| pointers[rng.random_range(0..pointers.len())].clone())
                     .collect();
                 let entity = Entity {
-                    id: format!("w{}-{}", writer_id, rng.gen::<u32>()),
+                    id: format!("w{}-{}", writer_id, rng.random::<u32>()),
                     entity_type: EntityType::Scene,
                     pointers: ptrs.clone(),
                     timestamp: 1_700_000_000_000,
@@ -957,14 +957,14 @@ async fn test_active_entities_cache_stress() {
         let any_panic = any_panic.clone();
         let db = db.clone();
         handles.push(tokio::spawn(async move {
-            let mut rng = rand::rngs::StdRng::from_entropy();
+            let mut rng = rand::rngs::StdRng::from_rng(&mut rand::rng());
             while start.elapsed() < duration && !any_panic.load(Ordering::Relaxed) {
-                let n = rng.gen_range(1..=3);
+                let n = rng.random_range(1..=3);
                 let ptrs: Vec<Pointer> = (0..n)
-                    .map(|_| pointers[rng.gen_range(0..pointers.len())].clone())
+                    .map(|_| pointers[rng.random_range(0..pointers.len())].clone())
                     .collect();
 
-                if rng.gen_bool(0.5) {
+                if rng.random_bool(0.5) {
                     let tx = db.begin_transaction().await.unwrap();
                     let _ = ae.clear(&*tx, &ptrs).await;
                     let _ = tx.commit().await;

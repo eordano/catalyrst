@@ -2,7 +2,7 @@ use catalyrst_crypto::verify::verify_auth_chain;
 use catalyrst_types::AuthChain;
 use chrono::{DateTime, Utc};
 use parking_lot::Mutex;
-use rand::RngCore;
+use rand::Rng;
 use std::collections::HashMap;
 use std::sync::Arc;
 use thiserror::Error;
@@ -61,7 +61,7 @@ impl ChallengeStore {
 
     pub fn issue(&self, address: &str) -> String {
         let mut bytes = [0u8; 24];
-        rand::thread_rng().fill_bytes(&mut bytes);
+        rand::rng().fill_bytes(&mut bytes);
         let challenge = hex_encode(&bytes);
         let mut guard = self.by_address.lock();
         let addr_lc = address.to_ascii_lowercase();
@@ -173,7 +173,7 @@ mod tests {
         use ethers_signers::{LocalWallet, Signer};
 
         let s = ChallengeStore::new(cfg(true));
-        let wallet = LocalWallet::new(&mut rand::thread_rng());
+        let wallet = LocalWallet::new(&mut ethers_core::rand::thread_rng());
         let address = format!("{:#x}", wallet.address());
 
         let challenge = s.issue(&address);
@@ -201,8 +201,8 @@ mod tests {
         use ethers_signers::{LocalWallet, Signer};
 
         let s = ChallengeStore::new(cfg(true));
-        let wallet = LocalWallet::new(&mut rand::thread_rng());
-        let impostor = LocalWallet::new(&mut rand::thread_rng());
+        let wallet = LocalWallet::new(&mut ethers_core::rand::thread_rng());
+        let impostor = LocalWallet::new(&mut ethers_core::rand::thread_rng());
         let address = format!("{:#x}", wallet.address());
 
         let challenge = s.issue(&address);

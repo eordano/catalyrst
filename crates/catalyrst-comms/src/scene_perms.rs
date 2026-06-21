@@ -94,7 +94,7 @@ pub async fn is_scene_owner_or_admin(
             "SELECT 1 FROM {schema}.nft \
              WHERE category = 'ens' AND lower(name) = $1 AND lower(owner_address) = $2 LIMIT 1"
         );
-        let found = sqlx::query(&q)
+        let found = sqlx::query(sqlx::AssertSqlSafe(q))
             .bind(&base)
             .bind(&signer)
             .fetch_optional(squid)
@@ -128,7 +128,7 @@ pub async fn is_scene_owner_or_admin(
          AND (lower(p.owner_address) = $3 OR lower(e.owner_address) = $3) LIMIT 1"
     );
     for (x, y) in coords {
-        let found = sqlx::query(&q)
+        let found = sqlx::query(sqlx::AssertSqlSafe(q.as_str()))
             .bind(x)
             .bind(y)
             .bind(&signer)

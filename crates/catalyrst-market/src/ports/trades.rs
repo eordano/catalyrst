@@ -529,7 +529,7 @@ LIMIT 1
         network: &str,
     ) -> Result<Option<AssetMeta>, ApiError> {
         let networks = crate::ports::nfts::get_db_networks_for(network);
-        let row = sqlx::query(&format!(
+        let row = sqlx::query(sqlx::AssertSqlSafe(format!(
             r#"
 SELECT
   account.address AS owner,
@@ -552,7 +552,7 @@ WHERE LOWER(nft.contract_address) = LOWER($1)
 LIMIT 1
 "#,
             schema = crate::MARKETPLACE_SQUID_SCHEMA,
-        ))
+        )))
         .bind(contract_address)
         .bind(token_id)
         .bind(&networks)
@@ -587,7 +587,7 @@ LIMIT 1
         contract_address: &str,
         item_id: &str,
     ) -> Result<Option<AssetMeta>, ApiError> {
-        let row = sqlx::query(&format!(
+        let row = sqlx::query(sqlx::AssertSqlSafe(format!(
             r#"
 SELECT
   item.image     AS image,
@@ -604,7 +604,7 @@ WHERE LOWER(item.collection_id) = LOWER($1)
 LIMIT 1
 "#,
             schema = crate::MARKETPLACE_SQUID_SCHEMA,
-        ))
+        )))
         .bind(contract_address)
         .bind(item_id)
         .fetch_optional(&self.pool)
