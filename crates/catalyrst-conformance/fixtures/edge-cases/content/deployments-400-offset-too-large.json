@@ -1,0 +1,18 @@
+{
+  "description": "GET /content/deployments with offset > 5000 must 400 - clients are required to use the 'next' cursor for deep pagination.",
+  "request": {
+    "method": "GET",
+    "path": "/content/deployments",
+    "query": {"offset": ["5001"]},
+    "headers": {},
+    "body": null
+  },
+  "response": {
+    "status": 400,
+    "headers": {"content-type": "application/json"},
+    "body_json": {"error": "Bad request", "message": "Offset can't be higher than 5000. Please use the 'next' property for pagination."}
+  },
+  "captured_from": "hand-authored from handler source (get_deployments.rs)",
+  "captured_at": "2026-05-23T20:00:00Z",
+  "volatile_paths": []
+}

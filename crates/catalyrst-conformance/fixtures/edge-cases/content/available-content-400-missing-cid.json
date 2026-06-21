@@ -1,0 +1,18 @@
+{
+  "description": "GET /content/available-content with no cid query param must 400 with the exact lamb2 message.",
+  "request": {
+    "method": "GET",
+    "path": "/content/available-content",
+    "query": {},
+    "headers": {},
+    "body": null
+  },
+  "response": {
+    "status": 400,
+    "headers": {"content-type": "application/json"},
+    "body_json": {"error": "Bad request", "message": "Please set at least one cid."}
+  },
+  "captured_from": "hand-authored from handler source (get_available_content.rs)",
+  "captured_at": "2026-05-23T20:00:00Z",
+  "volatile_paths": []
+}

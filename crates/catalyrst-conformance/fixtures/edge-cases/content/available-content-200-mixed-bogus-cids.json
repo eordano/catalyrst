@@ -1,0 +1,24 @@
+{
+  "description": "Multiple bogus cids each get an entry with available:false; output order matches input order.",
+  "request": {
+    "method": "GET",
+    "path": "/content/available-content",
+    "query": {"cid": [
+      "bafkreieebogusone00000000000000000000000000000000aaa",
+      "bafkreieebogustwo00000000000000000000000000000000bbb"
+    ]},
+    "headers": {},
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "headers": {"content-type": "application/json"},
+    "body_json": [
+      {"cid": "bafkreieebogusone00000000000000000000000000000000aaa", "available": false},
+      {"cid": "bafkreieebogustwo00000000000000000000000000000000bbb", "available": false}
+    ]
+  },
+  "captured_from": "hand-authored from handler source (get_available_content.rs)",
+  "captured_at": "2026-05-23T20:00:00Z",
+  "volatile_paths": []
+}

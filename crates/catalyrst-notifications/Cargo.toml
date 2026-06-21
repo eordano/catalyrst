@@ -1,0 +1,28 @@
+[package]
+name = "catalyrst-notifications"
+version = "0.1.0"
+edition = "2021"
+description = "Rust port of decentraland/notifications (REST API for notifications.decentraland.org), SignedFetch reader/marker over a dedicated notifications DB"
+
+[[bin]]
+name = "catalyrst-notifications"
+path = "src/main.rs"
+
+[dependencies]
+catalyrst-types = { workspace = true }
+catalyrst-crypto = { workspace = true }
+tokio = { workspace = true }
+axum = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true }
+sqlx = { workspace = true, features = ["uuid"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+uuid = { workspace = true, features = ["serde"] }
+reqwest = { workspace = true }
+rand = "0.8"

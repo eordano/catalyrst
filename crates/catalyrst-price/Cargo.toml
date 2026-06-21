@@ -1,0 +1,22 @@
+[package]
+name = "catalyrst-price"
+version = "0.1.0"
+edition = "2021"
+description = "Thin serving layer for api.coingecko.com (price-feed): GET /api/v3/simple/price over the mana_price archive DB"
+
+[[bin]]
+name = "catalyrst-price"
+path = "src/main.rs"
+
+[dependencies]
+tokio = { workspace = true }
+axum = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true }
+sqlx = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+anyhow = { workspace = true }

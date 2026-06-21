@@ -1,0 +1,20 @@
+{
+  "description": "Any unknown path must 404 with text/plain body 'Not found' (lowercase 'f', lamb2 parity). NOT a JSON error body.",
+  "request": {
+    "method": "GET",
+    "path": "/this/path/does/not/exist",
+    "query": {},
+    "headers": {},
+    "body": null
+  },
+  "response": {
+    "status": 404,
+    "headers": {
+      "content-type": "text/plain; charset=utf-8"
+    },
+    "body_bytes_b64": "Tm90IGZvdW5k"
+  },
+  "captured_from": "hand-authored from crates/catalyrst-server/src/routes.rs::not_found",
+  "captured_at": "2026-05-23T20:30:00Z",
+  "volatile_paths": []
+}

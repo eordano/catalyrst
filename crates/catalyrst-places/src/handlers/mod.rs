@@ -1,0 +1,11 @@
+pub mod admin;
+pub mod categories;
+pub mod destinations;
+pub mod federation;
+pub mod map;
+pub mod ping;
+pub mod places;
+pub mod report;
+pub mod social;
+pub mod status;
+pub mod worlds;

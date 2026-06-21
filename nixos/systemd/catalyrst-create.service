@@ -1,0 +1,38 @@
+[Unit]
+Description=catalyrst-create bundle (builder, camera-reel, ab-registry — port 5144)
+After=network.target postgresql.service
+StartLimitIntervalSec=0
+Wants=postgresql.service
+
+[Service]
+Type=exec
+WorkingDirectory=<WORKSPACE>
+# env layering mirrors the validated shell launch: content.env, every
+# per-service catalyrst env (alphabetical), shared overrides, bundle ports.
+EnvironmentFile=<WORKSPACE>/env/content.env
+EnvironmentFile=<WORKSPACE>/env/catalyrst-ab-cdn.env
+EnvironmentFile=<WORKSPACE>/env/catalyrst-ab-registry.env
+EnvironmentFile=<WORKSPACE>/env/catalyrst-archipelago.env
+EnvironmentFile=<WORKSPACE>/env/catalyrst-builder.env
+EnvironmentFile=<WORKSPACE>/env/catalyrst-comms.env
+EnvironmentFile=<WORKSPACE>/env/catalyrst-communities.env
+EnvironmentFile=<WORKSPACE>/env/catalyrst-credits.env
+EnvironmentFile=<WORKSPACE>/env/catalyrst-economy.env
+EnvironmentFile=<WORKSPACE>/env/catalyrst-events.env
+EnvironmentFile=<WORKSPACE>/env/catalyrst-explorer-api.env
+EnvironmentFile=<WORKSPACE>/env/catalyrst-market.env
+EnvironmentFile=<WORKSPACE>/env/catalyrst-media.env
+EnvironmentFile=<WORKSPACE>/env/catalyrst-places.env
+EnvironmentFile=<WORKSPACE>/env/catalyrst-rpc.env
+EnvironmentFile=<WORKSPACE>/env/catalyrst-shared.env
+EnvironmentFile=<WORKSPACE>/env/catalyrst-social-rpc.env
+EnvironmentFile=<WORKSPACE>/env/catalyrst-worlds.env
+EnvironmentFile=<WORKSPACE>/env/catalyrst-overrides.env
+EnvironmentFile=<WORKSPACE>/env/catalyrst-create.env
+ExecStartPre=/bin/sh -c 'for i in $(seq 1 30); do pg_isready -h <HOST> -p 5433 -U <DB_USER> -q && exit 0; sleep 1; done; exit 1'
+ExecStart=<WORKSPACE>/bin/catalyrst/catalyrst-create
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=default.target

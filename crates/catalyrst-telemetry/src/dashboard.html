@@ -1,0 +1,762 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>telemetry</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+  :root{
+    --bg:#efe9db; --bg2:#f6f1e6; --bg3:#e7e0cf; --card:#f6f1e6; --line:#d4cdbb;
+    --fg:#16130c; --mut:#6c6655; --mut2:#9a9382;
+    --acc:#d6312b; --acc2:#a1211c;
+    --err:#d6312b; --warn:#9a6a12; --info:#1f55c9; --ok:#2f7d32; --dbg:#9a9382;
+    --mono:'IBM Plex Mono',ui-monospace,Menlo,Consolas,monospace;
+    --display:'Archivo',system-ui,-apple-system,Segoe UI,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.45 var(--display);-webkit-font-smoothing:antialiased;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E")}
+  a{color:var(--acc);text-decoration:none;cursor:pointer;border-bottom:1px solid transparent}
+  a:hover{border-bottom-color:var(--acc)}
+  .row{display:flex;align-items:center;gap:10px}
+  header{display:flex;align-items:center;gap:18px;padding:14px 20px;border-bottom:2px solid var(--fg);background:var(--bg2);position:sticky;top:0;z-index:5}
+  header h1{font-family:var(--display);font-size:15px;margin:0;font-weight:800;letter-spacing:-.02em}
+  header h1 .dot{display:inline-block;width:10px;height:10px;border-radius:0;background:var(--acc);margin-right:9px}
+  header .spacer{flex:1}
+  .total{font-family:var(--mono);font-variant-numeric:tabular-nums;color:var(--mut);font-size:11px;text-transform:uppercase;letter-spacing:.06em}
+  .total b{color:var(--fg);font-size:12px;font-weight:600}
+  select,input,button{background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:0;padding:6px 10px;font:inherit;font-family:var(--mono);font-size:12px;outline:none}
+  input:focus,select:focus{border-color:var(--fg)}
+  button{cursor:pointer;text-transform:uppercase;letter-spacing:.06em;font-size:11px;transition:.12s}
+  button:hover{border-color:var(--fg);background:var(--bg3)}
+  button.on{background:var(--fg);border-color:var(--fg);color:var(--bg);font-weight:600}
+  #search{min-width:240px;text-transform:none;letter-spacing:0}
+  .stats{display:flex;gap:0;align-items:stretch;padding:0;border-bottom:2px solid var(--fg);flex-wrap:wrap}
+  .card{background:var(--bg2);border-right:1px solid var(--line);border-radius:0;padding:14px 18px;min-width:130px}
+  .card .lab{color:var(--mut);font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.12em}
+  .card .big{font-family:var(--display);font-size:30px;font-weight:800;letter-spacing:-.03em;font-variant-numeric:tabular-nums;margin-top:4px;line-height:1}
+  .chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+  .chip{font-family:var(--mono);font-size:11px;padding:2px 8px;border-radius:0;background:transparent;border:1px solid var(--line);color:var(--mut);white-space:nowrap}
+  .chip b{color:var(--fg);font-variant-numeric:tabular-nums}
+  .chart{flex:1;min-width:260px;display:flex;align-items:flex-end;gap:2px;height:64px;padding:18px 18px 0}
+  .bar{flex:1;background:var(--fg);border-radius:0;min-height:2px;opacity:.88}
+  .bar:hover{opacity:1;background:var(--acc)}
+  .funnel{display:flex;flex-direction:column;gap:8px;max-width:760px}
+  .fstep{position:relative;background:var(--bg2);border:1px solid var(--line);border-radius:0;overflow:hidden;min-height:38px;display:flex;align-items:center}
+  .fbar{position:absolute;left:0;top:0;bottom:0;background:var(--acc);opacity:.16}
+  .flab{position:relative;padding:9px 12px;font-size:13px}
+  #sqlbox{width:100%;min-height:130px;background:var(--bg2);color:var(--fg);border:1px solid var(--line);border-radius:0;padding:12px 14px;font-family:var(--mono);font-size:12.5px;line-height:1.6;resize:vertical;box-sizing:border-box}
+  #sqlbox:focus{outline:none;border-color:var(--fg)}
+  .exlink{cursor:pointer;color:var(--acc);font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:.04em;border:1px solid var(--line);border-radius:0;padding:3px 10px;margin:0 3px 0 0}
+  .exlink:hover{border-color:var(--acc);background:var(--acc);color:var(--bg)}
+  .sqlwrap{overflow:auto;max-height:62vh;border:1px solid var(--line);border-radius:0}
+  .sqlwrap table{margin:0} .sqlwrap th{position:sticky;top:0;background:var(--bg2);z-index:1}
+  .sqlcell{font-family:var(--mono);font-size:12px;max-width:480px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .sqlerr{color:var(--err);background:var(--bg2);border:1px solid var(--err);border-radius:0;padding:10px 12px;white-space:pre-wrap;font-family:var(--mono);font-size:12px;margin-top:8px}
+  .toolbar{display:flex;gap:10px;align-items:center;padding:12px 18px;border-bottom:1px solid var(--line);flex-wrap:wrap;background:var(--bg2)}
+  .tabs{display:flex;border:1px solid var(--fg);border-radius:0;overflow:hidden}
+  .tabs button{border:0;border-right:1px solid var(--line);border-radius:0;background:transparent}
+  .tabs button:last-child{border-right:0}
+  .tabs button.on{background:var(--fg);color:var(--bg)}
+  main{padding:0 0 60px}
+  /* issue drill-down banner */
+  #ihead{display:none;padding:16px 20px;border-bottom:2px solid var(--fg);background:var(--bg2)}
+  #ihead.show{display:block}
+  #ihead .back{color:var(--mut);font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:.06em}
+  #ihead .it{font-family:var(--display);font-weight:700;font-size:18px;letter-spacing:-.01em;margin:10px 0 4px;word-break:break-word}
+  #ihead .meta{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:6px}
+  .spark{display:flex;align-items:flex-end;gap:1px;height:40px;margin-top:10px;max-width:680px}
+  .spark .b{flex:1;background:var(--fg);min-height:1px;border-radius:0;opacity:.85}
+  table{width:100%;border-collapse:collapse}
+  th{position:sticky;top:0;text-align:left;color:var(--mut);font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.12em;font-weight:600;padding:9px 18px;border-bottom:1px solid var(--fg);background:var(--bg2)}
+  td{padding:11px 18px;border-bottom:1px solid var(--line);vertical-align:top}
+  tr.ev{cursor:pointer;transition:background .1s}
+  tr.ev:hover{background:var(--bg2);box-shadow:inset 3px 0 0 var(--acc)}
+  .lvl{display:inline-block;width:8px;height:8px;border-radius:0;flex:none;margin-top:6px}
+  .lvl.error{background:var(--err)} .lvl.fatal{background:var(--err)} .lvl.warning{background:var(--warn)}
+  .lvl.info{background:var(--info)} .lvl.debug{background:var(--dbg)} .lvl.none{background:var(--mut2)}
+  .title{font-family:var(--display);font-weight:600;word-break:break-word}
+  .fp{color:var(--mut2);font-size:11px;font-family:var(--mono);margin-top:3px;word-break:break-all;max-height:2.6em;overflow:hidden}
+  .cnt{font-family:var(--mono);font-variant-numeric:tabular-nums;font-weight:600;text-align:right;white-space:nowrap}
+  .tag{font-size:11px;color:var(--mut);font-family:var(--mono)}
+  .when{color:var(--mut);white-space:nowrap;font-family:var(--mono);font-size:12px;font-variant-numeric:tabular-nums}
+  .empty{padding:60px;text-align:center;color:var(--mut2);font-family:var(--mono);text-transform:uppercase;letter-spacing:.08em;font-size:12px}
+  #more{display:none;margin:16px auto;padding:8px 22px}
+  .badge{font-family:var(--mono);font-size:10px;padding:2px 8px;border-radius:0;border:1px solid var(--fg);text-transform:uppercase;letter-spacing:.08em;font-weight:600}
+  .badge.error,.badge.fatal{color:var(--bg);background:var(--err);border-color:var(--err)}
+  .badge.warning{color:var(--warn);border-color:var(--warn)}
+  .badge.info{color:var(--info);border-color:var(--info)}
+  /* detail drawer */
+  #scrim{position:fixed;inset:0;background:rgba(22,19,12,.30);opacity:0;pointer-events:none;transition:.15s;z-index:8}
+  #scrim.open{opacity:1;pointer-events:auto}
+  #drawer{position:fixed;top:0;right:0;height:100%;width:min(760px,94vw);background:var(--bg2);border-left:2px solid var(--fg);transform:translateX(100%);transition:transform .2s cubic-bezier(.2,.7,.2,1);z-index:9;display:flex;flex-direction:column;box-shadow:-14px 0 44px rgba(22,19,12,.12)}
+  #drawer.open{transform:none}
+  .dhead{padding:18px 20px;border-bottom:2px solid var(--fg);display:flex;gap:12px;align-items:flex-start}
+  .dhead .x{margin-left:auto;font-size:20px;color:var(--mut);cursor:pointer;line-height:1}
+  .dbody{overflow:auto;padding:16px 20px;flex:1}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:0;margin:14px 0;border-top:1px solid var(--line);border-left:1px solid var(--line)}
+  .kv{background:var(--bg2);border-right:1px solid var(--line);border-bottom:1px solid var(--line);border-radius:0;padding:8px 11px;min-width:0}
+  .kv .k{color:var(--mut);font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.1em}
+  .kv .v{font-family:var(--mono);font-size:12.5px;word-break:break-word;margin-top:3px}
+  h3.sec{font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.14em;color:var(--mut);margin:20px 0 8px;padding-bottom:5px;border-bottom:1px solid var(--line)}
+  pre{background:var(--bg2);border:1px solid var(--line);border-radius:0;padding:12px;overflow:auto;font-family:var(--mono);font-size:12.5px;white-space:pre-wrap;word-break:break-word;margin:0}
+  .frame{font-family:var(--mono);font-size:12.5px;padding:4px 0;border-bottom:1px dashed var(--line)}
+  .frame .fn{color:var(--acc)} .frame .loc{color:var(--mut2)}
+  details summary{cursor:pointer;color:var(--mut);margin:6px 0;font-family:var(--mono);font-size:12px}
+  .tagrow{display:flex;flex-wrap:wrap;gap:6px}
+  .tagrow .chip{cursor:pointer}
+  .tagrow .chip:hover{border-color:var(--acc);color:var(--acc)}
+  .chip.ck{cursor:pointer} .chip.ck:hover{border-color:var(--acc);color:var(--acc)}
+  th.sortable{cursor:pointer} th.sortable:hover{color:var(--acc)}
+  #toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%) translateY(20px);background:var(--fg);border:1px solid var(--fg);
+    color:var(--bg);padding:10px 18px;border-radius:0;opacity:0;pointer-events:none;transition:.18s;z-index:20;font-family:var(--mono);font-size:12px;text-transform:uppercase;letter-spacing:.05em;box-shadow:4px 4px 0 var(--acc)}
+  #toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+  .sbadge{font-family:var(--mono);font-size:9px;text-transform:uppercase;letter-spacing:.08em;padding:1px 6px;border-radius:0;border:1px solid var(--line);color:var(--mut)}
+  .sbadge.resolved{color:var(--ok);border-color:var(--ok)} .sbadge.ignored{color:var(--mut2)}
+  tr.ev.resolved,tr.ev.ignored{opacity:.45}
+  td.acts{white-space:nowrap;text-align:right}
+  .act{background:transparent;border:1px solid var(--line);border-radius:0;padding:2px 7px;font-size:12px;margin-left:4px;cursor:pointer}
+  .act:hover{border-color:var(--acc);background:var(--acc);color:var(--bg)}
+  .act2{background:transparent;border:1px solid var(--line);border-radius:0;padding:3px 9px;font-size:11px;margin-left:6px;cursor:pointer}
+  .act2:hover{border-color:var(--fg);background:var(--fg);color:var(--bg)}
+  .utm{margin:4px 0 10px;font-size:12px;color:var(--mut);font-family:var(--mono)}
+  .timeline{border-left:2px solid var(--line);margin-left:4px}
+  .tl{display:flex;align-items:baseline;gap:8px;padding:5px 0 5px 12px;margin-left:-1px;cursor:pointer;border-left:2px solid transparent}
+  .tl:hover{background:var(--bg2)}
+  .tl.cur{border-left-color:var(--acc);background:var(--bg2)}
+  .tl .tlw{color:var(--mut2);font-family:var(--mono);font-size:11.5px;white-space:nowrap}
+  .tl .tltag{color:var(--mut);font-size:11px;font-family:var(--mono);min-width:64px;text-transform:uppercase}
+  .tl .tlt{color:var(--fg);font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .tl.cur .tlt{font-weight:700}
+  /* one orchestrated page-load reveal on the top-level chrome (not the JS-re-rendered insides) */
+  @keyframes rise{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+  body>header{animation:rise .42s ease both}
+  body>.stats{animation:rise .5s ease .06s both}
+  body>.toolbar{animation:rise .5s ease .12s both}
+  body>main{animation:rise .55s ease .18s both}
+  header h1 .dot{animation:pulse 2.4s ease-in-out infinite}
+  @media (prefers-reduced-motion:reduce){*{animation:none!important}}
+  /* — Daylight Swiss refinements — */
+  body{border-top:3px solid var(--acc)}
+  header h1::after{content:'/ observability';font-family:var(--mono);font-size:10px;font-weight:500;letter-spacing:.14em;text-transform:uppercase;color:var(--mut2);margin-left:11px;vertical-align:middle}
+  .card .big{font-size:32px}
+  body>.stats>.card:first-child{background:var(--bg)}
+  body>.stats>.card:first-child .big{font-size:46px;color:var(--acc)}
+  th{border-bottom-width:2px;border-bottom-color:var(--fg)}
+  #refresh.on::before{content:'';display:inline-block;width:6px;height:6px;background:var(--acc);vertical-align:middle;margin-right:7px;animation:pulse 1.6s ease-in-out infinite}
+  /* numbered section headers — editorial Swiss structure */
+  .dbody{counter-reset:sec}
+  .dbody h3.sec{counter-increment:sec}
+  .dbody h3.sec::before{content:counter(sec,decimal-leading-zero) '  ';color:var(--acc);font-weight:600}
+</style>
+</head>
+<body>
+<header>
+  <h1><span class="dot"></span>telemetry</h1>
+  <div class="tabs" id="surface-tabs" style="margin-left:4px">
+    <button id="surf-errors" class="on" title="Sentry error tracking">Errors</button>
+    <button id="surf-metrics" title="Segment product analytics">Metrics</button>
+    <button id="surf-health" title="Release health (sessions)">Health</button>
+    <button id="surf-flags" title="Feature flags">Flags</button>
+    <button id="surf-sql" title="Ad-hoc read-only SQL">SQL</button>
+  </div>
+  <span class="total" id="total"><!--SSR:total--></span>
+  <span class="spacer"></span>
+  <button id="permalink" title="copy a link to this exact view">Link</button>
+  <select id="range" title="time range">
+    <option value="1">last 1h</option><option value="6">last 6h</option>
+    <option value="24" selected>last 24h</option><option value="168">last 7d</option>
+    <option value="720">last 30d</option>
+  </select>
+  <button id="refresh" class="on" title="auto-refresh every 15s">Live</button>
+</header>
+
+<div class="stats" style="<!--SSR:stats-style-->">
+  <div class="card"><div class="lab">events</div><div class="big" id="s-total">—</div></div>
+  <div class="card"><div class="lab">by level</div><div class="chips" id="s-level"></div></div>
+  <div class="card"><div class="lab">by type</div><div class="chips" id="s-kind"></div></div>
+  <div class="card"><div class="lab">by source</div><div class="chips" id="s-source"></div></div>
+  <div class="chart" id="chart" title="activity"></div>
+</div>
+
+<div class="toolbar" style="<!--SSR:toolbar-style-->">
+  <div class="tabs">
+    <button id="tab-issues" class="on">Issues</button>
+    <button id="tab-events">Events</button>
+    <button id="tab-funnel" style="display:none">Funnels</button>
+    <button id="tab-breakdown" style="display:none">Breakdown</button>
+  </div>
+  <input id="search" placeholder="search title + body…">
+  <select id="f-level"><option value="">all levels</option></select>
+  <select id="f-kind"><option value="">all types</option></select>
+  <select id="f-source"><option value="">all sources</option></select>
+  <select id="f-env" style="display:none"><option value="">all envs</option></select>
+  <select id="f-release" style="display:none"><option value="">all releases</option></select>
+  <select id="f-status" title="issue state">
+    <option value="unresolved" selected>unresolved</option>
+    <option value="resolved">resolved</option>
+    <option value="ignored">ignored</option>
+    <option value="all">all states</option>
+  </select>
+  <span class="chip" id="tagchip" style="display:none;cursor:pointer;border-color:var(--acc);color:var(--fg)"></span>
+  <span class="spacer" style="flex:1"></span>
+  <span class="total" id="count">—</span>
+</div>
+<div id="toast"></div>
+
+<div id="ihead" class="<!--SSR:ihead-show-->">
+  <a class="back" id="iback">← back to issues</a>
+  <div class="it" id="ititle"><!--SSR:ititle--></div>
+  <div class="meta" id="imeta"><!--SSR:imeta--></div>
+  <div class="spark" id="ispark" title="events over time (this issue)"></div>
+</div>
+
+<main>
+<div id="tableview" style="<!--SSR:tableview-style-->">
+<table><thead id="thead"><!--SSR:thead--></thead><tbody id="rows"><!--SSR:rows--></tbody></table>
+<div class="empty" id="empty" style="display:none">no events match</div>
+<button id="more">load more</button>
+</div>
+<div id="panel" style="<!--SSR:panel-style-->;padding:18px"><!--SSR:panel--></div>
+</main>
+
+<div id="scrim"></div>
+<aside id="drawer"><div class="dhead" id="dhead"></div><div class="dbody" id="dbody"></div></aside>
+
+<!--SSR:boot-->
+<script>
+const $=s=>document.querySelector(s);
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const stripTags=s=>String(s??'').replace(/<[^>]*>/g,'');
+const lvlClass=l=>['error','fatal','warning','info','debug'].includes((l||'').toLowerCase())?(l||'').toLowerCase():'none';
+function rel(ts){ if(!ts)return''; const d=(Date.now()-new Date(ts).getTime())/1000;
+  if(d<60)return Math.max(0,d|0)+'s ago'; if(d<3600)return (d/60|0)+'m ago';
+  if(d<86400)return (d/3600|0)+'h ago'; return (d/86400|0)+'d ago'; }
+const LIMIT=100;
+const state={surface:'errors', tab:'issues', hours:24, q:'', level:'', kind:'', env:'', release:'', tag:'', sort:'recent', status:'unresolved', fingerprint:null, sessionId:null, imeta:null, live:true, offset:0, items:[]};
+const isMetrics=()=>state.surface==='metrics';
+let timer=null, lastDetail=null, lastEventId=null, restoring=false, navLock=false;
+
+// Real path-based URLs (no #). Each surface/tab/issue maps to a path; filters and
+// the open-event drawer live in the query string. pathFor builds it; parsePath
+// reads it back; syncUrl writes it (push=true for navigation -> back/forward works,
+// else replace so filter tweaks don't spam history).
+function pathFor(){
+  let path='/';
+  if(state.surface==='session') return '/session/'+state.sessionId;
+  if(state.surface==='errors') path = state.fingerprint ? '/issues/'+encodeURIComponent(state.fingerprint) : (state.tab==='events'?'/events':'/');
+  else if(state.surface==='metrics') path = state.tab==='funnel'?'/metrics/funnel' : state.tab==='breakdown'?'/metrics/breakdown' : state.tab==='events'?'/metrics/stream' : '/metrics';
+  else path = '/'+state.surface;   // health | flags | sql
+  const p=new URLSearchParams();
+  if(state.hours!==24)p.set('hours',state.hours);
+  if(state.q)p.set('q',state.q);
+  if(state.level)p.set('level',state.level);
+  if(state.kind!==(state.surface==='errors'?'event':''))p.set('kind',state.kind);
+  if(state.env)p.set('env',state.env);
+  if(state.release)p.set('release',state.release);
+  if(state.tag)p.set('tag',state.tag);
+  if(state.sort&&state.sort!==(state.surface==='metrics'?'frequent':'recent'))p.set('sort',state.sort);
+  if(state.status&&state.status!==(state.surface==='metrics'?'all':'unresolved'))p.set('status',state.status);
+  if(lastEventId)p.set('event',lastEventId);
+  const q=p.toString();
+  return q?(path+'?'+q):path;
+}
+function syncUrl(push){
+  if(restoring||navLock)return;
+  const url=pathFor();
+  if(url===location.pathname+location.search)return;
+  if(push)history.pushState(null,'',url); else history.replaceState(null,'',url);
+}
+// Read state back out of the current path + query (inverse of pathFor).
+function parsePath(){
+  const path=location.pathname.replace(/\/+$/,'')||'/';
+  let surface='errors', tab='issues', fingerprint=null, sessionId=null;
+  if(path.startsWith('/session/')){surface='session';sessionId=path.slice('/session/'.length);}
+  else if(path==='/'){surface='errors';tab='issues';}
+  else if(path==='/events'){surface='errors';tab='events';}
+  else if(path.startsWith('/issues/')){surface='errors';tab='issues';fingerprint=decodeURIComponent(path.slice('/issues/'.length));}
+  else if(path==='/metrics'){surface='metrics';tab='issues';}
+  else if(path==='/metrics/stream'){surface='metrics';tab='events';}
+  else if(path==='/metrics/funnel'){surface='metrics';tab='funnel';}
+  else if(path==='/metrics/breakdown'){surface='metrics';tab='breakdown';}
+  else if(path==='/health'){surface='health';}
+  else if(path==='/flags'){surface='flags';}
+  else if(path==='/sql'){surface='sql';}
+  return {surface,tab,fingerprint,sessionId,query:new URLSearchParams(location.search)};
+}
+
+function qs(extra){
+  const p=new URLSearchParams({hours:state.hours});
+  p.set('source', isMetrics()?'segment':'sentry');  // surface scopes the source
+  if(state.q)p.set('q',state.q); if(state.level)p.set('level',state.level);
+  if(state.kind)p.set('kind',state.kind);
+  if(state.env)p.set('environment',state.env); if(state.release)p.set('release',state.release);
+  if(state.tag)p.set('tag',state.tag);
+  if(state.sort&&state.sort!=='recent')p.set('sort',state.sort);
+  if(!isMetrics()&&state.status&&state.status!=='all')p.set('status',state.status);
+  if(state.fingerprint)p.set('fingerprint',state.fingerprint);
+  for(const k in extra)p.set(k,extra[k]); return p.toString();
+}
+let toastT=null;
+function toast(msg){let t=$('#toast');t.textContent=msg;t.classList.add('show');clearTimeout(toastT);toastT=setTimeout(()=>t.classList.remove('show'),1800);}
+// set a filter facet from a clicked chip/select and re-query
+function setFilter(kind,val){
+  if(kind==='q'){ if(state.q===val)val=''; state.q=val; $('#search').value=val; toast(val?`search: ${val}`:'search cleared'); refreshAll(); return; }
+  if(state[kind]===val)val=''; state[kind]=val;
+  const sel={level:'#f-level',kind:'#f-kind',env:'#f-env',release:'#f-release'}[kind];
+  if(sel&&$(sel))$(sel).value=val;
+  toast(val?`${kind}: ${val}`:`${kind} filter cleared`); refreshAll(); }
+// First paint is server-rendered and the data it needed is embedded in
+// window.__BOOT__.cache, keyed by the exact /dash/... URL the client would
+// fetch. jget serves each cached URL ONCE (delete-on-read), so hydration shows
+// the SSR'd content without a network round-trip; everything after falls back to
+// a real fetch.
+const BOOT=(window.__BOOT__||{}), BOOT_CACHE=BOOT.cache||{};
+async function jget(u){
+  if(Object.prototype.hasOwnProperty.call(BOOT_CACHE,u)){const d=BOOT_CACHE[u];delete BOOT_CACHE[u];return d;}
+  const r=await fetch(u);if(!r.ok)throw new Error(await r.text());return r.json();}
+function fillSelect(sel,pairs,cur){
+  const keep=sel.querySelector('option').outerHTML;
+  sel.innerHTML=keep+pairs.map(([k,c])=>`<option value="${esc(k)}"${k===cur?' selected':''}>${esc(k)} (${c})</option>`).join('');
+}
+// clickable facet chips: clicking filters by that value (toggles)
+function chips(el,pairs,filterKind,lvl){
+  el.innerHTML=pairs.map(([k,c])=>`<span class="chip ck" data-k="${esc(filterKind)}" data-v="${esc(k)}" title="filter by ${esc(filterKind)} = ${esc(k)}">${lvl?`<span class="lvl ${lvlClass(k)}" style="display:inline-block;margin:0 5px 0 0"></span>`:''}${esc(k||'∅')} <b>${c}</b></span>`).join('')||'<span class="chip">none</span>';
+  el.querySelectorAll('.ck').forEach(ch=>ch.onclick=()=>setFilter(ch.dataset.k,ch.dataset.v));
+}
+function setLab(sel,txt){const c=$(sel).closest('.card');if(c)c.querySelector('.lab').textContent=txt;}
+function drawChart(series){const max=Math.max(1,...series.map(x=>x[1]));
+  $('#chart').innerHTML=series.map(([b,c])=>`<div class="bar" style="height:${Math.round(c/max*100)}%" title="${esc(b)} — ${c}"></div>`).join('');}
+async function loadStats(){
+  if(isMetrics()) return loadMetrics();
+  const s=await jget('/dash/stats?'+qs());
+  $('#total').innerHTML=`<b>${s.total.toLocaleString()}</b> errors / ${s.hours}h`;
+  $('#s-total').textContent=s.total.toLocaleString();
+  setLab('#s-total','errors'); setLab('#s-level','by level'); setLab('#s-kind','by type'); setLab('#s-source','by source');
+  chips($('#s-level'),s.by_level,'level',true); chips($('#s-kind'),s.by_kind,'kind'); chips($('#s-source'),s.by_source,'source');
+  fillSelect($('#f-level'),s.by_level,state.level);
+  fillSelect($('#f-kind'),s.by_kind,state.kind);
+  const fe=$('#f-env'), fr=$('#f-release');
+  fillSelect(fe,s.by_env||[],state.env); fe.style.display=(s.by_env||[]).length>1?'':'none';
+  fillSelect(fr,s.by_release||[],state.release); fr.style.display=(s.by_release||[]).length>1?'':'none';
+  drawChart(s.series);
+}
+async function loadMetrics(){
+  const s=await jget('/dash/metrics?hours='+state.hours);
+  $('#total').innerHTML=`<b>${s.total.toLocaleString()}</b> events · ${s.users.toLocaleString()} users / ${s.hours}h`;
+  $('#s-total').textContent=s.total.toLocaleString();
+  setLab('#s-total','events'); setLab('#s-level','users'); setLab('#s-kind','by event'); setLab('#s-source','by type');
+  $('#s-level').innerHTML=`<span class="chip"><b>${s.users.toLocaleString()}</b> unique</span>`;
+  chips($('#s-kind'),s.by_event,'q'); chips($('#s-source'),s.by_type,'kind');
+  fillSelect($('#f-kind'),s.by_type,state.kind);
+  drawChart(s.series);
+}
+
+function rowHtml(it, issues){
+  if(isMetrics()){
+    const t=esc(stripTags(it.title||'(event)'));
+    if(issues) return `<tr class="ev" data-fp="${esc(it.fingerprint||'')}"><td><span class="lvl info"></span></td>
+      <td><div class="title">${t}</div></td><td class="cnt">${it.count.toLocaleString()}</td>
+      <td class="cnt">${(it.users||0).toLocaleString()}</td>
+      <td class="when" title="${esc(it.last_seen)}">${rel(it.last_seen)}</td></tr>`;
+    return `<tr class="ev" data-id="${it.id}"><td><span class="lvl info"></span></td>
+      <td><div class="title">${t}</div></td><td class="tag">${esc(it.kind)}</td>
+      <td class="when" title="${esc(it.received_at)}">${rel(it.received_at)}</td></tr>`;
+  }
+  const lc=lvlClass(it.level), title=esc(stripTags(it.title||'(no message)'));
+  if(issues){const stt=it.status||'unresolved';
+    const sb=stt!=='unresolved'?`<span class="sbadge ${stt}">${stt}</span> `:'';
+    const acts=stt==='unresolved'
+      ? `<button class="act" data-fp="${esc(it.fingerprint||'')}" data-st="resolved" title="resolve">✓</button><button class="act" data-fp="${esc(it.fingerprint||'')}" data-st="ignored" title="ignore">⊘</button>`
+      : `<button class="act" data-fp="${esc(it.fingerprint||'')}" data-st="unresolved" title="unresolve">↺</button>`;
+    return `<tr class="ev ${stt}" data-fp="${esc(it.fingerprint||'')}"><td><span class="lvl ${lc}"></span></td>
+    <td><div class="title">${sb}${title}</div><div class="fp">${esc(it.fingerprint||'')}</div></td>
+    <td class="cnt">${it.count.toLocaleString()}</td><td class="cnt">${(it.users||0).toLocaleString()}</td>
+    <td class="tag">${esc(it.kind||'')}</td>
+    <td class="when" title="first seen ${esc(it.first_seen)}">${rel(it.first_seen)}</td>
+    <td class="when" title="${esc(it.last_seen)}">${rel(it.last_seen)}</td>
+    <td class="acts">${acts}</td></tr>`;}
+  return `<tr class="ev" data-id="${it.id}"><td><span class="lvl ${lc}"></span></td>
+    <td><div class="title">${title}</div></td><td class="tag">${esc(it.kind)}</td>
+    <td class="tag">${esc(it.source)}</td><td class="when" title="${esc(it.received_at)}">${rel(it.received_at)}</td></tr>`;
+}
+function render(){
+  const issues = state.tab==='issues' && !state.fingerprint;
+  if(isMetrics()){
+    $('#thead').innerHTML=issues
+      ? `<tr><th></th><th>Event</th><th class="cnt sortable" id="sort-freq">count${state.sort==='frequent'?' ▾':''}</th><th class="cnt">users</th><th class="sortable" id="sort-recent">last seen${state.sort==='recent'?' ▾':''}</th></tr>`
+      : '<tr><th></th><th>Event</th><th>type</th><th>when</th></tr>';
+  } else {
+    $('#thead').innerHTML=issues
+      ? `<tr><th></th><th>Issue</th><th class="cnt sortable" id="sort-freq">events${state.sort==='frequent'?' ▾':''}</th><th class="cnt">users</th><th>type</th><th>first</th><th class="sortable" id="sort-recent">last seen${state.sort==='recent'?' ▾':''}</th><th></th></tr>`
+      : '<tr><th></th><th>Title</th><th>type</th><th>source</th><th>when</th></tr>';
+  }
+  $('#rows').innerHTML=state.items.map(it=>rowHtml(it,issues)).join('');
+  $('#empty').style.display=state.items.length?'none':'block';
+  $('#count').textContent=state.items.length+' '+(isMetrics()?(issues?'events':'records'):(issues?'issues':'events'));
+  document.querySelectorAll('tr.ev').forEach(tr=>tr.onclick=()=> tr.dataset.fp!==undefined ? drillIn(tr.dataset.fp) : openDetail(tr.dataset.id));
+  const sf=$('#sort-freq'), sr=$('#sort-recent');
+  if(sf)sf.onclick=()=>{state.sort='frequent';loadList(true);};
+  if(sr)sr.onclick=()=>{state.sort='recent';loadList(true);};
+  document.querySelectorAll('.act').forEach(b=>b.onclick=e=>{e.stopPropagation();setIssueState(b.dataset.fp,b.dataset.st);});
+}
+async function setIssueState(fp,status){
+  try{await fetch('/dash/issue/state',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({fingerprint:fp,status})});
+    toast('issue '+status); refreshAll();}catch(e){toast('failed: '+e.message);}
+}
+async function assignIssue(fp,cur){
+  const v=prompt('Assign issue to (empty to unassign):',cur||'');
+  if(v===null)return;  // cancelled
+  const name=v.trim();
+  // empty -> assignee:null (unassign); omit `status` so it is preserved
+  try{await fetch('/dash/issue/state',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({fingerprint:fp,assignee:name||null})});
+    toast(name?('assigned to '+name):'unassigned'); drillIn(fp);}catch(e){toast('failed: '+e.message);}
+}
+async function loadList(reset=true){
+  if(reset){state.offset=0;state.items=[];}
+  const issues = state.tab==='issues' && !state.fingerprint;
+  const d=await jget('/dash/events?'+qs({group:issues?1:0,limit:LIMIT,offset:state.offset}));
+  const got=d.items||[];
+  state.items = reset ? got : state.items.concat(got);
+  state.offset += got.length;
+  render();
+  syncUrl();  // reflect filter changes (dropdowns route through loadList) in the URL
+  $('#more').style.display = got.length>=LIMIT ? 'block' : 'none';
+}
+
+async function drillIn(fp){
+  if(!fp)return; state.fingerprint=fp; syncUrl(true);
+  loadStats().catch(()=>{});  // keep the stats strip + filter dropdowns populated on a direct issue permalink
+  let it=state.items.find(x=>x.fingerprint===fp);
+  if(!it){try{const m=await jget('/dash/events?'+qs({group:1,limit:1}));it=(m.items&&m.items[0])||{};}catch(e){it={};}}
+  $('#ihead').classList.add('show');
+  $('#ititle').textContent=stripTags(it.title||state.fingerprint||'issue');
+  $('#imeta').innerHTML=`<span class="badge ${lvlClass(it.level)}">${esc(it.level||it.kind||'')}</span>
+    <span class="chip"><b>${(it.count||0).toLocaleString()}</b> events</span>
+    <span class="chip"><b>${(it.users||0).toLocaleString()}</b> users</span>
+    <span class="chip">first <b>${rel(it.first_seen)}</b></span>
+    <span class="chip">last <b>${rel(it.last_seen)}</b></span>
+    ${(it.status||'unresolved')==='unresolved'
+      ? `<button class="act2" data-st="resolved">✓ resolve</button><button class="act2" data-st="ignored">⊘ ignore</button>`
+      : `<span class="sbadge ${esc(it.status)}">${esc(it.status)}</span><button class="act2" data-st="unresolved">↺ unresolve</button>`}
+    ${it.assignee
+      ? `<span class="chip" title="assignee">@<b>${esc(it.assignee)}</b></span>`
+      : `<span class="chip" style="opacity:.55" title="assignee">unassigned</span>`}
+    <button class="act2" id="iassign" data-cur="${esc(it.assignee||'')}">${it.assignee?'reassign':'assign'}</button>
+    <a class="back" style="margin-left:4px" onclick="navigator.clipboard&&navigator.clipboard.writeText(location.href);toast('issue link copied')">copy link</a>`;
+  $('#imeta').querySelectorAll('.act2[data-st]').forEach(b=>b.onclick=()=>setIssueState(state.fingerprint,b.dataset.st));
+  const ab=$('#iassign'); if(ab)ab.onclick=()=>assignIssue(state.fingerprint,ab.dataset.cur);
+  // per-issue frequency sparkline
+  try{const s=await jget('/dash/stats?'+qs({}));const mx=Math.max(1,...s.series.map(x=>x[1]));
+    $('#ispark').innerHTML=s.series.map(([b,c])=>`<div class="b" style="height:${Math.round(c/mx*100)}%" title="${esc(b)} — ${c}"></div>`).join('');}catch(e){}
+  await loadList(true);
+  window.scrollTo(0,0);
+}
+function backToIssues(){state.fingerprint=null;state.imeta=null;$('#ihead').classList.remove('show');setTab('issues');syncUrl();}
+
+function kv(k,v){return v==null||v===''?'':`<div class="kv"><div class="k">${esc(k)}</div><div class="v">${esc(v)}</div></div>`;}
+async function openDetail(id){
+  lastEventId=id; syncUrl(true);
+  $('#scrim').classList.add('open'); $('#drawer').classList.add('open');
+  $('#dbody').innerHTML='<div class="empty">loading…</div>'; $('#dhead').innerHTML='';
+  const d=await jget('/dash/event/'+id); const b=d.body||{}; lastDetail=b;
+  const lvl=b.level||'';
+  const title=stripTags(b.message||(b.logentry&&b.logentry.message)||(b.exception&&b.exception.values&&b.exception.values[0]&&(b.exception.values[0].type+': '+(b.exception.values[0].value||'')))||'(no message)').split('\n')[0];
+  $('#dhead').innerHTML=`<div style="min-width:0"><div class="row"><span class="badge ${lvlClass(lvl)}">${esc(lvl||d.kind)}</span>
+      <span class="tag">${esc(d.kind)} · ${esc(d.source)}${d.project?(' · '+esc(d.project)):''}</span>
+      <button onclick="copyJson()" style="padding:2px 8px;font-size:12px">copy JSON</button>
+      ${d.source==='sentry'?`<button onclick="viewSession(${d.id})" style="padding:2px 8px;font-size:12px">session</button>`:''}
+      <button onclick="navigator.clipboard&&navigator.clipboard.writeText(location.href);toast('event link copied')" style="padding:2px 8px;font-size:12px">copy link</button></div>
+      <div class="title" style="margin-top:8px;font-size:15px">${esc(title)}</div>
+      <div class="when" style="margin-top:4px">${esc(d.received_at)} · #${d.id}</div></div>
+    <span class="x" onclick="closeDrawer()">✕</span>`;
+  const u=b.user||{}; const ctxOs=(b.contexts&&b.contexts.os)||{}; const ctxDev=(b.contexts&&b.contexts.device)||{};
+  let html=`<div class="grid">
+    ${kv('release',b.release)}${kv('environment',b.environment)}${kv('platform',b.platform)}
+    ${kv('transaction',b.transaction)}${kv('server',b.server_name)}${kv('event_id',b.event_id)}
+    ${kv('user',u.username||u.id||u.email||u.ip_address)}${kv('sdk',b.sdk&&(b.sdk.name+' '+b.sdk.version))}
+    ${kv('os',ctxOs.name&&(ctxOs.name+' '+(ctxOs.version||'')))}${kv('device',ctxDev.model||ctxDev.name)}</div>`;
+  const tags=b.tags&&(Array.isArray(b.tags)?Object.fromEntries(b.tags):b.tags);
+  if(tags&&Object.keys(tags).length){html+=`<h3 class="sec">tags</h3><div class="tagrow">`+
+    Object.entries(tags).map(([k,v])=>`<span class="chip tagck" data-tk="${esc(k)}" data-tv="${esc(v)}" title="filter by ${esc(k)} = ${esc(v)}">${esc(k)} <b>${esc(v)}</b></span>`).join('')+`</div>`;}
+  const exc=b.exception&&b.exception.values;
+  if(exc&&exc.length){html+='<h3 class="sec">exception</h3>';
+    exc.forEach(e=>{html+=`<div class="kv"><div class="v"><b>${esc(e.type)}</b>: ${esc(e.value||'')}</div></div>`;
+      const fr=(e.stacktrace&&e.stacktrace.frames)||[];
+      if(fr.length)html+='<div style="margin-top:6px">'+fr.slice().reverse().map(f=>
+        `<div class="frame"><span class="fn">${esc(f.function||'?')}</span> <span class="loc">${esc((f.filename||f.module||'')+(f.lineno?(':'+f.lineno):''))}</span></div>`).join('')+'</div>';});}
+  const fullmsg=b.message||(b.logentry&&b.logentry.message);
+  if(fullmsg){html+='<h3 class="sec">message</h3><pre>'+esc(fullmsg)+'</pre>';}
+  const bc=b.breadcrumbs&&(b.breadcrumbs.values||b.breadcrumbs);
+  if(Array.isArray(bc)&&bc.length){html+=`<h3 class="sec">breadcrumbs (${bc.length})</h3><pre>`+
+    esc(bc.slice(-15).map(c=>`${c.timestamp||''} [${c.category||c.type||''}] ${c.message||''}`).join('\n'))+'</pre>';}
+  html+='<h3 class="sec">raw</h3><details><summary>full JSON</summary><pre>'+esc(JSON.stringify(b,null,2))+'</pre></details>';
+  html+='<h3 class="sec">user story</h3><div id="story">loading…</div>';
+  $('#dbody').innerHTML=html;
+  $('#dbody').querySelectorAll('.tagck').forEach(ch=>ch.onclick=()=>tagFilter(ch.dataset.tk,ch.dataset.tv));
+  loadStory(id);
+}
+// The user's journey (errors + product events) around this event, + UTM acquisition.
+async function loadStory(id){
+  let s; try{s=await jget('/dash/story/'+id);}catch(e){$('#story').textContent='unavailable';return;}
+  const el=$('#story'); if(!el)return;
+  if(!s.user){el.innerHTML='<div class="when">no user/anonymous id on this event — can’t stitch a story</div>';return;}
+  let h=`<div class="when" style="margin-bottom:6px">user <b style="color:var(--fg)">${esc(s.user)}</b> · ${s.count} events in window</div>`;
+  if(s.utm){const u=s.utm; const parts=[['source',u.source],['medium',u.medium],['campaign',u.name||u.campaign],['term',u.term],['content',u.content]].filter(x=>x[1]);
+    if(parts.length)h+=`<div class="utm">↳ acquired via ${parts.map(([k,v])=>`<span class="chip">${k}: <b>${esc(v)}</b></span>`).join(' ')}</div>`;}
+  h+='<div class="timeline">'+(s.events||[]).map(e=>{
+    const lc=lvlClass(e.level), t=esc(stripTags(e.title||e.kind));
+    return `<div class="tl ${e.current?'cur':''}" data-id="${e.id}"><span class="lvl ${e.source==='segment'?'info':lc}"></span>
+      <span class="tlw" title="${esc(e.received_at)}">${esc(e.received_at.slice(11,19))}</span>
+      <span class="tltag">${esc(e.source==='segment'?e.kind:(e.level||e.kind))}</span>
+      <span class="tlt">${t}</span></div>`;}).join('')+'</div>';
+  el.innerHTML=h;
+  el.querySelectorAll('.tl').forEach(d=>d.onclick=()=>openDetail(d.dataset.id));
+}
+function copyJson(){if(lastDetail&&navigator.clipboard){navigator.clipboard.writeText(JSON.stringify(lastDetail,null,2));toast('event JSON copied');}}
+function tagFilter(k,v){ closeDrawer();
+  if(k==='environment')return setFilter('env',v);
+  if(k==='release')return setFilter('release',v);
+  // exact tag match (body.tags.key = value); clicking the same tag toggles off
+  const t=k+':'+v; state.tag=(state.tag===t)?'':t;
+  toast(state.tag?('tag: '+k+' = '+v):'tag filter cleared'); refreshAll(); }
+// the active exact-tag filter, rendered as a removable chip in the toolbar
+function renderTagChip(){
+  const el=$('#tagchip'); if(!el)return;
+  if(!state.tag){ el.style.display='none'; el.innerHTML=''; return; }
+  const i=state.tag.indexOf(':'), k=state.tag.slice(0,i), v=state.tag.slice(i+1);
+  el.style.display=''; el.title='clear tag filter';
+  el.innerHTML=`tag: <b>${esc(k)}</b> = <b>${esc(v)}</b> <span style="margin-left:4px">×</span>`;
+  el.onclick=()=>{ state.tag=''; toast('tag filter cleared'); refreshAll(); };
+}
+function closeDrawer(){$('#scrim').classList.remove('open');$('#drawer').classList.remove('open');lastEventId=null;syncUrl();}
+$('#scrim').onclick=closeDrawer;
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closeDrawer();});
+
+function setTab(t){state.tab=t;if(t!=='issues')state.fingerprint=null;if(t==='issues'&&!state.fingerprint)$('#ihead').classList.remove('show');
+  ['issues','events','funnel','breakdown'].forEach(x=>$('#tab-'+x).classList.toggle('on',x===t));if(!restoring){syncUrl(true);refreshAll();}}
+$('#tab-issues').onclick=()=>{state.fingerprint=null;$('#ihead').classList.remove('show');setTab('issues');};
+$('#tab-events').onclick=()=>setTab('events');
+$('#tab-funnel').onclick=()=>setTab('funnel');
+$('#tab-breakdown').onclick=()=>setTab('breakdown');
+// top-level product-surface switch: Errors (sentry) / Metrics (segment) / Health (sessions) / Flags
+function setSurface(s){
+  state.surface=s; state.fingerprint=null; state.sessionId=null; state.q=''; state.level=''; state.env=''; state.release=''; state.tab='issues';
+  state.kind = s==='errors'?'event':'';            // Issues = real errors only (sessions live under Health)
+  state.status = s==='metrics'?'all':'unresolved';
+  state.sort = s==='metrics'?'frequent':'recent';
+  $('#search').value=''; $('#search').placeholder = s==='metrics'?'search event…':'search title + body…';
+  ['errors','metrics','health','flags','sql'].forEach(x=>$('#surf-'+x).classList.toggle('on',x===s));
+  $('#ihead').classList.remove('show');
+  const tableSurface = (s==='errors'||s==='metrics');
+  document.querySelector('.stats').style.display = tableSurface?'':'none';
+  document.querySelector('.toolbar').style.display = tableSurface?'':'none';
+  $('#tab-issues').textContent = s==='metrics'?'Top Events':'Issues';
+  $('#tab-events').textContent = s==='metrics'?'Stream':'Events';
+  $('#tab-funnel').style.display = s==='metrics'?'':'none';
+  $('#tab-breakdown').style.display = s==='metrics'?'':'none';
+  $('#tab-issues').classList.add('on'); ['events','funnel','breakdown'].forEach(t=>$('#tab-'+t).classList.remove('on'));
+  // error-only filters are hidden on the metrics surface
+  ['#f-level','#f-status','#f-env','#f-release'].forEach(x=>$(x).style.display = s==='metrics'?'none':'');
+  if(!restoring){syncUrl(true);refreshAll();}
+}
+$('#surf-errors').onclick=()=>setSurface('errors');
+$('#surf-metrics').onclick=()=>setSurface('metrics');
+$('#surf-health').onclick=()=>setSurface('health');
+$('#surf-flags').onclick=()=>setSurface('flags');
+$('#surf-sql').onclick=()=>setSurface('sql');
+$('#permalink').onclick=()=>{syncUrl();if(navigator.clipboard)navigator.clipboard.writeText(location.href);toast('link copied to this view');};
+$('#iback').onclick=backToIssues;
+$('#more').onclick=()=>loadList(false);
+let deb; $('#search').oninput=e=>{clearTimeout(deb);deb=setTimeout(()=>{state.q=e.target.value.trim();loadList(true);},300);};
+$('#range').onchange=e=>{state.hours=+e.target.value;refreshAll();};
+$('#f-level').onchange=e=>{state.level=e.target.value;loadList(true);};
+$('#f-kind').onchange=e=>{state.kind=e.target.value;loadList(true);};
+$('#f-source').style.display='none';  // source is selected by the Errors/Metrics surface
+$('#f-env').onchange=e=>{state.env=e.target.value;refreshAll();};
+$('#f-release').onchange=e=>{state.release=e.target.value;refreshAll();};
+$('#f-status').onchange=e=>{state.status=e.target.value;loadList(true);};
+$('#refresh').onclick=()=>{state.live=!state.live;$('#refresh').classList.toggle('on',state.live);schedule();};
+
+function showPanel(){$('#tableview').style.display='none';$('#panel').style.display='';}
+function showTable(){$('#tableview').style.display='';$('#panel').style.display='none';}
+function refreshAll(){
+  syncUrl();
+  renderTagChip();
+  if(state.surface==='session'){
+    document.querySelector('.stats').style.display='none';
+    document.querySelector('.toolbar').style.display='none';
+    $('#ihead').classList.remove('show');
+    ['errors','metrics','health','flags','sql'].forEach(x=>$('#surf-'+x).classList.remove('on'));
+    showPanel();return loadSession().catch(e=>$('#panel').textContent='error: '+e.message);
+  }
+  if(state.surface==='sql'){showPanel();return loadSql();}
+  if(state.surface==='health'){showPanel();return loadHealth().catch(e=>$('#panel').textContent='error: '+e.message);}
+  if(state.surface==='flags'){showPanel();return loadFlags().catch(e=>$('#panel').textContent='error: '+e.message);}
+  if(state.surface==='metrics'&&state.tab==='funnel'){showPanel();loadStats().catch(()=>{});return loadFunnel().catch(e=>$('#panel').textContent='error: '+e.message);}
+  if(state.surface==='metrics'&&state.tab==='breakdown'){showPanel();loadStats().catch(()=>{});return loadBreakdown().catch(e=>$('#panel').textContent='error: '+e.message);}
+  showTable(); loadStats().catch(()=>{}); loadList(true).catch(()=>{});
+}
+async function loadHealth(){
+  const h=await jget('/dash/health?hours='+state.hours);
+  const col=v=>v>=99?'var(--ok)':v>=95?'var(--warn)':'var(--err)';
+  const sb=h.by_status.map(([k,c])=>`<span class="chip"><span class="lvl ${['crashed','abnormal','unhandled','errored'].includes(k)?'error':(k==='exited'||k==='ok'?'info':'none')}" style="display:inline-block;margin:0 5px 0 0"></span>${esc(k)} <b>${c}</b></span>`).join('');
+  const mx=Math.max(1,...h.series.map(x=>x[1]));
+  $('#panel').innerHTML=`<div class="stats" style="border:0;padding:0 0 14px;margin:0">
+      <div class="card"><div class="lab">crash-free sessions</div><div class="big" style="color:${col(h.crash_free_rate)}">${h.crash_free_rate.toFixed(2)}%</div></div>
+      <div class="card"><div class="lab">crash-free users</div><div class="big" style="color:${col(h.crash_free_users_rate)}">${h.crash_free_users_rate.toFixed(2)}%</div><div class="lab">(${h.total_users.toLocaleString()} users)</div></div>
+      <div class="card"><div class="lab">healthy</div><div class="big" style="color:${col(h.healthy_rate)}">${h.healthy_rate.toFixed(1)}%</div></div>
+      <div class="card"><div class="lab">sessions</div><div class="big">${h.total.toLocaleString()}</div></div>
+      <div class="card"><div class="lab">crashed</div><div class="big" style="color:var(--err)">${h.crashed}</div></div>
+      <div class="card" style="flex:1;min-width:220px"><div class="lab">by status</div><div class="chips">${sb}</div></div></div>
+    <div class="chart" style="height:60px;margin:0 0 18px">${h.series.map(([b,c])=>`<div class="bar" style="height:${Math.round(c/mx*100)}%" title="${esc(b)} — ${c}"></div>`).join('')}</div>
+    <h3 class="sec">by release</h3>
+    <table><thead><tr><th>release</th><th class="cnt">sessions</th><th class="cnt">crash-free</th></tr></thead><tbody>${
+      h.by_release.map(r=>`<tr><td>${esc(r.release||'(none)')}</td><td class="cnt">${r.sessions.toLocaleString()}</td><td class="cnt" style="color:${col(r.crash_free)}">${r.crash_free.toFixed(2)}%</td></tr>`).join('')||'<tr><td colspan=3 class="empty">no sessions</td></tr>'}</tbody></table>`;
+}
+async function loadFlags(){
+  const f=await jget('/dash/flags');
+  const flags=(f.config&&f.config.flags)||{}, variants=(f.config&&f.config.variants)||{};
+  const obs=Object.fromEntries((f.observed||[]).map(([k,c])=>[k,c]));
+  const names=Object.keys(flags).sort();
+  const rows=names.map(n=>{const on=flags[n],v=variants[n];
+    return `<tr><td><span class="lvl ${on?'ok':'none'}"></span> ${esc(n)}</td>
+      <td>${on?'<span class="sbadge resolved">on</span>':'<span class="sbadge ignored">off</span>'}</td>
+      <td class="tag">${v?esc(v.name||''):''}</td><td class="cnt">${obs[n]?obs[n].toLocaleString():'—'}</td></tr>`;}).join('');
+  $('#panel').innerHTML=`<div class="when" style="margin-bottom:10px">${names.length} flags · live config from <b>${esc(f.source_url)}</b> · "observed" = times a flag appeared in event data (contexts.flags)</div>
+    <table><thead><tr><th>flag</th><th>state</th><th>variant</th><th class="cnt">observed</th></tr></thead><tbody>${rows||'<tr><td colspan=4 class="empty">flag service unreachable</td></tr>'}</tbody></table>`;
+}
+async function loadFunnel(){
+  state._fsteps=state._fsteps||[];
+  const ev=await jget('/dash/metrics?hours='+state.hours);
+  const opts=(ev.by_event||[]).map(x=>`<option value="${esc(x[0])}">${esc(x[0])} (${x[1]})</option>`).join('');
+  let res='<div class="when">add ≥2 steps to compute the funnel</div>';
+  if(state._fsteps.length>=2){
+    const f=await jget('/dash/funnel?hours='+state.hours+'&steps='+encodeURIComponent(state._fsteps.join('|')));
+    const mx=Math.max(1,...f.steps.map(s=>s.users),1);
+    res='<div class="funnel">'+f.steps.map((s,i)=>`<div class="fstep"><div class="fbar" style="width:${Math.max(2,Math.round(s.users/mx*100))}%"></div>
+      <div class="flab"><b>${i+1}. ${esc(s.step)}</b> · ${s.users} users · ${s.pct_of_first.toFixed(0)}% of start${i>0?` · ${s.pct_of_prev.toFixed(0)}% of prev`:''}</div></div>`).join('')+'</div>';
+  }
+  $('#panel').innerHTML=`<h3 class="sec">conversion funnel</h3>
+    <div class="row" style="margin-bottom:12px"><select id="fadd"><option value="">+ add step…</option>${opts}</select>
+    ${state._fsteps.map((s,i)=>`<span class="chip">${i+1}. ${esc(s)}</span>`).join(' ')}
+    ${state._fsteps.length?'<button id="fclear">clear</button>':''}</div>${res}`;
+  $('#fadd').onchange=e=>{if(e.target.value){state._fsteps.push(e.target.value);loadFunnel();}};
+  if($('#fclear'))$('#fclear').onclick=()=>{state._fsteps=[];loadFunnel();};
+}
+async function loadBreakdown(){
+  const ev=await jget('/dash/metrics?hours='+state.hours);
+  const eopts=(ev.by_event||[]).map(x=>`<option value="${esc(x[0])}"${x[0]===state._bdEvent?' selected':''}>${esc(x[0])}</option>`).join('');
+  let props=[],rows='<div class="when">pick an event and a property</div>';
+  if(state._bdEvent){
+    const pd=await jget('/dash/breakdown?hours='+state.hours+'&event='+encodeURIComponent(state._bdEvent));
+    props=pd.props||[];
+    if(state._bdProp){
+      const bd=await jget('/dash/breakdown?hours='+state.hours+'&event='+encodeURIComponent(state._bdEvent)+'&prop='+encodeURIComponent(state._bdProp));
+      rows=bd.rows.length?('<table><thead><tr><th>'+esc(state._bdProp)+'</th><th class="cnt">count</th><th class="cnt">users</th></tr></thead><tbody>'+
+        bd.rows.map(r=>`<tr><td>${esc(r[0])}</td><td class="cnt">${r[1]}</td><td class="cnt">${r[2]}</td></tr>`).join('')+'</tbody></table>'):'<div class="empty">no values for this property</div>';
+    } else if(!props.length) rows='<div class="when">this event has no properties to break down</div>';
+  }
+  $('#panel').innerHTML=`<h3 class="sec">property breakdown</h3>
+    <div class="row" style="margin-bottom:12px"><select id="bdev"><option value="">event…</option>${eopts}</select>
+    <select id="bdprop"><option value="">property…</option>${props.map(p=>`<option value="${esc(p)}"${p===state._bdProp?' selected':''}>${esc(p)}</option>`).join('')}</select></div>${rows}`;
+  $('#bdev').onchange=e=>{state._bdEvent=e.target.value;state._bdProp='';loadBreakdown();};
+  $('#bdprop').onchange=e=>{state._bdProp=e.target.value;loadBreakdown();};
+}
+const SQL_EX={
+  "top issues":"select fingerprint, count(*) n, count(distinct coalesce(body->'user'->>'id',body->>'userId')) users\nfrom telemetry.telemetry_events where source='sentry' and event_kind='event'\ngroup by 1 order by 2 desc limit 20",
+  "crash-free by release":"select coalesce(body->>'release','(none)') release, count(*) sessions,\n  round(100.0*count(*) filter(where body->>'status' not in ('crashed','abnormal','unhandled'))/count(*),2) crash_free_pct\nfrom telemetry.telemetry_events where event_kind='session' group by 1 order by 2 desc",
+  "events / hour":"select date_trunc('hour',received_at) hour, source, count(*)\nfrom telemetry.telemetry_events where received_at > now()-interval '24 hours'\ngroup by 1,2 order by 1 desc",
+  "exception types":"select body#>>'{exception,values,0,type}' exc_type, count(*)\nfrom telemetry.telemetry_events where body#>>'{exception,values,0,type}' is not null\ngroup by 1 order by 2 desc limit 30"
+};
+async function loadSql(){
+  if($('#sqlbox'))return;  // keep editor + results across same-surface refreshes
+  const def=state._sql||SQL_EX["top issues"];
+  $('#panel').innerHTML=`<h3 class="sec">read-only SQL drill-down · telemetry.telemetry_events</h3>
+    <textarea id="sqlbox" spellcheck="false">${esc(def)}</textarea>
+    <div class="row" style="margin:8px 0;flex-wrap:wrap"><button id="sqlrun" class="on">run</button>
+      <span class="when">SELECT / WITH only · read-only txn · 1000-row cap · ⌘/Ctrl+Enter</span></div>
+    <div class="row" style="margin-bottom:8px;flex-wrap:wrap"><span class="when">examples:</span><span id="sqlex"></span></div>
+    <div id="sqlout"></div>`;
+  $('#sqlex').innerHTML=Object.keys(SQL_EX).map(k=>`<a class="exlink" data-k="${esc(k)}">${esc(k)}</a>`).join('');
+  $('#sqlex').querySelectorAll('.exlink').forEach(a=>a.onclick=()=>{$('#sqlbox').value=SQL_EX[a.dataset.k];runSql();});
+  $('#sqlrun').onclick=runSql;
+  $('#sqlbox').addEventListener('keydown',e=>{if((e.metaKey||e.ctrlKey)&&e.key==='Enter'){e.preventDefault();runSql();}});
+  runSql();
+}
+async function runSql(){
+  const sql=$('#sqlbox').value.trim(); state._sql=sql;
+  $('#sqlout').innerHTML='<div class="empty">running…</div>';
+  try{
+    const r=await fetch('/dash/sql',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({sql})});
+    if(!r.ok)throw new Error(await r.text());
+    const d=await r.json();
+    if(!d.rows.length){$('#sqlout').innerHTML='<div class="empty">0 rows</div>';return;}
+    const cols=d.columns.length?d.columns:Object.keys(d.rows[0]);
+    const head='<tr>'+cols.map(c=>`<th>${esc(c)}</th>`).join('')+'</tr>';
+    const body=d.rows.map(row=>'<tr>'+cols.map(c=>{let v=row[c];
+      v=(v===null||v===undefined)?'':(typeof v==='object'?JSON.stringify(v):String(v));
+      return `<td class="sqlcell">${esc(v)}</td>`;}).join('')+'</tr>').join('');
+    $('#sqlout').innerHTML=`<div class="when" style="margin:8px 0">${d.rows.length} rows${d.truncated?' · capped at 1000':''}</div>
+      <div class="sqlwrap"><table>${head}${body}</table></div>`;
+  }catch(e){$('#sqlout').innerHTML=`<pre class="sqlerr">${esc(e.message)}</pre>`;}
+}
+// All events for one play session (same user + app-launch). Reached from the
+// event drawer's "session" button or a /session/<eventId> link.
+async function loadSession(){
+  const s=await jget('/dash/session/'+encodeURIComponent(state.sessionId));
+  if(!s.user){$('#panel').innerHTML='<a class="back" id="sback">← back</a><div class="empty">no session for this event (no user/app-launch id)</div>';$('#sback').onclick=()=>history.back();return;}
+  const dur=(s.first&&s.last)?((new Date(s.last)-new Date(s.first))/1000):0;
+  const fmtDur=d=>d<60?((d|0)+'s'):d<3600?(((d/60)|0)+'m'):(((d/3600)|0)+'h '+((((d%3600)/60)|0))+'m');
+  const lv=(s.by_level||[]).map(([k,c])=>`<span class="chip"><span class="lvl ${lvlClass(k)}" style="display:inline-block;margin:0 5px 0 0"></span>${esc(k)} <b>${c}</b></span>`).join('');
+  const tl=(s.events||[]).map(e=>`<div class="tl ${e.id==state.sessionId?'cur':''}" data-id="${e.id}"><span class="lvl ${lvlClass(e.level)}"></span>
+      <span class="tlw" title="${esc(e.received_at)}">${esc((e.received_at||'').slice(11,19))}</span>
+      <span class="tltag">${esc(e.level||e.kind)}</span>
+      <span class="tlt">${esc(stripTags(e.title||e.kind))}</span></div>`).join('');
+  $('#panel').innerHTML=`<a class="back" id="sback">← back</a>
+    <h3 class="sec" style="margin-top:10px">session timeline</h3>
+    <div class="stats" style="border:0;padding:0 0 12px;margin:0">
+      <div class="card" style="min-width:200px"><div class="lab">user</div><div class="kv" style="background:0;border:0;padding:4px 0"><div class="v">${esc(s.user)}</div></div></div>
+      <div class="card"><div class="lab">events</div><div class="big">${s.total.toLocaleString()}</div></div>
+      <div class="card"><div class="lab">errors</div><div class="big" style="color:var(--err)">${s.errors.toLocaleString()}</div></div>
+      <div class="card"><div class="lab">duration</div><div class="big">${fmtDur(dur)}</div></div>
+      <div class="card" style="flex:1;min-width:200px"><div class="lab">started ${esc((s.app_start||s.first||'').slice(0,16).replace('T',' '))}</div><div class="chips">${lv}</div></div>
+    </div>
+    <div class="timeline">${tl||'<div class="empty">no events</div>'}</div>`;
+  $('#sback').onclick=()=>history.back();
+  $('#panel').querySelectorAll('.tl').forEach(d=>d.onclick=()=>openDetail(d.dataset.id));
+}
+function viewSession(id){ closeDrawer(); state.surface='session'; state.sessionId=String(id); syncUrl(true); refreshAll(); window.scrollTo(0,0); }
+function schedule(){if(timer)clearInterval(timer);if(state.live)timer=setInterval(()=>{
+  if((state.surface==='errors'||state.surface==='metrics')&&(state.tab==='issues'||state.tab==='events')){
+    loadStats().catch(()=>{});if(state.offset<=LIMIT)loadList(true).catch(()=>{});}
+  else if(state.surface==='health')loadHealth().catch(()=>{});
+},15000);}
+// Restore the full view from the current path + query (the inverse of pathFor).
+// Replayed under `restoring` so setSurface/setTab don't refetch mid-restore.
+function bootFromPath(){
+  const r=parsePath(), p=r.query;
+  if(r.surface==='session'){ state.surface='session'; state.sessionId=r.sessionId; lastEventId=p.get('event')||null; refreshAll(); if(lastEventId) setTimeout(()=>openDetail(lastEventId),400); return; }
+  restoring=true;
+  setSurface(r.surface);
+  if(r.tab&&r.tab!=='issues') setTab(r.tab);
+  ['q','level','kind','env','release','tag','sort','status'].forEach(k=>{ if(p.has(k)) state[k]=p.get(k); });
+  if(p.has('hours')){ state.hours=+p.get('hours'); $('#range').value=state.hours; }
+  state.fingerprint=r.fingerprint||null;
+  const ev=p.get('event')||null;   // capture before closeDrawer() nulls lastEventId
+  $('#search').value=state.q||'';
+  ['level','kind','env','release','status'].forEach(k=>{const el=$('#f-'+k);if(el)el.value=state[k]||'';});
+  restoring=false;
+  if(state.fingerprint) drillIn(state.fingerprint); else { if(!ev)closeDrawer(); refreshAll(); }
+  if(ev) setTimeout(()=>openDetail(ev),400); else { lastEventId=null; }
+}
+// Back/forward: re-render from the new URL without writing history (navLock).
+window.addEventListener('popstate',()=>{ navLock=true; bootFromPath(); setTimeout(()=>{navLock=false;},700); });
+schedule();
+bootFromPath();
+</script>
+</body>
+</html>

@@ -1,0 +1,23 @@
+[Unit]
+Description=catalyrst sync replica (peers -> content_rust DB — port 5149)
+After=network.target postgresql.service
+StartLimitIntervalSec=0
+Wants=postgresql.service
+
+[Service]
+Type=exec
+WorkingDirectory=<WORKSPACE>
+EnvironmentFile=<WORKSPACE>/env/content.env
+Environment="CATALYRST_PORT=5149" "REALM_NAME=<REALM_NAME>"
+Environment="COMMS_WS_CONNECTOR_URL=http://127.0.0.1:5143" "COMMS_STATS_URL=http://127.0.0.1:5143"
+Environment="COMMS_PROTOCOL=v3" "COMMS_FIXED_ADAPTER=archipelago:archipelago:wss://<HOST>/ws"
+Environment="MAP_SATELLITE_BASE_URL=http://127.0.0.1:5080/static/genesis-map" "MAP_PARCEL_VIEW_URL=http://127.0.0.1:5143/v1/minimap.png"
+Environment="SYNC_ENABLED=true" "SYNC_DB_NAME=content_rust" "SYNC_STORAGE_ROOT=<DATA_DIR>/content_rust"
+Environment="SYNC_SOURCE=https://peer-ap1.decentraland.org/content,https://peer-eu1.decentraland.org/content"
+ExecStartPre=/bin/sh -c 'for i in $(seq 1 30); do pg_isready -h <HOST> -p 5433 -U <DB_USER> -q && exit 0; sleep 1; done; exit 1'
+ExecStart=<WORKSPACE>/bin/catalyrst/catalyrst-live
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=default.target

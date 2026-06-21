@@ -1,0 +1,27 @@
+[package]
+name = "catalyrst-ab-registry"
+version = "0.1.0"
+edition = "2021"
+description = "Rust port of asset-bundle-registry.decentraland.org — resolves active entities + AB build status/versions/bundles over the shared content DB and abgen's on-disk manifests. Port 5144."
+
+[[bin]]
+name = "catalyrst-ab-registry"
+path = "src/main.rs"
+
+[dependencies]
+catalyrst-types = { workspace = true }
+catalyrst-crypto = { workspace = true }
+catalyrst-comms = { workspace = true }
+tokio = { workspace = true }
+axum = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true }
+sqlx = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+moka = { version = "0.12", features = ["future"] }

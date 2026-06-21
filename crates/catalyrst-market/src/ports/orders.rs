@@ -1,0 +1,402 @@
+use serde::Serialize;
+use sqlx::PgPool;
+use sqlx::Row;
+
+use crate::dcl_schemas::{ethereum_chain_id, polygon_chain_id, ChainId, Network};
+use crate::http::errors::InvalidParameterError;
+use crate::http::params::Params;
+use crate::http::response::ApiError;
+use crate::MARKETPLACE_SQUID_SCHEMA;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OrderSortBy {
+    Oldest,
+    RecentlyListed,
+    RecentlyUpdated,
+    Cheapest,
+    IssuedIdAsc,
+    IssuedIdDesc,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct OrderFilters {
+    pub first: Option<i64>,
+    pub skip: Option<i64>,
+    pub sort_by: Option<OrderSortBy>,
+    pub marketplace_address: Option<String>,
+    pub owner: Option<String>,
+    pub buyer: Option<String>,
+    pub contract_address: Option<String>,
+    pub token_id: Option<String>,
+    pub status: Option<String>,
+    pub network: Option<Network>,
+    pub item_id: Option<String>,
+    pub nft_name: Option<String>,
+    pub nft_ids: Option<Vec<String>>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct Order {
+    pub id: String,
+    #[serde(rename = "marketplaceAddress")]
+    pub marketplace_address: String,
+    #[serde(rename = "contractAddress")]
+    pub contract_address: String,
+    #[serde(rename = "tokenId")]
+    pub token_id: Option<String>,
+    pub owner: String,
+    pub buyer: Option<String>,
+    pub price: String,
+    pub status: String,
+    #[serde(rename = "expiresAt")]
+    pub expires_at: i64,
+    #[serde(rename = "createdAt")]
+    pub created_at: i64,
+    #[serde(rename = "updatedAt")]
+    pub updated_at: i64,
+    pub network: Network,
+    #[serde(rename = "chainId")]
+    pub chain_id: ChainId,
+    #[serde(rename = "issuedId")]
+    pub issued_id: Option<String>,
+    #[serde(rename = "tradeId")]
+    pub trade_id: Option<String>,
+}
+
+pub struct OrdersComponent {
+    pool: PgPool,
+}
+
+impl OrdersComponent {
+    pub fn new(pool: PgPool) -> Self {
+        Self { pool }
+    }
+
+    pub async fn get_orders(&self, filters: &OrderFilters) -> Result<(Vec<Order>, i64), ApiError> {
+        let limit = crate::logic::sql_filters::clamp_first(filters.first, 1000);
+        let offset = crate::logic::sql_filters::clamp_skip(filters.skip);
+
+        // Sort on the RAW (uncast) `sort_*` passthrough columns the inner
+        // subquery exposes (ord.created_at/updated_at/price/token_id are already
+        // numeric, ord.id is varchar) rather than the ::text/::float8 output
+        // aliases. A cast in the sort key (e.g. created_at::float8) is an
+        // expression the cat_order_created_at_id_idx can't satisfy, which forced
+        // a full top-N sort over the whole join; ordering on the raw column lets
+        // the planner pull the subquery up and stream from the index, so the
+        // created_at page early-terminates at LIMIT. Numeric/varchar ordering is
+        // identical to the previous ::numeric/::text casts. Every arm keeps
+        // `, sort_id ASC` as a stable tie-breaker for deterministic paging.
+        let order_by = match filters.sort_by {
+            Some(OrderSortBy::Oldest) => "sort_created_at ASC, sort_id ASC",
+            Some(OrderSortBy::RecentlyUpdated) => "sort_updated_at DESC, sort_id ASC",
+            Some(OrderSortBy::Cheapest) => "sort_price ASC, sort_id ASC",
+            Some(OrderSortBy::IssuedIdAsc) => "sort_token_id ASC, sort_id ASC",
+            Some(OrderSortBy::IssuedIdDesc) => "sort_token_id DESC, sort_id ASC",
+            _ => "sort_created_at DESC, sort_id ASC",
+        };
+
+        let mut where_parts: Vec<String> = Vec::new();
+        let mut bind_strings: Vec<String> = Vec::new();
+        let mut bind_idx: usize = 0;
+        let mut next_param = || {
+            bind_idx += 1;
+            format!("${}", bind_idx)
+        };
+
+        if let Some(ref v) = filters.marketplace_address {
+            where_parts.push(format!(
+                "LOWER(marketplace_address) = LOWER({})",
+                next_param()
+            ));
+            bind_strings.push(v.clone());
+        }
+        // owner/buyer are stored lowercased by the squid indexer (verified: 0 of
+        // 1.15M rows differ from lower(owner)), so compare the plain column and
+        // lowercase the bind in Rust. The previous LOWER(owner)=LOWER($1) wrapper
+        // made the predicate unindexable, forcing a full created_at-index scan on
+        // owner-filtered queries (e.g. /v1/activity, ~900ms each). Plain `owner=$1`
+        // uses cat_order_owner_created_idx (owner, created_at DESC, id).
+        if let Some(ref v) = filters.owner {
+            where_parts.push(format!("owner = {}", next_param()));
+            bind_strings.push(v.to_lowercase());
+        }
+        if let Some(ref v) = filters.buyer {
+            where_parts.push(format!("buyer = {}", next_param()));
+            bind_strings.push(v.to_lowercase());
+        }
+        if let Some(ref v) = filters.contract_address {
+            where_parts.push(format!("LOWER(nft_address) = LOWER({})", next_param()));
+            bind_strings.push(v.clone());
+        }
+        if let Some(ref v) = filters.status {
+            where_parts.push(format!("status = {}", next_param()));
+            bind_strings.push(v.clone());
+        }
+        if let Some(ref v) = filters.item_id {
+            where_parts.push(format!("item_id = {}", next_param()));
+            bind_strings.push(v.clone());
+        }
+        if let Some(ref v) = filters.token_id {
+            where_parts.push(format!("token_id = {}", next_param()));
+            bind_strings.push(v.clone());
+        }
+        // network filter: upstream applies `network = ANY(getDBNetworks(network))`
+        // (ETHEREUM -> [ETHEREUM]; MATIC -> [MATIC, POLYGON]). Was parsed but never
+        // applied here, so ?network= leaked rows from the other chain.
+        if let Some(net) = filters.network {
+            let db_nets: &[&str] = match net {
+                Network::Ethereum => &["ETHEREUM"],
+                Network::Matic => &["MATIC", "POLYGON"],
+            };
+            let placeholders: Vec<String> = db_nets.iter().map(|_| next_param()).collect();
+            where_parts.push(format!("network IN ({})", placeholders.join(", ")));
+            for n in db_nets {
+                bind_strings.push((*n).to_string());
+            }
+        }
+
+        let where_clause = if where_parts.is_empty() {
+            String::new()
+        } else {
+            format!(" WHERE {}", where_parts.join(" AND "))
+        };
+
+        // Shared inner subquery (join + expiry). The page rows and the total
+        // count are run as TWO separate statements instead of `COUNT(*) OVER()`
+        // in one: the window function forced Postgres to materialize the entire
+        // ~90k-row join on every call before it could return a single page.
+        // Split, the page early-terminates through the created_at index (see the
+        // SET LOCAL hints below) while the count runs concurrently.
+        let inner = format!(
+            r#"
+  SELECT
+    ord.id::text                  AS id,
+    ''                            AS trade_id,
+    ord.marketplace_address       AS marketplace_address,
+    ord.category                  AS category,
+    ord.nft_address               AS nft_address,
+    ord.token_id::text            AS token_id,
+    ord.price::text               AS price,
+    ord.item_id                   AS item_id,
+    nft.issued_id::text           AS issued_id,
+    ord.nft_id                    AS nft_id,
+    nft.name                      AS nft_name,
+    ord.owner                     AS owner,
+    ord.buyer                     AS buyer,
+    ord.tx_hash                   AS tx_hash,
+    ord.block_number              AS block_number,
+    ord.status                    AS status,
+    ord.created_at::float8        AS created_at,
+    ord.updated_at::float8        AS updated_at,
+    ord.expires_at::float8        AS expires_at,
+    ord.network                   AS network,
+    ord.created_at                AS sort_created_at,
+    ord.updated_at                AS sort_updated_at,
+    ord.price                     AS sort_price,
+    ord.token_id                  AS sort_token_id,
+    ord.id                        AS sort_id
+  FROM {schema}."order" ord
+  JOIN {schema}."nft" nft ON ord.nft_id = nft.id AND nft.owner_address = ord.owner
+  WHERE ord.expires_at_normalized > NOW()
+"#,
+            schema = MARKETPLACE_SQUID_SCHEMA,
+        );
+
+        let limit_param = next_param();
+        let offset_param = next_param();
+
+        let page_sql = format!(
+            "SELECT combined_orders.* FROM ({inner}) AS combined_orders{where_clause} \
+             ORDER BY {order_by} LIMIT {limit_param} OFFSET {offset_param}"
+        );
+        let count_sql = format!(
+            "SELECT COUNT(*)::int8 AS count FROM ({inner}) AS combined_orders{where_clause}"
+        );
+
+        // Apply enable_sort=off ONLY for the unfiltered created_at default — the
+        // broad listing it was designed to early-terminate. With a narrowing
+        // equality filter (owner/buyer/item/token — e.g. /v1/activity) the result
+        // is tiny and a normal sort is cheap; forcing index order there instead
+        // streamed the entire created_at index applying the filter (~900ms each).
+        // So gate on "created_at sort AND no filter". random_page_cost=1.1 is
+        // SSD-correct and always safe. Both are SET LOCAL: scoped to these
+        // statements' transactions, never the shared cluster config.
+        let index_sort = order_by.starts_with("sort_created_at") && where_parts.is_empty();
+
+        let page_binds = bind_strings.clone();
+        let count_binds = bind_strings.clone();
+        let page_pool = self.pool.clone();
+        let count_pool = self.pool.clone();
+
+        let page_fut = async move {
+            let mut tx = page_pool.begin().await?;
+            sqlx::query("SET LOCAL random_page_cost = 1.1")
+                .execute(&mut *tx)
+                .await?;
+            if index_sort {
+                sqlx::query("SET LOCAL enable_sort = off")
+                    .execute(&mut *tx)
+                    .await?;
+            }
+            let mut q = sqlx::query(&page_sql);
+            for s in &page_binds {
+                q = q.bind(s);
+            }
+            q = q.bind(limit).bind(offset);
+            let rows = q.fetch_all(&mut *tx).await?;
+            tx.commit().await?;
+            Ok::<_, sqlx::Error>(rows)
+        };
+        let count_fut = async move {
+            let mut tx = count_pool.begin().await?;
+            sqlx::query("SET LOCAL random_page_cost = 1.1")
+                .execute(&mut *tx)
+                .await?;
+            let mut q = sqlx::query(&count_sql);
+            for s in &count_binds {
+                q = q.bind(s);
+            }
+            let row = q.fetch_one(&mut *tx).await?;
+            tx.commit().await?;
+            Ok::<_, sqlx::Error>(row.try_get::<i64, _>("count").unwrap_or(0))
+        };
+
+        let (rows, total) = tokio::try_join!(page_fut, count_fut)?;
+        let orders: Vec<Order> = rows.iter().map(row_to_order).collect();
+        Ok((orders, total))
+    }
+}
+
+pub(crate) fn row_to_order(r: &sqlx::postgres::PgRow) -> Order {
+    let network_str: String = r.try_get("network").unwrap_or_default();
+    let (network, chain_id) = network_and_chain(&network_str);
+    Order {
+        id: r.try_get("id").unwrap_or_default(),
+        marketplace_address: r.try_get("marketplace_address").unwrap_or_default(),
+        contract_address: r.try_get("nft_address").unwrap_or_default(),
+        token_id: r.try_get::<Option<String>, _>("token_id").unwrap_or(None),
+        owner: r.try_get("owner").unwrap_or_default(),
+        buyer: r.try_get::<Option<String>, _>("buyer").unwrap_or(None),
+        price: r.try_get("price").unwrap_or_default(),
+        status: r.try_get("status").unwrap_or_default(),
+        // expires_at is left as seconds (matches upstream `Number(dbOrder.expires_at)`,
+        // which the client uses to identify old orders).
+        expires_at: r.try_get::<f64, _>("expires_at").unwrap_or(0.0) as i64,
+        // created_at/updated_at are stored in epoch seconds in the squid `order`
+        // table; upstream's fromDBOrderToOrder runs them through
+        // fromSecondsToMilliseconds before serializing. Emitting raw seconds
+        // produces 1970-era millisecond timestamps (1000x too small) for any
+        // client that treats them as ms.
+        created_at: from_seconds_to_milliseconds(r.try_get::<f64, _>("created_at").unwrap_or(0.0)),
+        updated_at: from_seconds_to_milliseconds(r.try_get::<f64, _>("updated_at").unwrap_or(0.0)),
+        network,
+        chain_id,
+        issued_id: r.try_get::<Option<String>, _>("issued_id").unwrap_or(None),
+        trade_id: r.try_get::<Option<String>, _>("trade_id").unwrap_or(None),
+    }
+}
+
+/// Port of marketplace-server's `fromSecondsToMilliseconds` (logic/date.ts):
+/// when the value has <= 10 integer digits (i.e. epoch < 1e11, an epoch in
+/// seconds) it is scaled to milliseconds; an already-millisecond value (>= 1e11)
+/// is passed through. Rounding matches upstream's `Math.round`.
+pub(crate) fn from_seconds_to_milliseconds(time: f64) -> i64 {
+    // `time.toString().length <= 10` in JS == integer-digit count <= 10 == value
+    // strictly below 1e11 (10^11 is the first 12-digit integer; 10^10 = 1e10 has
+    // 11 digits). Upstream compares against the rendered integer length, so the
+    // boundary is the integer magnitude, not the float.
+    if time < 1e11_f64 {
+        (time * 1000.0).round() as i64
+    } else {
+        time.round() as i64
+    }
+}
+
+pub(crate) fn network_and_chain(db: &str) -> (Network, ChainId) {
+    match db {
+        "ETHEREUM" => (Network::Ethereum, ethereum_chain_id()),
+        "MATIC" | "POLYGON" => (Network::Matic, polygon_chain_id()),
+        _ => (Network::Ethereum, ethereum_chain_id()),
+    }
+}
+
+pub fn parse_filters(pairs: &[(String, String)]) -> Result<OrderFilters, InvalidParameterError> {
+    let p = Params::new(pairs);
+    let sort_by = p
+        .get_value(
+            "sortBy",
+            &[
+                "oldest",
+                "recently_listed",
+                "recently_updated",
+                "cheapest",
+                "issued_id_asc",
+                "issued_id_desc",
+            ],
+            None,
+        )
+        .map(|s| match s.as_str() {
+            "oldest" => OrderSortBy::Oldest,
+            "recently_listed" => OrderSortBy::RecentlyListed,
+            "recently_updated" => OrderSortBy::RecentlyUpdated,
+            "cheapest" => OrderSortBy::Cheapest,
+            "issued_id_asc" => OrderSortBy::IssuedIdAsc,
+            "issued_id_desc" => OrderSortBy::IssuedIdDesc,
+            _ => OrderSortBy::RecentlyListed,
+        });
+
+    let network = p
+        .get_value("network", &["ETHEREUM", "MATIC"], None)
+        .map(|s| match s.as_str() {
+            "ETHEREUM" => Network::Ethereum,
+            _ => Network::Matic,
+        });
+
+    Ok(OrderFilters {
+        first: p.get_number("first", None).map(|v| v as i64),
+        skip: p.get_number("skip", None).map(|v| v as i64),
+        sort_by,
+        marketplace_address: p.get_string("marketplaceAddress", None),
+        owner: p.get_string("owner", None),
+        buyer: p.get_string("buyer", None),
+        contract_address: p.get_string("contractAddress", None),
+        token_id: p.get_string("tokenId", None),
+        status: p.get_string("status", None),
+        network,
+        item_id: p.get_string("itemId", None),
+        nft_name: p.get_string("nftName", None),
+        nft_ids: None,
+    })
+}
+
+#[cfg(test)]
+mod ms_tests {
+    use super::from_seconds_to_milliseconds;
+
+    #[test]
+    fn seconds_are_scaled_to_milliseconds() {
+        // 10-digit epoch seconds -> 13-digit epoch milliseconds (x1000).
+        assert_eq!(
+            from_seconds_to_milliseconds(1_700_000_000.0),
+            1_700_000_000_000
+        );
+        // Smallest 10-digit second value still scales.
+        assert_eq!(
+            from_seconds_to_milliseconds(1_000_000_000.0),
+            1_000_000_000_000
+        );
+        // Zero stays zero.
+        assert_eq!(from_seconds_to_milliseconds(0.0), 0);
+    }
+
+    #[test]
+    fn millisecond_values_pass_through() {
+        // 13-digit epoch milliseconds (>= 1e11) are passed through unchanged.
+        assert_eq!(
+            from_seconds_to_milliseconds(1_700_000_000_000.0),
+            1_700_000_000_000
+        );
+        // Boundary: 1e11 is the first value treated as already-milliseconds.
+        assert_eq!(from_seconds_to_milliseconds(1e11_f64), 100_000_000_000);
+    }
+}

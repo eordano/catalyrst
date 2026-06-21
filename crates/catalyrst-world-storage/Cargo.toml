@@ -1,0 +1,32 @@
+[package]
+name = "catalyrst-world-storage"
+version = "0.1.0"
+edition = "2021"
+description = "Rust port of decentraland/world-storage-service: signed-fetch (ADR-44) key-value + encrypted env storage for Decentraland worlds, over a dedicated postgres DB"
+
+[[bin]]
+name = "catalyrst-world-storage"
+path = "src/main.rs"
+
+[dependencies]
+catalyrst-types = { workspace = true }
+catalyrst-crypto = { workspace = true }
+tokio = { workspace = true }
+axum = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true }
+reqwest = { workspace = true }
+sqlx = { workspace = true, features = ["uuid", "migrate"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+url = { workspace = true }
+uuid = { workspace = true }
+moka = { version = "0.12", features = ["future"] }
+aes-gcm = "0.10"
+hex = "0.4"
+rand = "0.8"

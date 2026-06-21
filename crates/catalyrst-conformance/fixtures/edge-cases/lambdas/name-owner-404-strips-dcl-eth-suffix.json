@@ -1,0 +1,18 @@
+{
+  "description": "GET /lambdas/names/{name}.dcl.eth/owner strips the trailing '.dcl.eth' before the DB lookup; an unknown name still 404s with empty body, proving the strip happened (otherwise the lookup key would be wrong but the response shape is the same).",
+  "request": {
+    "method": "GET",
+    "path": "/lambdas/names/definitelynobodyownsthisname.dcl.eth/owner",
+    "query": {},
+    "headers": {},
+    "body": null
+  },
+  "response": {
+    "status": 404,
+    "headers": {},
+    "body_bytes_b64": ""
+  },
+  "captured_from": "hand-authored from handler source (lambdas_land.rs::name_owner)",
+  "captured_at": "2026-05-23T20:00:00Z",
+  "volatile_paths": []
+}
