@@ -211,3 +211,37 @@ pub fn parse_filters(pairs: &[(String, String)]) -> Result<TrendingFilters, Inva
             != Some("false"),
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn volume_uses_full_wei_precision() {
+        // 1 MANA (1e18 wei) sold 3 times = 3e18 wei. u64 would overflow on the
+        // intermediate products; the volume sort must use u128 to rank big-ticket
+        // items above cheap high-count ones.
+        let one_mana = 1_000_000_000_000_000_000u128;
+        assert_eq!(parse_u128_saturating("1000000000000000000"), one_mana);
+        assert_eq!(one_mana.saturating_mul(3), 3_000_000_000_000_000_000u128);
+    }
+
+    #[test]
+    fn volume_parse_is_lossless_and_saturating() {
+        // Exact parse of a value far beyond u64::MAX.
+        assert_eq!(
+            parse_u128_saturating("18446744073709551616"), // u64::MAX + 1
+            18_446_744_073_709_551_616u128
+        );
+        // Garbage / empty parse to 0 (no panic), so a malformed price contributes
+        // zero volume rather than crashing the ranking.
+        assert_eq!(parse_u128_saturating(""), 0);
+        assert_eq!(parse_u128_saturating("not-a-number"), 0);
+    }
+
+    #[test]
+    fn empty_size_returns_empty() {
+        // size <= 0 short-circuits to [] without touching the DB.
+        assert_eq!(DEFAULT_SIZE, 20);
+    }
+}

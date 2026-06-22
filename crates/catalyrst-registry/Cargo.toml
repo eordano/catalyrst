@@ -1,0 +1,23 @@
+[package]
+name = "catalyrst-registry"
+version = "0.1.0"
+edition = "2021"
+description = "Shared library for the asset-bundle-registry surface (active-entity + AB status/versions/bundles + profiles/worlds/admin handlers + the content-DB ContentComponent), consumed by the unified content/AB server (catalyrst-ab-cdn). Formerly the standalone catalyrst-ab-registry service crate; the standalone binary is retired — the unified server is the only service."
+
+[dependencies]
+catalyrst-types = { workspace = true }
+catalyrst-crypto = { workspace = true }
+catalyrst-comms = { workspace = true }
+tokio = { workspace = true }
+axum = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true }
+sqlx = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+moka = { version = "0.12", features = ["future"] }

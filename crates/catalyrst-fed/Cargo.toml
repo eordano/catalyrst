@@ -36,4 +36,10 @@ nats = ["dep:async-nats", "dep:futures-util", "tokio/rt", "tokio/macros"]
 
 [dev-dependencies]
 ethers-signers = { workspace = true }
-tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync"] }
+async-trait = { workspace = true }
+parking_lot = { workspace = true }
+hex = "0.4"
+chrono = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }

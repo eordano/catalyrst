@@ -196,17 +196,28 @@ async fn build_dissolved_estate(state: &AppState, id: &str) -> Result<Option<Val
         return Ok(None);
     };
 
-    Ok(Some(json!({
+    Ok(Some(dissolved_estate_nft(
+        id,
+        name.unwrap_or_default(),
+        description.unwrap_or_default(),
+        state.map.estate_contract(),
+    )))
+}
+
+/// The 200 fallback body atlas-server serves for a dissolved estate (size 0):
+/// the same NFT envelope as a live estate, but with a single `Size: 0` attribute.
+fn dissolved_estate_nft(id: &str, name: String, description: String, estate_contract: &str) -> Value {
+    json!({
         "id": id,
-        "name": name.unwrap_or_default(),
-        "description": description.unwrap_or_default(),
+        "name": name,
+        "description": description,
         "image": format!("{IMAGE_BASE_URL}/estates/{id}/map.png?size=24&width=1024&height=1024"),
-        "external_url": format!("{EXTERNAL_BASE_URL}/contracts/{}/tokens/{}", state.map.estate_contract(), id),
+        "external_url": format!("{EXTERNAL_BASE_URL}/contracts/{estate_contract}/tokens/{id}"),
         "background_color": "000000",
         "attributes": [
             { "trait_type": "Size", "value": 0, "display_type": "number" },
         ],
-    })))
+    })
 }
 
 pub async fn get_token(
@@ -312,4 +323,77 @@ pub async fn get_contributions(
     let resp = Json(json!({ "ok": true, "data": crate::districts::contributions_for(&address) }))
         .into_response();
     finalize(resp, last)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // atlas-server returns a 200 fallback (not 404) for a dissolved estate, with
+    // a single Size:0 attribute. Lock that body shape.
+    #[test]
+    fn dissolved_estate_fallback_shape() {
+        let v = dissolved_estate_nft(
+            "42",
+            "Old Estate".into(),
+            "gone".into(),
+            "0xestate",
+        );
+        assert_eq!(v["id"], "42");
+        assert_eq!(v["name"], "Old Estate");
+        assert_eq!(v["description"], "gone");
+        assert_eq!(v["background_color"], "000000");
+        assert_eq!(
+            v["external_url"],
+            "https://market.decentraland.org/contracts/0xestate/tokens/42"
+        );
+        assert_eq!(
+            v["image"],
+            "https://api.decentraland.org/v1/estates/42/map.png?size=24&width=1024&height=1024"
+        );
+        let attrs = v["attributes"].as_array().unwrap();
+        assert_eq!(attrs.len(), 1);
+        assert_eq!(
+            attrs[0],
+            json!({ "trait_type": "Size", "value": 0, "display_type": "number" })
+        );
+    }
+
+    // Proximity attributes append onto the NFT's attribute list as
+    // "Distance to <Capitalized>" integer traits (mirrors getProximity).
+    #[test]
+    fn proximity_attributes_appended_for_known_coord() {
+        let mut attrs: Vec<Value> = vec![
+            json!({ "trait_type": "X", "value": 102, "display_type": "number" }),
+            json!({ "trait_type": "Y", "value": -33, "display_type": "number" }),
+        ];
+        // 102,-33 -> { road: 4, district: 5 } in proximity.json.
+        crate::proximity::append_attributes(&mut attrs, &[(102, -33)]);
+        assert!(attrs.len() > 2, "expected proximity traits appended");
+        for a in &attrs[2..] {
+            let tt = a["trait_type"].as_str().unwrap();
+            assert!(
+                tt.starts_with("Distance to "),
+                "unexpected trait_type: {tt}"
+            );
+            assert_eq!(a["display_type"], "number");
+            assert!(a["value"].is_i64(), "proximity value must be an integer");
+        }
+        assert!(attrs.contains(&json!({
+            "trait_type": "Distance to District", "value": 5, "display_type": "number"
+        })));
+        assert!(attrs.contains(&json!({
+            "trait_type": "Distance to Road", "value": 4, "display_type": "number"
+        })));
+        // emission order mirrors upstream: District, Plaza, Road (Plaza absent here).
+        assert_eq!(attrs[2]["trait_type"], "Distance to District");
+        assert_eq!(attrs[3]["trait_type"], "Distance to Road");
+    }
+
+    #[test]
+    fn proximity_noop_for_unknown_coord() {
+        let mut attrs: Vec<Value> = vec![];
+        crate::proximity::append_attributes(&mut attrs, &[(99999, 99999)]);
+        assert!(attrs.is_empty());
+    }
 }

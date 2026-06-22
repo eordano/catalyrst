@@ -5,12 +5,8 @@
   inputs.flake-utils.url = "github:numtide/flake-utils";
   inputs.archipelago = { url = "github:decentraland/archipelago-workers/537def15e2609cf0ecc8ba5bd7ad400702e455c8"; flake = false; };
   inputs.uws-node24 = { url = "github:uNetworking/uWebSockets.js/v20.67.0"; flake = false; };
-  inputs.pulse-src = {
-    url = "github:decentraland/Pulse/d7b13d7";
-    flake = false;
-  };
 
-  outputs = { self, nixpkgs, flake-utils, archipelago, uws-node24, pulse-src }:
+  outputs = { self, nixpkgs, flake-utils, archipelago, uws-node24 }:
     let
       # NixOS module is system-independent — expose it at the top level.
       nixosModules.catalyrst = import ./nixos/configuration.nix;
@@ -57,29 +53,21 @@
             '';
           };
 
-          pulse = pkgs.buildDotnetModule {
-            pname = "dclpulse";
+          # Pure-rust Pulse: our catalyrst-pulse crate (rusty_enet, prost) instead
+          # of the upstream .NET DCLPulse — keeps the stack single-toolchain.
+          pulse = pkgs.rustPlatform.buildRustPackage {
+            pname = "catalyrst-pulse";
             version = "0.1.0";
-            src = pulse-src;
-            projectFile = "src/DCLPulse/DCLPulse.csproj";
-            executables = [ "DCLPulse" ];
-            dotnet-sdk = pkgs.dotnet-sdk_10;
-            dotnet-runtime = pkgs.dotnet-runtime_10;
-            nugetDeps = ./nixos/pulse-deps.json;
-            dotnetFlags = [ "-p:GenerateProto=false" ];
-            runtimeDeps = [ pkgs.enet ];
-            meta.mainProgram = "DCLPulse";
-            postPatch = ''
-              substituteInPlace src/DCLPulse/HttpServiceOptions.cs \
-                --replace-fail \
-                  'public ushort Port { get; set; } = 5000;' \
-                  'public ushort Port { get; set; } = 5000;
-      public string? Host { get; set; }'
-              substituteInPlace src/DCLPulse/HttpService.cs \
-                --replace-fail \
-                  'string host = OperatingSystem.IsWindows() ? "localhost" : "+";' \
-                  'string host = OperatingSystem.IsWindows() ? "localhost" : (string.IsNullOrEmpty(options.Value.Host) ? "+" : options.Value.Host);'
-            '';
+            src = ./.;
+            cargoLock = {
+              lockFile = ./Cargo.lock;
+            };
+            cargoBuildFlags = [ "-p" "catalyrst-pulse" "--bin" "catalyrst-pulse" ];
+            doCheck = false;
+            nativeBuildInputs = [ pkgs.pkg-config pkgs.protobuf ];
+            buildInputs = [ pkgs.openssl ];
+            env.OPENSSL_NO_VENDOR = "1";
+            meta.mainProgram = "catalyrst-pulse";
           };
 
           catalyrst = pkgs.rustPlatform.buildRustPackage {
@@ -182,6 +170,32 @@
             env.OPENSSL_NO_VENDOR = "1";
           };
 
+          # abgen: the offline asset-bundle CLI tools from catalyrst-abgen for bulk
+          # corpus generation — abgen / abgen-corpus / abgen-verify. The serving path
+          # (live JIT convert) is in catalyrst-ab-cdn, so the standalone abgen-serve
+          # binary is deliberately not built here (Cargo.toml autobins=false, no
+          # [[bin]]). cmake builds vendored third_party (draco, crunch); turbojpeg is
+          # dlopen'd at runtime via TURBOJPEG_LIB.
+          abgen = pkgs.rustPlatform.buildRustPackage {
+            pname = "catalyrst-abgen";
+            version = "0.1.0";
+            src = ./.;
+            cargoLock = { lockFile = ./Cargo.lock; };
+            cargoBuildFlags = [ "-p" "catalyrst-abgen" ];
+            doCheck = false;
+            nativeBuildInputs = [ pkgs.pkg-config pkgs.protobuf pkgs.cmake pkgs.makeWrapper ];
+            buildInputs = [ pkgs.openssl pkgs.libjpeg_turbo ];
+            env.OPENSSL_NO_VENDOR = "1";
+            postInstall = ''
+              for b in abgen abgen-serve abgen-corpus abgen-verify abgen-world; do
+                if [ -e "$out/bin/$b" ]; then
+                  wrapProgram "$out/bin/$b" \
+                    --set-default TURBOJPEG_LIB "${pkgs.libjpeg_turbo.out}/lib/libturbojpeg.so"
+                fi
+              done
+            '';
+          };
+
           # Server-side SDK7 scene-state host (port of scene-state-server). This
           # crate embeds V8 (the `v8`/rusty_v8 crate). rusty_v8's build.rs
           # normally DOWNLOADS a prebuilt librusty_v8 archive, which is
@@ -235,8 +249,10 @@
               "-p" "catalyrst-world-storage"  "--bin" "catalyrst-world-storage"
             ];
             doCheck = false;
-            nativeBuildInputs = [ pkgs.pkg-config pkgs.protobuf ];
-            buildInputs = [ pkgs.openssl ];
+            # cmake builds the vendored C/C++ in catalyrst-abgen/third_party
+            # (draco, crunch) which catalyrst-ab-cdn now links via the abgen lib.
+            nativeBuildInputs = [ pkgs.pkg-config pkgs.protobuf pkgs.cmake pkgs.makeWrapper ];
+            buildInputs = [ pkgs.openssl pkgs.libjpeg_turbo ];
             env = {
               OPENSSL_NO_VENDOR = "1";
               RUSTY_V8_ARCHIVE = "${librusty_v8}";
@@ -246,6 +262,11 @@
             postInstall = ''
               mkdir -p "$out/share/catalyrst-server"
               cp -r crates/catalyrst-server/migrations "$out/share/catalyrst-server/migrations"
+              # catalyrst-ab-cdn folds abgen live-conversion in-process; bake
+              # TURBOJPEG_LIB so it dlopen's the 64-bit libturbojpeg with no FHS env.
+              # ABGEN_ROOT / ABGEN_SHADER_BUNDLE are host paths set in the unit.
+              wrapProgram "$out/bin/catalyrst-ab-cdn" \
+                --set-default TURBOJPEG_LIB "${pkgs.libjpeg_turbo.out}/lib/libturbojpeg.so"
             '';
           };
 

@@ -27,3 +27,10 @@ tracing-subscriber = { workspace = true }
 thiserror = { workspace = true }
 anyhow = { workspace = true }
 url = { workspace = true }
+sha2 = { workspace = true }
+hex = "0.4"
+
+[dev-dependencies]
+ethers-signers = { workspace = true }
+ethers-core = { workspace = true }
+rand = "0.8"

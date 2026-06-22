@@ -246,5 +246,22 @@ pub fn api_router() -> Router<AppState> {
         .route("/place", get(handlers::social::inject_place_metadata))
         .route("/world", get(handlers::social::inject_world_metadata));
 
-    Router::new().nest("/api", api).nest("/places", social)
+    // Federation reconciliation pull endpoints live at absolute paths (matching
+    // the communities `/federation/communities/{snapshot,changes}` template), so
+    // a peer's catch-up client hits the same shape across services. Read-only,
+    // no-auth (the signed-action log only holds already-verified actions).
+    let federation = Router::new()
+        .route(
+            "/federation/places/snapshot",
+            get(handlers::fed_sync::snapshot),
+        )
+        .route(
+            "/federation/places/changes",
+            get(handlers::fed_sync::changes),
+        );
+
+    Router::new()
+        .nest("/api", api)
+        .nest("/places", social)
+        .merge(federation)
 }

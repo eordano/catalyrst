@@ -10,6 +10,12 @@ pub struct Config {
     pub livekit_api_secret: String,
     pub livekit_webhook_key: Option<String>,
     pub livekit_configured: bool,
+    /// TTL (seconds) for minted scene-comms LiveKit join tokens
+    /// (`LIVEKIT_TOKEN_TTL_SECS`, default 3600 = 1h). The explorer auto-refreshes
+    /// at a fraction of this, so a short TTL (the old 5-min default) made Win/Linux
+    /// re-register every ~3 min and broke the sustained comms window; a longer TTL
+    /// makes refreshes rare. Safe to raise — the client still refreshes on its own.
+    pub livekit_token_ttl_secs: u64,
     pub private_messages_room_id: String,
     pub places_api_url: String,
     pub catalyst_url: String,
@@ -68,6 +74,11 @@ impl Config {
                 .ok()
                 .filter(|s| !s.is_empty()),
             livekit_configured,
+            livekit_token_ttl_secs: env::var("LIVEKIT_TOKEN_TTL_SECS")
+                .ok()
+                .and_then(|s| s.trim().parse::<u64>().ok())
+                .filter(|&n| n > 0)
+                .unwrap_or(3600),
             private_messages_room_id: env::var("PRIVATE_MESSAGES_ROOM_ID")
                 .ok()
                 .filter(|s| !s.is_empty())

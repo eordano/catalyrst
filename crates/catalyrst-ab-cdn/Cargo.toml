@@ -2,7 +2,7 @@
 name = "catalyrst-ab-cdn"
 version = "0.1.0"
 edition = "2021"
-description = "Rust reimplementation of ab-cdn.decentraland.org — content-addressed static server over abgen's on-disk output root, with an optional live-conversion proxy (ABGEN_LIVE_UPSTREAM) that builds bundles on demand via abgen-serve on a miss"
+description = "Unified content / asset-bundle server: serves pre-built bundles from the corpus, converts misses in-process (writing them into the corpus, then re-serving so corpus-hit and JIT-miss are byte-and-header identical), and passes native content (scene.json / main.crdt / bin/*) from the content store. Supersedes ab-cdn + abgen-serve + the nginx passthrough."
 
 [[bin]]
 name = "catalyrst-ab-cdn"
@@ -19,5 +19,16 @@ serde_json = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 anyhow = { workspace = true }
-reqwest = { workspace = true }
 moka = { version = "0.12", features = ["future"] }
+sqlx = { workspace = true }
+chrono = { workspace = true }
+# Unified asset-bundle serving: abgen provides the conversion logic + the
+# disk-or-remote CatalystClient content abstraction used for native content
+# passthrough (scene.json / main.crdt / bin/*). Lib target name is `abgen`.
+abgen = { path = "../catalyrst-abgen", package = "catalyrst-abgen" }
+# Folded AB index (entities/active + /versions): reuse the registry's content
+# query (ContentComponent -> ActiveEntity with timestamp/deployer/content/metadata)
+# for byte-exact response parity. Transitional — a future shared crate lets the
+# standalone ab-registry crate retire entirely; for now this guarantees identical
+# responses for the route swap.
+catalyrst-registry = { path = "../catalyrst-registry" }

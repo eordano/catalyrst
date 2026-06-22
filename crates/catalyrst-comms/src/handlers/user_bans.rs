@@ -235,3 +235,63 @@ pub async fn list_all_bans(
     let data = serde_json::to_value(bans).unwrap_or(serde_json::Value::Array(vec![]));
     Ok(Json(serde_json::json!({ "data": data })))
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::ports::user_bans::{BanStatus, UserBan};
+    use chrono::{TimeZone, Utc};
+
+    // Mirrors get_user_ban_status: `{ data: BanStatus }`.
+    fn envelope(status: BanStatus) -> serde_json::Value {
+        let data = serde_json::to_value(status).unwrap();
+        serde_json::json!({ "data": data })
+    }
+
+    // Not banned: the client reads `data.isBanned` (false) and `data.ban` is
+    // absent — upstream returns `{ isBanned: false }` with no `ban` key.
+    #[test]
+    fn not_banned_envelope_has_data_is_banned_false_and_no_ban() {
+        let v = envelope(BanStatus {
+            is_banned: false,
+            ban: None,
+        });
+        assert_eq!(v["data"]["isBanned"], false);
+        assert!(v["data"].get("ban").is_none());
+        // never top-level `banned` (the old broken shape)
+        assert!(v.get("banned").is_none());
+    }
+
+    // Banned: `data.isBanned` is true and `data.ban` carries the camelCase
+    // UserBan sub-object the Unity BannedUserData expects.
+    #[test]
+    fn banned_envelope_has_nested_ban_with_camelcase_fields() {
+        let at = Utc.timestamp_opt(1_718_900_000, 0).unwrap();
+        let v = envelope(BanStatus {
+            is_banned: true,
+            ban: Some(UserBan {
+                id: "00000000-0000-0000-0000-000000000001".into(),
+                banned_address: "0xabc".into(),
+                banned_by: "0xdef".into(),
+                reason: "spam".into(),
+                custom_message: None,
+                banned_at: at,
+                expires_at: None,
+                lifted_at: None,
+                lifted_by: None,
+                created_at: at,
+            }),
+        });
+        assert_eq!(v["data"]["isBanned"], true);
+        let ban = &v["data"]["ban"];
+        assert_eq!(ban["id"], "00000000-0000-0000-0000-000000000001");
+        assert_eq!(ban["bannedAddress"], "0xabc");
+        assert_eq!(ban["bannedBy"], "0xdef");
+        assert_eq!(ban["reason"], "spam");
+        assert!(ban["customMessage"].is_null());
+        assert_eq!(ban["bannedAt"], "2024-06-20T16:13:20.000Z");
+        assert!(ban["expiresAt"].is_null());
+        assert!(ban["liftedAt"].is_null());
+        assert!(ban["liftedBy"].is_null());
+        assert_eq!(ban["createdAt"], "2024-06-20T16:13:20.000Z");
+    }
+}

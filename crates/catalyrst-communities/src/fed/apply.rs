@@ -177,6 +177,16 @@ pub async fn apply_role(
     let now = now_secs();
     let payload = serde_json::to_value(&signed.message).unwrap_or(json!({}));
 
+    // Normalize the wire role to the canonical token the DB CHECK accepts.
+    // Upstream's `CommunityRole` wire value for moderators is `moderator`; we
+    // store `mod`. An unknown role is rejected up front so the INSERT never
+    // trips the CHECK constraint (which would drop the envelope as a 500).
+    let role = crate::fed::authority::Role::parse(&signed.message.role)
+        .ok_or_else(|| {
+            ApiError::Http(catalyrst_types::HttpError::new(400, "invalid role"))
+        })?
+        .as_str();
+
     let mut tx = pool.begin().await?;
     sqlx::query(
         "INSERT INTO community_role_log (signature_hash, community_id, signer, target, role, signed_at, message_payload, received_at) \
@@ -186,7 +196,7 @@ pub async fn apply_role(
     .bind(&signed.message.community_id)
     .bind(signer.to_ascii_lowercase())
     .bind(signed.message.target.to_ascii_lowercase())
-    .bind(&signed.message.role)
+    .bind(role)
     .bind(signed.signed_at)
     .bind(&payload)
     .bind(now)

@@ -1,34 +1,111 @@
+use axum::extract::{Path, State};
+use axum::http::HeaderMap;
 use axum::Json;
-use serde_json::Value;
+use serde_json::{json, Value};
 
+use crate::fed::apply as fed_apply;
+use crate::fed::authority;
+use crate::fed::messages::ProfileSettingsUpdate;
+use crate::handlers::federation::{emit_gossip, is_federation_envelope, preflight};
 use crate::http::response::ApiError;
+use crate::AppState;
 
-pub async fn list_profile_settings() -> Result<Json<Value>, ApiError> {
-    Err(ApiError::not_implemented(
-        "GET /api/profiles/settings is admin-only; depends on a moderators table not yet provisioned (see docs/federation/events.md §3)",
-    ))
+fn ok(data: Value) -> Json<Value> {
+    Json(json!({ "ok": true, "data": data }))
 }
 
-pub async fn get_auth_profile_settings() -> Result<Json<Value>, ApiError> {
-    Err(ApiError::not_implemented(
-        "GET /api/profiles/me/settings requires auth-chain; will land alongside federation writes",
-    ))
+/// Recover the auth-chain signer (signed-fetch) or 401.
+fn require_auth(headers: &HeaderMap, method: &str, path: &str) -> Result<String, ApiError> {
+    crate::auth_chain::require_signer(headers, method, path)
+        .map(|s| s.to_lowercase())
+        .map_err(|_| ApiError::unauthorized("Unauthorized"))
 }
 
-pub async fn update_my_profile_settings() -> Result<Json<Value>, ApiError> {
-    Err(ApiError::not_implemented(
-        "PATCH /api/profiles/me/settings is a federation-signed action; will land with the federation phase",
-    ))
+/// Admin-only listing (upstream: `isAdmin || canEditAnyProfile`). The federation
+/// port gates on the local moderators allow-list.
+pub async fn list_profile_settings(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, ApiError> {
+    let user = require_auth(&headers, "get", "/api/profiles/settings")?;
+    authority::require_moderator(&state.pool, &user).await?;
+    let list = fed_apply::list_settings(&state.pool).await?;
+    Ok(ok(json!(list)))
 }
 
-pub async fn get_profile_settings() -> Result<Json<Value>, ApiError> {
-    Err(ApiError::not_implemented(
-        "GET /api/profiles/{id}/settings is admin-only; depends on a moderators table not yet provisioned",
-    ))
+/// The authenticated user's own settings (open to any wallet — self-read).
+pub async fn get_auth_profile_settings(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, ApiError> {
+    let user = require_auth(&headers, "get", "/api/profiles/me/settings")?;
+    let mut settings = fed_apply::load_settings(&state.pool, &user).await?;
+    // upstream getAuthProfileSettings includes a (now always-empty) subscriptions
+    // array; web-push is deprecated (see profile_subscription.rs → 410).
+    if let Some(obj) = settings.as_object_mut() {
+        obj.insert("subscriptions".into(), json!([]));
+    }
+    Ok(ok(settings))
 }
 
-pub async fn update_profile_settings() -> Result<Json<Value>, ApiError> {
-    Err(ApiError::not_implemented(
-        "PATCH /api/profiles/{id}/settings is a federation-signed action; will land with the federation phase",
-    ))
+/// Federation-signed self-edit of the caller's own settings. The envelope's
+/// `target` must equal the signer (no moderator status required).
+pub async fn update_my_profile_settings(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    if !is_federation_envelope(&body) {
+        return Err(ApiError::bad_request("missing signed body"));
+    }
+    let (signed, signer) = preflight::<ProfileSettingsUpdate>(&state, &headers, body).await?;
+    if !signed.message.target.eq_ignore_ascii_case(&signer) {
+        return Err(ApiError::forbidden(
+            "me/settings only edits the signer's own profile",
+        ));
+    }
+    let (applied, settings) =
+        fed_apply::apply_profile_settings(&state.pool, &signed, &signer, None).await?;
+    if applied.fresh {
+        emit_gossip(&state, &signed, &applied.signature_hash, &signer).await;
+    }
+    Ok(ok(settings))
+}
+
+/// Admin-only read of another user's settings (moderator-gated).
+pub async fn get_profile_settings(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(profile_id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    let path = format!("/api/profiles/{}/settings", profile_id);
+    let user = require_auth(&headers, "get", &path)?;
+    authority::require_moderator(&state.pool, &user).await?;
+    let settings = fed_apply::load_settings(&state.pool, &profile_id.to_lowercase()).await?;
+    Ok(ok(settings))
+}
+
+/// Federation-signed moderator update of another user's settings. The signer
+/// must be a local moderator; the envelope's `target` is the edited user and
+/// must match the path id.
+pub async fn update_profile_settings(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(profile_id): Path<String>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    if !is_federation_envelope(&body) {
+        return Err(ApiError::bad_request("missing signed body"));
+    }
+    let (signed, signer) = preflight::<ProfileSettingsUpdate>(&state, &headers, body).await?;
+    if !signed.message.target.eq_ignore_ascii_case(&profile_id) {
+        return Err(ApiError::bad_request("target does not match path profile_id"));
+    }
+    authority::require_moderator(&state.pool, &signer).await?;
+    let (applied, settings) =
+        fed_apply::apply_profile_settings(&state.pool, &signed, &signer, None).await?;
+    if applied.fresh {
+        emit_gossip(&state, &signed, &applied.signature_hash, &signer).await;
+    }
+    Ok(ok(settings))
 }

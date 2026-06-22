@@ -14,6 +14,18 @@ on the shared PostgreSQL cluster.
 | GET | `/captcha` | `captcha::generate` (GenerateCaptchaAsync) — mint+store a `captcha_challenges` row, return `image/png` bytes; marker drawn at `round(answer/100 * (WIDTH-1))` so the 0–100% answer maps across the full image | implemented |
 | POST | `/captcha` | `captcha::claim` (ClaimCreditsAsync) — validates signer + active challenge + `x` (±4%), then claims the pending balance into the ledger; returns `{ok, credits_granted, isBlockedForClaiming}` | implemented |
 
+### External captcha provider gate (optional)
+
+The upstream slider puzzle is the primary gate (`x` body field, image `GET`). When
+`CREDITS_CAPTCHA_SECRET` is set, `POST /captcha` additionally requires a verified
+provider token: the body carries an optional `token` (hCaptcha/reCAPTCHA), which is
+checked against `CREDITS_CAPTCHA_VERIFY_URL` (default `https://hcaptcha.com/siteverify`,
+provider-agnostic form-POST of `secret`+`response`, JSON `success`). A missing/invalid
+token or any provider error fails the attempt; the challenge is already consumed so the
+client must request a fresh captcha. When the secret is unset the slider gate stands
+alone and the `token` field is ignored, so the upstream Unity client (slider-only) is
+unaffected.
+
 ## Admin routes (high-risk financial, bearer-gated)
 
 Spec: `docs/admin-console.md` §4 (catalyrst-credits row). Every route below is

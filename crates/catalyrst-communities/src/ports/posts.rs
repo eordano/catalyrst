@@ -91,3 +91,46 @@ impl PostsComponent {
         Ok((posts, total))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::CommunityPost;
+    use chrono::NaiveDate;
+    use uuid::Uuid;
+
+    fn post(liked: bool) -> CommunityPost {
+        CommunityPost {
+            id: Uuid::nil(),
+            community_id: Uuid::nil(),
+            author_address: "0xabc".to_string(),
+            content: "hi".to_string(),
+            created_at: NaiveDate::from_ymd_opt(2024, 1, 1)
+                .unwrap()
+                .and_hms_opt(0, 0, 0)
+                .unwrap(),
+            likes_count: 3,
+            liked_by_me: liked,
+            kind: "POST",
+        }
+    }
+
+    #[test]
+    fn post_serializes_with_unity_wire_keys() {
+        let v = serde_json::to_value(post(true)).unwrap();
+        let m = v.as_object().unwrap();
+        // CommunityPost (Unity DTO) reads these property names.
+        for key in ["id", "communityId", "authorAddress", "content", "createdAt"] {
+            assert!(m.contains_key(key), "post missing {key}");
+        }
+        assert_eq!(m["likesCount"], 3);
+        assert_eq!(m["type"], "POST");
+        // The per-user liked flag is computed from the data, not hardcoded false.
+        assert_eq!(m["isLikedByUser"], true);
+    }
+
+    #[test]
+    fn not_liked_post_reports_false() {
+        let v = serde_json::to_value(post(false)).unwrap();
+        assert_eq!(v["isLikedByUser"], false);
+    }
+}

@@ -131,9 +131,7 @@ async fn enrich(state: &AppState, data: &mut [PlaceRow], flags: &DestinationFlag
     // exactly as upstream does when a place has no matching hot scene.
     if flags.with_realms_detail {
         for d in data.iter_mut() {
-            if !d.world {
-                d.realms_detail = Some(Vec::new());
-            }
+            d.apply_realms_detail(true);
         }
     }
 }

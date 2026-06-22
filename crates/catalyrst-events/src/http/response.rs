@@ -50,6 +50,9 @@ impl ApiError {
     pub fn not_implemented(msg: impl Into<String>) -> Self {
         ApiError::Http(HttpError::new(501, msg))
     }
+    pub fn gone(msg: impl Into<String>) -> Self {
+        ApiError::Http(HttpError::new(410, msg))
+    }
 }
 
 impl IntoResponse for ApiError {

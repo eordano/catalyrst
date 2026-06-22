@@ -1,4 +1,5 @@
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
+use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
+use std::hint::black_box;
 use serde::Serialize;
 use serde_json::{json, Value};
 
@@ -323,7 +324,8 @@ mod http_handlers {
     use axum::body::Body;
     use axum::http::{Request, StatusCode};
     use bytes::Bytes;
-    use criterion::{black_box, Criterion};
+    use criterion::Criterion;
+    use std::hint::black_box;
     use serde_json::{json, Value};
     use sqlx::postgres::PgPoolOptions;
     use sqlx::PgPool;

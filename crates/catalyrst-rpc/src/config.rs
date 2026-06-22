@@ -13,8 +13,12 @@ pub fn chain_id_for(network: &str) -> Option<u64> {
     match network.to_ascii_lowercase().as_str() {
         "mainnet" | "ethereum" => Some(1),
         "sepolia" => Some(11155111),
-        "polygon" => Some(137),
+        // The live unity-explorer uses `polygon`/`amoy`; @dcl/schemas'
+        // getURNProtocol uses `matic`/`mumbai` for the same Polygon chains.
+        // Accept both spellings so every DCL consumer resolves.
+        "polygon" | "matic" => Some(137),
         "amoy" => Some(80002),
+        "mumbai" => Some(80001),
         "arbitrum" => Some(42161),
         "optimism" => Some(10),
         "avalanche" => Some(43114),
@@ -50,9 +54,19 @@ impl Config {
                 "https://rpc.decentraland.org/polygon",
             ),
             (
+                "matic",
+                "RPC_UPSTREAM_MATIC",
+                "https://rpc.decentraland.org/polygon",
+            ),
+            (
                 "amoy",
                 "RPC_UPSTREAM_AMOY",
                 "https://rpc.decentraland.org/amoy",
+            ),
+            (
+                "mumbai",
+                "RPC_UPSTREAM_MUMBAI",
+                "https://rpc.decentraland.org/mumbai",
             ),
             (
                 "arbitrum",
@@ -99,5 +113,87 @@ impl Config {
         self.upstreams
             .get(&network.to_ascii_lowercase())
             .map(|s| s.as_str())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The full `{network}` path set the relay must accept, mirroring the live
+    /// unity-explorer RPC_OVERRIDES table plus the @dcl/schemas matic/mumbai
+    /// aliases. Each maps to its canonical ChainId (schemas/src/dapps/chain-id.ts).
+    const SUPPORTED: &[(&str, u64)] = &[
+        ("mainnet", 1),
+        ("ethereum", 1),
+        ("sepolia", 11155111),
+        ("polygon", 137),
+        ("matic", 137),
+        ("amoy", 80002),
+        ("mumbai", 80001),
+        ("arbitrum", 42161),
+        ("optimism", 10),
+        ("avalanche", 43114),
+        ("binance", 56),
+        ("fantom", 250),
+    ];
+
+    #[test]
+    fn chain_id_covers_full_client_network_set() {
+        for (net, want) in SUPPORTED {
+            assert_eq!(
+                chain_id_for(net),
+                Some(*want),
+                "network {net} should map to chain id {want}"
+            );
+        }
+    }
+
+    #[test]
+    fn chain_id_is_case_insensitive() {
+        assert_eq!(chain_id_for("MAINNET"), Some(1));
+        assert_eq!(chain_id_for("Polygon"), Some(137));
+        assert_eq!(chain_id_for("MATIC"), Some(137));
+    }
+
+    #[test]
+    fn unknown_network_has_no_chain_id() {
+        assert_eq!(chain_id_for("solana"), None);
+        assert_eq!(chain_id_for("goerli"), None);
+        assert_eq!(chain_id_for(""), None);
+        assert_eq!(chain_id_for("mainet"), None); // typo, not a real network
+    }
+
+    #[test]
+    fn from_env_default_upstreams_cover_every_supported_network() {
+        // from_env without overrides yields the default upstream map. Assert
+        // every supported network resolves to a non-empty rpc.decentraland.org
+        // upstream and that there are no extra, chain-id-less entries.
+        let cfg = Config::from_env().expect("default config");
+        for (net, _) in SUPPORTED {
+            let up = cfg
+                .upstream_for(net)
+                .unwrap_or_else(|| panic!("missing upstream for {net}"));
+            assert!(up.starts_with("https://rpc.decentraland.org/"), "{net}: {up}");
+        }
+        for net in cfg.upstreams.keys() {
+            assert!(
+                chain_id_for(net).is_some(),
+                "configured network {net} has no known chain id"
+            );
+        }
+    }
+
+    #[test]
+    fn upstream_lookup_is_case_insensitive_and_rejects_unknown() {
+        let mut upstreams = HashMap::new();
+        upstreams.insert("polygon".to_string(), "https://example/polygon".to_string());
+        let cfg = Config {
+            http_host: "127.0.0.1".into(),
+            http_port: 0,
+            upstreams,
+        };
+        assert_eq!(cfg.upstream_for("POLYGON"), Some("https://example/polygon"));
+        assert_eq!(cfg.upstream_for("does-not-exist"), None);
     }
 }

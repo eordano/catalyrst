@@ -59,20 +59,6 @@ pub struct Tile {
     pub expires_at: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none", rename = "rentalListing")]
     pub rental_listing: Option<TileRentalListing>,
-    // --- Additive estate/rental detail enrichment (beyond upstream `Tile`) ---
-    // These are emitted only when present, so strict upstream-parity consumers
-    // (which ignore unknown keys) are unaffected and existing fields keep their
-    // shape/order. They surface estate size + the rental's headline price/expiry
-    // so callers don't have to re-derive them from `rentalListing.periods`.
-    /// Number of parcels in the estate this tile belongs to (0/absent for loose parcels).
-    #[serde(skip_serializing_if = "Option::is_none", rename = "estateSize")]
-    pub estate_size: Option<i32>,
-    /// Max price-per-day (wei, as string) across the open rental listing's periods.
-    #[serde(skip_serializing_if = "Option::is_none", rename = "rentalPricePerDay")]
-    pub rental_price_per_day: Option<String>,
-    /// UTC ms timestamp of the rental listing signature expiration.
-    #[serde(skip_serializing_if = "Option::is_none", rename = "rentalExpiresAt")]
-    pub rental_expires_at: Option<i64>,
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]
@@ -240,8 +226,7 @@ impl MapComponent {
                 e.owner_address                      AS estate_owner,
                 e.updated_at::int8                   AS estate_updated_at,
                 e.search_order_price::text           AS estate_order_price,
-                e.search_order_expires_at::int8      AS estate_order_expires_at,
-                e.search_estate_size::int4           AS estate_size
+                e.search_order_expires_at::int8      AS estate_order_expires_at
             FROM {schema}.nft p
             LEFT JOIN {schema}.nft e
                    ON e.id = p.search_parcel_estate_id
@@ -318,9 +303,6 @@ impl MapComponent {
                 token_id: Some(r.token_id.clone()),
                 price: None,
                 expires_at: None,
-                estate_size: r.estate_size.filter(|s| *s > 0),
-                rental_price_per_day: rental_listing.as_ref().map(|rl| rl.max_price_per_day()),
-                rental_expires_at: rental_listing.as_ref().map(|rl| rl.expiration),
                 rental_listing,
             };
 
@@ -402,9 +384,6 @@ impl MapComponent {
                     token_id: None,
                     price: None,
                     expires_at: None,
-                    estate_size: None,
-                    rental_price_per_day: None,
-                    rental_expires_at: None,
                     rental_listing: None,
                 },
             );
@@ -467,5 +446,4 @@ struct ParcelRow {
     estate_updated_at: Option<i64>,
     estate_order_price: Option<String>,
     estate_order_expires_at: Option<i64>,
-    estate_size: Option<i32>,
 }

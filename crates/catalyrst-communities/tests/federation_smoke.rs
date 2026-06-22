@@ -283,6 +283,91 @@ async fn create_join_role_ban_post_flow() {
     cleanup(&admin_url, &schema).await;
 }
 
+/// Bug #1 round-trip: a role signed with upstream's canonical wire value
+/// `moderator` must persist as the DB-canonical token `mod` — both in the
+/// append-only `community_role_log` (whose CHECK does NOT allow `moderator`)
+/// and in the projected `community_role_current`.
+#[tokio::test]
+async fn moderator_wire_role_persists_as_mod() {
+    let Some((pool, schema, admin_url)) = setup().await else {
+        eprintln!("skipping moderator_wire_role_persists_as_mod: no postgres reachable");
+        return;
+    };
+    let domain = domains::communities();
+    let owner = mk_wallet(60);
+    let member = mk_wallet(61);
+
+    let create = sign(
+        &owner,
+        CommunityCreate {
+            name: "RoleNorm".into(),
+            description: "".into(),
+            private: false,
+            unlisted: false,
+            flags: vec![],
+        },
+        domain.clone(),
+        rand_nonce(),
+        now(),
+    )
+    .await;
+    let cid = apply::apply_create(&pool, &create, &addr(&owner))
+        .await
+        .unwrap()
+        .community_id;
+
+    let join = sign(
+        &member,
+        CommunityJoin {
+            community_id: cid.clone(),
+        },
+        domain.clone(),
+        rand_nonce(),
+        now(),
+    )
+    .await;
+    apply::apply_join(&pool, &join, &addr(&member))
+        .await
+        .unwrap();
+
+    // Signed with the upstream wire value `moderator` (NOT the DB token).
+    let grant = sign(
+        &owner,
+        CommunityRole {
+            community_id: cid.clone(),
+            target: addr(&member),
+            role: "moderator".into(),
+        },
+        domain.clone(),
+        rand_nonce(),
+        now(),
+    )
+    .await;
+    apply::apply_role(&pool, &grant, &addr(&owner))
+        .await
+        .expect("apply_role must not trip the role CHECK constraint");
+
+    // Stored canonical token in the log is `mod`, not `moderator`.
+    let logged: (String,) = sqlx::query_as(
+        "SELECT role FROM community_role_log WHERE community_id = $1 AND target = $2 \
+         ORDER BY seq DESC LIMIT 1",
+    )
+    .bind(&cid)
+    .bind(addr(&member))
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(logged.0, "mod", "log must store canonical `mod`");
+
+    // Projection resolves to Mod.
+    assert_eq!(
+        load_role(&pool, &cid, &addr(&member)).await.unwrap(),
+        Role::Mod
+    );
+
+    cleanup(&admin_url, &schema).await;
+}
+
 #[tokio::test]
 async fn tiebreaker_lower_sig_wins() {
     let Some((pool, schema, admin_url)) = setup().await else {

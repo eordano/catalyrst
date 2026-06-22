@@ -15,7 +15,7 @@ async fn main() -> Result<()> {
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| {
                 "catalyrst_create=info,catalyrst_builder=info,catalyrst_camera_reel=info,\
-                 catalyrst_ab_registry=info,tower_http=info"
+                 catalyrst_registry=info,tower_http=info"
                     .into()
             }),
         )
@@ -97,7 +97,7 @@ async fn build_camera_reel() -> Result<Router> {
 }
 
 async fn build_ab_registry() -> Result<Router> {
-    let cfg = catalyrst_ab_registry::config::Config::from_env()?;
-    let state = catalyrst_ab_registry::build_state(&cfg).await?;
-    Ok(catalyrst_ab_registry::api_router().with_state(state))
+    let cfg = catalyrst_registry::config::Config::from_env()?;
+    let state = catalyrst_registry::build_state(&cfg).await?;
+    Ok(catalyrst_registry::api_router().with_state(state))
 }

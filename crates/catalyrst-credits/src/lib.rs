@@ -5,6 +5,7 @@ pub mod dto;
 pub mod handlers;
 pub mod http;
 pub mod ports;
+pub mod provider;
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -16,11 +17,14 @@ use sqlx::postgres::PgPoolOptions;
 
 use crate::config::Config;
 use crate::ports::credits::CreditsComponent;
+use crate::provider::CaptchaProvider;
 
 pub struct AppStateInner {
     pub credits: CreditsComponent,
     /// Bearer token gating the admin routes; `None` => fail closed (403).
     pub admin_token: Option<String>,
+    /// External captcha provider; `None` => the upstream slider gate stands alone.
+    pub captcha_provider: Option<CaptchaProvider>,
 }
 
 pub type AppState = Arc<AppStateInner>;
@@ -55,8 +59,17 @@ pub async fn build_state(cfg: &Config) -> Result<AppState> {
         return Err(e.into());
     }
 
+    let captcha_provider = cfg.captcha_secret.clone().map(|secret| {
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(10))
+            .build()
+            .expect("failed to build reqwest client");
+        CaptchaProvider::new(secret, cfg.captcha_verify_url.clone(), client)
+    });
+
     Ok(Arc::new(AppStateInner {
         credits: CreditsComponent::new(pool),
         admin_token: cfg.admin_token.clone(),
+        captcha_provider,
     }))
 }

@@ -18,6 +18,7 @@
 use std::collections::HashMap;
 
 use sqlx::PgPool;
+use uuid::Uuid;
 
 /// Protobuf `FriendshipStatus` enum
 /// (decentraland/social_service/v2/social_service_v2.proto:147). Serialized as
@@ -128,6 +129,60 @@ pub async fn friendship_statuses(
         };
         let status = friendship_request_status(&latest.action, &latest.acting_user, user_address);
         out.insert(other_user.to_lowercase(), status);
+    }
+    out
+}
+
+/// Build the `community_id -> [friend_address]` map used to populate each
+/// community's `friends` array in `GET /v1/communities`. Port of the
+/// `community_friends` CTE in upstream `communities-db.ts:getCommunities`: for
+/// each community, the requesting user's active friends who are also members,
+/// ordered by address and capped at 3.
+///
+/// `user_address` is expected already lowercased. Communities with no shared
+/// friends are absent from the map (the caller emits `[]`). A missing
+/// `friendships` table degrades to an empty map rather than failing the listing.
+pub async fn community_friends(
+    pool: &PgPool,
+    user_address: &str,
+    community_ids: &[Uuid],
+) -> HashMap<Uuid, Vec<String>> {
+    let mut out: HashMap<Uuid, Vec<String>> = HashMap::new();
+    if community_ids.is_empty() {
+        return out;
+    }
+
+    let rows: Vec<(Uuid, String)> = match sqlx::query_as(
+        "SELECT community_id, address FROM ( \
+           SELECT cm.community_id, uf.address, \
+                  ROW_NUMBER() OVER (PARTITION BY cm.community_id ORDER BY uf.address) AS rn \
+           FROM ( \
+             SELECT DISTINCT CASE WHEN f.address_requester = $1 \
+                                    THEN f.address_requested \
+                                    ELSE f.address_requester END AS address \
+             FROM friendships f \
+             WHERE f.is_active = TRUE \
+               AND (f.address_requester = $1 OR f.address_requested = $1) \
+           ) uf \
+           JOIN community_members cm ON cm.member_address = uf.address \
+           WHERE cm.community_id = ANY($2) \
+         ) ranked \
+         WHERE rn <= 3",
+    )
+    .bind(user_address)
+    .bind(community_ids)
+    .fetch_all(pool)
+    .await
+    {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::warn!(error = %e, "community friends lookup failed; defaulting to no friends");
+            return out;
+        }
+    };
+
+    for (community_id, address) in rows {
+        out.entry(community_id).or_default().push(address);
     }
     out
 }

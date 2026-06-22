@@ -414,7 +414,19 @@ impl SocialServiceServer<Context, SocialError> for SocialServiceImpl {
         let db = context.server_context.db();
 
         let resolved = async {
-            let status = match db.last_friendship_action(&me, &other).await? {
+            // Upstream `getLastFriendshipActionByUsers` precedence (friends-db.ts):
+            // the latest *friendship action* always wins; the blocks table is
+            // consulted ONLY when no friendship action exists (`NOT EXISTS
+            // (friendship_action)`), where it surfaces a synthetic BLOCK whose
+            // acting_user is the blocker. A friendship ROW with no recognized
+            // action is, for status purposes, "no friendship action" — so it must
+            // also fall through to the blocks table, not short-circuit to NONE.
+            let action = db
+                .last_friendship_action(&me, &other)
+                .await?
+                .and_then(|last| friendship_action_status(&last, &me));
+            let status = match action {
+                Some(s) => s,
                 None => {
                     if db.is_blocked(&me, &other).await? {
                         FriendshipStatus::Blocked
@@ -422,20 +434,6 @@ impl SocialServiceServer<Context, SocialError> for SocialServiceImpl {
                         FriendshipStatus::BlockedBy
                     } else {
                         FriendshipStatus::None
-                    }
-                }
-                Some(last) => {
-                    let acting_is_me = last.acting_user == me;
-                    match Action::from_str(&last.action) {
-                        Some(Action::Accept) => FriendshipStatus::Accepted,
-                        Some(Action::Cancel) => FriendshipStatus::Canceled,
-                        Some(Action::Delete) => FriendshipStatus::Deleted,
-                        Some(Action::Reject) => FriendshipStatus::Rejected,
-                        Some(Action::Request) if acting_is_me => FriendshipStatus::RequestSent,
-                        Some(Action::Request) => FriendshipStatus::RequestReceived,
-                        Some(Action::Block) if acting_is_me => FriendshipStatus::Blocked,
-                        Some(Action::Block) => FriendshipStatus::BlockedBy,
-                        None => FriendshipStatus::None,
                     }
                 }
             };
@@ -1753,6 +1751,24 @@ impl SocialServiceServer<Context, SocialError> for SocialServiceImpl {
     }
 }
 
+/// Map a last *friendship action* to a friendship status, mirroring upstream
+/// `getFriendshipRequestStatus` (logic/friends/friendships.ts). Returns `None`
+/// when the action is unrecognized/absent so the caller can fall through to the
+/// blocks table exactly like upstream's `NOT EXISTS (friendship_action)` branch.
+fn friendship_action_status(last: &crate::db::LastAction, me: &str) -> Option<FriendshipStatus> {
+    let acting_is_me = last.acting_user == me;
+    Some(match Action::from_str(&last.action)? {
+        Action::Accept => FriendshipStatus::Accepted,
+        Action::Cancel => FriendshipStatus::Canceled,
+        Action::Delete => FriendshipStatus::Deleted,
+        Action::Reject => FriendshipStatus::Rejected,
+        Action::Request if acting_is_me => FriendshipStatus::RequestSent,
+        Action::Request => FriendshipStatus::RequestReceived,
+        Action::Block if acting_is_me => FriendshipStatus::Blocked,
+        Action::Block => FriendshipStatus::BlockedBy,
+    })
+}
+
 fn status_ok(status: FriendshipStatus) -> GetFriendshipStatusResponse {
     GetFriendshipStatusResponse {
         response: Some(get_friendship_status_response::Response::Accepted(
@@ -1974,5 +1990,138 @@ async fn require_moderator(
         _ => Ok(Err(ForbiddenError {
             message: Some("requires moderator or owner role".into()),
         })),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::LastAction;
+    use uuid::Uuid;
+
+    fn last(action: &str, acting_user: &str) -> LastAction {
+        LastAction {
+            friendship_id: Uuid::nil(),
+            action: action.to_string(),
+            acting_user: acting_user.to_string(),
+            is_active: false,
+        }
+    }
+
+    // Pure mirror of the handler's block-vs-friendship precedence so the full
+    // resolution (not just the action mapping) is locked without a DB. Upstream
+    // `getLastFriendshipActionByUsers`: the friendship action always wins; the
+    // blocks table is consulted ONLY when no friendship action resolves.
+    fn resolve(
+        last: Option<&LastAction>,
+        me: &str,
+        me_blocked_other: bool,
+        other_blocked_me: bool,
+    ) -> FriendshipStatus {
+        match last.and_then(|l| friendship_action_status(l, me)) {
+            Some(s) => s,
+            None => {
+                if me_blocked_other {
+                    FriendshipStatus::Blocked
+                } else if other_blocked_me {
+                    FriendshipStatus::BlockedBy
+                } else {
+                    FriendshipStatus::None
+                }
+            }
+        }
+    }
+
+    const ME: &str = "0xme";
+    const OTHER: &str = "0xother";
+
+    #[test]
+    fn action_mapping_covers_every_action_and_direction() {
+        assert_eq!(
+            friendship_action_status(&last("accept", OTHER), ME),
+            Some(FriendshipStatus::Accepted)
+        );
+        assert_eq!(
+            friendship_action_status(&last("cancel", ME), ME),
+            Some(FriendshipStatus::Canceled)
+        );
+        assert_eq!(
+            friendship_action_status(&last("delete", OTHER), ME),
+            Some(FriendshipStatus::Deleted)
+        );
+        assert_eq!(
+            friendship_action_status(&last("reject", OTHER), ME),
+            Some(FriendshipStatus::Rejected)
+        );
+        // request direction is relative to the caller (`me`)
+        assert_eq!(
+            friendship_action_status(&last("request", ME), ME),
+            Some(FriendshipStatus::RequestSent)
+        );
+        assert_eq!(
+            friendship_action_status(&last("request", OTHER), ME),
+            Some(FriendshipStatus::RequestReceived)
+        );
+        // block direction is relative to the acting (blocking) user
+        assert_eq!(
+            friendship_action_status(&last("block", ME), ME),
+            Some(FriendshipStatus::Blocked)
+        );
+        assert_eq!(
+            friendship_action_status(&last("block", OTHER), ME),
+            Some(FriendshipStatus::BlockedBy)
+        );
+        // unrecognized / empty action -> None so the caller falls through to blocks
+        assert_eq!(friendship_action_status(&last("", ME), ME), None);
+        assert_eq!(friendship_action_status(&last("garbage", ME), ME), None);
+    }
+
+    #[test]
+    fn friendship_action_takes_precedence_over_blocks() {
+        // A real friendship action wins even when a block row also exists, exactly
+        // like upstream's `NOT EXISTS (friendship_action)` guard.
+        assert_eq!(
+            resolve(Some(&last("accept", OTHER)), ME, true, true),
+            FriendshipStatus::Accepted
+        );
+        assert_eq!(
+            resolve(Some(&last("request", ME)), ME, true, false),
+            FriendshipStatus::RequestSent
+        );
+        // A real BLOCK friendship action keeps its acting-user-relative direction.
+        assert_eq!(
+            resolve(Some(&last("block", OTHER)), ME, false, true),
+            FriendshipStatus::BlockedBy
+        );
+    }
+
+    #[test]
+    fn block_fallback_only_when_no_friendship_action() {
+        // No friendship row at all -> blocks table decides.
+        assert_eq!(resolve(None, ME, true, false), FriendshipStatus::Blocked);
+        assert_eq!(resolve(None, ME, false, true), FriendshipStatus::BlockedBy);
+        assert_eq!(resolve(None, ME, false, false), FriendshipStatus::None);
+        // me-as-blocker is preferred deterministically on a mutual block.
+        assert_eq!(resolve(None, ME, true, true), FriendshipStatus::Blocked);
+    }
+
+    #[test]
+    fn friendship_row_without_action_falls_through_to_blocks() {
+        // Regression for the precedence bug: a friendship ROW with no recognized
+        // action must NOT short-circuit to NONE — it has no friendship *action*,
+        // so a block must still surface (matches upstream INNER JOIN semantics).
+        assert_eq!(
+            resolve(Some(&last("", OTHER)), ME, false, true),
+            FriendshipStatus::BlockedBy
+        );
+        assert_eq!(
+            resolve(Some(&last("", ME)), ME, true, false),
+            FriendshipStatus::Blocked
+        );
+        // ...and NONE when there is genuinely nothing.
+        assert_eq!(
+            resolve(Some(&last("", ME)), ME, false, false),
+            FriendshipStatus::None
+        );
     }
 }

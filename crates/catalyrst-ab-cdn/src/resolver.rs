@@ -4,6 +4,10 @@ const PLATFORMS: &[(&str, &str)] = &[
     ("_windows", "windows"),
     ("_mac", "mac"),
     ("_linux", "linux"),
+    // Explicit `_webgl` suffix for the flat corpus bundles `<hash>_<deps>_webgl`.
+    // The suffix-less fallback below ALSO maps to "webgl", so bare-CID bundles and
+    // the suffix-less `<entity>.json` webgl manifest resolve to webgl too.
+    ("_webgl", "webgl"),
 ];
 
 pub fn platform_of(name: &str) -> &'static str {
@@ -99,6 +103,8 @@ mod tests {
         assert_eq!(platform_of("bafk_mac"), "mac");
         assert_eq!(platform_of("x_linux"), "linux");
         assert_eq!(platform_of("Qm123"), "webgl");
+        assert_eq!(platform_of("Qm123_webgl"), "webgl");
+        assert_eq!(split_platform("Qm123_webgl"), ("webgl", "Qm123"));
         assert_eq!(platform_of("staticscene_3_mac"), "mac");
     }
 

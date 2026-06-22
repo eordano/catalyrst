@@ -73,3 +73,39 @@ fn normalize_role(role: &str) -> String {
     }
     .to_string()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{normalize_role, CommunityMember};
+    use chrono::NaiveDate;
+    use uuid::Uuid;
+
+    #[test]
+    fn member_serializes_with_unity_wire_keys() {
+        let m = CommunityMember {
+            community_id: Uuid::nil(),
+            member_address: "0xabc".to_string(),
+            role: "member".to_string(),
+            joined_at: NaiveDate::from_ymd_opt(2024, 1, 1)
+                .unwrap()
+                .and_hms_opt(0, 0, 0)
+                .unwrap(),
+        };
+        let v = serde_json::to_value(m).unwrap();
+        let obj = v.as_object().unwrap();
+        for key in ["communityId", "memberAddress", "role", "joinedAt"] {
+            assert!(obj.contains_key(key), "member missing {key}");
+        }
+    }
+
+    #[test]
+    fn role_normalizes_to_unity_enum_names() {
+        // Unity CommunityMemberRole = { member, moderator, owner, none, unknown }.
+        assert_eq!(normalize_role("owner"), "owner");
+        assert_eq!(normalize_role("admin"), "moderator");
+        assert_eq!(normalize_role("mod"), "moderator");
+        assert_eq!(normalize_role("moderator"), "moderator");
+        assert_eq!(normalize_role("member"), "member");
+        assert_eq!(normalize_role("whatever"), "member");
+    }
+}

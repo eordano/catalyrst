@@ -999,33 +999,22 @@ in
       };
 
       systemd.services.pulse = {
-        description = "Pulse authoritative comms server (.NET, ENet/UDP)";
+        description = "Pulse authoritative comms server (Rust, ENet/UDP)";
         wantedBy = [ "multi-user.target" ];
         after = [ "network-online.target" ]; wants = [ "network-online.target" ];
         environment = {
-          DOTNET_SYSTEM_GLOBALIZATION_INVARIANT = "1";
-          ENV = "prd";
-          Transport__Port = "7777";
-          HttpService__Port = "5005";
-          HttpService__Host = "127.0.0.1";
-          # Kestrel (.NET ASP.NET) ignores HttpService__Host; ASPNETCORE_URLS wins.
-          ASPNETCORE_URLS = "http://127.0.0.1:5005";
-          Metrics__Type = "Prometheus";
-          Peers__MaxWorkerThreads = "2";
-          Transport__MaxConcurrentConnections = "1024";
-          Transport__MaxPeers = "1200";
+          RUST_LOG = "info";
+          # ENet/UDP game socket (was the .NET Transport__Port=7777).
+          PULSE_BIND = "0.0.0.0:7777";
         };
-        # noPgSandbox (not noJitHardening): .NET RyuJIT needs W+X pages.
         # No IPAddress filter — public ENet/UDP game server.
         serviceConfig = noPgSandbox // {
-          ExecStart = "${cfg.commsPackages.pulse}/bin/DCLPulse";
-          # WorkingDirectory pins .NET content-root so appsettings.json loads.
-          WorkingDirectory = "${cfg.commsPackages.pulse}/lib/dclpulse";
+          ExecStart = "${cfg.commsPackages.pulse}/bin/catalyrst-pulse";
           Restart = "always"; RestartSec = 10; DynamicUser = true;
           MemoryHigh = "4G";
           MemoryMax = "6G";
           TasksMax = 512;
-          SocketBindAllow = [ "udp:7777" "tcp:5005" ];
+          SocketBindAllow = [ "udp:7777" ];
           SocketBindDeny = "any";
         };
       };

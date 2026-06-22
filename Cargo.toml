@@ -20,9 +20,10 @@ members = [
     "crates/catalyrst-telemetry",
     "crates/catalyrst-comms",
     "crates/catalyrst-archipelago",
-    "crates/catalyrst-ab-registry",
+    "crates/catalyrst-registry",
     "crates/catalyrst-ab-cdn",
     "crates/catalyrst-builder",
+    "crates/catalyrst-abgen",
     "crates/catalyrst-worlds",
     "crates/catalyrst-badges",
     "crates/catalyrst-notifications",
@@ -50,7 +51,12 @@ members = [
     "crates/catalyrst-pulse",
     "crates/catalyrst-quests",
 ]
-exclude = ["crates/catalyrst-fuzz/fuzz"]
+exclude = [
+    "crates/catalyrst-fuzz/fuzz",
+    "crates/catalyrst-abgen/third_party/draco_decoder",
+    "crates/catalyrst-abgen/third_party/crunch",
+    "crates/catalyrst-abgen/third_party/libjpeg9c",
+]
 
 [workspace.dependencies]
 tokio = { version = "1", features = ["full"] }

@@ -233,7 +233,9 @@ async fn main() {
         "PROFILE_CDN_BASE_URL",
         "https://profile-images.decentraland.org",
     );
-    let land_image_base_url = env_or("LAND_IMAGE_BASE_URL", "http://127.0.0.1:5143");
+    // Public default (the prod base; rewrite is a no-op). Set LAND_IMAGE_BASE_URL
+    // to a public map gateway to self-host — never the local map's loopback.
+    let land_image_base_url = env_or("LAND_IMAGE_BASE_URL", "https://api.decentraland.org");
 
     let state = Arc::new(AppState {
         storage: Arc::new(StubStorage),

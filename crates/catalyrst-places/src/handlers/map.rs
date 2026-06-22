@@ -57,13 +57,15 @@ pub async fn get_map_places(
         ));
     }
     filters.only_places = !filters.only_highlighted;
-    let (data, total) = tokio::try_join!(
+    let (mut data, total) = tokio::try_join!(
         state.places.find_list(&filters),
         state.places.count_list(&filters),
     )?;
 
+    let realms = crate::handlers::places::with_realms_detail(&pairs);
     let mut map: BTreeMap<String, Value> = BTreeMap::new();
-    for place in data {
+    for place in &mut data {
+        place.apply_realms_detail(realms);
         let key = place.base_position.clone();
         let mut v = serde_json::to_value(&place).unwrap_or(Value::Null);
         if let Some(obj) = v.as_object_mut() {
@@ -82,9 +84,13 @@ pub async fn get_all_places_list(
     if only_favorites {
         return Ok(Json(json!({ "ok": true, "data": [], "total": 0 })));
     }
-    let (data, total) = tokio::try_join!(
+    let (mut data, total) = tokio::try_join!(
         state.places.find_list(&filters),
         state.places.count_list(&filters),
     )?;
+    let realms = crate::handlers::places::with_realms_detail(&pairs);
+    for place in &mut data {
+        place.apply_realms_detail(realms);
+    }
     Ok(Json(json!({ "ok": true, "data": data, "total": total })))
 }

@@ -51,29 +51,11 @@
         "type": "github"
       }
     },
-    "pulse-src": {
-      "flake": false,
-      "locked": {
-        "lastModified": 1778779690,
-        "narHash": "sha256-Jd/JDrnLUD0XmAYy9eG2HJFsaPA0HPyunp3uNOJLId0=",
-        "owner": "decentraland",
-        "repo": "Pulse",
-        "rev": "d7b13d77300056f1ee6bdb94a28be8912d3e0fe5",
-        "type": "github"
-      },
-      "original": {
-        "owner": "decentraland",
-        "ref": "d7b13d7",
-        "repo": "Pulse",
-        "type": "github"
-      }
-    },
     "root": {
       "inputs": {
         "archipelago": "archipelago",
         "flake-utils": "flake-utils",
         "nixpkgs": "nixpkgs",
-        "pulse-src": "pulse-src",
         "uws-node24": "uws-node24"
       }
     },

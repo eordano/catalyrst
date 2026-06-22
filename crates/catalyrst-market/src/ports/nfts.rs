@@ -1075,3 +1075,168 @@ fn capitalize(s: &str) -> String {
         None => String::new(),
     }
 }
+
+#[cfg(test)]
+mod wire_tests {
+    use super::*;
+    use crate::ports::orders::Order;
+    use crate::ports::rentals::{RentalListing, RentalListingPeriod};
+
+    fn sample_db_nft() -> DbNft {
+        DbNft {
+            id: "0xparcel-7".into(),
+            count: 1,
+            contract_address: Some("0xparcel".into()),
+            token_id: Some("7".into()),
+            network: Some("ETHEREUM".into()),
+            // epoch SECONDS in the squid row -> emitted as ms on the wire.
+            created_at: Some(1_700_000_000),
+            url: None,
+            updated_at: Some(1_700_000_500),
+            sold_at: Some(0),
+            urn: None,
+            owner: Some("0xowner".into()),
+            image: Some("img".into()),
+            issued_id: None,
+            item_id: None,
+            item_type: None,
+            rarity: None,
+            category: Some("parcel".into()),
+            name: Some("Parcel 1,2".into()),
+            body_shapes: None,
+            x: Some("1".into()),
+            y: Some("2".into()),
+            wearable_category: None,
+            emote_category: None,
+            description: None,
+            size: None,
+            subdomain: None,
+            r#loop: None,
+            has_sound: None,
+            has_geometry: None,
+            emote_outcome_type: None,
+            estate_parcels: None,
+            parcel_estate_token_id: None,
+            parcel_estate_name: None,
+            parcel_estate_id: None,
+        }
+    }
+
+    fn sample_order() -> Order {
+        Order {
+            id: "order-1".into(),
+            marketplace_address: "0xmkt".into(),
+            contract_address: "0xparcel".into(),
+            token_id: Some("7".into()),
+            owner: "0xowner".into(),
+            buyer: None,
+            price: "1000000000000000000".into(),
+            status: "open".into(),
+            // expiresAt stays in SECONDS (upstream `Number(dbOrder.expires_at)`).
+            expires_at: 1_900_000_000,
+            // createdAt/updatedAt are MILLISECONDS on the wire (upstream
+            // fromSecondsToMilliseconds).
+            created_at: 1_700_000_000_000,
+            updated_at: 1_700_000_500_000,
+            network: Network::Ethereum,
+            chain_id: ethereum_chain_id(),
+            issued_id: None,
+            trade_id: None,
+        }
+    }
+
+    fn sample_listing() -> RentalListing {
+        RentalListing {
+            id: "rental-1".into(),
+            nft_id: "0xparcel-7".into(),
+            category: "parcel".into(),
+            search_text: "1,2".into(),
+            network: "ETHEREUM".into(),
+            chain_id: 1,
+            expiration: 1_900_000_000_000,
+            signature: "0xsig".into(),
+            nonces: vec!["0".into()],
+            token_id: "7".into(),
+            contract_address: "0xparcel".into(),
+            rental_contract_address: "0xrentals".into(),
+            lessor: Some("0xowner".into()),
+            tenant: None,
+            status: "open".into(),
+            created_at: 1_700_000_000_000,
+            updated_at: 1_700_000_500_000,
+            started_at: None,
+            periods: vec![RentalListingPeriod {
+                min_days: 1,
+                max_days: 30,
+                price_per_day: "1000".into(),
+            }],
+            target: "0x0".into(),
+            rented_days: None,
+        }
+    }
+
+    /// `/v1/nfts` composes nft + the active order + the open rental listing.
+    /// This asserts the populated path: `activeOrderId`/`openRentalId` resolve and
+    /// `order`/`rental` carry the full nested objects (the degraded path returned
+    /// null for all three).
+    #[test]
+    fn nft_result_composes_order_and_rental() {
+        let db = sample_db_nft();
+        let order = sample_order();
+        let listing = sample_listing();
+
+        let mut nft = from_db_nft_to_nft(&db);
+        nft.active_order_id = Some(order.id.clone());
+        nft.open_rental_id = Some(listing.id.clone());
+        let result = NftResult {
+            nft,
+            order: Some(serde_json::to_value(&order).unwrap()),
+            rental: Some(serde_json::to_value(&listing).unwrap()),
+        };
+
+        let v = serde_json::to_value(&result).unwrap();
+        let nft = &v["nft"];
+
+        // activeOrderId / openRentalId resolved (not null).
+        assert_eq!(nft["activeOrderId"], serde_json::json!("order-1"));
+        assert_eq!(nft["openRentalId"], serde_json::json!("rental-1"));
+
+        // nested order object present with the order's id.
+        assert_eq!(v["order"]["id"], serde_json::json!("order-1"));
+        // order createdAt/updatedAt are MILLISECONDS; expiresAt stays SECONDS.
+        assert_eq!(
+            v["order"]["createdAt"],
+            serde_json::json!(1_700_000_000_000i64)
+        );
+        assert_eq!(
+            v["order"]["updatedAt"],
+            serde_json::json!(1_700_000_500_000i64)
+        );
+        assert_eq!(v["order"]["expiresAt"], serde_json::json!(1_900_000_000i64));
+
+        // nested rental object present with periods.
+        assert_eq!(v["rental"]["id"], serde_json::json!("rental-1"));
+        assert_eq!(v["rental"]["periods"][0]["minDays"], serde_json::json!(1));
+
+        // NFT timestamps: squid SECONDS -> wire MILLISECONDS.
+        assert_eq!(nft["createdAt"], serde_json::json!(1_700_000_000_000i64));
+        assert_eq!(nft["updatedAt"], serde_json::json!(1_700_000_500_000i64));
+    }
+
+    /// When no order/rental matches, the composition stays null (the
+    /// gracefully-degraded shape the client tolerates).
+    #[test]
+    fn nft_result_without_order_or_rental_is_null() {
+        let nft = from_db_nft_to_nft(&sample_db_nft());
+        let result = NftResult {
+            nft,
+            order: None,
+            rental: None,
+        };
+        let v = serde_json::to_value(&result).unwrap();
+        assert!(v["order"].is_null());
+        assert!(v["rental"].is_null());
+        assert!(v["nft"]["activeOrderId"].is_null());
+        assert!(v["nft"]["openRentalId"].is_null());
+    }
+}

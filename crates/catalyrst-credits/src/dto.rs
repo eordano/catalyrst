@@ -91,6 +91,11 @@ pub struct GoalProgressData {
 #[derive(Debug, Deserialize)]
 pub struct ClaimCreditsBody {
     pub x: f64,
+    /// External captcha provider token (hCaptcha/reCAPTCHA). Optional on the wire
+    /// so the upstream Unity client — which sends only the slider `x` — is
+    /// unaffected; required (and verified) only when a provider is configured.
+    #[serde(default)]
+    pub token: Option<String>,
 }
 
 // Wire shape is dictated by Unity's `ClaimCreditsResponse` struct

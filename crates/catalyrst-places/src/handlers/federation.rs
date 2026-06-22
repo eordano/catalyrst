@@ -26,8 +26,10 @@ fn is_federation_envelope(body: &Option<Json<Value>>) -> bool {
         .unwrap_or(false)
 }
 
-/// Verify envelope + domain + replay + per-wallet rate limit. Returns the
+/// Verify envelope signature + EIP-712 domain + replay-nonce. Returns the
 /// recovered wallet signer (places.md: post session-delegation resolution).
+/// No per-signer rate limit here — matches the communities federation template;
+/// `catalyrst_fed::RateLimiter` is not wired on this path.
 async fn preflight<T: TypedMessage + DeserializeOwned>(
     state: &AppState,
     headers: &HeaderMap,

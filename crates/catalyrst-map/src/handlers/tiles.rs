@@ -37,6 +37,9 @@ fn cached_json(body: Arc<Vec<u8>>) -> Response {
         .into_response()
 }
 
+// Mirrors atlas-server's `tileFields` (modules/map/types.ts). This is the
+// allow-list for the `include`/`exclude` query params; `rentalListing` and the
+// nft id are intentionally absent upstream, so they cannot be projected here.
 const VALID_FIELDS: &[&str] = &[
     "id",
     "x",
@@ -52,10 +55,6 @@ const VALID_FIELDS: &[&str] = &[
     "tokenId",
     "price",
     "expiresAt",
-    "rentalListing",
-    "estateSize",
-    "rentalPricePerDay",
-    "rentalExpiresAt",
 ];
 
 fn filter_tiles<'a>(
@@ -74,12 +73,26 @@ fn filter_tiles<'a>(
         _ => None,
     };
 
-    let include: Option<Vec<String>> = q.get("include").map(|s| {
-        s.split(',')
-            .filter(|f| VALID_FIELDS.contains(f))
-            .map(|s| s.to_string())
-            .collect()
-    });
+    // `include` wins over `exclude`, matching atlas-server's getFilterFromUrl.
+    let fields: Option<Vec<String>> = if let Some(s) = q.get("include") {
+        Some(
+            s.split(',')
+                .filter(|f| VALID_FIELDS.contains(f))
+                .map(|s| s.to_string())
+                .collect(),
+        )
+    } else if let Some(s) = q.get("exclude") {
+        let excluded: Vec<&str> = s.split(',').collect();
+        Some(
+            VALID_FIELDS
+                .iter()
+                .filter(|f| !excluded.contains(f))
+                .map(|s| s.to_string())
+                .collect(),
+        )
+    } else {
+        None
+    };
 
     let mut out = Vec::new();
     for (id, tile) in tiles {
@@ -89,7 +102,7 @@ fn filter_tiles<'a>(
             }
         }
         let mut obj = serde_json::to_value(tile).unwrap_or(Value::Null);
-        if let Some(fields) = &include {
+        if let Some(fields) = &fields {
             obj = project_include(&obj, fields);
         }
         out.push((id, obj));
@@ -262,4 +275,207 @@ pub async fn tiles_info(State(state): State<AppState>) -> Response {
         Json(json!({ "lastUpdatedAt": state.map.last_updated_at() })),
     )
         .into_response()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::rentals::{RentalPeriod, TileRentalListing};
+
+    fn owned_tile() -> Tile {
+        Tile {
+            id: "10,20".into(),
+            x: 10,
+            y: 20,
+            nft_id: Some("0xland-123".into()),
+            tile_type: TileType::Owned,
+            top: true,
+            left: false,
+            top_left: false,
+            updated_at: 1700,
+            name: Some("Cool Parcel".into()),
+            owner: Some("0xowner".into()),
+            estate_id: Some("42".into()),
+            token_id: Some("123".into()),
+            price: Some(100.0),
+            expires_at: Some(2000),
+            rental_listing: Some(TileRentalListing {
+                expiration: 9999,
+                periods: vec![
+                    RentalPeriod {
+                        min_days: 1,
+                        max_days: 7,
+                        price_per_day: "100".into(),
+                    },
+                    RentalPeriod {
+                        min_days: 8,
+                        max_days: 30,
+                        price_per_day: "2000".into(),
+                    },
+                ],
+                updated_at: 1700,
+            }),
+        }
+    }
+
+    fn keys(v: &Value) -> Vec<String> {
+        v.as_object().unwrap().keys().cloned().collect()
+    }
+
+    // The v2 tile wire shape must match atlas-server's `Tile` exactly: no flat
+    // `rentalPricePerDay`/`rentalExpiresAt`/`estateSize`, and `rentalListing` is
+    // a nested object of { expiration, periods, updatedAt }.
+    #[test]
+    fn v2_tile_shape_matches_upstream() {
+        let v = serde_json::to_value(owned_tile()).unwrap();
+        let mut got = keys(&v);
+        got.sort();
+        let mut want = vec![
+            "id",
+            "x",
+            "y",
+            "nftId",
+            "type",
+            "top",
+            "left",
+            "topLeft",
+            "updatedAt",
+            "name",
+            "owner",
+            "estateId",
+            "tokenId",
+            "price",
+            "expiresAt",
+            "rentalListing",
+        ];
+        want.sort();
+        assert_eq!(got, want);
+
+        // No additive/divergent flat fields leak onto the v2 tile.
+        for forbidden in ["rentalPricePerDay", "rentalExpiresAt", "estateSize"] {
+            assert!(
+                v.get(forbidden).is_none(),
+                "v2 tile must not carry flat `{forbidden}`"
+            );
+        }
+
+        let rl = v.get("rentalListing").unwrap().as_object().unwrap();
+        let mut rl_keys: Vec<&String> = rl.keys().collect();
+        rl_keys.sort();
+        assert_eq!(rl_keys, vec!["expiration", "periods", "updatedAt"]);
+        assert_eq!(v["type"], "owned");
+        assert_eq!(v["topLeft"], false);
+    }
+
+    #[test]
+    fn unowned_tile_omits_optional_fields() {
+        let tile = Tile {
+            id: "0,0".into(),
+            x: 0,
+            y: 0,
+            nft_id: None,
+            tile_type: TileType::Unowned,
+            top: false,
+            left: false,
+            top_left: false,
+            updated_at: 0,
+            name: None,
+            owner: None,
+            estate_id: None,
+            token_id: None,
+            price: None,
+            expires_at: None,
+            rental_listing: None,
+        };
+        let v = serde_json::to_value(tile).unwrap();
+        for absent in [
+            "nftId",
+            "name",
+            "owner",
+            "estateId",
+            "tokenId",
+            "price",
+            "expiresAt",
+            "rentalListing",
+        ] {
+            assert!(v.get(absent).is_none(), "`{absent}` should be omitted");
+        }
+        assert_eq!(v["type"], "unowned");
+    }
+
+    // Legacy (v1) tiles carry `rentalPricePerDay` = max periods.pricePerDay (string).
+    #[test]
+    fn legacy_tile_carries_rental_price_per_day() {
+        let v = to_legacy(&owned_tile());
+        assert_eq!(v["rentalPricePerDay"], json!("2000"));
+        // legacy type 10 because the tile has a price (an active order).
+        assert_eq!(v["type"], json!(10));
+        assert_eq!(v["estate_id"], json!("42"));
+        assert_eq!(v["top"], json!(1));
+        assert!(v.get("left").is_none());
+        // legacy tiles never expose the nested rentalListing object.
+        assert!(v.get("rentalListing").is_none());
+    }
+
+    #[test]
+    fn include_projects_only_valid_fields() {
+        let mut tiles = HashMap::new();
+        tiles.insert("10,20".to_string(), owned_tile());
+        let q: HashMap<String, String> = [(
+            "include".to_string(),
+            // `rentalListing` is not a valid include field upstream → dropped.
+            "id,x,y,owner,rentalListing,bogus".to_string(),
+        )]
+        .into_iter()
+        .collect();
+        let out = filter_tiles(&tiles, &q);
+        assert_eq!(out.len(), 1);
+        let mut got = keys(&out[0].1);
+        got.sort();
+        assert_eq!(got, vec!["id", "owner", "x", "y"]);
+    }
+
+    #[test]
+    fn exclude_keeps_remaining_valid_fields() {
+        let mut tiles = HashMap::new();
+        tiles.insert("10,20".to_string(), owned_tile());
+        let q: HashMap<String, String> =
+            [("exclude".to_string(), "name,price,expiresAt".to_string())]
+                .into_iter()
+                .collect();
+        let out = filter_tiles(&tiles, &q);
+        let v = &out[0].1;
+        // excluded fields gone
+        for f in ["name", "price", "expiresAt"] {
+            assert!(v.get(f).is_none(), "`{f}` should be excluded");
+        }
+        // a surviving valid field stays
+        assert_eq!(v["owner"], json!("0xowner"));
+        // `rentalListing`/`nftId` are not in the valid-field set, so exclude
+        // (which projects only valid fields) never emits them.
+        assert!(v.get("rentalListing").is_none());
+        assert!(v.get("nftId").is_none());
+    }
+
+    #[test]
+    fn bbox_filters_out_of_range_tiles() {
+        let mut tiles = HashMap::new();
+        tiles.insert("10,20".to_string(), owned_tile());
+        let mut t2 = owned_tile();
+        t2.id = "100,100".into();
+        t2.x = 100;
+        t2.y = 100;
+        tiles.insert("100,100".to_string(), t2);
+        let q: HashMap<String, String> = [
+            ("x1".to_string(), "0".to_string()),
+            ("x2".to_string(), "50".to_string()),
+            ("y1".to_string(), "0".to_string()),
+            ("y2".to_string(), "50".to_string()),
+        ]
+        .into_iter()
+        .collect();
+        let out = filter_tiles(&tiles, &q);
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].0, "10,20");
+    }
 }

@@ -90,6 +90,19 @@ pub struct PlaceRow {
     pub realms_detail: Option<Vec<serde_json::Value>>,
 }
 
+impl PlaceRow {
+    /// Port of `placesWithUserCount({ withRealmsDetail })` (Place/utils.ts) and
+    /// `placesWithCoordinatesAggregates`: when `with_realms_detail` is set,
+    /// non-world places get `realms_detail` populated from their matching hot
+    /// scene. We have no hot-scenes realm feed wired in, so it resolves to an
+    /// empty list — exactly upstream's behaviour when a place has no hot scene.
+    pub fn apply_realms_detail(&mut self, with_realms_detail: bool) {
+        if with_realms_detail && !self.world {
+            self.realms_detail = Some(Vec::new());
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, Default)]
 pub struct UserInteraction {
     pub user_favorite: bool,
@@ -1553,6 +1566,71 @@ mod wire_tests {
         assert!(obj.contains_key("highlighted"));
     }
 
+    /// The base Place wire must carry the read-path fields the Unity
+    /// `PlaceInfo` DTO reads and upstream `p.*`/`AggregatePlaceAttributes`
+    /// exposes: is_private, highlighted_image, sdk, tags, plus the user/like
+    /// aggregates. Keys must be present (null is fine for absent optionals).
+    #[test]
+    fn base_place_carries_read_path_fields() {
+        let v = serde_json::to_value(sample()).unwrap();
+        let obj = v.as_object().unwrap();
+        for key in [
+            "is_private",
+            "highlighted_image",
+            "sdk",
+            "tags",
+            "highlighted",
+            "user_favorite",
+            "user_like",
+            "user_dislike",
+            "user_count",
+            "user_visits",
+            "like_rate",
+            "like_score",
+            "creator_address",
+            "world_name",
+            "base_position",
+            "positions",
+        ] {
+            assert!(obj.contains_key(key), "{key} must be present on base Place");
+        }
+        // is_private is a bool, tags is an array (match upstream/Unity types).
+        assert!(obj["is_private"].is_boolean());
+        assert!(obj["tags"].is_array());
+    }
+
+    /// `with_realms_detail` gating: a non-world place gets an empty
+    /// `realms_detail` array (no hot-scene feed); when the flag is off the key
+    /// stays omitted (skip_serializing_if).
+    #[test]
+    fn realms_detail_gated_for_places() {
+        let mut row = sample();
+        row.apply_realms_detail(false);
+        let v = serde_json::to_value(&row).unwrap();
+        assert!(
+            !v.as_object().unwrap().contains_key("realms_detail"),
+            "realms_detail must be omitted when with_realms_detail is off"
+        );
+
+        row.apply_realms_detail(true);
+        let v = serde_json::to_value(&row).unwrap();
+        assert_eq!(v["realms_detail"], serde_json::json!([]));
+    }
+
+    /// Worlds never get `realms_detail`, even with the flag on (upstream gates
+    /// it on `!place.world`).
+    #[test]
+    fn realms_detail_skipped_for_worlds() {
+        let mut row = sample();
+        row.world = true;
+        row.apply_realms_detail(true);
+        let v = serde_json::to_value(&row).unwrap();
+        assert!(
+            !v.as_object().unwrap().contains_key("realms_detail"),
+            "realms_detail must stay omitted for worlds"
+        );
+    }
+
     /// When the `/destinations` path enriches a row, the keys appear with the
     /// expected types: `connected_addresses` as a string array, `live` as a
     /// bool, `realms_detail` as an array.
@@ -1572,5 +1650,78 @@ mod wire_tests {
         );
         assert_eq!(obj["live"], serde_json::json!(true));
         assert_eq!(obj["realms_detail"], serde_json::json!([]));
+    }
+}
+
+#[cfg(test)]
+mod filter_tests {
+    use super::*;
+
+    /// `names` filters worlds by lowercased world_name (upstream `names`).
+    #[test]
+    fn names_filter_clause() {
+        let f = PlaceListFilters {
+            names: vec!["Foo.DCL.eth".to_string()],
+            ..Default::default()
+        };
+        let (where_clause, binds) = build_where(&f);
+        assert!(where_clause.contains("lower(raw->>'world_name') = ANY"));
+        match binds.last().unwrap() {
+            Bind::TextArray(v) => assert_eq!(v, &vec!["foo.dcl.eth".to_string()]),
+            _ => panic!("expected names text array bind"),
+        }
+    }
+
+    /// `owner` is resolved to operated parcel positions and folded into the
+    /// positions overlap clause (upstream merges operatedPositions into the
+    /// positions filter).
+    #[test]
+    fn owner_operated_positions_clause() {
+        let f = PlaceListFilters {
+            operated_positions: vec!["10,20".to_string()],
+            ..Default::default()
+        };
+        let (where_clause, binds) = build_where(&f);
+        assert!(where_clause.contains("raw->'positions' ?|"));
+        match binds.last().unwrap() {
+            Bind::TextArray(v) => assert_eq!(v, &vec!["10,20".to_string()]),
+            _ => panic!("expected positions text array bind"),
+        }
+    }
+
+    /// `sdk` matches exact version and dotted minor versions; sdk=6 also matches
+    /// rows with no sdk recorded (upstream's legacy-SDK fallback).
+    #[test]
+    fn sdk_filter_clause() {
+        let f = PlaceListFilters {
+            sdk: Some("7".to_string()),
+            ..Default::default()
+        };
+        let (where_clause, _) = build_where(&f);
+        assert!(where_clause.contains("raw->>'sdk' ="));
+        assert!(where_clause.contains("raw->>'sdk' LIKE"));
+        assert!(!where_clause.contains("raw->>'sdk' IS NULL"));
+
+        let f6 = PlaceListFilters {
+            sdk: Some("6".to_string()),
+            ..Default::default()
+        };
+        let (where6, _) = build_where(&f6);
+        assert!(where6.contains("raw->>'sdk' IS NULL"));
+    }
+
+    /// `creator_address` filters case-insensitively on the creator column.
+    #[test]
+    fn creator_address_clause() {
+        let f = PlaceListFilters {
+            creator_address: Some("0xABC".to_string()),
+            ..Default::default()
+        };
+        let (where_clause, binds) = build_where(&f);
+        assert!(where_clause.contains("LOWER(creator_address) ="));
+        match binds.last().unwrap() {
+            Bind::Text(s) => assert_eq!(s, "0xabc"),
+            _ => panic!("expected creator text bind"),
+        }
     }
 }

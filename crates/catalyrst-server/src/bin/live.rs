@@ -2087,7 +2087,22 @@ async fn main() {
         "PROFILE_CDN_BASE_URL",
         "https://profile-images.decentraland.org",
     );
-    let land_image_base_url = env_or("LAND_IMAGE_BASE_URL", "http://127.0.0.1:5143");
+    // Public, client-facing base for LAND/estate map-thumbnail URLs (the prod
+    // `https://api.decentraland.org` prefix is rewritten to this in LAND listings).
+    // Default is the public prod base (rewrite becomes a no-op → original public
+    // URLs); set LAND_IMAGE_BASE_URL to a public map gateway to self-host. MUST NOT
+    // be the loopback of the local map service, or clients can't fetch thumbnails.
+    let land_image_base_url = env_or("LAND_IMAGE_BASE_URL", "https://api.decentraland.org");
+    if ["127.0.0.1", "localhost", "[::1]", "0.0.0.0"]
+        .iter()
+        .any(|lo| land_image_base_url.contains(lo))
+    {
+        tracing::warn!(
+            base = %land_image_base_url,
+            "LAND image URLs use a LOOPBACK base — clients cannot fetch them; \
+             set LAND_IMAGE_BASE_URL to the public gateway base"
+        );
+    }
 
     let squid_pool = {
         let squid_host = env_or("SQUID_DB_HOST", &pg_host);

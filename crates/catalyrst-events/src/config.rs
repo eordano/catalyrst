@@ -1,5 +1,6 @@
 use anyhow::{anyhow, Context, Result};
 use std::env;
+use std::path::PathBuf;
 
 pub struct Config {
     pub http_host: String,
@@ -11,6 +12,10 @@ pub struct Config {
     /// (`POST /api/events`, `PATCH /api/events/{id}`). When unset, every admin
     /// route fails closed (403). See docs/admin-console.md §4 (catalyrst-events).
     pub admin_token: Option<String>,
+
+    /// Per-catalyst content-addressed image cache backing the poster upload
+    /// routes (replaces the upstream S3 bucket — events.md §3).
+    pub content_dir: PathBuf,
 }
 
 impl Config {
@@ -24,6 +29,10 @@ impl Config {
             admin_token: env::var("CATALYRST_EVENTS_ADMIN_TOKEN")
                 .ok()
                 .filter(|s| !s.is_empty()),
+
+            content_dir: env::var("CATALYRST_EVENTS_CONTENT_DIR")
+                .map(PathBuf::from)
+                .unwrap_or_else(|_| PathBuf::from("/tmp/catalyrst-events-content")),
         })
     }
 }

@@ -9,10 +9,35 @@ use serde::Deserialize;
 use crate::auth_chain::verify_signed_fetch;
 use crate::http::{auth_error, ApiError};
 use crate::ports::extra_addresses;
+use crate::ports::scene_admin::SceneAdminRow;
 use crate::AppState;
 
 const SCENE_SIGNER: &str = "decentraland-kernel-scene";
 const SERVER_SIGNER: &str = "dcl:authoritative-server";
+
+/// Explicit scene-admin entry: the full `SceneAdmin` row spread + `name` +
+/// `canBeRemoved`, matching upstream `{...admin, name, canBeRemoved}`.
+fn admin_entry(a: &SceneAdminRow, name: String, can_be_removed: bool) -> serde_json::Value {
+    serde_json::json!({
+        "id": a.id,
+        "place_id": a.place_id,
+        "admin": a.admin,
+        "added_by": a.added_by,
+        "created_at": a.created_at,
+        "active": a.active,
+        "name": name,
+        "canBeRemoved": can_be_removed,
+    })
+}
+
+/// Implicit (extra / land-lease) entry: address-only, never removable.
+fn address_entry(address: &str, name: String) -> serde_json::Value {
+    serde_json::json!({
+        "admin": address,
+        "name": name,
+        "canBeRemoved": false,
+    })
+}
 
 #[derive(Debug, Deserialize)]
 pub struct PlaceQuery {
@@ -85,37 +110,21 @@ pub async fn list_admins(
     let mut body: Vec<serde_json::Value> = Vec::new();
 
     // Explicit admins: full SceneAdmin row spread + name + canBeRemoved.
+    // An admin that is also an implicit (extra) grant cannot be revoked.
     for a in &admins {
         let admin_lc = a.admin.to_lowercase();
-        body.push(serde_json::json!({
-            "id": a.id,
-            "place_id": a.place_id,
-            "admin": a.admin,
-            "added_by": a.added_by,
-            "created_at": a.created_at,
-            "active": a.active,
-            "name": name_of(&admin_lc),
-            // An admin that is also an implicit (extra) grant cannot be revoked.
-            "canBeRemoved": !extra_addresses.contains(&admin_lc),
-        }));
+        let can_be_removed = !extra_addresses.contains(&admin_lc);
+        body.push(admin_entry(a, name_of(&admin_lc), can_be_removed));
     }
 
     // Extra (implicit) admins: address-only entries, never removable.
     for address in &extra_addresses {
-        body.push(serde_json::json!({
-            "admin": address,
-            "name": name_of(address),
-            "canBeRemoved": false,
-        }));
+        body.push(address_entry(address, name_of(address)));
     }
 
     // Land-lease owners: address-only entries, never removable.
     for address in &lease_holders {
-        body.push(serde_json::json!({
-            "admin": address,
-            "name": name_of(address),
-            "canBeRemoved": false,
-        }));
+        body.push(address_entry(address, name_of(address)));
     }
 
     Ok(Json(serde_json::Value::Array(body)))
@@ -160,4 +169,61 @@ pub async fn remove_admin(
     }
     state.scene_admin.remove(&place_id, &admin).await?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use uuid::Uuid;
+
+    fn row() -> SceneAdminRow {
+        SceneAdminRow {
+            id: Uuid::nil(),
+            place_id: "place-1".into(),
+            admin: "0xADMIN".into(),
+            added_by: "0xADDER".into(),
+            created_at: 1_700_000_000_000,
+            active: true,
+        }
+    }
+
+    // Upstream returns a *bare* JSON array (List<AdminInfo> on the client), not a
+    // `{data:[...]}` object envelope.
+    #[test]
+    fn list_body_is_bare_array() {
+        let body = serde_json::Value::Array(vec![
+            admin_entry(&row(), "alice.dcl.eth".into(), true),
+            address_entry("0xextra", String::new()),
+        ]);
+        assert!(body.is_array());
+        assert_eq!(body.as_array().unwrap().len(), 2);
+    }
+
+    // Explicit-admin entry: full SceneAdmin row spread + name + canBeRemoved,
+    // camelCase only on the spread additions (the row keeps upstream snake_case).
+    #[test]
+    fn explicit_admin_entry_matches_upstream_shape() {
+        let e = admin_entry(&row(), "alice.dcl.eth".into(), true);
+        assert_eq!(e["id"], Uuid::nil().to_string());
+        assert_eq!(e["place_id"], "place-1");
+        assert_eq!(e["admin"], "0xADMIN");
+        assert_eq!(e["added_by"], "0xADDER");
+        assert_eq!(e["created_at"], 1_700_000_000_000i64);
+        assert_eq!(e["active"], true);
+        assert_eq!(e["name"], "alice.dcl.eth");
+        assert_eq!(e["canBeRemoved"], true);
+        // never the snake_case spelling the client cannot read
+        assert!(e.get("can_be_removed").is_none());
+    }
+
+    // Implicit (extra / land-lease) entry: address-only, always non-removable.
+    #[test]
+    fn extra_admin_entry_is_address_only_and_not_removable() {
+        let e = address_entry("0xextra", String::new());
+        assert_eq!(e["admin"], "0xextra");
+        assert_eq!(e["name"], "");
+        assert_eq!(e["canBeRemoved"], false);
+        assert!(e.get("id").is_none());
+        assert!(e.get("place_id").is_none());
+    }
 }

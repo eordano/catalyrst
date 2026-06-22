@@ -188,19 +188,7 @@ impl VoiceDb {
     /// `isPrivateRoomActive`.
     pub async fn is_private_room_active(&self, room_name: &str) -> Result<bool, sqlx::Error> {
         let users = self.get_users_in_room(room_name).await?;
-        let now = now_ms();
-        let interrupted = VoiceChatUserStatus::ConnectionInterrupted.as_str();
-        let not_connected = VoiceChatUserStatus::NotConnected.as_str();
-        let disconnected = VoiceChatUserStatus::Disconnected.as_str();
-        let has_inactive_user = users.iter().any(|user| {
-            let interrupted_past_ttl = user.status == interrupted
-                && user.status_updated_at + self.cfg.connection_interrupted_ttl_ms < now;
-            let not_joined_past_ttl = user.status == not_connected
-                && user.joined_at + self.cfg.initial_connection_ttl_ms < now;
-            let left_voluntarily = user.status == disconnected;
-            interrupted_past_ttl || not_joined_past_ttl || left_voluntarily
-        });
-        Ok(!has_inactive_user && users.len() >= 2)
+        Ok(is_private_room_active(&self.cfg, &users, now_ms()))
     }
 
     /// Private helper updating one user's status (upstream `_updateUserStatus`).
@@ -547,12 +535,7 @@ impl VoiceDb {
     /// interrupted-within-TTL, OR not-connected-within-initial-TTL. Faithful
     /// port of `isActiveCommunityUser`.
     pub fn is_active_community_user(&self, user: &CommunityVoiceChatUserRow, now: i64) -> bool {
-        let status = user.status.as_str();
-        status == VoiceChatUserStatus::Connected.as_str()
-            || (status == VoiceChatUserStatus::ConnectionInterrupted.as_str()
-                && user.status_updated_at + self.cfg.connection_interrupted_ttl_ms > now)
-            || (status == VoiceChatUserStatus::NotConnected.as_str()
-                && user.joined_at + self.cfg.initial_connection_ttl_ms > now)
+        is_active_community_user(&self.cfg, user, now)
     }
 
     /// Whether a community room is active — i.e. it has at least one active
@@ -791,6 +774,39 @@ fn now_ms() -> i64 {
         .unwrap_or(0)
 }
 
+/// Pure `isActiveCommunityUser` predicate (DB-free, testable). A community user
+/// is active when connected, interrupted-within-TTL, or
+/// not-connected-within-initial-TTL.
+fn is_active_community_user(
+    cfg: &VoiceDbConfig,
+    user: &CommunityVoiceChatUserRow,
+    now: i64,
+) -> bool {
+    let status = user.status.as_str();
+    status == VoiceChatUserStatus::Connected.as_str()
+        || (status == VoiceChatUserStatus::ConnectionInterrupted.as_str()
+            && user.status_updated_at + cfg.connection_interrupted_ttl_ms > now)
+        || (status == VoiceChatUserStatus::NotConnected.as_str()
+            && user.joined_at + cfg.initial_connection_ttl_ms > now)
+}
+
+/// Pure `isPrivateRoomActive` predicate (DB-free, testable). A private room is
+/// active iff it has >= 2 users and none have timed out (interrupted past TTL,
+/// not-connected past TTL) or left voluntarily.
+fn is_private_room_active(cfg: &VoiceDbConfig, users: &[VoiceChatUserRow], now: i64) -> bool {
+    let interrupted = VoiceChatUserStatus::ConnectionInterrupted.as_str();
+    let not_connected = VoiceChatUserStatus::NotConnected.as_str();
+    let disconnected = VoiceChatUserStatus::Disconnected.as_str();
+    let has_inactive_user = users.iter().any(|user| {
+        (user.status == interrupted
+            && user.status_updated_at + cfg.connection_interrupted_ttl_ms < now)
+            || (user.status == not_connected
+                && user.joined_at + cfg.initial_connection_ttl_ms < now)
+            || user.status == disconnected
+    });
+    !has_inactive_user && users.len() >= 2
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -812,5 +828,127 @@ mod tests {
         assert_eq!(cfg.connection_interrupted_ttl_ms, 300_000);
         assert_eq!(cfg.initial_connection_ttl_ms, 300_000);
         assert_eq!(cfg.expired_batch_size, 50);
+    }
+
+    fn community_user(status: VoiceChatUserStatus, joined_at: i64, updated_at: i64) -> CommunityVoiceChatUserRow {
+        CommunityVoiceChatUserRow {
+            address: "0xabc".into(),
+            room_name: "voice-chat-community-c1".into(),
+            is_moderator: true,
+            status: status.as_str().into(),
+            joined_at,
+            status_updated_at: updated_at,
+        }
+    }
+
+    fn private_user(status: VoiceChatUserStatus, joined_at: i64, updated_at: i64) -> VoiceChatUserRow {
+        VoiceChatUserRow {
+            address: "0xabc".into(),
+            room_name: "voice-chat-private-c1".into(),
+            status: status.as_str().into(),
+            joined_at,
+            status_updated_at: updated_at,
+        }
+    }
+
+    #[test]
+    fn active_community_user_connected_is_always_active() {
+        let cfg = VoiceDbConfig::default();
+        let now = 10_000_000;
+        // Connected: active regardless of timestamps.
+        let u = community_user(VoiceChatUserStatus::Connected, 0, 0);
+        assert!(is_active_community_user(&cfg, &u, now));
+    }
+
+    #[test]
+    fn active_community_user_interrupted_within_ttl() {
+        let cfg = VoiceDbConfig::default();
+        let now = 10_000_000;
+        // Interrupted just inside the TTL window: active.
+        let inside = community_user(
+            VoiceChatUserStatus::ConnectionInterrupted,
+            0,
+            now - cfg.connection_interrupted_ttl_ms + 1,
+        );
+        assert!(is_active_community_user(&cfg, &inside, now));
+        // Interrupted exactly at / past the TTL boundary: inactive (strict >).
+        let at_boundary = community_user(
+            VoiceChatUserStatus::ConnectionInterrupted,
+            0,
+            now - cfg.connection_interrupted_ttl_ms,
+        );
+        assert!(!is_active_community_user(&cfg, &at_boundary, now));
+    }
+
+    #[test]
+    fn active_community_user_not_connected_within_initial_ttl() {
+        let cfg = VoiceDbConfig::default();
+        let now = 10_000_000;
+        let inside = community_user(
+            VoiceChatUserStatus::NotConnected,
+            now - cfg.initial_connection_ttl_ms + 1,
+            0,
+        );
+        assert!(is_active_community_user(&cfg, &inside, now));
+        let expired = community_user(
+            VoiceChatUserStatus::NotConnected,
+            now - cfg.initial_connection_ttl_ms,
+            0,
+        );
+        assert!(!is_active_community_user(&cfg, &expired, now));
+    }
+
+    #[test]
+    fn disconnected_community_user_is_inactive() {
+        let cfg = VoiceDbConfig::default();
+        let now = 10_000_000;
+        let u = community_user(VoiceChatUserStatus::Disconnected, now, now);
+        assert!(!is_active_community_user(&cfg, &u, now));
+    }
+
+    #[test]
+    fn private_room_active_requires_two_active_users() {
+        let cfg = VoiceDbConfig::default();
+        let now = 10_000_000;
+        // Two connected users => active.
+        let users = vec![
+            private_user(VoiceChatUserStatus::Connected, now, now),
+            private_user(VoiceChatUserStatus::Connected, now, now),
+        ];
+        assert!(is_private_room_active(&cfg, &users, now));
+        // Single user => inactive.
+        assert!(!is_private_room_active(&cfg, &users[..1], now));
+    }
+
+    #[test]
+    fn private_room_inactive_when_any_user_timed_out_or_left() {
+        let cfg = VoiceDbConfig::default();
+        let now = 10_000_000;
+        // One connected, one disconnected (left voluntarily) => inactive.
+        let left = vec![
+            private_user(VoiceChatUserStatus::Connected, now, now),
+            private_user(VoiceChatUserStatus::Disconnected, now, now),
+        ];
+        assert!(!is_private_room_active(&cfg, &left, now));
+        // One connected, one not-connected past the initial TTL => inactive.
+        let stale = vec![
+            private_user(VoiceChatUserStatus::Connected, now, now),
+            private_user(
+                VoiceChatUserStatus::NotConnected,
+                now - cfg.initial_connection_ttl_ms - 1,
+                now,
+            ),
+        ];
+        assert!(!is_private_room_active(&cfg, &stale, now));
+        // One connected, one interrupted within TTL => still active.
+        let interrupted_ok = vec![
+            private_user(VoiceChatUserStatus::Connected, now, now),
+            private_user(
+                VoiceChatUserStatus::ConnectionInterrupted,
+                now,
+                now - cfg.connection_interrupted_ttl_ms + 1,
+            ),
+        ];
+        assert!(is_private_room_active(&cfg, &interrupted_ok, now));
     }
 }

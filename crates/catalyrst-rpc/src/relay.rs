@@ -147,4 +147,47 @@ mod tests {
         assert_eq!(out["id"], json!(9));
         assert_eq!(out["error"]["code"], json!(-32603));
     }
+
+    fn test_state(networks: &[(&str, &str)]) -> AppState {
+        use crate::state::{AppStateInner, READ_ONLY_METHODS};
+        use std::collections::{BTreeMap, BTreeSet};
+        use std::sync::{Arc, RwLock};
+
+        let allowed_methods: BTreeSet<String> =
+            READ_ONLY_METHODS.iter().map(|m| m.to_string()).collect();
+        let entries: Vec<(String, String)> = networks
+            .iter()
+            .map(|(n, u)| (n.to_string(), u.to_string()))
+            .collect();
+        Arc::new(AppStateInner {
+            cfg: crate::Config {
+                http_host: "127.0.0.1".into(),
+                http_port: 0,
+                upstreams: entries.iter().cloned().collect(),
+            },
+            http: reqwest::Client::new(),
+            allowed_methods: RwLock::new(allowed_methods),
+            upstreams: RwLock::new(entries.into_iter().collect::<BTreeMap<_, _>>()),
+            admin_token: None,
+        })
+    }
+
+    #[tokio::test]
+    async fn unsupported_network_returns_invalid_params() {
+        // A genuinely-unknown network is rejected with -32602 before any
+        // upstream call, regardless of how many networks are configured.
+        let state = test_state(&[("polygon", "https://example/polygon")]);
+        let req = json!({ "jsonrpc": "2.0", "id": 5, "method": "eth_blockNumber" });
+        let out = handle_single(&state, "solana", req).await;
+        assert_eq!(out["jsonrpc"], json!("2.0"));
+        assert_eq!(out["id"], json!(5));
+        assert_eq!(out["error"]["code"], json!(-32602));
+        assert!(
+            out["error"]["message"]
+                .as_str()
+                .unwrap()
+                .contains("solana"),
+            "error should name the offending network"
+        );
+    }
 }

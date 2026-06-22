@@ -11,7 +11,7 @@ path = "src/main.rs"
 [dependencies]
 catalyrst-builder = { path = "../catalyrst-builder" }
 catalyrst-camera-reel = { path = "../catalyrst-camera-reel" }
-catalyrst-ab-registry = { path = "../catalyrst-ab-registry" }
+catalyrst-registry = { path = "../catalyrst-registry" }
 tokio = { workspace = true }
 axum = { workspace = true }
 tower-http = { workspace = true }

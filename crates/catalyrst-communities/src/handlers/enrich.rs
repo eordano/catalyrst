@@ -101,3 +101,60 @@ pub async fn enrich_posts_with_authors(
         );
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // A poolless ProfilesComponent resolves every address to a miss, exercising
+    // the placeholder path that protects the Unity converter from a missing-key
+    // NullReferenceException.
+    fn poolless() -> ProfilesComponent {
+        ProfilesComponent::new(None, "https://content".to_string())
+    }
+
+    #[tokio::test]
+    async fn member_rows_get_all_nre_critical_profile_fields() {
+        let mut rows = vec![serde_json::json!({
+            "communityId": "c1",
+            "memberAddress": "0xABC",
+            "role": "member",
+            "joinedAt": "2024-01-01T00:00:00",
+        })];
+        enrich_with_profiles(&poolless(), &mut rows, "memberAddress").await;
+
+        let m = rows[0].as_object().unwrap();
+        // GetCommunityMembersResponseMemberDataConverter dereferences these with `!`.
+        for key in [
+            "memberAddress",
+            "name",
+            "profilePictureUrl",
+            "hasClaimedName",
+        ] {
+            assert!(m.contains_key(key), "member missing {key}");
+        }
+        // Profile miss -> empty strings, never null/absent.
+        assert_eq!(m["name"], "");
+        assert_eq!(m["profilePictureUrl"], "");
+        assert_eq!(m["hasClaimedName"], false);
+    }
+
+    #[tokio::test]
+    async fn post_rows_get_author_profile_fields() {
+        let mut rows = vec![serde_json::json!({
+            "id": "p1",
+            "authorAddress": "0xABC",
+            "content": "hi",
+        })];
+        enrich_posts_with_authors(&poolless(), &mut rows, "authorAddress").await;
+
+        let m = rows[0].as_object().unwrap();
+        for key in [
+            "authorName",
+            "authorProfilePictureUrl",
+            "authorHasClaimedName",
+        ] {
+            assert!(m.contains_key(key), "post missing {key}");
+        }
+    }
+}

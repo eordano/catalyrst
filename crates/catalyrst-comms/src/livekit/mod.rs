@@ -140,7 +140,6 @@ impl AccessToken {
     }
 }
 
-pub const SCENE_ROOM_PREFIX: &str = "scene-";
 pub const WORLD_ROOM_PREFIX: &str = "world-";
 pub const PRIVATE_VOICE_CHAT_ROOM_PREFIX: &str = "voice-chat-private-";
 pub const COMMUNITY_VOICE_CHAT_ROOM_PREFIX: &str = "voice-chat-community";
@@ -176,8 +175,13 @@ pub fn community_id_from_room_name(room_name: &str) -> String {
         .to_string()
 }
 
-pub fn scene_room_name(realm: &str, scene_id: &str) -> String {
-    format!("{}{}:{}", SCENE_ROOM_PREFIX, realm, scene_id)
+/// Realm-INDEPENDENT scene comms room name (`scene:<sceneId>`). The realm is
+/// deliberately omitted so that clients co-located in the same scene share one
+/// room regardless of which realm name they connected through — a realm-name
+/// difference must never split a scene's comms into separate rooms. (Worlds stay
+/// world-namespaced via `world_scene_room_name`.)
+pub fn scene_room_name(scene_id: &str) -> String {
+    format!("scene:{scene_id}")
 }
 
 pub fn world_scene_room_name(world: &str, scene_id: &str) -> String {
@@ -211,13 +215,17 @@ pub fn address_from_identity(identity: &str) -> Option<String> {
 }
 
 pub fn room_service_base(host: &str) -> String {
+    // Mirror livekit-server-sdk: an insecure ws/http host maps to plaintext
+    // http:// (local/dev LiveKit), everything else to https://.
+    let insecure = host.starts_with("ws://") || host.starts_with("http://");
     let trimmed = host
         .trim_start_matches("wss://")
         .trim_start_matches("ws://")
         .trim_start_matches("https://")
         .trim_start_matches("http://")
         .trim_end_matches('/');
-    format!("https://{}", trimmed)
+    let scheme = if insecure { "http" } else { "https" };
+    format!("{scheme}://{trimmed}")
 }
 
 pub fn room_admin_token(
@@ -595,7 +603,10 @@ mod tests {
 
     #[test]
     fn room_names_match_upstream() {
-        assert_eq!(scene_room_name("main", "abc"), "scene-main:abc");
+        // Scene comms rooms are realm-INDEPENDENT: same sceneId -> same room name
+        // regardless of realm, so clients on different realm names co-locate.
+        assert_eq!(scene_room_name("abc"), "scene:abc");
+        // Worlds stay world-namespaced (intentionally isolated per world).
         assert_eq!(world_scene_room_name("foo.eth", "xyz"), "world-foo.eth-xyz");
         assert_eq!(world_room_name("foo.eth"), "world-foo.eth");
     }
@@ -624,7 +635,8 @@ mod tests {
     }
 
     #[test]
-    fn room_service_base_strips_ws_scheme() {
+    fn room_service_base_maps_scheme_like_livekit_sdk() {
+        // Secure / bare hosts -> https.
         assert_eq!(
             room_service_base("wss://livekit.example.com"),
             "https://livekit.example.com"
@@ -633,5 +645,402 @@ mod tests {
             room_service_base("livekit.example.com/"),
             "https://livekit.example.com"
         );
+        assert_eq!(
+            room_service_base("https://livekit.example.com"),
+            "https://livekit.example.com"
+        );
+        // Insecure ws/http hosts (local/dev) -> http, matching livekit-server-sdk.
+        assert_eq!(
+            room_service_base("ws://127.0.0.1:7880"),
+            "http://127.0.0.1:7880"
+        );
+        assert_eq!(
+            room_service_base("http://127.0.0.1:7880"),
+            "http://127.0.0.1:7880"
+        );
+    }
+
+    /// Base64url-decodes a JWT's payload segment into a JSON value.
+    fn decode_jwt_payload(jwt: &str) -> serde_json::Value {
+        let payload_b64 = jwt.split('.').nth(1).expect("jwt payload segment");
+        let bytes = URL_SAFE_NO_PAD.decode(payload_b64).expect("base64url");
+        serde_json::from_slice(&bytes).expect("payload json")
+    }
+
+    #[test]
+    fn private_voice_grants_match_upstream_generate_credentials() {
+        // Upstream getPrivateVoiceChatRoomCredentials -> generateCredentials:
+        // canPublish/canSubscribe true, canUpdateOwnMetadata false,
+        // canPublishSources = [MICROPHONE].
+        let mut grants = VideoGrants::join("voice-chat-private-call1");
+        grants.can_publish = true;
+        grants.can_subscribe = true;
+        grants.can_update_own_metadata = false;
+        grants.can_publish_sources = Some(vec![TRACK_SOURCE_MICROPHONE.to_string()]);
+
+        let jwt = AccessToken::new("devkey", "devsecret", "0xabc", grants)
+            .to_jwt()
+            .unwrap();
+        let p = decode_jwt_payload(&jwt);
+        assert_eq!(p["iss"], "devkey");
+        assert_eq!(p["sub"], "0xabc");
+        let v = &p["video"];
+        assert_eq!(v["roomJoin"], true);
+        assert_eq!(v["room"], "voice-chat-private-call1");
+        assert_eq!(v["canPublish"], true);
+        assert_eq!(v["canSubscribe"], true);
+        assert_eq!(v["canPublishData"], true);
+        assert_eq!(v["canUpdateOwnMetadata"], false);
+        assert_eq!(v["canPublishSources"], serde_json::json!(["MICROPHONE"]));
+        // exp must be after nbf (5-minute default ttl).
+        assert!(p["exp"].as_i64().unwrap() > p["nbf"].as_i64().unwrap());
+    }
+
+    #[test]
+    fn community_speaker_grant_omits_publish_sources_restriction() {
+        // A community speaker has canPublish true but, per upstream, NO
+        // canPublishSources restriction (only private voice restricts to MIC).
+        let mut grants = VideoGrants::join("voice-chat-community-c1");
+        grants.can_publish = true;
+        grants.can_update_own_metadata = false;
+        let jwt = AccessToken::new("devkey", "devsecret", "0xabc", grants)
+            .with_metadata(r#"{"role":"owner","isSpeaker":true,"muted":false}"#)
+            .to_jwt()
+            .unwrap();
+        let p = decode_jwt_payload(&jwt);
+        let v = &p["video"];
+        assert_eq!(v["canPublish"], true);
+        assert!(v.get("canPublishSources").is_none());
+        assert_eq!(p["metadata"], r#"{"role":"owner","isSpeaker":true,"muted":false}"#);
+    }
+
+    #[test]
+    fn community_listener_cannot_publish() {
+        let mut grants = VideoGrants::join("voice-chat-community-c1");
+        grants.can_publish = false;
+        grants.can_subscribe = true;
+        let jwt = AccessToken::new("devkey", "devsecret", "0xabc", grants)
+            .to_jwt()
+            .unwrap();
+        let v = decode_jwt_payload(&jwt)["video"].clone();
+        assert_eq!(v["canPublish"], false);
+        assert_eq!(v["canSubscribe"], true);
+    }
+
+    #[test]
+    fn room_admin_token_grants_room_admin_and_list() {
+        let jwt = room_admin_token("devkey", "devsecret", "some-room").unwrap();
+        let p = decode_jwt_payload(&jwt);
+        assert_eq!(p["iss"], "devkey");
+        assert_eq!(p["sub"], "devkey");
+        let v = &p["video"];
+        assert_eq!(v["roomAdmin"], true);
+        assert_eq!(v["roomList"], true);
+        assert_eq!(v["room"], "some-room");
+        // 60-second ttl.
+        assert_eq!(
+            p["exp"].as_i64().unwrap() - p["nbf"].as_i64().unwrap(),
+            60
+        );
+    }
+
+    // ---- RoomServiceClient twirp request construction (in-process capture) ----
+
+    /// A captured HTTP request: the request line plus headers and body.
+    struct Captured {
+        line: String,
+        auth: String,
+        body: serde_json::Value,
+    }
+
+    /// Spawns a one-shot TCP server that accepts a single HTTP request, captures
+    /// it, replies with `resp_status`/`resp_body`, and returns the captured
+    /// request via the channel. Avoids any mock-HTTP dev-dependency.
+    async fn capture_once(
+        resp_status: &'static str,
+        resp_body: &'static str,
+    ) -> (String, tokio::sync::oneshot::Receiver<Captured>) {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        tokio::spawn(async move {
+            let (mut sock, _) = listener.accept().await.unwrap();
+            let mut buf = vec![0u8; 8192];
+            let mut total = 0;
+            // Read until we have headers + the full body (Content-Length).
+            loop {
+                let n = sock.read(&mut buf[total..]).await.unwrap();
+                if n == 0 {
+                    break;
+                }
+                total += n;
+                let text = String::from_utf8_lossy(&buf[..total]);
+                if let Some(hdr_end) = text.find("\r\n\r\n") {
+                    let header_part = &text[..hdr_end];
+                    let content_len = header_part
+                        .lines()
+                        .find_map(|l| {
+                            let l = l.to_ascii_lowercase();
+                            l.strip_prefix("content-length:")
+                                .map(|v| v.trim().parse::<usize>().unwrap_or(0))
+                        })
+                        .unwrap_or(0);
+                    if total >= hdr_end + 4 + content_len {
+                        break;
+                    }
+                }
+            }
+            let text = String::from_utf8_lossy(&buf[..total]).to_string();
+            let (head, body) = text.split_once("\r\n\r\n").unwrap_or((&text, ""));
+            let line = head.lines().next().unwrap_or("").to_string();
+            let auth = head
+                .lines()
+                .find_map(|l| {
+                    let ll = l.to_ascii_lowercase();
+                    ll.strip_prefix("authorization:").map(|_| {
+                        l.split_once(':').map(|x| x.1).unwrap_or("").trim().to_string()
+                    })
+                })
+                .unwrap_or_default();
+            let body_json: serde_json::Value =
+                serde_json::from_str(body).unwrap_or(serde_json::Value::Null);
+            let resp = format!(
+                "HTTP/1.1 {resp_status}\r\nContent-Type: application/json\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{resp_body}",
+                resp_body.len()
+            );
+            sock.write_all(resp.as_bytes()).await.unwrap();
+            sock.flush().await.unwrap();
+            let _ = tx.send(Captured {
+                line,
+                auth,
+                body: body_json,
+            });
+        });
+        (format!("http://{addr}"), rx)
+    }
+
+    #[tokio::test]
+    async fn delete_room_posts_twirp_deleteroom_with_admin_token() {
+        let (host, rx) = capture_once("200 OK", "{}").await;
+        let http = reqwest::Client::new();
+        let client = RoomServiceClient::new(&http, &host, "devkey", "devsecret");
+        client.delete_room("voice-chat-private-c1").await.unwrap();
+        let cap = rx.await.unwrap();
+        assert_eq!(
+            cap.line,
+            "POST /twirp/livekit.RoomService/DeleteRoom HTTP/1.1"
+        );
+        assert_eq!(cap.body, serde_json::json!({ "room": "voice-chat-private-c1" }));
+        // Bearer admin token scoped to the room.
+        let bearer = cap.auth.strip_prefix("Bearer ").expect("bearer prefix");
+        let claims = decode_jwt_payload(bearer);
+        assert_eq!(claims["video"]["roomAdmin"], true);
+        assert_eq!(claims["video"]["room"], "voice-chat-private-c1");
+    }
+
+    #[tokio::test]
+    async fn delete_room_treats_404_as_success() {
+        let (host, _rx) = capture_once("404 Not Found", "not_found").await;
+        let http = reqwest::Client::new();
+        let client = RoomServiceClient::new(&http, &host, "devkey", "devsecret");
+        // NotFound is swallowed (room already gone) -> Ok.
+        client.delete_room("gone").await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn remove_participant_posts_room_and_identity() {
+        let (host, rx) = capture_once("200 OK", "{}").await;
+        let http = reqwest::Client::new();
+        let client = RoomServiceClient::new(&http, &host, "devkey", "devsecret");
+        client
+            .remove_participant("voice-chat-community-c1", "0xabc")
+            .await
+            .unwrap();
+        let cap = rx.await.unwrap();
+        assert_eq!(
+            cap.line,
+            "POST /twirp/livekit.RoomService/RemoveParticipant HTTP/1.1"
+        );
+        assert_eq!(
+            cap.body,
+            serde_json::json!({ "room": "voice-chat-community-c1", "identity": "0xabc" })
+        );
+    }
+
+    #[tokio::test]
+    async fn update_participant_sends_permission_block() {
+        let (host, rx) = capture_once("200 OK", "{}").await;
+        let http = reqwest::Client::new();
+        let client = RoomServiceClient::new(&http, &host, "devkey", "devsecret");
+        client
+            .update_participant(
+                "voice-chat-community-c1",
+                "0xabc",
+                None,
+                Some(serde_json::json!({
+                    "canPublish": true,
+                    "canSubscribe": true,
+                    "canPublishData": true,
+                })),
+            )
+            .await
+            .unwrap();
+        let cap = rx.await.unwrap();
+        assert_eq!(
+            cap.line,
+            "POST /twirp/livekit.RoomService/UpdateParticipant HTTP/1.1"
+        );
+        assert_eq!(cap.body["room"], "voice-chat-community-c1");
+        assert_eq!(cap.body["identity"], "0xabc");
+        assert_eq!(cap.body["permission"]["canPublish"], true);
+        // metadata omitted when None.
+        assert!(cap.body.get("metadata").is_none());
+    }
+
+    /// Reads one full HTTP request (headers + Content-Length body) from `sock`.
+    /// Returns None on a clean EOF before any bytes (peer reused/closed conn).
+    async fn read_one_request<S>(sock: &mut S) -> Option<(String, serde_json::Value)>
+    where
+        S: tokio::io::AsyncRead + Unpin,
+    {
+        use tokio::io::AsyncReadExt;
+        let mut acc: Vec<u8> = Vec::new();
+        let mut chunk = [0u8; 4096];
+        loop {
+            let n = sock.read(&mut chunk).await.ok()?;
+            if n == 0 {
+                if acc.is_empty() {
+                    return None;
+                }
+                break;
+            }
+            acc.extend_from_slice(&chunk[..n]);
+            let text = String::from_utf8_lossy(&acc);
+            if let Some(hdr_end) = text.find("\r\n\r\n") {
+                let content_len = text[..hdr_end]
+                    .lines()
+                    .find_map(|l| {
+                        l.to_ascii_lowercase()
+                            .strip_prefix("content-length:")
+                            .map(|v| v.trim().parse::<usize>().unwrap_or(0))
+                    })
+                    .unwrap_or(0);
+                if acc.len() >= hdr_end + 4 + content_len {
+                    break;
+                }
+            }
+        }
+        let text = String::from_utf8_lossy(&acc).to_string();
+        let (head, body) = text.split_once("\r\n\r\n").unwrap_or((&text, ""));
+        let line = head.lines().next().unwrap_or("").to_string();
+        let body_json: serde_json::Value =
+            serde_json::from_str(body).unwrap_or(serde_json::Value::Null);
+        Some((line, body_json))
+    }
+
+    /// Spawns a server that serves a fixed sequence of canned responses, one per
+    /// incoming request, capturing each. Handles HTTP/1.1 keep-alive: requests
+    /// may arrive on one reused connection or on fresh connections — both work.
+    async fn capture_seq(
+        responses: Vec<&'static str>,
+    ) -> (String, tokio::sync::oneshot::Receiver<Vec<Captured>>) {
+        use tokio::io::AsyncWriteExt;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        tokio::spawn(async move {
+            let mut captured = Vec::new();
+            let (mut sock, _) = listener.accept().await.unwrap();
+            for resp_body in responses {
+                let (line, body_json) = loop {
+                    match read_one_request(&mut sock).await {
+                        Some(req) => break req,
+                        // Connection closed before the next request: re-accept.
+                        None => {
+                            let (s, _) = listener.accept().await.unwrap();
+                            sock = s;
+                        }
+                    }
+                };
+                captured.push(Captured {
+                    line,
+                    auth: String::new(),
+                    body: body_json,
+                });
+                let resp = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{resp_body}",
+                    resp_body.len()
+                );
+                sock.write_all(resp.as_bytes()).await.unwrap();
+                sock.flush().await.unwrap();
+            }
+            let _ = tx.send(captured);
+        });
+        (format!("http://{addr}"), rx)
+    }
+
+    #[tokio::test]
+    async fn merge_metadata_read_modify_writes_merged_blob() {
+        // Leg 1: ListParticipants returns an existing metadata blob.
+        // Leg 2: UpdateParticipant must carry the shallow-merged metadata.
+        let (host, rx) = capture_seq(vec![
+            r#"{"participants":[{"identity":"0xabc","metadata":"{\"role\":\"owner\",\"muted\":false}"}]}"#,
+            "{}",
+        ])
+        .await;
+        let http = reqwest::Client::new();
+        let client = RoomServiceClient::new(&http, &host, "devkey", "devsecret");
+        let mut patch = serde_json::Map::new();
+        patch.insert("muted".into(), serde_json::json!(true));
+        client
+            .merge_participant_metadata("voice-chat-community-c1", "0xabc", patch)
+            .await
+            .unwrap();
+        let caps = rx.await.unwrap();
+        assert_eq!(caps.len(), 2);
+        assert!(caps[0].line.contains("ListParticipants"));
+        assert!(caps[1].line.contains("UpdateParticipant"));
+        // The written metadata is a JSON STRING; parse it back and assert the merge.
+        let written: serde_json::Value =
+            serde_json::from_str(caps[1].body["metadata"].as_str().unwrap()).unwrap();
+        assert_eq!(written["role"], "owner");
+        assert_eq!(written["muted"], true);
+    }
+
+    #[test]
+    fn merge_metadata_math_shallow_merges_over_existing() {
+        // Pure check of the shallow-merge contract used by merge_participant_metadata:
+        // patch keys overwrite, untouched keys survive.
+        let existing = r#"{"role":"owner","muted":false,"isSpeaker":true}"#;
+        let mut merged: serde_json::Map<String, serde_json::Value> =
+            serde_json::from_str(existing).unwrap();
+        let mut patch = serde_json::Map::new();
+        patch.insert("muted".into(), serde_json::json!(true));
+        for (k, v) in patch {
+            merged.insert(k, v);
+        }
+        assert_eq!(merged["muted"], true);
+        assert_eq!(merged["role"], "owner");
+        assert_eq!(merged["isSpeaker"], true);
+    }
+
+    #[tokio::test]
+    async fn list_rooms_parses_names() {
+        let (host, _rx) =
+            capture_once("200 OK", r#"{"rooms":[{"name":"r1"},{"name":"r2"}]}"#).await;
+        let http = reqwest::Client::new();
+        let client = RoomServiceClient::new(&http, &host, "devkey", "devsecret");
+        let rooms = client.list_rooms().await.unwrap();
+        assert_eq!(rooms, vec!["r1".to_string(), "r2".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn server_500_maps_to_status_error() {
+        let (host, _rx) = capture_once("500 Internal Server Error", "boom").await;
+        let http = reqwest::Client::new();
+        let client = RoomServiceClient::new(&http, &host, "devkey", "devsecret");
+        let err = client.list_rooms().await.unwrap_err();
+        assert!(matches!(err, RoomServiceError::Status(500)));
     }
 }

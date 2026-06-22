@@ -391,6 +391,33 @@ async fn publish_community_streaming_ended_event(
     }
 }
 
+/// Force-ends a community voice chat regardless of participants. Faithful port
+/// of `endCommunityVoiceChat`: snapshot the participant count, delete the
+/// LiveKit room, delete the DB room set, then publish `CommunityStreamingEnded`.
+pub async fn end_community_voice_chat(
+    state: &AppState,
+    community_id: &str,
+) -> Result<(), crate::http::ApiError> {
+    let room_name = crate::livekit::community_voice_chat_room_name(community_id);
+
+    let participant_count = state
+        .voice_db
+        .get_community_voice_chat_participant_count(&room_name)
+        .await?;
+
+    if let Err(e) = state.room_service().delete_room(&room_name).await {
+        tracing::warn!(error = %e, room = %room_name, "failed to delete livekit community voice room");
+    }
+
+    state
+        .voice_db
+        .delete_community_voice_chat(&room_name)
+        .await?;
+
+    publish_community_streaming_ended_event(state, &room_name, participant_count).await;
+    Ok(())
+}
+
 /// Handles a `participant_left` webhook for a COMMUNITY voice chat room.
 /// Faithful port of `handleCommunityParticipantLeft`, branching on the
 /// disconnect reason:

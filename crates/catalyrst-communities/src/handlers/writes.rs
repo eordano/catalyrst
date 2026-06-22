@@ -10,7 +10,9 @@ use uuid::Uuid;
 
 use crate::auth_chain::require_signer;
 use crate::fed::apply;
-use crate::fed::authority::{community_exists, load_role, require_min_role, Role};
+use crate::fed::authority::{
+    community_exists, community_is_private, load_role, require_min_role, Role,
+};
 use crate::fed::ids::{community_id_hex, community_uuid_from_hex};
 use crate::fed::messages::{
     CommunityBan, CommunityCreate, CommunityDelete, CommunityJoin, CommunityLeave,
@@ -18,7 +20,9 @@ use crate::fed::messages::{
     CommunityPostLike, CommunityPostUnlike, CommunityRequestStatusUpdate, CommunityRole,
     CommunityUnban, CommunityUpdate,
 };
-use crate::handlers::permissions::{can_act_on_member, has_permission, Permission};
+use crate::handlers::permissions::{
+    can_act_on_member, can_delete_post, can_like_post, has_permission, is_member, Permission,
+};
 use crate::http::ApiError;
 use crate::AppState;
 
@@ -181,6 +185,35 @@ async fn require_permission(
         ));
     }
     Ok(role)
+}
+
+/// `validatePermissionsToLikeAndUnlikePost` (posts.ts): any non-banned user may
+/// like/unlike in a PUBLIC community (role `none` included); in a PRIVATE
+/// community the signer must be a member. Banned users are always denied.
+async fn require_like_permission(
+    state: &AppState,
+    community_id: &str,
+    signer: &str,
+) -> Result<(), (StatusCode, Json<serde_json::Value>)> {
+    let role = match load_role(&state.pool, community_id, signer).await {
+        Ok(r) => r,
+        Err(e) => return Err(map_apply_err(e)),
+    };
+    let private = match community_is_private(&state.pool, community_id).await {
+        Ok(Some(p)) => p,
+        Ok(None) => return Err(err_json(StatusCode::NOT_FOUND, "community not found")),
+        Err(e) => return Err(map_apply_err(e)),
+    };
+    if !can_like_post(role, private) {
+        return Err(err_json(
+            StatusCode::UNAUTHORIZED,
+            format!(
+                "{} cannot like/unlike posts in community {}",
+                signer, community_id
+            ),
+        ));
+    }
+    Ok(())
 }
 
 /// `catalystClient.getOwnedNames(owner).length === 0 -> NotAuthorized` — the
@@ -786,16 +819,33 @@ async fn fed_unban_member(
     if !signed.message.target.eq_ignore_ascii_case(&address) {
         return err_json(StatusCode::BAD_REQUEST, "target must match path address");
     }
-    match require_min_role(
+    // Upstream `validatePermissionToUnbanMemberFromCommunity`: the unbanner must
+    // hold `ban_players`, and may not act on a superior member (the target is
+    // normally `banned` — not a member — so the superiority clause is bypassed).
+    let actor_role = match load_role(&state.pool, &signed.message.community_id, &signer).await {
+        Ok(r) => r,
+        Err(e) => return map_apply_err(e),
+    };
+    let target_role = match load_role(
         &state.pool,
         &signed.message.community_id,
-        &signer,
-        Role::Mod,
+        &signed.message.target,
     )
     .await
     {
-        Ok(_) => {}
+        Ok(r) => r,
         Err(e) => return map_apply_err(e),
+    };
+    if !has_permission(actor_role, Permission::BanPlayers)
+        || (!can_act_on_member(actor_role, target_role) && is_member(target_role))
+    {
+        return err_json(
+            StatusCode::FORBIDDEN,
+            format!(
+                "The user {} doesn't have permission to unban {} from community {}",
+                signer, signed.message.target, id
+            ),
+        );
     }
     match apply::apply_unban(&state.pool, &signed, &signer).await {
         Ok(sig) => {
@@ -984,16 +1034,18 @@ async fn fed_create_post(
     if community_uuid_from_hex(&signed.message.community_id) != uuid {
         return err_json(StatusCode::BAD_REQUEST, "community_id mismatch");
     }
-    match require_min_role(
-        &state.pool,
+    // Upstream `validatePermissionToCreatePost` = `validatePermission('create_posts')`:
+    // owner/moderator only. Plain members do NOT have `create_posts`.
+    if let Err(e) = require_permission(
+        &state,
         &signed.message.community_id,
         &signer,
-        Role::Member,
+        Permission::CreatePosts,
+        "create posts in the community",
     )
     .await
     {
-        Ok(_) => {}
-        Err(e) => return map_apply_err(e),
+        return e;
     }
     let content_hash_lc = signed.message.content_hash.to_ascii_lowercase();
     let body_present = crate::content_store::is_valid_hash(&content_hash_lc)
@@ -1079,18 +1131,22 @@ async fn fed_delete_post(
         .as_deref()
         .map(|a| a.eq_ignore_ascii_case(&signer))
         .unwrap_or(false);
-    if !is_author {
-        match require_min_role(
-            &state.pool,
-            &signed.message.community_id,
-            &signer,
-            Role::Mod,
-        )
-        .await
-        {
-            Ok(_) => {}
-            Err(e) => return map_apply_err(e),
-        }
+    // Upstream `validatePermissionToDeletePost`: the deleter must hold
+    // `delete_posts` (owner/moderator only — a plain-member author CANNOT delete
+    // their own post); and a moderator may delete only their OWN posts (owners
+    // delete any).
+    let role = match load_role(&state.pool, &signed.message.community_id, &signer).await {
+        Ok(r) => r,
+        Err(e) => return map_apply_err(e),
+    };
+    if !can_delete_post(role, is_author) {
+        return err_json(
+            StatusCode::UNAUTHORIZED,
+            format!(
+                "The user {} doesn't have permission to delete posts from the community",
+                signer
+            ),
+        );
     }
     match apply::apply_post_delete(&state.pool, &signed).await {
         Ok(sig) => {
@@ -1156,16 +1212,8 @@ async fn fed_like_post(
     if signed.message.post_id != post_id {
         return err_json(StatusCode::BAD_REQUEST, "post_id mismatch");
     }
-    match require_min_role(
-        &state.pool,
-        &signed.message.community_id,
-        &signer,
-        Role::Member,
-    )
-    .await
-    {
-        Ok(_) => {}
-        Err(e) => return map_apply_err(e),
+    if let Err(e) = require_like_permission(&state, &signed.message.community_id, &signer).await {
+        return e;
     }
     match apply::apply_post_like(&state.pool, &signed, &signer).await {
         Ok(sig) => {
@@ -1220,16 +1268,8 @@ async fn fed_unlike_post(
     if signed.message.post_id != post_id {
         return err_json(StatusCode::BAD_REQUEST, "post_id mismatch");
     }
-    match require_min_role(
-        &state.pool,
-        &signed.message.community_id,
-        &signer,
-        Role::Member,
-    )
-    .await
-    {
-        Ok(_) => {}
-        Err(e) => return map_apply_err(e),
+    if let Err(e) = require_like_permission(&state, &signed.message.community_id, &signer).await {
+        return e;
     }
     match apply::apply_post_unlike(&state.pool, &signed, &signer).await {
         Ok(sig) => {

@@ -218,10 +218,10 @@ pub async fn build_publisher(cfg: &GossipConfig) -> Arc<dyn GossipPublisher> {
             #[cfg(feature = "nats")]
             {
                 match nats::NatsPublisher::connect(url, peer_id.clone()).await {
-                    Ok(p) => return Arc::new(p),
+                    Ok(p) => Arc::new(p),
                     Err(e) => {
                         tracing::error!(error = %e, url = %url, "NATS gossip connect failed; falling back to noop (snapshot-pull only)");
-                        return Arc::new(NoopPublisher);
+                        Arc::new(NoopPublisher)
                     }
                 }
             }

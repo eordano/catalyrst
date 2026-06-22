@@ -82,7 +82,7 @@ pub async fn list_participants(
             ));
         };
         match resolve_scene_id(&state, p).await {
-            Some(scene_id) => scene_room_name(realm, &scene_id),
+            Some(scene_id) => scene_room_name(&scene_id),
             None => return Ok(empty_roster()),
         }
     };

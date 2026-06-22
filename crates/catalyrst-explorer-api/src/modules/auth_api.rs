@@ -64,6 +64,10 @@ pub struct ChallengeRecord {
     pub status: ChallengeStatus,
 }
 
+// The Signed variant carries the full outcome inline; the size gap to the unit
+// variants is intentional (the value is read straight back out on the outcome
+// route). Not boxing to keep the auth state machine simple and allocation-free.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone)]
 pub enum ChallengeStatus {
     Pending,

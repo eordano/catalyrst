@@ -78,6 +78,25 @@ pub fn is_member(role: Role) -> bool {
     !matches!(role, Role::None | Role::Banned)
 }
 
+/// `validatePermissionToCreatePost` — `create_posts` is owner/moderator only.
+pub fn can_create_post(role: Role) -> bool {
+    has_permission(role, Permission::CreatePosts)
+}
+
+/// `validatePermissionToDeletePost` — the deleter needs `delete_posts`
+/// (owner/moderator; a plain-member author CANNOT delete their own post), and a
+/// moderator may delete only their OWN posts (owners delete any).
+pub fn can_delete_post(role: Role, is_author: bool) -> bool {
+    has_permission(role, Permission::DeletePosts) && (role != Role::Mod || is_author)
+}
+
+/// `validatePermissionsToLikeAndUnlikePost` — any non-banned user may like in a
+/// PUBLIC community (role `none` included); in a PRIVATE community the signer
+/// must be a member.
+pub fn can_like_post(role: Role, community_is_private: bool) -> bool {
+    role != Role::Banned && !(community_is_private && role == Role::None)
+}
+
 /// `canActOnMember(actorRole, targetRole)` — upstream `ROLE_ACTION_TRANSITIONS`.
 ///
 /// - No one can act on an owner.
@@ -154,6 +173,50 @@ mod tests {
         assert!(is_member(Role::Member));
         assert!(!is_member(Role::None));
         assert!(!is_member(Role::Banned));
+    }
+
+    // Post-gate parity with posts.ts / roles.ts.
+
+    #[test]
+    fn create_post_is_owner_and_moderator_only() {
+        // `create_posts` ∈ owner/moderator; plain members do NOT have it.
+        assert!(can_create_post(Role::Owner));
+        assert!(can_create_post(Role::Mod));
+        assert!(!can_create_post(Role::Member), "member cannot create posts");
+        assert!(!can_create_post(Role::None));
+        assert!(!can_create_post(Role::Banned));
+    }
+
+    #[test]
+    fn delete_post_owner_any_mod_own_member_never() {
+        // Owner deletes ANY post (own or others').
+        assert!(can_delete_post(Role::Owner, true));
+        assert!(can_delete_post(Role::Owner, false));
+        // Moderator deletes only their OWN post.
+        assert!(can_delete_post(Role::Mod, true));
+        assert!(!can_delete_post(Role::Mod, false));
+        // A plain-member author CANNOT delete even their own post.
+        assert!(!can_delete_post(Role::Member, true));
+        assert!(!can_delete_post(Role::Member, false));
+        assert!(!can_delete_post(Role::None, true));
+        assert!(!can_delete_post(Role::Banned, true));
+    }
+
+    #[test]
+    fn like_post_public_open_private_members_only() {
+        // PUBLIC community: any non-banned user, role `none` included.
+        assert!(can_like_post(Role::None, false));
+        assert!(can_like_post(Role::Member, false));
+        assert!(can_like_post(Role::Mod, false));
+        assert!(can_like_post(Role::Owner, false));
+        // PRIVATE community: a non-member (role `none`) is denied; members allowed.
+        assert!(!can_like_post(Role::None, true), "non-member denied in private");
+        assert!(can_like_post(Role::Member, true));
+        assert!(can_like_post(Role::Mod, true));
+        assert!(can_like_post(Role::Owner, true));
+        // Banned is always denied.
+        assert!(!can_like_post(Role::Banned, false));
+        assert!(!can_like_post(Role::Banned, true));
     }
 
     #[test]

@@ -6,14 +6,18 @@
 use catalyrst_fed::{GossipEnvelope, RateLimitDecision, Scope, Signed, TypedMessage};
 
 use crate::fed::apply;
-use crate::fed::authority::{community_exists, load_role, require_min_role, Role};
+use crate::fed::authority::{
+    community_exists, community_is_private, load_role, require_min_role, Role,
+};
 use crate::fed::messages::{
     CommunityBan, CommunityCreate, CommunityDelete, CommunityJoin, CommunityLeave,
     CommunityPlaceRemove, CommunityPlacesAdd, CommunityPost, CommunityPostDelete,
     CommunityPostLike, CommunityPostUnlike, CommunityRequestStatusUpdate, CommunityRole,
     CommunityUnban, CommunityUpdate,
 };
-use crate::handlers::permissions::{can_act_on_member, has_permission, Permission};
+use crate::handlers::permissions::{
+    can_act_on_member, can_delete_post, can_like_post, has_permission, is_member, Permission,
+};
 use crate::AppState;
 
 /// Spawn the communities gossip apply-loop if the transport reaches peers.
@@ -105,6 +109,26 @@ async fn gate_permission(
             "signer {} lacks permission {:?}",
             role.as_str(),
             permission
+        ));
+    }
+    Ok(())
+}
+
+/// `validatePermissionsToLikeAndUnlikePost` (posts.ts): any non-banned user may
+/// like/unlike in a PUBLIC community (role `none` included); in a PRIVATE
+/// community the signer must be a member.
+async fn gate_like(pool: &sqlx::PgPool, community_id: &str, signer: &str) -> Result<(), String> {
+    let role = load_role(pool, community_id, signer)
+        .await
+        .map_err(|e| e.to_string())?;
+    let private = community_is_private(pool, community_id)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "community does not exist".to_string())?;
+    if !can_like_post(role, private) {
+        return Err(format!(
+            "{} cannot like/unlike posts in community {}",
+            signer, community_id
         ));
     }
     Ok(())
@@ -276,9 +300,22 @@ async fn apply_envelope(state: &AppState, env: &GossipEnvelope) -> Result<(), St
         CommunityUnban::PRIMARY_TYPE => {
             let signed = decode::<CommunityUnban>(env)?;
             let signer = preverify(state, &signed).await?;
-            require_min_role(pool, &signed.message.community_id, &signer, Role::Mod)
+            // Upstream `validatePermissionToUnbanMemberFromCommunity`: `ban_players`
+            // plus the superiority clause (bypassed for the usual `banned` target).
+            let actor_role = load_role(pool, &signed.message.community_id, &signer)
                 .await
                 .map_err(me)?;
+            let target_role = load_role(pool, &signed.message.community_id, &signed.message.target)
+                .await
+                .map_err(me)?;
+            if !has_permission(actor_role, Permission::BanPlayers)
+                || (!can_act_on_member(actor_role, target_role) && is_member(target_role))
+            {
+                return Err(format!(
+                    "{} doesn't have permission to unban {}",
+                    signer, signed.message.target
+                ));
+            }
             apply::apply_unban(pool, &signed, &signer)
                 .await
                 .map_err(me)?;
@@ -330,9 +367,15 @@ async fn apply_envelope(state: &AppState, env: &GossipEnvelope) -> Result<(), St
         CommunityPost::PRIMARY_TYPE => {
             let signed = decode::<CommunityPost>(env)?;
             let signer = preverify(state, &signed).await?;
-            require_min_role(pool, &signed.message.community_id, &signer, Role::Member)
-                .await
-                .map_err(me)?;
+            // Upstream `validatePermissionToCreatePost` = `create_posts`:
+            // owner/moderator only (plain members do not have it).
+            gate_permission(
+                pool,
+                &signed.message.community_id,
+                &signer,
+                Permission::CreatePosts,
+            )
+            .await?;
             apply::apply_post(pool, &signed, &signer)
                 .await
                 .map_err(me)?;
@@ -340,17 +383,36 @@ async fn apply_envelope(state: &AppState, env: &GossipEnvelope) -> Result<(), St
         CommunityPostDelete::PRIMARY_TYPE => {
             let signed = decode::<CommunityPostDelete>(env)?;
             let signer = preverify(state, &signed).await?;
-            // Author-self-delete is allowed (the signature binds the actor); the
-            // mod check only gates non-authors, so its result is advisory here.
-            let _ = require_min_role(pool, &signed.message.community_id, &signer, Role::Mod).await;
+            // Upstream `validatePermissionToDeletePost`: the deleter must hold
+            // `delete_posts` (owner/moderator — a member author CANNOT delete
+            // their own post); a moderator may delete only their OWN posts.
+            let author: Option<String> = sqlx::query_as::<_, (String,)>(
+                "SELECT author FROM community_posts_log WHERE signature_hash = $1",
+            )
+            .bind(&signed.message.post_id)
+            .fetch_optional(pool)
+            .await
+            .map_err(|e| e.to_string())?
+            .map(|(a,)| a);
+            let is_author = author
+                .as_deref()
+                .map(|a| a.eq_ignore_ascii_case(&signer))
+                .unwrap_or(false);
+            let role = load_role(pool, &signed.message.community_id, &signer)
+                .await
+                .map_err(me)?;
+            if !can_delete_post(role, is_author) {
+                return Err(format!(
+                    "{} doesn't have permission to delete posts from the community",
+                    signer
+                ));
+            }
             apply::apply_post_delete(pool, &signed).await.map_err(me)?;
         }
         CommunityPostLike::PRIMARY_TYPE => {
             let signed = decode::<CommunityPostLike>(env)?;
             let signer = preverify(state, &signed).await?;
-            require_min_role(pool, &signed.message.community_id, &signer, Role::Member)
-                .await
-                .map_err(me)?;
+            gate_like(pool, &signed.message.community_id, &signer).await?;
             apply::apply_post_like(pool, &signed, &signer)
                 .await
                 .map_err(me)?;
@@ -358,9 +420,7 @@ async fn apply_envelope(state: &AppState, env: &GossipEnvelope) -> Result<(), St
         CommunityPostUnlike::PRIMARY_TYPE => {
             let signed = decode::<CommunityPostUnlike>(env)?;
             let signer = preverify(state, &signed).await?;
-            require_min_role(pool, &signed.message.community_id, &signer, Role::Member)
-                .await
-                .map_err(me)?;
+            gate_like(pool, &signed.message.community_id, &signer).await?;
             apply::apply_post_unlike(pool, &signed, &signer)
                 .await
                 .map_err(me)?;

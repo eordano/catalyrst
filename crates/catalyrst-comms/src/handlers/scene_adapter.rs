@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use axum::body::Bytes;
 use axum::extract::State;
 use axum::http::HeaderMap;
@@ -88,7 +90,7 @@ pub async fn get_scene_adapter(
     let room = if is_world {
         world_scene_room_name(realm_name, scene_id)
     } else {
-        scene_room_name(realm_name, scene_id)
+        scene_room_name(scene_id)
     };
 
     let token = AccessToken::new(
@@ -97,6 +99,7 @@ pub async fn get_scene_adapter(
         &identity,
         VideoGrants::join(&room),
     )
+    .with_ttl(Duration::from_secs(state.livekit_token_ttl_secs))
     .to_jwt()
     .map_err(|e| ApiError::internal(format!("livekit token: {e}")))?;
 
@@ -133,7 +136,7 @@ pub async fn get_server_scene_adapter(
     let room = if is_world {
         world_scene_room_name(realm_name, scene_id)
     } else {
-        scene_room_name(realm_name, scene_id)
+        scene_room_name(scene_id)
     };
 
     const AUTH_SERVER_IDENTITY: &str = "authoritative-server";
@@ -147,6 +150,7 @@ pub async fn get_server_scene_adapter(
         AUTH_SERVER_IDENTITY,
         grants,
     )
+    .with_ttl(Duration::from_secs(state.livekit_token_ttl_secs))
     .to_jwt()
     .map_err(|e| ApiError::internal(format!("livekit token: {e}")))?;
 

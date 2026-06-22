@@ -86,6 +86,21 @@ pub async fn community_exists(pool: &PgPool, community_id: &str) -> Result<bool,
     Ok(row.is_some())
 }
 
+/// Whether the community (by hex id) is private. `None` if it doesn't exist in
+/// the read projection. Mirrors `community.privacy === CommunityPrivacyEnum.Private`.
+pub async fn community_is_private(
+    pool: &PgPool,
+    community_id: &str,
+) -> Result<Option<bool>, ApiError> {
+    let uuid = crate::fed::ids::community_uuid_from_hex(community_id);
+    let row: Option<(bool,)> = sqlx::query_as("SELECT private FROM communities WHERE id = $1")
+        .bind(uuid)
+        .fetch_optional(pool)
+        .await
+        .map_err(ApiError::from)?;
+    Ok(row.map(|(p,)| p))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

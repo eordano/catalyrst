@@ -1,3 +1,8 @@
+// ApiError is the deliberately-large shared error type; boxing every Result in
+// the crate is churn for no real benefit. Allowed crate-wide as elsewhere in the
+// workspace (badges, price, map, scene-state, world-storage, explorer-api, …).
+#![allow(clippy::result_large_err)]
+
 pub mod auth_chain;
 pub mod config;
 pub mod extract;
@@ -59,6 +64,8 @@ pub struct AppStateInner {
     pub livekit_api_secret: String,
     pub livekit_webhook_key: Option<String>,
     pub livekit_configured: bool,
+    /// TTL (seconds) for minted scene-comms join tokens; see Config.
+    pub livekit_token_ttl_secs: u64,
     pub private_messages_room_id: String,
     pub authoritative_server_address: Option<String>,
     pub moderator_token: Option<String>,
@@ -185,6 +192,7 @@ pub async fn build_state(cfg: &Config) -> Result<AppState> {
         livekit_api_secret: cfg.livekit_api_secret.clone(),
         livekit_webhook_key: cfg.livekit_webhook_key.clone(),
         livekit_configured: cfg.livekit_configured,
+        livekit_token_ttl_secs: cfg.livekit_token_ttl_secs,
         private_messages_room_id: cfg.private_messages_room_id.clone(),
         authoritative_server_address: cfg.authoritative_server_address.clone(),
         moderator_token: cfg.moderator_token.clone(),

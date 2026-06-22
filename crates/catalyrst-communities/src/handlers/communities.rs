@@ -6,6 +6,7 @@ use std::collections::HashMap;
 use uuid::Uuid;
 
 use crate::auth_chain::try_extract_signer;
+use crate::handlers::friendship::community_friends;
 use crate::http::{get_all, get_bool, get_first, get_pagination_params, ApiError, Paginated};
 use crate::AppState;
 
@@ -67,7 +68,7 @@ pub async fn get_raw_thumbnail(
 }
 
 fn enrich_community(
-    state: &AppState,
+    cdn_url: &str,
     obj: &mut serde_json::Value,
     owner_names: &HashMap<String, String>,
 ) {
@@ -86,7 +87,7 @@ fn enrich_community(
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
     let thumb = if has_thumbnail {
-        thumbnail_url(&state.cdn_url, &id)
+        thumbnail_url(cdn_url, &id)
     } else {
         "N/A".to_string()
     };
@@ -147,11 +148,79 @@ pub async fn get_communities(
         .get_owner_names(&owner_addresses(&results))
         .await;
     for obj in results.iter_mut() {
-        enrich_community(&state, obj, &owner_names);
+        enrich_community(&state.cdn_url, obj, &owner_names);
+    }
+
+    if let Some(user) = signer.as_deref() {
+        enrich_with_friends(&state, &user.to_lowercase(), &mut results).await;
     }
 
     let paginated = Paginated::new(results, total, &pagination);
     Ok(Json(serde_json::json!({ "data": paginated })))
+}
+
+/// Populate each community's `friends` array with the requesting user's friends
+/// who are members of that community (max 3, ordered by address), each rendered
+/// as a `FriendProfile` (`address`, `name`, `hasClaimedName`,
+/// `profilePictureUrl`). Mirrors upstream `getCommunities` +
+/// `parseProfilesToFriends`. Friends whose profile cannot be resolved are
+/// dropped, exactly as `mapMembersWithProfiles` filters profile-less entries.
+async fn enrich_with_friends(state: &AppState, user: &str, results: &mut [serde_json::Value]) {
+    let ids: Vec<uuid::Uuid> = results
+        .iter()
+        .filter_map(|o| o.get("id").and_then(|v| v.as_str()))
+        .filter_map(|s| uuid::Uuid::parse_str(s).ok())
+        .collect();
+    if ids.is_empty() {
+        return;
+    }
+
+    let by_community = community_friends(&state.pool, user, &ids).await;
+    if by_community.is_empty() {
+        return;
+    }
+
+    let all_addresses: Vec<String> = by_community.values().flatten().cloned().collect();
+    let profiles = state.profiles.get_profiles(&all_addresses).await;
+
+    for obj in results.iter_mut() {
+        let Some(map) = obj.as_object_mut() else {
+            continue;
+        };
+        let Some(id) = map
+            .get("id")
+            .and_then(|v| v.as_str())
+            .and_then(|s| uuid::Uuid::parse_str(s).ok())
+        else {
+            continue;
+        };
+        let Some(addresses) = by_community.get(&id) else {
+            continue;
+        };
+        let friends: Vec<serde_json::Value> = addresses
+            .iter()
+            .filter_map(|addr| {
+                profiles
+                    .get(&addr.to_lowercase())
+                    .map(|info| friend_profile(addr, info))
+            })
+            .collect();
+        if !friends.is_empty() {
+            map.insert("friends".to_string(), serde_json::Value::Array(friends));
+        }
+    }
+}
+
+/// Render a resolved friend as the wire `FriendProfile`
+/// (decentraland/social_service/v2: `address`, `name`, `has_claimed_name`,
+/// `profile_picture_url`), exactly as upstream `parseProfileToFriend` emits it.
+fn friend_profile(address: &str, info: &crate::ports::profiles::ProfileInfo) -> serde_json::Value {
+    serde_json::json!({
+        "address": address,
+        "name": info.name,
+        "hasClaimedName": info.has_claimed_name,
+        "profilePictureUrl": info.profile_picture_url,
+    })
 }
 
 pub async fn get_community(
@@ -173,6 +242,93 @@ pub async fn get_community(
         .profiles
         .get_owner_names(&owner_addresses(std::slice::from_ref(&obj)))
         .await;
-    enrich_community(&state, &mut obj, &owner_names);
+    enrich_community(&state.cdn_url, &mut obj, &owner_names);
     Ok(Json(serde_json::json!({ "data": obj })))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ports::profiles::ProfileInfo;
+
+    fn sample_listed_community() -> serde_json::Value {
+        // Mirrors the json built by CommunitiesComponent::list for one row.
+        serde_json::json!({
+            "id": "11111111-1111-1111-1111-111111111111",
+            "name": "Test",
+            "description": "desc",
+            "ownerAddress": "0xOWNER",
+            "privacy": "public",
+            "visibility": "all",
+            "role": "member",
+            "active": true,
+            "unlisted": false,
+            "membersCount": 5,
+            "isLive": false,
+            "friends": [],
+            "voiceChatStatus": serde_json::Value::Null,
+            "_hasThumbnail": true,
+        })
+    }
+
+    #[test]
+    fn list_item_carries_all_unity_fields() {
+        let mut obj = sample_listed_community();
+        let mut owners = HashMap::new();
+        owners.insert("0xowner".to_string(), "OwnerName".to_string());
+        enrich_community("https://cdn.example", &mut obj, &owners);
+
+        let m = obj.as_object().unwrap();
+        // GetUserCommunitiesData.CommunityData fields the converter reads.
+        for key in [
+            "id",
+            "name",
+            "description",
+            "ownerAddress",
+            "ownerName",
+            "thumbnailUrl",
+            "privacy",
+            "visibility",
+            "role",
+            "membersCount",
+            "friends",
+            "voiceChatStatus",
+        ] {
+            assert!(m.contains_key(key), "missing list field {key}");
+        }
+        // _hasThumbnail is an internal flag and must not leak to the wire.
+        assert!(!m.contains_key("_hasThumbnail"));
+        assert_eq!(m["ownerName"], "OwnerName");
+        assert_eq!(
+            m["thumbnailUrl"],
+            "https://cdn.example/social/communities/11111111-1111-1111-1111-111111111111/raw-thumbnail.png"
+        );
+        assert!(m["friends"].is_array());
+    }
+
+    #[test]
+    fn missing_thumbnail_renders_na() {
+        let mut obj = sample_listed_community();
+        obj["_hasThumbnail"] = serde_json::Value::Bool(false);
+        enrich_community("https://cdn.example", &mut obj, &HashMap::new());
+        assert_eq!(obj["thumbnailUrl"], "N/A");
+        // Unknown owner -> empty string, never absent (Unity reads ownerName).
+        assert_eq!(obj["ownerName"], "");
+    }
+
+    #[test]
+    fn friend_profile_matches_friendprofile_wire_shape() {
+        let info = ProfileInfo {
+            name: "Alice".to_string(),
+            profile_picture_url: "https://content/contents/QmFace".to_string(),
+            has_claimed_name: true,
+        };
+        let f = friend_profile("0xabc", &info);
+        let m = f.as_object().unwrap();
+        assert_eq!(m.len(), 4, "FriendProfile has exactly 4 fields");
+        assert_eq!(m["address"], "0xabc");
+        assert_eq!(m["name"], "Alice");
+        assert_eq!(m["hasClaimedName"], true);
+        assert_eq!(m["profilePictureUrl"], "https://content/contents/QmFace");
+    }
 }

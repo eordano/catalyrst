@@ -1,6 +1,10 @@
 use anyhow::{anyhow, Context, Result};
 use std::env;
 
+/// hCaptcha/reCAPTCHA-style siteverify endpoint, used when an external captcha
+/// provider gates the claim in addition to the upstream slider puzzle.
+const DEFAULT_CAPTCHA_VERIFY_URL: &str = "https://hcaptcha.com/siteverify";
+
 pub struct Config {
     pub http_host: String,
     pub http_port: u16,
@@ -9,6 +13,12 @@ pub struct Config {
     /// (seasons/goals CRUD, grant/revoke credits, block/unblock a user).
     /// When unset, every admin route fails closed (403).
     pub admin_token: Option<String>,
+    /// Server-side secret for the external captcha provider. When set, the claim
+    /// requires a provider token verified against `captcha_verify_url` in addition
+    /// to the slider answer; when unset, the upstream slider gate stands alone.
+    pub captcha_secret: Option<String>,
+    /// Provider siteverify endpoint (form-POST `secret`+`response`, JSON `success`).
+    pub captcha_verify_url: String,
 }
 
 impl Config {
@@ -20,6 +30,13 @@ impl Config {
             admin_token: env::var("CATALYRST_CREDITS_ADMIN_TOKEN")
                 .ok()
                 .filter(|s| !s.is_empty()),
+            captcha_secret: env::var("CREDITS_CAPTCHA_SECRET")
+                .ok()
+                .filter(|s| !s.is_empty()),
+            captcha_verify_url: env::var("CREDITS_CAPTCHA_VERIFY_URL")
+                .ok()
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| DEFAULT_CAPTCHA_VERIFY_URL.to_string()),
         })
     }
 }
