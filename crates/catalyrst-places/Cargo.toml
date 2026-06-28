@@ -40,5 +40,5 @@ anyhow = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 tower = { workspace = true }
 sqlx = { workspace = true }
-rand = "0.8"
+rand = "0.10"
 hex = "0.4"
