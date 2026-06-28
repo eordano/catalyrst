@@ -33,4 +33,4 @@ hex = "0.4"
 [dev-dependencies]
 ethers-signers = { workspace = true }
 ethers-core = { workspace = true }
-rand = "0.8"
+rand = "0.10"
