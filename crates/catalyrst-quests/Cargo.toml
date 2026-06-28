@@ -51,4 +51,4 @@ tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 dcl-rpc = { version = "2.3.6", features = ["codegen"] }
 # Must match dcl-rpc's `RPCServiceGenerator`, which implements prost-build 0.11's
 # `ServiceGenerator` trait (incompatible with prost-build 0.14's `Config`).
-prost-build = "0.11"
+prost-build = "0.14"
