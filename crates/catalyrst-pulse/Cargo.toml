@@ -1,0 +1,33 @@
+[package]
+name = "catalyrst-pulse"
+version = "0.1.0"
+edition = "2021"
+description = "Pulse real-time social/MMO server over ENet (port of decentraland/Pulse): sessions, rooms, presence, message routing."
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "catalyrst-pulse"
+path = "src/main.rs"
+
+[dependencies]
+catalyrst-enet = { workspace = true }
+catalyrst-types = { workspace = true }
+catalyrst-crypto = { workspace = true }
+tokio = { workspace = true }
+bytes = { workspace = true }
+dashmap = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+anyhow = { workspace = true }
+prost = "0.14"
+
+[dev-dependencies]
+ethers-signers = "2.0.14"
+
+[build-dependencies]
+prost-build = "0.14"

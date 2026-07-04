@@ -1,0 +1,99 @@
+[package]
+name = "catalyrst-abgen"
+version = "0.1.0"
+edition = "2021"
+description = "Decentraland asset-bundle conversion logic (vendored from abgen-rs) — clean-room reimplementation of asset-bundle-converter. Provides build_bundle + the disk-or-remote CatalystClient content abstraction consumed by the unified asset-bundle serving crate."
+license = "AGPL-3.0-or-later"
+
+autobins = false
+autoexamples = false
+autotests = false
+autobenches = false
+
+[lib]
+name = "abgen"
+path = "src/lib.rs"
+
+[[bin]]
+name = "abgen"
+path = "src/bin/abgen.rs"
+
+[[bin]]
+name = "abgen-corpus"
+path = "src/bin/abgen-corpus.rs"
+
+[[bin]]
+name = "abgen-verify"
+path = "src/bin/abgen-verify.rs"
+
+[[example]]
+name = "texdump"
+path = "examples/texdump.rs"
+
+[[example]]
+name = "matdump"
+path = "examples/matdump.rs"
+
+[[example]]
+name = "crndump"
+path = "examples/crndump.rs"
+
+[[example]]
+name = "objdump"
+path = "examples/objdump.rs"
+
+[[example]]
+name = "texcmp"
+path = "examples/texcmp.rs"
+
+[[example]]
+name = "texcmp2"
+path = "examples/texcmp2.rs"
+
+[[example]]
+name = "texpng"
+path = "examples/texpng.rs"
+
+[[example]]
+name = "jpegprobe"
+path = "examples/jpegprobe.rs"
+
+[[bin]]
+name = "catalyrst-abgen"
+path = "src/bin/catalyrst-abgen.rs"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order", "float_roundtrip", "raw_value"] }
+ureq = "3"
+image = "0.25"
+psd = "0.3"
+libc = "0.2"
+rayon = "1"
+num_cpus = "1"
+anyhow = "1"
+brotli = "8"
+postgres = "0.19"
+sha1 = "0.11"
+sha2 = "0.11"
+hmac = "0.13"
+memmap2 = "0.9"
+draco_decoder = { path = "third_party/draco_decoder" }
+texpresso = "2"
+crunch_ffi = { path = "third_party/crunch" }
+libjpeg9c = { path = "third_party/libjpeg9c" }
+texture2ddecoder = "0.1"
+mimalloc = { version = "0.1.52", default-features = false }
+
+tokio = { workspace = true }
+axum = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true }
+tokio-util = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+moka = { version = "0.12", features = ["future"] }
+sqlx = { workspace = true }
+chrono = { workspace = true }
+catalyrst-server = { workspace = true }
+catalyrst-registry = { path = "../catalyrst-registry" }

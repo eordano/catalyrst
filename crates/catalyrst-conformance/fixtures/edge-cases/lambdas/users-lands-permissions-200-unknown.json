@@ -1,0 +1,18 @@
+{
+  "description": "GET /lambdas/users/{address}/lands-permissions returns 200 + empty page for an address with no parcels - depends on external graph but the empty shape is stable.",
+  "request": {
+    "method": "GET",
+    "path": "/lambdas/users/0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef/lands-permissions",
+    "query": {},
+    "headers": {},
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "headers": {"content-type": "application/json"},
+    "body_json": {"elements": [], "totalAmount": 0, "pageNum": 1, "pageSize": 100}
+  },
+  "captured_from": "hand-authored from handler source (lambdas_land.rs::user_lands_permissions)",
+  "captured_at": "2026-05-23T20:00:00Z",
+  "volatile_paths": []
+}

@@ -1,0 +1,19 @@
+# Generated C/C++ build artifacts (cmake out-of-source builds in the vendored
+# third_party crates). Must never be committed/vendored: the cmake cache bakes
+# an absolute path, so a stale copy breaks the build in a new location (incl. the
+# nix sandbox). cmake regenerates these from source.
+/target
+third_party/draco_decoder/third_party/draco/build/
+third_party/**/build/
+**/CMakeCache.txt
+**/CMakeFiles/
+*.a
+*.o
+# Runtime caches / env
+/abgen-serve-cache
+*.env
+.env
+.env.*
+__pycache__/
+.DS_Store
+*.swp

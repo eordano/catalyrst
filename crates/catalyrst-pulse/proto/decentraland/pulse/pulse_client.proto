@@ -1,0 +1,62 @@
+syntax = "proto3";
+
+package decentraland.pulse;
+
+import "decentraland/common/vectors.proto";
+import "decentraland/pulse/pulse_shared.proto";
+
+message HandshakeRequest {
+	bytes auth_chain = 1;
+  int32 profile_version = 2;
+  optional PlayerInitialState initial_state = 3;
+}
+
+message PlayerInitialState {
+  PlayerState state = 1;
+  optional string emote_id = 2;
+  optional uint32 emote_duration_ms = 3;
+  optional uint32 emote_start_offset_ms = 4;
+  string realm = 5;
+  optional int32 emote_mask = 6;
+}
+
+message ProfileVersionAnnouncement {
+  int32 version = 1;
+}
+
+message PlayerStateInput {
+  PlayerState state = 1;
+}
+
+message ResyncRequest {
+  uint32 subject_id = 1;
+  uint32 known_seq = 2;
+}
+
+message EmoteStart {
+  string emote_id = 1;
+  optional uint32 duration_ms = 2;
+  PlayerState player_state = 3;
+  optional int32 mask = 4;
+}
+
+message EmoteStop {
+}
+
+message TeleportRequest {
+  int32 parcel_index = 1;
+  decentraland.common.Vector3 position = 2;
+  string realm = 3;
+}
+
+message ClientMessage {
+  oneof message {
+    HandshakeRequest handshake = 1;
+    PlayerStateInput input = 2;
+    ResyncRequest resync = 3;
+    ProfileVersionAnnouncement profile_announcement = 4;
+    EmoteStart emote_start = 5;
+    EmoteStop emote_stop = 6;
+    TeleportRequest teleport = 7;
+  }
+}

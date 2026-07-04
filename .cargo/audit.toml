@@ -1,0 +1,18 @@
+# cargo-audit configuration (read by `cargo audit` from .cargo/audit.toml at
+# the workspace root; the rustsec/audit-check GitHub Action just runs
+# `cargo audit`, so this file is what CI honors — verified empirically:
+# repo-root audit.toml is NOT read).
+
+[advisories]
+# RUSTSEC-2026-0124: libcrux-chacha20poly1305 0.0.7 — potential panic on
+# overlong ciphertext buffer. Present in Cargo.lock only through
+# openmls_rust_crypto -> hpke-rs -> hpke-rs-libcrux -> libcrux-aead, an
+# optional hpke-rs backend that is NOT feature-enabled anywhere in this
+# workspace (`cargo tree -i libcrux-chacha20poly1305 --target all` prints
+# "nothing to print"), so the vulnerable code is never compiled into any
+# artifact. No semver-compatible fix exists: every published hpke-rs-libcrux
+# release (<= 0.6.1) requires libcrux-aead ^0.0.7, which pins
+# libcrux-chacha20poly1305 = 0.0.7; the fixed 0.0.8 line needs libcrux-aead
+# 0.0.8, which no hpke-rs release consumes yet. Re-evaluate (and drop this
+# ignore) once hpke-rs-libcrux > 0.6.1 ships against libcrux-aead 0.0.8.
+ignore = ["RUSTSEC-2026-0124"]

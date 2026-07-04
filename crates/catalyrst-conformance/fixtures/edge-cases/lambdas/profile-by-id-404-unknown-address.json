@@ -1,0 +1,18 @@
+{
+  "description": "GET /lambdas/profiles/{id} with a syntactically valid but never-deployed address returns 404 'Profile not found'.",
+  "request": {
+    "method": "GET",
+    "path": "/lambdas/profiles/0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+    "query": {},
+    "headers": {},
+    "body": null
+  },
+  "response": {
+    "status": 404,
+    "headers": {"content-type": "application/json"},
+    "body_json": {"error": "Not Found", "message": "Profile not found"}
+  },
+  "captured_from": "hand-authored from handler source (lambdas.rs::profile_by_id)",
+  "captured_at": "2026-05-23T20:00:00Z",
+  "volatile_paths": []
+}
