@@ -27,6 +27,6 @@ anyhow = { workspace = true }
 url = { workspace = true }
 uuid = { workspace = true }
 moka = { version = "0.12", features = ["future"] }
-aes-gcm = "0.10"
+aes-gcm = "0.11"
 hex = "0.4"
 rand = "0.10"
