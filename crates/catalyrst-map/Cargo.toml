@@ -22,4 +22,4 @@ anyhow = { workspace = true }
 parking_lot = { workspace = true }
 reqwest = { workspace = true }
 tiny-skia = "0.12"
-lru = "0.16"
+lru = "0.18"
