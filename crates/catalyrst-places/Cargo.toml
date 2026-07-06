@@ -1,0 +1,44 @@
+[package]
+name = "catalyrst-places"
+version = "0.9.10"
+edition = "2021"
+description = "Rust port of decentraland/places (REST API for places.decentraland.org), federation-aware via catalyrst-fed"
+
+[[bin]]
+name = "catalyrst-places"
+path = "src/main.rs"
+
+[features]
+default = []
+nats = ["catalyrst-fed/nats"]
+ts = ["dep:ts-rs"]
+
+[dependencies]
+catalyrst-fed = { workspace = true }
+catalyrst-crypto = { workspace = true }
+catalyrst-types = { workspace = true }
+tokio = { workspace = true }
+axum = { workspace = true }
+tower-http = { workspace = true }
+sqlx = { workspace = true }
+reqwest = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+sha1 = "0.11"
+sha2 = { workspace = true }
+hmac = { workspace = true }
+base64 = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+catalyrst-envcfg = { workspace = true }
+ts-rs = { workspace = true, optional = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+tower = { workspace = true }
+sqlx = { workspace = true }
+rand = "0.10"
+hex = "0.4"

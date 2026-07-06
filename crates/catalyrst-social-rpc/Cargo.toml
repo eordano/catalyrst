@@ -1,0 +1,48 @@
+[package]
+name = "catalyrst-social-rpc"
+version = "0.9.10"
+edition = "2021"
+description = "Rust port of decentraland/social-service-ea: WebSocket dcl-rpc service for friends, blocks, mutes, private/community voice. Closes the wss://rpc-social-service-ea endpoint for self-hosted DCL stacks."
+
+[[bin]]
+name = "catalyrst-social-rpc"
+path = "src/main.rs"
+
+[dependencies]
+catalyrst-types = { workspace = true }
+catalyrst-crypto = { workspace = true }
+catalyrst-fed = { workspace = true }
+catalyrst-envcfg = { workspace = true }
+ethers-core = { workspace = true }
+
+dcl-rpc = "2.3.6"
+prost = "0.11"
+prost-types = "0.11"
+
+tokio = { workspace = true }
+axum = { workspace = true, features = ["ws"] }
+tower-http = { workspace = true }
+reqwest = { workspace = true }
+sqlx = { workspace = true, features = ["uuid"] }
+uuid = { workspace = true, features = ["serde"] }
+dashmap = { workspace = true }
+
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+futures = { workspace = true }
+bytes = { workspace = true }
+
+[dev-dependencies]
+ethers-signers = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+tokio-tungstenite = "0.29"
+
+[build-dependencies]
+dcl-rpc = { version = "2.3.6", features = ["codegen"] }
+prost-build = "0.11"

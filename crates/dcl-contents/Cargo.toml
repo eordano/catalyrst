@@ -1,0 +1,21 @@
+[package]
+name = "dcl-contents"
+version = "0.9.10"
+edition = "2021"
+description = "Content-DB active-entity component, asset-bundle status DTOs, manifest-status reader, and the unsigned registry HTTP surface (profiles, entity status, world manifests)."
+
+[features]
+default = ["pg"]
+pg = ["dep:sqlx"]
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sqlx = { version = "0.9", features = ["runtime-tokio", "postgres", "json", "chrono"], optional = true }
+axum = "0.8"
+tokio = { version = "1", features = ["full"] }
+moka = { version = "0.12", features = ["future"] }
+chrono = { version = "0.4", features = ["serde"] }
+thiserror = "2"
+tracing = "0.1"
+async-trait = "0.1"

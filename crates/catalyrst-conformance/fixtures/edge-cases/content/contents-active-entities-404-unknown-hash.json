@@ -1,0 +1,18 @@
+{
+  "description": "GET /content/contents/{hashId}/active-entities returns 404 with the exact 'The entity was not found' message when no active entity references the hash.",
+  "request": {
+    "method": "GET",
+    "path": "/content/contents/bafkreieenobodyreferencesthishashanywhereinanycatalyst/active-entities",
+    "query": {},
+    "headers": {},
+    "body": null
+  },
+  "response": {
+    "status": 404,
+    "headers": {"content-type": "application/json"},
+    "body_json": {"error": "The entity was not found"}
+  },
+  "captured_from": "re-derived from peer.decentraland.org 2026-07-03",
+  "captured_at": "2026-05-23T20:00:00Z",
+  "volatile_paths": []
+}

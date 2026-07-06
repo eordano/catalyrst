@@ -1,0 +1,21 @@
+[package]
+name = "catalyrst-create"
+version = "0.9.10"
+edition = "2021"
+description = "Bundle binary serving catalyrst creator-plane services (builder, camera-reel, ab-registry) on one axum port (5144) by composing each member's api_router with its own state."
+
+[[bin]]
+name = "catalyrst-create"
+path = "src/main.rs"
+
+[dependencies]
+catalyrst-builder = { path = "../catalyrst-builder" }
+catalyrst-camera-reel = { path = "../catalyrst-camera-reel" }
+catalyrst-registry = { path = "../catalyrst-registry" }
+tokio = { workspace = true }
+axum = { workspace = true }
+tower-http = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+anyhow = { workspace = true }
+serde_json = { workspace = true }

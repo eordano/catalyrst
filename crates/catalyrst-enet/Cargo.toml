@@ -1,0 +1,12 @@
+[package]
+name = "catalyrst-enet"
+version = "0.9.10"
+edition = "2021"
+description = "ENet reliable-UDP protocol in Rust (connect, channels, reliable/unreliable/sequenced delivery, acks, fragmentation). Foundation for catalyrst-pulse."
+
+[dependencies]
+tokio = { workspace = true }
+bytes = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+rusty_enet = "0.4"

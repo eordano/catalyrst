@@ -1,0 +1,26 @@
+[package]
+name = "catalyrst-deploy-signer"
+version = "0.9.10"
+edition = "2021"
+description = "One-shot local web page that collects a wallet signature and deploys a Decentraland scene/World to a content server. A dependency-light, self-contained replacement for `sdk-commands deploy`'s linker dApp."
+
+[[bin]]
+name = "catalyrst-deploy-signer"
+path = "src/main.rs"
+
+[dependencies]
+tokio = { workspace = true }
+axum = { workspace = true }
+reqwest = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+base64 = { workspace = true }
+chrono = { workspace = true }
+anyhow = { workspace = true }
+clap = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+ethers-signers = { workspace = true }
+ethers-core = { workspace = true }
+hex = "0.4"
+catalyrst-hashing = { path = "../catalyrst-hashing" }

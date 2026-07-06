@@ -1,0 +1,15 @@
+[package]
+name = "abgen-wasm-poc"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+abgen = { path = "..", package = "catalyrst-abgen", default-features = false }
+serde_json = "1"
+rayon = "1"

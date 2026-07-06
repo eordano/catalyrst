@@ -1,0 +1,40 @@
+[package]
+name = "catalyrst-fed"
+version = "0.9.10"
+edition = "2021"
+description = "Federation primitives shared by catalyrst-{places,events,communities,friends,messaging}: EIP-712 signed envelopes, session delegation, peer registry, rate limits, gossip + snapshot transport stubs"
+
+[dependencies]
+catalyrst-types = { workspace = true }
+catalyrst-crypto = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+hex = "0.4"
+thiserror = { workspace = true }
+tracing = { workspace = true }
+chrono = { workspace = true }
+parking_lot = { workspace = true }
+dashmap = { workspace = true }
+ed25519-dalek = { version = "2", features = ["std"] }
+ethers-core = { workspace = true }
+toml = "1.1"
+async-trait = { workspace = true }
+
+async-nats = { version = "0.49", optional = true }
+futures-util = { version = "0.3", optional = true, default-features = false }
+tokio = { workspace = true, features = ["sync"] }
+
+[features]
+default = []
+nats = ["dep:async-nats", "dep:futures-util", "tokio/rt", "tokio/macros"]
+
+[dev-dependencies]
+ethers-signers = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync"] }
+async-trait = { workspace = true }
+parking_lot = { workspace = true }
+hex = "0.4"
+chrono = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }

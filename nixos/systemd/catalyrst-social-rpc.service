@@ -1,0 +1,18 @@
+[Unit]
+Description=catalyrst-social-rpc (dcl-rpc WebSocket: friends/blocks/voice — port 5148)
+After=network.target postgresql.service catalyrst-social.service
+StartLimitIntervalSec=0
+Wants=postgresql.service
+
+[Service]
+Type=exec
+WorkingDirectory=<WORKSPACE>
+EnvironmentFile=<WORKSPACE>/env/content.env
+EnvironmentFile=<WORKSPACE>/env/catalyrst-social-rpc.env
+ExecStartPre=/bin/sh -c 'for i in $(seq 1 30); do pg_isready -h <HOST> -p 5433 -U <DB_USER> -q && exit 0; sleep 1; done; exit 1'
+ExecStart=<WORKSPACE>/bin/catalyrst/catalyrst-social-rpc
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,17 @@
+[Unit]
+Description=catalyrst-lists (Rust port of dcl-lists.decentraland.org, port 5143)
+After=network.target postgresql.service
+StartLimitIntervalSec=0
+Wants=postgresql.service
+
+[Service]
+Type=exec
+WorkingDirectory=<WORKSPACE>
+EnvironmentFile=<WORKSPACE>/env/catalyrst-lists.env
+ExecStartPre=/bin/sh -c 'for i in $(seq 1 30); do pg_isready -h <HOST> -p 5433 -U <DB_USER> -q && exit 0; sleep 1; done; exit 1'
+ExecStart=<WORKSPACE>/bin/catalyrst-lists
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=default.target
