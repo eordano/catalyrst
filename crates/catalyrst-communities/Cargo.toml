@@ -1,0 +1,52 @@
+[package]
+name = "catalyrst-communities"
+version = "0.1.0"
+edition = "2021"
+description = "Rust port of decentraland/social-service-ea (community routes), authority-chain federation per docs/federation/communities.md"
+
+[[bin]]
+name = "catalyrst-communities"
+path = "src/main.rs"
+
+[features]
+default = []
+nats = ["catalyrst-fed/nats"]
+ts = ["dep:ts-rs"]
+
+[dependencies]
+catalyrst-types = { workspace = true }
+catalyrst-envcfg = { workspace = true }
+catalyrst-fed = { workspace = true }
+catalyrst-crypto = { workspace = true }
+catalyrst-server = { workspace = true }
+tokio = { workspace = true }
+axum = { workspace = true }
+tower-http = { workspace = true }
+sqlx = { workspace = true, features = ["uuid"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+url = { workspace = true }
+uuid = { workspace = true, features = ["serde"] }
+sha2 = { workspace = true }
+hex = "0.4"
+multer = "3"
+futures-util = "0.3"
+parking_lot = { workspace = true }
+reqwest = { workspace = true }
+ts-rs = { workspace = true, optional = true }
+
+[dev-dependencies]
+ethers-signers = { workspace = true }
+ethers-core = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+rand = "0.10"
+reqwest = { workspace = true }
+
+[[example]]
+name = "smoke_create"
+path = "examples/smoke_create.rs"

@@ -1,0 +1,7 @@
+/target
+examples/wasm/assets/
+examples/wasm/target/
+*.DS_Store
+.vscode
+Cargo.lock
+third_party/draco/build/

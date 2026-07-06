@@ -1,0 +1,32 @@
+{
+  "description": "Origin-less request must NOT receive CORS headers (lamb2 parity — tower_http::CorsLayer would emit them; catalyrst's hand-rolled middleware omits them).",
+  "request": {
+    "method": "GET",
+    "path": "/content/status",
+    "query": {},
+    "headers": {},
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body_json": {
+      "version": "<<VOLATILE>>",
+      "commitHash": "<<VOLATILE>>",
+      "ethNetwork": "mainnet",
+      "synchronizationStatus": {
+        "lastSyncWithDAO": "<<VOLATILE>>",
+        "synchronizationState": "Syncing"
+      }
+    }
+  },
+  "captured_from": "re-derived from peer.decentraland.org 2026-07-03",
+  "captured_at": "2026-05-23T20:30:00Z",
+  "volatile_paths": [
+    "version",
+    "commitHash",
+    "synchronizationStatus.lastSyncWithDAO"
+  ]
+}

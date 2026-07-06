@@ -1,0 +1,20 @@
+{
+  "description": "Unknown path under /content/ also falls through to the same plain-text 404.",
+  "request": {
+    "method": "GET",
+    "path": "/content/no-such-endpoint",
+    "query": {},
+    "headers": {},
+    "body": null
+  },
+  "response": {
+    "status": 404,
+    "headers": {
+      "content-type": "text/plain; charset=utf-8"
+    },
+    "body_bytes_b64": "Tm90IGZvdW5k"
+  },
+  "captured_from": "hand-authored from crates/catalyrst-server/src/routes.rs::not_found",
+  "captured_at": "2026-05-23T20:30:00Z",
+  "volatile_paths": []
+}

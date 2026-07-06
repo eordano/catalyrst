@@ -1,0 +1,24 @@
+[package]
+name = "catalyrst-telemetry"
+version = "0.1.0"
+edition = "2021"
+description = "Local Sentry envelope + Segment HTTP API sinks: store client telemetry in postgres instead of shipping it to hosted services."
+
+[[bin]]
+name = "catalyrst-telemetry"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = { workspace = true }
+catalyrst-envcfg = { workspace = true }
+axum = { workspace = true }
+chrono = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sqlx = { workspace = true }
+reqwest = { workspace = true }
+tokio = { workspace = true }
+tower-http = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+flate2 = "1"

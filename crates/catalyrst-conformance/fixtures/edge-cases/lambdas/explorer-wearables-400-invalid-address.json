@@ -1,0 +1,18 @@
+{
+  "description": "GET /lambdas/explorer/{address}/wearables with a non-0x40hex address must 400 BEFORE any DB call - this is the security gate version of /users/.../wearables (which does NOT validate, a known parity quirk).",
+  "request": {
+    "method": "GET",
+    "path": "/lambdas/explorer/not-an-eth-address/wearables",
+    "query": {},
+    "headers": {},
+    "body": null
+  },
+  "response": {
+    "status": 400,
+    "headers": {"content-type": "application/json"},
+    "body_json": {"error": "Bad request", "message": "Address must be a valid Ethereum address"}
+  },
+  "captured_from": "hand-authored from handler source (lambdas_explorer.rs)",
+  "captured_at": "2026-05-23T20:00:00Z",
+  "volatile_paths": []
+}

@@ -1,0 +1,16 @@
+[package]
+name = "crunch_ffi"
+version = "0.1.0"
+edition = "2021"
+description = "Rust FFI to BinomialLLC/crunch CRN encoder (vendored, public domain)"
+license = "Unlicense"
+build = "build.rs"
+publish = false
+
+[lib]
+name = "crunch_ffi"
+path = "src/lib.rs"
+crate-type = ["rlib"]
+
+[build-dependencies]
+cc = "1"
