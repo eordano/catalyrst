@@ -117,4 +117,4 @@ catalyrst-fed = { path = "crates/catalyrst-fed" }
 catalyrst-comms = { path = "crates/catalyrst-comms" }
 catalyrst-enet = { path = "crates/catalyrst-enet" }
 catalyrst-preview-tunnel = { path = "crates/catalyrst-preview-tunnel" }
-tokio-tungstenite = "=0.29.0"
+tokio-tungstenite = "=0.30.0"
