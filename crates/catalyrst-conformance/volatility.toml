@@ -1,0 +1,43 @@
+[about]
+ignore = [
+    "configurations.realmName",
+    "configurations.networkId",
+    "content.publicUrl",
+    "lambdas.publicUrl",
+    "comms.publicUrl",
+    "comms.adapter",
+    "bff.publicUrl",
+]
+
+[status]
+ignore = [
+    "lastSyncWithDAO",
+    "lastDeploymentAt",
+    "synchronizationStatus.lastSyncWithOtherServers[].lastSyncTimestamp",
+    "synchronizationStatus.lastSyncWithOtherServers[].lastDeploymentTimestamp",
+    "synchronizationStatus.lastSyncWithOtherServers[].url",
+    "synchronizationStatus.otherServers[]",
+]
+
+[challenge]
+ignore = ["challengeText"]
+
+[snapshots]
+ignore_whole_response = true
+
+[failed-deployments]
+ignore_whole_response = true
+
+[deployments]
+ignore = [
+    "deployments[].localTimestamp",
+    "pagination.next",
+    "pagination.self",
+]
+
+[lambdas-status]
+ignore = [
+    "version",
+    "currentTime",
+    "commitHash",
+]

@@ -1,0 +1,21 @@
+syntax = "proto3";
+
+package decentraland.common;
+
+import "google/protobuf/descriptor.proto";
+
+message QuantizedFloatOptions {
+  float  min  = 1;
+  float  max  = 2;
+  uint32 bits = 3;
+}
+
+message BitPackedOptions {
+  uint32 bits = 1;
+}
+
+extend google.protobuf.FieldOptions {
+  QuantizedFloatOptions quantized  = 50001;
+
+  BitPackedOptions      bit_packed = 50002;
+}

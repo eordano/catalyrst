@@ -1,0 +1,42 @@
+[package]
+name = "catalyrst-credits"
+version = "0.1.0"
+edition = "2021"
+description = "Rust port of credits.decentraland.org (Marketplace Credits program API): enrollment, seasons/weeks/goals, per-wallet progress, captcha-gated claims. SignedFetch (AuthChain) auth via catalyrst-crypto."
+
+[[bin]]
+name = "catalyrst-credits"
+path = "src/main.rs"
+
+[dependencies]
+catalyrst-types = { workspace = true }
+catalyrst-crypto = { workspace = true }
+catalyrst-envcfg = { workspace = true }
+tokio = { workspace = true }
+axum = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true }
+reqwest = { workspace = true }
+sqlx = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+futures = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+url = { workspace = true }
+uuid = { workspace = true, features = ["serde"] }
+hmac = { workspace = true }
+sha2 = { workspace = true }
+hex = "0.4"
+alloy-primitives = "1"
+ts-rs = { workspace = true, optional = true }
+
+[features]
+ts = ["dep:ts-rs"]
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+ethers-signers = { workspace = true }

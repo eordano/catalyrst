@@ -1,0 +1,23 @@
+[package]
+name = "catalyrst-data"
+version = "0.1.0"
+edition = "2021"
+description = "Bundled Rust ports of the data-plane backend services unity-explorer needs: marketplace, economy (transactions relay), price feed, credits, and the EVM JSON-RPC relay. One binary, one axum router on port 5146."
+
+[[bin]]
+name = "catalyrst-data"
+path = "src/main.rs"
+
+[dependencies]
+catalyrst-market = { path = "../catalyrst-market" }
+catalyrst-economy = { path = "../catalyrst-economy" }
+catalyrst-price = { path = "../catalyrst-price" }
+catalyrst-credits = { path = "../catalyrst-credits" }
+catalyrst-rpc = { path = "../catalyrst-rpc" }
+tokio = { workspace = true }
+axum = { workspace = true, features = ["ws"] }
+tower-http = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+anyhow = { workspace = true }
+serde_json = { workspace = true }

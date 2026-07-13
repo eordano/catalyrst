@@ -1,0 +1,33 @@
+[package]
+name = "catalyrst-governance"
+version = "0.1.0"
+edition = "2021"
+description = "Governance API component for the catalyrst stack"
+
+[[bin]]
+name = "catalyrst-governance"
+path = "src/main.rs"
+
+[dependencies]
+catalyrst-envcfg = { workspace = true }
+tokio = { workspace = true }
+axum = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true }
+reqwest = { workspace = true }
+sqlx = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+clap = { workspace = true }
+url = { workspace = true }
+futures = { workspace = true }
+async-trait = { workspace = true }
+ts-rs = { workspace = true, optional = true }
+
+[features]
+ts = ["dep:ts-rs"]

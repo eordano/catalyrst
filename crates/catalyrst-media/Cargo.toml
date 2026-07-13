@@ -1,0 +1,30 @@
+[package]
+name = "catalyrst-media"
+version = "0.1.0"
+edition = "2021"
+description = "Rust port of decentraland/autotranslate-server (autotranslate-server.decentraland.org): LibreTranslate-compatible POST /translate (single + batch), postgres TTL cache."
+
+[[bin]]
+name = "catalyrst-media"
+path = "src/main.rs"
+
+[dependencies]
+catalyrst-types = { workspace = true }
+catalyrst-crypto = { workspace = true }
+tokio = { workspace = true }
+axum = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true }
+reqwest = { workspace = true }
+sqlx = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+catalyrst-envcfg = { workspace = true }
+async-trait = { workspace = true }
+url = { workspace = true }
+sha2 = { workspace = true }
