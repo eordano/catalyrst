@@ -1,0 +1,40 @@
+{
+  "sid": "story-sid",
+  "creator": "0xd6eff8f07caf3443a1178407d3de4129149d6ef6",
+  "scenes": [
+    {
+      "id": "b80746a8-c3be-477a-8aa9-603245b54d14",
+      "title": "CBD Plaza",
+      "image": "https://peer.decentraland.org/content/contents/bafybeicgeyefcobtp5qcyxjdotfd2zf6ts4x4btzax2bkpjwlusofdcxxy",
+      "base_position": "-147,91",
+      "players": 0,
+      "world": false,
+      "world_name": null,
+      "parcels": 116,
+      "featured": false
+    },
+    {
+      "id": "5f9004ce-79bc-44ea-beac-2d18c10451a9",
+      "title": "CBD Plaza West",
+      "image": "https://peer-ec1.decentraland.org/content/contents/bafybeiaxbqy2nwmzipxneowjwu75zqgutvs7qjxqcg24wd3nrqzhvwdu54",
+      "base_position": "-147,91",
+      "players": 3,
+      "world": false,
+      "world_name": null,
+      "parcels": 116,
+      "featured": false
+    },
+    {
+      "id": "844a236c-7799-41a3-9b95-298915ce750d",
+      "title": "CBD East",
+      "image": "https://peer.decentraland.org/content/contents/bafybeibrl3orpurdtvree3ojvxchzuy7be3hbkgdjs2x6mcrtit7y3pxw4",
+      "base_position": "-135,98",
+      "players": 0,
+      "world": false,
+      "world_name": null,
+      "parcels": 1,
+      "featured": false
+    }
+  ],
+  "error": false
+}

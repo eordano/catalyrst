@@ -1,5 +1,5 @@
 use std::collections::HashSet;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use moka::future::Cache;
@@ -12,6 +12,7 @@ pub struct DenyListComponent {
     http: reqwest::Client,
     url: Option<String>,
     cache: Cache<(), Arc<HashSet<String>>>,
+    last_good: Arc<Mutex<Arc<HashSet<String>>>>,
 }
 
 impl DenyListComponent {
@@ -23,6 +24,7 @@ impl DenyListComponent {
                 .time_to_live(Duration::from_secs(DENYLIST_TTL_SECONDS))
                 .max_capacity(1)
                 .build(),
+            last_good: Arc::new(Mutex::new(Arc::new(HashSet::new()))),
         }
     }
 
@@ -34,9 +36,15 @@ impl DenyListComponent {
         if let Some(cached) = self.cache.get(&()).await {
             return cached;
         }
-        let fetched = Arc::new(fetch_denylist(&self.http, self.url.as_deref()).await);
-        self.cache.insert((), fetched.clone()).await;
-        fetched
+        match fetch_denylist(&self.http, self.url.as_deref()).await {
+            Some(set) => {
+                let fetched = Arc::new(set);
+                self.cache.insert((), fetched.clone()).await;
+                *self.last_good.lock().unwrap() = fetched.clone();
+                fetched
+            }
+            None => self.last_good.lock().unwrap().clone(),
+        }
     }
 
     pub async fn is_denylisted(&self, identity: &str) -> bool {
@@ -44,21 +52,19 @@ impl DenyListComponent {
     }
 }
 
-async fn fetch_denylist(http: &reqwest::Client, url: Option<&str>) -> HashSet<String> {
-    let Some(url) = url else {
-        return HashSet::new();
-    };
+async fn fetch_denylist(http: &reqwest::Client, url: Option<&str>) -> Option<HashSet<String>> {
+    let url = url?;
     match http.get(url).send().await {
         Ok(resp) => match resp.json::<Value>().await {
-            Ok(body) => parse_denylist(&body),
+            Ok(body) => Some(parse_denylist(&body)),
             Err(e) => {
-                tracing::warn!(error = %e, url, "failed to parse wallet denylist (fail-open)");
-                HashSet::new()
+                tracing::warn!(error = %e, url, "failed to parse wallet denylist (keeping last known)");
+                None
             }
         },
         Err(e) => {
-            tracing::warn!(error = %e, url, "failed to fetch wallet denylist (fail-open)");
-            HashSet::new()
+            tracing::warn!(error = %e, url, "failed to fetch wallet denylist (keeping last known)");
+            None
         }
     }
 }

@@ -79,7 +79,9 @@ pub async fn reclaim(
     )
     .await?;
 
-    Ok(Json(json!({ "ok": true, "txHash": tx_hash })))
+    Ok(Json(
+        json!({ "ok": true, "status": "sent", "txHash": tx_hash }),
+    ))
 }
 
 pub async fn release(
@@ -111,7 +113,9 @@ pub async fn release(
     )
     .await?;
 
-    Ok(Json(json!({ "ok": true, "txHash": tx_hash })))
+    Ok(Json(
+        json!({ "ok": true, "status": "sent", "txHash": tx_hash }),
+    ))
 }
 
 fn collection_hex(collection: Address) -> String {
@@ -190,7 +194,7 @@ async fn broadcast_action(
                                 "escrow action for idempotencyKey {key:?} is 'sent' but has no recorded txHash"
                             ))
                         })?;
-                        tracing::info!(idempotency_key = %key, tx_hash = %tx_hash, action = action.as_str(), "escrow action idempotent replay → returning recorded txHash");
+                        tracing::info!(idempotency_key = %key, tx_hash = %tx_hash, action = action.as_str(), "escrow action idempotent replay \u{2192} returning recorded txHash");
                         return Ok(tx_hash);
                     }
 
@@ -203,7 +207,7 @@ async fn broadcast_action(
                         .await?;
                         if rearmed.rows_affected() == 0 {
                             return Err(ApiError::Conflict(format!(
-                                "an escrow {} for idempotencyKey {key:?} is already in flight; not re-broadcasting — retry after it settles",
+                                "an escrow {} for idempotencyKey {key:?} is already in flight; not re-broadcasting \u{2014} retry after it settles",
                                 action.as_str()
                             )));
                         }
@@ -212,7 +216,7 @@ async fn broadcast_action(
 
                     _ => {
                         return Err(ApiError::Conflict(format!(
-                            "an escrow {} for idempotencyKey {key:?} is in flight (status {status:?}); not re-broadcasting — poll the recorded action or reconcile rather than retrying",
+                            "an escrow {} for idempotencyKey {key:?} is in flight (status {status:?}); not re-broadcasting \u{2014} poll the recorded action or reconcile rather than retrying",
                             action.as_str()
                         )));
                     }

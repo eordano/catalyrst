@@ -1,10 +1,10 @@
 use axum::extract::{Path, Query, State};
 use axum::Json;
 use serde::Deserialize;
-use serde_json::Value;
 
 use crate::http::errors::ApiError;
 use crate::http::response::ApiData;
+use crate::ports::marketplace::{BuilderCollectionOut, OrphanItemOut};
 use crate::AppState;
 
 #[derive(Debug, Default, Deserialize)]
@@ -23,7 +23,7 @@ const MARKETPLACE_DOWN: &str = "marketplace data unavailable";
 pub async fn get_address_collections(
     State(state): State<AppState>,
     Path(address): Path<String>,
-) -> Result<Json<ApiData<Vec<Value>>>, ApiError> {
+) -> Result<Json<ApiData<Vec<BuilderCollectionOut>>>, ApiError> {
     if !valid_address(&address) {
         return Err(ApiError::bad_request("Invalid address"));
     }
@@ -39,7 +39,7 @@ pub async fn get_address_items(
     State(state): State<AppState>,
     Path(address): Path<String>,
     Query(params): Query<ItemsParams>,
-) -> Result<Json<ApiData<Vec<Value>>>, ApiError> {
+) -> Result<Json<ApiData<Vec<OrphanItemOut>>>, ApiError> {
     if !valid_address(&address) {
         return Err(ApiError::bad_request("Invalid address"));
     }

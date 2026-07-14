@@ -13,6 +13,14 @@ const SALES_CUT: f64 = 0.6;
 const VOLUME_CUT: f64 = 0.4;
 const TRENDING_SALES_LIMIT: i64 = 1000;
 
+/// Days of sales the row is computed over (marketplace-server e2d45d5). A
+/// week, the same width as the shop rail's TRENDING_DEFAULT_DAYS: a day held
+/// four distinct sold items marketplace-wide on production, and only the ones
+/// still on sale survive the filter below, so the row rendered empty on a
+/// quiet day. Widen only with a fallback in hand -- below a week's worth of
+/// sales there is no trend left to show.
+pub const TRENDING_WINDOW_DAYS: i64 = 7;
+
 #[derive(Debug, Clone)]
 pub struct TrendingFilters {
     pub size: Option<i64>,
@@ -50,7 +58,7 @@ impl TrendingsComponent {
             return Ok(Vec::new());
         }
 
-        let from_ts = midnight_days_ago(1);
+        let from_ts = midnight_days_ago(TRENDING_WINDOW_DAYS);
 
         let sql = format!(
             r#"
@@ -191,7 +199,10 @@ fn parse_u128_saturating(s: &str) -> u128 {
     s.parse::<u128>().unwrap_or(0)
 }
 
-fn midnight_days_ago(days: i64) -> i64 {
+/// Midnight (UTC) `days` days ago, as a unix SECONDS timestamp -- the same window
+/// anchor upstream derives with `Math.floor(getDateXDaysAgo(days).getTime()/1000)`.
+/// `sale.timestamp` is stored in seconds, so this is compared directly.
+pub(crate) fn midnight_days_ago(days: i64) -> i64 {
     let date = Utc::now() - Duration::days(days);
     let naive = date.date_naive().and_hms_opt(0, 0, 0).unwrap();
     Utc.from_utc_datetime(&naive).timestamp()
@@ -233,5 +244,17 @@ mod tests {
     #[test]
     fn empty_size_returns_empty() {
         assert_eq!(DEFAULT_SIZE, 20);
+    }
+
+    #[test]
+    fn the_sales_window_is_a_week_and_agrees_with_the_shop_rail() {
+        assert_eq!(TRENDING_WINDOW_DAYS, 7);
+        assert_eq!(
+            TRENDING_WINDOW_DAYS,
+            crate::ports::shop_catalog::TRENDING_DEFAULT_DAYS
+        );
+        let week_ago = midnight_days_ago(TRENDING_WINDOW_DAYS);
+        let yesterday = midnight_days_ago(1);
+        assert_eq!(yesterday - week_ago, 6 * 24 * 60 * 60);
     }
 }

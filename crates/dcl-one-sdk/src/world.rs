@@ -1,4 +1,7 @@
-use crate::deploy::{encode_segment, load_signer, now_ms};
+use crate::deploy::{
+    caused, encode_segment, load_signer, now_ms, read_server_message, refusal, send_text,
+    with_headers,
+};
 use crate::ux::{self, TrySteps, UserError};
 use anyhow::{Context, Result};
 use catalyrst_crypto::Wallet;
@@ -6,6 +9,7 @@ use serde_json::Value;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+#[derive(Default)]
 pub struct SettingsUpdate {
     pub title: Option<String>,
     pub description: Option<String>,
@@ -19,72 +23,317 @@ pub struct SettingsUpdate {
 }
 
 impl SettingsUpdate {
-    pub fn is_empty(&self) -> bool {
-        self.title.is_none()
-            && self.description.is_none()
-            && self.content_rating.is_none()
-            && self.spawn_coordinates.is_none()
-            && self.skybox_time.is_none()
-            && self.single_player.is_none()
-            && self.show_in_places.is_none()
-            && self.categories.is_empty()
-            && self.thumbnail.is_none()
+    /// Every text field as `(name, value)`; the thumbnail stays a file
+    /// upload, not a text pair.
+    fn pairs(&self) -> Vec<(&'static str, String)> {
+        let text = [
+            ("title", &self.title),
+            ("description", &self.description),
+            ("content_rating", &self.content_rating),
+            ("spawn_coordinates", &self.spawn_coordinates),
+            ("skybox_time", &self.skybox_time),
+        ];
+        let flags = [
+            ("single_player", self.single_player),
+            ("show_in_places", self.show_in_places),
+        ];
+        text.iter()
+            .filter_map(|(k, v)| v.as_ref().map(|v| (*k, v.clone())))
+            .chain(
+                flags
+                    .iter()
+                    .filter_map(|(k, v)| v.map(|v| (*k, v.to_string()))),
+            )
+            .collect()
     }
+
+    pub fn is_empty(&self) -> bool {
+        self.pairs().is_empty() && self.categories.is_empty() && self.thumbnail.is_none()
+    }
+
+    /// `field=value` for the fields this update touches, shown on the
+    /// signing page.
+    pub fn changed_fields(&self) -> Vec<String> {
+        let mut out: Vec<String> = self
+            .pairs()
+            .into_iter()
+            .map(|(k, v)| format!("{k}={v}"))
+            .collect();
+        if !self.categories.is_empty() {
+            out.push(format!("categories={}", self.categories.join(",")));
+        }
+        if let Some(v) = &self.thumbnail {
+            out.push(format!("thumbnail={}", v.display()));
+        }
+        out
+    }
+
+    /// Rebuilt per attempt: a browser signer may retry with another wallet,
+    /// and `reqwest::multipart::Form` is single-use.
+    fn to_form(&self) -> Result<reqwest::multipart::Form> {
+        let mut form = reqwest::multipart::Form::new();
+        for (k, v) in self.pairs() {
+            form = form.text(k, v);
+        }
+        for c in &self.categories {
+            form = form.text("categories", c.clone());
+        }
+        if let Some(thumb) = &self.thumbnail {
+            let bytes = std::fs::read(thumb).map_err(caused(
+                format!("could not read the thumbnail {}", thumb.display()),
+                TrySteps::one("check the --thumbnail path"),
+            ))?;
+            let file_name = thumb
+                .file_name()
+                .map(|f| f.to_string_lossy().into_owned())
+                .unwrap_or_else(|| "thumbnail.png".to_string());
+            form = form.part(
+                "thumbnail",
+                reqwest::multipart::Part::bytes(bytes).file_name(file_name),
+            );
+        }
+        Ok(form)
+    }
+}
+
+/// A signed world-management request: the action owns its HTTP method, path
+/// and body, so a local key and a browser wallet differ only in who produced
+/// the `x-identity-*` headers.
+pub enum WorldAction {
+    SettingsSet(SettingsUpdate),
+    Permission {
+        permission: String,
+        address: String,
+        revoke: bool,
+    },
+}
+
+impl WorldAction {
+    pub fn validate(&self) -> Result<()> {
+        match self {
+            WorldAction::SettingsSet(update) => {
+                if update.is_empty() {
+                    return Err(UserError::new(
+                        "nothing to update \u{2014} no settings flags given",
+                        TrySteps::one(
+                            "pass at least one of --title --description --content-rating --spawn-coordinates --skybox-time --single-player --show-in-places --category --thumbnail",
+                        ),
+                    )
+                    .into());
+                }
+                Ok(())
+            }
+            WorldAction::Permission {
+                permission,
+                address,
+                ..
+            } => {
+                check_permission_name(permission)?;
+                check_address(address)
+            }
+        }
+    }
+
+    pub fn method(&self) -> &'static str {
+        match self {
+            WorldAction::Permission { revoke: true, .. } => "delete",
+            _ => "put",
+        }
+    }
+
+    pub fn path(&self, name: &str) -> String {
+        match self {
+            WorldAction::SettingsSet(_) => format!("/world/{}/settings", encode_segment(name)),
+            WorldAction::Permission {
+                permission,
+                address,
+                ..
+            } => format!(
+                "/world/{}/permissions/{}/{}",
+                encode_segment(name),
+                encode_segment(permission),
+                encode_segment(&address.to_lowercase())
+            ),
+        }
+    }
+
+    /// What signing this authorizes, in one line.
+    pub fn summary(&self) -> String {
+        match self {
+            WorldAction::SettingsSet(update) => {
+                format!(
+                    "update the settings ({})",
+                    update.changed_fields().join(", ")
+                )
+            }
+            WorldAction::Permission {
+                permission,
+                address,
+                revoke: true,
+            } => format!("revoke {permission} from {address}"),
+            WorldAction::Permission {
+                permission,
+                address,
+                revoke: false,
+            } => format!("grant {permission} to {address}"),
+        }
+    }
+
+    pub fn success(&self, name: &str) -> String {
+        match self {
+            WorldAction::SettingsSet(_) => format!("Settings updated for {name}"),
+            WorldAction::Permission {
+                permission,
+                address,
+                revoke: true,
+            } => format!("Revoked {permission} from {address} on {name}"),
+            WorldAction::Permission {
+                permission,
+                address,
+                revoke: false,
+            } => format!("Granted {permission} to {address} on {name}"),
+        }
+    }
+
+    /// Send the request with headers someone else has already signed.
+    pub async fn send(
+        &self,
+        base: &str,
+        name: &str,
+        headers: Vec<(String, String)>,
+    ) -> Result<(u16, String)> {
+        let url = format!("{base}{}", self.path(name));
+        let method = match self.method() {
+            "delete" => reqwest::Method::DELETE,
+            _ => reqwest::Method::PUT,
+        };
+        let mut req = client()?.request(method, &url);
+        if let WorldAction::SettingsSet(update) = self {
+            req = req.multipart(update.to_form()?);
+        }
+        send_text(with_headers(req, headers))
+            .await
+            .map_err(|e| unreachable(&url, e))
+    }
+
+    /// Echo whatever the server returned that is worth seeing.
+    pub fn print_body(&self, body: &str) {
+        if let WorldAction::SettingsSet(_) = self {
+            if let Ok(v) = serde_json::from_str::<Value>(body) {
+                if let Some(settings) = v.get("settings") {
+                    if let Ok(pretty) = serde_json::to_string_pretty(settings) {
+                        println!("{pretty}");
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// How the browser signing page is presented when no local key exists.
+pub struct BrowserOptions {
+    pub port: Option<u16>,
+    pub no_browser: bool,
+    pub ci: bool,
+}
+
+/// Sign headlessly when a key is available, else with a browser wallet on a
+/// printed URL.
+pub async fn run_action(
+    name: &str,
+    action: WorldAction,
+    target_content: Option<&str>,
+    sign_key: Option<&Path>,
+    browser: BrowserOptions,
+) -> Result<()> {
+    action.validate()?;
+    let base = resolve_target(target_content)?;
+    let Some(signer) = load_signer(sign_key)? else {
+        let message = crate::world_linker::run(
+            crate::world_linker::WorldSignRequest {
+                base,
+                name: name.to_string(),
+                action,
+            },
+            crate::linker::LinkerOptions {
+                port: browser.port,
+                open_browser: !browser.no_browser && !browser.ci,
+                timeout: crate::linker::linker_timeout(),
+                host: None,
+            },
+        )
+        .await?;
+        ux::Steps::new(1).done(message);
+        return Ok(());
+    };
+    let path = action.path(name);
+    let headers = signed_headers(&signer, action.method(), &path)?;
+    let (status, body) = action.send(&base, name, headers).await?;
+    if !(200..300).contains(&status) {
+        return Err(refused(&action.summary(), name, status, &body));
+    }
+    let mut steps = ux::Steps::new(1);
+    action.print_body(&body);
+    steps.done(action.success(name));
+    Ok(())
 }
 
 pub fn resolve_target(target_content: Option<&str>) -> Result<String> {
     if let Some(t) = target_content {
         return Ok(t.trim().trim_end_matches('/').to_string());
     }
-    if let Ok(t) = std::env::var("DCL_ONE_SDK_DEFAULT_TARGET") {
+    if let Some(t) = crate::deploy::configured_target_server() {
         let base = crate::deploy::sanitize_catalyst_url(&t);
         ux::note(format!(
-            "using DCL_ONE_SDK_DEFAULT_TARGET as the worlds server: {base}"
+            "using DCL_ONE_SDK_TARGET_SERVER as the worlds server: {base}"
         ));
         return Ok(base);
     }
-    Err(UserError::new(
-        "no worlds server given",
-        TrySteps::one("pass --target-content <worlds-content-server-url>")
-            .and("the public worlds server is https://worlds-content-server.decentraland.org")
-            .and("or set DCL_ONE_SDK_DEFAULT_TARGET=<url>"),
-    )
-    .into())
-}
-
-fn require_signer(sign_key: Option<&Path>) -> Result<Wallet> {
-    match load_signer(sign_key)? {
-        Some(signer) => Ok(signer),
-        None => Err(UserError::new(
-            "no wallet available to sign this world request",
-            TrySteps::one("set DCL_PRIVATE_KEY=<hex> (the world owner or a permitted deployer)")
-                .and("or pass --sign-key <path-to-key-file>"),
-        )
-        .into()),
-    }
+    ux::note(format!(
+        "using the public worlds server {}",
+        crate::deploy::WORLDS_CONTENT_SERVER
+    ));
+    Ok(crate::deploy::WORLDS_CONTENT_SERVER.to_string())
 }
 
 fn client() -> Result<reqwest::Client> {
-    reqwest::Client::builder()
-        .timeout(Duration::from_secs(30))
-        .build()
-        .context("building the http client")
+    crate::deploy::client(Duration::from_secs(30), Duration::from_secs(30))
 }
 
-pub fn signed_headers(signer: &Wallet, method: &str, path: &str) -> Result<Vec<(String, String)>> {
-    let timestamp = now_ms().to_string();
-    let metadata = "{}";
-    let payload = format!("{method}:{path}:{timestamp}:{metadata}").to_lowercase();
-    let chain = catalyrst_crypto::create_simple_auth_chain(signer, &payload)
-        .context("EIP-191 sign of the signed-fetch payload")?;
+/// The ADR signed-fetch payload `method:path:timestamp:metadata`, lowercased:
+/// the exact string a wallet signs, local key or browser extension alike.
+pub fn signed_fetch_payload(method: &str, path: &str, timestamp: i64) -> String {
+    format!("{method}:{path}:{timestamp}:{{}}").to_lowercase()
+}
+
+/// The `x-identity-*` headers for an already-signed payload. Timestamp and
+/// metadata are read back out of the payload, never regenerated, so the
+/// headers describe exactly the bytes that were signed.
+pub(crate) fn headers_from_chain(payload: &str, chain: &Value) -> Vec<(String, String)> {
+    let parts: Vec<&str> = payload.split(':').collect();
+    let timestamp = parts.get(2).copied().unwrap_or_default().to_string();
+    let metadata = parts.get(3).copied().unwrap_or("{}").to_string();
     let mut headers = vec![
         ("x-identity-timestamp".to_string(), timestamp),
-        ("x-identity-metadata".to_string(), metadata.to_string()),
+        ("x-identity-metadata".to_string(), metadata),
     ];
     for (i, link) in chain.as_array().into_iter().flatten().enumerate() {
         headers.push((format!("x-identity-auth-chain-{i}"), link.to_string()));
     }
-    Ok(headers)
+    headers
+}
+
+pub fn signed_headers(signer: &Wallet, method: &str, path: &str) -> Result<Vec<(String, String)>> {
+    let payload = signed_fetch_payload(method, path, now_ms());
+    let chain = catalyrst_crypto::create_simple_auth_chain(signer, &payload)
+        .context("EIP-191 sign of the signed-fetch payload")?;
+    Ok(headers_from_chain(&payload, &chain))
+}
+
+/// Same headers, from a browser wallet's `personal_sign` over `payload`.
+pub fn browser_headers(address: &str, payload: &str, signature: &str) -> Vec<(String, String)> {
+    let chain = crate::deploy::simple_auth_chain(address, payload, signature);
+    headers_from_chain(payload, &chain)
 }
 
 fn refused(action: &str, world: &str, status: u16, body: &str) -> anyhow::Error {
@@ -94,43 +343,48 @@ fn refused(action: &str, world: &str, status: u16, body: &str) -> anyhow::Error 
         ))
         .and("world permissions list <name> shows the owner and allow-lists")
     } else {
-        TrySteps::one("read the server message above")
-            .and("re-run with --verbose for the full response")
+        read_server_message()
     };
-    let mut u = UserError::new(
-        format!("the worlds server refused to {action} (HTTP {status})"),
-        steps,
-    );
-    let body = body.trim();
-    if !body.is_empty() {
-        u = u.why(body.to_string());
-    }
-    u.into()
+    refusal(
+        UserError::new(
+            format!("the worlds server refused to {action} (HTTP {status})"),
+            steps,
+        ),
+        body,
+    )
 }
 
 fn unreachable(url: &str, e: reqwest::Error) -> anyhow::Error {
     UserError::new(
         "could not reach the worlds server",
         TrySteps::one("check the server is running and the URL is right")
-            .and("pass --target-content <worlds-content-server-url>"),
+            .and("pass --target-server <worlds-content-server-url>"),
     )
     .why(format!("request failed: {url}"))
     .caused_by(e)
     .into()
 }
 
-pub async fn settings_get(name: &str, target_content: Option<&str>) -> Result<()> {
+/// GET `/world/<name>/<suffix>` and return the body, or the refusal.
+async fn get_world(
+    name: &str,
+    target_content: Option<&str>,
+    suffix: &str,
+    action: &str,
+) -> Result<String> {
     let base = resolve_target(target_content)?;
-    let url = format!("{base}/world/{}/settings", encode_segment(name));
-    let resp = match client()?.get(&url).send().await {
-        Ok(resp) => resp,
-        Err(e) => return Err(unreachable(&url, e)),
-    };
-    let status = resp.status();
-    let body = resp.text().await.unwrap_or_default();
-    if !status.is_success() {
-        return Err(refused("read the settings", name, status.as_u16(), &body));
+    let url = format!("{base}/world/{}/{suffix}", encode_segment(name));
+    let (status, body) = send_text(client()?.get(&url))
+        .await
+        .map_err(|e| unreachable(&url, e))?;
+    if !(200..300).contains(&status) {
+        return Err(refused(action, name, status, &body));
     }
+    Ok(body)
+}
+
+pub async fn settings_get(name: &str, target_content: Option<&str>) -> Result<()> {
+    let body = get_world(name, target_content, "settings", "read the settings").await?;
     let mut steps = ux::Steps::new(1);
     match serde_json::from_str::<Value>(&body) {
         Ok(v) => println!("{}", serde_json::to_string_pretty(&v)?),
@@ -140,111 +394,8 @@ pub async fn settings_get(name: &str, target_content: Option<&str>) -> Result<()
     Ok(())
 }
 
-pub async fn settings_set(
-    name: &str,
-    target_content: Option<&str>,
-    sign_key: Option<&Path>,
-    update: SettingsUpdate,
-) -> Result<()> {
-    if update.is_empty() {
-        return Err(UserError::new(
-            "nothing to update \u{2014} no settings flags given",
-            TrySteps::one(
-                "pass at least one of --title --description --content-rating --spawn-coordinates --skybox-time --single-player --show-in-places --category --thumbnail",
-            ),
-        )
-        .into());
-    }
-    let base = resolve_target(target_content)?;
-    let signer = require_signer(sign_key)?;
-    let path = format!("/world/{}/settings", encode_segment(name));
-    let url = format!("{base}{path}");
-
-    let mut form = reqwest::multipart::Form::new();
-    if let Some(v) = &update.title {
-        form = form.text("title", v.clone());
-    }
-    if let Some(v) = &update.description {
-        form = form.text("description", v.clone());
-    }
-    if let Some(v) = &update.content_rating {
-        form = form.text("content_rating", v.clone());
-    }
-    if let Some(v) = &update.spawn_coordinates {
-        form = form.text("spawn_coordinates", v.clone());
-    }
-    if let Some(v) = &update.skybox_time {
-        form = form.text("skybox_time", v.clone());
-    }
-    if let Some(v) = update.single_player {
-        form = form.text("single_player", v.to_string());
-    }
-    if let Some(v) = update.show_in_places {
-        form = form.text("show_in_places", v.to_string());
-    }
-    for c in &update.categories {
-        form = form.text("categories", c.clone());
-    }
-    if let Some(thumb) = &update.thumbnail {
-        let bytes = std::fs::read(thumb).map_err(|e| {
-            anyhow::Error::from(
-                UserError::new(
-                    format!("could not read the thumbnail {}", thumb.display()),
-                    TrySteps::one("check the --thumbnail path"),
-                )
-                .caused_by(e),
-            )
-        })?;
-        let file_name = thumb
-            .file_name()
-            .map(|f| f.to_string_lossy().into_owned())
-            .unwrap_or_else(|| "thumbnail.png".to_string());
-        form = form.part(
-            "thumbnail",
-            reqwest::multipart::Part::bytes(bytes).file_name(file_name),
-        );
-    }
-
-    let mut req = client()?.put(&url).multipart(form);
-    for (k, v) in signed_headers(&signer, "put", &path)? {
-        req = req.header(k, v);
-    }
-    let resp = match req.send().await {
-        Ok(resp) => resp,
-        Err(e) => return Err(unreachable(&url, e)),
-    };
-    let status = resp.status();
-    let body = resp.text().await.unwrap_or_default();
-    if !status.is_success() {
-        return Err(refused("update the settings", name, status.as_u16(), &body));
-    }
-    let mut steps = ux::Steps::new(1);
-    if let Ok(v) = serde_json::from_str::<Value>(&body) {
-        if let Some(settings) = v.get("settings") {
-            println!("{}", serde_json::to_string_pretty(settings)?);
-        }
-    }
-    steps.done(format!("Settings updated for {name}"));
-    Ok(())
-}
-
 pub async fn permissions_list(name: &str, target_content: Option<&str>) -> Result<()> {
-    let base = resolve_target(target_content)?;
-    let url = format!("{base}/world/{}/permissions", encode_segment(name));
-    let resp = match client()?.get(&url).send().await {
-        Ok(resp) => resp,
-        Err(e) => return Err(unreachable(&url, e)),
-    };
-    let status = resp.status();
-    let body = resp.text().await.unwrap_or_default();
-    if !status.is_success() {
-        return Err(refused(
-            "list the permissions",
-            name,
-            status.as_u16(),
-            &body,
-        ));
-    }
+    let body = get_world(name, target_content, "permissions", "list the permissions").await?;
     let v: Value = serde_json::from_str(&body).context("parsing the permissions response")?;
     let mut steps = ux::Steps::new(1);
     println!("{}", render_permissions(name, &v));
@@ -253,46 +404,37 @@ pub async fn permissions_list(name: &str, target_content: Option<&str>) -> Resul
 }
 
 pub fn render_permissions(name: &str, v: &Value) -> String {
-    let mut out = String::new();
-    out.push_str(&format!("world: {name}\n"));
     let owner = v
         .get("owner")
-        .and_then(|o| o.as_str())
+        .and_then(Value::as_str)
         .unwrap_or("(unknown)");
-    out.push_str(&format!("owner: {owner}\n"));
+    let mut lines = vec![format!("world: {name}"), format!("owner: {owner}")];
     let perms = v.get("permissions").cloned().unwrap_or_default();
     for kind in ["deployment", "streaming"] {
-        let wallets: Vec<String> = perms
-            .get(kind)
+        let p = perms.get(kind);
+        let wallets: Vec<&str> = p
             .and_then(|p| p.get("wallets"))
-            .and_then(|w| w.as_array())
-            .map(|arr| {
-                arr.iter()
-                    .filter_map(|x| x.as_str().map(str::to_string))
-                    .collect()
-            })
+            .and_then(Value::as_array)
+            .map(|arr| arr.iter().filter_map(Value::as_str).collect())
             .unwrap_or_default();
-        let ty = perms
-            .get(kind)
+        let ty = p
             .and_then(|p| p.get("type"))
-            .and_then(|t| t.as_str())
+            .and_then(Value::as_str)
             .unwrap_or("allow-list");
         if wallets.is_empty() {
-            out.push_str(&format!("{kind}: {ty} (no extra wallets)\n"));
+            lines.push(format!("{kind}: {ty} (no extra wallets)"));
         } else {
-            out.push_str(&format!("{kind}: {ty}\n"));
-            for w in wallets {
-                out.push_str(&format!("  - {w}\n"));
-            }
+            lines.push(format!("{kind}: {ty}"));
+            lines.extend(wallets.iter().map(|w| format!("  - {w}")));
         }
     }
     let access = perms
         .get("access")
         .and_then(|a| a.get("type"))
-        .and_then(|t| t.as_str())
+        .and_then(Value::as_str)
         .unwrap_or("unrestricted");
-    out.push_str(&format!("access: {access}"));
-    out
+    lines.push(format!("access: {access}"));
+    lines.join("\n")
 }
 
 const GRANTABLE: [&str; 3] = ["deployment", "streaming", "access"];
@@ -309,8 +451,7 @@ fn check_permission_name(permission: &str) -> Result<()> {
 }
 
 fn check_address(address: &str) -> Result<()> {
-    let hexpart = address.strip_prefix("0x").unwrap_or("");
-    if hexpart.len() == 40 && hexpart.chars().all(|c| c.is_ascii_hexdigit()) {
+    if catalyrst_auth_chain::is_eth_address(address) {
         return Ok(());
     }
     Err(UserError::new(
@@ -320,81 +461,32 @@ fn check_address(address: &str) -> Result<()> {
     .into())
 }
 
-async fn permissions_change(
-    name: &str,
-    permission: &str,
-    address: &str,
-    target_content: Option<&str>,
-    sign_key: Option<&Path>,
-    revoke: bool,
-) -> Result<()> {
-    check_permission_name(permission)?;
-    check_address(address)?;
-    let base = resolve_target(target_content)?;
-    let signer = require_signer(sign_key)?;
-    let path = format!(
-        "/world/{}/permissions/{}/{}",
-        encode_segment(name),
-        encode_segment(permission),
-        encode_segment(&address.to_lowercase())
-    );
-    let url = format!("{base}{path}");
-    let (method, verb) = if revoke {
-        (reqwest::Method::DELETE, "delete")
-    } else {
-        (reqwest::Method::PUT, "put")
-    };
-    let mut req = client()?.request(method, &url);
-    for (k, v) in signed_headers(&signer, verb, &path)? {
-        req = req.header(k, v);
-    }
-    let resp = match req.send().await {
-        Ok(resp) => resp,
-        Err(e) => return Err(unreachable(&url, e)),
-    };
-    let status = resp.status();
-    let body = resp.text().await.unwrap_or_default();
-    if !status.is_success() {
-        let action = if revoke {
-            format!("revoke {permission} from {address}")
-        } else {
-            format!("grant {permission} to {address}")
-        };
-        return Err(refused(&action, name, status.as_u16(), &body));
-    }
-    let mut steps = ux::Steps::new(1);
-    if revoke {
-        steps.done(format!("Revoked {permission} from {address} on {name}"));
-    } else {
-        steps.done(format!("Granted {permission} to {address} on {name}"));
-    }
-    Ok(())
-}
-
-pub async fn permissions_grant(
-    name: &str,
-    permission: &str,
-    address: &str,
-    target_content: Option<&str>,
-    sign_key: Option<&Path>,
-) -> Result<()> {
-    permissions_change(name, permission, address, target_content, sign_key, false).await
-}
-
-pub async fn permissions_revoke(
-    name: &str,
-    permission: &str,
-    address: &str,
-    target_content: Option<&str>,
-    sign_key: Option<&Path>,
-) -> Result<()> {
-    permissions_change(name, permission, address, target_content, sign_key, true).await
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::http::{HeaderMap, HeaderName, HeaderValue};
     use serde_json::json;
+
+    const FIVE_MINUTES: i64 = 5 * 60;
+
+    fn header_map(headers: Vec<(String, String)>) -> HeaderMap {
+        let mut map = HeaderMap::new();
+        for (k, v) in headers {
+            map.insert(
+                HeaderName::from_bytes(k.as_bytes()).unwrap(),
+                HeaderValue::from_str(&v).unwrap(),
+            );
+        }
+        map
+    }
+
+    fn permission(permission: &str, revoke: bool) -> WorldAction {
+        WorldAction::Permission {
+            permission: permission.to_string(),
+            address: "0xAAAA111111111111111111111111111111111111".to_string(),
+            revoke,
+        }
+    }
 
     #[test]
     fn signed_headers_carry_a_verifiable_lowercased_payload() {
@@ -419,6 +511,45 @@ mod tests {
         );
         assert_eq!(payload, payload.to_lowercase());
         assert!(link1["signature"].as_str().unwrap().starts_with("0x"));
+    }
+
+    #[tokio::test]
+    async fn browser_headers_verify_exactly_like_key_signed_ones() {
+        use catalyrst_crypto::signed_fetch::verify_signed_fetch;
+
+        let signer = crate::random_test_wallet();
+        let method = "put";
+        let path =
+            "/world/Test.dcl.eth/permissions/deployment/0x1111111111111111111111111111111111111111";
+
+        let payload = signed_fetch_payload(method, path, now_ms());
+        let signature = signer.sign_message(payload.as_bytes()).unwrap();
+        let map = header_map(browser_headers(&signer.address(), &payload, &signature));
+        let recovered = verify_signed_fetch(&map, method, path, FIVE_MINUTES)
+            .await
+            .expect("browser-signed headers must pass the shared validator");
+        assert_eq!(recovered, signer.address().to_lowercase());
+    }
+
+    #[test]
+    fn actions_describe_their_own_http_shape() {
+        let grant = permission("deployment", false);
+        assert_eq!(grant.method(), "put");
+        assert_eq!(
+            grant.path("My-World.dcl.eth"),
+            "/world/My-World.dcl.eth/permissions/deployment/0xaaaa111111111111111111111111111111111111"
+        );
+        assert!(grant.validate().is_ok());
+
+        let revoke = permission("deployment", true);
+        assert_eq!(revoke.method(), "delete");
+        assert!(revoke.summary().starts_with("revoke deployment from"));
+
+        assert!(permission("root", false).validate().is_err());
+
+        let empty = WorldAction::SettingsSet(SettingsUpdate::default());
+        assert!(empty.validate().is_err());
+        assert_eq!(empty.method(), "put");
     }
 
     #[test]
@@ -451,21 +582,39 @@ mod tests {
 
     #[test]
     fn empty_update_is_rejected_and_target_required() {
-        let update = SettingsUpdate {
-            title: None,
-            description: None,
-            content_rating: None,
-            spawn_coordinates: None,
-            skybox_time: None,
-            single_player: None,
-            show_in_places: None,
-            categories: Vec::new(),
-            thumbnail: None,
-        };
-        assert!(update.is_empty());
+        assert!(SettingsUpdate::default().is_empty());
         assert_eq!(
             resolve_target(Some("http://127.0.0.1:5142/")).unwrap(),
             "http://127.0.0.1:5142"
         );
+    }
+
+    #[tokio::test]
+    async fn signed_headers_are_accepted_by_the_shared_validator() {
+        use catalyrst_crypto::signed_fetch::{verify_signed_fetch, verify_signed_fetch_meta};
+
+        let signer = crate::random_test_wallet();
+        let expected = signer.address().to_lowercase();
+
+        for (method, path) in [
+            ("put", "/world/My-World.dcl.eth/settings"),
+            (
+                "put",
+                "/world/My-World.dcl.eth/permissions/deployment/0x1111111111111111111111111111111111111111",
+            ),
+            ("delete", "/scenes/52,-52"),
+        ] {
+            let headers = header_map(signed_headers(&signer, method, path).unwrap());
+            let recovered = verify_signed_fetch(&headers, method, path, FIVE_MINUTES)
+                .await
+                .unwrap_or_else(|e| panic!("{method} {path} rejected: {e}"));
+            assert_eq!(recovered, expected);
+            let (meta_signer, metadata) =
+                verify_signed_fetch_meta(&headers, method, path, FIVE_MINUTES)
+                    .await
+                    .unwrap();
+            assert_eq!(meta_signer, expected);
+            assert_eq!(metadata, json!({}));
+        }
     }
 }

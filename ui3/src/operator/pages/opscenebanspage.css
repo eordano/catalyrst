@@ -1,0 +1,229 @@
+.pp {
+  margin: 8px 0 24px;
+}
+.pp__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+.pp__title {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: #fff;
+}
+.pp__owner {
+  font-size: 0.8125rem;
+  color: rgba(255, 255, 255, 0.6);
+  max-width: 40%;
+}
+.pp__empty {
+  color: rgba(255, 255, 255, 0.7);
+  padding: 8px 0;
+}
+.pp__grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 16px;
+}
+.pp__card {
+  display: flex;
+  gap: 12px;
+  width: 100%;
+  text-align: left;
+  padding: 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(0, 0, 0, 0.25);
+  color: inherit;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.pp__card:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+.pp__card.is-selected {
+  border-color: var(--au-grad-a, #a042cd);
+  box-shadow: 0 0 0 1px var(--au-grad-a, #a042cd) inset;
+}
+.pp__thumb {
+  flex: 0 0 auto;
+}
+.pp__img {
+  display: block;
+  width: 64px;
+  height: 64px;
+  border-radius: 10px;
+  object-fit: cover;
+  background: rgba(255, 255, 255, 0.08);
+}
+.pp__img--ph {
+  background: linear-gradient(135deg, rgba(160, 66, 205, 0.4), rgba(39, 5, 55, 0.6));
+}
+.pp__meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.pp__name {
+  font-weight: 600;
+  color: #fff;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pp__coords {
+  font-size: 0.8125rem;
+  color: rgba(255, 255, 255, 0.55);
+}
+.pp__hints {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+.pp__hint {
+  font-size: 0.6875rem;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.8);
+}
+.pp__hint--live {
+  background: rgba(76, 175, 80, 0.25);
+  color: #9be7a0;
+}
+
+.sb__container {
+  max-width: 880px;
+}
+.sb__sub {
+  margin: 6px 0 20px;
+  color: rgba(255, 255, 255, 0.62);
+  font-size: 0.9375rem;
+  max-width: 64ch;
+}
+.sb__place {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  color: rgba(255, 255, 255, 0.85);
+  margin: 0 0 16px;
+}
+.sb__place strong {
+  color: #fff;
+}
+.sb__coords {
+  font-size: 0.8125rem;
+  color: rgba(255, 255, 255, 0.55);
+}
+.sb__change {
+  margin-left: auto;
+  background: none;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 999px;
+  color: rgba(255, 255, 255, 0.85);
+  padding: 4px 12px;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+.sb__change:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.sb__stage,
+.sb__confirm,
+.sb__done,
+.sb__submitting {
+  padding: 20px;
+  border-radius: 16px;
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+.sb__staged {
+  font-size: 1.0625rem;
+  color: #fff;
+  margin: 0 0 16px;
+}
+.sb__addr {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.9375rem;
+  color: #f0d6ff;
+  word-break: break-all;
+}
+.sb__confirm-h {
+  margin: 0 0 16px;
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: #fff;
+}
+.sb__summary {
+  margin: 0 0 16px;
+  display: grid;
+  gap: 10px;
+}
+.sb__summary > div {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 12px;
+  align-items: baseline;
+}
+.sb__summary dt {
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 0.8125rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.sb__summary dd {
+  margin: 0;
+  color: #fff;
+}
+.sb__controls {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+}
+.sb__alert {
+  margin: 0 0 16px;
+  position: static;
+}
+.sb__submitting {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: #fff;
+}
+.sb__done .au-btn {
+  margin-top: 8px;
+}
+
+.buf {
+  margin: 8px 0 20px;
+}
+.buf__row {
+  display: flex;
+  gap: 10px;
+  align-items: stretch;
+}
+.buf__row .au-field__input {
+  flex: 1 1 auto;
+}
+.buf__submit {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.sbl__unban {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8125rem;
+  padding: 6px 12px;
+}

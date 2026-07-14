@@ -1,0 +1,81 @@
+{
+  "sid": "storybook-sid",
+  "assignment": {
+    "variant": "with-transparency",
+    "flags": {
+      "showTransparency": true
+    },
+    "experimentKey": "gv_transparency_page"
+  },
+  "transparency": {
+    "source": "live",
+    "committees": [
+      {
+        "name": "DAO Committee",
+        "description": "The DAO Committee holds the multisig keys that enact proposals passed by the community.",
+        "members": [
+          {
+            "name": "0x8801\u2026a639",
+            "address": "0x88013d7ed946dd8292268a6ff69165a97a89a639",
+            "addressShort": "0x8801\u2026a639",
+            "hue": 300
+          },
+          {
+            "name": "0xbef9\u2026a9b0",
+            "address": "0xbef99f5f55cf7cdb3a70998c57061b7e1386a9b0",
+            "addressShort": "0xbef9\u2026a9b0",
+            "hue": 312
+          },
+          {
+            "name": "0xfb1a\u2026d5a2",
+            "address": "0xfb1afa4dc069ffb47b19dbee196045d508fcd5a2",
+            "addressShort": "0xfb1a\u2026d5a2",
+            "hue": 357
+          }
+        ]
+      },
+      {
+        "name": "DAO Council",
+        "description": "The DAO Council reviews grant requests, enacts passed proposals, and represents the community in operational matters.",
+        "members": [
+          {
+            "name": "0x3f6b\u20264cd1",
+            "address": "0x3f6b1d01b6823ab235fc343069b62b6472774cd1",
+            "addressShort": "0x3f6b\u20264cd1",
+            "hue": 232
+          },
+          {
+            "name": "0x511a\u20264d8d",
+            "address": "0x511a22cdd2c4ee8357bb02df2578037ffe8a4d8d",
+            "addressShort": "0x511a\u20264d8d",
+            "hue": 63
+          },
+          {
+            "name": "0x5b5c\u2026e244",
+            "address": "0x5b5cc427c1d81db4f94de4d51d85ce122d63e244",
+            "addressShort": "0x5b5c\u2026e244",
+            "hue": 314
+          },
+          {
+            "name": "0x7a72\u20261622",
+            "address": "0x7a7280e299b79b7bd14d7501e3a03a0b77541622",
+            "addressShort": "0x7a72\u20261622",
+            "hue": 160
+          },
+          {
+            "name": "0x8dd0\u2026622f",
+            "address": "0x8dd060ad7f867ad890490fd87657c1b7e63c622f",
+            "addressShort": "0x8dd0\u2026622f",
+            "hue": 155
+          },
+          {
+            "name": "0xd6ef\u20266ef6",
+            "address": "0xd6eff8f07caf3443a1178407d3de4129149d6ef6",
+            "addressShort": "0xd6ef\u20266ef6",
+            "hue": 42
+          }
+        ]
+      }
+    ]
+  }
+}

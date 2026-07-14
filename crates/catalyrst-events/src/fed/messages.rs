@@ -21,6 +21,8 @@ impl TypedMessage for EventCreate {
     const PRIMARY_TYPE: &'static str = "EventCreate";
     fn encode_struct(&self) -> Vec<u8> {
         let mut out = Vec::with_capacity(self.title.len() + 64);
+        out.extend_from_slice(Self::PRIMARY_TYPE.as_bytes());
+        out.push(0);
         out.extend_from_slice(self.title.as_bytes());
         if let Some(d) = &self.description {
             out.extend_from_slice(d.as_bytes());
@@ -52,6 +54,8 @@ impl TypedMessage for EventAttend {
     const PRIMARY_TYPE: &'static str = "EventAttend";
     fn encode_struct(&self) -> Vec<u8> {
         let mut out = Vec::with_capacity(self.event_id.len() + 16);
+        out.extend_from_slice(Self::PRIMARY_TYPE.as_bytes());
+        out.push(0);
         out.extend_from_slice(self.event_id.as_bytes());
         out.push(match self.action {
             AttendAction::Attend => 1,
@@ -81,6 +85,8 @@ impl TypedMessage for EventModerate {
     const PRIMARY_TYPE: &'static str = "EventModerate";
     fn encode_struct(&self) -> Vec<u8> {
         let mut out = Vec::with_capacity(self.event_id.len() + 16);
+        out.extend_from_slice(Self::PRIMARY_TYPE.as_bytes());
+        out.push(0);
         out.extend_from_slice(self.event_id.as_bytes());
         out.push(match self.action {
             ModerateAction::Ban => 0,
@@ -114,6 +120,8 @@ impl TypedMessage for ProfileSettingsUpdate {
     const PRIMARY_TYPE: &'static str = "ProfileSettingsUpdate";
     fn encode_struct(&self) -> Vec<u8> {
         let mut out = Vec::with_capacity(self.target.len() + 64);
+        out.extend_from_slice(Self::PRIMARY_TYPE.as_bytes());
+        out.push(0);
         out.extend_from_slice(self.target.as_bytes());
         if let Some(e) = &self.email {
             out.extend_from_slice(e.as_bytes());
@@ -159,6 +167,8 @@ impl TypedMessage for ScheduleUpsert {
     const PRIMARY_TYPE: &'static str = "ScheduleUpsert";
     fn encode_struct(&self) -> Vec<u8> {
         let mut out = Vec::with_capacity(self.name.len() + 64);
+        out.extend_from_slice(Self::PRIMARY_TYPE.as_bytes());
+        out.push(0);
         if let Some(id) = &self.schedule_id {
             out.extend_from_slice(id.as_bytes());
         }

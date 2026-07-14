@@ -1,22 +1,17 @@
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
-use dashmap::DashMap;
+use catalyrst_commons::cache::TtlMap;
 use sqlx::PgPool;
 
 const CACHE_TTL: Duration = Duration::from_secs(300);
-
-struct CacheEntry {
-    name: String,
-    at: Instant,
-}
 
 #[derive(Clone)]
 pub struct NamesComponent {
     pool: Option<PgPool>,
     schema: String,
-    cache: Arc<DashMap<String, CacheEntry>>,
+    cache: Arc<TtlMap<String, String>>,
 }
 
 impl NamesComponent {
@@ -24,7 +19,7 @@ impl NamesComponent {
         Self {
             pool,
             schema,
-            cache: Arc::new(DashMap::new()),
+            cache: Arc::new(TtlMap::new("comms-names", CACHE_TTL)),
         }
     }
 
@@ -35,14 +30,11 @@ impl NamesComponent {
         }
 
         let mut misses: Vec<String> = Vec::new();
-        let now = Instant::now();
         for addr in addresses {
             let addr = addr.to_lowercase();
-            if let Some(e) = self.cache.get(&addr) {
-                if now.duration_since(e.at) < CACHE_TTL {
-                    out.insert(addr.clone(), e.name.clone());
-                    continue;
-                }
+            if let Some(name) = self.cache.get_fresh(&addr) {
+                out.insert(addr, name);
+                continue;
             }
             misses.push(addr);
         }
@@ -57,13 +49,7 @@ impl NamesComponent {
 
         let Some(pool) = self.pool.as_ref() else {
             for addr in &misses {
-                self.cache.insert(
-                    addr.clone(),
-                    CacheEntry {
-                        name: String::new(),
-                        at: now,
-                    },
-                );
+                self.cache.insert(addr.clone(), String::new());
             }
             return out;
         };
@@ -96,8 +82,7 @@ impl NamesComponent {
 
         for addr in &misses {
             let name = out.get(addr).cloned().unwrap_or_default();
-            self.cache
-                .insert(addr.clone(), CacheEntry { name, at: now });
+            self.cache.insert(addr.clone(), name);
         }
 
         out

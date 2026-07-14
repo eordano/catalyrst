@@ -49,6 +49,8 @@ struct WorldPermissionSettings {
     #[serde(default)]
     deployment: Option<AllowListSetting>,
     #[serde(default)]
+    access: Option<AllowListSetting>,
+    #[serde(default)]
     streaming: Option<AllowListSetting>,
 }
 
@@ -128,6 +130,39 @@ async fn fetch_world_permissions(state: &AppState, world_name: &str) -> Option<W
         return None;
     }
     resp.json::<WorldPermissions>().await.ok()
+}
+
+fn world_access_allowed(perms: Option<&WorldPermissions>, identity: &str) -> bool {
+    let Some(perms) = perms else {
+        return false;
+    };
+    if perms
+        .owner
+        .as_deref()
+        .is_some_and(|owner| owner.eq_ignore_ascii_case(identity))
+    {
+        return true;
+    }
+    let Some(access) = perms.permissions.as_ref().and_then(|p| p.access.as_ref()) else {
+        return false;
+    };
+    match access.kind.as_str() {
+        "unrestricted" => true,
+        "allow-list" => access
+            .wallets
+            .iter()
+            .any(|wallet| wallet.eq_ignore_ascii_case(identity)),
+        _ => false,
+    }
+}
+
+pub async fn has_world_access_permission(
+    state: &AppState,
+    identity: &str,
+    world_name: &str,
+) -> bool {
+    let perms = fetch_world_permissions(state, world_name).await;
+    world_access_allowed(perms.as_ref(), identity)
 }
 
 async fn fetch_world_parcel_permission_addresses(
@@ -296,7 +331,14 @@ pub async fn get_lease_holders_for_parcels(
 
 #[cfg(test)]
 mod tests {
-    use super::parse_xy;
+    use super::{parse_xy, world_access_allowed, WorldPermissions};
+    use serde_json::json;
+
+    const IDENTITY: &str = "0xAbC0000000000000000000000000000000000001";
+
+    fn perms(value: serde_json::Value) -> WorldPermissions {
+        serde_json::from_value(value).unwrap()
+    }
 
     #[test]
     fn parse_xy_handles_coords() {
@@ -304,5 +346,64 @@ mod tests {
         assert_eq!(parse_xy(" 12 , -5 "), Some((12, -5)));
         assert_eq!(parse_xy("0,0"), Some((0, 0)));
         assert_eq!(parse_xy("bad"), None);
+    }
+
+    #[test]
+    fn world_owner_is_allowed_case_insensitively() {
+        let p = perms(json!({
+            "owner": IDENTITY.to_lowercase(),
+            "permissions": { "access": { "type": "allow-list", "wallets": [] } }
+        }));
+        assert!(world_access_allowed(Some(&p), IDENTITY));
+        assert!(world_access_allowed(Some(&p), &IDENTITY.to_lowercase()));
+    }
+
+    #[test]
+    fn unrestricted_access_is_allowed() {
+        let p = perms(json!({
+            "owner": "0x9999999999999999999999999999999999999999",
+            "permissions": { "access": { "type": "unrestricted" } }
+        }));
+        assert!(world_access_allowed(Some(&p), IDENTITY));
+    }
+
+    #[test]
+    fn allow_list_hit_is_allowed_and_miss_is_denied() {
+        let hit = perms(json!({
+            "owner": "0x9999999999999999999999999999999999999999",
+            "permissions": {
+                "access": { "type": "allow-list", "wallets": [IDENTITY.to_lowercase()] }
+            }
+        }));
+        assert!(world_access_allowed(Some(&hit), IDENTITY));
+
+        let miss = perms(json!({
+            "owner": "0x9999999999999999999999999999999999999999",
+            "permissions": {
+                "access": {
+                    "type": "allow-list",
+                    "wallets": ["0x1111111111111111111111111111111111111111"]
+                }
+            }
+        }));
+        assert!(!world_access_allowed(Some(&miss), IDENTITY));
+    }
+
+    #[test]
+    fn other_access_types_and_a_failed_lookup_deny() {
+        assert!(!world_access_allowed(None, IDENTITY));
+        for kind in ["shared-secret", "nft-ownership"] {
+            let p = perms(json!({
+                "owner": "0x9999999999999999999999999999999999999999",
+                "permissions": { "access": { "type": kind, "wallets": [IDENTITY] } }
+            }));
+            assert!(!world_access_allowed(Some(&p), IDENTITY), "{kind}");
+        }
+        let no_access = perms(json!({
+            "owner": "0x9999999999999999999999999999999999999999",
+            "permissions": { "deployment": { "type": "allow-list", "wallets": [IDENTITY] } }
+        }));
+        assert!(!world_access_allowed(Some(&no_access), IDENTITY));
+        assert!(!world_access_allowed(Some(&perms(json!({}))), IDENTITY));
     }
 }

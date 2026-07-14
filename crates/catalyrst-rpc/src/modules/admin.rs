@@ -45,7 +45,11 @@ fn timing_safe_eq(a: &str, b: &str) -> bool {
 }
 
 fn authorize_admin(state: &AppState, headers: &HeaderMap) -> Result<(), StatusCode> {
-    let expected = state.admin_token.as_deref().ok_or(StatusCode::FORBIDDEN)?;
+    let expected = state
+        .admin_token
+        .as_deref()
+        .filter(|s| !s.is_empty())
+        .ok_or(StatusCode::FORBIDDEN)?;
     let token = bearer_token(headers).ok_or(StatusCode::FORBIDDEN)?;
     if timing_safe_eq(&token, expected) {
         Ok(())
@@ -178,7 +182,33 @@ async fn list_networks(State(state): State<AppState>, headers: HeaderMap) -> imp
         .into_response()
 }
 
+pub const ALLOW_PRIVATE_UPSTREAM_ENV: &str = "CATALYRST_RPC_ALLOW_PRIVATE_UPSTREAM";
+
+fn allow_private_upstream() -> bool {
+    static ALLOW: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ALLOW.get_or_init(|| {
+        std::env::var(ALLOW_PRIVATE_UPSTREAM_ENV)
+            .map(|v| matches!(v.trim(), "1" | "true" | "yes"))
+            .unwrap_or(false)
+    })
+}
+
 fn is_blocked_upstream_host(url: &str) -> bool {
+    is_blocked_upstream_host_with(url, allow_private_upstream())
+}
+
+fn is_blocked_upstream_host_with(url: &str, allow_private: bool) -> bool {
+    if allow_private {
+        return blocks_local_upstream_only(url);
+    }
+    !catalyrst_commons::http::is_safe_http_url(url)
+}
+
+/// The narrow deny-list a self-hosted deployment opts into: a compose service name
+/// (`http://geth:8545`) or any other internal DNS name has to stay reachable, so only
+/// the host's own stack, the reserved IP ranges, and the cloud metadata endpoint are
+/// refused.
+fn blocks_local_upstream_only(url: &str) -> bool {
     let after = url.split("://").nth(1).unwrap_or(url);
     let hostport = after.split(['/', '?', '#']).next().unwrap_or("");
     let host = hostport.rsplit('@').next().unwrap_or(hostport);
@@ -203,7 +233,16 @@ fn is_blocked_upstream_host(url: &str) -> bool {
         return ip.is_loopback() || ip.is_private() || ip.is_link_local() || ip.is_unspecified();
     }
     if let Ok(ip) = host.parse::<std::net::Ipv6Addr>() {
-        return ip.is_loopback() || ip.is_unspecified();
+        if let Some(v4) = ip.to_ipv4_mapped() {
+            return v4.is_loopback()
+                || v4.is_private()
+                || v4.is_link_local()
+                || v4.is_unspecified();
+        }
+        let seg = ip.segments();
+        let is_ula = (seg[0] & 0xfe00) == 0xfc00;
+        let is_ll = (seg[0] & 0xffc0) == 0xfe80;
+        return ip.is_loopback() || ip.is_unspecified() || is_ula || is_ll;
     }
     false
 }
@@ -344,6 +383,99 @@ mod tests {
         assert!(timing_safe_eq("abc", "abc"));
         assert!(!timing_safe_eq("abc", "abd"));
         assert!(!timing_safe_eq("abc", "abcd"));
+    }
+
+    #[test]
+    fn default_upstream_guard_refuses_internal_hosts() {
+        for url in [
+            "http://geth:8545",
+            "http://erigon:8545",
+            "http://eth.internal/rpc",
+            "http://127.0.0.1:8545",
+            "http://10.0.0.5:8545",
+        ] {
+            assert!(
+                is_blocked_upstream_host_with(url, false),
+                "{url} must be refused by default"
+            );
+        }
+        assert!(!is_blocked_upstream_host_with(
+            "https://rpc.example.com",
+            false
+        ));
+    }
+
+    #[test]
+    fn opted_in_upstream_guard_allows_service_names_but_not_the_host_itself() {
+        for url in ["http://geth:8545", "http://eth.internal/rpc"] {
+            assert!(
+                !is_blocked_upstream_host_with(url, true),
+                "{url} must be reachable for a self-hosted deployment"
+            );
+        }
+        for url in [
+            "http://127.0.0.1:8545",
+            "http://localhost:8545",
+            "http://10.0.0.5:8545",
+            "http://169.254.169.254/",
+            "http://metadata.google.internal/",
+        ] {
+            assert!(
+                is_blocked_upstream_host_with(url, true),
+                "{url} must stay refused even with the opt-in"
+            );
+        }
+        assert!(!is_blocked_upstream_host_with(
+            "https://rpc.example.com",
+            true
+        ));
+    }
+
+    #[test]
+    fn admin_auth_probe_compare_agrees_with_equality() {
+        assert_eq!(
+            timing_safe_eq("s3cr3t-token", "s3cr3t-token"),
+            "s3cr3t-token" == "s3cr3t-token"
+        );
+        assert!(!timing_safe_eq("s3cr3t-token", "s3cr3t-tokeX"));
+        assert!(!timing_safe_eq("s3cr3t-token", "X3cr3t-token"));
+        assert!(!timing_safe_eq("s3cr3t-token", "s3cr3t-token-extra"));
+        assert!(timing_safe_eq("", ""));
+    }
+
+    #[test]
+    fn admin_auth_probe_unset_configured_token_rejects() {
+        let st = state_with(None);
+        assert_eq!(
+            authorize_admin(&st, &hdr(Some("Bearer anything"))),
+            Err(StatusCode::FORBIDDEN)
+        );
+    }
+
+    #[test]
+    fn admin_auth_probe_empty_configured_token_must_reject() {
+        let st = state_with(Some(""));
+        assert_eq!(
+            authorize_admin(&st, &hdr(Some("Bearer "))),
+            Err(StatusCode::FORBIDDEN)
+        );
+        assert_eq!(
+            authorize_admin(&st, &hdr(Some("Bearer anything"))),
+            Err(StatusCode::FORBIDDEN)
+        );
+    }
+
+    #[test]
+    fn admin_auth_probe_empty_presented_vs_set_secret_rejects() {
+        let st = state_with(Some("the-real-token"));
+        assert_eq!(
+            authorize_admin(&st, &hdr(Some("Bearer "))),
+            Err(StatusCode::FORBIDDEN)
+        );
+        assert_eq!(
+            authorize_admin(&st, &hdr(Some("Bearer the-real-token"))),
+            Ok(())
+        );
     }
 
     #[test]

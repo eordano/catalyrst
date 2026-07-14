@@ -1,5 +1,5 @@
 [Unit]
-Description=catalyrst-data bundle (market, economy, price, credits, rpc — port 5146)
+Description=catalyrst-data bundle (market, economy, price, credits, rpc -- port 5146)
 After=network.target postgresql.service
 StartLimitIntervalSec=0
 Wants=postgresql.service

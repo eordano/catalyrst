@@ -16,10 +16,12 @@ use sqlx::PgPool;
 
 use crate::admin::RuntimeConfig;
 use crate::config::Config;
+use crate::ports::chain::ChainComponent;
 use crate::ports::contracts::ContractsComponent;
 use crate::ports::relayer::Relayer;
 use crate::ports::signer::DirectSigner;
 use crate::ports::transaction::TransactionComponent;
+use crate::ports::upstream::UpstreamForwarder;
 
 pub struct AppStateInner {
     pub config: Config,
@@ -146,16 +148,21 @@ pub async fn build_state(cfg: Config) -> Result<AppState> {
     );
     let relayer = Relayer::from_config(&cfg);
     let signer = DirectSigner::from_config(&cfg).map_err(anyhow::Error::msg)?;
-    match (&relayer, &signer) {
-        (Some(_), _) => {
+    let upstream = UpstreamForwarder::from_config(&cfg);
+    match (&relayer, &signer, &upstream) {
+        (Some(_), _, _) => {
             tracing::info!("OZ relayer provisioned; meta-transaction broadcast via OZ Defender")
         }
-        (None, Some(s)) => tracing::info!(
+        (None, Some(s), _) => tracing::info!(
             relayer = %s.relayer_address(),
             chain_id = cfg.collections_chain_id,
             "direct JSON-RPC broadcast enabled; ensure the relayer address is funded for gas"
         ),
-        (None, None) => tracing::warn!(
+        (None, None, Some(u)) => tracing::info!(
+            upstream = %u.url(),
+            "upstream forward enabled; POST /transactions relays the validated body to the upstream transactions server"
+        ),
+        (None, None, None) => tracing::warn!(
             "no broadcast provider provisioned; POST /transactions validates + returns 503 on broadcast"
         ),
     }
@@ -173,7 +180,15 @@ pub async fn build_state(cfg: Config) -> Result<AppState> {
 
     let runtime = RuntimeConfig::new();
     let reconcile_interval = Duration::from_millis(cfg.broker_reconcile_interval_ms.max(1));
-    let transaction = TransactionComponent::new(pool.clone(), relayer, signer, runtime.clone());
+    let chain = ChainComponent::from_config(&cfg);
+    let transaction = TransactionComponent::new(
+        pool.clone(),
+        relayer,
+        signer,
+        upstream,
+        chain,
+        runtime.clone(),
+    );
 
     let state = Arc::new(AppStateInner {
         config: cfg,

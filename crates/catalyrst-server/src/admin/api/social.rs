@@ -48,7 +48,7 @@ async fn comms_user_mod(
 
 pub async fn social_user_ban(session: AdminSession, Json(req): Json<UserModReq>) -> Response {
     comms_user_mod(
-        &session.address,
+        session.address(),
         "social.user-ban",
         Method::POST,
         &req.address,
@@ -60,7 +60,7 @@ pub async fn social_user_ban(session: AdminSession, Json(req): Json<UserModReq>)
 
 pub async fn social_user_unban(session: AdminSession, Json(req): Json<UserModReq>) -> Response {
     comms_user_mod(
-        &session.address,
+        session.address(),
         "social.user-unban",
         Method::DELETE,
         &req.address,
@@ -72,7 +72,7 @@ pub async fn social_user_unban(session: AdminSession, Json(req): Json<UserModReq
 
 pub async fn social_user_warning(session: AdminSession, Json(req): Json<UserModReq>) -> Response {
     comms_user_mod(
-        &session.address,
+        session.address(),
         "social.user-warning",
         Method::POST,
         &req.address,
@@ -93,7 +93,7 @@ pub async fn social_rpc_presence(
     };
     proxy_audited(
         &state,
-        &session.address,
+        session.address(),
         "social-rpc.presence",
         None,
         json!({}),
@@ -117,7 +117,7 @@ pub async fn social_rpc_voice_calls(
     let qs = query_from_obj(&body, &["limit"]);
     proxy_audited(
         &state,
-        &session.address,
+        session.address(),
         "social-rpc.voice-calls",
         None,
         body.clone(),
@@ -146,7 +146,7 @@ pub async fn social_rpc_friendships(
     let qs = query_from_obj(&body, &["limit", "offset"]);
     proxy_audited(
         &state,
-        &session.address,
+        session.address(),
         "social-rpc.friendships",
         Some(&address),
         body.clone(),
@@ -169,7 +169,7 @@ pub async fn social_rpc_disconnect(
     };
     proxy_audited(
         &state,
-        &session.address,
+        session.address(),
         "social-rpc.disconnect",
         target_field(&body, "address").as_deref(),
         body.clone(),
@@ -192,7 +192,7 @@ pub async fn social_rpc_force_presence(
     };
     proxy_audited(
         &state,
-        &session.address,
+        session.address(),
         "social-rpc.force-presence",
         target_field(&body, "address").as_deref(),
         body.clone(),
@@ -215,7 +215,7 @@ pub async fn social_rpc_reset_settings(
     };
     proxy_audited(
         &state,
-        &session.address,
+        session.address(),
         "social-rpc.reset-settings",
         target_field(&body, "address").as_deref(),
         body.clone(),

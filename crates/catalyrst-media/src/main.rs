@@ -1,8 +1,8 @@
 use anyhow::Result;
 use axum::routing::get;
 use axum::Router;
+use catalyrst_envcfg::service_scaffold::finish_app;
 use std::net::SocketAddr;
-use tower_http::trace::TraceLayer;
 
 use catalyrst_media::config::Config;
 use catalyrst_media::{api_router, build_state, handlers};
@@ -12,7 +12,7 @@ const ENV_DOCS: &[(&str, &str)] = &[
     ("HTTP_SERVER_PORT", "listen port (default 5157)"),
     (
         "MEDIA_PG_CONNECTION_STRING",
-        "required — media Postgres connection string",
+        "required -- media Postgres connection string",
     ),
     (
         "TRANSLATE_BACKEND",
@@ -24,7 +24,19 @@ const ENV_DOCS: &[(&str, &str)] = &[
     ),
     (
         "TRANSLATE_BACKEND_API_KEY",
-        "optional — API key sent to the translation backend",
+        "optional -- API key sent to the translation backend",
+    ),
+    (
+        "TRANSLATE_CHAR_LIMIT",
+        "max characters per /translate request, summed across a batch (default 5000)",
+    ),
+    (
+        "TRANSLATE_BATCH_LIMIT",
+        "max items per /translate batch (default 100)",
+    ),
+    (
+        "TRANSLATE_REQUEST_TIMEOUT_SECS",
+        "deadline over the whole backend call of one /translate request (default 30)",
     ),
     (
         "RUST_LOG",
@@ -36,23 +48,19 @@ const ENV_DOCS: &[(&str, &str)] = &[
 async fn main() -> Result<()> {
     catalyrst_envcfg::handle_standard_args("catalyrst-media", ENV_DOCS);
 
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "catalyrst_media=info,tower_http=info".into()),
-        )
-        .with_target(false)
-        .init();
+    catalyrst_envcfg::init_tracing("catalyrst_media=info,tower_http=info");
 
     let cfg = Config::from_env()?;
     let state = build_state(&cfg).await?;
 
-    let app = Router::new()
-        .route("/ping", get(handlers::ping::ping))
-        .route("/health", get(handlers::health::health))
-        .merge(api_router())
-        .layer(TraceLayer::new_for_http())
-        .with_state(state);
+    let app = finish_app(
+        Router::new()
+            .route("/ping", get(handlers::ping::ping))
+            .route("/health", get(handlers::health::health))
+            .merge(api_router()),
+        state,
+        None,
+    );
 
     let addr: SocketAddr = format!("{}:{}", cfg.http_host, cfg.http_port).parse()?;
     tracing::info!(%addr, backend = cfg.backend_kind.label(), "catalyrst-media (autotranslate) listening");

@@ -19,6 +19,10 @@ pub struct Config {
     pub satellite_source_budget_bytes: usize,
 
     pub satellite_output_entries: usize,
+
+    pub map_tiles_cache_entries: usize,
+
+    pub map_png_cache_entries: usize,
 }
 
 impl Config {
@@ -56,6 +60,14 @@ impl Config {
                 .ok()
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(4096),
+            map_tiles_cache_entries: env::var("MAP_TILES_CACHE_ENTRIES")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(512),
+            map_png_cache_entries: env::var("MAP_PNG_CACHE_ENTRIES")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(256),
         })
     }
 }

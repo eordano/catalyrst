@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO active_pointers (pointer, entity_id, entity_type)\n            SELECT t.pointer, t.entity_id, t.entity_type\n            FROM unnest($1::text[], $2::text[], $3::text[]) AS t(pointer, entity_id, entity_type)\n            JOIN deployments dep ON dep.entity_id = t.entity_id\n            WHERE dep.deleter_deployment IS NULL\n            ON CONFLICT (pointer) DO UPDATE\n                SET entity_id = EXCLUDED.entity_id, entity_type = EXCLUDED.entity_type\n                WHERE NOT EXISTS (\n                    SELECT 1\n                    FROM deployments cur, deployments incoming\n                    WHERE cur.entity_id = active_pointers.entity_id\n                      AND incoming.entity_id = EXCLUDED.entity_id\n                      AND (cur.entity_timestamp > incoming.entity_timestamp\n                           OR (cur.entity_timestamp = incoming.entity_timestamp\n                               AND lower(cur.entity_id) > lower(EXCLUDED.entity_id)))\n                )\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "TextArray",
+        "TextArray",
+        "TextArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "753389b6118af5bfa11345e8ba1444da3b88d969330b6da1a0c4da0ceea9b3f9"
+}

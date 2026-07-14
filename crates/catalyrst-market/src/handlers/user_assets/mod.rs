@@ -27,7 +27,8 @@ pub struct PaginatedAssetsBody<T> {
     pub limit: i64,
     #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub total: i64,
-    #[serde(rename = "totalItems", skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "totalItems")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(type = "number", optional))]
     pub total_items: Option<i64>,
 }
@@ -40,20 +41,15 @@ pub fn create_paginated_response<T>(
     total_items: Option<i64>,
 ) -> AssetsHttpResponse<T> {
     let limit = if first == 0 { 1 } else { first };
-    let page = skip / limit + 1;
-    let pages = if limit > 0 {
-        (total + limit - 1) / limit
-    } else {
-        0
-    };
+    let page = catalyrst_types::PaginatedResponse::new_1based(elements, total, limit, skip);
     AssetsHttpResponse {
         ok: true,
         data: PaginatedAssetsBody {
-            elements,
-            page,
-            pages,
-            limit,
-            total,
+            elements: page.results,
+            page: page.page,
+            pages: page.pages,
+            limit: page.limit,
+            total: page.total,
             total_items,
         },
     }
@@ -103,9 +99,54 @@ pub(super) fn apply_leases<T: Leasable>(
 
 #[cfg(test)]
 mod tests {
-    use super::apply_leases;
+    use super::{apply_leases, create_paginated_response};
     use crate::ports::user_assets::{ProfileEmote, ProfileWearable};
     use std::collections::HashMap;
+
+    #[test]
+    fn paginated_body_keeps_its_wire_shape() {
+        let page = create_paginated_response(vec!["a", "b"], 10, 5, 5, Some(12));
+        assert_eq!(
+            serde_json::to_value(page).unwrap(),
+            serde_json::json!({
+                "ok": true,
+                "data": {
+                    "elements": ["a", "b"],
+                    "page": 2,
+                    "pages": 2,
+                    "limit": 5,
+                    "total": 10,
+                    "totalItems": 12
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn a_zero_limit_pages_one_element_at_a_time_and_omits_total_items() {
+        let page = create_paginated_response(Vec::<&str>::new(), 7, 0, 3, None);
+        assert_eq!(
+            serde_json::to_value(page).unwrap(),
+            serde_json::json!({
+                "ok": true,
+                "data": {
+                    "elements": [],
+                    "page": 4,
+                    "pages": 7,
+                    "limit": 1,
+                    "total": 7
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn the_first_page_is_one_based() {
+        let page = create_paginated_response(Vec::<&str>::new(), 0, 100, 0, None);
+        let body = serde_json::to_value(page).unwrap();
+        assert_eq!(body["data"]["page"], 1);
+        assert_eq!(body["data"]["pages"], 0);
+    }
 
     fn wearable(urn: &str) -> ProfileWearable {
         ProfileWearable {

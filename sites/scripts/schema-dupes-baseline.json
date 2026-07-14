@@ -1,0 +1,42 @@
+[
+  {
+    "file": "packages/data/src/lib/catalyst/admin/scene-bans.ts",
+    "duplicates": "PaginatedFullItemsOutSchema",
+    "reason": "catalyrst-comms scene-bans page envelope (scene_bans.rs writes results/total/page/pages/limit of BanRow); comms exports no ts-rs type for it, and the flag is a shape collision with the builder service's unrelated PaginatedFullItemsOutSchema (FullItemOut results, bigint-coerced numbers)."
+  },
+  {
+    "file": "packages/data/src/lib/catalyst/builder/curation.ts",
+    "duplicates": "ReviewCurationOutSchema",
+    "reason": "CollectionCurationSchema is the post-adapt view model (ISO-string dates, pending status, nullable assignee) that curate-committee.server.ts builds FROM the generated ReviewCurationOut wire rows; same key names, deliberately different value types."
+  },
+  {
+    "file": "../ui3/src/data/catalyst/schemas/events.ts",
+    "duplicates": "EventAttendeeRecordSchema",
+    "reason": "ui3 carries its own schema tree and has no import path into sites' generated-schemas (the dependency points the other way: sites imports ui3's ts-rs types)."
+  },
+  {
+    "file": "../ui3/src/data/catalyst/schemas/notifications.ts",
+    "duplicates": "NotificationItemSchema",
+    "reason": "ui3 carries its own schema tree and has no import path into sites' generated-schemas (the dependency points the other way: sites imports ui3's ts-rs types)."
+  },
+  {
+    "file": "../ui3/src/data/catalyst/schemas/places.ts",
+    "duplicates": "ApiDataTotalSchema",
+    "reason": "ui3 carries its own schema tree and has no import path into sites' generated-schemas (the dependency points the other way: sites imports ui3's ts-rs types)."
+  },
+  {
+    "file": "../ui3/src/data/catalyst/schemas/places.ts",
+    "duplicates": "CategoryOutSchema",
+    "reason": "ui3 carries its own schema tree and has no import path into sites' generated-schemas (the dependency points the other way: sites imports ui3's ts-rs types)."
+  },
+  {
+    "file": "../ui3/src/data/catalyst/schemas/profile.ts",
+    "duplicates": "NameColorSchema",
+    "reason": "ui3 carries its own schema tree and has no import path into sites' generated-schemas (the dependency points the other way: sites imports ui3's ts-rs types)."
+  },
+  {
+    "file": "../ui3/src/data/catalyst/schemas/profile.ts",
+    "duplicates": "GalleryImageSchema",
+    "reason": "ui3 carries its own schema tree and has no import path into sites' generated-schemas (the dependency points the other way: sites imports ui3's ts-rs types)."
+  }
+]

@@ -1,0 +1,128 @@
+/* The pane is docked, not floating: it must clear the whole chrome band.
+   --eui-chrome-h is 53px (appbar in the wizard; 0px in the bare editor) plus
+   the 152px ribbon, so --eui-top-inset (chrome-h + 12px) already lands below
+   every ribbon row including the 24px status strip. The +44px instead of the
+   old fixed 24px clears the floating gizmo toolbar, which hangs off
+   --eui-top-inset at ~40px tall; the previous top: 96px covered the ribbon's
+   chrome row, stealing the rightmost buttons. */
+.erp {
+  position: absolute;
+  top: calc(var(--eui-top-inset, 12px) + 44px);
+  right: 356px;
+  width: 300px;
+  max-height: calc(100% - var(--eui-top-inset, 12px) - 56px);
+  overflow-y: auto;
+  z-index: 35;
+  background: rgba(18, 20, 26, 0.96);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  padding: 12px 14px 14px;
+  color: #e6e6ec;
+  font-size: 12px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+}
+
+.erp-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.erp-title {
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.erp-note {
+  color: #8b8b96;
+  font-size: 11px;
+  flex: 1;
+}
+
+.erp-x {
+  background: none;
+  border: none;
+  color: #9a9aa4;
+  cursor: pointer;
+  font-size: 13px;
+  padding: 2px 4px;
+}
+
+.erp-x:hover {
+  color: #fff;
+}
+
+.erp-section {
+  margin: 10px 0 4px;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #8b8b96;
+}
+
+.erp-row {
+  display: grid;
+  grid-template-columns: 82px 1fr;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0;
+}
+
+.erp-label {
+  color: #b8b8c2;
+}
+
+.erp-select {
+  background: #24262e;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 6px;
+  color: #e6e6ec;
+  padding: 4px 6px;
+  font-size: 12px;
+}
+
+.erp-color {
+  min-height: 24px;
+  width: 100%;
+  background: #24262e;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 6px;
+  padding: 1px 2px;
+}
+
+.erp-checks {
+  display: flex;
+  gap: 16px;
+  margin: 6px 0 2px;
+}
+
+.erp-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+  justify-content: flex-end;
+}
+
+.erp-btn {
+  background: #24262e;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 6px;
+  color: #e6e6ec;
+  padding: 5px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.erp-btn:hover {
+  background: #2d3039;
+}
+
+/* The honest-chip flow empties the save slot (DeWorkspace passes "") on an
+   idle, untouched scene, and deribbon.css keeps the .rb-save span mounted so
+   the slot never moves an empty pill would sit in the status strip. Hide it
+   while empty; any label brings it back. Lives here because deribbon.css is
+   out of this task's scope. */
+.rb-save:empty {
+  display: none;
+}

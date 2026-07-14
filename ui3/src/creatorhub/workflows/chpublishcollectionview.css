@@ -1,0 +1,265 @@
+.cwpc-route {
+  min-height: 100vh;
+  background: #161518;
+  color: #fff;
+}
+
+.cwpc-route__sim {
+  margin: 0;
+  padding: 10px 24px;
+  font-size: 13px;
+  line-height: 1.4;
+  color: #f3d9a4;
+  background: #2a2331;
+  border-bottom: 1px solid #3a3144;
+}
+
+.cwpc-route__sim strong {
+  color: #ffcf6b;
+}
+
+.cwpc-route__sim-cta {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 2px 12px;
+  font: inherit;
+  font-weight: 600;
+  color: #161518;
+  background: #ffcf6b;
+  border: 0;
+  border-radius: 999px;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.cwpc-route__sim-cta:hover {
+  background: #ffdd94;
+}
+
+.cwpc {
+  position: relative;
+}
+
+.cwpc__panel {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 36px 24px 16px;
+}
+
+.cwpc__eyebrow {
+  margin: 0 0 4px;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #a89fbb;
+}
+
+.cwpc__eyebrow--summary {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 24px 24px 0;
+}
+
+.cwpc__title {
+  margin: 0 0 6px;
+  font-size: 24px;
+  font-weight: 700;
+}
+
+.cwpc__lead {
+  margin: 0 0 24px;
+  color: #c7c0d6;
+  line-height: 1.5;
+}
+
+.cwpc__fee {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 18px;
+  font-size: 14px;
+}
+
+.cwpc__fee th,
+.cwpc__fee td {
+  text-align: left;
+  padding: 10px 12px;
+  border-bottom: 1px solid #2e2738;
+}
+
+.cwpc__fee th {
+  color: #a89fbb;
+  font-weight: 600;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.cwpc__fee td.cwpc__num,
+.cwpc__fee th.cwpc__num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.cwpc__rarity {
+  display: inline-block;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: capitalize;
+  color: #161518;
+}
+
+.cwpc__feetotal td {
+  border-bottom: none;
+  border-top: 2px solid #3a3144;
+  font-weight: 700;
+  font-size: 16px;
+}
+
+.cwpc__mana {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.cwpc__mana svg {
+  color: #ff2d55;
+}
+
+.cwpc__terms {
+  background: #211b29;
+  border: 1px solid #322a3d;
+  border-radius: 10px;
+  padding: 16px 18px;
+  margin-bottom: 18px;
+  max-height: 220px;
+  overflow: auto;
+  color: #c7c0d6;
+  line-height: 1.5;
+  font-size: 14px;
+}
+
+.cwpc__terms h2 {
+  margin: 0 0 8px;
+  color: #fff;
+  font-size: 15px;
+}
+
+.cwpc__terms ul {
+  margin: 8px 0 0;
+  padding-left: 18px;
+}
+
+.cwpc__check {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  margin-bottom: 18px;
+  cursor: pointer;
+  font-size: 14px;
+  color: #e7e3ef;
+}
+
+.cwpc__check input {
+  margin-top: 2px;
+  width: 18px;
+  height: 18px;
+  accent-color: #ff2d55;
+}
+
+.cwpc__status {
+  text-align: center;
+  padding: 56px 24px 24px;
+}
+
+.cwpc__spinner {
+  width: 44px;
+  height: 44px;
+  margin: 0 auto 18px;
+  border: 4px solid #322a3d;
+  border-top-color: #ff2d55;
+  border-radius: 50%;
+  animation: cwpc-spin 0.9s linear infinite;
+}
+
+@keyframes cwpc-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.cwpc__bigcheck {
+  width: 64px;
+  height: 64px;
+  margin: 0 auto 18px;
+  color: #36cf75;
+}
+
+.cwpc__statuslink {
+  color: var(--brand, #ff2d55);
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.cwpc__tx {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+  color: #a89fbb;
+  word-break: break-all;
+}
+
+.cwpc__blocked {
+  text-align: center;
+  padding: 64px 24px 24px;
+}
+
+.cwpc__blocked svg {
+  color: #f3d9a4;
+  margin-bottom: 16px;
+}
+
+.cwpc__controls {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  padding: 20px 24px 44px;
+  background: #161518;
+}
+
+.cwpc__btn {
+  appearance: none;
+  border: 1px solid #4b4358;
+  background: transparent;
+  color: #e7e3ef;
+  font: inherit;
+  font-weight: 600;
+  padding: 11px 22px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.cwpc__btn:hover {
+  background: #271f30;
+  border-color: #6a5f7d;
+}
+
+.cwpc__btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.cwpc__btn--primary {
+  background: var(--brand-cta, #d80029);
+  border-color: var(--brand-cta, #d80029);
+  color: #fff;
+}
+
+.cwpc__btn--primary:hover:not(:disabled) {
+  background: #e62749;
+  border-color: #e62749;
+}

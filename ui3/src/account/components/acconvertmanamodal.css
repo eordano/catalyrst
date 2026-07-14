@@ -1,0 +1,328 @@
+.acconvertmanamodal {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-height: 100vh;
+  color: #fff;
+}
+
+.acconvertmanamodal__shellfill { padding: 40px 32px; }
+.acconvertmanamodal__shellhint { margin: 0; font-size: 14px; color: var(--ink-45); }
+
+.acconvertmanamodal__states {
+  position: fixed;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: calc(var(--z-modal) + 1);
+  display: flex;
+  gap: 6px;
+  padding: 5px;
+  border-radius: var(--r-pill);
+  background: rgba(0, 0, 0, 0.55);
+  border: 1px solid var(--line);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+}
+.acconvertmanamodal__statebtn {
+  border: none;
+  background: transparent;
+  color: var(--ink-7);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px 13px;
+  border-radius: var(--r-pill);
+  cursor: pointer;
+}
+.acconvertmanamodal__statebtn:hover { color: #fff; }
+.acconvertmanamodal__statebtn.is-active { background: var(--brand); color: #fff; }
+
+.acconvertmanamodal__scrim {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  overflow: auto;
+  background: var(--scrim);
+}
+
+.acconvertmanamodal__card {
+  position: relative;
+  width: 520px;
+  max-width: 100%;
+  margin: auto;
+  padding: 26px;
+  border-radius: var(--modal-radius);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow-modal);
+  color: #fff;
+}
+
+.acconvertmanamodal__close {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  margin: 10px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.09);
+  color: #fff;
+  cursor: pointer;
+}
+.acconvertmanamodal__close:hover { background: rgba(255, 255, 255, 0.16); }
+
+.acconvertmanamodal__header { text-align: center; }
+.acconvertmanamodal__title {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-weight: 600;
+  font-size: 21px;
+  line-height: 30px;
+  letter-spacing: 0.3px;
+}
+.acconvertmanamodal__titlemark { color: var(--brand); display: inline-flex; }
+.acconvertmanamodal__subtitle {
+  margin-top: 10px;
+  font-weight: normal;
+  font-size: 17px;
+  line-height: 26px;
+  letter-spacing: -0.2px;
+  color: var(--ink-85);
+}
+
+.acconvertmanamodal__content { margin-top: 4px; padding-top: 16px; }
+
+.acconvertmanamodal__field { width: 100%; margin-top: 14px; text-align: center; }
+.acconvertmanamodal__fieldlabel {
+  display: block;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink-7);
+  margin-bottom: 6px;
+}
+.acconvertmanamodal__inputrow {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.acconvertmanamodal__input {
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--fill-3);
+  border: 1px solid var(--line);
+  border-radius: var(--r-control);
+  color: #fff;
+  font-family: inherit;
+  text-align: center;
+  font-weight: 600;
+  font-size: 40px;
+  line-height: 48px;
+  padding: 8px 70px;
+  outline: none;
+}
+.acconvertmanamodal__input::placeholder { color: var(--ink-45); }
+.acconvertmanamodal__input:focus { border-color: var(--brand); background: var(--fill-4); }
+.acconvertmanamodal__maxbtn {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  border: none;
+  background: var(--fill-4);
+  color: #fff;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 7px 14px;
+  border-radius: var(--r-control);
+  cursor: pointer;
+}
+.acconvertmanamodal__maxbtn:hover { background: var(--fill-5); }
+
+.acconvertmanamodal__usd {
+  font-weight: normal;
+  font-size: 15px;
+  line-height: 24px;
+  margin-top: 12px;
+  margin-bottom: 10px;
+  text-align: center;
+  color: #99939f;
+}
+.acconvertmanamodal__amounterror {
+  font-weight: normal;
+  font-size: 15px;
+  line-height: 24px;
+  margin-top: 12px;
+  margin-bottom: 10px;
+  text-align: center;
+  color: var(--error);
+}
+
+.acconvertmanamodal__feeswarning {
+  min-height: 20px;
+  padding: 10px;
+  border-radius: var(--r-card);
+  font-size: 13px;
+  line-height: 18px;
+  margin-bottom: 10px;
+  text-align: center;
+  color: #99989d;
+}
+.acconvertmanamodal__feeswarning b { color: #fff; font-weight: 600; }
+.acconvertmanamodal__costgate {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 64px;
+  padding: 16px;
+}
+
+.acconvertmanamodal__cta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  margin-top: 20px;
+  border: none;
+  border-radius: var(--r-control);
+  color: #fff;
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  padding: 13px 22px;
+  cursor: pointer;
+  transition: background 0.15s ease, opacity 0.15s ease;
+}
+.acconvertmanamodal__cta--ethereum { background: var(--brand-cta, #d80029); }
+.acconvertmanamodal__cta--ethereum:not(:disabled):hover { background: var(--brand-hover); }
+.acconvertmanamodal__cta--matic { background: var(--purple); }
+.acconvertmanamodal__cta--matic:not(:disabled):hover { background: #a945ec; }
+.acconvertmanamodal__cta--secondary { background: var(--fill-4); color: #fff; }
+.acconvertmanamodal__cta--secondary:hover { background: var(--fill-5); }
+.acconvertmanamodal__cta.is-disabled,
+.acconvertmanamodal__cta:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.acconvertmanamodal__actions { display: flex; gap: 12px; margin-top: 8px; }
+.acconvertmanamodal__actions .acconvertmanamodal__cta { margin-top: 0; }
+
+.acconvertmanamodal__loader {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2.5px solid var(--fill-5);
+  border-top-color: var(--brand);
+  animation: u-spin 0.8s linear infinite;
+}
+.acconvertmanamodal__auth { padding-top: 4px; }
+.acconvertmanamodal__authsteps {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+.acconvertmanamodal__step {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-45);
+}
+.acconvertmanamodal__step.is-active { color: #fff; }
+.acconvertmanamodal__stepdot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--fill-4);
+  font-size: 12px;
+  font-weight: 700;
+}
+.acconvertmanamodal__step.is-active .acconvertmanamodal__stepdot { background: var(--brand); }
+.acconvertmanamodal__steprule {
+  width: 40px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--fill-4);
+}
+
+.acconvertmanamodal__authcard {
+  background: var(--fill-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  padding: 18px;
+  text-align: center;
+}
+.acconvertmanamodal__authcaplabel {
+  display: block;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink-7);
+  margin-bottom: 8px;
+}
+.acconvertmanamodal__authdesc {
+  margin: 0 0 14px;
+  font-size: 13px;
+  line-height: 19px;
+  color: var(--ink-6);
+}
+.acconvertmanamodal__capfield { position: relative; display: flex; align-items: center; }
+.acconvertmanamodal__capinput {
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--fill-3);
+  border: 1px solid var(--line);
+  border-radius: var(--r-control);
+  color: #fff;
+  font-family: inherit;
+  font-size: 17px;
+  font-weight: 600;
+  text-align: center;
+  padding: 11px 58px 11px 14px;
+  outline: none;
+}
+.acconvertmanamodal__capunit {
+  position: absolute;
+  right: 14px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink-6);
+}
+.acconvertmanamodal__authback {
+  display: block;
+  width: 100%;
+  margin-top: 10px;
+  border: none;
+  background: transparent;
+  color: var(--ink-7);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 8px;
+  cursor: pointer;
+}
+.acconvertmanamodal__authback:hover { color: #fff; }
+
+@media (max-width: 560px) {
+  .acconvertmanamodal__card { width: 100%; padding: 20px; }
+  .acconvertmanamodal__input { font-size: 32px; line-height: 40px; padding: 8px 60px; }
+}

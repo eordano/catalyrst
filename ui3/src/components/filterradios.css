@@ -1,0 +1,29 @@
+.filter-radios { display: flex; flex-direction: column; gap: 4px; }
+.filter-radios__radio {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  cursor: pointer;
+  color: var(--ink-7);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 5px 4px;
+}
+.filter-radios__radio:hover { color: #fff; }
+.filter-radios__radio input { position: absolute; opacity: 0; pointer-events: none; }
+.filter-radios__mark {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+  border: 2px solid var(--ink-45);
+  position: relative;
+}
+.filter-radios__radio input:checked + .filter-radios__mark { border-color: var(--accent); }
+.filter-radios__radio input:checked + .filter-radios__mark::after {
+  content: "";
+  position: absolute;
+  inset: 2px;
+  border-radius: 50%;
+  background: var(--accent);
+}

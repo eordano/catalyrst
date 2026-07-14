@@ -1,5 +1,4 @@
-use anyhow::Result;
-use catalyrst_envcfg::get_port;
+use anyhow::{Context, Result};
 use std::env;
 
 #[derive(Clone, Debug)]
@@ -57,6 +56,13 @@ impl Config {
         self.public_base_url
             .clone()
             .unwrap_or_else(|| format!("http://{}:{}", self.http_host, self.http_port))
+    }
+}
+
+fn get_port(key: &str, default: u16) -> Result<u16> {
+    match env::var(key) {
+        Ok(s) => s.parse::<u16>().with_context(|| format!("invalid {}", key)),
+        Err(_) => Ok(default),
     }
 }
 

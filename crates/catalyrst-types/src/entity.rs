@@ -7,7 +7,7 @@ pub type Pointer = String;
 
 pub type ContentFileHash = String;
 
-pub type EthAddress = String;
+pub use catalyrst_auth_chain::{is_eth_address, EthAddress};
 
 pub type DeploymentId = i32;
 
@@ -130,15 +130,6 @@ pub enum DeploymentField {
     AuditInfo,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Pagination {
-    pub offset: i64,
-    pub limit: i64,
-    pub page_size: i64,
-    pub page_num: i64,
-}
-
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct StatusProbeResult {
     pub name: String,
@@ -155,18 +146,17 @@ pub fn naive_to_timestamp_ms(dt: NaiveDateTime) -> Timestamp {
     dt.and_utc().timestamp_millis()
 }
 
-pub fn is_eth_address(value: &str) -> bool {
-    value.len() == 42
-        && value.starts_with("0x")
-        && value[2..].bytes().all(|b| b.is_ascii_hexdigit())
-}
-
 pub fn parse_eth_address(value: &str) -> Option<EthAddress> {
     if is_eth_address(value) {
         Some(value.to_lowercase())
     } else {
         None
     }
+}
+
+pub fn normalize_eth_address(value: &str) -> Option<EthAddress> {
+    let lowered = value.trim().to_lowercase();
+    is_eth_address(&lowered).then_some(lowered)
 }
 
 #[cfg(test)]
@@ -217,25 +207,6 @@ mod tests {
     }
 
     #[test]
-    fn is_eth_address_accepts_lowercase_and_mixed_case() {
-        assert!(is_eth_address("0x0000000000000000000000000000000000000000"));
-        assert!(is_eth_address("0xabcdefABCDEF0123456789abcdefABCDEF012345"));
-    }
-
-    #[test]
-    fn is_eth_address_rejects_bad_inputs() {
-        assert!(!is_eth_address("0x0"));
-        assert!(!is_eth_address(
-            "00000000000000000000000000000000000000000000"
-        ));
-        assert!(!is_eth_address(
-            "0xZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ"
-        ));
-        assert!(!is_eth_address("0x000000000000000000000000000000000000000"));
-        assert!(!is_eth_address(""));
-    }
-
-    #[test]
     fn parse_eth_address_lowercases() {
         let parsed = parse_eth_address("0xABCDEF0123456789ABCDEF0123456789ABCDEF01").unwrap();
         assert_eq!(parsed, "0xabcdef0123456789abcdef0123456789abcdef01");
@@ -244,5 +215,23 @@ mod tests {
     #[test]
     fn parse_eth_address_returns_none_on_invalid() {
         assert!(parse_eth_address("not-an-address").is_none());
+    }
+
+    #[test]
+    fn normalize_eth_address_trims_and_lowercases() {
+        assert_eq!(
+            normalize_eth_address(" 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 ").unwrap(),
+            "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266"
+        );
+        assert!(normalize_eth_address("not-an-address").is_none());
+        assert!(normalize_eth_address("0x1234").is_none());
+    }
+
+    #[test]
+    fn normalize_eth_address_accepts_uppercase_prefix() {
+        assert_eq!(
+            normalize_eth_address("0Xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266").unwrap(),
+            "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266"
+        );
     }
 }

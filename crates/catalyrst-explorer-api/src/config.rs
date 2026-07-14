@@ -1,5 +1,5 @@
 use anyhow::Result;
-use catalyrst_envcfg::{get_port, get_u64};
+use catalyrst_envcfg::{get_port, get_u64, local_endpoint};
 use std::env;
 
 #[derive(Clone, Debug)]
@@ -7,6 +7,9 @@ pub struct Config {
     pub http_host: String,
     pub http_port: u16,
     pub realm_name: String,
+    /// Public origin of this deployment; the realm about doc must advertise
+    /// public URLs, never the internal service reach in `catalyst_url`.
+    pub public_base_url: Option<String>,
     pub catalyst_url: String,
     pub lambdas_url: String,
     pub comms_url: String,
@@ -36,17 +39,19 @@ impl Config {
             http_host: env::var("HTTP_SERVER_HOST").unwrap_or_else(|_| "127.0.0.1".into()),
             http_port: get_port("HTTP_SERVER_PORT", 5137)?,
             realm_name: env::var("REALM_NAME").unwrap_or_else(|_| "catalyrst".into()),
+            public_base_url: env::var("HTTP_BASE_URL")
+                .ok()
+                .map(|v| v.trim_end_matches('/').to_string())
+                .filter(|v| !v.is_empty()),
             catalyst_url: env::var("CATALYST_URL")
-                .unwrap_or_else(|_| "http://127.0.0.1:5140".into()),
-            lambdas_url: env::var("LAMBDAS_URL").unwrap_or_else(|_| "http://127.0.0.1:5142".into()),
+                .unwrap_or_else(|_| "http://127.0.0.1:5141".into()),
+            lambdas_url: env::var("LAMBDAS_URL")
+                .unwrap_or_else(|_| "http://127.0.0.1:5141/lambdas".into()),
             comms_url: env::var("COMMS_URL")
                 .unwrap_or_else(|_| "http://127.0.0.1:5137/comms".into()),
-            upstream_marketplace_url: env::var("UPSTREAM_MARKETPLACE_URL")
-                .unwrap_or_else(|_| "https://marketplace-api.decentraland.org".into()),
-            upstream_builder_url: env::var("UPSTREAM_BUILDER_URL")
-                .unwrap_or_else(|_| "https://builder-api.decentraland.org".into()),
-            upstream_worlds_url: env::var("UPSTREAM_WORLDS_URL")
-                .unwrap_or_else(|_| "https://worlds-content-server.decentraland.org".into()),
+            upstream_marketplace_url: local_endpoint("UPSTREAM_MARKETPLACE_URL", 5133),
+            upstream_builder_url: local_endpoint("UPSTREAM_BUILDER_URL", 5144),
+            upstream_worlds_url: local_endpoint("UPSTREAM_WORLDS_URL", 5142),
             upstream_worlds_content_url: env::var("UPSTREAM_WORLDS_CONTENT_URL")
                 .or_else(|_| env::var("WORLDS_URL"))
                 .unwrap_or_else(|_| "http://127.0.0.1:5142".into()),
@@ -63,7 +68,7 @@ impl Config {
             blocklist_path: env::var("BLOCKLIST_PATH")
                 .unwrap_or_else(|_| "./config/denylist.json".into()),
             hot_scenes_url: env::var("HOT_SCENES_URL")
-                .unwrap_or_else(|_| "http://127.0.0.1:5143/hot-scenes".into()),
+                .unwrap_or_else(|_| "http://127.0.0.1:5139/hot-scenes".into()),
             onboarding_api_key: env::var("ONBOARDING_API_KEY")
                 .ok()
                 .filter(|s| !s.is_empty()),

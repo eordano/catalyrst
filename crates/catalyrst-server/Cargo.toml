@@ -1,6 +1,6 @@
 [package]
 name = "catalyrst-server"
-version = "0.9.10"
+version = "0.24.0"
 edition = "2021"
 description = "Rust port of the Decentraland catalyst content server HTTP layer"
 
@@ -8,11 +8,16 @@ description = "Rust port of the Decentraland catalyst content server HTTP layer"
 name = "catalyrst-live"
 path = "src/bin/live/main.rs"
 
+[[bin]]
+name = "prune-profile-snapshots"
+path = "src/bin/prune-profile-snapshots.rs"
+
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 tikv-jemallocator = "0.7"
 
 [dependencies]
 anyhow = { workspace = true }
+catalyrst-commons = { workspace = true, features = ["cache", "http", "worker"] }
 catalyrst-envcfg = { workspace = true }
 axum = { workspace = true }
 tokio = { workspace = true }
@@ -33,17 +38,27 @@ catalyrst-storage = { workspace = true }
 uuid = { workspace = true }
 tokio-util = { workspace = true }
 dashmap = { workspace = true }
-catalyrst-sync = { workspace = true }
+catalyrst-types = { workspace = true, features = ["sqlx"] }
+catalyrst-livekit = { workspace = true }
 catalyrst-validator = { workspace = true }
+catalyrst-land-authz = { workspace = true }
 catalyrst-crypto = { workspace = true }
+alloy = { workspace = true, features = ["sol-types"] }
 catalyrst-hashing = { workspace = true }
+flate2 = "1"
 reqwest = { workspace = true }
 parking_lot = { workspace = true }
 metrics = { workspace = true }
 metrics-exporter-prometheus = { workspace = true }
 regex = "1"
+rand = "0.10"
+url = { workspace = true }
 urlencoding = "2"
 futures = { workspace = true }
 hmac = { workspace = true }
 sha2 = { workspace = true }
 base64 = { workspace = true }
+
+[dev-dependencies]
+catalyrst-testgate = { workspace = true }
+libc = "0.2"

@@ -6,6 +6,19 @@ Runs on **:5134**. Routes + parity status: [`ROUTES.md`](./ROUTES.md); stubbed s
 [`TODO.md`](./TODO.md); stack-wide cutover: [`DEPLOYMENT.md`](../../DEPLOYMENT.md). This file
 documents the env this crate reads, with emphasis on the report S3 upload path (audit #18).
 
+## Migrations
+
+`migrations/` is applied in order, and only the first four self-apply: `catalog::ensure_schema`
+runs 0000/0002/0003/0004 on the reader pool when `place_indexed` is missing (a role with CREATE,
+i.e. a federation-native node), and 0005 (`road_positions` + the `place_raw_positions_gin`
+index) runs through the writer pool when one is configured. A deployment whose reader role
+holds SELECT only (the managing deployment) applies every one of them out of band:
+the deployment's places bootstrap and world-places sync scripts list 0002-0005 explicitly, so
+a new file here must be appended to both. Startup probes `road_positions` for SELECT as the
+reader role (not mere existence: 0005 can land through the writer before the reader's grant
+does) and logs an error while it is missing or unreadable; the generic `/destinations` feed
+then serves roads until both hold and the service restarts.
+
 ## Report uploads - `POST /api/report` (S3 presigned PUT)
 
 Upstream mints an AWS S3 presigned PUT URL (aws-sdk-js v2 `s3.getSignedUrl("putObject", ...)`,

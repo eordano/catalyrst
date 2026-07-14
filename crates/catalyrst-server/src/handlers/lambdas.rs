@@ -8,18 +8,34 @@ use axum::Json;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-use crate::cache::ResponseCache;
 use crate::state::AppState;
+use catalyrst_commons::cache::TtlMap;
 
 const PROFILE_CACHE_TTL: Duration = Duration::from_secs(30);
 const PROFILE_CACHE_MAX_ENTRIES: usize = 50_000;
 const PROFILE_BATCH_MAX: usize = 50;
 const PROFILE_IDS_MAX: usize = 1000;
+const PROFILE_PROCESS_CONCURRENCY: usize = 8;
 
-fn profile_cache() -> &'static Arc<ResponseCache<String, Value>> {
-    static C: OnceLock<Arc<ResponseCache<String, Value>>> = OnceLock::new();
+async fn process_profiles_concurrent(
+    entities: Vec<Value>,
+    squid_pool: Option<&sqlx::PgPool>,
+    cdn_base: &str,
+) -> Vec<Value> {
+    use futures::stream::StreamExt;
+    futures::stream::iter(entities.into_iter().map(|entity| async move {
+        super::profile_processing::process_profile(&entity, squid_pool, cdn_base).await
+    }))
+    .buffered(PROFILE_PROCESS_CONCURRENCY)
+    .filter_map(|p| async move { p })
+    .collect()
+    .await
+}
+
+fn profile_cache() -> &'static Arc<TtlMap<String, Value>> {
+    static C: OnceLock<Arc<TtlMap<String, Value>>> = OnceLock::new();
     C.get_or_init(|| {
-        Arc::new(ResponseCache::new(
+        Arc::new(TtlMap::bounded(
             "profile",
             PROFILE_CACHE_TTL,
             PROFILE_CACHE_MAX_ENTRIES,
@@ -27,10 +43,10 @@ fn profile_cache() -> &'static Arc<ResponseCache<String, Value>> {
     })
 }
 
-fn profiles_batch_cache() -> &'static Arc<ResponseCache<String, Value>> {
-    static C: OnceLock<Arc<ResponseCache<String, Value>>> = OnceLock::new();
+fn profiles_batch_cache() -> &'static Arc<TtlMap<String, Value>> {
+    static C: OnceLock<Arc<TtlMap<String, Value>>> = OnceLock::new();
     C.get_or_init(|| {
-        Arc::new(ResponseCache::new(
+        Arc::new(TtlMap::bounded(
             "profiles_batch",
             PROFILE_CACHE_TTL,
             PROFILE_CACHE_MAX_ENTRIES,
@@ -150,7 +166,7 @@ fn early_profiles_response(check: ProfileIdsCheck) -> Option<Response> {
 pub async fn profiles(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
-    Json(body): Json<ProfilesRequest>,
+    crate::extractors::JsonBody(body): crate::extractors::JsonBody<ProfilesRequest>,
 ) -> Response {
     if let Some(resp) = early_profiles_response(validate_profile_ids(body.ids.as_deref())) {
         return resp;
@@ -188,15 +204,7 @@ pub async fn profiles(
                     .map_err(|_| ())?;
                 let squid_pool = state_arc.squid_pool.as_ref();
                 let cdn_base = &state_arc.profile_cdn_base_url;
-                let mut profiles: Vec<Value> = Vec::with_capacity(entities.len());
-                for entity in &entities {
-                    if let Some(processed) =
-                        super::profile_processing::process_profile(entity, squid_pool, cdn_base)
-                            .await
-                    {
-                        profiles.push(processed);
-                    }
-                }
+                let profiles = process_profiles_concurrent(entities, squid_pool, cdn_base).await;
                 Ok::<Value, ()>(Value::Array(profiles))
             })
             .await;
@@ -226,14 +234,7 @@ pub async fn profiles(
 
     let squid_pool = state.squid_pool.as_ref();
     let cdn_base = &state.profile_cdn_base_url;
-    let mut profiles: Vec<Value> = Vec::with_capacity(entities.len());
-    for entity in &entities {
-        if let Some(processed) =
-            super::profile_processing::process_profile(entity, squid_pool, cdn_base).await
-        {
-            profiles.push(processed);
-        }
-    }
+    let profiles = process_profiles_concurrent(entities, squid_pool, cdn_base).await;
 
     Json(Value::Array(profiles)).into_response()
 }
@@ -327,39 +328,43 @@ async fn items_by_owner(
     };
 
     let sql = if super::lease_overlay::usage_grants_present(pool).await {
-        "SELECT urn, count(*) FROM ( \
-             SELECT replace(urn, ':mainnet:', ':ethereum:') AS urn \
-             FROM squid_marketplace.nft \
-             WHERE category = $1 AND urn IS NOT NULL AND owner_address = lower($2) \
+        "SELECT urn, count(*) AS amount, COALESCE(max(rarity), '') AS rarity FROM ( \
+             SELECT replace(n.urn, ':mainnet:', ':ethereum:') AS urn, i.rarity AS rarity \
+             FROM squid_marketplace.nft n \
+             LEFT JOIN squid_marketplace.item i ON n.item_id = i.id \
+             WHERE n.category = $1 AND n.urn IS NOT NULL AND n.owner_address = lower($2) \
            UNION ALL \
-             SELECT replace(ug.urn, ':mainnet:', ':ethereum:') AS urn \
+             SELECT replace(ug.urn, ':mainnet:', ':ethereum:') AS urn, NULL::text AS rarity \
              FROM marketplace.usage_grants ug \
              WHERE ug.status = 'active' AND ug.category = $1 \
                AND ug.urn IS NOT NULL AND ug.grantee_address = lower($2) \
          ) owned \
-         GROUP BY urn ORDER BY 1"
+         GROUP BY urn"
     } else {
-        "SELECT replace(urn, ':mainnet:', ':ethereum:') AS urn, count(*) \
-         FROM squid_marketplace.nft \
-         WHERE category = $1 AND urn IS NOT NULL AND owner_address = lower($2) \
+        "SELECT replace(n.urn, ':mainnet:', ':ethereum:') AS urn, count(*) AS amount, \
+                COALESCE(max(i.rarity), '') AS rarity \
+         FROM squid_marketplace.nft n \
+         LEFT JOIN squid_marketplace.item i ON n.item_id = i.id \
+         WHERE n.category = $1 AND n.urn IS NOT NULL AND n.owner_address = lower($2) \
          GROUP BY 1"
     };
-    let rows: Vec<(String, i64)> = sqlx::query_as(sql)
+    let mut rows: Vec<(String, i64, String)> = sqlx::query_as(sql)
         .bind(category)
         .bind(owner)
         .fetch_all(pool)
         .await
         .unwrap_or_default();
+    sort_owned_by_rarity_then_urn(&mut rows);
 
     if !include_definitions {
         let body: Vec<Value> = rows
             .into_iter()
-            .map(|(urn, amount)| json!({ "urn": urn, "amount": amount }))
+            .map(|(urn, amount, _)| json!({ "urn": urn, "amount": amount }))
             .collect();
         return Json(json!(body)).into_response();
     }
 
-    let pointers: Vec<String> = rows.iter().map(|(urn, _)| urn.to_lowercase()).collect();
+    let pointers: Vec<String> = rows.iter().map(|(urn, ..)| urn.to_lowercase()).collect();
     let entities = if pointers.is_empty() {
         Vec::new()
     } else {
@@ -382,7 +387,7 @@ async fn items_by_owner(
 
     let body: Vec<Value> = rows
         .into_iter()
-        .map(|(urn, amount)| {
+        .map(|(urn, amount, _)| {
             let mut obj = json!({ "urn": urn, "amount": amount });
             if let Some(def) = defs_by_id.get(&urn.to_lowercase()) {
                 obj["definition"] = def.clone();
@@ -391,6 +396,15 @@ async fn items_by_owner(
         })
         .collect();
     Json(json!(body)).into_response()
+}
+
+fn sort_owned_by_rarity_then_urn(rows: &mut [(String, i64, String)]) {
+    use super::definitions::{locale_cmp, rarity_rank};
+    rows.sort_by(|a, b| {
+        rarity_rank(&b.2)
+            .cmp(&rarity_rank(&a.2))
+            .then_with(|| locale_cmp(&a.0, &b.0))
+    });
 }
 
 fn has_include_definitions(req: &Request) -> bool {
@@ -442,43 +456,6 @@ pub async fn emotes_by_owner(
     .await
 }
 
-pub async fn collections_wearables() -> impl IntoResponse {
-    Json(json!({
-        "wearables": [],
-        "filters": {},
-        "pagination": {
-            "limit": 100,
-            "lastId": null,
-            "next": null
-        }
-    }))
-}
-
-pub async fn collections_emotes() -> impl IntoResponse {
-    Json(json!({
-        "emotes": [],
-        "filters": {},
-        "pagination": {
-            "limit": 100,
-            "lastId": null,
-            "next": null
-        }
-    }))
-}
-
-pub async fn explore_realms(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    let realm_name = state.realm_name.as_deref().unwrap_or("catalyrst");
-
-    Json(json!([
-        {
-            "serverName": realm_name,
-            "url": state.content_public_url,
-            "usersCount": 0,
-            "maxUsers": null
-        }
-    ]))
-}
-
 pub async fn lambdas_status(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let current_time = chrono::Utc::now().timestamp_millis();
 
@@ -492,15 +469,41 @@ pub async fn lambdas_status(State(state): State<Arc<AppState>>) -> impl IntoResp
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cache::ResponseCache;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
     use std::time::Duration;
 
+    #[test]
+    fn by_owner_rows_sort_rarity_desc_then_urn_asc() {
+        let row = |urn: &str, rarity: &str| (urn.to_string(), 1_i64, rarity.to_string());
+        let mut rows = vec![
+            row("urn:z:common", "common"),
+            row("urn:b:mythic", "mythic"),
+            row("urn:a:unknown", ""),
+            row("urn:a:mythic", "mythic"),
+            row("urn:a:unique", "unique"),
+            row("urn:a:common", "common"),
+        ];
+        sort_owned_by_rarity_then_urn(&mut rows);
+        let urns: Vec<&str> = rows.iter().map(|(urn, ..)| urn.as_str()).collect();
+        assert_eq!(
+            urns,
+            vec![
+                "urn:a:unique",
+                "urn:a:mythic",
+                "urn:b:mythic",
+                "urn:a:common",
+                "urn:z:common",
+                "urn:a:unknown",
+            ],
+            "rarity rank DESC (unknown last), then URN ASC"
+        );
+    }
+
     #[tokio::test]
     async fn profile_cache_second_call_is_a_hit() {
-        let cache: ResponseCache<String, Value> =
-            ResponseCache::new("profile_test", Duration::from_secs(60), 100);
+        let cache: TtlMap<String, Value> =
+            TtlMap::bounded("profile_test", Duration::from_secs(60), 100);
         let counter = Arc::new(AtomicUsize::new(0));
         let make_profile = |addr: String, c: Arc<AtomicUsize>| async move {
             c.fetch_add(1, Ordering::SeqCst);
@@ -524,8 +527,8 @@ mod tests {
 
     #[tokio::test]
     async fn profiles_batch_cache_keys_normalize_order() {
-        let cache: ResponseCache<String, Value> =
-            ResponseCache::new("profiles_batch_test", Duration::from_secs(60), 100);
+        let cache: TtlMap<String, Value> =
+            TtlMap::bounded("profiles_batch_test", Duration::from_secs(60), 100);
         let counter = Arc::new(AtomicUsize::new(0));
 
         let key_a = {

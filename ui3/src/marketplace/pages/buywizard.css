@@ -1,0 +1,62 @@
+.buy-route {
+  min-height: 100vh;
+  background: #161518;
+  color: #fff;
+}
+
+.buy-route__sim {
+  margin: 0;
+  padding: 10px 24px;
+  font-size: 13px;
+  line-height: 1.4;
+  color: #f3d9a4;
+  background: #2a2331;
+  border-bottom: 1px solid #3a3144;
+}
+
+.buy-route__sim strong {
+  color: #ffcf6b;
+}
+
+.buy-wizard {
+  position: relative;
+}
+
+.buy-wizard__controls {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  padding: 20px 24px 40px;
+  background: #161518;
+}
+
+.buy-wizard__btn {
+  appearance: none;
+  border: 1px solid #4b4358;
+  background: transparent;
+  color: #e7e3ef;
+  font: inherit;
+  font-weight: 600;
+  padding: 11px 22px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.buy-wizard__btn:hover {
+  background: #271f30;
+  border-color: #6a5f7d;
+}
+
+.buy-wizard__btn--primary {
+  background: var(--brand-cta);
+  border-color: var(--brand-cta);
+  color: #fff;
+}
+
+.buy-wizard__btn--primary:hover {
+  background: #e62749;
+  border-color: #e62749;
+}

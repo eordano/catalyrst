@@ -1,20 +1,41 @@
+use std::sync::atomic::{AtomicBool, Ordering};
+
 use sqlx::{postgres::PgPool, Row};
 
 use crate::http::errors::ApiError;
 
+use super::content_quality::ROAD_POSITIONS_TABLE;
 use super::query::{
-    bind_param, build_live_user_count_order, build_order_by, build_where, destinations_order_prefix,
+    bind_param, build_live_user_count_order, build_order_by, build_where, description_plain_sql,
+    destinations_highlighted_prefix, destinations_ranking_prefix, EXCLUDE_FROM_RANKING_SQL,
 };
 use super::rows::{
-    row_to_place, row_to_poi, row_to_report, CategoryTarget, PlaceListFilters, PlaceRow,
-    PlaceStatusRow, PoiRow, ReportRow, UserInteraction, PLACE_COLUMNS,
+    place_columns, row_to_place, row_to_poi, row_to_report, CategoryTarget, PlaceListFilters,
+    PlaceRow, PlaceStatusRow, PoiRow, ReportRow, UserInteraction,
 };
+use crate::sanitize::ContentOrigin;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScoreRankingOutcome {
+    Stored,
+    RefusedCurated,
+    NotWritable,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReportUploadOutcome {
+    Stored,
+    NoReportOwnedByReporter,
+    PersistenceDisabled,
+}
 
 pub struct PlacesComponent {
     pool: PgPool,
     writer: Option<PgPool>,
     squid: Option<PgPool>,
     squid_schema: String,
+    content_origin: Option<ContentOrigin>,
+    road_positions: AtomicBool,
 }
 
 impl PlacesComponent {
@@ -24,7 +45,35 @@ impl PlacesComponent {
             writer: None,
             squid: None,
             squid_schema: "squid_marketplace".to_string(),
+            content_origin: None,
+            road_positions: AtomicBool::new(false),
         }
+    }
+
+    /// The deployment's own content base, whose thumbnails are exempt from the
+    /// internal-host image filter.
+    pub fn with_content_origin(mut self, base_url: &str) -> Self {
+        self.content_origin = ContentOrigin::parse(base_url);
+        self
+    }
+
+    pub fn content_origin(&self) -> Option<&ContentOrigin> {
+        self.content_origin.as_ref()
+    }
+
+    pub async fn probe_road_positions(&self) -> Result<bool, ApiError> {
+        let readable: bool = sqlx::query_scalar(
+            "SELECT COALESCE(has_table_privilege(current_user, to_regclass($1), 'SELECT'), FALSE)",
+        )
+        .bind(ROAD_POSITIONS_TABLE)
+        .fetch_one(&self.pool)
+        .await?;
+        self.road_positions.store(readable, Ordering::Relaxed);
+        Ok(readable)
+    }
+
+    fn road_positions_ready(&self) -> bool {
+        self.road_positions.load(Ordering::Relaxed)
     }
 
     pub fn with_squid(mut self, squid: PgPool, schema: String) -> Self {
@@ -38,19 +87,33 @@ impl PlacesComponent {
         self
     }
 
-    pub fn has_writer(&self) -> bool {
-        self.writer.is_some()
-    }
-
     pub fn writer_pool(&self) -> Option<&PgPool> {
         self.writer.as_ref()
+    }
+
+    fn report_writer(&self) -> Result<&PgPool, ApiError> {
+        self.writer
+            .as_ref()
+            .ok_or_else(|| ApiError::service_unavailable("report persistence not configured"))
+    }
+
+    pub(super) fn place_writer(&self) -> Result<&PgPool, ApiError> {
+        self.writer
+            .as_ref()
+            .ok_or_else(|| ApiError::service_unavailable("place writes not configured"))
+    }
+
+    fn poi_writer(&self) -> Result<&PgPool, ApiError> {
+        self.writer
+            .as_ref()
+            .ok_or_else(|| ApiError::service_unavailable("poi persistence not configured"))
     }
 
     pub async fn ensure_local_schema(&self) -> Result<(), ApiError> {
         let Some(writer) = &self.writer else {
             return Ok(());
         };
-        sqlx::query(
+        for ddl in [
             r#"
             CREATE TABLE IF NOT EXISTS user_favorites (
                 "user" text NOT NULL,
@@ -60,15 +123,7 @@ impl PlacesComponent {
                 PRIMARY KEY ("user", entity_id)
             )
             "#,
-        )
-        .execute(writer)
-        .await?;
-        sqlx::query(
             "CREATE INDEX IF NOT EXISTS user_favorites_entity_idx ON user_favorites (entity_id)",
-        )
-        .execute(writer)
-        .await?;
-        sqlx::query(
             r#"
             CREATE TABLE IF NOT EXISTS user_likes (
                 "user" text NOT NULL,
@@ -80,13 +135,7 @@ impl PlacesComponent {
                 PRIMARY KEY ("user", entity_id)
             )
             "#,
-        )
-        .execute(writer)
-        .await?;
-        sqlx::query("CREATE INDEX IF NOT EXISTS user_likes_entity_idx ON user_likes (entity_id)")
-            .execute(writer)
-            .await?;
-        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS user_likes_entity_idx ON user_likes (entity_id)",
             r#"
             CREATE TABLE IF NOT EXISTS place_reports_local (
                 id bigserial PRIMARY KEY,
@@ -98,36 +147,14 @@ impl PlacesComponent {
                 created_at timestamptz NOT NULL DEFAULT now()
             )
             "#,
-        )
-        .execute(writer)
-        .await?;
-        sqlx::query(
             "CREATE INDEX IF NOT EXISTS place_reports_local_reporter_idx ON place_reports_local (reporter)",
-        )
-        .execute(writer)
-        .await?;
-
-        for ddl in [
             "ALTER TABLE place_reports_local ADD COLUMN IF NOT EXISTS status text NOT NULL DEFAULT 'open'",
             "ALTER TABLE place_reports_local ADD COLUMN IF NOT EXISTS resolution text",
             "ALTER TABLE place_reports_local ADD COLUMN IF NOT EXISTS moderator_notes text",
             "ALTER TABLE place_reports_local ADD COLUMN IF NOT EXISTS resolved_by text",
             "ALTER TABLE place_reports_local ADD COLUMN IF NOT EXISTS resolved_at timestamptz",
-        ] {
-            sqlx::query(ddl).execute(writer).await?;
-        }
-        sqlx::query(
             "CREATE INDEX IF NOT EXISTS place_reports_local_status_idx ON place_reports_local (status, created_at DESC)",
-        )
-        .execute(writer)
-        .await?;
-        sqlx::query(
             "CREATE INDEX IF NOT EXISTS place_reports_local_entity_idx ON place_reports_local (entity_id)",
-        )
-        .execute(writer)
-        .await?;
-
-        sqlx::query(
             r#"
             CREATE TABLE IF NOT EXISTS pois (
                 position    text PRIMARY KEY,
@@ -140,11 +167,6 @@ impl PlacesComponent {
                 updated_at  timestamptz NOT NULL DEFAULT now()
             )
             "#,
-        )
-        .execute(writer)
-        .await?;
-
-        sqlx::query(
             r#"
             CREATE TABLE IF NOT EXISTS signed_actions_places (
                 signature_hash  text PRIMARY KEY,
@@ -159,24 +181,9 @@ impl PlacesComponent {
                 seq             bigserial UNIQUE NOT NULL
             )
             "#,
-        )
-        .execute(writer)
-        .await?;
-        sqlx::query(
             "CREATE INDEX IF NOT EXISTS idx_sap_signer ON signed_actions_places (signer, action_type, signed_at DESC)",
-        )
-        .execute(writer)
-        .await?;
-        sqlx::query(
             "CREATE INDEX IF NOT EXISTS idx_sap_place ON signed_actions_places (place_id, action_type, signed_at DESC)",
-        )
-        .execute(writer)
-        .await?;
-        sqlx::query("CREATE INDEX IF NOT EXISTS idx_sap_seq ON signed_actions_places (seq)")
-            .execute(writer)
-            .await?;
-
-        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_sap_seq ON signed_actions_places (seq)",
             r#"
             CREATE TABLE IF NOT EXISTS seen_nonces (
                 signer     text NOT NULL,
@@ -185,14 +192,10 @@ impl PlacesComponent {
                 PRIMARY KEY (signer, nonce)
             )
             "#,
-        )
-        .execute(writer)
-        .await?;
-        sqlx::query(
             "CREATE INDEX IF NOT EXISTS idx_seen_nonces_expires ON seen_nonces (expires_at)",
-        )
-        .execute(writer)
-        .await?;
+        ] {
+            sqlx::query(ddl).execute(writer).await?;
+        }
         Ok(())
     }
 
@@ -521,17 +524,26 @@ impl PlacesComponent {
     pub async fn record_report_upload(
         &self,
         filename: &str,
+        reporter: &str,
         payload: &serde_json::Value,
-    ) -> Result<(), ApiError> {
+    ) -> Result<ReportUploadOutcome, ApiError> {
         let Some(writer) = self.writer.as_ref() else {
-            return Ok(());
+            return Ok(ReportUploadOutcome::PersistenceDisabled);
         };
-        sqlx::query(r#"UPDATE place_reports_local SET payload = $2 WHERE filename = $1"#)
-            .bind(filename)
-            .bind(payload)
-            .execute(writer)
-            .await?;
-        Ok(())
+        let updated = sqlx::query(
+            r#"UPDATE place_reports_local SET payload = $3
+               WHERE filename = $1 AND lower(reporter) = $2"#,
+        )
+        .bind(filename)
+        .bind(reporter.to_lowercase())
+        .bind(payload)
+        .execute(writer)
+        .await?
+        .rows_affected();
+        if updated == 0 {
+            return Ok(ReportUploadOutcome::NoReportOwnedByReporter);
+        }
+        Ok(ReportUploadOutcome::Stored)
     }
 
     pub async fn set_highlighted(
@@ -550,22 +562,107 @@ impl PlacesComponent {
         Ok(())
     }
 
-    pub async fn set_ranking(&self, entity_id: &str, ranking: Option<f64>) -> Result<(), ApiError> {
-        let Some(writer) = self.writer.as_ref() else {
-            return Ok(());
-        };
+    // Returns the rows written: the read surface is place_indexed, so an
+    // entity this leg found may live in place_world_local, which this
+    // statement cannot reach. Callers must not report a ranking they did not
+    // store.
+    pub async fn set_ranking(
+        &self,
+        entity_id: &str,
+        ranking: Option<f64>,
+    ) -> Result<u64, ApiError> {
+        let writer = self.place_writer()?;
         let raw_value = match ranking {
             Some(v) => serde_json::Value::from(v),
             None => serde_json::Value::Null,
         };
-        sqlx::query(
+        let updated = sqlx::query(
             "UPDATE place SET raw = jsonb_set(COALESCE(raw, '{}'::jsonb), '{ranking}', $2, true) WHERE id = $1",
         )
         .bind(entity_id)
         .bind(raw_value)
         .execute(writer)
-        .await?;
-        Ok(())
+        .await?
+        .rows_affected();
+        Ok(updated)
+    }
+
+    // The route gates on the row it read and this writes it, so the condition
+    // travels with the write: an admin curating the entity in between must not
+    // let the score through. A refusal is only reported once the row is known
+    // to be curated; a row this leg cannot write at all -- the read surface is
+    // place_indexed, the write reaches `place` alone -- is its own outcome, so
+    // the route can say so instead of echoing a ranking it never stored.
+    pub async fn set_ranking_from_score(
+        &self,
+        entity_id: &str,
+        ranking: Option<f64>,
+    ) -> Result<ScoreRankingOutcome, ApiError> {
+        let writer = self.place_writer()?;
+        let raw_value = match ranking {
+            Some(v) => serde_json::Value::from(v),
+            None => serde_json::Value::Null,
+        };
+        let sql = format!(
+            "UPDATE place SET raw = jsonb_set(COALESCE(raw, '{{}}'::jsonb), '{{ranking}}', $2, true) \
+             WHERE id = $1 AND highlighted IS FALSE AND {EXCLUDE_FROM_RANKING_SQL} IS FALSE"
+        );
+        let updated = sqlx::query(sqlx::AssertSqlSafe(sql))
+            .bind(entity_id)
+            .bind(raw_value)
+            .execute(writer)
+            .await?
+            .rows_affected();
+        if updated > 0 {
+            return Ok(ScoreRankingOutcome::Stored);
+        }
+        let probe = format!(
+            "SELECT (highlighted IS TRUE OR {EXCLUDE_FROM_RANKING_SQL} IS TRUE) AS curated \
+             FROM place WHERE id = $1"
+        );
+        let probed = sqlx::query(sqlx::AssertSqlSafe(probe))
+            .bind(entity_id)
+            .fetch_optional(writer)
+            .await?
+            .map(|r| r.try_get::<bool, _>("curated").unwrap_or(false));
+        match probed {
+            Some(true) => Ok(ScoreRankingOutcome::RefusedCurated),
+            Some(false) => Ok(ScoreRankingOutcome::Stored),
+            None => Ok(ScoreRankingOutcome::NotWritable),
+        }
+    }
+
+    // Excluding zeroes the ranking in the same statement: the flag says the
+    // score must not place this entity, and a value it wrote earlier would
+    // otherwise freeze at the number just declared untrustworthy. Clearing the
+    // flag leaves the ranking where it is until the next run computes one.
+    //
+    // Returns the rows written: the read surface is place_indexed, so an entity
+    // this leg found may live in place_world_local, which this statement cannot
+    // reach. Callers must not report a change they did not make.
+    pub async fn set_exclude_from_ranking(
+        &self,
+        entity_id: &str,
+        exclude: bool,
+    ) -> Result<u64, ApiError> {
+        let Some(writer) = self.writer.as_ref() else {
+            return Ok(0);
+        };
+        let updated = sqlx::query(
+            "UPDATE place SET raw = CASE WHEN $2 \
+             THEN jsonb_set(jsonb_set(COALESCE(raw, '{}'::jsonb), \
+                            '{exclude_from_ranking}', 'true'::jsonb, true), \
+                            '{ranking}', '0'::jsonb, true) \
+             ELSE jsonb_set(COALESCE(raw, '{}'::jsonb), \
+                            '{exclude_from_ranking}', 'false'::jsonb, true) END \
+             WHERE id = $1",
+        )
+        .bind(entity_id)
+        .bind(exclude)
+        .execute(writer)
+        .await?
+        .rows_affected();
+        Ok(updated)
     }
 
     pub async fn set_content_rating(
@@ -591,10 +688,7 @@ impl PlacesComponent {
         limit: i64,
         offset: i64,
     ) -> Result<Vec<ReportRow>, ApiError> {
-        let writer = self
-            .writer
-            .as_ref()
-            .ok_or_else(|| ApiError::service_unavailable("report persistence not configured"))?;
+        let writer = self.report_writer()?;
         let rows = sqlx::query(
             r#"
             SELECT id, entity_id, reporter, signed_url, filename, payload,
@@ -621,10 +715,7 @@ impl PlacesComponent {
         status: Option<&str>,
         entity_id: Option<&str>,
     ) -> Result<i64, ApiError> {
-        let writer = self
-            .writer
-            .as_ref()
-            .ok_or_else(|| ApiError::service_unavailable("report persistence not configured"))?;
+        let writer = self.report_writer()?;
         let row = sqlx::query(
             r#"SELECT count(*)::bigint AS total FROM place_reports_local
                WHERE ($1::text IS NULL OR status = $1)
@@ -637,25 +728,6 @@ impl PlacesComponent {
         Ok(row.get::<i64, _>("total"))
     }
 
-    pub async fn get_report(&self, id: i64) -> Result<Option<ReportRow>, ApiError> {
-        let writer = self
-            .writer
-            .as_ref()
-            .ok_or_else(|| ApiError::service_unavailable("report persistence not configured"))?;
-        let row = sqlx::query(
-            r#"
-            SELECT id, entity_id, reporter, signed_url, filename, payload,
-                   status, resolution, moderator_notes, resolved_by,
-                   resolved_at, created_at
-            FROM place_reports_local WHERE id = $1
-            "#,
-        )
-        .bind(id)
-        .fetch_optional(writer)
-        .await?;
-        Ok(row.map(row_to_report))
-    }
-
     pub async fn update_report_status(
         &self,
         id: i64,
@@ -664,10 +736,7 @@ impl PlacesComponent {
         notes: Option<&str>,
         resolved_by: Option<&str>,
     ) -> Result<Option<ReportRow>, ApiError> {
-        let writer = self
-            .writer
-            .as_ref()
-            .ok_or_else(|| ApiError::service_unavailable("report persistence not configured"))?;
+        let writer = self.report_writer()?;
         let resolved_at_now = !status.eq_ignore_ascii_case("open");
         let row = sqlx::query(
             r#"
@@ -700,10 +769,7 @@ impl PlacesComponent {
         disabled: bool,
         reason: Option<&str>,
     ) -> Result<bool, ApiError> {
-        let writer = self
-            .writer
-            .as_ref()
-            .ok_or_else(|| ApiError::service_unavailable("place writes not configured"))?;
+        let writer = self.place_writer()?;
         let now = chrono::Utc::now().to_rfc3339();
         let reason_value = match (disabled, reason) {
             (true, Some(r)) => serde_json::Value::from(r),
@@ -738,10 +804,7 @@ impl PlacesComponent {
     }
 
     pub async fn list_pois(&self) -> Result<Vec<PoiRow>, ApiError> {
-        let writer = self
-            .writer
-            .as_ref()
-            .ok_or_else(|| ApiError::service_unavailable("poi persistence not configured"))?;
+        let writer = self.poi_writer()?;
         let rows = sqlx::query(
             r#"SELECT position, entity_id, title, description, enabled,
                       created_by, created_at, updated_at
@@ -761,10 +824,7 @@ impl PlacesComponent {
         enabled: bool,
         created_by: Option<&str>,
     ) -> Result<PoiRow, ApiError> {
-        let writer = self
-            .writer
-            .as_ref()
-            .ok_or_else(|| ApiError::service_unavailable("poi persistence not configured"))?;
+        let writer = self.poi_writer()?;
         let row = sqlx::query(
             r#"
             INSERT INTO pois (position, entity_id, title, description, enabled, created_by)
@@ -798,10 +858,7 @@ impl PlacesComponent {
         description: Option<&str>,
         enabled: Option<bool>,
     ) -> Result<Option<PoiRow>, ApiError> {
-        let writer = self
-            .writer
-            .as_ref()
-            .ok_or_else(|| ApiError::service_unavailable("poi persistence not configured"))?;
+        let writer = self.poi_writer()?;
         let row = sqlx::query(
             r#"
             UPDATE pois SET
@@ -826,10 +883,7 @@ impl PlacesComponent {
     }
 
     pub async fn delete_poi(&self, position: &str) -> Result<bool, ApiError> {
-        let writer = self
-            .writer
-            .as_ref()
-            .ok_or_else(|| ApiError::service_unavailable("poi persistence not configured"))?;
+        let writer = self.poi_writer()?;
         let res = sqlx::query("DELETE FROM pois WHERE position = $1")
             .bind(position)
             .execute(writer)
@@ -843,24 +897,33 @@ impl PlacesComponent {
     }
 
     pub async fn find_by_id(&self, place_id: &str) -> Result<Option<PlaceRow>, ApiError> {
-        let sql = format!("SELECT {PLACE_COLUMNS} FROM place WHERE id = $1");
+        let sql = format!(
+            "SELECT {} FROM place_indexed WHERE id = $1",
+            place_columns()
+        );
         let row_opt = sqlx::query(sqlx::AssertSqlSafe(sql))
             .bind(place_id)
             .fetch_optional(&self.pool)
             .await?;
-        Ok(row_opt.map(row_to_place))
+        Ok(row_opt.map(|r| row_to_place(r, self.content_origin())))
     }
 
     pub async fn find_by_ids(&self, ids: &[String]) -> Result<Vec<PlaceRow>, ApiError> {
         if ids.is_empty() {
             return Ok(vec![]);
         }
-        let sql = format!("SELECT {PLACE_COLUMNS} FROM place WHERE id = ANY($1)");
+        let sql = format!(
+            "SELECT {} FROM place_indexed WHERE id = ANY($1)",
+            place_columns()
+        );
         let rows = sqlx::query(sqlx::AssertSqlSafe(sql))
             .bind(ids)
             .fetch_all(&self.pool)
             .await?;
-        Ok(rows.into_iter().map(row_to_place).collect())
+        Ok(rows
+            .into_iter()
+            .map(|r| row_to_place(r, self.content_origin()))
+            .collect())
     }
 
     pub async fn find_by_ids_status(
@@ -872,10 +935,8 @@ impl PlacesComponent {
         }
         let rows = sqlx::query(
             r#"
-            SELECT id, disabled, base_position,
-                   COALESCE((raw->>'world')::bool, false) AS world,
-                   raw->>'world_name' AS world_name
-            FROM place
+            SELECT id, disabled, base_position, world, world_name
+            FROM place_indexed
             WHERE id = ANY($1)
             "#,
         )
@@ -899,10 +960,11 @@ impl PlacesComponent {
         if ids.is_empty() {
             return Ok(0);
         }
-        let row = sqlx::query("SELECT count(*)::bigint AS total FROM place WHERE id = ANY($1)")
-            .bind(ids)
-            .fetch_one(&self.pool)
-            .await?;
+        let row =
+            sqlx::query("SELECT count(*)::bigint AS total FROM place_indexed WHERE id = ANY($1)")
+                .bind(ids)
+                .fetch_one(&self.pool)
+                .await?;
         Ok(row.get::<i64, _>("total"))
     }
 
@@ -910,30 +972,39 @@ impl PlacesComponent {
         if matches!(&f.search, Some(s) if s.len() < 3) {
             return Ok(vec![]);
         }
-        let (where_clause, binds) = build_where(f);
+        let (where_clause, binds) = build_where(f, self.road_positions_ready());
         let order = f.order_by.column();
         let dir = if f.order_desc { "DESC" } else { "ASC" };
         let rank_prefix = if f.search.is_some() {
-            "ts_rank_cd(to_tsvector('english', coalesce(title,'') || ' ' || coalesce(description,'')), \
-             plainto_tsquery('english', $rank), 32) DESC, "
-                .replace("$rank", &format!("${}", binds.len() + 1))
+            format!(
+                "ts_rank_cd(to_tsvector('english', coalesce(title,'') || ' ' || ({plain})), \
+                 plainto_tsquery('english', ${rank}), 32) DESC, ",
+                plain = description_plain_sql(),
+                rank = binds.len() + 1,
+            )
         } else {
             String::new()
         };
         let search_count = if f.search.is_some() { 1 } else { 0 };
         let live_start = binds.len() + search_count + 1;
         let (live_prefix, live_binds) = build_live_user_count_order(f, live_start);
-        let dest_prefix = destinations_order_prefix(f);
-        let order_clause = build_order_by(dest_prefix, &live_prefix, &rank_prefix, order, dir);
+        let order_clause = build_order_by(
+            destinations_highlighted_prefix(f),
+            &live_prefix,
+            destinations_ranking_prefix(f),
+            &rank_prefix,
+            order,
+            dir,
+        );
         let sql = format!(
             r#"
             SELECT {cols}
-            FROM place
+            FROM place_indexed
             WHERE {where_clause}
             ORDER BY {order_clause}
             LIMIT {limit} OFFSET {offset}
             "#,
-            cols = PLACE_COLUMNS,
+            cols = place_columns(),
             limit = f.limit.clamp(0, 100),
             offset = f.offset.max(0),
         );
@@ -948,15 +1019,19 @@ impl PlacesComponent {
             q = bind_param(q, b);
         }
         let rows = q.fetch_all(&self.pool).await?;
-        Ok(rows.into_iter().map(row_to_place).collect())
+        Ok(rows
+            .into_iter()
+            .map(|r| row_to_place(r, self.content_origin()))
+            .collect())
     }
 
     pub async fn count_list(&self, f: &PlaceListFilters) -> Result<i64, ApiError> {
         if matches!(&f.search, Some(s) if s.len() < 3) {
             return Ok(0);
         }
-        let (where_clause, binds) = build_where(f);
-        let sql = format!("SELECT count(*)::bigint AS total FROM place WHERE {where_clause}");
+        let (where_clause, binds) = build_where(f, self.road_positions_ready());
+        let sql =
+            format!("SELECT count(*)::bigint AS total FROM place_indexed WHERE {where_clause}");
         let mut q = sqlx::query(sqlx::AssertSqlSafe(sql));
         for b in &binds {
             q = bind_param(q, b);
@@ -970,14 +1045,14 @@ impl PlacesComponent {
         target: CategoryTarget,
     ) -> Result<Vec<(String, i64)>, ApiError> {
         let world_filter = match target {
-            CategoryTarget::Worlds => "AND COALESCE((raw->>'world')::bool, false) IS TRUE",
-            CategoryTarget::Places => "AND COALESCE((raw->>'world')::bool, false) IS FALSE",
+            CategoryTarget::Worlds => "AND p.world IS TRUE",
+            CategoryTarget::Places => "AND p.world IS FALSE",
             CategoryTarget::All => "",
         };
         let sql = format!(
             r#"
             SELECT cat AS name, count(*)::bigint AS count
-            FROM place p, unnest(p.categories) AS cat
+            FROM place_indexed p, unnest(p.categories) AS cat
             WHERE p.disabled IS FALSE {world_filter}
             GROUP BY cat
             ORDER BY count DESC, name ASC
@@ -993,7 +1068,7 @@ impl PlacesComponent {
     }
 
     pub async fn categories_for_place(&self, place_id: &str) -> Result<Vec<String>, ApiError> {
-        let row = sqlx::query("SELECT categories FROM place WHERE id = $1")
+        let row = sqlx::query("SELECT categories FROM place_indexed WHERE id = $1")
             .bind(place_id)
             .fetch_optional(&self.pool)
             .await?;
@@ -1007,22 +1082,23 @@ impl PlacesComponent {
 
     pub async fn find_world_by_id(&self, world_id: &str) -> Result<Option<PlaceRow>, ApiError> {
         let sql = format!(
-            "SELECT {PLACE_COLUMNS} FROM place \
-             WHERE COALESCE((raw->>'world')::bool,false) IS TRUE \
-             AND (id = $1 OR lower(raw->>'world_name') = lower($1))"
+            "SELECT {} FROM place_indexed \
+             WHERE world IS TRUE \
+             AND (id = $1 OR lower(world_name) = lower($1))",
+            place_columns()
         );
         let row_opt = sqlx::query(sqlx::AssertSqlSafe(sql))
             .bind(world_id)
             .fetch_optional(&self.pool)
             .await?;
-        Ok(row_opt.map(row_to_place))
+        Ok(row_opt.map(|r| row_to_place(r, self.content_origin())))
     }
 
     pub async fn world_names(&self) -> Result<Vec<String>, ApiError> {
         let rows = sqlx::query(
-            "SELECT DISTINCT raw->>'world_name' AS world_name FROM place \
-             WHERE COALESCE((raw->>'world')::bool,false) IS TRUE \
-             AND raw->>'world_name' IS NOT NULL ORDER BY 1",
+            "SELECT DISTINCT world_name FROM place_indexed \
+             WHERE world IS TRUE AND world_name IS NOT NULL \
+             AND COALESCE((raw->>'show_in_places')::bool, true) IS TRUE ORDER BY 1",
         )
         .fetch_all(&self.pool)
         .await?;

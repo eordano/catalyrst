@@ -1,0 +1,62 @@
+/* Panel texture encodes buildability: dashed reads as a plan, not a break. */
+
+.ub {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 16px;
+  border: 1px dashed var(--line);
+  border-radius: var(--r-card);
+  background: transparent;
+  box-shadow: none;
+  color: var(--text);
+}
+
+.ub__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.ub__title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.ub__why {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--ink-7);
+}
+
+.ub__today {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--line);
+}
+
+.ub__todaylabel {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-45);
+}
+
+.ub__todaybody {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--ink-85);
+}
+
+.ub__todaybody a {
+  color: var(--brand-ink);
+}

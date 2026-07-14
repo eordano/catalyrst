@@ -6,6 +6,14 @@ use serde_json::{json, Value};
 
 use crate::AppState;
 
+#[utoipa::path(
+    get,
+    path = "/status",
+    tag = "status",
+    responses(
+        (status = 200, body = serde_json::Value)
+    )
+)]
 pub async fn status() -> Json<Value> {
     Json(json!({
         "ok": true,

@@ -8,8 +8,10 @@ fn main() -> Result<()> {
         "proto/decentraland/common/vectors.proto",
     ];
 
-    let mut config = prost_build::Config::new();
-    config.compile_protos(&proto_files, &["proto"])?;
+    let fds = protox::compile(proto_files, ["proto"]).map_err(protox_error)?;
+    prost_build::Config::new().compile_fds(fds)
+}
 
-    Ok(())
+fn protox_error(e: protox::Error) -> std::io::Error {
+    std::io::Error::other(format!("{e:?}"))
 }

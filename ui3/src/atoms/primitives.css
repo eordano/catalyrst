@@ -1,0 +1,339 @@
+:root {
+  /* Declare the scheme, or Chrome paints its LIGHT-mode UA focus ring --
+     rgb(16,16,16) -- over this dark palette, which measures 1.05:1 on the app
+     bar's split-button carets. Every control without an author :focus-visible
+     inherits that. Also fixes UA scrollbars, autofill and native form controls
+     in the same line. */
+  color-scheme: dark;
+  --brand: #ff2d55;
+  --brand-cta: #d80029;
+  --brand-ink: #ff6b87;
+  --brand-hover: #ff4d70;
+  --brand-dark: #d80029;
+  --brand-light: #f8919d;
+  --panel: #161518;
+  --panel-2: #242129;
+  --accent: #ff7439;
+  --online: #57df41;
+  --away: #ffa25a;
+  --offline: #a09ba8;
+  --live: #ff0000;
+  --error: #fb3b3b;
+  --warning: #fe9c2a;
+  --info: #2196f3;
+  --on-brand: #fff;
+  --gold: #ffc95b;
+  --purple: #982de2;
+  --progress: #31c11a;
+  --success: #34ce77;
+  --text: #fcfcfc;
+  --font-sans: Inter, Helvetica, Arial, sans-serif;
+  --font-mono: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  --r-control: 10px; --r-card: 14px; --r-panel: 18px; --r-pill: 999px;
+  --modal-pad: 30px; --modal-gap: 20px; --modal-btn-h: 46px;
+  --fill-1: rgba(255,255,255,.04); --fill-2: rgba(255,255,255,.06);
+  --fill-3: rgba(255,255,255,.08); --fill-4: rgba(255,255,255,.1);
+  --fill-5: rgba(255,255,255,.12);
+  --line: rgba(255,255,255,.08);
+  --ink-85: rgba(255,255,255,.85); --ink-7: rgba(255,255,255,.7);
+  --ink-6: rgba(255,255,255,.6); --ink-45: rgba(255,255,255,.5);
+  --scrim: rgba(0,0,0,.5);
+  --shadow-modal: 0 30px 80px rgba(0,0,0,.5);
+  --explore-grad:
+    radial-gradient(120% 95% at 50% 118%, #7d1aa0 0%, #5e1486 28%, rgba(94,20,134,0) 62%),
+    radial-gradient(90% 80% at 8% 42%, #4f1178 0%, rgba(79,17,120,0) 58%),
+    linear-gradient(150deg, #45106a 0%, #380a5c 38%, #2c0750 64%, #220040 100%);
+  --explore-deep: #2f004d;
+  --modal-grad: linear-gradient(135deg, #3a0653 0%, #341a5c 34%, #2d3753 60%, #1f5b54 86%, #175e52 100%);
+  --modal-grad-purple: linear-gradient(180deg, #4a1170 0%, #340b55 100%);
+  --explore-nav: #161616;
+  --explore-orange: #ff7439;
+  --explore-orange-grad: linear-gradient(90deg, #ff7439 0%, #e85d56 100%);
+  --scene-photo:
+    radial-gradient(circle at 64% 32%, rgba(255, 246, 218, .45), transparent 32%),
+    linear-gradient(180deg, #2a3f6b 0%, #5b6f9e 52%, #c9a98a 64%, #3a5c3a 64%, #24381f 100%);
+  --explore-tab-active: #a524b2;
+  --z-panel: 50; --z-overlay: 60; --z-modal: 100; --z-dialog: 120; --z-toast: 200;
+  /* a perf readout has to clear portaled modals and the raw z-index: 1000 lightboxes,
+     but must never cover the crash overlay in app/fatalerror.css (2147483000) */
+  --z-fps: 2147482000;
+  --rar-common: #73d3d3; --rar-uncommon: #ff8362; --rar-rare: #34ce76;
+  --rar-epic: #438fff; --rar-legendary: #a755f4; --rar-mythic: #ff4bed;
+  --rar-unique: #fea217; --rar-exotic: #9bd141;
+  --rar-ink: #161518;
+  --rar-bg-common: url("/assets/rarity/common.png"); --rar-bg-uncommon: url("/assets/rarity/uncommon.png");
+  --rar-bg-rare: url("/assets/rarity/rare.png"); --rar-bg-epic: url("/assets/rarity/epic.png");
+  --rar-bg-legendary: url("/assets/rarity/legendary.png"); --rar-bg-mythic: url("/assets/rarity/mythic.png");
+  --rar-bg-unique: url("/assets/rarity/unique.png"); --rar-bg-exotic: url("/assets/rarity/exotic.png");
+  --lm-bg: #161518;
+  --lm-surface: #242129;
+  --lm-ink: #fcfcfc;
+  --lm-ink-2: rgba(255, 255, 255, .78);
+  --lm-ink-3: rgba(255, 255, 255, .6);
+  --lm-line: rgba(255, 255, 255, .1);
+  --lm-field-bg: #201e25;
+  --lm-danger: #fb3b3b;
+
+  --accent-ink: #1a1206;
+  --pearl: #ecebed;
+  --lavender: #c640cd;
+  --red: #ff0000;
+  --white-10: rgba(255, 255, 255, 0.1);
+  --brand-active: rgba(229, 39, 75, 0.5);
+  --menu-bg: radial-gradient(circle at 66% 38%, #b528d8 0%, #8016b8 44%, #54098a 100%);
+  --modal-bg: linear-gradient(160deg, #3a1660 0%, #25103f 55%, #1a0c2e 100%);
+  --modal-scrim: rgba(18, 7, 33, 0.6);
+  --shadow-panel: 0 8px 24px rgba(0, 0, 0, 0.35);
+  --font-family: var(--font-sans);
+  --ui-scale: 0.85;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --dur-fast: 140ms;
+  --dur-mid: 300ms;
+  --dur-fade: 600ms;
+
+  --s-1: 4px;
+  --s-1-5: 6px;
+  --s-2: 8px;
+  --s-2-5: 10px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-5: 24px;
+  --s-6: 32px;
+  --s-7: 40px;
+  --s-8: 48px;
+  --s-10: 64px;
+
+  --fs-11: 11px;
+  --fs-12: 12px;
+  --fs-13: 13px;
+  --fs-14: 14px;
+  --fs-15: 15px;
+  --fs-16: 16px;
+  --fs-18: 18px;
+  --fs-20: 20px;
+  --fs-24: 24px;
+  --fs-28: 28px;
+  --fs-34: 34px;
+
+  /* Body steps, from upstream bevy-explorer's react-web scale. rem rather than px so the
+     reader's root font size carries; --ui-scale remains the HUD's own knob (it is a
+     transform, so the two compose).
+     --fs-2xs is ours: upstream's floor is --fs-xs at 11.52px, and our HUD has 32 labels
+     below that which taking their floor verbatim would inflate by 15-28%. */
+  --fs-2xs: 0.65rem;
+  --fs-xs: 0.72rem;
+  --fs-sm: 0.82rem;
+  --fs-md: 0.92rem;
+  --fs-lg: 1.05rem;
+
+  /* Fluid heading steps, from upstream bevy-explorer's react-web scale. The HUD sits over
+     a canvas that scales with render resolution, so headings track viewport HEIGHT: on a
+     short laptop screen they give the world back the vertical space a fixed 26px title
+     takes. The rem bounds also follow the reader's root font size.
+     Orthogonal to the max-width overrides in the page CSS, which handle narrow, not short. */
+  --fs-title: clamp(1.25rem, 2.6vh, 1.9rem);
+  --fs-display: clamp(2rem, 4.5vh, 3.25rem);
+
+  /* Leading. One canonical value per text role; use these tokens and never a
+     bare numeric line-height in a stylesheet. */
+  --lh-flat:  1.1;   /* single-line numerals and monograms -- never wraps */
+  --lh-tight: 1.15;  /* display and page titles, 24-34px */
+  --lh-snug:  1.3;   /* object titles, 14-20px */
+  --lh-ui:    1.45;  /* every non-prose string: chips, labels, cells, controls */
+  --lh-body:  1.6;   /* all running prose, 12-14px */
+  --lh-code:  1.55;  /* monospace blocks: pre, textarea, log ledgers */
+
+  /* Measure. Prose is capped in ch, always; never in px. */
+  --measure:        68ch;  /* every paragraph outside a card or cell */
+  --measure-narrow: 44ch;  /* captions inside a grid tile or card */
+
+  --fw-regular: 400;
+  --fw-medium: 500;
+  --fw-semibold: 600;
+  --fw-bold: 700;
+
+  --focus-ring-color: var(--brand);
+  --focus-ring-width: 2px;
+  --focus-ring-offset: 2px;
+  --focus-ring-color-invert: #fff;
+}
+
+html.theme-light {
+  color-scheme: light;
+  --brand-ink: #d80029;
+  --panel: #ffffff;
+  --panel-2: #f3f2f5;
+  --text: rgba(22,21,24,.9);
+  --ink-85: rgba(22,21,24,.85); --ink-7: rgba(22,21,24,.6);
+  --ink-6: rgba(22,21,24,.55); --ink-45: rgba(22,21,24,.6);
+  --fill-1: rgba(22,21,24,.04); --fill-2: rgba(22,21,24,.06);
+  --fill-3: rgba(22,21,24,.08); --fill-4: rgba(22,21,24,.1);
+  --fill-5: rgba(22,21,24,.12);
+  --line: rgba(22,21,24,.14);
+  --scrim: rgba(22,21,24,.4);
+}
+html.theme-light body { background: #f3f2f5; }
+.ui2 {
+  --ctl-radius: 6px;
+  --ctl-weight: 600;
+  --ctl-tracking: .46px;
+  --ctl-pad-sm: 4px 10px;
+  --ctl-pad-md: 6px 16px;
+  --ctl-pad-lg: 8px 22px;
+  --r-control: 6px;
+  --r-card: 12px;
+  --r-panel: 12px;
+  --modal-radius: 12px;
+  --surface-radius: 6px;
+  --brand-hover: var(--brand-light);
+  --brand-dark: #f70038;
+}
+
+html,
+body {
+  background: #0e0a16;
+  color: var(--text);
+  font-family: var(--font-sans);
+}
+
+body {
+  margin: 0;
+}
+
+.mk {
+  --lm-bg: #161518;
+  --lm-surface: #242129;
+}
+
+.u-rar-bg { background-image: var(--rb); background-size: cover; background-position: center; }
+
+.u-truncate { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.u-mask-icon {
+  -webkit-mask: var(--i) center / contain no-repeat;
+  mask: var(--i) center / contain no-repeat;
+}
+
+html.still *, html.still *::before, html.still *::after {
+  animation-duration: 0s !important; animation-delay: 0s !important; transition: none !important;
+}
+
+.u-avatar {
+  position: relative; display: inline-block; flex: 0 0 auto; width: var(--sz, 40px); height: var(--sz, 40px);
+  border-radius: 50%;
+  background-color: hsl(var(--hue, 280) 65% 55%);
+  background-image: linear-gradient(135deg, hsl(var(--hue, 280) 65% 55%), hsl(calc(var(--hue, 280) + 50) 60% 40%));
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+.u-avatar__img {
+  position: absolute; inset: 0; width: 100%; height: 100%; display: block;
+  object-fit: cover; border-radius: inherit;
+}
+.u-avatar__initials {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  color: #fff; font-family: var(--font-sans); font-weight: 700; line-height: 1;
+  font-size: calc(var(--sz, 40px) * .42); letter-spacing: -.02em; text-transform: uppercase;
+  user-select: none; text-shadow: 0 1px 2px rgba(0, 0, 0, .25);
+}
+
+.u-dot { width: 12px; height: 12px; border-radius: 50%; flex: 0 0 auto; display: inline-block; }
+.u-dot--online { background: var(--online); }
+.u-dot--away { background: var(--away); }
+.u-dot--offline { background: var(--offline); }
+.u-dot--ring { position: absolute; right: -1px; bottom: -1px; border: 2.5px solid var(--panel); }
+
+.u-badge {
+  background: var(--brand-cta); color: #fff; font-size: 11px; font-weight: 700;
+  min-width: 18px; height: 18px; padding: 0 5px; border-radius: var(--r-pill);
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.u-badge--purple { background: var(--explore-tab-active); }
+
+.u-pill { font-size: 12px; font-weight: 700; padding: 5px 12px; border-radius: var(--r-pill); }
+.u-pill--default { background: var(--fill-3); color: var(--ink-85); }
+.u-pill--accent { background: var(--accent); color: var(--accent-ink); }
+.u-pill--live { background: #e02020; color: #fff; }
+.u-pill--online { background: rgba(87, 223, 65, .16); color: var(--online); }
+
+.u-wallet {
+  background: rgba(255, 255, 255, .298); border: none; color: #fff; cursor: pointer;
+  font-family: inherit; font-size: 12px; font-weight: 600; padding: 6px 12px; border-radius: var(--r-pill);
+}
+.u-wallet:hover { background: rgba(255, 255, 255, .38); }
+
+.u-progress { display: block; width: 100%; height: 8px; border-radius: var(--r-pill); background: var(--fill-4); overflow: hidden; }
+.u-progress > span { display: block; height: 100%; border-radius: var(--r-pill); background: var(--brand); }
+.u-progress > span.is-danger { background: var(--error); }
+
+.u-skel { display: inline-flex; flex-direction: column; gap: 8px; }
+.u-skel__line {
+  height: 12px; border-radius: 6px;
+  background: linear-gradient(90deg, rgba(255,255,255,.06) 25%, rgba(255,255,255,.14) 37%, rgba(255,255,255,.06) 63%);
+  background-size: 400% 100%; animation: u-shimmer 1.3s ease infinite;
+}
+@keyframes u-shimmer { 0% { background-position: 100% 0; } 100% { background-position: -100% 0; } }
+
+@keyframes u-spin { to { transform: rotate(360deg); } }
+@keyframes u-fade-in { from { opacity: 0; } to { opacity: 1; } }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .001ms !important;
+  }
+}
+
+.u-modal-overlay {
+  position: fixed; inset: 0; z-index: var(--z-modal);
+  background: var(--scrim);
+  display: flex; padding: 20px; overflow: auto;
+  animation: u-fade-in 0.3s linear;
+}
+
+.ep__backdrop {
+  position: fixed; inset: 0; z-index: var(--z-panel);
+  background: rgba(0, 0, 0, .502);
+  display: flex; align-items: center; justify-content: center;
+  padding: 24px;
+}
+
+.u-behind { pointer-events: none; }
+.u-behind .ep__backdrop { filter: brightness(0.62) saturate(0.85); animation: none; }
+
+.u-jumpin-card {
+  display: flex; height: 608px; width: 100%; max-width: 1448px;
+  overflow: hidden; border-radius: 16px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
+}
+.u-spinner {
+  width: var(--sp-size, 28px); height: var(--sp-size, 28px); flex: 0 0 auto;
+  border-radius: 50%;
+  border: var(--sp-width, 3px) solid var(--sp-track, rgba(255, 255, 255, .14));
+  border-top-color: var(--sp-color, var(--brand));
+  animation: u-spin .8s linear infinite;
+}
+
+.u-tip { position: relative; cursor: default; }
+.u-tip__bubble {
+  position: absolute; left: 50%; bottom: calc(100% + 8px); transform: translateX(-50%); white-space: nowrap;
+  background: #000; color: #fff; font-size: 11px; font-weight: 600; padding: 5px 9px; border-radius: 7px;
+  opacity: 0; transition: opacity .12s ease; pointer-events: none;
+}
+.u-tip__bubble::after { content: ""; position: absolute; left: 50%; top: 100%; transform: translateX(-50%); border: 5px solid transparent; border-top-color: #000; }
+.u-tip:hover .u-tip__bubble { opacity: 1; }
+
+.u-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}

@@ -9,6 +9,12 @@ struct PeerState {
     world_rooms: usize,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct CommsStats {
+    pub rooms: i64,
+    pub users: i64,
+}
+
 #[derive(Default)]
 pub struct PeersRegistry {
     peers: DashMap<String, PeerState>,
@@ -62,6 +68,20 @@ impl PeersRegistry {
         let mut out: Vec<(String, i64)> = counts.into_iter().collect();
         out.sort();
         out
+    }
+
+    pub fn comms_stats(&self) -> CommsStats {
+        let users = self.peers.len() as i64;
+        let mut rooms: HashSet<String> = HashSet::new();
+        for entry in self.peers.iter() {
+            for room in entry.value().rooms.iter() {
+                rooms.insert(room.clone());
+            }
+        }
+        CommsStats {
+            rooms: rooms.len() as i64,
+            users,
+        }
     }
 
     pub fn world_participant_count(&self, world: &str) -> i64 {

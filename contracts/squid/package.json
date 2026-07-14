@@ -1,0 +1,35 @@
+{
+  "name": "squid-evm-template",
+  "private": true,
+  "scripts": {
+    "build": "rm -rf lib && tsc",
+    "test": "npm run build && node --test \"lib/**/*.test.js\"",
+    "db:migrate": "npx squid-typeorm-migration apply",
+    "processor:polygon": "node lib/polygon/main.js",
+    "processor:eth": "node lib/eth/main.js",
+    "codegen:model": "npx --yes @subsquid/typeorm-codegen@^2.0.2",
+    "codegen:abi": "npx --yes @subsquid/evm-typegen@^4.3.0"
+  },
+  "dependencies": {
+    "@dcl/schemas": "^27.1.0",
+    "@subsquid/batch-processor": "^1.1.0",
+    "@subsquid/evm-abi": "^0.3.1",
+    "@subsquid/evm-codec": "^0.3.0",
+    "@subsquid/evm-objects": "^0.0.3",
+    "@subsquid/evm-processor": "^1.30.1",
+    "@subsquid/evm-stream": "^0.1.4",
+    "@subsquid/file-store": "^2.0.0",
+    "@subsquid/portal-client": "^0.7.0",
+    "@subsquid/rpc-client": "^4.16.1",
+    "@subsquid/typeorm-migration": "^1.4.0",
+    "@subsquid/typeorm-store": "^1.9.2",
+    "dotenv": "^17.4.2",
+    "ethers": "^6.17.0",
+    "pg": "^8.23.0",
+    "typeorm": "^0.3.31"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.2",
+    "typescript": "^7.0.2"
+  }
+}

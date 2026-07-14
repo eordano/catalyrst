@@ -1,22 +1,10 @@
-use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
+use std::fmt;
 
-use crate::error::{ValidationResponse, ValidatorError};
+use serde::de::{MapAccess, SeqAccess, Visitor};
+use serde::{Deserialize, Deserializer, Serialize};
+
+use crate::error::ValidationResponse;
 use crate::types::*;
-
-#[async_trait]
-pub trait ThirdPartyContractRegistry: Send + Sync {
-    fn is_erc721(&self, contract_address: &str) -> bool;
-
-    fn is_erc1155(&self, contract_address: &str) -> bool;
-
-    fn is_unknown(&self, contract_address: &str) -> bool;
-
-    async fn ensure_contracts_known(
-        &self,
-        contract_addresses: &[String],
-    ) -> Result<(), ValidatorError>;
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -36,8 +24,16 @@ pub struct ThirdPartyProps {
     pub id: String,
 }
 
+/// Hashing keys a third-party wearable's merkle proof must commit for the checks to be trustworthy.
+pub const WEARABLE_REQUIRED_HASHING_KEYS: &[&str] = &["id", "content", "data"];
+
+/// Hashing keys a third-party emote's merkle proof must commit for the checks to be trustworthy.
+pub const EMOTE_REQUIRED_HASHING_KEYS: &[&str] = &["id", "content", "emoteDataADR74"];
+
 pub fn validate_third_party_merkle_proof_content(
     deployment: &DeploymentToValidate,
+    required_hashing_keys: &[&str],
+    item_label: &str,
 ) -> ValidationResponse {
     let entity = &deployment.entity;
     let metadata = match &entity.metadata {
@@ -62,6 +58,15 @@ pub fn validate_third_party_merkle_proof_content(
             "The id '{}' does not match the pointer '{}'",
             tp_props.id,
             entity.pointers.first().map(|s| s.as_str()).unwrap_or("")
+        ));
+    }
+
+    if let Some(missing_key) = required_hashing_keys
+        .iter()
+        .find(|key| !tp_props.merkle_proof.hashing_keys.iter().any(|k| k == *key))
+    {
+        return ValidationResponse::fail(format!(
+            "The third-party {item_label} merkle proof must commit the '{missing_key}' field"
         ));
     }
 
@@ -93,7 +98,29 @@ pub fn validate_third_party_merkle_proof_content(
         );
     }
 
-    let generated = keccak256_hash(metadata, &tp_props.merkle_proof.hashing_keys);
+    let entity_bytes = match deployment.files.get(&entity.id) {
+        Some(bytes) => bytes,
+        None => {
+            return ValidationResponse::unavailable(format!(
+                "The entity file bytes for '{}' were not available to recompute the third-party \
+                 merkle proof hash, so the deployment could not be validated. Please retry.",
+                entity.id
+            ));
+        }
+    };
+
+    let hashing_keys = &tp_props.merkle_proof.hashing_keys;
+    let generated = match entity_hash_from_entity_bytes(entity_bytes, hashing_keys) {
+        Some(hash) => hash,
+        None => {
+            return ValidationResponse::unavailable(format!(
+                "The entity file bytes for '{}' could not be parsed to recompute the third-party \
+                 merkle proof hash, so the deployment could not be validated. Please retry.",
+                entity.id
+            ));
+        }
+    };
+
     if !tp_props
         .merkle_proof
         .entity_hash
@@ -131,22 +158,261 @@ pub fn verify_third_party_merkle_proof(proof: &MerkleProof, root: &[u8; 32]) -> 
     crate::merkle::verify_proof(proof.index, &proof.entity_hash, &decoded, root)
 }
 
-fn keccak256_hash(metadata: &serde_json::Value, keys: &[String]) -> String {
-    let mut s = String::from("{");
-    let mut first = true;
-    for k in keys {
-        if let Some(v) = metadata.get(k) {
-            if !first {
-                s.push(',');
+/// The reference algorithm (`@dcl/hashing` `keccak256Hash`) hashes
+/// `JSON.stringify(pick(metadata, hashingKeys))` where the pick preserves the metadata's own
+/// insertion order and `JSON.stringify` reproduces ECMAScript serialization. `serde_json::Value`
+/// re-sorts object keys under the shipped (no `preserve_order`) build, which produces a different
+/// byte string and rejects every legitimate third-party deployment. To be independent of that
+/// feature flag, the hash is recomputed from the raw uploaded entity bytes through this
+/// order-preserving representation rather than through `serde_json::Value`.
+enum OrderedJson {
+    Null,
+    Bool(bool),
+    Number(f64),
+    String(String),
+    Array(Vec<OrderedJson>),
+    Object(Vec<(String, OrderedJson)>),
+}
+
+impl<'de> Deserialize<'de> for OrderedJson {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct OrderedVisitor;
+
+        impl<'de> Visitor<'de> for OrderedVisitor {
+            type Value = OrderedJson;
+
+            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                f.write_str("any JSON value")
             }
-            first = false;
-            s.push_str(&serde_json::to_string(k).unwrap());
-            s.push(':');
-            s.push_str(&serde_json::to_string(v).unwrap());
+
+            fn visit_bool<E>(self, v: bool) -> Result<Self::Value, E> {
+                Ok(OrderedJson::Bool(v))
+            }
+
+            fn visit_i64<E>(self, v: i64) -> Result<Self::Value, E> {
+                Ok(OrderedJson::Number(v as f64))
+            }
+
+            fn visit_u64<E>(self, v: u64) -> Result<Self::Value, E> {
+                Ok(OrderedJson::Number(v as f64))
+            }
+
+            fn visit_f64<E>(self, v: f64) -> Result<Self::Value, E> {
+                Ok(OrderedJson::Number(v))
+            }
+
+            fn visit_str<E>(self, v: &str) -> Result<Self::Value, E> {
+                Ok(OrderedJson::String(v.to_string()))
+            }
+
+            fn visit_string<E>(self, v: String) -> Result<Self::Value, E> {
+                Ok(OrderedJson::String(v))
+            }
+
+            fn visit_none<E>(self) -> Result<Self::Value, E> {
+                Ok(OrderedJson::Null)
+            }
+
+            fn visit_unit<E>(self) -> Result<Self::Value, E> {
+                Ok(OrderedJson::Null)
+            }
+
+            fn visit_some<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
+            where
+                D: Deserializer<'de>,
+            {
+                Deserialize::deserialize(deserializer)
+            }
+
+            fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+            where
+                A: SeqAccess<'de>,
+            {
+                let mut items = Vec::new();
+                while let Some(item) = seq.next_element()? {
+                    items.push(item);
+                }
+                Ok(OrderedJson::Array(items))
+            }
+
+            fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+            where
+                A: MapAccess<'de>,
+            {
+                let mut entries = Vec::new();
+                while let Some((key, value)) = map.next_entry::<String, OrderedJson>()? {
+                    entries.push((key, value));
+                }
+                // Under serde_json's `arbitrary_precision` feature (which any
+                // workspace member's dependency can unify into a build) a number
+                // reaches `deserialize_any` as a one-entry map keyed by this token
+                // and carrying the literal digits. Fold it back into a number so
+                // the recomputed hash does not depend on that feature flag.
+                if let [(key, OrderedJson::String(digits))] = entries.as_slice() {
+                    if key == "$serde_json::private::Number" {
+                        if let Ok(n) = digits.parse::<f64>() {
+                            return Ok(OrderedJson::Number(n));
+                        }
+                    }
+                }
+                Ok(OrderedJson::Object(entries))
+            }
+        }
+
+        deserializer.deserialize_any(OrderedVisitor)
+    }
+}
+
+impl OrderedJson {
+    fn as_object(&self) -> Option<&[(String, OrderedJson)]> {
+        match self {
+            OrderedJson::Object(entries) => Some(entries),
+            _ => None,
         }
     }
-    s.push('}');
-    hex::encode(ethers_core::utils::keccak256(s.as_bytes()))
+
+    fn write_js(&self, out: &mut String) {
+        match self {
+            OrderedJson::Null => out.push_str("null"),
+            OrderedJson::Bool(true) => out.push_str("true"),
+            OrderedJson::Bool(false) => out.push_str("false"),
+            OrderedJson::Number(n) => out.push_str(&js_number_to_string(*n)),
+            OrderedJson::String(s) => push_js_string(out, s),
+            OrderedJson::Array(items) => {
+                out.push('[');
+                for (i, item) in items.iter().enumerate() {
+                    if i != 0 {
+                        out.push(',');
+                    }
+                    item.write_js(out);
+                }
+                out.push(']');
+            }
+            OrderedJson::Object(entries) => {
+                out.push('{');
+                for (i, (key, value)) in entries.iter().enumerate() {
+                    if i != 0 {
+                        out.push(',');
+                    }
+                    push_js_string(out, key);
+                    out.push(':');
+                    value.write_js(out);
+                }
+                out.push('}');
+            }
+        }
+    }
+}
+
+/// Recompute the third-party entity hash from the raw uploaded entity JSON, reproducing
+/// `keccak256(JSON.stringify(pick(entity.metadata, hashingKeys)))`. Returns `None` when the bytes
+/// are not valid JSON or carry no `metadata` object.
+fn entity_hash_from_entity_bytes(entity_bytes: &[u8], hashing_keys: &[String]) -> Option<String> {
+    let root: OrderedJson = serde_json::from_slice(entity_bytes).ok()?;
+    let metadata = root
+        .as_object()?
+        .iter()
+        .find(|(key, _)| key == "metadata")
+        .map(|(_, value)| value)?;
+    let metadata_entries = metadata.as_object()?;
+
+    let mut serialized = String::from("{");
+    let mut first = true;
+    for key in hashing_keys {
+        if let Some((_, value)) = metadata_entries.iter().find(|(k, _)| k == key) {
+            if !first {
+                serialized.push(',');
+            }
+            first = false;
+            push_js_string(&mut serialized, key);
+            serialized.push(':');
+            value.write_js(&mut serialized);
+        }
+    }
+    serialized.push('}');
+
+    Some(hex::encode(alloy_primitives::keccak256(
+        serialized.as_bytes(),
+    )))
+}
+
+// Must reproduce JS `JSON.stringify` string escaping exactly, or the recomputed
+// entityHash diverges from the merkleProof's.
+fn push_js_string(out: &mut String, value: &str) {
+    out.push('"');
+    for ch in value.chars() {
+        match ch {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\u{0008}' => out.push_str("\\b"),
+            '\u{000C}' => out.push_str("\\f"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+}
+
+// Must reproduce JS `Number::toString` semantics exactly, or the recomputed
+// entityHash diverges from the merkleProof's.
+fn js_number_to_string(value: f64) -> String {
+    if value == 0.0 {
+        return "0".to_string();
+    }
+    if !value.is_finite() {
+        return "null".to_string();
+    }
+    if value < 0.0 {
+        return format!("-{}", js_number_to_string(-value));
+    }
+
+    let formatted = format!("{value:e}");
+    let (mantissa, exp_str) = match formatted.split_once('e') {
+        Some(parts) => parts,
+        None => return formatted,
+    };
+    let exp: i32 = match exp_str.parse() {
+        Ok(e) => e,
+        Err(_) => return formatted,
+    };
+    let (int_part, frac_part) = match mantissa.split_once('.') {
+        Some((i, f)) => (i, f),
+        None => (mantissa, ""),
+    };
+
+    let mut digits = String::with_capacity(int_part.len() + frac_part.len());
+    digits.push_str(int_part);
+    digits.push_str(frac_part);
+    let digits = digits.trim_end_matches('0');
+    let digits = if digits.is_empty() { "0" } else { digits };
+
+    let k = digits.len() as i32;
+    let n = exp + 1;
+
+    if k <= n && n <= 21 {
+        let mut s = String::from(digits);
+        s.push_str(&"0".repeat((n - k) as usize));
+        s
+    } else if 0 < n && n <= 21 {
+        format!("{}.{}", &digits[..n as usize], &digits[n as usize..])
+    } else if -6 < n && n <= 0 {
+        format!("0.{}{}", "0".repeat((-n) as usize), digits)
+    } else {
+        let e = n - 1;
+        let sign = if e >= 0 { "+" } else { "-" };
+        let magnitude = e.abs();
+        if k == 1 {
+            format!("{digits}e{sign}{magnitude}")
+        } else {
+            format!("{}.{}e{sign}{magnitude}", &digits[..1], &digits[1..])
+        }
+    }
 }
 
 pub fn get_third_party_id(urn: &str) -> Option<String> {
@@ -159,23 +425,184 @@ pub fn get_third_party_id(urn: &str) -> Option<String> {
 }
 
 pub fn hex_to_bytes(value: &str) -> Option<Vec<u8>> {
-    let hex_str = value.strip_prefix("0x").unwrap_or(value);
-    hex_decode(hex_str)
-}
-
-fn hex_decode(hex: &str) -> Option<Vec<u8>> {
-    if !hex.len().is_multiple_of(2) {
-        return None;
-    }
-    (0..hex.len())
-        .step_by(2)
-        .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).ok())
-        .collect()
+    catalyrst_types::decode_hex_0x(value).ok()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashMap;
+
+    const WOODIE_0: &[u8] = include_bytes!("third_party_fixtures/woodie_0.entity.json");
+    const WOODIE_1: &[u8] = include_bytes!("third_party_fixtures/woodie_1.entity.json");
+    const WOODIE_2: &[u8] = include_bytes!("third_party_fixtures/woodie_2.entity.json");
+
+    const WOODIE_0_ID: &str = "bafkreigxzm4duawatfhiylmawwdr4yezskltd3ygkup6nsl4yyif5t57i4";
+    const WOODIE_1_ID: &str = "bafkreiagzmpgju3674iuyx4cnnep5alxmbtswvpxtyoaewh4p7aso4ngcq";
+    const WOODIE_2_ID: &str = "bafkreib3fofcerd5qf7y23m43scwdv3v3th4xe5yyp57z5bb2bdsgndeva";
+
+    const WOODIE_0_HASH: &str = "844cc96d067b492429399be517fba14c5c7f0bd12a0a8e49eaf9db4037e14c06";
+    const WOODIE_1_HASH: &str = "c0f8acbbe09830ad10dbeda7ddd1e147b20471923bb5d540d27786f3df660acb";
+    const WOODIE_2_HASH: &str = "d3372d7e4638cf119ed377f1aef1d9d7823be5ad1a9a481c3f044311b08d1827";
+
+    fn deployment_from_raw(entity_id: &str, raw: &[u8]) -> DeploymentToValidate {
+        let entity = crate::entity_parser::parse_entity_from_bytes(raw, entity_id)
+            .expect("fixture entity must parse");
+        let mut files = HashMap::new();
+        files.insert(entity.id.clone(), raw.to_vec());
+        DeploymentToValidate {
+            entity,
+            files,
+            audit_info: DeploymentAuditInfo { auth_chain: vec![] },
+        }
+    }
+
+    #[test]
+    fn production_third_party_wearables_reproduce_declared_entity_hash() {
+        for (id, raw, declared) in [
+            (WOODIE_0_ID, WOODIE_0, WOODIE_0_HASH),
+            (WOODIE_1_ID, WOODIE_1, WOODIE_1_HASH),
+            (WOODIE_2_ID, WOODIE_2, WOODIE_2_HASH),
+        ] {
+            let entity = crate::entity_parser::parse_entity_from_bytes(raw, id).unwrap();
+            let tp: ThirdPartyProps =
+                serde_json::from_value(entity.metadata.clone().unwrap()).unwrap();
+            let computed =
+                entity_hash_from_entity_bytes(raw, &tp.merkle_proof.hashing_keys).unwrap();
+            assert_eq!(
+                computed, declared,
+                "recomputed hash for {id} must equal the deployed merkleProof.entityHash"
+            );
+
+            let deployment = deployment_from_raw(id, raw);
+            let result = validate_third_party_merkle_proof_content(
+                &deployment,
+                WEARABLE_REQUIRED_HASHING_KEYS,
+                "wearable",
+            );
+            assert!(
+                result.is_ok(),
+                "production third-party wearable {id} must validate, got {result}"
+            );
+        }
+    }
+
+    #[test]
+    fn tampered_declared_hash_is_rejected() {
+        let mut deployment = deployment_from_raw(WOODIE_0_ID, WOODIE_0);
+        let metadata = deployment.entity.metadata.as_mut().unwrap();
+        metadata["merkleProof"]["entityHash"] =
+            serde_json::json!("0000000000000000000000000000000000000000000000000000000000000000");
+        let result = validate_third_party_merkle_proof_content(
+            &deployment,
+            WEARABLE_REQUIRED_HASHING_KEYS,
+            "wearable",
+        );
+        let errors = result.errors().expect("tampered hash must fail");
+        assert_eq!(
+            errors[0],
+            "The hash provided in the merkleProof doesn't match the one generated by the validator"
+        );
+    }
+
+    #[test]
+    fn missing_entity_file_bytes_are_unavailable_not_rejected() {
+        let mut deployment = deployment_from_raw(WOODIE_0_ID, WOODIE_0);
+        deployment.files.clear();
+        let result = validate_third_party_merkle_proof_content(
+            &deployment,
+            WEARABLE_REQUIRED_HASHING_KEYS,
+            "wearable",
+        );
+        assert!(
+            result.is_unavailable(),
+            "a missing own entity file must be Unavailable (retryable), got {result}"
+        );
+    }
+
+    #[test]
+    fn escaping_and_number_edge_cases_match_reference_hash() {
+        const EDGE: &[u8] = include_bytes!("third_party_fixtures/escaping_edge.entity.json");
+        let keys = vec![
+            "id".to_string(),
+            "weird".to_string(),
+            "nums".to_string(),
+            "nested".to_string(),
+        ];
+        let computed = entity_hash_from_entity_bytes(EDGE, &keys).unwrap();
+        assert_eq!(
+            computed, "20ce3c103cf4cfbc0b845945a134137cbe43d08ee8a467ad3872c68644e8d839",
+            "JS string escaping + number printing + key order must reproduce the reference hash"
+        );
+    }
+
+    #[test]
+    fn ordered_parse_preserves_insertion_order_independent_of_serde_json_feature() {
+        let input = br#"{"b":1,"a":2,"c":{"z":10,"y":20},"d":[3,2,1]}"#;
+        let parsed: OrderedJson = serde_json::from_slice(input).unwrap();
+        let mut out = String::new();
+        parsed.write_js(&mut out);
+        assert_eq!(out, r#"{"b":1,"a":2,"c":{"z":10,"y":20},"d":[3,2,1]}"#);
+    }
+
+    #[test]
+    fn serde_json_value_ordering_divergence_guard() {
+        let input = r#"{"b":1,"a":2}"#;
+
+        let ordered: OrderedJson = serde_json::from_str(input).unwrap();
+        let mut ordered_out = String::new();
+        ordered.write_js(&mut ordered_out);
+        assert_eq!(
+            ordered_out, input,
+            "the order-preserving parser must always keep insertion order"
+        );
+
+        let value: serde_json::Value = serde_json::from_str(input).unwrap();
+        let via_value = serde_json::to_string(&value).unwrap();
+        if via_value != input {
+            assert_eq!(
+                via_value, r#"{"a":2,"b":1}"#,
+                "when serde_json re-sorts (the shipped catalyrst-server build), it must sort \
+                 keys; if this changes, the third-party hash source assumption must be revisited"
+            );
+            assert_ne!(
+                via_value, ordered_out,
+                "serde_json::Value serialization diverges from the reference order here, which is \
+                 exactly why the hash is sourced from the order-preserving parser, not the Value"
+            );
+        }
+    }
+
+    #[test]
+    fn js_number_printing_matches_ecmascript() {
+        for (input, expected) in [
+            (0.0, "0"),
+            (-0.0, "0"),
+            (2.0, "2"),
+            (2.5, "2.5"),
+            (-3.0, "-3"),
+            (0.5, "0.5"),
+            (100.0, "100"),
+            (123.0, "123"),
+            (0.0001, "0.0001"),
+            (1e21, "1e+21"),
+            (1e-7, "1e-7"),
+            (1000.0, "1000"),
+        ] {
+            assert_eq!(
+                js_number_to_string(input),
+                expected,
+                "js_number_to_string({input}) mismatch"
+            );
+        }
+    }
+
+    #[test]
+    fn js_string_escaping_matches_ecmascript() {
+        let mut out = String::new();
+        push_js_string(&mut out, "a\"b\\c\n\t\u{0008}\u{000C}\r\u{0001}/\u{e9}");
+        assert_eq!(out, "\"a\\\"b\\\\c\\n\\t\\b\\f\\r\\u0001/\u{e9}\"");
+    }
 
     #[test]
     fn third_party_id_extraction() {
@@ -202,21 +629,6 @@ mod tests {
     }
 
     #[test]
-    fn keccak256_hash_matches_picked_order() {
-        let metadata = serde_json::json!({
-            "id": "urn:tp",
-            "name": "Item",
-            "description": "desc",
-            "extra": "ignored"
-        });
-        let keys = vec!["name".to_string(), "description".to_string()];
-        let expected = hex::encode(ethers_core::utils::keccak256(
-            br#"{"name":"Item","description":"desc"}"#,
-        ));
-        assert_eq!(keccak256_hash(&metadata, &keys), expected);
-    }
-
-    #[test]
     fn validate_non_third_party_passes() {
         let deployment = DeploymentToValidate {
             entity: Entity {
@@ -231,10 +643,116 @@ mod tests {
                     "data": { "representations": [], "tags": [], "category": "hat" }
                 })),
             },
-            files: std::collections::HashMap::new(),
+            files: HashMap::new(),
             audit_info: DeploymentAuditInfo { auth_chain: vec![] },
         };
 
-        assert!(validate_third_party_merkle_proof_content(&deployment).is_ok());
+        assert!(validate_third_party_merkle_proof_content(
+            &deployment,
+            WEARABLE_REQUIRED_HASHING_KEYS,
+            "wearable"
+        )
+        .is_ok());
+    }
+
+    fn synthetic_third_party_deployment(
+        pointer: &str,
+        hashing_keys: &[&str],
+    ) -> DeploymentToValidate {
+        let keys: Vec<String> = hashing_keys.iter().map(|k| k.to_string()).collect();
+        let metadata = serde_json::json!({
+            "id": pointer,
+            "content": {},
+            "data": { "representations": [], "tags": [], "category": "hat" },
+            "emoteDataADR74": { "representations": [], "tags": [], "category": "dance" },
+            "merkleProof": {
+                "proof": ["0x0000000000000000000000000000000000000000000000000000000000000001"],
+                "index": 0,
+                "entityHash": "0000000000000000000000000000000000000000000000000000000000000000",
+                "hashingKeys": keys,
+            },
+        });
+
+        DeploymentToValidate {
+            entity: Entity {
+                id: "bafkrei".to_string(),
+                entity_type: EntityType::Wearable,
+                pointers: vec![pointer.to_string()],
+                timestamp: 1700000000000,
+                content: vec![],
+                version: "v3".to_string(),
+                metadata: Some(metadata),
+            },
+            files: HashMap::new(),
+            audit_info: DeploymentAuditInfo { auth_chain: vec![] },
+        }
+    }
+
+    const TP_POINTER: &str =
+        "urn:decentraland:matic:collections-thirdparty:tp-name:collection:item";
+
+    #[test]
+    fn wearable_proof_missing_content_key_fails() {
+        let deployment = synthetic_third_party_deployment(TP_POINTER, &["id", "data"]);
+        let result = validate_third_party_merkle_proof_content(
+            &deployment,
+            WEARABLE_REQUIRED_HASHING_KEYS,
+            "wearable",
+        );
+        let errors = result.errors().expect("must fail");
+        assert_eq!(
+            errors[0],
+            "The third-party wearable merkle proof must commit the 'content' field"
+        );
+    }
+
+    #[test]
+    fn emote_proof_missing_emote_data_key_fails() {
+        let deployment = synthetic_third_party_deployment(TP_POINTER, &["id", "content", "data"]);
+        let result = validate_third_party_merkle_proof_content(
+            &deployment,
+            EMOTE_REQUIRED_HASHING_KEYS,
+            "emote",
+        );
+        let errors = result.errors().expect("must fail as emote");
+        assert_eq!(
+            errors[0],
+            "The third-party emote merkle proof must commit the 'emoteDataADR74' field"
+        );
+    }
+
+    #[test]
+    fn proof_missing_id_key_fails() {
+        let deployment = synthetic_third_party_deployment(TP_POINTER, &["content", "data"]);
+        let result = validate_third_party_merkle_proof_content(
+            &deployment,
+            WEARABLE_REQUIRED_HASHING_KEYS,
+            "wearable",
+        );
+        let errors = result.errors().expect("must fail");
+        assert_eq!(
+            errors[0],
+            "The third-party wearable merkle proof must commit the 'id' field"
+        );
+    }
+
+    #[test]
+    fn id_pointer_mismatch_fails() {
+        let mut deployment =
+            synthetic_third_party_deployment(TP_POINTER, &["id", "content", "data"]);
+        deployment.entity.pointers = vec![
+            "urn:decentraland:matic:collections-thirdparty:tp-name:collection:other".to_string(),
+        ];
+        let result = validate_third_party_merkle_proof_content(
+            &deployment,
+            WEARABLE_REQUIRED_HASHING_KEYS,
+            "wearable",
+        );
+        let errors = result.errors().expect("must fail");
+        assert!(
+            errors[0].starts_with("The id '") && errors[0].contains("does not match the pointer"),
+            "unexpected error: {}",
+            errors[0]
+        );
     }
 }

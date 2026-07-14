@@ -18,17 +18,17 @@ pub async fn verify_eip1654(
     message: &[u8],
     signature: &[u8],
 ) -> Result<bool, AuthError> {
-    let raw_hash = ethers_core::utils::keccak256(message);
+    let raw_hash = alloy_primitives::keccak256(message);
     if validator
-        .validate_signature(contract_address, &raw_hash, signature)
+        .validate_signature(contract_address, raw_hash.as_slice(), signature)
         .await?
     {
         return Ok(true);
     }
 
-    let prefixed_hash = ethers_core::utils::hash_message(message);
+    let prefixed_hash = alloy_primitives::eip191_hash_message(message);
     validator
-        .validate_signature(contract_address, prefixed_hash.as_bytes(), signature)
+        .validate_signature(contract_address, prefixed_hash.as_slice(), signature)
         .await
 }
 
@@ -58,7 +58,7 @@ mod tests {
     #[tokio::test]
     async fn accepts_raw_keccak_hash_without_trying_prefixed() {
         let message = b"hello world";
-        let raw = ethers_core::utils::keccak256(message);
+        let raw = alloy_primitives::keccak256(message).0;
         let v = HashMatchValidator {
             expected_hash: raw,
             calls: AtomicUsize::new(0),
@@ -73,7 +73,7 @@ mod tests {
     #[tokio::test]
     async fn falls_back_to_eip191_prefixed_hash() {
         let message = b"hello world";
-        let prefixed: [u8; 32] = ethers_core::utils::hash_message(message).into();
+        let prefixed: [u8; 32] = alloy_primitives::eip191_hash_message(message).0;
         let v = HashMatchValidator {
             expected_hash: prefixed,
             calls: AtomicUsize::new(0),

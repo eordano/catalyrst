@@ -1,0 +1,53 @@
+.gvnf__container {
+  width: 100%;
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 0 24px;
+  box-sizing: border-box;
+}
+
+.gvnf {
+  min-height: 75vh;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+}
+
+.gvnf__glyph {
+  margin-bottom: 8px;
+  line-height: 0;
+}
+.gvnf__glyphtext {
+  font-family: inherit;
+  font-size: 86px;
+  font-weight: 700;
+  letter-spacing: 6px;
+  fill: none;
+  stroke: var(--gv-line);
+  stroke-width: 2;
+}
+
+.gvnf__title {
+  margin: 0;
+  font-size: 40px;
+  line-height: 1.2;
+  font-weight: var(--fw-semibold);
+  text-transform: uppercase;
+  color: var(--gv-ink);
+}
+
+.gvnf__desc {
+  margin: 8px 0 0;
+  font-size: 21px;
+  line-height: 30px;
+  font-weight: var(--fw-regular);
+  color: var(--gv-ink);
+}
+
+@media (max-width: 600px) {
+  .gvnf__glyphtext { font-size: 64px; }
+  .gvnf__title { font-size: 28px; }
+  .gvnf__desc { font-size: 17px; line-height: 26px; }
+}

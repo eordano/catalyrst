@@ -1,11 +1,11 @@
 use std::collections::HashSet;
 use std::time::Duration;
 
+use catalyrst_commons::http::{http_client, HttpClientCfg};
+use catalyrst_commons::worker::{spawn_periodic, PeriodicCfg};
 use chrono::{DateTime, Utc};
 use sqlx::PgPool;
-
-pub const DEFAULT_TRADES_SYNC_UPSTREAM_URL: &str =
-    "https://marketplace-api.decentraland.org/v1/trades";
+use tokio_util::sync::CancellationToken;
 
 pub const DEFAULT_TRADES_SYNC_INTERVAL_SECS: u64 = 900;
 
@@ -140,6 +140,22 @@ pub fn parse_detail_assets(detail: &serde_json::Value) -> Result<Vec<UpstreamTra
     Ok(out)
 }
 
+pub async fn known_signatures_among(
+    pool: &PgPool,
+    batch: &[String],
+) -> Result<HashSet<String>, sqlx::Error> {
+    if batch.is_empty() {
+        return Ok(HashSet::new());
+    }
+    let rows = sqlx::query_scalar::<_, String>(
+        "SELECT hashed_signature FROM marketplace.trades WHERE hashed_signature = ANY($1)",
+    )
+    .bind(batch)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows.into_iter().collect())
+}
+
 async fn insert_trade(
     pool: &PgPool,
     head: &UpstreamTradeHead,
@@ -258,14 +274,14 @@ async fn run_sweep(
         .and_then(|d| d.as_array())
         .ok_or("upstream list missing data.data array")?;
 
-    let known: HashSet<String> =
-        sqlx::query_scalar::<_, String>("SELECT hashed_signature FROM marketplace.trades")
-            .fetch_all(pool)
-            .await
-            .map_err(|e| format!("local hashed_signature scan failed: {e}"))?
-            .into_iter()
-            .map(|s| s.to_lowercase())
-            .collect();
+    let parsed: Vec<Result<UpstreamTradeHead, String>> = rows.iter().map(parse_list_row).collect();
+    let batch: Vec<String> = parsed
+        .iter()
+        .filter_map(|r| r.as_ref().ok().map(|h| h.hashed_signature.clone()))
+        .collect();
+    let known = known_signatures_among(pool, &batch)
+        .await
+        .map_err(|e| format!("local hashed_signature scan failed: {e}"))?;
 
     let mut stats = SweepStats {
         fetched: rows.len(),
@@ -275,8 +291,8 @@ async fn run_sweep(
     };
 
     let detail_base = list_url.trim_end_matches('/');
-    for row in rows {
-        let head = match parse_list_row(row) {
+    for parsed_row in parsed {
+        let head = match parsed_row {
             Ok(h) => h,
             Err(e) => {
                 stats.failed += 1;
@@ -333,33 +349,34 @@ async fn fetch_detail_assets(
 }
 
 pub fn spawn_trades_upstream_sync(pool: PgPool, upstream_url: String, interval_secs: u64) {
-    tokio::spawn(async move {
-        let http = match reqwest::Client::builder()
-            .timeout(Duration::from_secs(300))
-            .build()
-        {
-            Ok(c) => c,
-            Err(e) => {
-                tracing::error!(error = %e, "trades sync: could not build http client; sync off");
-                return;
-            }
-        };
-        let mut ticker = tokio::time::interval(Duration::from_secs(interval_secs.max(60)));
-        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-        loop {
-            ticker.tick().await;
-            match run_sweep(&http, &pool, &upstream_url).await {
-                Ok(s) => tracing::info!(
+    let http = http_client(
+        "trades-sync",
+        &HttpClientCfg::default()
+            .with_total_timeout(Duration::from_secs(300))
+            .following_redirects(10),
+    );
+    spawn_periodic(
+        "trades-upstream-sync",
+        Duration::from_secs(interval_secs.max(60)),
+        PeriodicCfg::default(),
+        CancellationToken::new(),
+        move || {
+            let http = http.clone();
+            let pool = pool.clone();
+            let upstream_url = upstream_url.clone();
+            async move {
+                let s = run_sweep(&http, &pool, &upstream_url).await?;
+                tracing::info!(
                     fetched = s.fetched,
                     new = s.new,
                     skipped = s.skipped,
                     failed = s.failed,
                     "trades sync sweep complete"
-                ),
-                Err(e) => tracing::warn!(error = %e, "trades sync sweep skipped"),
+                );
+                Ok::<(), String>(())
             }
-        }
-    });
+        },
+    );
 }
 
 #[cfg(test)]

@@ -1,0 +1,217 @@
+{
+  "_source": "Derived from decentraland/schemas/src/dapps/collection.ts (Collection shape: urn,name,creator,contractAddress,isOnSale,size,createdAt,updatedAt,reviewedAt,network,chainId,firstListedAt) + decentraland/builder-server/src/Collection/Collection.types.ts (CollectionAttributes: id,name,eth_address,contract_address,urn_suffix,third_party_id,is_published,is_approved,minters,managers,reviewed_at,created_at,updated_at; CollectionTypeFilter standard|third_party; CollectionSort MOST_RELEVANT|CREATED_AT_DESC|CREATED_AT_ASC|NAME_DESC|NAME_ASC|UPDATED_AT_DESC|UPDATED_AT_ASC). Catalyst /v1/collections (catalyrst-builder) is auth-gated + 404 via public nginx, and marketplace /v1/catalog 404s on this realm (verified 2026-06-23) -> local fixture. Status dots (synced|under_review|unsynced|loading) derived from is_published+is_approved+reviewed_at, faithful to CollectionStatus.tsx. Wearable thumbnail renders are remote in the real product -> gradient-washed placeholders.",
+  "_fetchedAt": "2026-06-23",
+  "ethAddress": "0x1111111111111111111111111111111111111111",
+  "collections": [
+    {
+      "id": "9ff0e2a4-d1b3-4f0a-8c1e-1a2b3c4d5e6f",
+      "name": "Genesis Threads",
+      "type": "standard",
+      "is_published": true,
+      "is_approved": true,
+      "reviewed_at": 1704067200000,
+      "created_at": 1701388800000,
+      "updated_at": 1709251200000,
+      "contract_address": "0x5cf36e5b5f6b1f1f3e0a3a2c1d2e3f4a5b6c7d8e",
+      "urn": "urn:decentraland:matic:collections-v2:0x5cf36e5b5f6b1f1f3e0a3a2c1d2e3f4a5b6c7d8e",
+      "status": "synced",
+      "count": 12,
+      "thumbs": [
+        "linear-gradient(135deg,#438fff,#2f004d)",
+        "linear-gradient(135deg,#ff2d55,#350447)",
+        "linear-gradient(135deg,#ff4bed,#220040)",
+        "linear-gradient(135deg,#982de2,#1a0a2e)"
+      ]
+    },
+    {
+      "id": "b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e",
+      "name": "Neon Streetwear Drop",
+      "type": "standard",
+      "is_published": true,
+      "is_approved": false,
+      "reviewed_at": null,
+      "created_at": 1706745600000,
+      "updated_at": 1708992000000,
+      "contract_address": "0x6df47f6c6f7c2f2f4f1b4b3d2e3f4a5b6c7d8e9f",
+      "urn": "urn:decentraland:matic:collections-v2:0x6df47f6c6f7c2f2f4f1b4b3d2e3f4a5b6c7d8e9f",
+      "status": "under_review",
+      "count": 8,
+      "thumbs": [
+        "linear-gradient(135deg,#1f8a70,#06231c)",
+        "linear-gradient(135deg,#ff743a,#3a1500)",
+        "linear-gradient(135deg,#73d3d3,#062a2a)",
+        "linear-gradient(135deg,#ffc647,#3a2c00)"
+      ]
+    },
+    {
+      "id": "c3d4e5f6-a7b8-4c9d-0e1f-2a3b4c5d6e7f",
+      "name": "Cyber Samurai Armory",
+      "type": "standard",
+      "is_published": false,
+      "is_approved": false,
+      "reviewed_at": null,
+      "created_at": 1708387200000,
+      "updated_at": 1709856000000,
+      "contract_address": null,
+      "urn": null,
+      "status": "unsynced",
+      "count": 5,
+      "thumbs": [
+        "linear-gradient(135deg,#b05cff,#2f004d)",
+        "linear-gradient(135deg,#438fff,#06231c)",
+        "linear-gradient(135deg,#ff2d55,#3a1500)"
+      ]
+    },
+    {
+      "id": "d4e5f6a7-b8c9-4d0e-1f2a-3b4c5d6e7f80",
+      "name": "Lo-Fi Emote Pack",
+      "type": "standard",
+      "is_published": true,
+      "is_approved": true,
+      "reviewed_at": 1702857600000,
+      "created_at": 1700179200000,
+      "updated_at": 1710460800000,
+      "contract_address": "0x7ef58f7d708d3f3f5f2c5c4e3f4a5b6c7d8e9fa0",
+      "urn": "urn:decentraland:matic:collections-v2:0x7ef58f7d708d3f3f5f2c5c4e3f4a5b6c7d8e9fa0",
+      "status": "synced",
+      "count": 4,
+      "thumbs": [
+        "linear-gradient(135deg,#ff4bed,#350447)",
+        "linear-gradient(135deg,#34ce76,#06231c)",
+        "linear-gradient(135deg,#ffc647,#3a2c00)",
+        "linear-gradient(135deg,#438fff,#1a0a2e)"
+      ]
+    },
+    {
+      "id": "e5f6a7b8-c9d0-4e1f-2a3b-4c5d6e7f8091",
+      "name": "Desert Festival Wearables",
+      "type": "standard",
+      "is_published": false,
+      "is_approved": false,
+      "reviewed_at": null,
+      "created_at": 1711065600000,
+      "updated_at": 1711065600000,
+      "contract_address": null,
+      "urn": null,
+      "status": null,
+      "count": 0,
+      "thumbs": []
+    },
+    {
+      "id": "f6a7b8c9-d0e1-4f2a-3b4c-5d6e7f809102",
+      "name": "Pixel Heroes Helmets",
+      "type": "standard",
+      "is_published": true,
+      "is_approved": true,
+      "reviewed_at": 1703548800000,
+      "created_at": 1699574400000,
+      "updated_at": 1712275200000,
+      "contract_address": "0x80f69f8e819e4f4f6f3d6d5f4a5b6c7d8e9fa0b1",
+      "urn": "urn:decentraland:matic:collections-v2:0x80f69f8e819e4f4f6f3d6d5f4a5b6c7d8e9fa0b1",
+      "status": "synced",
+      "count": 16,
+      "thumbs": [
+        "linear-gradient(135deg,#982de2,#220040)",
+        "linear-gradient(135deg,#ff743a,#3a1500)",
+        "linear-gradient(135deg,#73d3d3,#062a2a)",
+        "linear-gradient(135deg,#ff2d55,#350447)"
+      ]
+    },
+    {
+      "id": "a7b8c9d0-e1f2-4a3b-4c5d-6e7f80910213",
+      "name": "Aether Linked Wearables",
+      "type": "third_party",
+      "is_published": true,
+      "is_approved": true,
+      "reviewed_at": 1705276800000,
+      "created_at": 1697846400000,
+      "updated_at": 1713312000000,
+      "contract_address": null,
+      "third_party_id": "urn:decentraland:matic:collections-thirdparty:aether",
+      "urn": "urn:decentraland:matic:collections-thirdparty:aether:0-collection",
+      "status": null,
+      "pending": true,
+      "count": 24,
+      "thumbs": [
+        "linear-gradient(135deg,#438fff,#2f004d)",
+        "linear-gradient(135deg,#b05cff,#1a0a2e)",
+        "linear-gradient(135deg,#34ce76,#06231c)",
+        "linear-gradient(135deg,#ffc647,#3a2c00)"
+      ]
+    },
+    {
+      "id": "b8c9d0e1-f2a3-4b4c-5d6e-7f8091021324",
+      "name": "Vaporwave Capsule",
+      "type": "standard",
+      "is_published": true,
+      "is_approved": false,
+      "reviewed_at": null,
+      "created_at": 1710633600000,
+      "updated_at": 1714003200000,
+      "contract_address": "0x91079f9f92af5f5f7f4e7e6f5a6b7c8d9eaf0b1c",
+      "urn": "urn:decentraland:matic:collections-v2:0x91079f9f92af5f5f7f4e7e6f5a6b7c8d9eaf0b1c",
+      "status": "loading",
+      "count": 2,
+      "thumbs": [
+        "linear-gradient(135deg,#ff4bed,#220040)",
+        "linear-gradient(135deg,#438fff,#06231c)"
+      ]
+    }
+  ],
+  "items": [
+    {
+      "id": "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+      "name": "Crystal Crown",
+      "type": "wearable",
+      "status": "synced",
+      "createdAt": 1701388800000,
+      "updatedAt": 1709251200000,
+      "grad": "linear-gradient(135deg,#ffc647,#3a2c00)"
+    },
+    {
+      "id": "2b3c4d5e-6f7a-4b8c-9d0e-1f2a3b4c5d6e",
+      "name": "Dancefloor Shuffle",
+      "type": "emote",
+      "status": "under_review",
+      "createdAt": 1703980800000,
+      "updatedAt": 1710633600000,
+      "grad": "linear-gradient(135deg,#ff4bed,#350447)"
+    },
+    {
+      "id": "3c4d5e6f-7a8b-4c9d-0e1f-2a3b4c5d6e7f",
+      "name": "Holo Visor",
+      "type": "smart_wearable",
+      "status": "loading",
+      "createdAt": 1705276800000,
+      "updatedAt": 1711065600000,
+      "grad": "linear-gradient(135deg,#73d3d3,#062a2a)"
+    },
+    {
+      "id": "4d5e6f7a-8b9c-4d0e-1f2a-3b4c5d6e7f80",
+      "name": "Spirit Wings",
+      "type": "wearable",
+      "status": "unsynced",
+      "createdAt": 1706745600000,
+      "updatedAt": 1712275200000,
+      "grad": "linear-gradient(135deg,#b05cff,#1a0a2e)"
+    },
+    {
+      "id": "5e6f7a8b-9c0d-4e1f-2a3b-4c5d6e7f8091",
+      "name": "Neon Kicks",
+      "type": "wearable",
+      "status": "unpublished",
+      "createdAt": 1708387200000,
+      "updatedAt": 1713312000000,
+      "grad": "linear-gradient(135deg,#438fff,#06231c)"
+    },
+    {
+      "id": "6f7a8b9c-0d1e-4f2a-3b4c-5d6e7f809102",
+      "name": "Victory Pose",
+      "type": "emote",
+      "status": "synced",
+      "createdAt": 1709251200000,
+      "updatedAt": 1714003200000,
+      "grad": "linear-gradient(135deg,#34ce76,#06231c)"
+    }
+  ]
+}

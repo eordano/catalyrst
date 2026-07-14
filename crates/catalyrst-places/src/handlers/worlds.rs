@@ -1,24 +1,39 @@
-use axum::extract::{Path, Query, State};
+use axum::extract::{OriginalUri, Path, Query, State};
+use axum::http::Method;
 use axum::Json;
 
 use crate::http::errors::ApiError;
 use crate::http::response::{ApiData, ApiDataTotal};
-use crate::ports::places::{PlaceListFilters, PlaceOrderBy, PlaceRow};
+use crate::ports::places::{PlaceListFilters, PlaceOrderBy, WorldRow};
 use crate::AppState;
 
+#[utoipa::path(
+    get,
+    path = "/worlds/{world_id}",
+    tag = "worlds",
+    params(("world_id" = String, Path)),
+    responses(
+        (status = 200, body = ApiData<WorldRow>),
+        (status = 404, body = catalyrst_types::ApiErrorBody),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn get_world(
     State(state): State<AppState>,
+    method: Method,
+    OriginalUri(uri): OriginalUri,
     headers: axum::http::HeaderMap,
     Path(world_id): Path<String>,
-) -> Result<Json<ApiData<PlaceRow>>, ApiError> {
+) -> Result<Json<ApiData<WorldRow>>, ApiError> {
     match state.places.find_world_by_id(&world_id).await? {
         Some(mut w) => {
-            let user = crate::auth::auth_address_optional(&headers);
+            let user =
+                crate::auth::auth_address_optional(&headers, method.as_str(), uri.path()).await;
             state
                 .places
                 .apply_user_interactions(user.as_deref(), std::slice::from_mut(&mut w))
                 .await;
-            Ok(Json(ApiData::ok(w)))
+            Ok(Json(ApiData::ok(WorldRow::from(w))))
         }
         None => Err(ApiError::not_found(format!(
             "Not found world \"{}\"",
@@ -27,11 +42,34 @@ pub async fn get_world(
     }
 }
 
+#[utoipa::path(
+    get,
+    path = "/worlds",
+    tag = "worlds",
+    params(("limit" = Option<i64>, Query),
+        ("offset" = Option<i64>, Query),
+        ("names" = Option<Vec<String>>, Query),
+        ("categories" = Option<Vec<String>>, Query),
+        ("only_favorites" = Option<String>, Query),
+        ("only_highlighted" = Option<String>, Query),
+        ("only_excluded_from_ranking" = Option<String>, Query,
+            description = "True to show only entries the automated ranking is not allowed to touch"),
+        ("search" = Option<String>, Query),
+        ("order_by" = Option<String>, Query),
+        ("order" = Option<String>, Query),
+        ("owner" = Option<String>, Query)),
+    responses(
+        (status = 200, body = ApiDataTotal<WorldRow>),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn get_world_list(
     State(state): State<AppState>,
+    method: Method,
+    OriginalUri(uri): OriginalUri,
     headers: axum::http::HeaderMap,
     Query(pairs): Query<Vec<(String, String)>>,
-) -> Result<Json<ApiDataTotal<PlaceRow>>, ApiError> {
+) -> Result<Json<ApiDataTotal<WorldRow>>, ApiError> {
     let get = |k: &str| pairs.iter().find(|(p, _)| p == k).map(|(_, v)| v.clone());
     let get_all = |k: &str| {
         pairs
@@ -40,10 +78,13 @@ pub async fn get_world_list(
             .map(|(_, v)| v.clone())
             .collect::<Vec<_>>()
     };
-    let user = crate::auth::auth_address_optional(&headers);
-    let only_favorites = get("only_favorites")
-        .map(|v| matches!(v.as_str(), "true" | "1"))
-        .unwrap_or(false);
+    let user = crate::auth::auth_address_optional(&headers, method.as_str(), uri.path()).await;
+    let bool_q = |k: &str| {
+        get(k)
+            .map(|v| matches!(v.as_str(), "true" | "1"))
+            .unwrap_or(false)
+    };
+    let only_favorites = bool_q("only_favorites");
     let mut favorite_ids: Vec<String> = Vec::new();
     if only_favorites {
         match &user {
@@ -70,6 +111,8 @@ pub async fn get_world_list(
         search: get("search"),
         order_by: PlaceOrderBy::parse(get("order_by").as_deref()),
         order_desc: !matches!(get("order").as_deref(), Some("asc")),
+        only_highlighted: bool_q("only_highlighted"),
+        only_excluded_from_ranking: bool_q("only_excluded_from_ranking"),
         only_worlds: true,
         ids: favorite_ids,
         creator_address: get("owner").map(|s| s.to_lowercase()),
@@ -83,9 +126,19 @@ pub async fn get_world_list(
         .places
         .apply_user_interactions(user.as_deref(), &mut data)
         .await;
-    Ok(Json(ApiDataTotal::ok(data, total)))
+    let worlds: Vec<WorldRow> = data.into_iter().map(WorldRow::from).collect();
+    Ok(Json(ApiDataTotal::ok(worlds, total)))
 }
 
+#[utoipa::path(
+    get,
+    path = "/world_names",
+    tag = "worlds",
+    responses(
+        (status = 200, body = ApiDataTotal<String>),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn get_world_names_list(
     State(state): State<AppState>,
 ) -> Result<Json<ApiDataTotal<String>>, ApiError> {

@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use alloy::primitives::U256;
+use alloy::primitives::{Address, U256};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sqlx::types::chrono::NaiveDateTime;
@@ -11,10 +11,16 @@ use crate::admin::{RuntimeConfig, SignerPreference};
 use crate::config::Config;
 use crate::http::errors::ApiError;
 use crate::ports::abi::{self, SaleKind};
+use crate::ports::chain::{ChainComponent, ChainError};
 use crate::ports::contracts::ContractsComponent;
 use crate::ports::contracts_addrs::DclContracts;
+use crate::ports::meta_tx::{
+    audited_domain_for, build_domain_separator, meta_tx_digest, recover_meta_tx_signer,
+    MetaTxStruct,
+};
 use crate::ports::relayer::Relayer;
 use crate::ports::signer::DirectSigner;
+use crate::ports::upstream::UpstreamForwarder;
 
 #[derive(Debug, Clone)]
 pub struct TransactionData {
@@ -201,6 +207,40 @@ fn validate_transaction_data(data: &Value) -> Result<TransactionData, ApiError> 
     Ok(TransactionData { from, params })
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MetaTxSender(String);
+
+impl MetaTxSender {
+    pub fn from_meta_tx_calldata(from: &str, calldata: &str) -> Result<Self, ApiError> {
+        let data = hex_to_bytes(calldata).ok_or_else(|| {
+            ApiError::InvalidTransaction(
+                "Invalid transaction data. The calldata is not a hex byte string.".into(),
+            )
+        })?;
+        let signed_user = abi::decode_meta_tx_user_address(&data).ok_or_else(|| {
+            ApiError::InvalidTransaction(
+                "Invalid transaction data. The executeMetaTransaction calldata could not be \
+                 decoded, so the userAddress it was signed for cannot be established."
+                    .into(),
+            )
+        })?;
+        let claimed = from.trim().parse::<Address>().map_err(|_| {
+            ApiError::InvalidTransaction(format!("Invalid from address. Received: {from}"))
+        })?;
+        if signed_user != claimed {
+            return Err(ApiError::InvalidTransaction(format!(
+                "The from address does not match the userAddress signed into the \
+                 executeMetaTransaction calldata. from: {claimed} - userAddress: {signed_user}"
+            )));
+        }
+        Ok(Self(format!("{signed_user:#x}")))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ReservationDisposition {
     Release,
@@ -254,11 +294,51 @@ where
     s.serialize_str(&dt.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string())
 }
 
+/// The broadcast path one POST /transactions resolves to. Under the Auto
+/// preference, locally-provisioned signers win over the upstream forward,
+/// which is the fallback for nodes without real relayer creds. An explicit
+/// Oz/Direct preference is local-or-fail: it never rides the upstream, so the
+/// admin can force local broadcasting while TRANSACTIONS_UPSTREAM_URL is set.
+/// The operator toggle beats everything.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BroadcastRoute {
+    Disabled,
+    Oz,
+    Direct,
+    Upstream,
+    None,
+}
+
+pub fn select_broadcast_route(
+    enabled: bool,
+    pref: SignerPreference,
+    has_oz: bool,
+    has_direct: bool,
+    has_upstream: bool,
+) -> BroadcastRoute {
+    if !enabled {
+        return BroadcastRoute::Disabled;
+    }
+    match pref {
+        // An explicit preference whose provider is unprovisioned yields the
+        // no-provider 503 rather than silently falling through to upstream.
+        SignerPreference::Oz if has_oz => BroadcastRoute::Oz,
+        SignerPreference::Direct if has_direct => BroadcastRoute::Direct,
+        SignerPreference::Oz | SignerPreference::Direct => BroadcastRoute::None,
+        SignerPreference::Auto if has_oz => BroadcastRoute::Oz,
+        SignerPreference::Auto if has_direct => BroadcastRoute::Direct,
+        SignerPreference::Auto if has_upstream => BroadcastRoute::Upstream,
+        SignerPreference::Auto => BroadcastRoute::None,
+    }
+}
+
 pub struct TransactionComponent {
     pool: PgPool,
     http: reqwest::Client,
     relayer: Option<Relayer>,
     signer: Option<DirectSigner>,
+    upstream: Option<UpstreamForwarder>,
+    chain: Option<ChainComponent>,
     runtime: Arc<RuntimeConfig>,
 }
 
@@ -267,6 +347,8 @@ impl TransactionComponent {
         pool: PgPool,
         relayer: Option<Relayer>,
         signer: Option<DirectSigner>,
+        upstream: Option<UpstreamForwarder>,
+        chain: Option<ChainComponent>,
         runtime: Arc<RuntimeConfig>,
     ) -> Self {
         Self {
@@ -274,6 +356,8 @@ impl TransactionComponent {
             http: reqwest::Client::new(),
             relayer,
             signer,
+            upstream,
+            chain,
             runtime,
         }
     }
@@ -286,6 +370,29 @@ impl TransactionComponent {
         self.signer.is_some()
     }
 
+    pub fn has_upstream_forwarder(&self) -> bool {
+        self.upstream.is_some()
+    }
+
+    pub fn broadcast_route(&self) -> BroadcastRoute {
+        select_broadcast_route(
+            self.runtime.relayer_enabled(),
+            self.runtime.signer_preference(),
+            self.relayer.is_some(),
+            self.signer.is_some(),
+            self.upstream.is_some(),
+        )
+    }
+
+    /// Some only when the current selection resolves to the upstream forward;
+    /// the handler branches on this before calling `send_meta_transaction`.
+    pub fn upstream_route(&self) -> Option<&UpstreamForwarder> {
+        match self.broadcast_route() {
+            BroadcastRoute::Upstream => self.upstream.as_ref(),
+            _ => None,
+        }
+    }
+
     pub fn direct_signer(&self) -> Option<&DirectSigner> {
         self.signer.as_ref()
     }
@@ -293,10 +400,10 @@ impl TransactionComponent {
     pub async fn reserve_quota(
         &self,
         max_transactions_per_day: i64,
-        user_address: &str,
+        sender: &MetaTxSender,
         session_id: &str,
     ) -> Result<(), ApiError> {
-        let user_address = user_address.to_lowercase();
+        let user_address = sender.as_str().to_string();
 
         let mut db_tx = self.pool.begin().await?;
 
@@ -372,15 +479,132 @@ impl TransactionComponent {
         cfg: &Config,
         contracts: &ContractsComponent,
         tx: &TransactionData,
-    ) -> Result<(), ApiError> {
+    ) -> Result<MetaTxSender, ApiError> {
         self.check_function_selector(tx)?;
-        self.check_quota(cfg, tx).await?;
+        let sender = MetaTxSender::from_meta_tx_calldata(&tx.from, &tx.params[1])?;
+        self.check_self_relay(&sender)?;
+        self.check_contract_address(contracts, tx).await?;
+        self.check_meta_tx_signature(tx).await?;
+        self.check_quota(cfg, &sender).await?;
+        check_sale_price(cfg, tx)?;
         if cfg.has_rpc() {
             self.check_gas_price(cfg, tx).await?;
             self.check_transaction(cfg, tx).await?;
         }
-        check_sale_price(cfg, tx)?;
-        self.check_contract_address(contracts, tx).await?;
+        Ok(sender)
+    }
+
+    /// Refuses a meta-transaction whose `userAddress` is one of this node's own
+    /// relayer EOAs: relaying it would let a caller spend a signature this
+    /// service holds the key for. Only the direct signer's address is known
+    /// locally (the OZ relayer's EOAs live behind its API), so this mirrors the
+    /// upstream `relayerAddresses.size > 0` guard, applying only when we do.
+    fn check_self_relay(&self, sender: &MetaTxSender) -> Result<(), ApiError> {
+        if let Some(signer) = self.signer.as_ref() {
+            let relayer = format!("{:#x}", signer.relayer_address());
+            if sender.as_str().eq_ignore_ascii_case(&relayer) {
+                return Err(ApiError::InvalidTransaction(
+                    "Invalid transaction data.".into(),
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    /// Recovers the EIP-712 signature carried in the executeMetaTransaction
+    /// calldata and refuses the request unless it was produced by the
+    /// `userAddress` the payload acts for. The digest is rebuilt from the domain
+    /// separator the target itself reports over RPC, or -- for the few contracts
+    /// that expose no getter -- from the audited domain recorded for them; a
+    /// target with neither is refused because the digest cannot be reconstructed.
+    ///
+    /// This is the authentication step, so it precedes quota, which is keyed on
+    /// `userAddress`: nothing is written for an address that did not sign. When
+    /// no chain is configured the signature cannot be verified here, so a route
+    /// that makes this node the relayer (Oz/Direct) fails closed rather than
+    /// relay an unverified payload; the upstream-forward route defers to the
+    /// upstream, which verifies before it broadcasts.
+    async fn check_meta_tx_signature(&self, tx: &TransactionData) -> Result<(), ApiError> {
+        let Some(chain) = self.chain.as_ref() else {
+            return match self.broadcast_route() {
+                BroadcastRoute::Oz | BroadcastRoute::Direct => Err(ApiError::RelayerUnavailable(
+                    "Meta-transaction signatures cannot be verified without an RPC endpoint. Set \
+                     RPC_URL so the relayer can rebuild the EIP-712 digest before broadcasting."
+                        .into(),
+                )),
+                _ => Ok(()),
+            };
+        };
+
+        let contract = tx.params[0].trim().parse::<Address>().map_err(|_| {
+            ApiError::InvalidContractAddress(format!(
+                "Invalid contract address. Contract address: {}",
+                tx.params[0]
+            ))
+        })?;
+        let data = hex_to_bytes(&tx.params[1]).ok_or_else(|| {
+            ApiError::InvalidTransaction(
+                "Invalid transaction data. The calldata is not a hex byte string.".into(),
+            )
+        })?;
+        let decoded = abi::decode_meta_tx_full(&data).ok_or_else(|| {
+            ApiError::InvalidTransaction(
+                "Invalid transaction data. The executeMetaTransaction calldata could not be \
+                 decoded."
+                    .into(),
+            )
+        })?;
+
+        let nonce = chain
+            .get_meta_transaction_nonce(contract, decoded.user_address)
+            .await
+            .map_err(chain_unavailable)?
+            .ok_or_else(|| {
+                ApiError::InvalidContractAddress(format!(
+                    "The target does not implement meta-transactions. Contract address: {contract:#x}"
+                ))
+            })?;
+
+        let (domain_separator, struct_kind) = match chain
+            .get_domain_separator(contract)
+            .await
+            .map_err(chain_unavailable)?
+        {
+            Some(reported) => (reported, MetaTxStruct::FunctionSignature),
+            None => {
+                let chain_id = chain.get_chain_id().await.map_err(chain_unavailable)?;
+                let audited = audited_domain_for(chain_id, contract).ok_or_else(|| {
+                    ApiError::InvalidContractAddress(format!(
+                        "The target reports no EIP-712 domain separator and none is recorded for \
+                         it, so the signature cannot be verified. Contract address: {contract:#x}"
+                    ))
+                })?;
+                (
+                    build_domain_separator(audited.name, audited.version, contract, chain_id),
+                    audited.struct_kind,
+                )
+            }
+        };
+
+        let digest = meta_tx_digest(
+            domain_separator,
+            nonce,
+            decoded.user_address,
+            &decoded.function_signature,
+            struct_kind,
+        );
+        let recovered = recover_meta_tx_signer(digest, &decoded.signature).map_err(|_| {
+            ApiError::InvalidTransaction(
+                "The meta-transaction signature was not produced by the userAddress it carries."
+                    .into(),
+            )
+        })?;
+        if recovered != decoded.user_address {
+            return Err(ApiError::InvalidTransaction(format!(
+                "The meta-transaction signature was not produced by the userAddress it carries, \
+                 checking it against that account's nonce {nonce} on the target."
+            )));
+        }
         Ok(())
     }
 
@@ -413,14 +637,12 @@ impl TransactionComponent {
         Ok(())
     }
 
-    async fn check_quota(&self, cfg: &Config, tx: &TransactionData) -> Result<(), ApiError> {
-        let from = tx.from.to_lowercase();
-
+    async fn check_quota(&self, cfg: &Config, sender: &MetaTxSender) -> Result<(), ApiError> {
         let count: i64 = sqlx::query_scalar(
             "SELECT COUNT(*) FROM transactions \
              WHERE user_address = $1 AND created_at >= NOW() - INTERVAL '1 day'",
         )
-        .bind(&from)
+        .bind(sender.as_str())
         .fetch_one(&self.pool)
         .await?;
 
@@ -509,30 +731,41 @@ impl TransactionComponent {
         _cfg: &Config,
         tx: &TransactionData,
     ) -> Result<String, ApiError> {
-        if !self.runtime.relayer_enabled() {
-            return Err(ApiError::RelayerUnavailable(
+        match self.broadcast_route() {
+            BroadcastRoute::Disabled => Err(ApiError::RelayerUnavailable(
                 "Broadcasting is currently disabled by the operator (relayer toggle is OFF). Validation passed; the meta-transaction was not broadcast.".into(),
-            ));
-        }
-
-        let pref = self.runtime.signer_preference();
-        let try_oz = matches!(pref, SignerPreference::Auto | SignerPreference::Oz);
-        let try_direct = matches!(pref, SignerPreference::Auto | SignerPreference::Direct);
-
-        if try_oz {
-            if let Some(relayer) = &self.relayer {
-                return relayer.send_meta_transaction(tx).await;
+            )),
+            BroadcastRoute::Oz => {
+                self.relayer
+                    .as_ref()
+                    .expect("route Oz implies a provisioned relayer")
+                    .send_meta_transaction(tx)
+                    .await
             }
-        }
-        if try_direct {
-            if let Some(signer) = &self.signer {
-                return signer.send_meta_transaction(tx).await;
+            BroadcastRoute::Direct => {
+                self.signer
+                    .as_ref()
+                    .expect("route Direct implies a provisioned signer")
+                    .send_meta_transaction(tx)
+                    .await
             }
+            // The handler intercepts the upstream route before broadcast, so
+            // this arm is only reachable through a caller that skipped
+            // `upstream_route()`; it fails safe rather than double-relaying.
+            BroadcastRoute::Upstream => Err(ApiError::RelayerUnavailable(
+                "Upstream forwarding is handled at the HTTP layer; no local broadcast provider is provisioned.".into(),
+            )),
+            BroadcastRoute::None => Err(ApiError::RelayerUnavailable(
+                "No relayer is provisioned for the selected signer preference. Validation passed; broadcast is unavailable. Set OZ_RELAYER_URL/OZ_RELAYER_ID/OZ_RELAYER_API_KEY, META_TX_BROADCAST_ENABLED=true with RELAYER_PRIVATE_KEY (+ RPC_URL), or TRANSACTIONS_UPSTREAM_URL, to enable broadcasting.".into(),
+            )),
         }
-        Err(ApiError::RelayerUnavailable(
-            "No relayer is provisioned for the selected signer preference. Validation passed; broadcast is unavailable. Set OZ_RELAYER_URL/OZ_RELAYER_ID/OZ_RELAYER_API_KEY, or META_TX_BROADCAST_ENABLED=true with RELAYER_PRIVATE_KEY (+ RPC_URL), to enable broadcasting.".into(),
-        ))
     }
+}
+
+fn chain_unavailable(err: ChainError) -> ApiError {
+    ApiError::RelayerUnavailable(format!(
+        "Could not verify the meta-transaction signature: {err}"
+    ))
 }
 
 fn check_sale_price(cfg: &Config, tx: &TransactionData) -> Result<(), ApiError> {
@@ -586,14 +819,7 @@ fn is_hex_data(s: &str) -> bool {
 }
 
 fn hex_to_bytes(s: &str) -> Option<Vec<u8>> {
-    let s = s.strip_prefix("0x").unwrap_or(s);
-    if !s.len().is_multiple_of(2) {
-        return None;
-    }
-    (0..s.len())
-        .step_by(2)
-        .map(|i| u8::from_str_radix(&s[i..i + 2], 16).ok())
-        .collect()
+    catalyrst_types::decode_hex_0x(s).ok()
 }
 
 #[derive(Debug, Deserialize)]
@@ -759,6 +985,49 @@ mod tests {
         );
     }
 
+    fn meta_tx_calldata(user_address: &str) -> String {
+        let call = abi::executeMetaTransactionCall {
+            userAddress: user_address.parse().expect("address"),
+            functionSignature: alloy::primitives::Bytes::from_static(&[0xaa]),
+            sigR: alloy::primitives::FixedBytes::<32>::repeat_byte(0x11),
+            sigS: alloy::primitives::FixedBytes::<32>::repeat_byte(0x22),
+            sigV: 27,
+        };
+        format!(
+            "0x{}",
+            alloy::hex::encode(alloy::sol_types::SolCall::abi_encode(&call))
+        )
+    }
+
+    #[test]
+    fn sender_is_the_address_signed_into_the_calldata() {
+        let sender = MetaTxSender::from_meta_tx_calldata(FROM, &meta_tx_calldata(FROM))
+            .expect("matching from and userAddress");
+        assert_eq!(sender.as_str(), FROM.to_lowercase());
+    }
+
+    #[test]
+    fn a_from_that_disagrees_with_the_signed_user_address_is_rejected() {
+        let victim = "0x1111111111111111111111111111111111111111";
+        let attacker = "0x2222222222222222222222222222222222222222";
+        let err = MetaTxSender::from_meta_tx_calldata(victim, &meta_tx_calldata(attacker))
+            .expect_err("a forged from must not yield a sender");
+        let msg = match err {
+            ApiError::InvalidTransaction(m) => m,
+            other => panic!("expected ApiError::InvalidTransaction, got {other:?}"),
+        };
+        assert!(msg.contains(victim), "{msg}");
+        assert!(msg.contains(attacker), "{msg}");
+    }
+
+    #[test]
+    fn calldata_with_an_unrecoverable_user_address_yields_no_sender() {
+        assert!(matches!(
+            MetaTxSender::from_meta_tx_calldata(FROM, CALLDATA),
+            Err(ApiError::InvalidTransaction(_))
+        ));
+    }
+
     #[test]
     fn pre_broadcast_errors_release_the_slot() {
         for err in [
@@ -790,6 +1059,71 @@ mod tests {
                 "{err:?} is post-broadcast/indeterminate and must keep the slot consumed"
             );
         }
+    }
+
+    #[test]
+    fn upstream_is_the_auto_fallback_after_local_providers() {
+        use crate::admin::SignerPreference::*;
+
+        // Toggle OFF beats every provider, including the upstream forward.
+        assert_eq!(
+            select_broadcast_route(false, Auto, true, true, true),
+            BroadcastRoute::Disabled
+        );
+
+        // Locally-provisioned signers win over the upstream forward.
+        assert_eq!(
+            select_broadcast_route(true, Auto, true, false, true),
+            BroadcastRoute::Oz
+        );
+        assert_eq!(
+            select_broadcast_route(true, Auto, false, true, true),
+            BroadcastRoute::Direct
+        );
+        assert_eq!(
+            select_broadcast_route(true, Oz, true, true, true),
+            BroadcastRoute::Oz
+        );
+        assert_eq!(
+            select_broadcast_route(true, Direct, true, true, true),
+            BroadcastRoute::Direct
+        );
+
+        // Auto with no local provider: the upstream carries.
+        assert_eq!(
+            select_broadcast_route(true, Auto, false, false, true),
+            BroadcastRoute::Upstream
+        );
+
+        // Nothing provisioned at all.
+        assert_eq!(
+            select_broadcast_route(true, Auto, false, false, false),
+            BroadcastRoute::None
+        );
+    }
+
+    #[test]
+    fn explicit_preference_without_its_provider_fails_instead_of_forwarding() {
+        use crate::admin::SignerPreference::*;
+
+        // Local-or-fail: an explicit preference never rides the upstream,
+        // even when the other local provider or the forwarder is available.
+        assert_eq!(
+            select_broadcast_route(true, Oz, false, true, true),
+            BroadcastRoute::None
+        );
+        assert_eq!(
+            select_broadcast_route(true, Direct, true, false, true),
+            BroadcastRoute::None
+        );
+        assert_eq!(
+            select_broadcast_route(true, Oz, false, false, false),
+            BroadcastRoute::None
+        );
+        assert_eq!(
+            select_broadcast_route(true, Direct, false, false, false),
+            BroadcastRoute::None
+        );
     }
 
     #[test]

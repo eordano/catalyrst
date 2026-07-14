@@ -22,7 +22,7 @@ A local avatar-render pipeline with a content-addressed disk cache. The primary 
 
 1. `GET /entities/{id}/{face,body}.png` serves from the disk cache if present;
 2. on a miss, resolve the profile entity from the local content core - `GET <PROFILE_IMAGES_CONTENT_URL>/contents/{id}` -> `metadata.avatars[0].avatar`, as upstream's `scripts/local_entity_snapshot.sh` does;
-3. render via the headless godot-explorer avatar renderer, the same invocation as upstream's `src/adapters/godot.ts`:
+3. render via the godot-explorer avatar renderer, the same invocation as upstream's `src/adapters/godot.ts`:
 
    ```text
    decentraland.godot.client.x86_64 \
@@ -45,9 +45,9 @@ Entity ids are validated as canonical CIDs (no path traversal); responses carry 
 
 ### Backends
 
-- **`render`** (primary) - requires `PROFILE_IMAGES_CONTENT_URL` and `PROFILE_IMAGES_GODOT_BIN`.
-- **`proxy`** - origin-pull from `PROFILE_IMAGES_ORIGIN_URL` and cache; kept for hosts without a Godot build.
-- **`disabled`** - cache-only; 404 on every miss (offline / tests).
+- `render` (primary) - requires `PROFILE_IMAGES_CONTENT_URL` and `PROFILE_IMAGES_GODOT_BIN`.
+- `proxy` - origin-pull from `PROFILE_IMAGES_ORIGIN_URL` and cache; kept for hosts without a Godot build.
+- `disabled` - cache-only; 404 on every miss (offline / tests).
 
 Under `render`, the proxy is consulted only when `PROFILE_IMAGES_RENDER_FALLBACK_PROXY=true`; otherwise a render failure returns `502`.
 
@@ -61,7 +61,7 @@ cargo run -- build -r              # build the Rust GDExtension (libdclgodot.so)
 cargo run -- export --target linux # export -> exports/decentraland.godot.client.x86_64
 ```
 
-(or use `scripts/local_profile_snapshot.sh <addr>` to build + smoke-test the renderer in one shot). Point `PROFILE_IMAGES_GODOT_BIN` at the resulting `exports/decentraland.godot.client.x86_64`. The renderer needs a GL context: a usable DRM render node (e.g. `/dev/dri/renderD128`) so the Compatibility renderer (`gl_compatibility`/`opengl3`) can draw. With `--headless` you must provide an Xvfb / EGL-surfaceless display (`PROFILE_IMAGES_GODOT_DISPLAY`); headless is off by default for that reason. For testnet (Amoy) wearables set `PROFILE_IMAGES_DCLENV=zone` - the content base alone does not redirect the renderer's wearable lookups (godot-explorer `docs/PROFILE_IMAGE.md`, "Catalyst environment").
+(or use `scripts/local_profile_snapshot.sh <addr>` to build + smoke-test the renderer in one shot). Point `PROFILE_IMAGES_GODOT_BIN` at the resulting `exports/decentraland.godot.client.x86_64`. The renderer needs a real GL context, which the Compatibility renderer (`gl_compatibility`/`opengl3`) draws into; software GL covers a box with no GPU. `--headless` is **not** an option and is rejected at startup in render mode: it selects Godot's dummy rendering server, so `async_get_viewport_image()` returns null and every render fails with `Parameter "t" is null`. Supplying a display does not change that -- measured, not assumed. In nix deployments point `PROFILE_IMAGES_GODOT_BIN` at the `godot-explorer` package's `bin/decentraland-godot-client-xvfb`, which wraps the binary in its own throwaway X server; elsewhere supply a display via `PROFILE_IMAGES_GODOT_DISPLAY`. For testnet (Amoy) wearables set `PROFILE_IMAGES_DCLENV=zone` - the content base alone does not redirect the renderer's wearable lookups (godot-explorer `docs/PROFILE_IMAGE.md`, "Catalyst environment").
 
 ## Config
 
@@ -76,7 +76,7 @@ See `deploy/catalyrst-profile-images.env.example`. Key knobs:
 | `PROFILE_IMAGES_GODOT_PROJECT` | `<bin>/../..` | godot project root to spawn from |
 | `PROFILE_IMAGES_RENDERING_METHOD` / `_DRIVER` | `gl_compatibility` / `opengl3` | godot render flags |
 | `PROFILE_IMAGES_DCLENV` | - | `org`\|`zone`\|`today` wearable env (testnet needs `zone`) |
-| `PROFILE_IMAGES_GODOT_HEADLESS` | `false` | pass `--headless` (needs Xvfb/EGL) |
+| `PROFILE_IMAGES_GODOT_HEADLESS` | `false` | must stay false; `true` is rejected at startup in render mode (see above) |
 | `PROFILE_IMAGES_RENDER_TIMEOUT_SECONDS` | `120` | per-render wall-clock timeout |
 | `PROFILE_IMAGES_RENDER_MAX_CONCURRENT` | `1` | max concurrent godot processes |
 | `PROFILE_IMAGES_RENDER_FALLBACK_PROXY` | `false` | on render failure, fall back to proxy (else 502) |
@@ -84,7 +84,7 @@ See `deploy/catalyrst-profile-images.env.example`. Key knobs:
 | `PROFILE_IMAGES_CACHE_DIR` | `<DATA_DIR>/profile-images` | disk cache root |
 | `PROFILE_IMAGES_CACHE_TTL_SECONDS` | `86400` | re-render/re-pull after this age; `0` = never expire |
 
-> **Port collision note:** no `umbrella/env/catalyrst-profile-images.env` exists; the crate is not currently deployed. The code default `5152` is live-bound by `catalyrst-presence` (`umbrella/env/catalyrst-presence.env`); the repo's own `deploy/catalyrst-profile-images.env.example` overrides to `HTTP_SERVER_PORT=8080` for that reason. Pick an unused port from the deployment's port map when wiring this service into `umbrella/`.
+> Port collision note: no deployment env file exists for `catalyrst-profile-images`; the crate is not currently deployed. The code default `5152` is live-bound by `catalyrst-presence` in the reference deployment; the repo's own `deploy/catalyrst-profile-images.env.example` overrides to `HTTP_SERVER_PORT=8080` for that reason. Pick an unused port from the deployment's port map when wiring this service up.
 
 ## Client hand-off (unity-explorer `CatalyrstUrlsSource`)
 

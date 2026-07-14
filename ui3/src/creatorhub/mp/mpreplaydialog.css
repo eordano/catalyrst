@@ -1,0 +1,132 @@
+.mp-replay__form,
+.mp-replay__result {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.mp-replay__tiers {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.mp-replay__tier {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  cursor: pointer;
+}
+.mp-replay__tier.is-selected {
+  border-color: var(--brand);
+  background: color-mix(in srgb, var(--brand) 8%, var(--fill-1));
+}
+.mp-replay__tier input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+.mp-replay__tier-title {
+  font-size: 14px;
+  font-weight: 600;
+}
+.mp-replay__tier-copy {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--ink-7);
+}
+
+.mp-replay__fields {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.mp-replay__field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--ink-7);
+}
+.mp-replay__field select,
+.mp-replay__field input {
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-control);
+  background: var(--fill-1);
+  color: var(--text);
+  font-size: 13px;
+  min-width: 140px;
+}
+
+.mp-replay__error {
+  margin: 0;
+  padding: 8px 12px;
+  border: 1px solid color-mix(in srgb, var(--danger, #d33) 40%, transparent);
+  border-radius: var(--r-control);
+  background: color-mix(in srgb, var(--danger, #d33) 8%, transparent);
+  color: var(--danger, #d33);
+  font-size: 13px;
+}
+
+.mp-replay__actions {
+  display: flex;
+  gap: 10px;
+}
+
+.mp-replay__primary {
+  padding: 10px 20px;
+  border: none;
+  border-radius: var(--r-control);
+  background: var(--brand);
+  color: var(--on-brand);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.mp-replay__primary:disabled {
+  opacity: 0.5;
+  cursor: wait;
+}
+
+.mp-replay__secondary {
+  align-self: flex-start;
+  padding: 10px 20px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-control);
+  background: var(--fill-2);
+  color: var(--text);
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.mp-replay__result-title {
+  margin: 0;
+  font-size: 16px;
+}
+
+.mp-replay__row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 13px;
+}
+.mp-replay__row code {
+  font-family: var(--mono, monospace);
+  font-size: 12px;
+  padding: 3px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-control);
+  background: var(--fill-1);
+  word-break: break-all;
+}
+
+.mp-replay__note {
+  margin: 0;
+  font-size: 12px;
+  color: var(--ink-7);
+}

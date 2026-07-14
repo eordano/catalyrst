@@ -1,19 +1,25 @@
 use axum::extract::State;
 use axum::http::HeaderMap;
 use axum::Json;
-use base64::engine::general_purpose::{STANDARD as B64_STANDARD, URL_SAFE_NO_PAD};
-use base64::Engine;
 use bytes::Bytes;
-use hmac::{Hmac, KeyInit, Mac};
 use serde_json::{json, Value};
-use sha2::{Digest, Sha256};
 
 use crate::http::ApiError;
 use crate::livekit::{SCENE_ROOM_PREFIX, WORLD_ROOM_PREFIX};
 use crate::AppState;
 
-type HmacSha256 = Hmac<Sha256>;
-
+#[utoipa::path(
+    post,
+    path = "/livekit-webhook",
+    tag = "comms",
+    request_body = String,
+    responses(
+        (status = 200, body = serde_json::Value),
+        (status = 400, body = catalyrst_types::ApiErrorBody),
+        (status = 401, body = catalyrst_types::ApiErrorBody),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn livekit_webhook(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -28,12 +34,14 @@ pub async fn livekit_webhook(
         return Err(ApiError::bad_request("Authorization header not found"));
     }
 
-    verify_webhook_token(
-        authorization,
-        &body,
+    if !catalyrst_livekit::verify_webhook_token(
         &state.cfg.livekit_api_key,
         &state.cfg.livekit_api_secret,
-    )?;
+        &body,
+        authorization,
+    ) {
+        return Err(ApiError::unauthorized("Invalid webhook token"));
+    }
 
     let evt: WebhookEvent =
         serde_json::from_slice(&body).map_err(|_| ApiError::bad_request("Invalid webhook body"))?;
@@ -87,62 +95,6 @@ pub async fn livekit_webhook(
     }
 
     Ok(Json(json!({ "ok": true })))
-}
-
-fn verify_webhook_token(
-    token: &str,
-    body: &[u8],
-    api_key: &str,
-    api_secret: &str,
-) -> Result<(), ApiError> {
-    let parts: Vec<&str> = token.split('.').collect();
-    if parts.len() != 3 {
-        return Err(ApiError::unauthorized("Invalid webhook token"));
-    }
-
-    let signing_input = format!("{}.{}", parts[0], parts[1]);
-    let expected_sig = {
-        let mut mac = HmacSha256::new_from_slice(api_secret.as_bytes())
-            .map_err(|_| ApiError::unauthorized("Invalid webhook token"))?;
-        mac.update(signing_input.as_bytes());
-        URL_SAFE_NO_PAD.encode(mac.finalize().into_bytes())
-    };
-    if !constant_time_eq(expected_sig.as_bytes(), parts[2].as_bytes()) {
-        return Err(ApiError::unauthorized("Invalid webhook token"));
-    }
-
-    let payload_bytes = URL_SAFE_NO_PAD
-        .decode(parts[1])
-        .map_err(|_| ApiError::unauthorized("Invalid webhook token"))?;
-    let claims: Value = serde_json::from_slice(&payload_bytes)
-        .map_err(|_| ApiError::unauthorized("Invalid webhook token"))?;
-
-    if claims.get("iss").and_then(|v| v.as_str()) != Some(api_key) {
-        return Err(ApiError::unauthorized("Invalid webhook token issuer"));
-    }
-
-    let claimed_sha = claims
-        .get("sha256")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| ApiError::unauthorized("Invalid webhook token"))?;
-
-    let actual_sha = B64_STANDARD.encode(Sha256::digest(body));
-    if !constant_time_eq(actual_sha.as_bytes(), claimed_sha.as_bytes()) {
-        return Err(ApiError::unauthorized("Webhook body hash mismatch"));
-    }
-
-    Ok(())
-}
-
-fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
-    if a.len() != b.len() {
-        return false;
-    }
-    let mut diff = 0u8;
-    for (x, y) in a.iter().zip(b.iter()) {
-        diff |= x ^ y;
-    }
-    diff == 0
 }
 
 #[derive(Debug, serde::Deserialize)]

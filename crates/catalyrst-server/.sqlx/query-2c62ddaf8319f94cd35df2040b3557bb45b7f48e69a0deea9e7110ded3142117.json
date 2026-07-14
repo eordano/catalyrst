@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                    INSERT INTO active_pointers (pointer, entity_id)\n                    SELECT unnest($1::text[]), unnest($2::text[])\n                    ON CONFLICT (pointer) DO UPDATE\n                        SET entity_id = EXCLUDED.entity_id\n                        WHERE NOT EXISTS (\n                            SELECT 1 FROM deployments cur\n                            WHERE cur.entity_id = active_pointers.entity_id\n                              AND (cur.entity_timestamp > to_timestamp($3 / 1000.0)\n                                   OR (cur.entity_timestamp = to_timestamp($3 / 1000.0)\n                                       AND lower(cur.entity_id) > lower(EXCLUDED.entity_id)))\n                        )\n                    ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "TextArray",
+        "TextArray",
+        "Numeric"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "2c62ddaf8319f94cd35df2040b3557bb45b7f48e69a0deea9e7110ded3142117"
+}

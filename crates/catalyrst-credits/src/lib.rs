@@ -4,6 +4,7 @@ pub mod config;
 pub mod dto;
 pub mod handlers;
 pub mod http;
+pub mod money;
 pub mod ports;
 pub mod provider;
 pub mod purchase_intent;
@@ -14,7 +15,6 @@ use std::time::Duration;
 use anyhow::{Context, Result};
 use axum::routing::{get, post};
 use axum::Router;
-use sqlx::postgres::PgPoolOptions;
 
 use crate::config::Config;
 use crate::ports::checkout::OutboxWorker;
@@ -56,6 +56,16 @@ pub struct AppStateInner {
     pub economy_http: reqwest::Client,
 
     pub quote_cache: handlers::prices::QuoteCache,
+
+    pub credits_signer_key: Option<String>,
+
+    pub credits_manager_contract: Option<String>,
+
+    pub credits_onchain_authorize_enabled: bool,
+
+    pub checkout_success_url: String,
+
+    pub checkout_cancel_url: String,
 }
 
 pub type AppState = Arc<AppStateInner>;
@@ -68,11 +78,26 @@ pub fn api_router() -> Router<AppState> {
             get(handlers::users::progress),
         )
         .route(
+            "/users/{wallet_id}/credits",
+            get(handlers::users::user_credits),
+        )
+        .route(
             "/wallet/{wallet_id}/balance",
             get(handlers::wallet::balance),
         )
         .route("/packs", get(handlers::packs::list_packs))
+        .route("/credits/packs", get(handlers::packs::unity_list_packs))
         .route("/packs/{sku}/intent", post(handlers::packs::create_intent))
+        .route("/credits/checkout", post(handlers::orders::create_checkout))
+        .route(
+            "/credits/orders/{order_id}",
+            get(handlers::orders::order_status),
+        )
+        .route("/credits/authorize", post(handlers::authorize::authorize))
+        .route(
+            "/credits/authorize/cancel",
+            post(handlers::authorize::cancel),
+        )
         .route(
             "/packs/{sku}/mock-purchase",
             post(handlers::packs::mock_purchase),
@@ -100,13 +125,12 @@ pub fn api_router() -> Router<AppState> {
 }
 
 pub async fn build_state(cfg: &Config) -> Result<AppState> {
-    let pool = PgPoolOptions::new()
-        .max_connections(20)
-        .acquire_timeout(Duration::from_secs(10))
-        .idle_timeout(Some(Duration::from_secs(60)))
-        .connect(&cfg.database_url)
-        .await
-        .context("failed to connect to credits database")?;
+    let pool = catalyrst_db::connect_pool(
+        &cfg.database_url,
+        &catalyrst_db::PoolSettings::standard_service(),
+    )
+    .await
+    .context("failed to connect to credits database")?;
 
     if let Err(e) = sqlx::migrate!("./migrations").run(&pool).await {
         tracing::error!(error = %e, "migration failed");
@@ -148,19 +172,15 @@ pub async fn build_state(cfg: &Config) -> Result<AppState> {
     );
 
     let usage_grants_pool = match &cfg.usage_grants_database_url {
-        Some(url) => match PgPoolOptions::new()
-            .max_connections(5)
-            .acquire_timeout(Duration::from_secs(10))
-            .idle_timeout(Some(Duration::from_secs(60)))
-            .connect(url)
-            .await
-        {
-            Ok(p) => Some(p),
-            Err(e) => {
-                tracing::error!(error = %e, "failed to connect usage_grants pool; grant writes disabled");
-                None
+        Some(url) => {
+            match catalyrst_db::connect_pool(url, &catalyrst_db::PoolSettings::side_pool()).await {
+                Ok(p) => Some(p),
+                Err(e) => {
+                    tracing::error!(error = %e, "failed to connect usage_grants pool; grant writes disabled");
+                    None
+                }
             }
-        },
+        }
         None => None,
     };
 
@@ -169,6 +189,23 @@ pub async fn build_state(cfg: &Config) -> Result<AppState> {
             "STRIPE_SECRET_KEY unset: card-purchase routes are DISABLED \
              (POST /packs/{{sku}}/intent and POST /stripe/webhook return 501). \
              Set STRIPE_SECRET_KEY + STRIPE_WEBHOOK_SECRET to enable pack purchases."
+        );
+    }
+    if cfg.credits_signer_key.is_some() && !cfg.credits_onchain_authorize_enabled {
+        tracing::warn!(
+            "CREDITS_SIGNER_PRIVATE_KEY is set but CREDITS_ONCHAIN_AUTHORIZE_ENABLED is false: \
+             POST /credits/authorize refuses to mint treasury-claim signatures (503). Setting a \
+             signer key alone does NOT enable on-chain credit authorization; set \
+             CREDITS_ONCHAIN_AUTHORIZE_ENABLED=true to turn the lane on."
+        );
+    }
+    if cfg.credits_onchain_authorize_enabled
+        && (cfg.credits_signer_key.is_none() || cfg.credits_manager_contract.is_none())
+    {
+        tracing::warn!(
+            "CREDITS_ONCHAIN_AUTHORIZE_ENABLED is true but CREDITS_SIGNER_PRIVATE_KEY or \
+             CREDITS_MANAGER_CONTRACT is unset: POST /credits/authorize stays unavailable (503) \
+             until both are configured."
         );
     }
     if usage_grants_pool.is_none() {
@@ -199,6 +236,7 @@ pub async fn build_state(cfg: &Config) -> Result<AppState> {
     .spawn(cfg.checkout_worker_interval_secs);
 
     ReleaseWorker {
+        credits: credits.clone(),
         http: worker_http.clone(),
         economy_base_url: cfg.economy_base_url.clone(),
         economy_admin_token: cfg.economy_admin_token.clone(),
@@ -206,31 +244,6 @@ pub async fn build_state(cfg: &Config) -> Result<AppState> {
         usage_grants_pool: usage_grants_pool.clone(),
     }
     .spawn(cfg.checkout_worker_interval_secs);
-
-    let progress_presence_pool = match &cfg.progress_presence_database_url {
-        Some(url) => match PgPoolOptions::new()
-            .max_connections(2)
-            .acquire_timeout(Duration::from_secs(10))
-            .idle_timeout(Some(Duration::from_secs(60)))
-            .connect(url)
-            .await
-        {
-            Ok(p) => Some(p),
-            Err(e) => {
-                tracing::error!(
-                    error = %e,
-                    "failed to connect presence pool; explorer goal tracking disabled"
-                );
-                None
-            }
-        },
-        None => None,
-    };
-    ports::progress::spawn_progress_worker(
-        credits.clone(),
-        progress_presence_pool,
-        cfg.checkout_worker_interval_secs,
-    );
 
     Ok(Arc::new(AppStateInner {
         credits,
@@ -249,5 +262,10 @@ pub async fn build_state(cfg: &Config) -> Result<AppState> {
         usage_grants_pool,
         economy_http: worker_http,
         quote_cache: handlers::prices::QuoteCache::default(),
+        credits_signer_key: cfg.credits_signer_key.clone(),
+        credits_manager_contract: cfg.credits_manager_contract.clone(),
+        credits_onchain_authorize_enabled: cfg.credits_onchain_authorize_enabled,
+        checkout_success_url: cfg.checkout_success_url.clone(),
+        checkout_cancel_url: cfg.checkout_cancel_url.clone(),
     }))
 }

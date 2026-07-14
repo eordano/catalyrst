@@ -1,0 +1,667 @@
+.stprofileplacestab {
+  background: radial-gradient(123.58% 82% at 9.01% 25.79%, #7434b1 0%, #481c6c 37.11%, #2b1040 100%);
+  min-height: 100vh;
+  padding: 96px 0 64px;
+  isolation: isolate;
+  font-family: var(--font-sans);
+
+  --sp-tabidle: #a09ba8;
+  --sp-tabactive: #fcfcfc;
+  --sp-line: rgba(255, 255, 255, .3);
+  --sp-headline: rgba(255, 255, 255, .08);
+  --sp-text2: rgba(255, 255, 255, .7);
+  --sp-chip-fill: rgba(255, 255, 255, .06);
+  --sp-chip-fill-hi: rgba(255, 255, 255, .12);
+  --sp-chip-border: rgba(255, 255, 255, .25);
+  --sp-chip-border-hi: rgba(255, 255, 255, .35);
+  --sp-chipdark: var(--panel);
+  --sp-cardfooter: rgba(0, 0, 0, .4);
+  --sp-loc-fill: rgba(0, 0, 0, .4);
+  --sp-paper-grad: radial-gradient(123.58% 82% at 9.01% 25.79%, #7434b1 0%, #481c6c 37.11%, #2b1040 100%);
+  --sp-content-grad: radial-gradient(47.37% 84.21% at 42.4% 26.48%, #6e31a7 0%, #32134c 100%);
+  --sp-hero-overlay: linear-gradient(0deg, #000 0%, rgba(0, 0, 0, .8) 30.02%, rgba(0, 0, 0, 0) 106.22%);
+  --sp-seclabel: #a09ba8;
+  --sp-creatorhi: var(--brand);
+}
+
+.stprofileplacestab__contentwrap {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-width: 1650px;
+  margin: 0 auto;
+  padding: 0 32px;
+}
+
+.stprofileplacestab__profilecard { position: relative; width: 100%; display: flex; flex-direction: column; }
+
+.stprofileplacestab__header {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  width: 100%;
+  padding: 16px 24px;
+  border-bottom: 1px solid var(--sp-headline);
+}
+
+.stprofileplacestab__identity {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.stprofileplacestab__avatar {
+  position: relative;
+  width: 76px;
+  height: 76px;
+  border-radius: 50%;
+  border: 3.2px solid rgba(255, 255, 255, .5);
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.stprofileplacestab__avatarinitial { font-size: 34px; font-weight: 600; line-height: 1; color: #fff; text-transform: uppercase; }
+
+.stprofileplacestab__nameblock { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.stprofileplacestab__namerow { display: flex; align-items: center; gap: 4px; }
+.stprofileplacestab__name {
+  font-weight: 500;
+  font-size: 24px;
+  line-height: 1.334;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 20ch;
+}
+.stprofileplacestab__discriminator { font-weight: 500; font-size: 24px; line-height: 1.334; color: var(--sp-text2); }
+.stprofileplacestab__verified {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  color: #0f0e11;
+  flex-shrink: 0;
+}
+
+.stprofileplacestab__addrrow { display: flex; align-items: center; gap: 6px; color: var(--sp-text2); }
+.stprofileplacestab__walleticon { display: inline-flex; color: var(--sp-text2); }
+.stprofileplacestab__addr { font-weight: 400; font-size: 16px; line-height: 1.75; color: var(--text); }
+.stprofileplacestab__copy {
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: none;
+  color: var(--sp-text2);
+  cursor: pointer;
+  padding: 0;
+}
+.stprofileplacestab__copy:hover { color: var(--text); }
+
+.stprofileplacestab__actionsblock { display: flex; flex-direction: row; align-items: center; gap: 12px; flex-shrink: 0; }
+
+.stprofileplacestab__mutual {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #ecebed;
+  background: none;
+  border: none;
+  padding: 4px 8px;
+  margin-left: -8px;
+  border-radius: 8px;
+  font: inherit;
+  cursor: pointer;
+  transition: background-color 150ms ease;
+}
+.stprofileplacestab__mutual:hover { background-color: var(--fill-3); }
+.stprofileplacestab__mutualstack { display: flex; align-items: center; }
+.stprofileplacestab__mutualpic {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, .5);
+  flex-shrink: 0;
+  display: inline-block;
+}
+.stprofileplacestab__mutualtext { font-weight: 400; font-size: 16px; line-height: 1; color: var(--text); }
+.stprofileplacestab__mutualtext strong { font-weight: 600; }
+
+.stprofileplacestab__friendcta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 180px;
+  height: 40px;
+  padding: 9px 24px;
+  border-radius: 10px;
+  border: none;
+  background: var(--brand-cta, #d80029);
+  color: #fff;
+  font-weight: 600;
+  font-size: 14px;
+  letter-spacing: .4px;
+  line-height: 24px;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background 150ms ease;
+}
+.stprofileplacestab__friendcta:hover { background: var(--brand-hover); }
+
+.stprofileplacestab__namecta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 40px;
+  padding: 9px 20px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, .4);
+  background: var(--fill-2);
+  color: #fff;
+  font-weight: 600;
+  font-size: 14px;
+  letter-spacing: .4px;
+  line-height: 24px;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background 150ms ease;
+}
+.stprofileplacestab__namecta:hover { background: var(--fill-4); }
+
+.stprofileplacestab__more {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border: none;
+  background: none;
+  color: #fff;
+  border-radius: 50%;
+  cursor: pointer;
+}
+.stprofileplacestab__more:hover { background: var(--fill-3); }
+
+.stprofileplacestab__tabs {
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  gap: 50px;
+  width: 100%;
+  min-height: 46px;
+  padding: 0 24px;
+  border-bottom: 1px solid var(--sp-line);
+  overflow-x: auto;
+}
+.stprofileplacestab__tab {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  min-height: 46px;
+  padding: 0;
+  border: none;
+  background: none;
+  font-family: inherit;
+  font-weight: 600;
+  font-size: 16px;
+  text-transform: uppercase;
+  color: var(--sp-tabidle);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.stprofileplacestab__tab.is-active { color: var(--sp-tabactive); }
+.stprofileplacestab__tab:hover { color: var(--sp-tabactive); }
+.stprofileplacestab__tabbar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 4px;
+  background: var(--brand);
+}
+
+.stprofileplacestab__body {
+  flex: 1 1 auto;
+  padding: 32px;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.stprofileplacestab__filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.stprofileplacestab__chip {
+  display: inline-flex;
+  align-items: center;
+  height: 32px;
+  border-radius: var(--r-pill);
+  padding: 0 14px 0 4px;
+  border: 1px solid var(--sp-chip-border);
+  background: var(--sp-chip-fill);
+  color: var(--text);
+  font-family: inherit;
+  font-weight: 600;
+  font-size: 13px;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease;
+}
+.stprofileplacestab__chipicon { display: inline-flex; align-items: center; margin: 0 2px 0 6px; }
+.stprofileplacestab__chip:hover { background: var(--sp-chip-fill-hi); border-color: var(--sp-chip-border-hi); }
+.stprofileplacestab__chip.is-active { background: #fcfcfc; border-color: #fcfcfc; color: var(--sp-chipdark); }
+.stprofileplacestab__chip.is-active:hover { background: rgba(252, 252, 252, .88); }
+
+.stprofileplacestab__count { margin: 0 0 16px; color: var(--sp-text2); font-size: 14px; line-height: 1.43; }
+
+.stprofileplacestab__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 16px;
+  width: 100%;
+}
+
+.stprofileplacestab__card2 { position: relative; border-radius: 16px; max-width: 600px; background: transparent; overflow: visible; }
+.stprofileplacestab__action {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  border: none;
+  background: transparent;
+  padding: 0;
+  border-radius: 16px;
+  overflow: hidden;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+}
+.stprofileplacestab__media {
+  position: relative;
+  flex-shrink: 0;
+  width: 100%;
+  height: 256px;
+  overflow: hidden;
+  transition: height 375ms cubic-bezier(.4, 0, .2, 1);
+}
+.stprofileplacestab__action:hover .stprofileplacestab__media { height: 224px; }
+.stprofileplacestab__mediaimg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background-color: #2b1040;
+  background-size: cover;
+  background-position: center;
+  border-radius: 16px 16px 0 0;
+}
+.stprofileplacestab__content {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  flex: 1 1 auto;
+  min-height: 160px;
+  padding: 16px;
+  background: var(--sp-cardfooter);
+  border-radius: 0 0 16px 16px;
+}
+.stprofileplacestab__inner { display: flex; flex-direction: column; height: 100%; justify-content: space-between; gap: 8px; }
+.stprofileplacestab__info { width: 100%; }
+.stprofileplacestab__title2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  word-break: break-word;
+  margin-bottom: 8px;
+  color: var(--text);
+  font-weight: 600;
+  font-size: 20px;
+  line-height: 1.3;
+}
+.stprofileplacestab__metarow { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.stprofileplacestab__by {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 auto;
+  max-width: 50%;
+  min-width: 0;
+  overflow: hidden;
+}
+.stprofileplacestab__byface { width: 24px; height: 24px; border-radius: 50%; border: 1.5px solid rgba(255, 255, 255, .5); flex-shrink: 0; }
+.stprofileplacestab__bytext {
+  font-size: 14px;
+  line-height: 1.43;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.stprofileplacestab__byname { font-weight: 700; }
+.stprofileplacestab__loc {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 50%;
+  padding: 4px 8px;
+  border-radius: 8px;
+  background: var(--sp-loc-fill);
+  color: var(--text);
+  flex-shrink: 0;
+}
+.stprofileplacestab__loctext {
+  font-size: 13px;
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.stprofileplacestab__jumpwrap {
+  opacity: 0;
+  height: 0;
+  overflow: hidden;
+  transform: translateY(20px);
+  transition: opacity 375ms cubic-bezier(.4, 0, .2, 1), height 375ms cubic-bezier(.4, 0, .2, 1), transform 375ms cubic-bezier(.4, 0, .2, 1);
+}
+.stprofileplacestab__action:hover .stprofileplacestab__jumpwrap {
+  opacity: 1;
+  height: auto;
+  transform: translateY(0);
+}
+.stprofileplacestab__action:hover .stprofileplacestab__by,
+.stprofileplacestab__action:hover .stprofileplacestab__loc {
+  opacity: 0;
+  height: 0;
+  overflow: hidden;
+}
+.stprofileplacestab__jump {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 40px;
+  width: 100%;
+  border-radius: 10px;
+  background: var(--brand);
+  color: #fff;
+  font-weight: 600;
+  font-size: 14px;
+  letter-spacing: .4px;
+  text-transform: uppercase;
+}
+
+.stprofileplacestab__emptybox {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 20px;
+  padding: 80px 16px;
+}
+.stprofileplacestab__emptyicon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 100px;
+  height: 100px;
+  border-radius: 24px;
+  border: 4px solid #fcfcfc;
+  color: #fcfcfc;
+}
+.stprofileplacestab__emptybody { display: flex; flex-direction: column; align-items: center; gap: 10px; padding-top: 10px; }
+.stprofileplacestab__emptytitle {
+  margin: 0;
+  color: #fcfcfc;
+  font-weight: 500;
+  font-size: 20px;
+  line-height: 1.6;
+  max-width: 452px;
+}
+.stprofileplacestab__emptysub {
+  margin: 0;
+  color: #fcfcfc;
+  font-weight: 400;
+  font-size: 16px;
+  line-height: 1.5;
+  max-width: 436px;
+}
+.stprofileplacestab__emptycta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 4px;
+  height: 46px;
+  padding: 0 16px;
+  border: none;
+  border-radius: 12px;
+  background: var(--brand-cta, #d80029);
+  color: #fff;
+  font-weight: 600;
+  font-size: 14px;
+  letter-spacing: .4px;
+  line-height: 24px;
+  text-transform: uppercase;
+  cursor: pointer;
+  text-decoration: none;
+  transition: background 150ms ease;
+}
+.stprofileplacestab__emptycta:hover { background: var(--brand-hover); }
+.stprofileplacestab__ctaicon { display: inline-flex; align-items: center; }
+.stprofileplacestab__emptymember {
+  margin: 8px 0 0;
+  color: var(--ink-45);
+  font-weight: 400;
+  font-size: 14px;
+  line-height: 1.5;
+  font-style: italic;
+}
+
+.stprofileplacestab__loadingrow { display: flex; justify-content: flex-start; padding: 24px 0; }
+.stprofileplacestab__spinner {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 3px solid var(--fill-4);
+  border-top-color: var(--brand);
+  animation: u-spin 800ms linear infinite;
+}
+.stprofileplacestab__scrim {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, .8);
+}
+.stprofileplacestab__dialog {
+  width: 100%;
+  max-width: 880px;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  overflow-x: hidden;
+  border-radius: 16px;
+  background: var(--sp-paper-grad);
+  box-shadow: 0 4px 25px 0 rgba(255, 255, 255, .25);
+  scrollbar-width: none;
+}
+.stprofileplacestab__dialog::-webkit-scrollbar { display: none; }
+
+.stprofileplacestab__hero { position: relative; width: 100%; height: 450px; max-width: 880px; overflow: hidden; flex-shrink: 0; }
+.stprofileplacestab__heroimg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  background-size: cover;
+  background-position: center;
+}
+.stprofileplacestab__herooverlay { position: absolute; inset: 0; background: var(--sp-hero-overlay); }
+.stprofileplacestab__close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, .4);
+  color: #fcfcfc;
+  cursor: pointer;
+  z-index: 2;
+  padding: 0;
+}
+.stprofileplacestab__close:hover { background: rgba(0, 0, 0, .6); }
+.stprofileplacestab__herocontent {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  padding: 0 30px 50px;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.stprofileplacestab__modaltitle {
+  margin: 0;
+  font-size: 32px;
+  font-weight: 600;
+  line-height: 1.24;
+  color: #fcfcfc;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.stprofileplacestab__creator {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: none;
+  border: none;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.stprofileplacestab__creatorface { width: 24px; height: 24px; border-radius: 50%; border: 1.5px solid rgba(255, 255, 255, .5); flex-shrink: 0; }
+.stprofileplacestab__creatorname {
+  font-size: 14px;
+  line-height: 1;
+  color: #fcfcfc;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.stprofileplacestab__creatorhi { color: var(--sp-creatorhi); }
+.stprofileplacestab__actions2 { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
+.stprofileplacestab__jumpcta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 46px;
+  padding: 0 20px;
+  border: none;
+  border-radius: 12px;
+  background: #fcfcfc;
+  color: var(--panel);
+  font-weight: 600;
+  font-size: 14px;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background 150ms ease;
+}
+.stprofileplacestab__jumpcta:hover { background: rgba(252, 252, 252, .85); }
+.stprofileplacestab__copylink {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 46px;
+  padding: 8px 16px;
+  border: 1px solid #fcfcfc;
+  border-radius: 8px;
+  background: transparent;
+  color: #fcfcfc;
+  cursor: pointer;
+  transition: background 150ms ease;
+}
+.stprofileplacestab__copylink:hover { background: rgba(255, 255, 255, .2); }
+
+.stprofileplacestab__contentsection { background: var(--sp-content-grad); padding: 30px 50px; flex: 1; }
+.stprofileplacestab__seclabel {
+  margin: 0 0 8px;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.75;
+  text-transform: uppercase;
+  color: var(--sp-seclabel);
+}
+.stprofileplacestab__desc {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.6;
+  color: #fcfcfc;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.stprofileplacestab__divider { display: block; height: 1px; background: rgba(255, 255, 255, .15); margin: 16px 0; }
+.stprofileplacestab__metarow2 { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.stprofileplacestab__metatext {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: #fcfcfc;
+}
+
+@media (max-width: 900px) {
+  .stprofileplacestab { padding-top: 64px; }
+  .stprofileplacestab__contentwrap { padding: 0; }
+  .stprofileplacestab__header { flex-direction: column; align-items: flex-start; padding: 16px; gap: 12px; }
+  .stprofileplacestab__name,
+  .stprofileplacestab__discriminator { font-size: 18px; }
+  .stprofileplacestab__actionsblock { width: 100%; flex-wrap: wrap; }
+  .stprofileplacestab__friendcta { width: auto; min-width: 140px; }
+  .stprofileplacestab__tabs { display: none; }
+  .stprofileplacestab__body { padding: 16px; }
+}
+
+@media (max-width: 600px) {
+  .stprofileplacestab__grid { grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
+  .stprofileplacestab__media { height: 224px; }
+  .stprofileplacestab__hero { height: auto; aspect-ratio: 16 / 9; }
+  .stprofileplacestab__contentsection { padding: 24px 16px; }
+  .stprofileplacestab__modaltitle { font-size: 26px; }
+}

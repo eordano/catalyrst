@@ -1,0 +1,46 @@
+.scene-bd {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+  background:
+    radial-gradient(58% 36% at 56% 42%, rgba(132, 64, 60, .46) 0%, rgba(132,64,60,0) 62%),
+    linear-gradient(180deg, #1f1622 0%, #241420 34%, #34121a 46%, #240b10 60%, #160609 100%);
+}
+
+.scene-bd__rail {
+  position: absolute;
+  top: 0; left: 0; bottom: 0;
+  width: 26px;
+  background: rgba(10, 8, 12, .72);
+}
+.scene-bd__rail::before {
+  content: "";
+  position: absolute;
+  left: 7px; top: 14px;
+  width: 12px; height: 320px;
+  background-image: radial-gradient(circle, rgba(255,255,255,.22) 0 4px, transparent 5px);
+  background-size: 12px 34px;
+  background-repeat: repeat-y;
+}
+
+.scene-bd__minimap {
+  position: absolute;
+  top: 8px; left: 38px;
+  width: 156px; height: 138px;
+  border-radius: 12px;
+  background:
+    radial-gradient(120% 120% at 50% 30%, rgba(60,46,40,.9), rgba(24,16,18,.95));
+  border: 1px solid rgba(255,255,255,.06);
+  box-shadow: 0 6px 18px rgba(0,0,0,.4);
+}
+
+.scene-bd__chat {
+  position: absolute;
+  left: 38px; bottom: 16px;
+  width: 268px; height: 92px;
+  border-radius: 10px;
+  background: rgba(14, 10, 14, .66);
+  border: 1px solid rgba(255,255,255,.05);
+}

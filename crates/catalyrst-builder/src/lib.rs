@@ -1,4 +1,5 @@
 pub mod auth_chain;
+pub mod catalog_build;
 pub mod config;
 pub mod handlers;
 pub mod http;
@@ -11,7 +12,6 @@ use anyhow::{Context, Result};
 use axum::routing::{get, patch, post};
 use axum::Router;
 use reqwest::Client;
-use sqlx::postgres::PgPoolOptions;
 
 use crate::config::Config;
 use crate::ports::items::{ItemsComponent, NewsletterComponent};
@@ -36,13 +36,16 @@ pub struct AppStateInner {
 pub type AppState = Arc<AppStateInner>;
 
 pub async fn build_state(cfg: &Config) -> Result<AppState> {
-    let pool = PgPoolOptions::new()
-        .max_connections(10)
-        .acquire_timeout(Duration::from_secs(10))
-        .idle_timeout(Some(Duration::from_secs(60)))
-        .connect(&cfg.database_url)
-        .await
-        .context("failed to connect to builder database")?;
+    let pool = catalyrst_db::connect_pool(
+        &cfg.database_url,
+        &catalyrst_db::PoolSettings {
+            idle_timeout_secs: 60,
+            acquire_timeout_secs: Some(10),
+            ..catalyrst_db::PoolSettings::default()
+        },
+    )
+    .await
+    .context("failed to connect to builder database")?;
 
     sqlx::migrate!("./migrations")
         .run(&pool)
@@ -51,11 +54,7 @@ pub async fn build_state(cfg: &Config) -> Result<AppState> {
 
     let marketplace = match &cfg.marketplace_database_url {
         Some(url) => {
-            let mp_pool = PgPoolOptions::new()
-                .max_connections(5)
-                .acquire_timeout(Duration::from_secs(10))
-                .idle_timeout(Some(Duration::from_secs(60)))
-                .connect(url)
+            let mp_pool = catalyrst_db::connect_pool(url, &catalyrst_db::PoolSettings::side_pool())
                 .await
                 .context("failed to connect to marketplace squid database")?;
             Some(MarketplaceComponent::new(mp_pool))

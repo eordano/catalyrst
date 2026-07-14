@@ -26,7 +26,7 @@ pub fn authorize_admin(state: &AppState, headers: &HeaderMap) -> Result<(), ApiE
 }
 
 pub(crate) fn check_admin(expected: Option<&str>, headers: &HeaderMap) -> Result<(), ApiError> {
-    let Some(expected) = expected else {
+    let Some(expected) = expected.filter(|s| !s.is_empty()) else {
         return Err(ApiError::Forbidden(
             "admin token not configured".to_string(),
         ));
@@ -89,5 +89,19 @@ mod tests {
     fn timing_safe_eq_rejects_different_lengths() {
         assert!(!timing_safe_eq("short", "longer-token"));
         assert!(!timing_safe_eq("", "x"));
+    }
+
+    #[test]
+    fn probe_empty_presented_token_with_set_secret_rejected() {
+        assert!(check_admin(Some("expected"), &headers_with_bearer("")).is_err());
+        assert!(check_admin(Some("expected"), &HeaderMap::new()).is_err());
+    }
+
+    // Empty configured secret must reject like the canonical gate; an empty
+    // presented bearer is currently ACCEPTED, so this probe fails-open.
+    #[test]
+    fn probe_fails_closed_when_secret_empty() {
+        assert!(check_admin(Some(""), &headers_with_bearer("")).is_err());
+        assert!(check_admin(Some(""), &HeaderMap::new()).is_err());
     }
 }

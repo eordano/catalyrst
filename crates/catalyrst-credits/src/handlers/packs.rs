@@ -42,6 +42,46 @@ pub async fn list_packs(State(state): State<AppState>) -> Result<Json<Vec<PackOu
     Ok(Json(rows.into_iter().map(PackOut::from).collect()))
 }
 
+#[derive(Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "credits/"))]
+pub struct UnityCreditPacksResponse {
+    pub packs: Vec<UnityCreditPack>,
+}
+
+#[derive(Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "credits/"))]
+pub struct UnityCreditPack {
+    pub id: String,
+    pub usd: f64,
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
+    pub credits: i64,
+    pub recommended: bool,
+    pub order: i32,
+}
+
+fn unity_pack(p: &crate::ports::packs::PackRow) -> Option<UnityCreditPack> {
+    if !p.currency.eq_ignore_ascii_case("usd") {
+        return None;
+    }
+    let credits = p.credits.parse::<f64>().ok()?.round() as i64;
+    Some(UnityCreditPack {
+        id: p.sku.clone(),
+        usd: p.price_cents as f64 / 100.0,
+        credits,
+        recommended: false,
+        order: p.sort_order,
+    })
+}
+
+pub async fn unity_list_packs(
+    State(state): State<AppState>,
+) -> Result<Json<UnityCreditPacksResponse>, ApiError> {
+    let rows = state.credits.list_active_packs().await?;
+    Ok(Json(UnityCreditPacksResponse {
+        packs: rows.iter().filter_map(unity_pack).collect(),
+    }))
+}
+
 fn validate_sku(raw: &str) -> Result<String, ApiError> {
     let s = raw.trim();
     if s.is_empty() || s.len() > 100 {
@@ -92,7 +132,7 @@ pub async fn create_intent(
 ) -> Result<Json<PackIntentOut>, ApiError> {
     let sku = validate_sku(&sku)?;
     let path = format!("/packs/{}/intent", sku);
-    let signer = signer_from(&headers, "post", &path)?;
+    let signer = signer_from(&headers, "post", &path).await?;
     let auth_ts = headers
         .get(AUTH_TIMESTAMP_HEADER)
         .and_then(|v| v.to_str().ok())
@@ -110,13 +150,13 @@ pub async fn create_intent(
         .await?
         .ok_or_else(|| ApiError::not_found("pack not found or inactive"))?;
 
-    let idempotency_key = intent_idempotency_key(&signer, &pack, auth_ts);
+    let idempotency_key = intent_idempotency_key(signer.as_str(), &pack, auth_ts);
 
     let pi = stripe
         .create_payment_intent(
             pack.price_cents,
             &pack.currency,
-            &signer,
+            signer.as_str(),
             &pack.sku,
             &pack.credits,
             &idempotency_key,
@@ -125,7 +165,7 @@ pub async fn create_intent(
 
     state
         .credits
-        .insert_pending_purchase(&signer, &pack, &pi.id)
+        .insert_pending_purchase(signer.as_str(), &pack, &pi.id)
         .await?;
 
     Ok(Json(PackIntentOut {
@@ -155,7 +195,7 @@ pub async fn mock_purchase(
     }
     let sku = validate_sku(&sku)?;
     let path = format!("/packs/{}/mock-purchase", sku);
-    let signer = signer_from(&headers, "post", &path)?;
+    let signer = signer_from(&headers, "post", &path).await?;
     let auth_ts = headers
         .get(AUTH_TIMESTAMP_HEADER)
         .and_then(|v| v.to_str().ok())
@@ -177,7 +217,7 @@ pub async fn mock_purchase(
     let outcome = state
         .credits
         .admin_grant_credits(
-            &signer,
+            signer.as_str(),
             &pack.credits,
             "purchase",
             Some("mock card purchase (no real charge)"),
@@ -235,7 +275,7 @@ pub async fn mock_topup(
             "mock card top-ups are disabled (CREDITS_MOCK_CARD unset)",
         ));
     }
-    let signer = signer_from(&headers, "post", "/topup/mock-card")?;
+    let signer = signer_from(&headers, "post", "/topup/mock-card").await?;
     let auth_ts = headers
         .get(AUTH_TIMESTAMP_HEADER)
         .and_then(|v| v.to_str().ok())
@@ -257,7 +297,7 @@ pub async fn mock_topup(
     let outcome = state
         .credits
         .admin_grant_credits(
-            &signer,
+            signer.as_str(),
             &credits,
             "purchase",
             Some("mock card top-up (no real charge)"),
@@ -278,6 +318,48 @@ pub async fn mock_topup(
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn unity_pack_wire_shape_matches_the_client_dto() {
+        let row = crate::ports::packs::PackRow {
+            sku: "credits_usd_5".into(),
+            title: "Starter".into(),
+            credits: "50".into(),
+            price_cents: 500,
+            currency: "usd".into(),
+            sort_order: 1,
+        };
+        let v = serde_json::to_value(UnityCreditPacksResponse {
+            packs: vec![unity_pack(&row).unwrap()],
+        })
+        .unwrap();
+        assert_eq!(
+            v,
+            json!({ "packs": [{
+                "id": "credits_usd_5",
+                "usd": 5.0,
+                "credits": 50,
+                "recommended": false,
+                "order": 1
+            }]})
+        );
+    }
+
+    #[test]
+    fn unity_pack_skips_rows_it_cannot_represent() {
+        let mut row = crate::ports::packs::PackRow {
+            sku: "s".into(),
+            title: "t".into(),
+            credits: "not-a-number".into(),
+            price_cents: 500,
+            currency: "usd".into(),
+            sort_order: 1,
+        };
+        assert!(unity_pack(&row).is_none());
+        row.credits = "50".into();
+        row.currency = "mana".into();
+        assert!(unity_pack(&row).is_none());
+    }
 
     #[test]
     fn wire_identity_pack() {
@@ -404,5 +486,43 @@ mod tests {
         let mut p = pack();
         p.credits = "120".into();
         assert_ne!(base, intent_idempotency_key("0xabc", &p, "1690000000000"));
+    }
+}
+
+/// Characterizes `exceeds_mock_topup_cap` on the shared edge-input set used
+/// across all decimal-string validators in this crate (see the sibling
+/// `characterization_*` tests in money.rs, ports/pricing.rs, ports/checkout.rs,
+/// and purchase_intent.rs). This function is the ONLY one of the five with no
+/// digit/grammar validation at all -- it is pure length/lexicographic string
+/// comparison against the cap `"10000"`, and it is only ever reached after
+/// `validate_positive_amount` (handlers/admin/common.rs) has already rejected
+/// anything containing `e`/`E`/`-`/repeated `.`/whitespace. Called standalone
+/// (as here) on ungated input it silently mis-reads scientific notation and
+/// leading/trailing whitespace as "small" (not exceeding the cap) rather than
+/// erroring -- captured below so a future refactor cannot change this quietly.
+#[cfg(test)]
+mod characterization_exceeds_mock_topup_cap {
+    use super::exceeds_mock_topup_cap;
+
+    #[test]
+    fn current_accept_reject_on_edge_inputs() {
+        // Scientific notation is read as a short alphanumeric int_part
+        // ("1e18" has only 4 chars, less than cap "10000"'s 5) and passes
+        // AS IF IT WERE SMALL -- this function has no digit-grammar check.
+        assert!(!exceeds_mock_topup_cap("1e18"));
+        assert!(!exceeds_mock_topup_cap("1E18"));
+        // No .trim() in this function at all: leading/trailing whitespace
+        // just rides along inside int_part/frac_part.
+        assert!(!exceeds_mock_topup_cap(" 1.5 "));
+        assert!(!exceeds_mock_topup_cap(".5"));
+        assert!(!exceeds_mock_topup_cap("5."));
+        assert!(!exceeds_mock_topup_cap("01.50"));
+        assert!(!exceeds_mock_topup_cap(""));
+        assert!(!exceeds_mock_topup_cap("-1"));
+        assert!(!exceeds_mock_topup_cap("1.2.3"));
+        // A genuinely huge plain-digit integer (no exponent) IS correctly
+        // flagged, because the length/lexicographic compare works fine on
+        // ordinary digit strings.
+        assert!(exceeds_mock_topup_cap(&"9".repeat(50)));
     }
 }

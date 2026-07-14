@@ -1,5 +1,5 @@
 [Unit]
-Description=catalyrst content core (read-only over the content DB — port 5141)
+Description=catalyrst content core (read-only over the content DB -- port 5141)
 After=network.target postgresql.service
 StartLimitIntervalSec=0
 Wants=postgresql.service

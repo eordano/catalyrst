@@ -1,7 +1,7 @@
-use std::collections::BTreeMap;
-
+use catalyrst_crypto::signed_fetch::handshake::{extract_from_object, obj_str};
+use catalyrst_crypto::signed_fetch::to_crypto_chain;
 use catalyrst_crypto::verify::verify_auth_chain;
-use catalyrst_types::{AuthChain, AuthLink, AuthLinkType};
+use catalyrst_types::{AuthChain, AuthLinkType};
 
 use crate::decentraland::pulse::HandshakeRequest;
 
@@ -28,7 +28,7 @@ impl HandshakeError {
             HandshakeError::InvalidJson => "Invalid auth chain JSON".to_string(),
             HandshakeError::NoAuthChain => "No x-identity-auth-chain-* headers found.".to_string(),
             HandshakeError::StaleTimestamp => {
-                format!("timestamp outside ±{MAX_TIMESTAMP_SKEW_MS}ms skew window")
+                format!("timestamp outside \u{B1}{MAX_TIMESTAMP_SKEW_MS}ms skew window")
             }
             HandshakeError::InvalidAuthChain(e) => e.clone(),
         }
@@ -42,49 +42,11 @@ pub struct VerifiedHandshake {
     pub timestamp: String,
 }
 
-pub fn build_signed_fetch_payload(
-    method: &str,
-    path: &str,
-    timestamp: &str,
-    metadata: &str,
-) -> String {
-    format!(
-        "{}:{}:{}:{}",
-        method.to_lowercase(),
-        path.to_lowercase(),
-        timestamp,
-        metadata
-    )
-}
+pub use catalyrst_crypto::signed_fetch::build_payload_v6 as build_signed_fetch_payload;
 
-fn parse_header_bag(
-    headers: &BTreeMap<String, String>,
-) -> Result<(AuthChain, String, String), HandshakeError> {
-    let mut indexed: Vec<(u32, AuthLink)> = Vec::new();
-    let mut timestamp = String::new();
-    let mut metadata = String::new();
-
-    for (key, value) in headers {
-        let lk = key.to_lowercase();
-        if let Some(suffix) = lk.strip_prefix(AUTH_CHAIN_HEADER_PREFIX) {
-            if let Ok(idx) = suffix.parse::<u32>() {
-                let link: AuthLink =
-                    serde_json::from_str(value).map_err(|_| HandshakeError::InvalidJson)?;
-                indexed.push((idx, link));
-            }
-        } else if lk == TIMESTAMP_HEADER {
-            timestamp = value.clone();
-        } else if lk == METADATA_HEADER {
-            metadata = value.clone();
-        }
-    }
-
-    if indexed.is_empty() {
-        return Err(HandshakeError::NoAuthChain);
-    }
-    indexed.sort_by_key(|(i, _)| *i);
-    let chain: AuthChain = indexed.into_iter().map(|(_, l)| l).collect();
-    Ok((chain, timestamp, metadata))
+fn has_auth_chain_header(obj: &serde_json::Map<String, serde_json::Value>) -> bool {
+    obj.keys()
+        .any(|k| k.to_lowercase().starts_with(AUTH_CHAIN_HEADER_PREFIX))
 }
 
 fn signer_address(chain: &AuthChain) -> Option<String> {
@@ -98,11 +60,25 @@ pub fn verify_handshake(
     request: &HandshakeRequest,
     now_ms: i64,
 ) -> Result<VerifiedHandshake, HandshakeError> {
-    let json = std::str::from_utf8(&request.auth_chain).map_err(|_| HandshakeError::InvalidJson)?;
-    let headers: BTreeMap<String, String> =
+    verify_handshake_bytes(&request.auth_chain, now_ms)
+}
+
+/// Verify a signed-fetch auth chain from its raw header-bag bytes. Shared by the player and
+/// scene-listener handshake paths, which sign the identical `"connect"/"/"` payload.
+pub fn verify_handshake_bytes(
+    auth_chain: &[u8],
+    now_ms: i64,
+) -> Result<VerifiedHandshake, HandshakeError> {
+    let json = std::str::from_utf8(auth_chain).map_err(|_| HandshakeError::InvalidJson)?;
+    let obj: serde_json::Map<String, serde_json::Value> =
         serde_json::from_str(json).map_err(|_| HandshakeError::InvalidJson)?;
 
-    let (chain, timestamp, metadata) = parse_header_bag(&headers)?;
+    if !has_auth_chain_header(&obj) {
+        return Err(HandshakeError::NoAuthChain);
+    }
+
+    let timestamp = obj_str(&obj, TIMESTAMP_HEADER).unwrap_or("").to_string();
+    let metadata = obj_str(&obj, METADATA_HEADER).unwrap_or("").to_string();
 
     let ts_ms: i64 = timestamp
         .parse()
@@ -110,6 +86,10 @@ pub fn verify_handshake(
     if (now_ms - ts_ms).abs() > MAX_TIMESTAMP_SKEW_MS {
         return Err(HandshakeError::StaleTimestamp);
     }
+
+    let chain: AuthChain = to_crypto_chain(
+        &extract_from_object(&obj).map_err(|e| HandshakeError::InvalidAuthChain(e.to_string()))?,
+    );
 
     let expected_payload = build_signed_fetch_payload("connect", "/", &timestamp, &metadata);
 
@@ -139,6 +119,7 @@ pub fn verify_handshake(
 mod tests {
     use super::*;
     use crate::decentraland::pulse::HandshakeRequest;
+    use catalyrst_types::AuthLink;
 
     fn header_bag_json(links: &[(usize, &AuthLink)], ts: &str, metadata: &str) -> String {
         let mut map = serde_json::Map::new();
@@ -173,6 +154,7 @@ mod tests {
             auth_chain: vec![0xFF, 0xFE],
             profile_version: 0,
             initial_state: None,
+            protocol_features: 0,
         };
         assert_eq!(
             verify_handshake(&req, 1000),
@@ -183,6 +165,7 @@ mod tests {
             auth_chain: b"not json".to_vec(),
             profile_version: 0,
             initial_state: None,
+            protocol_features: 0,
         };
         assert_eq!(
             verify_handshake(&req, 1000),
@@ -198,6 +181,7 @@ mod tests {
             auth_chain: json.into_bytes(),
             profile_version: 0,
             initial_state: None,
+            protocol_features: 0,
         };
         assert_eq!(
             verify_handshake(&req, 1000),
@@ -217,6 +201,7 @@ mod tests {
             auth_chain: json.into_bytes(),
             profile_version: 0,
             initial_state: None,
+            protocol_features: 0,
         };
 
         assert_eq!(
@@ -237,21 +222,48 @@ mod tests {
             auth_chain: json.into_bytes(),
             profile_version: 0,
             initial_state: None,
+            protocol_features: 0,
         };
         let err = verify_handshake(&req, 100000).unwrap_err();
         assert!(matches!(err, HandshakeError::InvalidAuthChain(_)));
     }
 
+    #[test]
+    fn rejects_single_signer_only_chain() {
+        let ts = "100000";
+        let metadata = "{}";
+        let connect_payload = build_signed_fetch_payload("connect", "/", ts, metadata);
+        let signer = AuthLink {
+            link_type: AuthLinkType::SIGNER,
+            payload: connect_payload,
+            signature: Some(String::new()),
+        };
+        let json = header_bag_json(&[(0, &signer)], ts, metadata);
+        let req = HandshakeRequest {
+            auth_chain: json.into_bytes(),
+            profile_version: 0,
+            initial_state: None,
+            protocol_features: 0,
+        };
+        let now_ms: i64 = ts.parse().unwrap();
+        let err = verify_handshake(&req, now_ms).unwrap_err();
+        assert!(
+            matches!(err, HandshakeError::InvalidAuthChain(_)),
+            "single SIGNER-only chain must be rejected, got {err:?}"
+        );
+    }
+
     #[tokio::test]
     async fn accepts_real_signed_chain() {
+        use alloy::signers::{local::PrivateKeySigner, Signer};
         use catalyrst_types::AuthChain as Chain;
-        use ethers_signers::{LocalWallet, Signer};
 
-        let root: LocalWallet = "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
-            .parse()
-            .unwrap();
+        let root: PrivateKeySigner =
+            "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
+                .parse()
+                .unwrap();
         let root_addr = format!("{:#x}", root.address());
-        let ephemeral: LocalWallet =
+        let ephemeral: PrivateKeySigner =
             "59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d"
                 .parse()
                 .unwrap();
@@ -264,17 +276,16 @@ mod tests {
         let eph_payload = format!(
             "Decentraland Login\nEphemeral address: {eph_addr}\nExpiration: 2099-01-01T00:00:00.000Z"
         );
-        let eph_sig = format!(
-            "0x{}",
-            root.sign_message(eph_payload.as_bytes()).await.unwrap()
-        );
-        let final_sig = format!(
-            "0x{}",
-            ephemeral
-                .sign_message(connect_payload.as_bytes())
-                .await
-                .unwrap()
-        );
+        let eph_sig = root
+            .sign_message(eph_payload.as_bytes())
+            .await
+            .unwrap()
+            .to_string();
+        let final_sig = ephemeral
+            .sign_message(connect_payload.as_bytes())
+            .await
+            .unwrap()
+            .to_string();
 
         let chain: Chain = vec![
             AuthLink {
@@ -300,6 +311,7 @@ mod tests {
             auth_chain: json.into_bytes(),
             profile_version: 0,
             initial_state: None,
+            protocol_features: 0,
         };
 
         let now_ms: i64 = ts.parse().unwrap();
@@ -318,6 +330,7 @@ mod tests {
             auth_chain: bad_json.into_bytes(),
             profile_version: 0,
             initial_state: None,
+            protocol_features: 0,
         };
         assert!(matches!(
             verify_handshake(&bad_req, now_ms).unwrap_err(),

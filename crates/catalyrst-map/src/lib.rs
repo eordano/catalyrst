@@ -5,20 +5,21 @@ pub mod config;
 pub mod districts;
 pub mod handlers;
 pub mod map;
+pub mod nft;
 pub mod proximity;
 pub mod render;
 pub mod rentals;
 pub mod satellite;
 
-use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
 use axum::routing::get;
 use axum::Router;
-use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use sqlx::PgPool;
+use tower_http::cors::CorsLayer;
+use tower_http::trace::TraceLayer;
 
 use crate::config::Config;
 use crate::map::MapComponent;
@@ -34,24 +35,23 @@ pub struct AppStateInner {
 pub type AppState = Arc<AppStateInner>;
 
 pub async fn build_state(cfg: &Config) -> Result<AppState> {
-    let opts = PgConnectOptions::from_str(&cfg.database_url)
-        .context("invalid DAPPS_PG_COMPONENT_PSQL_CONNECTION_STRING")?
-        .options([
-            ("statement_timeout", "120000"),
-            ("idle_in_transaction_session_timeout", "30000"),
-        ]);
-    let pool = PgPoolOptions::new()
-        .max_connections(10)
-        .idle_timeout(Duration::from_secs(30))
-        .connect_with(opts)
-        .await
-        .context("failed to connect marketplace_squid pool")?;
+    let pool = catalyrst_db::connect_pool(
+        &cfg.database_url,
+        &catalyrst_db::PoolSettings {
+            statement_timeout_ms: 120_000,
+            ..catalyrst_db::PoolSettings::default()
+        },
+    )
+    .await
+    .context("failed to connect marketplace_squid pool")?;
 
     let map = MapComponent::new(
         pool.clone(),
         cfg.schema.clone(),
         cfg.land_contract_address.clone(),
         cfg.estate_contract_address.clone(),
+        cfg.map_tiles_cache_entries,
+        cfg.map_png_cache_entries,
     );
 
     let satellite = SatelliteState::new(
@@ -114,6 +114,18 @@ pub async fn build_state(cfg: &Config) -> Result<AppState> {
     }
 
     Ok(state)
+}
+
+pub fn service_router(state: AppState) -> Router {
+    Router::new()
+        .route("/ping", get(handlers::status::ping))
+        .route("/ready", get(handlers::status::ready))
+        .route("/v2/ping", get(handlers::status::ping))
+        .route("/v2/ready", get(handlers::status::ready))
+        .merge(api_router())
+        .layer(TraceLayer::new_for_http())
+        .layer(CorsLayer::permissive())
+        .with_state(state)
 }
 
 pub fn api_router() -> Router<AppState> {

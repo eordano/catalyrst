@@ -45,13 +45,21 @@ pub struct Config {
 
     pub usage_grants_database_url: Option<String>,
 
-    pub progress_presence_database_url: Option<String>,
-
     pub escrow_lock_days: i32,
 
     pub mock_fulfillment: bool,
 
     pub mock_card: bool,
+
+    pub credits_signer_key: Option<String>,
+
+    pub credits_manager_contract: Option<String>,
+
+    pub credits_onchain_authorize_enabled: bool,
+
+    pub checkout_success_url: String,
+
+    pub checkout_cancel_url: String,
 }
 
 const DEFAULT_CREDITS_CURRENCY: &str = "usd";
@@ -125,12 +133,21 @@ impl Config {
             usage_grants_database_url: env::var("USAGE_GRANTS_PG_CONNECTION_STRING")
                 .ok()
                 .filter(|s| !s.is_empty()),
-            progress_presence_database_url: env::var("PROGRESS_PRESENCE_PG_CONNECTION_STRING")
-                .ok()
-                .filter(|s| !s.is_empty()),
             escrow_lock_days: get_i32("ESCROW_LOCK_DAYS", DEFAULT_ESCROW_LOCK_DAYS)?,
             mock_fulfillment: get_bool("CREDITS_MOCK_FULFILLMENT", false)?,
             mock_card: get_bool("CREDITS_MOCK_CARD", false)?,
+            credits_signer_key: env::var("CREDITS_SIGNER_PRIVATE_KEY")
+                .ok()
+                .filter(|s| !s.is_empty()),
+            credits_manager_contract: env::var("CREDITS_MANAGER_CONTRACT")
+                .ok()
+                .filter(|s| !s.is_empty()),
+            credits_onchain_authorize_enabled: get_bool(
+                "CREDITS_ONCHAIN_AUTHORIZE_ENABLED",
+                false,
+            )?,
+            checkout_success_url: env_or("CREDITS_CHECKOUT_SUCCESS_URL", ""),
+            checkout_cancel_url: env_or("CREDITS_CHECKOUT_CANCEL_URL", ""),
         };
         guard_admin_exposure(
             &cfg.http_host,
@@ -243,6 +260,24 @@ mod intent_default_tests {
         let key = "CREDITS_REQUIRE_PURCHASE_INTENT_TEST_FALSE_SENTINEL";
         std::env::set_var(key, "false");
         assert!(!get_bool(key, DEFAULT_REQUIRE_PURCHASE_INTENT).unwrap());
+        std::env::remove_var(key);
+    }
+}
+
+#[cfg(test)]
+mod onchain_authorize_flag_tests {
+    use super::get_bool;
+
+    #[test]
+    fn onchain_authorize_defaults_off() {
+        assert!(!get_bool("CREDITS_ONCHAIN_AUTHORIZE_ENABLED_TEST_UNSET", false).unwrap());
+    }
+
+    #[test]
+    fn explicit_true_is_the_only_way_to_enable() {
+        let key = "CREDITS_ONCHAIN_AUTHORIZE_ENABLED_TEST_TRUE";
+        std::env::set_var(key, "true");
+        assert!(get_bool(key, false).unwrap());
         std::env::remove_var(key);
     }
 }

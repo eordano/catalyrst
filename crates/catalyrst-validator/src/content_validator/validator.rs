@@ -4,9 +4,10 @@ use async_trait::async_trait;
 use tracing::{debug, warn};
 
 use super::helpers::{
-    count_urn_segments, is_ipfs_v2_hash, profile_has_emotes, should_validate_face_thumbnail,
-    validate_profile_emote_urns, validate_profile_wearable_urns,
+    count_urn_segments, is_ipfs_v2_hash, is_relative_thumbnail_path, profile_has_emotes,
+    should_validate_face_thumbnail, validate_profile_emote_urns, validate_profile_wearable_urns,
 };
+use super::scene_parcels::validate_scene_parcels_match_pointers;
 use super::spring_bones::validate_spring_bones_metadata;
 use crate::checker::{
     validate_item_access, validate_outfits_access, validate_profile_access, validate_scene_access,
@@ -18,9 +19,14 @@ use crate::types::*;
 
 #[async_trait]
 pub trait ExternalCalls: Send + Sync {
-    async fn is_content_stored_already(&self, hashes: &[String]) -> HashMap<String, bool>;
+    /// `Ok(false)` / `Ok(None)` mean provable absence only. A store this node could not read is an
+    /// `Err`, never a miss: absence is a verdict about the caller, a fault is a verdict about us.
+    async fn is_content_stored_already(
+        &self,
+        hashes: &[String],
+    ) -> Result<HashMap<String, bool>, String>;
 
-    async fn fetch_content_file_size(&self, hash: &str) -> Option<usize>;
+    async fn fetch_content_file_size(&self, hash: &str) -> Result<Option<usize>, String>;
 
     async fn validate_signature(
         &self,
@@ -42,6 +48,13 @@ pub trait ExternalCalls: Send + Sync {
 pub struct CalculatedHash {
     pub calculated_hash: String,
     pub buffer: Vec<u8>,
+}
+
+fn content_store_unavailable(cause: &str) -> ValidationResponse {
+    ValidationResponse::unavailable(format!(
+        "This node could not read its own content store, so the deployment could not be \
+         validated. Please retry. Cause: {cause}"
+    ))
 }
 
 pub struct ContentValidator<E: ExternalCalls, B: BlockchainChecker> {
@@ -132,7 +145,19 @@ impl<E: ExternalCalls, B: BlockchainChecker> ContentValidator<E, B> {
             return result;
         }
 
-        let result = crate::third_party::validate_third_party_merkle_proof_content(deployment);
+        let result = match deployment.entity.entity_type {
+            EntityType::Wearable => crate::third_party::validate_third_party_merkle_proof_content(
+                deployment,
+                crate::third_party::WEARABLE_REQUIRED_HASHING_KEYS,
+                "wearable",
+            ),
+            EntityType::Emote => crate::third_party::validate_third_party_merkle_proof_content(
+                deployment,
+                crate::third_party::EMOTE_REQUIRED_HASHING_KEYS,
+                "emote",
+            ),
+            _ => ValidationResponse::Ok,
+        };
         if !result.is_ok() {
             debug!("Validation failed at third-party merkle proof");
             return result;
@@ -255,7 +280,7 @@ impl<E: ExternalCalls, B: BlockchainChecker> ContentValidator<E, B> {
         let total_size = if entity.timestamp > adr_timestamps::ADR_45 {
             match self.calculate_deployment_size(deployment).await {
                 Ok(size) => size,
-                Err(msg) => return ValidationResponse::fail(msg),
+                Err(response) => return response,
             }
         } else {
             deployment.files.values().map(|f| f.len() as u64).sum()
@@ -278,7 +303,7 @@ impl<E: ExternalCalls, B: BlockchainChecker> ContentValidator<E, B> {
     async fn calculate_deployment_size(
         &self,
         deployment: &DeploymentToValidate,
-    ) -> Result<u64, String> {
+    ) -> Result<u64, ValidationResponse> {
         let mut total: u64 = 0;
         let unique_hashes: HashSet<&String> =
             deployment.entity.content.iter().map(|c| &c.hash).collect();
@@ -288,10 +313,13 @@ impl<E: ExternalCalls, B: BlockchainChecker> ContentValidator<E, B> {
                 total += uploaded.len() as u64;
             } else {
                 match self.external_calls.fetch_content_file_size(hash).await {
-                    Some(size) => total += size as u64,
-                    None => {
-                        return Err(format!("Couldn't fetch content file with hash: {hash}"));
+                    Ok(Some(size)) => total += size as u64,
+                    Ok(None) => {
+                        return Err(ValidationResponse::fail(format!(
+                            "Couldn't fetch content file with hash: {hash}"
+                        )));
                     }
+                    Err(msg) => return Err(content_store_unavailable(&msg)),
                 }
             }
         }
@@ -442,16 +470,18 @@ impl<E: ExternalCalls, B: BlockchainChecker> ContentValidator<E, B> {
         match deployment.files.get(&hash) {
             Some(buffer) => ValidationResponse::from_errors(check_wearable_thumbnail_image(buffer)),
             None => {
-                let stored = self
+                match self
                     .external_calls
                     .is_content_stored_already(std::slice::from_ref(&hash))
-                    .await;
-                if stored.get(&hash).copied().unwrap_or(false) {
-                    ValidationResponse::Ok
-                } else {
-                    ValidationResponse::fail(format!(
+                    .await
+                {
+                    Ok(stored) if stored.get(&hash).copied().unwrap_or(false) => {
+                        ValidationResponse::Ok
+                    }
+                    Ok(_) => ValidationResponse::fail(format!(
                         "Couldn't find thumbnail file with hash: {hash}"
-                    ))
+                    )),
+                    Err(msg) => content_store_unavailable(&msg),
                 }
             }
         }
@@ -496,11 +526,26 @@ impl<E: ExternalCalls, B: BlockchainChecker> ContentValidator<E, B> {
                 }
             };
 
-            let stored = self
+            let already_stored = match self
                 .external_calls
                 .is_content_stored_already(std::slice::from_ref(&hash))
-                .await;
-            if stored.get(&hash).copied().unwrap_or(false) {
+                .await
+            {
+                Ok(stored) => stored.get(&hash).copied().unwrap_or(false),
+                Err(msg) => {
+                    if !deployment.files.contains_key(&hash) {
+                        return content_store_unavailable(&msg);
+                    }
+                    warn!(
+                        hash,
+                        error = %msg,
+                        "content store unreadable; re-checking the uploaded face256 thumbnail \
+                         instead of skipping it"
+                    );
+                    false
+                }
+            };
+            if already_stored {
                 continue;
             }
 
@@ -641,6 +686,12 @@ impl<E: ExternalCalls, B: BlockchainChecker> ContentValidator<E, B> {
             return ValidationResponse::Ok;
         }
 
+        let parcels_result =
+            validate_scene_parcels_match_pointers(entity.metadata.as_ref(), &entity.pointers);
+        if !parcels_result.is_ok() {
+            return parcels_result;
+        }
+
         if entity.timestamp >= adr_timestamps::ADR_173 {
             if let Some(metadata) = &entity.metadata {
                 if metadata.get("worldConfiguration").is_some() {
@@ -657,18 +708,9 @@ impl<E: ExternalCalls, B: BlockchainChecker> ContentValidator<E, B> {
 
         if entity.timestamp >= adr_timestamps::ADR_236 {
             if let Some(metadata) = &entity.metadata {
-                if let Some(thumbnail) = metadata
-                    .get("display")
-                    .and_then(|d| d.get("navmapThumbnail"))
-                    .and_then(|t| t.as_str())
-                {
-                    let is_present = entity.content.iter().any(|c| c.file == thumbnail);
-                    if !is_present {
-                        return ValidationResponse::fail(format!(
-                            "Scene thumbnail '{thumbnail}' must be a file included in \
-                             the deployment."
-                        ));
-                    }
+                let result = validate_scene_navmap_thumbnail(metadata, &entity.content);
+                if !result.is_ok() {
+                    return result;
                 }
             }
         }
@@ -682,8 +724,27 @@ impl<E: ExternalCalls, B: BlockchainChecker> ContentValidator<E, B> {
         let mut errors = Vec::new();
 
         if !entity.content.is_empty() {
-            let hashes: Vec<String> = entity.content.iter().map(|c| c.hash.clone()).collect();
-            let stored = self.external_calls.is_content_stored_already(&hashes).await;
+            let mut asked: HashSet<&str> = HashSet::new();
+            let unresolved: Vec<String> = entity
+                .content
+                .iter()
+                .map(|c| c.hash.as_str())
+                .filter(|h| !files.contains_key(*h) && asked.insert(h))
+                .map(str::to_string)
+                .collect();
+
+            let stored = if unresolved.is_empty() {
+                HashMap::new()
+            } else {
+                match self
+                    .external_calls
+                    .is_content_stored_already(&unresolved)
+                    .await
+                {
+                    Ok(stored) => stored,
+                    Err(msg) => return content_store_unavailable(&msg),
+                }
+            };
 
             for cm in &entity.content {
                 let is_uploaded = files.contains_key(&cm.hash);
@@ -807,7 +868,7 @@ impl<E: ExternalCalls, B: BlockchainChecker> ContentValidator<E, B> {
                 entity_type = %deployment.entity.entity_type,
                 pointers = ?deployment.entity.pointers,
                 "blockchain access checks bypassed for deployment \
-                 — should only be enabled on sync-only nodes"
+                 \u{2014} should only be enabled on sync-only nodes"
             );
             return ValidationResponse::Ok;
         }
@@ -847,6 +908,152 @@ impl<E: ExternalCalls, B: BlockchainChecker> ContentValidator<E, B> {
             EntityType::Outfits => {
                 validate_outfits_access(deployment, &self.blockchain_checker, &deployer).await
             }
+        }
+    }
+}
+
+fn validate_scene_navmap_thumbnail(
+    metadata: &serde_json::Value,
+    content: &[ContentMapping],
+) -> ValidationResponse {
+    let Some(value) = metadata
+        .get("display")
+        .and_then(|d| d.get("navmapThumbnail"))
+    else {
+        return ValidationResponse::Ok;
+    };
+    let thumbnail = match value {
+        serde_json::Value::Null => return ValidationResponse::Ok,
+        serde_json::Value::String(s) if s.is_empty() => return ValidationResponse::Ok,
+        serde_json::Value::Bool(false) => return ValidationResponse::Ok,
+        serde_json::Value::Number(n) if n.as_f64() == Some(0.0) => return ValidationResponse::Ok,
+        serde_json::Value::String(s) => s.as_str(),
+        other => {
+            return ValidationResponse::fail(format!(
+                "Scene thumbnail '{other}' must be a relative path to a \
+                 file included in the deployment."
+            ));
+        }
+    };
+
+    if !is_relative_thumbnail_path(thumbnail) {
+        return ValidationResponse::fail(format!(
+            "Scene thumbnail '{thumbnail}' must be a relative path to a \
+             file included in the deployment."
+        ));
+    }
+    let is_present = content.iter().any(|c| c.file == thumbnail);
+    if !is_present {
+        return ValidationResponse::fail(format!(
+            "Scene thumbnail '{thumbnail}' must be a file included in \
+             the deployment."
+        ));
+    }
+
+    ValidationResponse::Ok
+}
+
+#[cfg(test)]
+#[path = "store_fault_tests.rs"]
+mod store_fault_tests;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn thumbnail_metadata(value: serde_json::Value) -> serde_json::Value {
+        serde_json::json!({ "display": { "navmapThumbnail": value } })
+    }
+
+    fn scene_content(file: &str) -> Vec<ContentMapping> {
+        vec![ContentMapping {
+            file: file.to_string(),
+            hash: "bafkreihdwdcefgh4dqkjv67uzcmw7ojee6xedzdetojuzjevtenosa7776".to_string(),
+        }]
+    }
+
+    #[test]
+    fn navmap_thumbnail_relative_embedded_path_passes() {
+        let metadata = thumbnail_metadata(serde_json::json!("thumbnail.png"));
+        assert!(
+            validate_scene_navmap_thumbnail(&metadata, &scene_content("thumbnail.png")).is_ok()
+        );
+    }
+
+    #[test]
+    fn navmap_thumbnail_absent_null_or_empty_is_skipped() {
+        let absent = serde_json::json!({ "display": {} });
+        assert!(validate_scene_navmap_thumbnail(&absent, &scene_content("x.png")).is_ok());
+        let null = thumbnail_metadata(serde_json::Value::Null);
+        assert!(validate_scene_navmap_thumbnail(&null, &scene_content("x.png")).is_ok());
+        let empty = thumbnail_metadata(serde_json::json!(""));
+        assert!(validate_scene_navmap_thumbnail(&empty, &scene_content("x.png")).is_ok());
+        let falsey = thumbnail_metadata(serde_json::json!(false));
+        assert!(validate_scene_navmap_thumbnail(&falsey, &scene_content("x.png")).is_ok());
+        let zero = thumbnail_metadata(serde_json::json!(0));
+        assert!(validate_scene_navmap_thumbnail(&zero, &scene_content("x.png")).is_ok());
+        let zero_float = thumbnail_metadata(serde_json::json!(0.0));
+        assert!(validate_scene_navmap_thumbnail(&zero_float, &scene_content("x.png")).is_ok());
+    }
+
+    #[test]
+    fn navmap_thumbnail_array_value_is_rejected() {
+        let payload = "https://x\"><script>alert(1)</script><meta name=\"y";
+        let metadata = thumbnail_metadata(serde_json::json!([payload]));
+        match validate_scene_navmap_thumbnail(&metadata, &scene_content("x.png")) {
+            ValidationResponse::Failed { errors } => {
+                assert_eq!(errors.len(), 1);
+                assert!(
+                    errors[0].starts_with("Scene thumbnail '[")
+                        && errors[0].ends_with(
+                            "must be a relative path to a file included in the deployment."
+                        ),
+                    "unexpected error: {}",
+                    errors[0]
+                );
+            }
+            other => panic!("array-valued navmapThumbnail must be rejected, got {other}"),
+        }
+    }
+
+    #[test]
+    fn navmap_thumbnail_number_value_is_rejected() {
+        let metadata = thumbnail_metadata(serde_json::json!(5));
+        match validate_scene_navmap_thumbnail(&metadata, &scene_content("x.png")) {
+            ValidationResponse::Failed { errors } => {
+                assert_eq!(
+                    errors[0],
+                    "Scene thumbnail '5' must be a relative path to a \
+                     file included in the deployment."
+                );
+            }
+            other => panic!("number-valued navmapThumbnail must be rejected, got {other}"),
+        }
+    }
+
+    #[test]
+    fn navmap_thumbnail_absolute_or_scheme_paths_are_rejected() {
+        for bad in ["https://evil.com/x.png", "//evil.com/x.png", "/etc/passwd"] {
+            let metadata = thumbnail_metadata(serde_json::json!(bad));
+            assert!(
+                !validate_scene_navmap_thumbnail(&metadata, &scene_content(bad)).is_ok(),
+                "{bad} must be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn navmap_thumbnail_missing_from_content_is_rejected() {
+        let metadata = thumbnail_metadata(serde_json::json!("thumbnail.png"));
+        match validate_scene_navmap_thumbnail(&metadata, &scene_content("other.png")) {
+            ValidationResponse::Failed { errors } => {
+                assert_eq!(
+                    errors[0],
+                    "Scene thumbnail 'thumbnail.png' must be a file included in \
+                     the deployment."
+                );
+            }
+            other => panic!("non-embedded thumbnail must be rejected, got {other}"),
         }
     }
 }

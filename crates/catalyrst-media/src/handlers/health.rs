@@ -10,10 +10,7 @@ use crate::AppStateInner;
 pub async fn health(
     State(state): State<Arc<AppStateInner>>,
 ) -> (StatusCode, Json<serde_json::Value>) {
-    let db_ok = sqlx::query_scalar::<_, i32>("SELECT 1")
-        .fetch_one(&state.pool)
-        .await
-        .is_ok();
+    let db_ok = catalyrst_db::ping_health(&state.pool).await.is_ok();
     let status = if db_ok {
         StatusCode::OK
     } else {

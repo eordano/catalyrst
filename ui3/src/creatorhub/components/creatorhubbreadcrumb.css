@@ -1,0 +1,15 @@
+.ch-breadcrumb {
+  padding: 12px 24px 0;
+}
+
+.ch-breadcrumb__link {
+  color: var(--ink-7);
+  font-size: 14px;
+  line-height: 1.5;
+  text-decoration: none;
+  transition: color 0.12s ease;
+}
+
+.ch-breadcrumb__link:hover {
+  color: var(--ink-85);
+}

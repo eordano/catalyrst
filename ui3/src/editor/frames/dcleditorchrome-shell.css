@@ -1,0 +1,330 @@
+.eui-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(10, 9, 12, 0.6);
+  pointer-events: auto;
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: var(--z-modal);
+}
+.eui-modal {
+  background: var(--surface);
+  border: 1px solid var(--divider);
+  border-radius: var(--r-card);
+  min-width: 380px;
+  max-width: 680px;
+  max-height: 78vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: var(--shadow-float);
+  animation: eui-pop 0.18s cubic-bezier(0.2, 0.9, 0.3, 1) both;
+}
+.eui-modal-head {
+  padding: 16px 18px 8px;
+  font-weight: 600;
+  font-size: 14px;
+}
+.eui-modal-body {
+  padding: 8px 18px 16px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.eui-modal-foot {
+  padding: 12px 18px;
+  border-top: 1px solid var(--divider-soft);
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  align-items: center;
+}
+
+.eui-play-frame {
+  position: fixed;
+  top: var(--eui-chrome-h, 0px);
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 1;
+  pointer-events: none;
+  border: 2.5px solid var(--gold);
+  box-shadow: inset 0 0 22px color-mix(in srgb, var(--gold) 35%, transparent);
+  animation: eui-play-pulse 2.4s ease-in-out infinite;
+}
+@keyframes eui-play-pulse {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+.eui-play-badge {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 4px 12px;
+  border-radius: var(--r-pill);
+  white-space: nowrap;
+  background: hsl(38, 95%, 55%);
+  color: #1a1400;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  box-shadow: var(--shadow-float);
+}
+
+.eui-play-frame--preview {
+  pointer-events: auto;
+  background: #08070b;
+  border-color: var(--brand);
+  box-shadow: none;
+  animation: none;
+}
+.eui-preview-frame {
+  position: absolute;
+  top: var(--eui-chrome-h, 0px);
+  left: 0;
+  width: 100%;
+  height: calc(100% - var(--eui-chrome-h, 0px));
+  border: 0;
+  display: block;
+  background: #08070b;
+}
+.eui-play-badge--preview {
+  top: calc(var(--eui-top-inset, 12px) + 54px);
+  background: var(--brand);
+  color: #fff;
+}
+
+.eui-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 14px;
+  font-size: 12.5px;
+  color: var(--text-2);
+  cursor: pointer;
+  user-select: none;
+}
+.eui-check input {
+  cursor: pointer;
+}
+
+.eui-toast {
+  position: absolute;
+  bottom: 18px;
+  left: 50%;
+  pointer-events: auto;
+  height: 38px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 16px;
+  border-radius: var(--r-card);
+  background: rgba(29, 28, 32, 0.92);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--divider);
+  box-shadow: var(--shadow-float), inset 2px 0 0 var(--primary);
+  color: var(--text);
+  font-size: 12.5px;
+  max-width: 60vw;
+  animation: eui-toast 0.22s cubic-bezier(0.2, 0.9, 0.3, 1) both;
+}
+/* Motion tokens. One easing and three durations so panels, overlays and rows
+   move like one surface instead of each picking its own feel. Reduced motion is
+   already neutralised globally by the `*` rule in atoms/primitives.css, which
+   clamps every transition/animation duration -- nothing here needs to restate
+   it, and restating it in each file is how the two drift apart. */
+.eui-root {
+  --eui-ease: cubic-bezier(0.2, 0.9, 0.3, 1);
+  --eui-fast: 0.12s;
+  --eui-base: 0.18s;
+  --eui-slow: 0.26s;
+}
+
+/* The engine takes a few seconds to show its first frame, and this curtain used
+   to vanish on the frame it became ready -- the single most jarring moment in
+   the editor. It now fades and scales away over the canvas underneath. The
+   component keeps it mounted for exactly this long; see DclEditorChrome. */
+@keyframes eui-boot-out {
+  to {
+    opacity: 0;
+    backdrop-filter: blur(0);
+    -webkit-backdrop-filter: blur(0);
+    transform: scale(1.015);
+  }
+}
+.eui-boot.is-leaving {
+  animation: eui-boot-out var(--eui-slow, 0.26s) var(--eui-ease, ease) both;
+}
+
+/* Panels mount and unmount as they are toggled, so this runs on show. Opacity
+   and transform only -- animating width would relayout the viewport every frame
+   while the engine is drawing into it. */
+@keyframes eui-panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.995);
+  }
+}
+.eui-panel {
+  animation: eui-panel-in var(--eui-base, 0.18s) var(--eui-ease, ease) both;
+}
+
+.eui-boot {
+  position: absolute;
+  top: var(--eui-chrome-h, 0px);
+  right: 0;
+  bottom: 0;
+  left: 0;
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  background: rgba(12, 11, 16, 0.85);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  color: var(--text-2);
+  font-size: 13px;
+  letter-spacing: 0.01em;
+}
+.eui-boot--error {
+  pointer-events: auto;
+}
+.eui-boot-spinner {
+  width: 26px;
+  height: 26px;
+  flex: none;
+  border-radius: var(--r-pill);
+  border: 2.5px solid var(--divider);
+  border-top-color: var(--primary);
+  animation: eui-spin 0.8s linear infinite;
+  will-change: transform;
+}
+@keyframes eui-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.eui-boot-stage {
+  max-width: 340px;
+  text-align: center;
+}
+.eui-boot-elapsed {
+  font-size: 12px;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.eui-viewport {
+  pointer-events: auto;
+  background:
+    radial-gradient(120% 80% at 50% 8%, #2c2640 0%, rgba(44, 38, 64, 0) 50%),
+    linear-gradient(180deg, #14131b 0%, #0c0b11 52%, #08070b 100%);
+  overflow: hidden;
+}
+.eui-vp-frame {
+  position: absolute;
+  top: var(--eui-chrome-h, 0px);
+  left: 0;
+  /* An absolutely positioned replaced element does not stretch between left
+     and right, so the engine canvas sizes explicitly against the band. */
+  width: 100%;
+  height: calc(100% - var(--eui-chrome-h, 0px));
+  border: 0;
+  display: block;
+  z-index: 0;
+  background: #08070b;
+  pointer-events: auto;
+}
+.eui-vp-horizon {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 52%;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(140, 91, 246, 0.35), transparent);
+  box-shadow: 0 0 40px 10px rgba(140, 91, 246, 0.12);
+}
+.eui-vp-grid {
+  position: absolute;
+  left: -40%;
+  right: -40%;
+  top: 52%;
+  bottom: -10%;
+  background-image:
+    linear-gradient(rgba(150, 160, 210, 0.16) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(150, 160, 210, 0.16) 1px, transparent 1px);
+  background-size: 54px 54px;
+  transform: perspective(560px) rotateX(64deg);
+  transform-origin: top center;
+  mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.9) 0%, transparent 78%);
+  -webkit-mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.9) 0%, transparent 78%);
+}
+.eui-vp-object {
+  position: absolute;
+  left: 50%;
+  top: 47%;
+  transform: translate(-50%, -50%);
+  width: 116px;
+  height: 116px;
+}
+.eui-vp-cube {
+  position: absolute;
+  inset: 0;
+  border-radius: 16px;
+  background: linear-gradient(150deg, #9c70ff 0%, #6d3fd6 64%, #4a249e 100%);
+  box-shadow: 0 30px 70px rgba(140, 91, 246, 0.34), inset 0 2px 0 rgba(255, 255, 255, 0.22);
+  transform: rotate(6deg);
+}
+.eui-vp-gizmo {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 0;
+  height: 0;
+}
+.eui-vp-gizmo i {
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 2px;
+  width: 78px;
+  transform-origin: left center;
+  border-radius: 2px;
+}
+.eui-vp-gizmo i::after {
+  content: "";
+  position: absolute;
+  right: -4px;
+  top: -3px;
+  width: 8px;
+  height: 8px;
+  border-radius: var(--r-pill);
+  background: inherit;
+}
+.eui-vp-gizmo .ax-x {
+  background: #fb3b3b;
+  transform: rotate(-2deg);
+}
+.eui-vp-gizmo .ax-y {
+  background: #34ce77;
+  transform: rotate(-92deg);
+}
+.eui-vp-gizmo .ax-z {
+  background: #4aa8ff;
+  width: 56px;
+  transform: rotate(28deg) scaleX(0.8);
+  opacity: 0.85;
+}

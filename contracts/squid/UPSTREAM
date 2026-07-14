@@ -1,0 +1,115 @@
+# Provenance for contracts/squid -- a first-class fork, no longer vendored.
+# Promoted from third-party/marketplace-squid on 2026-08-20; local changes are
+# baked into this tree and evolve in place (the retired clone-and-patch series
+# lives in git history at third-party/marketplace-squid/patches/).
+#
+# Parity sweeps diff against upstream from this rev forward.
+url    = https://github.com/decentraland/marketplace-squid-core
+branch = main
+rev    = 065f5d2d4b0f2e0b8563736f16bc5b9c244897ea
+#
+# Baked-in changes on top of that rev:
+# - ens-owner-is-beneficiary: handleNameRegistered recorded DCLControllerV2 as
+#   ens.owner instead of the buyer; now uses _beneficiary. Rows indexed before
+#   the fix keep the wrong owner until the ENS entities are re-indexed. If
+#   upstream ships its own fix, reconcile by hand -- nothing auto-drops now.
+# - drop-graphql-slack-sns: the GraphQL API server and Slack/SNS notify paths
+#   are removed; catalyrst-market reads squid_marketplace directly.
+# - upstream cherry-picks: a3781a0 (keep bulk indices), cf765f9 (cache v3 fee
+#   config), c931f71 (empty-leg guards), portal auth.
+# - 2026-09-04 sweep: 5bbb2bc (#112 index off-chain marketplace v3: V3 ABI
+#   modules, OffChainMarketplace{,V2,V3} rename, shared Null constant), 84ebffe
+#   (#116 ETH supportHotBlocks on + Portal retryAttempts: Infinity, the latter
+#   first taken on the authed branch only and widened 2026-09-11 to the key-less
+#   fail-open branch, which otherwise inherited portal-client's finite default of
+#   20 attempts), 3d696da (#117 typeorm-store ^1.9.2 with batch-processor ^1.1.0,
+#   evm-stream ^0.1.4, portal-client ^0.7.0; npmDepsHash in nix/squid.nix
+#   regenerated with prefetch-npm-deps).
+# - head-sync-status-qualified: head-notification.ts keeps the status table
+#   schema-QUALIFIED, where upstream went unqualified in 1a65069 (#86) so the name
+#   follows the promotion rename. We have no promotion path (upgrade.sh is never
+#   invoked; the deployment creates squid_marketplace directly), so the rename cannot
+#   happen and qualifying keeps the table isolated per deployment. The rest of
+#   1a65069 IS ported (MAX_ATTEMPTS retry cap + the head-alert upsert, the latter
+#   aliased because our table name is qualified).
+# - 2026-09-06 sweep: 66f71f3 (#118 stop pinning search_path -- the deployment
+#   schema now travels as SQUID_SCHEMA and DB_SCHEMA is unset, so typeorm-config
+#   4.2.0 cannot pin a per-connection search_path; the head-notification hunk was
+#   adapted to our schema-qualified status table, not taken verbatim).
+#   ADAPTATION: upstream can read SQUID_SCHEMA alone because indexer.sh/restart.sh
+#   always export it; our units exec the nix wrappers with an EnvironmentFile and
+#   never run those scripts, so src/common/utils/deployment-schema.ts resolves
+#   SQUID_SCHEMA with DB_SCHEMA as a DEPRECATED fallback. Drop the fallback once
+#   the deployment's squid env sets SQUID_SCHEMA (reading DB_SCHEMA does not re-pin
+#   search_path -- typeorm-config only pins when it is SET in the environment).
+# - require-squid-schema (FORK-STRICTER than upstream, 2026-09-07): upstream's
+#   src/{eth,polygon}/main.ts read process.env.SQUID_SCHEMA with no guard, because
+#   indexer.sh/restart.sh always export a non-empty value before invoking node. Our
+#   units exec the nix wrappers off an EnvironmentFile and never run those scripts, so
+#   an unset var silently produced stateSchema `<chain>_processor_undefined` and a
+#   re-index from genesis over live data. requireDeploymentSchema() in
+#   src/common/utils/deployment-schema.ts now assertNotNull()s the resolved name at
+#   entry-point module load; head-notification.ts deliberately keeps the permissive
+#   deploymentSchema(). Both reads are trimmed, so an empty or whitespace-only value
+#   normalizes to undefined, and a resolved name that is not a bare SQL identifier is
+#   rejected -- upstream's indexer.sh only ever exports marketplace_squid_<timestamp>
+#   or a resumed row value, so nothing upstream produces is rejected here, and the
+#   qualified `"<schema>".head_sync_status` in head-notification.ts stays well formed.
+#   Drop this once upstream grows its own guard or our env is guaranteed to set
+#   SQUID_SCHEMA.
+# - package-lock.json converted to lockfileVersion 3 (same resolved deps --
+#   buildNpmPackage requires v3).
+# - 2026-09-08 sweep: collections snapshots refreshed to upstream 66f71f3
+#   byte-for-byte -- assets/collections_mainnet.json 69ddad3 (#108, block
+#   80606688 -> 91689975) and 90fbed3 (#113, -> 92560518), assets/collections_amoy.json
+#   2480206 (#97, block 10541238 -> 43349033, 40 -> 224 collections). Both files were
+#   provably unmodified since the fork point, so the port is a straight copy; the old
+#   address lists are strict subsets of the new ones and the unused "top" key that
+#   upstream dropped was never read by src/polygon/utils/loaders.ts. The snapshot is a
+#   warm-start filter, not a correctness gate: src/polygon/processor.ts address-filters
+#   collection logs only up to collections.height and scans topic0-only past it.
+#   The refresh does widen the address-filtered range (5772 -> 5902 addresses, up to
+#   block 92560518), so it raises the urgency of provisioning SQD_PORTAL_API_KEY: that
+#   filter is one Portal query, and the JSON text of its address array grows from 259741
+#   bytes (5772 addresses, ~2.3 KiB UNDER the 262144-byte (256 KiB) Portal query cap
+#   that src/common/utils/portal.ts documents; the same file describes the filter's
+#   size as "~260 KB today and growing") to 265591 bytes
+#   (5902 addresses, ~3.4 KiB OVER it). On the address-array measure this refresh is what
+#   crosses the cap. The full Portal query also carries the other addLog blocks and the
+#   fields spec, so a cold reindex may well have been over the cap before this port too;
+#   either way SQD_PORTAL_API_KEY must be provisioned before any cold Polygon reindex,
+#   and the address-filtered stretch the public endpoint cannot serve now runs to block
+#   92560518. Reproduce with: node -e 'const m=require("./assets/collections_mainnet.json");
+#   console.log(m.addresses.length,JSON.stringify(m.addresses).length)'
+# - 2480206 (#97) and 846410f (#107) also ported for
+#   src/polygon/tools/collectionsRetriever.ts, which still ran on
+#   v2.archive.subsquid.io (key-gated since 2026-05-19, so every run died with
+#   ArchiveCredentialsError) and resolved its chain twice: unset POLYGON_CHAIN_ID made
+#   the tool pick the mainnet dataset, start blocks and file name while getAddresses()
+#   -- which compares the same variable as a STRING -- handed it the AMOY factory
+#   addresses, producing a snapshot whose height advanced by millions of blocks with an
+#   unchanged address list. Committing that would make every collection created inside
+#   the claimed range invisible to the processor. Now: chain resolved once and written
+#   back to the environment, Portal DataSourceBuilder + run(), pretty-printed output, and
+#   a fatal non-zero exit when a run scans more than 1M blocks and finds no collection.
+#   ADAPTATION: the Portal URL comes from publicPortalDataset() in
+#   src/common/utils/portal.ts (same host upstream hardcodes) rather than portalSource(),
+#   because this one-shot CLI wants neither the shared endpoint's key nor its infinite
+#   retry budget. #106's weekly refresh workflow is NOT ported -- this fork's
+#   .github/workflows are inert here, so the snapshot is refreshed by hand.
+# - 2026-09-08 sweep (fix round): ff9cc29 (#95) and 65e9b29 (#96) -- an order's
+#   seller now comes from the EIP-712 signer, `seller: event._trade.signer` in
+#   src/common/utils/offChainMarketplace.ts, instead of the payment leg's beneficiary.
+#   The Shop signs listings whose payment beneficiary is the platform treasury and
+#   credits the seller off-chain, so every such sale was recorded with the treasury as
+#   sale.seller: the seller's own rows vanished from seller-filtered queries and
+#   updateCreatorsSupportedSet credited the treasury rather than the creator. #96 is the
+#   follow-up that narrowed #95 back to the order branch -- a bid is signed by its BUYER,
+#   so no signed field names the seller and the bid branch keeps `sent[0].beneficiary`;
+#   our bid branch already matched that net state, so only the order line changed. Only
+#   newly indexed rows differ: with nothing redirecting the payment the signer and the
+#   payment beneficiary are the same address, so a reindex reproduces historical rows
+#   identically. Upstream's explanatory JSDoc on getTradeEventData is NOT carried (house
+#   no-comment rule); the semantics are pinned by the ported sale-attribution cases in
+#   src/common/utils/offChainMarketplace.test.ts, whose stale "this tree does not carry
+#   #95/#96" caveat is now gone.

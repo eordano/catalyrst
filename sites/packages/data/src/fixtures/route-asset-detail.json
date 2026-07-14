@@ -1,0 +1,89 @@
+{
+  "id": "0xd14026bf5e455f3487dc57cbff3d408d4c11949f-0",
+  "nft": {
+    "name": "Golfcraft - Eating Paella",
+    "image": "https://catalyst.example.com/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0xd14026bf5e455f3487dc57cbff3d408d4c11949f:0/thumbnail",
+    "issuedId": 0,
+    "category": "poses",
+    "kind": "emote",
+    "rarity": "common",
+    "bodyShape": "Unisex",
+    "isSmart": false,
+    "network": "polygon",
+    "description": "La millor paella amb aig\u00fca de la terreta i feta per ma mare.",
+    "owner": {
+      "address": "0xcf10cd8b5dc2323b1eb6de6164647756bad4de4d",
+      "name": ""
+    },
+    "collection": {
+      "name": "emote",
+      "address": "0xd14026bf5e455f3487dc57cbff3d408d4c11949f"
+    },
+    "order": {
+      "price": "0.14",
+      "credits": null,
+      "source": "listing",
+      "issuedId": 0,
+      "expiresLabel": "Listed on the marketplace"
+    }
+  },
+  "listings": [
+    {
+      "owner": "0x82a577247194c57662e1789df5cbaf9e49ebc97f",
+      "name": "#229",
+      "published": "3/8/2026",
+      "expires": "4/10/2030",
+      "issued": 229,
+      "price": "11",
+      "credits": null,
+      "listed": true,
+      "contractAddress": "0xd14026bf5e455f3487dc57cbff3d408d4c11949f",
+      "tokenId": "229"
+    },
+    {
+      "owner": "0xc401fde964b609c7b8268b67ee3cc2f58e3ac7e7",
+      "name": "#149",
+      "published": "11/13/2024",
+      "expires": "11/22/2029",
+      "issued": 149,
+      "price": "0.14",
+      "credits": null,
+      "listed": true,
+      "contractAddress": "0xd14026bf5e455f3487dc57cbff3d408d4c11949f",
+      "tokenId": "149"
+    },
+    {
+      "owner": "0x390d1e784a9b816d7063c7cc95c044c0e8f5e369",
+      "name": "#290",
+      "published": "4/10/2024",
+      "expires": "4/15/2034",
+      "issued": 290,
+      "price": "0.15",
+      "credits": null,
+      "listed": true,
+      "contractAddress": "0xd14026bf5e455f3487dc57cbff3d408d4c11949f",
+      "tokenId": "290"
+    },
+    {
+      "owner": "0x28d340f1359a1413888d25d777e90744a698bd4e",
+      "name": "#126",
+      "published": "10/1/2023",
+      "expires": "10/7/2029",
+      "issued": 126,
+      "price": "0.99",
+      "credits": null,
+      "listed": true,
+      "contractAddress": "0xd14026bf5e455f3487dc57cbff3d408d4c11949f",
+      "tokenId": "126"
+    }
+  ],
+  "quoteOk": false,
+  "sid": "00000000-0000-4000-8000-00000000s7ry",
+  "assignment": {
+    "variant": "control",
+    "flags": {
+      "prominentPrice": false
+    },
+    "experimentKey": "marketplace_price_prominence"
+  }
+}

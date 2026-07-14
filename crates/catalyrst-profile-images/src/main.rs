@@ -33,12 +33,16 @@ const ENV_DOCS: &[(&str, &str)] = &[
         "cache TTL in seconds (default 86400)",
     ),
     (
+        "PROFILE_IMAGES_CACHE_MAX_BYTES",
+        "on-disk cache budget in bytes; 0 = unbounded (default). Over budget the cache evicts oldest-first to 90% of it -- entries are re-derivable, so an eviction costs one re-render",
+    ),
+    (
         "PROFILE_IMAGES_RENDER_FALLBACK_PROXY",
-        "bool — proxy to PROFILE_IMAGES_ORIGIN_URL when a render fails (default false)",
+        "bool -- proxy to PROFILE_IMAGES_ORIGIN_URL when a render fails (default false)",
     ),
     (
         "PROFILE_IMAGES_GODOT_BIN",
-        "required for render backend — path to decentraland.godot.client.x86_64",
+        "required for render backend -- path to decentraland.godot.client.x86_64",
     ),
     (
         "PROFILE_IMAGES_GODOT_PROJECT",
@@ -54,19 +58,19 @@ const ENV_DOCS: &[(&str, &str)] = &[
     ),
     (
         "PROFILE_IMAGES_DCLENV",
-        "optional — DCLENV value passed to the renderer",
+        "optional -- DCLENV value passed to the renderer",
     ),
     (
         "PROFILE_IMAGES_GODOT_HEADLESS",
-        "bool — run godot with --headless (default false)",
+        "bool -- REJECTED in render mode: --headless cannot rasterize (default false)",
     ),
     (
         "PROFILE_IMAGES_GODOT_DISPLAY",
-        "optional — DISPLAY value for the renderer",
+        "optional -- DISPLAY value for the renderer",
     ),
     (
         "PROFILE_IMAGES_GODOT_EXTRA_ARGS",
-        "optional — extra whitespace-separated godot args",
+        "optional -- extra whitespace-separated godot args",
     ),
     (
         "PROFILE_IMAGES_RENDER_TIMEOUT_SECONDS",
@@ -90,13 +94,7 @@ const ENV_DOCS: &[(&str, &str)] = &[
 async fn main() -> Result<()> {
     catalyrst_envcfg::handle_standard_args("catalyrst-profile-images", ENV_DOCS);
 
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "catalyrst_profile_images=info,tower_http=info".into()),
-        )
-        .with_target(false)
-        .init();
+    catalyrst_envcfg::init_tracing("catalyrst_profile_images=info,tower_http=info");
 
     let cfg = Config::from_env()?;
     let state = build_state(&cfg);

@@ -13,7 +13,7 @@ pub async fn places_reports_list(
     let qs = query_from_obj(&body, &["status", "entity_id", "limit", "offset"]);
     proxy_audited(
         &state,
-        &session.address,
+        session.address(),
         "places.reports.list",
         None,
         body.clone(),
@@ -46,7 +46,7 @@ pub async fn places_report_resolve(
     }
     proxy_audited(
         &state,
-        &session.address,
+        session.address(),
         "places.report.resolve",
         Some(&req.id),
         req.extra.clone(),
@@ -79,7 +79,7 @@ pub async fn places_place_disable(
     }
     proxy_audited(
         &state,
-        &session.address,
+        session.address(),
         "places.place.disable",
         Some(&req.place_id),
         req.extra.clone(),
@@ -101,7 +101,7 @@ pub async fn places_pois_list(
     };
     proxy_audited(
         &state,
-        &session.address,
+        session.address(),
         "places.pois.list",
         None,
         json!({}),
@@ -132,7 +132,7 @@ pub async fn places_poi_create(
     }
     proxy_audited(
         &state,
-        &session.address,
+        session.address(),
         "places.poi.create",
         Some(&pos),
         body.clone(),
@@ -165,7 +165,7 @@ pub async fn places_poi_update(
     }
     proxy_audited(
         &state,
-        &session.address,
+        session.address(),
         "places.poi.update",
         Some(&req.position),
         req.extra.clone(),
@@ -196,7 +196,7 @@ pub async fn places_poi_delete(
     }
     proxy_audited(
         &state,
-        &session.address,
+        session.address(),
         "places.poi.delete",
         Some(&req.position),
         json!({ "position": req.position }),
@@ -222,7 +222,7 @@ pub async fn places_place_highlight(
     }
     proxy_audited(
         &state,
-        &session.address,
+        session.address(),
         "places.place.highlight",
         Some(&req.place_id),
         req.extra.clone(),
@@ -248,7 +248,7 @@ pub async fn places_place_rating(
     }
     proxy_audited(
         &state,
-        &session.address,
+        session.address(),
         "places.place.rating",
         Some(&req.place_id),
         req.extra.clone(),
@@ -281,7 +281,7 @@ pub async fn places_world_highlight(
     }
     proxy_audited(
         &state,
-        &session.address,
+        session.address(),
         "places.world.highlight",
         Some(&req.world_id),
         req.extra.clone(),
@@ -307,7 +307,7 @@ pub async fn places_world_rating(
     }
     proxy_audited(
         &state,
-        &session.address,
+        session.address(),
         "places.world.rating",
         Some(&req.world_id),
         req.extra.clone(),

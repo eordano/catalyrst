@@ -127,6 +127,8 @@ pub struct AboutBff {
     pub public_url: String,
 }
 
+const OFFLINE_ADAPTER: &str = "offline:offline";
+
 struct AboutEnvConfig {
     configured: bool,
     ws_connector_status_url: String,
@@ -311,21 +313,29 @@ async fn run_probe() -> CommsProbe {
 
 fn build_comms_config(probe: CommsProbe) -> AboutComms {
     let env = about_env();
+    // An advertised endpoint that does not answer costs the visitor the realm,
+    // not just comms: the client's entry gate waits on the handshake and sends
+    // them back to the login screen when it times out. Naming the realm offline
+    // lets them in with comms off, and they get the real thing next entry.
+    let adapter = match crate::handlers::comms_health::comms_health().is_alive() {
+        true => env.comms_fixed_adapter.clone(),
+        false => OFFLINE_ADAPTER.to_string(),
+    };
     AboutComms {
         healthy: probe.healthy,
         protocol: env.comms_protocol.clone(),
         version: env.comms_version.clone(),
         commit_hash: env.comms_commit_hash.clone(),
         users_count: Some(probe.user_count),
-        adapter: if env.comms_fixed_adapter.is_empty() {
+        adapter: if adapter.is_empty() {
             None
         } else {
-            Some(env.comms_fixed_adapter.clone())
+            Some(adapter.clone())
         },
-        fixed_adapter: if env.comms_fixed_adapter.is_empty() {
+        fixed_adapter: if adapter.is_empty() {
             None
         } else {
-            Some(env.comms_fixed_adapter.clone())
+            Some(adapter)
         },
     }
 }
@@ -403,11 +413,8 @@ pub async fn get_about(State(state): State<Arc<AppState>>) -> impl IntoResponse 
                 satellite_view: Some(AboutMapView {
                     version: "v1".to_string(),
 
-                    base_url: env_url(
-                        "MAP_SATELLITE_BASE_URL",
-                        "https://catalyst.example.org/satellite",
-                    ),
-                    suffix_url: env_url("MAP_SATELLITE_SUFFIX", ".png"),
+                    base_url: env_url("MAP_SATELLITE_BASE_URL", "http://127.0.0.1:5162/satellite"),
+                    suffix_url: env_url("MAP_SATELLITE_SUFFIX", ".jpg"),
                     top_left_offset: AboutMapOffset { x: -2, y: -6 },
                 }),
                 parcel_view: Some(AboutParcelView {
@@ -415,7 +422,7 @@ pub async fn get_about(State(state): State<Arc<AppState>>) -> impl IntoResponse 
 
                     image_url: env_url(
                         "MAP_PARCEL_VIEW_URL",
-                        "https://catalyst.example.org/v1/minimap.png",
+                        "http://127.0.0.1:5162/v1/minimap.png",
                     ),
                 }),
             }),

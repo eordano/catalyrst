@@ -1,5 +1,5 @@
 use anyhow::Result;
-use catalyrst_envcfg::{get_port, required};
+use catalyrst_envcfg::{env_bool, get_port, required};
 use std::env;
 use std::path::PathBuf;
 
@@ -14,6 +14,14 @@ pub struct Config {
     pub content_dir: PathBuf,
 
     pub comms_gatekeeper_url: String,
+
+    pub places_api_url: String,
+
+    pub mirror_upstream: bool,
+    pub upstream_url: String,
+    pub mirror_interval_secs: u64,
+
+    pub asset_rewrite_domain: Option<String>,
 }
 
 impl Config {
@@ -32,10 +40,32 @@ impl Config {
                 .map(PathBuf::from)
                 .unwrap_or_else(|_| PathBuf::from("/tmp/catalyrst-events-content")),
 
+            places_api_url: env::var("PLACES_API_URL")
+                .ok()
+                .filter(|s| !s.trim().is_empty())
+                .unwrap_or_else(|| "http://127.0.0.1:5134".to_string()),
+
             comms_gatekeeper_url: env::var("COMMS_GATEKEEPER_URL")
                 .ok()
                 .filter(|s| !s.trim().is_empty())
                 .unwrap_or_else(|| "http://127.0.0.1:5138".to_string()),
+
+            mirror_upstream: env_bool("EVENTS_MIRROR_UPSTREAM", false),
+            upstream_url: env::var("EVENTS_UPSTREAM_URL")
+                .ok()
+                .filter(|s| !s.trim().is_empty())
+                .unwrap_or_else(|| "https://events.decentraland.org".to_string()),
+            mirror_interval_secs: env::var("EVENTS_MIRROR_INTERVAL_SECS")
+                .ok()
+                .and_then(|s| s.trim().parse().ok())
+                .filter(|&s| s > 0)
+                .unwrap_or(3600),
+
+            asset_rewrite_domain: env::var("HTTP_BASE_URL")
+                .ok()
+                .and_then(|u| reqwest::Url::parse(&u).ok())
+                .and_then(|u| u.host_str().map(String::from))
+                .filter(|h| h != "decentraland.org" && !h.ends_with(".decentraland.org")),
         })
     }
 }

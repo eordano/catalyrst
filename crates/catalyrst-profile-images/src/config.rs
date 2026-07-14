@@ -33,8 +33,6 @@ pub struct RenderConfig {
 
     pub dclenv: Option<String>,
 
-    pub headless: bool,
-
     pub display: Option<String>,
 
     pub extra_args: Vec<String>,
@@ -63,6 +61,10 @@ pub struct Config {
     pub cache_dir: String,
 
     pub cache_ttl_seconds: u64,
+    /// None = unbounded (the historical behaviour). Set a byte budget and the
+    /// cache evicts oldest-first to stay under it; every entry is re-derivable,
+    /// so an eviction costs one re-render.
+    pub cache_max_bytes: Option<u64>,
 }
 
 impl Config {
@@ -77,6 +79,11 @@ impl Config {
             .filter(|s| !s.is_empty())
             .map(|s| s.trim_end_matches('/').to_string());
 
+        // Auto-selection invariant when PROFILE_IMAGES_BACKEND is unset, in
+        // precedence order: PROFILE_IMAGES_CONTENT_URL set => godot render;
+        // otherwise PROFILE_IMAGES_ORIGIN_URL set => proxy-to-origin (origin
+        // set => the proxy backend wins over the godot renderer unless a
+        // content URL explicitly enables render); neither => disabled.
         let backend_kind = match env::var("PROFILE_IMAGES_BACKEND").ok().as_deref() {
             Some("render") => BackendKind::Render,
             Some("proxy") => BackendKind::Proxy,
@@ -117,6 +124,20 @@ impl Config {
                      (path to decentraland.godot.client.x86_64)"
                 )
             })?;
+            // --headless swaps in Godot's dummy rendering server, so
+            // async_get_viewport_image() returns null and EVERY render fails
+            // with `Parameter "t" is null`. Supplying a display does not rescue
+            // it -- that was measured, not assumed. Refuse at startup instead of
+            // serving 502s for the life of the process.
+            if env_bool("PROFILE_IMAGES_GODOT_HEADLESS", false) {
+                return Err(anyhow!(
+                    "PROFILE_IMAGES_GODOT_HEADLESS is incompatible with \
+                     PROFILE_IMAGES_BACKEND=render: godot's --headless selects a \
+                     dummy rendering server that cannot produce an image, with or \
+                     without a display. Use the godot-explorer package's \
+                     decentraland-godot-client-xvfb binary, which brings its own."
+                ));
+            }
             let work_root = match env::var("PROFILE_IMAGES_GODOT_PROJECT") {
                 Ok(p) if !p.is_empty() => p,
                 _ => std::path::Path::new(&godot_bin)
@@ -137,7 +158,6 @@ impl Config {
                 dclenv: env::var("PROFILE_IMAGES_DCLENV")
                     .ok()
                     .filter(|s| !s.is_empty()),
-                headless: env_bool("PROFILE_IMAGES_GODOT_HEADLESS", false),
                 display: env::var("PROFILE_IMAGES_GODOT_DISPLAY")
                     .ok()
                     .filter(|s| !s.is_empty()),
@@ -165,6 +185,10 @@ impl Config {
             origin_url,
             cache_dir,
             cache_ttl_seconds: get_u64("PROFILE_IMAGES_CACHE_TTL_SECONDS", 86_400)?,
+            cache_max_bytes: match get_u64("PROFILE_IMAGES_CACHE_MAX_BYTES", 0)? {
+                0 => None,
+                n => Some(n),
+            },
         })
     }
 }

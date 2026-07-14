@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::ports::store::MemberRow;
-use crate::rows::{BudgetRow, ProjectRow, ProposalRow};
+use crate::rows::{BudgetRow, ProjectRow, ProposalRow, VestingRow};
 use crate::AppState;
 
 const DEFAULT_LIMIT: i64 = 100;
@@ -26,6 +26,8 @@ pub struct Page {
     id: Option<String>,
 
     status: Option<String>,
+
+    role: Option<String>,
 }
 
 impl Page {
@@ -99,6 +101,20 @@ pub struct BudgetsEnvelope {
     derive(ts_rs::TS),
     ts(export, export_to = "governance/")
 )]
+pub struct VestingsEnvelope {
+    pub data: Vec<VestingRow>,
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
+    pub limit: i64,
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
+    pub offset: i64,
+}
+
+#[derive(Serialize)]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "governance/")
+)]
 pub struct MembersEnvelope {
     pub data: Vec<MemberRow>,
     #[cfg_attr(feature = "ts", ts(type = "number"))]
@@ -155,6 +171,22 @@ fn typed_rows<T: DeserializeOwned>(endpoint: &'static str, rows: &[Value]) -> Op
     }
 }
 
+/// The typed-DTO-with-raw-fallback pattern shared by `proposals`/`projects`/`budgets`: try to
+/// decode every row as `T` and hand it to `wrap`, or fall back to the untyped envelope when a
+/// row no longer conforms.
+fn typed_or_raw<T: DeserializeOwned>(
+    endpoint: &'static str,
+    rows: Vec<Value>,
+    limit: i64,
+    offset: i64,
+    wrap: impl FnOnce(Vec<T>, i64, i64) -> Response,
+) -> Response {
+    match typed_rows::<T>(endpoint, &rows) {
+        Some(data) => wrap(data, limit, offset),
+        None => page_body(rows, limit, offset),
+    }
+}
+
 pub async fn proposals(State(state): State<AppState>, Query(page): Query<Page>) -> Response {
     let (limit, offset) = page.normalized();
     match state
@@ -169,15 +201,16 @@ pub async fn proposals(State(state): State<AppState>, Query(page): Query<Page>) 
         )
         .await
     {
-        Ok(rows) => match typed_rows::<ProposalRow>("/proposals", &rows) {
-            Some(data) => Json(ProposalsEnvelope {
-                data,
-                limit,
-                offset,
+        Ok(rows) => {
+            typed_or_raw::<ProposalRow>("/proposals", rows, limit, offset, |data, limit, offset| {
+                Json(ProposalsEnvelope {
+                    data,
+                    limit,
+                    offset,
+                })
+                .into_response()
             })
-            .into_response(),
-            None => page_body(rows, limit, offset),
-        },
+        }
         Err(e) => internal(e),
     }
 }
@@ -185,15 +218,16 @@ pub async fn proposals(State(state): State<AppState>, Query(page): Query<Page>) 
 pub async fn projects(State(state): State<AppState>, Query(page): Query<Page>) -> Response {
     let (limit, offset) = page.normalized();
     match state.store.list_projects(limit, offset).await {
-        Ok(rows) => match typed_rows::<ProjectRow>("/projects", &rows) {
-            Some(data) => Json(ProjectsEnvelope {
-                data,
-                limit,
-                offset,
+        Ok(rows) => {
+            typed_or_raw::<ProjectRow>("/projects", rows, limit, offset, |data, limit, offset| {
+                Json(ProjectsEnvelope {
+                    data,
+                    limit,
+                    offset,
+                })
+                .into_response()
             })
-            .into_response(),
-            None => page_body(rows, limit, offset),
-        },
+        }
         Err(e) => internal(e),
     }
 }
@@ -220,15 +254,16 @@ pub async fn project_by_id(State(state): State<AppState>, Path(id): Path<String>
 pub async fn budgets(State(state): State<AppState>, Query(page): Query<Page>) -> Response {
     let (limit, offset) = page.normalized();
     match state.store.list_budgets(limit, offset).await {
-        Ok(rows) => match typed_rows::<BudgetRow>("/budgets", &rows) {
-            Some(data) => Json(BudgetsEnvelope {
-                data,
-                limit,
-                offset,
+        Ok(rows) => {
+            typed_or_raw::<BudgetRow>("/budgets", rows, limit, offset, |data, limit, offset| {
+                Json(BudgetsEnvelope {
+                    data,
+                    limit,
+                    offset,
+                })
+                .into_response()
             })
-            .into_response(),
-            None => page_body(rows, limit, offset),
-        },
+        }
         Err(e) => internal(e),
     }
 }
@@ -236,14 +271,27 @@ pub async fn budgets(State(state): State<AppState>, Query(page): Query<Page>) ->
 pub async fn vestings(State(state): State<AppState>, Query(page): Query<Page>) -> Response {
     let (limit, offset) = page.normalized();
     match state.store.list_vestings(limit, offset).await {
-        Ok(rows) => page_body(rows, limit, offset),
+        Ok(rows) => {
+            typed_or_raw::<VestingRow>("/vestings", rows, limit, offset, |data, limit, offset| {
+                Json(VestingsEnvelope {
+                    data,
+                    limit,
+                    offset,
+                })
+                .into_response()
+            })
+        }
         Err(e) => internal(e),
     }
 }
 
 pub async fn members(State(state): State<AppState>, Query(page): Query<Page>) -> Response {
     let (limit, offset) = page.normalized();
-    match state.store.list_members(limit, offset).await {
+    match state
+        .store
+        .list_members(limit, offset, page.role.as_deref())
+        .await
+    {
         Ok(data) => Json(MembersEnvelope {
             data,
             limit,
@@ -262,6 +310,7 @@ mod tests {
     const PROPOSALS_CAPTURE: &str = include_str!("../../testdata/gov-proposals.json");
     const PROJECTS_CAPTURE: &str = include_str!("../../testdata/gov-projects.json");
     const BUDGETS_CAPTURE: &str = include_str!("../../testdata/gov-budgets.json");
+    const VESTINGS_CAPTURE: &str = include_str!("../../testdata/gov-vestings.json");
     const MEMBERS_CAPTURE: &str = include_str!("../../testdata/gov-members.json");
 
     fn capture_parts(capture: &str) -> (Vec<Value>, i64, i64) {
@@ -309,6 +358,19 @@ mod tests {
             offset,
         };
         let old: Value = serde_json::from_str(BUDGETS_CAPTURE).unwrap();
+        assert_eq!(serde_json::to_value(&new).unwrap(), old);
+    }
+
+    #[test]
+    fn wire_identity_vestings_envelope() {
+        let (rows, limit, offset) = capture_parts(VESTINGS_CAPTURE);
+        let data = typed_rows::<VestingRow>("/vestings", &rows).expect("rows conform");
+        let new = VestingsEnvelope {
+            data,
+            limit,
+            offset,
+        };
+        let old: Value = serde_json::from_str(VESTINGS_CAPTURE).unwrap();
         assert_eq!(serde_json::to_value(&new).unwrap(), old);
     }
 
@@ -407,8 +469,17 @@ pub async fn proposal_votes(State(state): State<AppState>, Path(id): Path<String
         Ok(None) => return not_found(),
         Err(e) => return internal(e),
     };
-    let (Some(pool), Some(snapshot_id)) = (state.archives.snapshot.as_ref(), refs.0) else {
-        return Json(archives::empty_votes_payload()).into_response();
+    let Some(pool) = state.archives.snapshot.as_ref() else {
+        return Json(archives::empty_votes_payload(
+            archives::ArchiveStatus::ArchiveUnavailable,
+        ))
+        .into_response();
+    };
+    let Some(snapshot_id) = refs.0 else {
+        return Json(archives::empty_votes_payload(
+            archives::ArchiveStatus::NotLinked,
+        ))
+        .into_response();
     };
     match archives::proposal_votes(pool, &snapshot_id).await {
         Ok(payload) => Json(payload).into_response(),
@@ -426,10 +497,19 @@ pub async fn proposal_comments(
         Ok(None) => return not_found(),
         Err(e) => return internal(e),
     };
-    let (Some(pool), Some(topic_id)) = (state.archives.discourse.as_ref(), refs.1) else {
+    let Some(pool) = state.archives.discourse.as_ref() else {
         return Json(archives::CommentsPayload {
             total: 0,
             comments: Vec::new(),
+            archive_status: archives::ArchiveStatus::ArchiveUnavailable,
+        })
+        .into_response();
+    };
+    let Some(topic_id) = refs.1 else {
+        return Json(archives::CommentsPayload {
+            total: 0,
+            comments: Vec::new(),
+            archive_status: archives::ArchiveStatus::NotLinked,
         })
         .into_response();
     };

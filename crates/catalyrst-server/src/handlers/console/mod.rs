@@ -328,7 +328,7 @@ fn fmt_uptime(secs: u64) -> String {
 }
 
 fn opt_big(v: Option<u64>) -> String {
-    v.map(human).unwrap_or_else(|| "—".into())
+    v.map(human).unwrap_or_else(|| "\u{2014}".into())
 }
 
 fn realm_base_url(state: &AppState) -> Option<String> {

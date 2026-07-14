@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use axum::extract::{Multipart, State};
+use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use axum::Json;
@@ -9,13 +9,10 @@ use bytes::{Bytes, BytesMut};
 use serde_json::{json, Value};
 
 use crate::errors::{AppError, InvalidRequestError};
-use crate::state::AppState;
+use crate::extractors::MultipartBody;
+use crate::state::{AppState, DeployFailure};
 
-const MAX_DEPLOY_FILES: usize = 1000;
-
-const MAX_AUTH_CHAIN_LENGTH: i64 = 10;
-
-const MAX_DEPLOY_FILE_BYTES: usize = 50 * 1024 * 1024;
+use catalyrst_types::deploy_form::{MAX_DEPLOY_FILES, MAX_DEPLOY_FILE_BYTES};
 
 #[derive(Debug, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -34,80 +31,14 @@ pub struct CreateEntityRequest {
 pub(crate) fn extract_auth_chain_from_fields(
     fields: &BTreeMap<String, String>,
 ) -> Result<Option<Value>, AppError> {
-    if let Some(chain_str) = fields.get("authChain") {
-        let chain: Value = serde_json::from_str(chain_str)
-            .map_err(|_| InvalidRequestError::new("Invalid auth chain"))?;
-        if !chain.is_array() {
-            return Err(InvalidRequestError::new("Invalid auth chain").into());
-        }
-        if let Some(arr) = chain.as_array() {
-            if arr.len() > MAX_AUTH_CHAIN_LENGTH as usize {
-                return Err(InvalidRequestError::new(format!(
-                    "Auth chain is too long; the maximum allowed is {MAX_AUTH_CHAIN_LENGTH} elements"
-                ))
-                .into());
-            }
-        }
-        return Ok(Some(chain));
-    }
-
-    let mut biggest_index: i64 = -1;
-    let re_prefix = "authChain[";
-    for key in fields.keys() {
-        if key.starts_with(re_prefix) {
-            if let Some(rest) = key.strip_prefix(re_prefix) {
-                if let Some(idx_str) = rest.split(']').next() {
-                    if let Ok(idx) = idx_str.parse::<i64>() {
-                        if idx > biggest_index {
-                            biggest_index = idx;
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    if biggest_index == -1 {
-        return Ok(None);
-    }
-
-    if biggest_index >= MAX_AUTH_CHAIN_LENGTH {
-        return Err(InvalidRequestError::new(format!(
-            "Auth chain is too long; the maximum allowed is {MAX_AUTH_CHAIN_LENGTH} elements"
-        ))
-        .into());
-    }
-
-    let mut chain = Vec::new();
-    for i in 0..=biggest_index {
-        let payload_key = format!("authChain[{i}][payload]");
-        let signature_key = format!("authChain[{i}][signature]");
-        let type_key = format!("authChain[{i}][type]");
-
-        let payload = fields.get(&payload_key).ok_or_else(|| {
-            InvalidRequestError::new(format!("Missing auth chain element at index {i}"))
-        })?;
-        let signature = fields.get(&signature_key).ok_or_else(|| {
-            InvalidRequestError::new(format!("Missing auth chain element at index {i}"))
-        })?;
-        let link_type = fields.get(&type_key).ok_or_else(|| {
-            InvalidRequestError::new(format!("Missing auth chain element at index {i}"))
-        })?;
-
-        chain.push(json!({
-            "type": link_type,
-            "payload": payload,
-            "signature": signature,
-        }));
-    }
-
-    Ok(Some(Value::Array(chain)))
+    catalyrst_types::deploy_form::extract_auth_chain_from_fields(fields)
+        .map_err(|msg| InvalidRequestError::new(msg).into())
 }
 
 pub async fn create_entity_multipart(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
-    mut multipart: Multipart,
+    MultipartBody(mut multipart): MultipartBody,
 ) -> Result<impl IntoResponse, AppError> {
     let sync_state = state.synchronization_state.get_state();
     if sync_state == "Bootstrapping" {
@@ -224,18 +155,20 @@ pub async fn create_entity_multipart(
                 entity_id = %entity_id,
                 "POST /entities - Deployment successful"
             );
+            state.deployments_cache.clear();
+            super::lambdas_catalog::invalidate_outfits_cache();
             Ok((
                 StatusCode::OK,
                 Json(json!({ "creationTimestamp": creation_timestamp })),
             ))
         }
-        Err(errors) => {
+        Err(failure) => {
             tracing::error!(
                 entity_id = %entity_id,
-                errors = ?errors,
+                errors = ?failure.errors(),
                 "POST /entities - Deployment failed"
             );
-            Ok((StatusCode::BAD_REQUEST, Json(json!({ "errors": errors }))))
+            Ok(deployment_failure_response(failure))
         }
     }
 }
@@ -305,20 +238,30 @@ pub async fn create_entity(
                 entity_id = %body.entity_id,
                 "POST /entities - Deployment successful"
             );
+            state.deployments_cache.clear();
+            super::lambdas_catalog::invalidate_outfits_cache();
             Ok((
                 StatusCode::OK,
                 Json(json!({ "creationTimestamp": creation_timestamp })),
             ))
         }
-        Err(errors) => {
+        Err(failure) => {
             tracing::error!(
                 entity_id = %body.entity_id,
-                errors = ?errors,
+                errors = ?failure.errors(),
                 "POST /entities - Deployment failed"
             );
-            Ok((StatusCode::BAD_REQUEST, Json(json!({ "errors": errors }))))
+            Ok(deployment_failure_response(failure))
         }
     }
+}
+
+fn deployment_failure_response(failure: DeployFailure) -> (StatusCode, Json<Value>) {
+    let (status, errors) = match failure {
+        DeployFailure::Rejected(errors) => (StatusCode::BAD_REQUEST, errors),
+        DeployFailure::Unavailable(errors) => (StatusCode::SERVICE_UNAVAILABLE, errors),
+    };
+    (status, Json(json!({ "errors": errors })))
 }
 
 #[cfg(test)]
@@ -411,6 +354,56 @@ mod tests {
             out.is_none(),
             "expected Ok(None) when no authChain keys present"
         );
+    }
+
+    #[tokio::test]
+    async fn successful_deployment_invalidates_outfits_cache() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        use axum::response::IntoResponse;
+
+        use crate::handlers::lambdas_catalog;
+        use crate::test_support;
+
+        // A client reads its outfits before deploying: the not-found sentinel
+        // is now cached under its address.
+        let address = "0x00000000000000000000000000000deadbeef061".to_string();
+        lambdas_catalog::outfits_cache()
+            .get_or_fetch(address.clone(), || async { Ok::<_, ()>(Value::Null) })
+            .await
+            .unwrap();
+
+        // The same client deploys an entity successfully.
+        let state = test_support::app_state_with_deployer(Arc::new(test_support::OkDeployer));
+        let body = CreateEntityRequest {
+            entity_id: "QmOutfitsInvalidation".to_string(),
+            auth_chain: None,
+            eth_address: Some(address.clone()),
+            signature: Some("0xsignature".to_string()),
+        };
+        let response = create_entity(State(state), HeaderMap::new(), Json(body))
+            .await
+            .expect("deployment must succeed")
+            .into_response();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        // A re-read within the old entry's TTL must refetch instead of serving
+        // the stale sentinel.
+        let refetched = Arc::new(AtomicUsize::new(0));
+        let r = refetched.clone();
+        let v = lambdas_catalog::outfits_cache()
+            .get_or_fetch(address, || async move {
+                r.fetch_add(1, Ordering::SeqCst);
+                Ok::<_, ()>(json!({ "id": "fresh-outfits-entity" }))
+            })
+            .await
+            .unwrap();
+        assert_eq!(
+            refetched.load(Ordering::SeqCst),
+            1,
+            "outfits cache served a stale entry after a successful deployment"
+        );
+        assert_eq!(v, json!({ "id": "fresh-outfits-entity" }));
     }
 
     #[test]

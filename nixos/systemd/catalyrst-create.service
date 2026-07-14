@@ -1,5 +1,5 @@
 [Unit]
-Description=catalyrst-create bundle (builder, camera-reel, ab-registry — port 5144)
+Description=catalyrst-create bundle (builder, camera-reel, ab-registry -- port 5144)
 After=network.target postgresql.service
 StartLimitIntervalSec=0
 Wants=postgresql.service

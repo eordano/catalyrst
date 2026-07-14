@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO system_properties (key, value) VALUES ('sync_heartbeat', $1) ON CONFLICT (key) DO UPDATE SET value = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "c18940ffd68856f8efd2f3d790580b63123032b8406ee6086f94cd6bf8083355"
+}

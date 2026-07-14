@@ -1,21 +1,16 @@
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use base64::Engine as _;
+use std::time::Duration;
+
 use chrono::Utc;
-use hmac::{Hmac, KeyInit, Mac};
 use serde::Serialize;
-use sha2::Sha256;
 
 use crate::config::LivekitConfig;
+
+const REMOVE_PARTICIPANT_TIMEOUT: Duration = Duration::from_secs(2);
 
 #[derive(Clone, Debug)]
 pub struct LivekitMinter {
     cfg: LivekitConfig,
-}
-
-#[derive(Serialize)]
-struct Header<'a> {
-    alg: &'a str,
-    typ: &'a str,
+    http: reqwest::Client,
 }
 
 #[derive(Serialize)]
@@ -54,11 +49,57 @@ pub struct LivekitGrant {
 
 impl LivekitMinter {
     pub fn new(cfg: LivekitConfig) -> Self {
-        Self { cfg }
+        Self {
+            cfg,
+            http: reqwest::Client::new(),
+        }
     }
 
     pub fn ws_url(&self) -> &str {
         &self.cfg.ws_url
+    }
+
+    pub async fn remove_participant(&self, room: &str, identity: &str) {
+        let (Some(key), Some(secret)) =
+            (self.cfg.api_key.as_deref(), self.cfg.api_secret.as_deref())
+        else {
+            return;
+        };
+        let token = match catalyrst_livekit::room_admin_token(key, secret, room) {
+            Ok(t) => t,
+            Err(e) => {
+                tracing::warn!(room, identity, error = %e, "livekit remove_participant: admin token mint failed");
+                return;
+            }
+        };
+        let url = format!(
+            "{}/twirp/livekit.RoomService/RemoveParticipant",
+            catalyrst_livekit::api_base_url(&self.cfg.ws_url)
+        );
+        let body = serde_json::json!({ "room": room, "identity": identity });
+        match self
+            .http
+            .post(&url)
+            .bearer_auth(token)
+            .json(&body)
+            .timeout(REMOVE_PARTICIPANT_TIMEOUT)
+            .send()
+            .await
+        {
+            Ok(r) if r.status().is_success() => {
+                tracing::info!(
+                    room,
+                    identity,
+                    "livekit remove_participant: evicted from SFU"
+                );
+            }
+            Ok(r) => {
+                tracing::warn!(room, identity, status = %r.status(), "livekit remove_participant: non-OK status");
+            }
+            Err(e) => {
+                tracing::warn!(room, identity, error = %e, "livekit remove_participant: request failed");
+            }
+        }
     }
 
     pub fn is_armed(&self) -> bool {
@@ -90,10 +131,6 @@ impl LivekitMinter {
         iat: i64,
         exp: i64,
     ) -> String {
-        let header = Header {
-            alg: "HS256",
-            typ: "JWT",
-        };
         let claims = Claims {
             iss: api_key,
             sub: identity,
@@ -110,23 +147,21 @@ impl LivekitMinter {
                 can_publish_data: true,
             },
         };
+        let header = serde_json::json!({ "alg": "HS256", "typ": "JWT" });
         let header_json = serde_json::to_vec(&header).expect("header json");
         let claims_json = serde_json::to_vec(&claims).expect("claims json");
-        let header_b64 = URL_SAFE_NO_PAD.encode(header_json);
-        let claims_b64 = URL_SAFE_NO_PAD.encode(claims_json);
-        let signing_input = format!("{}.{}", header_b64, claims_b64);
-        let mut mac = <Hmac<Sha256> as KeyInit>::new_from_slice(api_secret.as_bytes())
-            .expect("HMAC accepts any key length");
-        mac.update(signing_input.as_bytes());
-        let sig = mac.finalize().into_bytes();
-        let sig_b64 = URL_SAFE_NO_PAD.encode(sig);
-        format!("{}.{}", signing_input, sig_b64)
+        catalyrst_livekit::sign_hs256(api_secret, &header_json, &claims_json)
+            .expect("HMAC accepts any key length")
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+    use base64::Engine as _;
+    use hmac::{Hmac, KeyInit, Mac};
+    use sha2::Sha256;
 
     #[test]
     fn jwt_has_three_parts() {

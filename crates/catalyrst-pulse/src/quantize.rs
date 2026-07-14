@@ -29,6 +29,29 @@ pub fn decode(encoded: u32, min: f32, max: f32, bits: u32) -> f32 {
     encoded as f32 / steps as f32 * (max - min) + min
 }
 
+/// Power-law sign+magnitude encoding: `(magnitude << 1) | sign` where the
+/// (bits-1)-bit magnitude is `round((|v|/max)^(1/pow) * magSteps)`. Zero
+/// canonicalizes to code 0 (a zero magnitude never sets the sign bit).
+pub fn encode_power(value: f32, max: f32, pow: f32, bits: u32) -> u32 {
+    let magnitude_steps = (1u32 << (bits - 1)) - 1;
+    let t = (value.abs() / max).clamp(0.0, 1.0);
+    let u = t.powf(1.0 / pow);
+    let magnitude = round_half_even(u * magnitude_steps as f32) as u32;
+    let sign = u32::from(value < 0.0 && magnitude != 0);
+    (magnitude << 1) | sign
+}
+
+pub fn decode_power(encoded: u32, max: f32, pow: f32, bits: u32) -> f32 {
+    let magnitude_steps = (1u32 << (bits - 1)) - 1;
+    let u = (encoded >> 1) as f32 / magnitude_steps as f32;
+    let magnitude = max * u.powf(pow);
+    if encoded & 1 != 0 {
+        -magnitude
+    } else {
+        magnitude
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -72,5 +95,60 @@ mod tests {
         let (min, max, bits) = (0.0f32, 100.0f32, 16);
         let q = encode(42.0, min, max, bits);
         assert!((decode(q, min, max, bits) - 42.0).abs() < 0.01);
+    }
+
+    const VEL: (f32, f32, u32) = (50.0, 2.0, 8);
+
+    #[test]
+    fn power_zero_canonicalizes_to_code_zero() {
+        let (max, pow, bits) = VEL;
+        assert_eq!(encode_power(0.0, max, pow, bits), 0);
+        assert_eq!(encode_power(-0.0, max, pow, bits), 0);
+        assert_eq!(decode_power(0, max, pow, bits), 0.0);
+    }
+
+    #[test]
+    fn power_sign_never_set_with_zero_magnitude() {
+        let (max, pow, bits) = VEL;
+
+        assert_eq!(encode_power(-1e-6, max, pow, bits), 0);
+    }
+
+    #[test]
+    fn power_endpoints_and_sign_layout() {
+        let (max, pow, bits) = VEL;
+
+        assert_eq!(encode_power(50.0, max, pow, bits), 254);
+        assert_eq!(encode_power(-50.0, max, pow, bits), 255);
+        assert_eq!(encode_power(100.0, max, pow, bits), 254, "clamped to max");
+        assert_eq!(decode_power(254, max, pow, bits), 50.0);
+        assert_eq!(decode_power(255, max, pow, bits), -50.0);
+    }
+
+    #[test]
+    fn power_steps_match_upstream_velocity_constants() {
+        let (max, pow, bits) = VEL;
+
+        // VelocityXQuantizedStep: coarsest step, between the two largest magnitudes.
+        let coarsest = decode_power(254, max, pow, bits) - decode_power(252, max, pow, bits);
+        assert!((coarsest - 0.784_301_6).abs() < 1e-6);
+
+        // Near-zero step: the smallest nonzero magnitude.
+        let near_zero = decode_power(2, max, pow, bits);
+        assert!((near_zero - 0.003_100_006).abs() < 1e-7);
+    }
+
+    #[test]
+    fn power_roundtrip_negation_symmetry() {
+        let (max, pow, bits) = VEL;
+        for v in [0.1f32, 1.0, 5.0, 12.5, 49.9] {
+            let pos = encode_power(v, max, pow, bits);
+            let neg = encode_power(-v, max, pow, bits);
+            assert_eq!(neg, pos | 1, "negative sets only the sign bit");
+            assert_eq!(
+                decode_power(neg, max, pow, bits),
+                -decode_power(pos, max, pow, bits)
+            );
+        }
     }
 }

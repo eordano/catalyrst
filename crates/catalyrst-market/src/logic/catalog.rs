@@ -172,7 +172,6 @@ pub fn parse_catalog_filters(
         min_price,
         urns,
         ids,
-        picked_by: None,
         include_social_emotes,
     })
 }

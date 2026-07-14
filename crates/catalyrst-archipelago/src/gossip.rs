@@ -1,5 +1,6 @@
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine as _;
+use catalyrst_commons::worker::{spawn_periodic, PeriodicCfg};
 use chrono::{DateTime, Utc};
 use hmac::{Hmac, KeyInit, Mac};
 use parking_lot::Mutex;
@@ -9,7 +10,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use thiserror::Error;
-use tokio::time::interval;
+use tokio_util::sync::CancellationToken;
 
 use crate::cluster::{Cluster, PeerState};
 use crate::config::GossipConfig;
@@ -205,17 +206,21 @@ impl GossipBus {
         if !self.is_armed() || self.cfg.peers.is_empty() {
             return None;
         }
-        let secs = self.cfg.interval_secs.max(1);
-        let handle = tokio::task::spawn(async move {
-            let mut tick = interval(Duration::from_secs(secs));
-            tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-            tick.tick().await;
-            loop {
-                tick.tick().await;
-                let _ = self.push_once(cluster.clone()).await;
-            }
-        });
-        Some(handle)
+        let period = Duration::from_secs(self.cfg.interval_secs.max(1));
+        Some(spawn_periodic(
+            "archipelago-gossip-push",
+            period,
+            PeriodicCfg::default().after_first_period(),
+            CancellationToken::new(),
+            move || {
+                let this = self.clone();
+                let cluster = cluster.clone();
+                async move {
+                    this.push_once(cluster).await;
+                    Ok::<(), std::convert::Infallible>(())
+                }
+            },
+        ))
     }
 }
 
@@ -275,7 +280,10 @@ mod tests {
         let err = b
             .verify(b"{\"x\":2}", &ts.to_string(), &sig, "nodeA")
             .unwrap_err();
-        matches!(err, GossipError::BadSig);
+        assert!(
+            matches!(err, GossipError::BadSig),
+            "expected BadSig, got {err:?}"
+        );
     }
 
     #[test]
@@ -284,7 +292,10 @@ mod tests {
         let ts = Utc::now().timestamp();
         let sig = a.sign(b"{}", ts).unwrap();
         let err = a.verify(b"{}", &ts.to_string(), &sig, "nodeA").unwrap_err();
-        matches!(err, GossipError::SelfLoop);
+        assert!(
+            matches!(err, GossipError::SelfLoop),
+            "expected SelfLoop, got {err:?}"
+        );
     }
 
     #[test]
@@ -300,6 +311,9 @@ mod tests {
         let ts = Utc::now().timestamp() - 1_000_000;
         let sig = a.sign(b"{}", ts).unwrap();
         let err = b.verify(b"{}", &ts.to_string(), &sig, "nodeA").unwrap_err();
-        matches!(err, GossipError::Skew(_));
+        assert!(
+            matches!(err, GossipError::Skew(_)),
+            "expected Skew, got {err:?}"
+        );
     }
 }

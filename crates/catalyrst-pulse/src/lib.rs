@@ -1,11 +1,16 @@
+pub mod batch;
+#[cfg(any(test, feature = "fuzzing"))]
+pub mod fuzz;
 pub mod handshake;
 pub mod hardening;
 pub mod interest;
 pub mod messages;
+pub mod metrics;
 pub mod quantize;
 pub mod server;
 pub mod simulation;
 pub mod snapshot;
+pub mod transport;
 
 pub mod decentraland {
     pub mod common {

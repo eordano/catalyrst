@@ -3,8 +3,6 @@ use sqlx::Row;
 use crate::http::ApiError;
 use crate::AppState;
 
-const SQUID_SCHEMA: &str = "squid_marketplace";
-
 fn parse_xy(s: &str) -> Option<(i32, i32)> {
     let mut it = s.splitn(2, ',');
     Some((
@@ -48,7 +46,7 @@ pub async fn is_scene_owner_or_admin(
         return Ok(false);
     };
 
-    let schema = SQUID_SCHEMA;
+    let schema = state.dapps_schema.as_str();
     let is_world: bool = row.try_get("world").unwrap_or(false);
 
     if is_world {
@@ -93,25 +91,25 @@ pub async fn is_scene_owner_or_admin(
         }
     }
 
+    if coords.is_empty() {
+        return Ok(false);
+    }
+    let (xs, ys): (Vec<i32>, Vec<i32>) = coords.into_iter().unzip();
     let q = format!(
         "SELECT 1 FROM {schema}.nft p \
          LEFT JOIN {schema}.nft e ON e.category = 'estate' AND e.id = p.search_parcel_estate_id \
-         WHERE p.category = 'parcel' AND p.search_parcel_x::int4 = $1 AND p.search_parcel_y::int4 = $2 \
-         AND (lower(p.owner_address) = $3 OR lower(e.owner_address) = $3) LIMIT 1"
+         JOIN unnest($1::int4[], $2::int4[]) AS c(x, y) \
+           ON p.search_parcel_x::int4 = c.x AND p.search_parcel_y::int4 = c.y \
+         WHERE p.category = 'parcel' \
+           AND (lower(p.owner_address) = $3 OR lower(e.owner_address) = $3) LIMIT 1"
     );
-    for (x, y) in coords {
-        let found = sqlx::query(sqlx::AssertSqlSafe(q.as_str()))
-            .bind(x)
-            .bind(y)
-            .bind(&signer)
-            .fetch_optional(squid)
-            .await?;
-        if found.is_some() {
-            return Ok(true);
-        }
-    }
-
-    Ok(false)
+    let found = sqlx::query(sqlx::AssertSqlSafe(q))
+        .bind(&xs)
+        .bind(&ys)
+        .bind(&signer)
+        .fetch_optional(squid)
+        .await?;
+    Ok(found.is_some())
 }
 
 #[cfg(test)]

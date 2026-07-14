@@ -1,5 +1,5 @@
 use anyhow::Result;
-use catalyrst_envcfg::get_port;
+use catalyrst_envcfg::{get_port, optional_endpoint};
 use std::collections::HashMap;
 use std::env;
 
@@ -32,70 +32,23 @@ impl Config {
         let mut upstreams = HashMap::new();
 
         let pairs = [
-            (
-                "mainnet",
-                "RPC_UPSTREAM_MAINNET",
-                "https://rpc.decentraland.org/mainnet",
-            ),
-            (
-                "ethereum",
-                "RPC_UPSTREAM_ETHEREUM",
-                "https://rpc.decentraland.org/mainnet",
-            ),
-            (
-                "sepolia",
-                "RPC_UPSTREAM_SEPOLIA",
-                "https://rpc.decentraland.org/sepolia",
-            ),
-            (
-                "polygon",
-                "RPC_UPSTREAM_POLYGON",
-                "https://rpc.decentraland.org/polygon",
-            ),
-            (
-                "matic",
-                "RPC_UPSTREAM_MATIC",
-                "https://rpc.decentraland.org/polygon",
-            ),
-            (
-                "amoy",
-                "RPC_UPSTREAM_AMOY",
-                "https://rpc.decentraland.org/amoy",
-            ),
-            (
-                "mumbai",
-                "RPC_UPSTREAM_MUMBAI",
-                "https://rpc.decentraland.org/mumbai",
-            ),
-            (
-                "arbitrum",
-                "RPC_UPSTREAM_ARBITRUM",
-                "https://rpc.decentraland.org/arbitrum",
-            ),
-            (
-                "optimism",
-                "RPC_UPSTREAM_OPTIMISM",
-                "https://rpc.decentraland.org/optimism",
-            ),
-            (
-                "avalanche",
-                "RPC_UPSTREAM_AVALANCHE",
-                "https://rpc.decentraland.org/avalanche",
-            ),
-            (
-                "binance",
-                "RPC_UPSTREAM_BINANCE",
-                "https://rpc.decentraland.org/binance",
-            ),
-            (
-                "fantom",
-                "RPC_UPSTREAM_FANTOM",
-                "https://rpc.decentraland.org/fantom",
-            ),
+            ("mainnet", "RPC_UPSTREAM_MAINNET"),
+            ("ethereum", "RPC_UPSTREAM_ETHEREUM"),
+            ("sepolia", "RPC_UPSTREAM_SEPOLIA"),
+            ("polygon", "RPC_UPSTREAM_POLYGON"),
+            ("matic", "RPC_UPSTREAM_MATIC"),
+            ("amoy", "RPC_UPSTREAM_AMOY"),
+            ("mumbai", "RPC_UPSTREAM_MUMBAI"),
+            ("arbitrum", "RPC_UPSTREAM_ARBITRUM"),
+            ("optimism", "RPC_UPSTREAM_OPTIMISM"),
+            ("avalanche", "RPC_UPSTREAM_AVALANCHE"),
+            ("binance", "RPC_UPSTREAM_BINANCE"),
+            ("fantom", "RPC_UPSTREAM_FANTOM"),
         ];
-        for (net, var, default) in pairs {
-            let url = env::var(var).unwrap_or_else(|_| default.to_string());
-            upstreams.insert(net.to_string(), url);
+        for (net, var) in pairs {
+            if let Some(url) = optional_endpoint(var) {
+                upstreams.insert(net.to_string(), url);
+            }
         }
 
         Ok(Self {
@@ -157,19 +110,32 @@ mod tests {
         assert_eq!(chain_id_for("mainet"), None);
     }
 
+    /// One test, not two: env vars are process-global and parallel test
+    /// threads would race on them.
     #[test]
-    fn from_env_default_upstreams_cover_every_supported_network() {
-        let cfg = Config::from_env().expect("default config");
+    fn upstreams_come_only_from_configuration() {
         for (net, _) in SUPPORTED {
-            let up = cfg
-                .upstream_for(net)
-                .unwrap_or_else(|| panic!("missing upstream for {net}"));
-            assert!(
-                up.starts_with("https://rpc.decentraland.org/"),
-                "{net}: {up}"
+            std::env::remove_var(format!("RPC_UPSTREAM_{}", net.to_uppercase()));
+        }
+        let bare = Config::from_env().expect("config");
+        for (net, _) in SUPPORTED {
+            assert_eq!(
+                bare.upstream_for(net),
+                None,
+                "{net} must have no upstream until one is configured; a default here \
+                 would relay to production"
             );
         }
-        for net in cfg.upstreams.keys() {
+
+        std::env::set_var("RPC_UPSTREAM_MAINNET", "http://127.0.0.1:8545");
+        let configured = Config::from_env().expect("config");
+        std::env::remove_var("RPC_UPSTREAM_MAINNET");
+        assert_eq!(
+            configured.upstream_for("mainnet"),
+            Some("http://127.0.0.1:8545")
+        );
+        assert_eq!(configured.upstream_for("polygon"), None);
+        for net in configured.upstreams.keys() {
             assert!(
                 chain_id_for(net).is_some(),
                 "configured network {net} has no known chain id"

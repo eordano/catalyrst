@@ -1,5 +1,8 @@
 pub mod config;
-pub mod protocol;
+/// The wire types, defined once in catalyrst-tunnel-protocol so this relay
+/// and every agent (dcl-one-sdk included) can never drift out of sync with
+/// each other; re-exported here at the path this crate always used.
+pub use catalyrst_tunnel_protocol as protocol;
 
 pub use config::Config;
 

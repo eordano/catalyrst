@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT cursor_ms FROM server_sync_cursors WHERE server_url = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "cursor_ms",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "server_sync_cursors",
+            "name": "cursor_ms"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "44d73e05cd12f28f0d6950106521570cbb0ffe6ca0163fbaabe0e18381db5955"
+}

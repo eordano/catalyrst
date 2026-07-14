@@ -1,148 +1,147 @@
+//! Signed-fetch (ADR-44) auth for the rentals service, delegated to the shared
+//! `catalyrst_crypto::signed_fetch` path.
+//!
+//! This module used to carry a private fork of the whole signed-fetch module
+//! (chain types, extraction, freshness, verification). The fork verified the
+//! same payloads but skipped the shared extractor's structural checks (SIGNER
+//! only at index 0, first link must be SIGNER, non-first links must carry a
+//! signature, chain-length overflow rejected), so consolidating onto the shared
+//! path is strictly tightening for malformed chains and byte-identical for
+//! well-formed ones.
+//!
+//! The one wire-visible surface this service adds on top is [`wire_message`]:
+//! the fork's error `Display` included the `MalformedChain`/`InvalidSignature`
+//! detail fields that the shared `Display` omits, and the 401 bodies built from
+//! those strings are pinned here so consolidation does not change them.
+
 use axum::http::HeaderMap;
-use catalyrst_crypto::verify::verify_auth_chain;
-use catalyrst_crypto::AuthError;
-use catalyrst_types::{AuthLink as CryptoAuthLink, AuthLinkType as CryptoAuthLinkType, EthAddress};
-use thiserror::Error;
 
-pub const AUTH_CHAIN_HEADER_PREFIX: &str = "x-identity-auth-chain-";
-pub const AUTH_TIMESTAMP_HEADER: &str = "x-identity-timestamp";
-pub const AUTH_METADATA_HEADER: &str = "x-identity-metadata";
-pub const MAX_AUTH_CHAIN_LINKS: usize = 10;
+pub use catalyrst_crypto::signed_fetch::AuthChainError;
 
-#[derive(Debug, Clone)]
-struct AuthLink {
-    kind: CryptoAuthLinkType,
-    payload: String,
-    signature: String,
-}
-
-#[derive(Debug, Clone)]
-struct AuthChain {
-    links: Vec<AuthLink>,
-    signer: EthAddress,
-}
-
-#[derive(Debug, Error)]
-pub enum AuthChainError {
-    #[error("Invalid Auth Chain: {detail}")]
-    MalformedChain { detail: String },
-    #[error("Invalid Auth Chain")]
-    InsufficientLinks,
-    #[error("Missing timestamp")]
-    MissingTimestamp,
-    #[error("Expired signature")]
-    Expired,
-    #[error("Invalid signature: {0}")]
-    InvalidSignature(String),
-    #[error("EIP-1654 not implemented")]
-    EipNotImplemented,
-}
-
-fn build_payload(method: &str, path: &str, timestamp: &str, metadata: &str) -> String {
-    format!("{}:{}:{}:{}", method, path, timestamp, metadata).to_lowercase()
-}
-
-fn signed_fetch_path<'a>(headers: &HeaderMap, fallback: &'a str) -> std::borrow::Cow<'a, str> {
-    match headers.get("x-original-path").and_then(|v| v.to_str().ok()) {
-        Some(raw) => std::borrow::Cow::Owned(raw.split('?').next().unwrap_or(raw).to_string()),
-        None => std::borrow::Cow::Borrowed(fallback),
-    }
-}
-
-fn header_str<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {
-    headers.get(name).and_then(|v| v.to_str().ok())
-}
-
-fn extract_auth_chain(headers: &HeaderMap) -> Result<AuthChain, AuthChainError> {
-    let mut links = Vec::new();
-    for i in 0..MAX_AUTH_CHAIN_LINKS {
-        let name = format!("{}{}", AUTH_CHAIN_HEADER_PREFIX, i);
-        let Some(raw) = header_str(headers, &name) else {
-            break;
-        };
-        let link: CryptoAuthLink = serde_json::from_str(raw).map_err(|e| {
-            let mut detail = e.to_string();
-            detail.truncate(detail.len().min(64));
-            AuthChainError::MalformedChain { detail }
-        })?;
-        links.push(AuthLink {
-            kind: link.link_type,
-            payload: link.payload,
-            signature: link.signature.unwrap_or_default(),
-        });
-    }
-    if links.len() < 2 {
-        return Err(AuthChainError::InsufficientLinks);
-    }
-    let signer = links[0].payload.to_lowercase();
-    Ok(AuthChain { links, signer })
-}
-
-fn validate_signature(
-    chain: &AuthChain,
-    payload: &str,
-    timestamp: &str,
-    expiration_secs: i64,
-    now: i64,
-) -> Result<EthAddress, AuthChainError> {
-    if let Ok(signed_at_ms) = timestamp.parse::<i64>() {
-        let signed_at = signed_at_ms / 1000;
-        if (now - signed_at).abs() > expiration_secs {
-            return Err(AuthChainError::Expired);
-        }
-    }
-    let crypto_chain: Vec<CryptoAuthLink> = chain
-        .links
-        .iter()
-        .map(|link| CryptoAuthLink {
-            link_type: link.kind,
-            payload: link.payload.clone(),
-            signature: if link.signature.is_empty() {
-                None
-            } else {
-                Some(link.signature.clone())
-            },
-        })
-        .collect();
-    verify_auth_chain(&crypto_chain, payload, Some(now * 1000)).map_err(map_auth_error)?;
-    Ok(chain.signer.clone())
-}
-
-fn map_auth_error(err: AuthError) -> AuthChainError {
+/// The exact error text this service has always put in its 401 bodies.
+///
+/// The shared `AuthChainError` `Display` drops the detail fields; the local
+/// fork's `Display` included them. Callers building responses must go through
+/// this instead of `to_string()`.
+pub fn wire_message(err: &AuthChainError) -> String {
     match err {
-        AuthError::MalformedChain(d) | AuthError::InvalidEphemeralPayload(d) => {
-            AuthChainError::MalformedChain { detail: d }
-        }
-        AuthError::MissingSignature { .. } => AuthChainError::MalformedChain {
-            detail: "missing signature".to_string(),
-        },
-        AuthError::RecoveryFailed(d) => AuthChainError::InvalidSignature(d),
-        AuthError::SignerMismatch { .. } | AuthError::FinalAuthorityMismatch { .. } => {
-            AuthChainError::InvalidSignature("signer mismatch".to_string())
-        }
-        AuthError::EphemeralExpired { .. } => AuthChainError::Expired,
-        AuthError::Eip1654NotImplemented
-        | AuthError::Eip1654ValidationFailed(_)
-        | AuthError::Eip1654Rejected { .. } => AuthChainError::EipNotImplemented,
+        AuthChainError::MalformedChain { detail } => format!("Invalid Auth Chain: {detail}"),
+        AuthChainError::InvalidSignature(detail) => format!("Invalid signature: {detail}"),
+        other => other.to_string(),
     }
 }
 
-pub fn require_signer(
+pub async fn require_signer(
     headers: &HeaderMap,
     method: &str,
     path: &str,
     expiration_secs: i64,
 ) -> Result<String, AuthChainError> {
-    let path = signed_fetch_path(headers, path);
-    let path = path.as_ref();
-    let chain = extract_auth_chain(headers)?;
-    let ts = header_str(headers, AUTH_TIMESTAMP_HEADER)
-        .ok_or(AuthChainError::MissingTimestamp)?
-        .to_string();
-    let metadata = header_str(headers, AUTH_METADATA_HEADER)
-        .unwrap_or("{}")
-        .to_string();
-    let payload = build_payload(method, path, &ts, &metadata);
-    let now = chrono::Utc::now().timestamp();
-    validate_signature(&chain, &payload, &ts, expiration_secs, now)
+    catalyrst_crypto::signed_fetch::verify_signed_fetch(headers, method, path, expiration_secs)
+        .await
+        .map(|signer| signer.as_str().to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::http::HeaderValue;
+    use catalyrst_crypto::sign::{create_simple_auth_chain, Wallet};
+    use catalyrst_crypto::signed_fetch::{
+        build_payload, AUTH_CHAIN_HEADER_PREFIX, AUTH_METADATA_HEADER, AUTH_TIMESTAMP_HEADER,
+    };
+
+    const TEST_KEY: &str = "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d";
+    const FIVE_MINUTES: i64 = 5 * 60;
+
+    fn signed_headers(wallet: &Wallet, method: &str, path: &str, timestamp_ms: i64) -> HeaderMap {
+        let payload = build_payload(method, path, &timestamp_ms.to_string(), "{}");
+        let chain = create_simple_auth_chain(wallet, &payload).unwrap();
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            AUTH_TIMESTAMP_HEADER,
+            HeaderValue::from_str(&timestamp_ms.to_string()).unwrap(),
+        );
+        headers.insert(AUTH_METADATA_HEADER, HeaderValue::from_static("{}"));
+        for (i, link) in chain.as_array().into_iter().flatten().enumerate() {
+            headers.insert(
+                axum::http::HeaderName::from_bytes(
+                    format!("{AUTH_CHAIN_HEADER_PREFIX}{i}").as_bytes(),
+                )
+                .unwrap(),
+                HeaderValue::from_str(&link.to_string()).unwrap(),
+            );
+        }
+        headers
+    }
+
+    #[tokio::test]
+    async fn require_signer_recovers_the_wallet_address() {
+        let wallet = Wallet::from_hex(TEST_KEY).unwrap();
+        let now_ms = chrono::Utc::now().timestamp_millis();
+        let headers = signed_headers(&wallet, "post", "/v1/rentals-listings", now_ms);
+        let signer = require_signer(&headers, "post", "/v1/rentals-listings", FIVE_MINUTES)
+            .await
+            .unwrap();
+        assert_eq!(signer, wallet.address().to_lowercase());
+    }
+
+    #[tokio::test]
+    async fn require_signer_rejects_a_rebound_path() {
+        let wallet = Wallet::from_hex(TEST_KEY).unwrap();
+        let now_ms = chrono::Utc::now().timestamp_millis();
+        let headers = signed_headers(&wallet, "post", "/v1/rentals-listings", now_ms);
+        let err = require_signer(&headers, "post", "/v1/other", FIVE_MINUTES)
+            .await
+            .unwrap_err();
+        assert!(matches!(err, AuthChainError::InvalidSignature(_)));
+    }
+
+    #[tokio::test]
+    async fn require_signer_rejects_outside_the_symmetric_window() {
+        let wallet = Wallet::from_hex(TEST_KEY).unwrap();
+        for skew_ms in [-(FIVE_MINUTES + 60) * 1000, (FIVE_MINUTES + 60) * 1000] {
+            let ts = chrono::Utc::now().timestamp_millis() + skew_ms;
+            let headers = signed_headers(&wallet, "post", "/v1/rentals-listings", ts);
+            let err = require_signer(&headers, "post", "/v1/rentals-listings", FIVE_MINUTES)
+                .await
+                .unwrap_err();
+            assert!(matches!(err, AuthChainError::Expired { .. }));
+        }
+    }
+
+    /// The 401 text emitted before consolidation, byte for byte.
+    #[test]
+    fn wire_message_preserves_the_pre_consolidation_text() {
+        assert_eq!(
+            wire_message(&AuthChainError::MalformedChain {
+                detail: "unexpected token".into()
+            }),
+            "Invalid Auth Chain: unexpected token"
+        );
+        assert_eq!(
+            wire_message(&AuthChainError::InvalidSignature("recovery failed".into())),
+            "Invalid signature: recovery failed"
+        );
+        assert_eq!(
+            wire_message(&AuthChainError::InsufficientLinks),
+            "Invalid Auth Chain"
+        );
+        assert_eq!(
+            wire_message(&AuthChainError::MissingTimestamp),
+            "Missing timestamp"
+        );
+        assert_eq!(
+            wire_message(&AuthChainError::Expired {
+                signed_at: 0,
+                now: 100,
+                window_secs: 60
+            }),
+            "Expired signature"
+        );
+        assert_eq!(
+            wire_message(&AuthChainError::EipNotImplemented),
+            "EIP-1654 not implemented"
+        );
+    }
 }

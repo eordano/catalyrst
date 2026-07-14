@@ -1,0 +1,82 @@
+/* Copyable command block. There is no Run button and there never will be. */
+
+.cli {
+  border: 1px solid var(--line);
+  border-radius: var(--r-control);
+  background: var(--fill-1);
+  overflow: hidden;
+}
+
+.cli__bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 7px 10px 7px 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.cli__hint {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-45);
+}
+
+.cli__copy {
+  appearance: none;
+  border: 1px solid var(--line);
+  border-radius: var(--r-control);
+  background: var(--fill-2);
+  color: var(--ink-85);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 12px;
+  cursor: pointer;
+}
+.cli__copy:hover {
+  background: var(--fill-3);
+  color: var(--text);
+}
+
+.cli__code {
+  margin: 0;
+  padding: 12px;
+  overflow-x: auto;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--ink-85);
+  white-space: pre;
+}
+
+.cli__explain {
+  margin: 0;
+  padding: 0 12px 10px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--ink-45);
+}
+
+.cli__docs {
+  margin: 0;
+  padding: 0 12px 12px;
+  font-size: 12px;
+}
+.cli__docs a {
+  color: var(--brand-ink);
+}
+
+.cli__live {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
