@@ -1,6 +1,6 @@
 [package]
 name = "catalyrst-media"
-version = "0.9.10"
+version = "0.9.11"
 edition = "2021"
 description = "Rust port of decentraland/autotranslate-server (autotranslate-server.decentraland.org): LibreTranslate-compatible POST /translate (single + batch), postgres TTL cache."
 

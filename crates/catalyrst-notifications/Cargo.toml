@@ -1,6 +1,6 @@
 [package]
 name = "catalyrst-notifications"
-version = "0.9.10"
+version = "0.9.11"
 edition = "2021"
 description = "Rust port of decentraland/notifications (REST API for notifications.decentraland.org), SignedFetch reader/marker over a dedicated notifications DB"
 

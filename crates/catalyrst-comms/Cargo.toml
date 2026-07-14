@@ -1,6 +1,6 @@
 [package]
 name = "catalyrst-comms"
-version = "0.9.10"
+version = "0.9.11"
 edition = "2021"
 description = "Rust port of decentraland/comms-gatekeeper — LiveKit token minting, scene bans, voice chat, Cast 2.0. Port 5138."
 

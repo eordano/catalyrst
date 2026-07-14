@@ -1,6 +1,6 @@
 [package]
 name = "catalyrst-pulse"
-version = "0.9.10"
+version = "0.9.11"
 edition = "2021"
 description = "Pulse real-time social/MMO server over ENet (port of decentraland/Pulse): sessions, rooms, presence, message routing."
 

@@ -1,6 +1,6 @@
 [package]
 name = "catalyrst-create"
-version = "0.9.10"
+version = "0.9.11"
 edition = "2021"
 description = "Bundle binary serving catalyrst creator-plane services (builder, camera-reel, ab-registry) on one axum port (5144) by composing each member's api_router with its own state."
 

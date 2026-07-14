@@ -1,6 +1,6 @@
 [package]
 name = "catalyrst-builder"
-version = "0.9.10"
+version = "0.9.11"
 edition = "2021"
 description = "Rust port of decentraland/builder-server (builder-api.decentraland.org): collection items, content redirect, newsletter"
 

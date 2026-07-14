@@ -1,6 +1,6 @@
 [package]
 name = "catalyrst-fed"
-version = "0.9.10"
+version = "0.9.11"
 edition = "2021"
 description = "Federation primitives shared by catalyrst-{places,events,communities,friends,messaging}: EIP-712 signed envelopes, session delegation, peer registry, rate limits, gossip + snapshot transport stubs"
 

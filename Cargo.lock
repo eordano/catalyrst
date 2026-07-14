@@ -2011,7 +2011,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-abgen"
-version = "0.9.10"
+version = "0.9.11"
 dependencies = [
  "anyhow",
  "axum",
@@ -2055,7 +2055,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-archipelago"
-version = "0.9.10"
+version = "0.9.11"
 dependencies = [
  "anyhow",
  "axum",
@@ -2093,7 +2093,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-badges"
-version = "0.9.10"
+version = "0.9.11"
 dependencies = [
  "anyhow",
  "axum",
@@ -2114,7 +2114,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-bench"
-version = "0.9.10"
+version = "0.9.11"
 dependencies = [
  "async-trait",
  "axum",
@@ -2139,7 +2139,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-builder"
-version = "0.9.10"
+version = "0.9.11"
 dependencies = [
  "anyhow",
  "axum",
@@ -2163,7 +2163,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-camera-reel"
-version = "0.9.10"
+version = "0.9.11"
 dependencies = [
  "anyhow",
  "axum",
@@ -2195,7 +2195,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-comms"
-version = "0.9.10"
+version = "0.9.11"
 dependencies = [
  "anyhow",
  "axum",
@@ -2232,7 +2232,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-communities"
-version = "0.9.10"
+version = "0.9.11"
 dependencies = [
  "anyhow",
  "axum",
@@ -2266,7 +2266,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-conformance"
-version = "0.9.10"
+version = "0.9.11"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -2284,7 +2284,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-create"
-version = "0.9.10"
+version = "0.9.11"
 dependencies = [
  "anyhow",
  "axum",
@@ -2300,7 +2300,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-credits"
-version = "0.9.10"
+version = "0.9.11"
 dependencies = [
  "alloy-primitives",
  "anyhow",
@@ -2331,7 +2331,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-crypto"
-version = "0.9.10"
+version = "0.9.11"
 dependencies = [
  "async-trait",
  "catalyrst-types",
@@ -2352,7 +2352,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-data"
-version = "0.9.10"
+version = "0.9.11"
 dependencies = [
  "anyhow",
  "axum",
@@ -2370,7 +2370,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-db"
-version = "0.9.10"
+version = "0.9.11"
 dependencies = [
  "bytes",
  "catalyrst-hashing",
@@ -2389,7 +2389,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-deploy-signer"
-version = "0.9.10"
+version = "0.9.11"
 dependencies = [
  "anyhow",
  "axum",
@@ -2410,7 +2410,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-deployer"
-version = "0.9.10"
+version = "0.9.11"
 dependencies = [
  "async-trait",
  "catalyrst-db",
@@ -2429,7 +2429,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-economy"
-version = "0.9.10"
+version = "0.9.11"
 dependencies = [
  "alloy",
  "anyhow",
@@ -2458,7 +2458,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-enet"
-version = "0.9.10"
+version = "0.9.11"
 dependencies = [
  "bytes",
  "rusty_enet",
@@ -2469,7 +2469,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-envcfg"
-version = "0.9.10"
+version = "0.9.11"
 dependencies = [
  "anyhow",
  "tracing",
@@ -2477,7 +2477,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-events"
-version = "0.9.10"
+version = "0.9.11"
 dependencies = [
  "anyhow",
  "axum",
@@ -2509,7 +2509,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-explore"
-version = "0.9.10"
+version = "0.9.11"
 dependencies = [
  "anyhow",
  "axum",
@@ -2529,7 +2529,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-explorer-api"
-version = "0.9.10"
+version = "0.9.11"
 dependencies = [
  "anyhow",
  "axum",
@@ -2556,7 +2556,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-fed"
-version = "0.9.10"
+version = "0.9.11"
 dependencies = [
  "async-nats",
  "async-trait",
@@ -2581,7 +2581,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-fuzz"
-version = "0.9.10"
+version = "0.9.11"
 dependencies = [
  "async-trait",
  "bytes",
@@ -2600,7 +2600,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-governance"
-version = "0.9.10"
+version = "0.9.11"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2625,7 +2625,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-hashing"
-version = "0.9.10"
+version = "0.9.11"
 dependencies = [
  "bs58",
  "data-encoding",
@@ -2635,7 +2635,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-lists"
-version = "0.9.10"
+version = "0.9.11"
 dependencies = [
  "anyhow",
  "axum",
@@ -2654,7 +2654,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-map"
-version = "0.9.10"
+version = "0.9.11"
 dependencies = [
  "anyhow",
  "axum",
@@ -2675,7 +2675,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-market"
-version = "0.9.10"
+version = "0.9.11"
 dependencies = [
  "anyhow",
  "axum",
@@ -2710,7 +2710,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-media"
-version = "0.9.10"
+version = "0.9.11"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2735,7 +2735,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-notifications"
-version = "0.9.10"
+version = "0.9.11"
 dependencies = [
  "anyhow",
  "axum",
@@ -2760,7 +2760,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-oracle-tests"
-version = "0.9.10"
+version = "0.9.11"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -2778,7 +2778,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-places"
-version = "0.9.10"
+version = "0.9.11"
 dependencies = [
  "anyhow",
  "axum",
@@ -2808,7 +2808,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-presence"
-version = "0.9.10"
+version = "0.9.11"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2832,7 +2832,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-preview-tunnel"
-version = "0.9.10"
+version = "0.9.11"
 dependencies = [
  "anyhow",
  "axum",
@@ -2850,7 +2850,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-price"
-version = "0.9.10"
+version = "0.9.11"
 dependencies = [
  "anyhow",
  "axum",
@@ -2869,7 +2869,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-profile-images"
-version = "0.9.10"
+version = "0.9.11"
 dependencies = [
  "anyhow",
  "axum",
@@ -2889,7 +2889,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-pulse"
-version = "0.9.10"
+version = "0.9.11"
 dependencies = [
  "anyhow",
  "bytes",
@@ -2910,7 +2910,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-quests"
-version = "0.9.10"
+version = "0.9.11"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2942,7 +2942,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-registry"
-version = "0.9.10"
+version = "0.9.11"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2967,7 +2967,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-rpc"
-version = "0.9.10"
+version = "0.9.11"
 dependencies = [
  "anyhow",
  "axum",
@@ -2986,7 +2986,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-scene-state"
-version = "0.9.10"
+version = "0.9.11"
 dependencies = [
  "anyhow",
  "axum",
@@ -3014,7 +3014,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-server"
-version = "0.9.10"
+version = "0.9.11"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -3056,7 +3056,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-signatures"
-version = "0.9.10"
+version = "0.9.11"
 dependencies = [
  "anyhow",
  "axum",
@@ -3081,7 +3081,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-social"
-version = "0.9.10"
+version = "0.9.11"
 dependencies = [
  "anyhow",
  "axum",
@@ -3099,7 +3099,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-social-rpc"
-version = "0.9.10"
+version = "0.9.11"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -3133,7 +3133,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-storage"
-version = "0.9.10"
+version = "0.9.11"
 dependencies = [
  "bytes",
  "libc",
@@ -3145,7 +3145,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-sync"
-version = "0.9.10"
+version = "0.9.11"
 dependencies = [
  "async-trait",
  "bytes",
@@ -3168,7 +3168,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-telemetry"
-version = "0.9.10"
+version = "0.9.11"
 dependencies = [
  "anyhow",
  "axum",
@@ -3187,7 +3187,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-types"
-version = "0.9.10"
+version = "0.9.11"
 dependencies = [
  "axum",
  "chrono",
@@ -3200,7 +3200,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-validator"
-version = "0.9.10"
+version = "0.9.11"
 dependencies = [
  "async-trait",
  "catalyrst-types",
@@ -3219,7 +3219,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-world-storage"
-version = "0.9.10"
+version = "0.9.11"
 dependencies = [
  "aes-gcm 0.11.0",
  "anyhow",
@@ -3247,7 +3247,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-worlds"
-version = "0.9.10"
+version = "0.9.11"
 dependencies = [
  "anyhow",
  "axum",
@@ -4078,7 +4078,7 @@ checksum = "a4ae5f15dda3c708c0ade84bfee31ccab44a3da4f88015ed22f63732abe300c8"
 
 [[package]]
 name = "dcl-contents"
-version = "0.9.10"
+version = "0.9.11"
 dependencies = [
  "async-trait",
  "axum",
@@ -4094,7 +4094,7 @@ dependencies = [
 
 [[package]]
 name = "dcl-one-sdk"
-version = "0.9.10"
+version = "0.9.11"
 dependencies = [
  "anyhow",
  "axum",

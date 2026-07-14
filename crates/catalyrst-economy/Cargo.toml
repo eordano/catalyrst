@@ -1,6 +1,6 @@
 [package]
 name = "catalyrst-economy"
-version = "0.9.10"
+version = "0.9.11"
 edition = "2021"
 description = "Rust port of decentraland/transactions-server (transactions-api.decentraland.org) — meta-transaction relay over the marketplace_squid DB"
 

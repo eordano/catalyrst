@@ -1,6 +1,6 @@
 [package]
 name = "catalyrst-scene-state"
-version = "0.9.10"
+version = "0.9.11"
 edition = "2021"
 description = "Rust port of decentraland/scene-state-server — authoritative server-side scene state for SDK7 multiplayer scenes (HTTP + WebSocket, CRDT relay). Port 5153."
 

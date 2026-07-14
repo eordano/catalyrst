@@ -1,6 +1,6 @@
 [package]
 name = "catalyrst-social-rpc"
-version = "0.9.10"
+version = "0.9.11"
 edition = "2021"
 description = "Rust port of decentraland/social-service-ea: WebSocket dcl-rpc service for friends, blocks, mutes, private/community voice. Closes the wss://rpc-social-service-ea endpoint for self-hosted DCL stacks."
 

@@ -1,6 +1,6 @@
 [package]
 name = "catalyrst-lists"
-version = "0.9.10"
+version = "0.9.11"
 edition = "2021"
 description = "Rust port of dcl-lists.decentraland.org — serves the curated POI coordinate list and the ENS banned-name denylist"
 

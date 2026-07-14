@@ -1,6 +1,6 @@
 [package]
 name = "catalyrst-registry"
-version = "0.9.10"
+version = "0.9.11"
 edition = "2021"
 description = "Shared library for the asset-bundle-registry surface (active-entity + AB status/versions/bundles + profiles/worlds/admin handlers + the content-DB ContentComponent), consumed by the unified content/AB server (catalyrst-abgen). Formerly the standalone catalyrst-ab-registry service crate; the standalone binary is retired — the unified server is the only service."
 

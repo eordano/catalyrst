@@ -1,6 +1,6 @@
 [package]
 name = "catalyrst-badges"
-version = "0.9.10"
+version = "0.9.11"
 edition = "2021"
 description = "Rust port of decentraland/badges (REST API for badges.decentraland.org), read-only profile badge state over a dedicated postgres DB"
 
