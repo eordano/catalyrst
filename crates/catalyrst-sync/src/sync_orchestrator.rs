@@ -392,12 +392,11 @@ impl SyncOrchestratorRefs {
             .await?;
         self.save_frontier().await;
 
-        if resuming {
-            info!("Phase 6 skipped (resume): deleter_deployment already resolved + maintained incrementally");
-        } else {
-            info!("Phase 6: Resolving deleter_deployment for overwritten entities");
-            self.resolve_deleters().await;
-        }
+        // Always run, even on resume: it is idempotent (only touches
+        // deleter-NULL rows) and repairs any rows that predate the incremental
+        // overwrite bookkeeping done by the sync flush path.
+        info!("Phase 6: Resolving deleter_deployment for overwritten entities");
+        self.resolve_deleters().await;
 
         info!("Bootstrap complete, entering steady-state sync");
         *self.state.write().await = SyncState::Syncing;

@@ -308,7 +308,7 @@ pub async fn load_entity_cache(
 
         let dep_ids: Vec<i32> = rows.iter().map(|r| r.id).collect();
         let cf_rows: Vec<CfRow> = sqlx::query_as(
-            "SELECT deployment, content_hash, key FROM content_files WHERE deployment = ANY($1)",
+            "SELECT deployment, content_hash, key FROM content_files WHERE deployment = ANY($1) ORDER BY ctid",
         )
         .bind(&dep_ids)
         .fetch_all(pool)
@@ -540,7 +540,7 @@ async fn handle_entity_invalidation(
         vec![]
     } else {
         sqlx::query_as(
-            "SELECT deployment, content_hash, key FROM content_files WHERE deployment = ANY($1)",
+            "SELECT deployment, content_hash, key FROM content_files WHERE deployment = ANY($1) ORDER BY ctid",
         )
         .bind(&dep_ids)
         .fetch_all(pool)

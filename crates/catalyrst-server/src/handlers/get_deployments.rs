@@ -11,7 +11,7 @@ use serde_json::{json, Value};
 use crate::errors::{AppError, AppResult, InvalidRequestError};
 use crate::query_params::{
     camel_to_snake, parse_query_string, qs_get_array, qs_get_bool, qs_get_number, qs_get_string,
-    to_query_string,
+    to_query_string, QueryParams,
 };
 use crate::state::{
     AppState, CacheEntry, DeploymentQueryOptions, DEPLOYMENTS_CACHE_MAX_ENTRIES,
@@ -74,125 +74,7 @@ pub async fn get_deployments(
     }
     let params = parse_query_string(query_string);
 
-    let mut entity_types: Vec<String> = Vec::new();
-    for raw in qs_get_array(&params, "entityType") {
-        match crate::query_params::parse_entity_type(&raw) {
-            Some(canonical) => entity_types.push(canonical.to_string()),
-            None => {
-                return Err(InvalidRequestError::new("Found an unrecognized entity type").into())
-            }
-        }
-    }
-
-    let entity_ids = qs_get_array(&params, "entityId");
-
-    let pointers: Vec<String> = qs_get_array(&params, "pointer")
-        .into_iter()
-        .map(|p| p.to_lowercase())
-        .collect();
-
-    let deployed_by: Vec<String> = qs_get_array(&params, "deployedBy")
-        .into_iter()
-        .map(|a| a.to_lowercase())
-        .collect();
-
-    if entity_ids.len() > MAX_DEPLOYMENT_FILTER_VALUES
-        || pointers.len() > MAX_DEPLOYMENT_FILTER_VALUES
-        || entity_types.len() > MAX_DEPLOYMENT_FILTER_VALUES
-    {
-        return Err(InvalidRequestError::new(format!(
-            "Too many filter values; the maximum allowed per filter is {}",
-            MAX_DEPLOYMENT_FILTER_VALUES
-        ))
-        .into());
-    }
-
-    let only_currently_pointed = qs_get_bool(&params, "onlyCurrentlyPointed");
-    let offset = qs_get_number(&params, "offset");
-    let limit = qs_get_number(&params, "limit");
-    let from = qs_get_number(&params, "from");
-    let to = qs_get_number(&params, "to");
-    let last_id = qs_get_string(&params, "lastId").map(|s| s.to_lowercase());
-
-    let from = if from.is_none()
-        && to.is_none()
-        && last_id.is_none()
-        && entity_ids.is_empty()
-        && pointers.is_empty()
-        && deployed_by.is_empty()
-    {
-        let window_days = std::env::var("DEPLOYMENTS_DEFAULT_WINDOW_DAYS")
-            .ok()
-            .and_then(|s| s.parse::<i64>().ok())
-            .unwrap_or(30);
-        if window_days > 0 {
-            let now_ms = chrono::Utc::now().timestamp_millis();
-            Some(now_ms - window_days * 86_400_000)
-        } else {
-            None
-        }
-    } else {
-        from
-    };
-
-    let fields_param = qs_get_string(&params, "fields");
-    let fields: Vec<String> = if let Some(ref f) = fields_param {
-        if f.trim().is_empty() {
-            DEFAULT_FIELDS.iter().map(|s| s.to_string()).collect()
-        } else {
-            f.split(',')
-                .filter(|s| VALID_DEPLOYMENT_FIELDS.contains(&s.trim()))
-                .map(|s| s.trim().to_string())
-                .collect()
-        }
-    } else {
-        DEFAULT_FIELDS.iter().map(|s| s.to_string()).collect()
-    };
-
-    let sorting_field_param = qs_get_string(&params, "sortingField");
-    let sorting_field = if let Some(ref sf) = sorting_field_param {
-        let snake = camel_to_snake(sf);
-        if !VALID_SORTING_FIELDS.contains(&snake.as_str()) {
-            return Err(InvalidRequestError::new("Found an unrecognized sort field param").into());
-        }
-        Some(snake)
-    } else {
-        None
-    };
-
-    let sorting_order = if let Some(ref so) = qs_get_string(&params, "sortingOrder") {
-        if !VALID_SORTING_ORDERS.contains(&so.as_str()) {
-            return Err(InvalidRequestError::new("Found an unrecognized sort order param").into());
-        }
-        Some(so.clone())
-    } else {
-        None
-    };
-
-    if let Some(off) = offset {
-        if off > 5000 {
-            return Err(InvalidRequestError::new(
-                "Offset can't be higher than 5000. Please use the 'next' property for pagination.",
-            )
-            .into());
-        }
-    }
-
-    let options = DeploymentQueryOptions {
-        entity_types,
-        entity_ids,
-        pointers,
-        deployed_by,
-        from,
-        to,
-        only_currently_pointed,
-        fields: fields.clone(),
-        sorting_field,
-        sorting_order,
-        offset,
-        limit,
-        last_id,
-    };
+    let options = parse_deployment_query_options(&params)?;
 
     let timeout_secs: u64 = std::env::var("DEPLOYMENTS_QUERY_TIMEOUT_SECS")
         .ok()
@@ -214,7 +96,7 @@ pub async fn get_deployments(
     let deployments: Vec<Value> = result
         .deployments
         .into_iter()
-        .map(|dep| filter_deployment_fields(&dep, &fields))
+        .map(|dep| filter_deployment_fields(&dep, &options.fields))
         .collect();
 
     let mut pagination = json!({
@@ -277,6 +159,110 @@ pub async fn get_deployments(
         .header("x-cache", "MISS")
         .body(axum::body::Body::from(response_bytes))
         .unwrap())
+}
+
+fn parse_deployment_query_options(params: &QueryParams) -> AppResult<DeploymentQueryOptions> {
+    let mut entity_types: Vec<String> = Vec::new();
+    for raw in qs_get_array(params, "entityType") {
+        match crate::query_params::parse_entity_type(&raw) {
+            Some(canonical) => entity_types.push(canonical.to_string()),
+            None => {
+                return Err(InvalidRequestError::new("Found an unrecognized entity type").into())
+            }
+        }
+    }
+
+    let entity_ids = qs_get_array(params, "entityId");
+
+    let pointers: Vec<String> = qs_get_array(params, "pointer")
+        .into_iter()
+        .map(|p| p.to_lowercase())
+        .collect();
+
+    let deployed_by: Vec<String> = qs_get_array(params, "deployedBy")
+        .into_iter()
+        .map(|a| a.to_lowercase())
+        .collect();
+
+    if entity_ids.len() > MAX_DEPLOYMENT_FILTER_VALUES
+        || pointers.len() > MAX_DEPLOYMENT_FILTER_VALUES
+        || entity_types.len() > MAX_DEPLOYMENT_FILTER_VALUES
+    {
+        return Err(InvalidRequestError::new(format!(
+            "Too many filter values; the maximum allowed per filter is {}",
+            MAX_DEPLOYMENT_FILTER_VALUES
+        ))
+        .into());
+    }
+
+    let only_currently_pointed = qs_get_bool(params, "onlyCurrentlyPointed");
+    let offset = qs_get_number(params, "offset");
+    let limit = qs_get_number(params, "limit");
+    // The TS reference catalyst applies no implicit time window: `from`/`to`
+    // are only ever what the client sent, and the response `filters` echoes
+    // exactly the request filters.
+    let from = qs_get_number(params, "from");
+    let to = qs_get_number(params, "to");
+    let last_id = qs_get_string(params, "lastId").map(|s| s.to_lowercase());
+
+    let fields_param = qs_get_string(params, "fields");
+    let fields: Vec<String> = if let Some(ref f) = fields_param {
+        if f.trim().is_empty() {
+            DEFAULT_FIELDS.iter().map(|s| s.to_string()).collect()
+        } else {
+            f.split(',')
+                .filter(|s| VALID_DEPLOYMENT_FIELDS.contains(&s.trim()))
+                .map(|s| s.trim().to_string())
+                .collect()
+        }
+    } else {
+        DEFAULT_FIELDS.iter().map(|s| s.to_string()).collect()
+    };
+
+    let sorting_field_param = qs_get_string(params, "sortingField");
+    let sorting_field = if let Some(ref sf) = sorting_field_param {
+        let snake = camel_to_snake(sf);
+        if !VALID_SORTING_FIELDS.contains(&snake.as_str()) {
+            return Err(InvalidRequestError::new("Found an unrecognized sort field param").into());
+        }
+        Some(snake)
+    } else {
+        None
+    };
+
+    let sorting_order = if let Some(ref so) = qs_get_string(params, "sortingOrder") {
+        if !VALID_SORTING_ORDERS.contains(&so.as_str()) {
+            return Err(InvalidRequestError::new("Found an unrecognized sort order param").into());
+        }
+        Some(so.clone())
+    } else {
+        None
+    };
+
+    if let Some(off) = offset {
+        if off > 5000 {
+            return Err(InvalidRequestError::new(
+                "Offset can't be higher than 5000. Please use the 'next' property for pagination.",
+            )
+            .into());
+        }
+    }
+
+    Ok(DeploymentQueryOptions {
+        entity_types,
+        entity_ids,
+        pointers,
+        deployed_by,
+        from,
+        to,
+        only_currently_pointed,
+        fields,
+        sorting_field,
+        sorting_order,
+        offset,
+        limit,
+        last_id,
+    })
 }
 
 fn filter_deployment_fields(dep: &Value, fields: &[String]) -> Value {
@@ -444,4 +430,39 @@ fn calculate_next_relative_path(
     }
 
     format!("?{}", to_query_string(&next_params))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_deployment_query_options;
+    use crate::query_params::parse_query_string;
+
+    #[test]
+    fn no_implicit_time_window_when_client_sends_no_time_filters() {
+        // Parity with the TS reference catalyst: /content/deployments must not
+        // inject a default `from`, otherwise the response echoes a `filters.from`
+        // the client never sent and moreData/pagination are computed against a
+        // silently narrowed query.
+        let params = parse_query_string("entityType=emote&limit=3&sortingOrder=DESC");
+        let options = parse_deployment_query_options(&params).unwrap();
+        assert_eq!(options.from, None);
+        assert_eq!(options.to, None);
+    }
+
+    #[test]
+    fn no_implicit_time_window_on_empty_query() {
+        let params = parse_query_string("");
+        let options = parse_deployment_query_options(&params).unwrap();
+        assert_eq!(options.from, None);
+        assert_eq!(options.to, None);
+    }
+
+    #[test]
+    fn client_provided_time_filters_are_preserved() {
+        let params = parse_query_string("from=1&to=2&limit=3");
+        let options = parse_deployment_query_options(&params).unwrap();
+        assert_eq!(options.from, Some(1));
+        assert_eq!(options.to, Some(2));
+        assert_eq!(options.limit, Some(3));
+    }
 }

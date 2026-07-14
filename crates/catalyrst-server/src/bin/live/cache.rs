@@ -191,7 +191,7 @@ pub(crate) async fn load_entity_type_into_cache(
             dep.version,
             dep.id,
             COALESCE(
-                (SELECT json_agg(json_build_object('key', cf.key, 'hash', cf.content_hash))
+                (SELECT json_agg(json_build_object('key', cf.key, 'hash', cf.content_hash) ORDER BY cf.ctid)
                  FROM content_files cf WHERE cf.deployment = dep.id),
                 '[]'::json
             ) AS content_json
@@ -231,7 +231,7 @@ async fn refresh_entity_in_cache(
             dep.version,
             dep.id,
             COALESCE(
-                (SELECT json_agg(json_build_object('key', cf.key, 'hash', cf.content_hash))
+                (SELECT json_agg(json_build_object('key', cf.key, 'hash', cf.content_hash) ORDER BY cf.ctid)
                  FROM content_files cf WHERE cf.deployment = dep.id),
                 '[]'::json
             ) AS content_json

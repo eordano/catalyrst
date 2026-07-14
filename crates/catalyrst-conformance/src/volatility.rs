@@ -42,6 +42,8 @@ impl Volatility {
                     "comms.publicUrl".to_string(),
                     "comms.adapter".to_string(),
                     "bff.publicUrl".to_string(),
+                    // realm-specific: a vanilla TS peer exposes no comms object at all
+                    "comms".to_string(),
                 ],
                 ignore_whole_response: false,
             },
@@ -58,6 +60,10 @@ impl Volatility {
                         .to_string(),
                     "synchronizationStatus.lastSyncWithOtherServers[].url".to_string(),
                     "synchronizationStatus.otherServers[]".to_string(),
+                    // candidate-only diagnostics fields; the TS baseline never emits them
+                    "synchronizationStatus.lastHeartbeat".to_string(),
+                    "synchronizationStatus.syncFrontier".to_string(),
+                    "synchronizationStatus.up".to_string(),
                 ],
                 ignore_whole_response: false,
             },
@@ -66,6 +72,15 @@ impl Volatility {
             "challenge".to_string(),
             SectionRules {
                 ignore: vec!["challengeText".to_string()],
+                ignore_whole_response: false,
+            },
+        );
+        sections.insert(
+            "audit".to_string(),
+            SectionRules {
+                // local receive time, differs per node — same rationale as
+                // deployments[].localTimestamp below
+                ignore: vec!["localTimestamp".to_string()],
                 ignore_whole_response: false,
             },
         );
@@ -349,11 +364,41 @@ mod tests {
     }
 
     #[test]
+    fn glob_top_level_only_patterns() {
+        // Single-segment patterns match the top-level field even with the
+        // section/path prefix, but never deeper nested fields.
+        assert!(glob_match(
+            "localTimestamp",
+            "/audit/scene/bafkreieo2bzxurwq2zyu5wbhr2c6x7mez2tjcksphjazvqmhhuc7lr2jem.localTimestamp"
+        ));
+        assert!(!glob_match(
+            "localTimestamp",
+            "/audit/scene/x.foo.localTimestamp"
+        ));
+        assert!(glob_match("comms", "/about.comms"));
+        assert!(glob_match(
+            "synchronizationStatus.up",
+            "/status.synchronizationStatus.up"
+        ));
+    }
+
+    #[test]
     fn defaults_have_snapshots_whole() {
         let v = Volatility::defaults();
         assert!(v.ignore_whole("snapshots"));
         assert!(v.ignore_whole("failed-deployments"));
         assert!(!v.ignore_whole("about"));
+    }
+
+    #[test]
+    fn shipped_toml_parses() {
+        // Guards against the parser's comments-inside-arrays limitation.
+        let src = include_str!("../volatility.toml");
+        let v = parse_toml(src).unwrap();
+        assert!(v.is_ignored("about", "/about.comms"));
+        assert!(v.is_ignored("status", "/status.synchronizationStatus.up"));
+        assert!(v.is_ignored("audit", "/audit/scene/abc.localTimestamp"));
+        assert!(v.ignore_whole("snapshots"));
     }
 
     #[test]

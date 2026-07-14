@@ -1,4 +1,12 @@
+# NOTE: this file is read by a minimal hand-rolled parser (src/volatility.rs);
+# comments must not appear inside multi-line arrays.
+
 [about]
+# "comms": comms presence is realm-specific — a vanilla TS peer
+# (peer.decentraland.org) exposes no comms object at all. Because is_ignored is
+# checked at every node, this skips the entire comms subtree even when both
+# sides have one — acceptable since comms content is realm/deployment config
+# (publicUrl and adapter were already ignored).
 ignore = [
     "configurations.realmName",
     "configurations.networkId",
@@ -7,9 +15,12 @@ ignore = [
     "comms.publicUrl",
     "comms.adapter",
     "bff.publicUrl",
+    "comms",
 ]
 
 [status]
+# synchronizationStatus.{lastHeartbeat,syncFrontier,up} are candidate-only
+# diagnostics fields; the TS baseline never emits them.
 ignore = [
     "lastSyncWithDAO",
     "lastDeploymentAt",
@@ -17,10 +28,18 @@ ignore = [
     "synchronizationStatus.lastSyncWithOtherServers[].lastDeploymentTimestamp",
     "synchronizationStatus.lastSyncWithOtherServers[].url",
     "synchronizationStatus.otherServers[]",
+    "synchronizationStatus.lastHeartbeat",
+    "synchronizationStatus.syncFrontier",
+    "synchronizationStatus.up",
 ]
 
 [challenge]
 ignore = ["challengeText"]
+
+[audit]
+# local receive time, differs per node — same rationale as
+# deployments[].localTimestamp below
+ignore = ["localTimestamp"]
 
 [snapshots]
 ignore_whole_response = true

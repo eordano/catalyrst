@@ -215,7 +215,7 @@ impl ContentComponent {
 
         let dep_ids: Vec<i32> = by_entity.values().map(|e| e.deployment_id).collect();
         let files = sqlx::query(
-            "SELECT deployment, key, content_hash FROM content_files WHERE deployment = ANY($1)",
+            "SELECT deployment, key, content_hash FROM content_files WHERE deployment = ANY($1) ORDER BY ctid",
         )
         .bind(&dep_ids)
         .fetch_all(&self.pool)
@@ -230,8 +230,7 @@ impl ContentComponent {
             });
         }
         for ent in by_entity.values_mut() {
-            if let Some(mut c) = by_dep.remove(&ent.deployment_id) {
-                c.sort_by(|a, b| a.file.cmp(&b.file));
+            if let Some(c) = by_dep.remove(&ent.deployment_id) {
                 ent.content = c;
             }
         }

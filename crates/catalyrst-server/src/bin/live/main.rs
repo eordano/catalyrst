@@ -65,6 +65,18 @@ const ENV_DOCS: &[(&str, &str)] = &[
     ("ETH_NETWORK", "ethereum network (default mainnet)"),
     ("REALM_NAME", "optional — realm name"),
     (
+        "MAP_SATELLITE_BASE_URL",
+        "minimap satellite tiles base URL (default https://genesis.city/map/latest)",
+    ),
+    (
+        "MAP_SATELLITE_SUFFIX",
+        "minimap satellite tile suffix (default .jpg)",
+    ),
+    (
+        "MAP_PARCEL_VIEW_URL",
+        "minimap parcel view image URL (default https://api.decentraland.org/v1/minimap.png)",
+    ),
+    (
         "POSTGRES_HOST",
         "postgres host or unix socket dir (default /run/postgresql)",
     ),
