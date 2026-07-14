@@ -6,16 +6,18 @@ SDK7 scenes; an alternative to `@dcl/sdk-commands`.
 Measured on the freshly scaffolded template scene (release build; absolute
 times vary with hardware):
 
-- one self-contained binary (48 MB; 80 MB as released with the abgen
-  asset-bundle server embedded), 311 tests; the upstream toolchain installs
-  315 MB / 17,464 files of node_modules per scene and takes 31.5 s for an
-  `npx` cold start
-- `init` scaffolds a working scene fully offline in 0.2 s — the vendored
-  node_modules (27 MB, 2,970 files) ships inside the binary
-- `build` bundles and type-checks in under a second; `start` is serving the
+- one self-contained binary (36 MB from source; ~32 MB larger as released with
+  the abgen asset-bundle server embedded), 251 tests; the upstream toolchain
+  installs 315 MB / 17,464 files of node_modules per scene and takes 31.5 s for
+  an `npx` cold start
+- `init` scaffolds a working scene fully offline in under 0.1 s — the vendored
+  node_modules (424 files, 12 MB unpacked) ships inside the binary as a 2.3 MB
+  zip
+- `build` bundles and type-checks in under half a second; `start` is serving the
   preview ~0.1 s after launch
-- a production scene is a ~1 KB scene chunk beside a shared, immutable
-  SDK-runtime chunk, vs upstream's ~938 KB single-file production bundle
+- a production scene is a ~1 KB scene chunk and a 5.7 KB loader stub beside a
+  shared, immutable 453 KB SDK-runtime chunk, vs upstream's ~938 KB single-file
+  production bundle
 
 ## Install
 
@@ -48,6 +50,7 @@ dcl-one-sdk deploy --target peer.decentraland.org
 | `build` | bundle and type-check the scene |
 | `start` | run a local preview server with live reload |
 | `deploy` | hash, sign, and upload the scene to a catalyst or worlds server |
+| `unpublish` | remove a published LAND scene from a dcl-one-style content server |
 | `pack` | pack a smart wearable into `smart-wearable.zip` |
 | `world` | manage worlds-server settings and permissions |
 | `get-context-files` | fetch the SDK docs corpus into `dclcontext/` |
@@ -61,6 +64,21 @@ no per-scene JS toolchain in the bundle path. Node is used for the TypeScript
 type check (the scene's own vendored `typescript` runs under node;
 `--skip-type-check` builds without it) and for the visual editor and
 `main.crdt` regeneration (`--data-layer` / composite scenes).
+
+The scaffolded `package.json` declares `engines.node ">=24"` (and `npm ">=11"`,
+which is what node 24 ships) — that is the version this toolchain is built and
+tested against. The hard floor the vendored packages impose is lower, 20.19,
+where node's `require(esm)` support became unflagged.
+
+## Visual editor
+
+The editor UI is not vendored. `start --data-layer` needs `@dcl/inspector` in
+the scene (`npm install --save-dev @dcl/inspector`), or `DCL_ONE_INSPECTOR_DIR`
+pointing at a package that contains a build; everything else — `build`,
+`start`, `deploy` — works without it. Upstream ships an 18 MB pre-built browser
+bundle that is ~60% a non-tree-shaken Babylon plus ~3,000 Font Awesome icons,
+and nothing downstream can slim it, so carrying it in every binary for a path
+most scenes never take was the wrong trade.
 
 ## Asset bundles (abgen)
 

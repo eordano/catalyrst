@@ -1,9 +1,9 @@
 { lib, stdenv, fetchurl }:
 
 let
-  version = "149.4.0";
+  version = "152.0.0";
   shas = {
-    x86_64-linux = "sha256-5PbIR4ssGb8jfKBbXCDsiavmQOc/aEzWuvxohE9enBU=";
+    x86_64-linux = "sha256-nS++EYCa01QTDVw3gmNqE89YaNptLAAtqIJ7hT01x+w=";
   };
   archive = fetchurl {
     name = "librusty_v8-${version}.a.gz";

@@ -3,7 +3,7 @@ use alloy::sol_types::SolCall;
 use axum::extract::{Path, State};
 use axum::http::HeaderMap;
 use axum::Json;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use crate::handlers::admin::require_admin;
@@ -57,24 +57,45 @@ pub fn sum_erc20_transfers_to(
     found
 }
 
-pub fn config_json(pay_to: Option<Address>, mana_token: Option<Address>, chain_id: u64) -> Value {
-    let enabled = pay_to.is_some() && mana_token.is_some();
-    json!({
-        "payTo": pay_to.map(|a| format!("{a:#x}")),
-        "manaToken": mana_token.map(|a| format!("{a:#x}")),
-        "chainId": chain_id,
-        "enabled": enabled,
-    })
+/// Wire shape of `GET /v1/payments/config`. This struct replaces a `json!()`
+/// payload; the `config_wire_bytes_match_the_old_json_macro` test asserts it
+/// carries the same wire shape, compared as parsed JSON so object key order
+/// (which flips with serde_json's preserve_order feature) is not part of the
+/// contract.
+#[derive(Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "economy/"))]
+pub struct PaymentsConfig {
+    #[serde(rename = "chainId")]
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
+    pub chain_id: u64,
+    pub enabled: bool,
+    #[serde(rename = "manaToken")]
+    pub mana_token: Option<String>,
+    #[serde(rename = "payTo")]
+    pub pay_to: Option<String>,
 }
 
-pub async fn config(State(state): State<AppState>) -> Json<Value> {
+pub fn payments_config(
+    pay_to: Option<Address>,
+    mana_token: Option<Address>,
+    chain_id: u64,
+) -> PaymentsConfig {
+    PaymentsConfig {
+        chain_id,
+        enabled: pay_to.is_some() && mana_token.is_some(),
+        mana_token: mana_token.map(|a| format!("{a:#x}")),
+        pay_to: pay_to.map(|a| format!("{a:#x}")),
+    }
+}
+
+pub async fn config(State(state): State<AppState>) -> Json<PaymentsConfig> {
     let chain_id = state.config.collections_chain_id;
     let pay_to = state
         .transaction
         .direct_signer()
         .map(|s| s.relayer_address());
     let mana_token = DclContracts::for_chain(chain_id).map(|c| c.mana_token);
-    Json(config_json(pay_to, mana_token, chain_id))
+    Json(payments_config(pay_to, mana_token, chain_id))
 }
 
 pub fn encode_get_nonce(user: Address) -> Vec<u8> {
@@ -86,10 +107,17 @@ pub fn decode_get_nonce_return(ret: &[u8]) -> Result<U256, ApiError> {
         .map_err(|e| ApiError::RelayerFailed(format!("could not decode getNonce return: {e}")))
 }
 
+/// Wire shape of `GET /v1/payments/nonce/{address}`.
+#[derive(Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "economy/"))]
+pub struct PaymentsNonceOut {
+    pub nonce: String,
+}
+
 pub async fn nonce(
     State(state): State<AppState>,
     Path(address): Path<String>,
-) -> Result<Json<Value>, ApiError> {
+) -> Result<Json<PaymentsNonceOut>, ApiError> {
     let user: Address = address
         .trim()
         .parse()
@@ -111,7 +139,9 @@ pub async fn nonce(
         .eth_call(contracts.mana_token, encode_get_nonce(user).into())
         .await?;
     let nonce = decode_get_nonce_return(&ret)?;
-    Ok(Json(json!({ "nonce": nonce.to_string() })))
+    Ok(Json(PaymentsNonceOut {
+        nonce: nonce.to_string(),
+    }))
 }
 
 #[derive(Debug, Deserialize)]
@@ -288,7 +318,7 @@ mod tests {
 
     #[test]
     fn config_json_contract() {
-        let enabled = config_json(Some(PAY_TO), Some(MANA), 137);
+        let enabled = serde_json::to_value(payments_config(Some(PAY_TO), Some(MANA), 137)).unwrap();
         assert_eq!(
             enabled,
             serde_json::json!({
@@ -298,12 +328,56 @@ mod tests {
                 "enabled": true,
             })
         );
-        let disabled = config_json(None, Some(MANA), 137);
+        let disabled = serde_json::to_value(payments_config(None, Some(MANA), 137)).unwrap();
         assert_eq!(disabled["enabled"], serde_json::json!(false));
         assert_eq!(disabled["payTo"], serde_json::Value::Null);
-        let no_contracts = config_json(Some(PAY_TO), None, 5);
+        let no_contracts = serde_json::to_value(payments_config(Some(PAY_TO), None, 5)).unwrap();
         assert_eq!(no_contracts["enabled"], serde_json::json!(false));
         assert_eq!(no_contracts["manaToken"], serde_json::Value::Null);
+    }
+
+    /// The struct must carry the same wire shape as the retired `json!({...})`
+    /// payload. The parameterized cases compare parsed JSON (object key order is
+    /// not part of the contract and flips with serde_json's preserve_order
+    /// feature); a canonical case still pins the exact bytes.
+    #[test]
+    fn config_wire_bytes_match_the_old_json_macro() {
+        let old = |pay_to: Option<Address>, mana_token: Option<Address>, chain_id: u64| {
+            let enabled = pay_to.is_some() && mana_token.is_some();
+            json!({
+                "payTo": pay_to.map(|a| format!("{a:#x}")),
+                "manaToken": mana_token.map(|a| format!("{a:#x}")),
+                "chainId": chain_id,
+                "enabled": enabled,
+            })
+        };
+        for (pay_to, mana, chain) in [
+            (Some(PAY_TO), Some(MANA), 137u64),
+            (None, Some(MANA), 137),
+            (Some(PAY_TO), None, 5),
+            (None, None, 1),
+        ] {
+            assert_eq!(
+                serde_json::to_value(payments_config(pay_to, mana, chain)).unwrap(),
+                old(pay_to, mana, chain),
+            );
+        }
+        assert_eq!(
+            serde_json::to_string(&payments_config(Some(PAY_TO), Some(MANA), 137)).unwrap(),
+            "{\"chainId\":137,\"enabled\":true,\
+             \"manaToken\":\"0xa1c57f48f0deb89f569dfbe6e2b7f46d33606fd4\",\
+             \"payTo\":\"0x1111111111111111111111111111111111111111\"}",
+        );
+    }
+
+    #[test]
+    fn nonce_wire_bytes_match_the_old_json_macro() {
+        let out = PaymentsNonceOut { nonce: "42".into() };
+        assert_eq!(
+            serde_json::to_value(&out).unwrap(),
+            json!({ "nonce": "42" })
+        );
+        assert_eq!(serde_json::to_string(&out).unwrap(), r#"{"nonce":"42"}"#);
     }
 
     #[test]

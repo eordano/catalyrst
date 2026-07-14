@@ -1,0 +1,59 @@
+.tt__wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.tt__tip {
+  position: absolute;
+  z-index: var(--z-overlay);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+  padding: 6px 10px;
+  border-radius: 10px;
+  background: var(--panel);
+  color: var(--text);
+  font-family: var(--font-family);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 15px;
+  box-shadow: var(--shadow-panel);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .12s ease, transform .12s ease;
+}
+
+.tt__shortcut { opacity: .6; }
+
+.tt__tip--right {
+  left: 100%; top: 50%;
+  transform: translate(8px, -50%) scale(.96);
+  transform-origin: left center;
+}
+.tt__tip--left {
+  right: 100%; top: 50%;
+  transform: translate(-8px, -50%) scale(.96);
+  transform-origin: right center;
+}
+.tt__tip--top {
+  bottom: 100%; left: 50%;
+  transform: translate(-50%, -8px) scale(.96);
+  transform-origin: center bottom;
+}
+.tt__tip--bottom {
+  top: 100%; left: 50%;
+  transform: translate(-50%, 8px) scale(.96);
+  transform-origin: center top;
+}
+
+.tt__wrap:hover .tt__tip,
+.tt__wrap:focus-within .tt__tip { opacity: 1; }
+.tt__wrap:hover .tt__tip--right,
+.tt__wrap:focus-within .tt__tip--right { transform: translate(12px, -50%) scale(1); }
+.tt__wrap:hover .tt__tip--left,
+.tt__wrap:focus-within .tt__tip--left { transform: translate(-12px, -50%) scale(1); }
+.tt__wrap:hover .tt__tip--top,
+.tt__wrap:focus-within .tt__tip--top { transform: translate(-50%, -12px) scale(1); }
+.tt__wrap:hover .tt__tip--bottom,
+.tt__wrap:focus-within .tt__tip--bottom { transform: translate(-50%, 12px) scale(1); }

@@ -1,0 +1,88 @@
+.enscard {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  text-align: left;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  border-radius: var(--r-card);
+  overflow: hidden;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  padding: 0;
+  transition: border-color 0.12s ease, transform 0.12s ease;
+}
+.enscard:hover { border-color: rgba(255, 255, 255, 0.18); transform: translateY(-2px); }
+
+.enscard__art {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  aspect-ratio: 1 / 1;
+  padding: 18px;
+  color: #fff;
+  background: linear-gradient(160deg, var(--purple) 0%, #5a1a8c 55%, #2d0b4d 100%);
+}
+.enscard__mark { display: inline-flex; color: #fff; opacity: 0.5; }
+.enscard__name {
+  font-size: 24px;
+  font-weight: 600;
+  line-height: 1.1;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.enscard__sub {
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1;
+  color: rgba(252, 252, 252, 0.8);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.enscard__body { display: flex; flex-direction: column; gap: 6px; padding: 12px 14px 14px; }
+.enscard__row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.enscard__title {
+  font-size: 15px;
+  font-weight: 700;
+  color: #fff;
+  min-width: 0;
+}
+.enscard__price {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+  font-size: 15px;
+  font-weight: 700;
+  color: #fff;
+}
+.enscard__manamark { color: var(--brand); flex: 0 0 auto; }
+
+.enscard__meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.enscard__network {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  color: var(--ink-6);
+}
+.enscard__badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: #fff;
+  padding: 3px 8px;
+  border-radius: var(--r-pill);
+  background: color-mix(in srgb, var(--purple) 36%, transparent);
+  border: 1px solid color-mix(in srgb, var(--purple) 60%, transparent);
+}

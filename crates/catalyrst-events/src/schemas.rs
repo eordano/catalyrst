@@ -2,13 +2,14 @@ use chrono::{DateTime, Utc};
 use serde::Serialize;
 use serde_json::Value;
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "events/"))]
 pub struct EventRecord {
     pub id: String,
     pub name: String,
     pub image: Option<String>,
     #[cfg_attr(feature = "ts", ts(type = "string | null"))]
+    #[schema(value_type = Option<String>)]
     pub image_vertical: Option<Value>,
     pub description: Option<String>,
     #[cfg_attr(feature = "ts", ts(type = "string | null"))]
@@ -70,7 +71,7 @@ pub struct EventRecord {
     pub connected_addresses: Option<Vec<String>>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "events/"))]
 pub struct EventCategoryRecord {
     pub name: String,
@@ -80,10 +81,11 @@ pub struct EventCategoryRecord {
     #[cfg_attr(feature = "ts", ts(type = "string"))]
     pub updated_at: DateTime<Utc>,
     #[cfg_attr(feature = "ts", ts(type = "Record<string, unknown>"))]
+    #[schema(value_type = Object)]
     pub i18n: serde_json::Map<String, Value>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "events/"))]
 pub struct EventAttendeeRecord {
     pub event_id: String,
@@ -93,7 +95,7 @@ pub struct EventAttendeeRecord {
     pub created_at: DateTime<Utc>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "events/"))]
 pub struct ScheduleRecord {
     pub id: String,

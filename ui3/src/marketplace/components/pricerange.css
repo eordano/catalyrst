@@ -1,0 +1,42 @@
+.pricerange { display: flex; flex-direction: column; gap: 12px; }
+.pricerange__row { display: flex; align-items: flex-end; gap: 8px; }
+.pricerange__field { display: flex; flex-direction: column; gap: 4px; flex: 1 1 0; min-width: 0; }
+.pricerange__label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: var(--ink-45);
+}
+.pricerange__input {
+  width: 100%;
+  border: 1px solid var(--line);
+  background: var(--fill-2);
+  color: #fff;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  height: 34px;
+  padding: 0 10px;
+  border-radius: var(--ctl-radius, var(--r-control));
+}
+.pricerange__input::placeholder { color: var(--ink-45); }
+.pricerange__input:focus { outline: none; border-color: var(--accent); }
+.pricerange__dash { color: var(--ink-45); padding-bottom: 8px; }
+
+.pricerange__chart {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 74px;
+  padding: 6px 6px 0;
+  background: rgba(0, 0, 0, 0.22);
+  border-radius: var(--r-control);
+  overflow: hidden;
+}
+.pricerange__bar {
+  flex: 1 1 0;
+  min-width: 0;
+  background: var(--brand);
+  border-radius: 1px 1px 0 0;
+}

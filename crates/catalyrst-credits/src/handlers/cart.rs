@@ -59,8 +59,8 @@ pub async fn get_cart(
     headers: HeaderMap,
 ) -> Result<Json<CartOut>, ApiError> {
     let signer = signer_from(&headers, "get", "/cart")?;
-    let cart = state.credits.get_cart(&signer).await?;
-    Ok(Json(cart_out(&signer, &cart)))
+    let cart = state.credits.get_cart(signer.as_str()).await?;
+    Ok(Json(cart_out(signer.as_str(), &cart)))
 }
 
 #[derive(Debug, Deserialize)]
@@ -168,7 +168,7 @@ pub async fn add_item(
     state
         .credits
         .add_item(
-            &signer,
+            signer.as_str(),
             &item_id,
             &collection,
             &priced.basis.info.urn,
@@ -178,8 +178,8 @@ pub async fn add_item(
         )
         .await?;
 
-    let cart = state.credits.get_cart(&signer).await?;
-    Ok(Json(cart_out(&signer, &cart)))
+    let cart = state.credits.get_cart(signer.as_str()).await?;
+    Ok(Json(cart_out(signer.as_str(), &cart)))
 }
 
 pub async fn remove_item(
@@ -193,10 +193,10 @@ pub async fn remove_item(
     let item_id = validate_item_id(&item_id)?;
     state
         .credits
-        .remove_item(&signer, &collection, &item_id)
+        .remove_item(signer.as_str(), &collection, &item_id)
         .await?;
-    let cart = state.credits.get_cart(&signer).await?;
-    Ok(Json(cart_out(&signer, &cart)))
+    let cart = state.credits.get_cart(signer.as_str()).await?;
+    Ok(Json(cart_out(signer.as_str(), &cart)))
 }
 
 fn idempotency_key(headers: &HeaderMap) -> Result<String, ApiError> {
@@ -266,7 +266,7 @@ pub async fn checkout(
             .credits
             .find_checkout_by_idempotency_key(&idem)
             .await?,
-        &signer,
+        signer.as_str(),
     )? {
         return Ok(Json(out));
     }
@@ -303,7 +303,7 @@ pub async fn checkout(
     match &signed_intent {
         Some((intent, sig)) => {
             let now = chrono::Utc::now().timestamp().max(0) as u64;
-            verify_purchase_intent(intent, sig, &signer, &idem, now)?;
+            verify_purchase_intent(intent, sig, signer.as_str(), &idem, now)?;
         }
         None => ensure_intent_present(false, state.require_purchase_intent)?,
     }
@@ -324,7 +324,7 @@ pub async fn checkout(
         ));
     }
 
-    let cart = state.credits.get_cart(&signer).await?;
+    let cart = state.credits.get_cart(signer.as_str()).await?;
     if cart.items.is_empty() {
         return Err(ApiError::bad_request("cart is empty"));
     }
@@ -399,7 +399,7 @@ pub async fn checkout(
 
     let outcome = state
         .credits
-        .run_checkout(&signer, &idem, &repriced)
+        .run_checkout(signer.as_str(), &idem, &repriced)
         .await?;
 
     Ok(Json(CheckoutStartOut {

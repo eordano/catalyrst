@@ -49,16 +49,18 @@ impl CommsGatekeeper {
 
     fn cache_put(&self, key: String, value: Vec<String>) {
         let mut cache = self.cache.lock().unwrap();
+        let now = Instant::now();
+        cache.retain(|_, c| c.expires_at > now);
         cache.insert(
             key,
             Cached {
                 value,
-                expires_at: Instant::now() + CACHE_TTL,
+                expires_at: now + CACHE_TTL,
             },
         );
     }
 
-    async fn fetch_participants(&self, query: &[(&str, &str)]) -> Vec<String> {
+    async fn fetch_participants(&self, query: &[(&str, &str)]) -> Option<Vec<String>> {
         let url = format!("{}/scene-participants", self.base_url);
         let resp = self
             .http
@@ -69,15 +71,15 @@ impl CommsGatekeeper {
             .await;
         match resp {
             Ok(r) => match r.json::<SceneParticipantsResponse>().await {
-                Ok(body) => body.data.addresses,
+                Ok(body) => Some(body.data.addresses),
                 Err(e) => {
                     tracing::debug!(error = %e, "scene-participants decode failed");
-                    Vec::new()
+                    None
                 }
             },
             Err(e) => {
                 tracing::debug!(error = %e, "scene-participants request failed");
-                Vec::new()
+                None
             }
         }
     }
@@ -88,11 +90,16 @@ impl CommsGatekeeper {
         if let Some(v) = self.cache_get(&key) {
             return v;
         }
-        let addrs = self
+        match self
             .fetch_participants(&[("pointer", pointer), ("realm_name", realm)])
-            .await;
-        self.cache_put(key, addrs.clone());
-        addrs
+            .await
+        {
+            Some(addrs) => {
+                self.cache_put(key, addrs.clone());
+                addrs
+            }
+            None => Vec::new(),
+        }
     }
 
     pub async fn get_world_participants(&self, world_name: &str) -> Vec<String> {
@@ -100,8 +107,12 @@ impl CommsGatekeeper {
         if let Some(v) = self.cache_get(&key) {
             return v;
         }
-        let addrs = self.fetch_participants(&[("realm_name", world_name)]).await;
-        self.cache_put(key, addrs.clone());
-        addrs
+        match self.fetch_participants(&[("realm_name", world_name)]).await {
+            Some(addrs) => {
+                self.cache_put(key, addrs.clone());
+                addrs
+            }
+            None => Vec::new(),
+        }
     }
 }

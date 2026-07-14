@@ -266,6 +266,42 @@ impl PricingClient {
         Ok(row.get::<String, _>("credit_price"))
     }
 
+    /// Batched form of [`Self::compute_credit_price`]: reprices many wei amounts
+    /// in ONE round trip. The `ceil(...)` expression is byte-identical to the
+    /// single-row version and the bind roles/types match, so PostgreSQL
+    /// evaluates the same NUMERIC arithmetic per row; `WITH ORDINALITY` + the
+    /// `ORDER BY t.ord` pin the output order to the input order, so element `i`
+    /// of the result is the reprice of `weis[i]`.
+    pub async fn compute_credit_prices_batch(
+        &self,
+        pool: &PgPool,
+        weis: &[String],
+        mana_usd: &str,
+    ) -> Result<Vec<String>, ApiError> {
+        if weis.is_empty() {
+            return Ok(vec![]);
+        }
+        let rows = sqlx::query(
+            "SELECT ceil( \
+                 (t.wei::numeric / 1e18) * $2::numeric \
+                 * (1 + ($3::numeric / 10000)) \
+                 / $4::numeric \
+             )::text AS credit_price \
+             FROM unnest($1::text[]) WITH ORDINALITY AS t(wei, ord) \
+             ORDER BY t.ord",
+        )
+        .bind(weis)
+        .bind(mana_usd)
+        .bind(self.markup_bps)
+        .bind(CREDIT_USD)
+        .fetch_all(pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|r| r.get::<String, _>("credit_price"))
+            .collect())
+    }
+
     pub async fn fetch_charge_basis(
         &self,
         collection: &str,
@@ -508,17 +544,34 @@ fn mint_undercuts_listing(mint_wei: &str, listing_wei: &str) -> bool {
     }
 }
 
-pub fn charge_is_positive(credit_price: &str) -> bool {
-    let s = credit_price.trim();
+/// Shared prefix of `charge_is_positive` (below) and `parse_nonneg_decimal`
+/// (ports/checkout.rs): trim whitespace, split on the first `.`, and accept
+/// only `[digits][.[digits]]` with at least one span non-empty. Returns the
+/// two spans unmodified for each caller's own tail (a positivity check here,
+/// a zero-normalized comparison tuple there) — it does not itself decide
+/// positivity, magnitude, or sign. Deliberately narrower than `CreditAmount`
+/// (crate::money): no sign, no exponent, no magnitude bound. Do NOT widen
+/// this grammar to match `CreditAmount` or any other validator in this crate
+/// — see the `characterization_*` tests across money.rs, ports/checkout.rs,
+/// purchase_intent.rs, and handlers/packs.rs for the documented divergences.
+pub(crate) fn split_validated_decimal(s: &str) -> Option<(&str, &str)> {
+    let s = s.trim();
     let (int_part, frac_part) = s.split_once('.').unwrap_or((s, ""));
     if int_part.is_empty() && frac_part.is_empty() {
-        return false;
+        return None;
     }
     if !int_part.bytes().all(|b| b.is_ascii_digit())
         || !frac_part.bytes().all(|b| b.is_ascii_digit())
     {
-        return false;
+        return None;
     }
+    Some((int_part, frac_part))
+}
+
+pub fn charge_is_positive(credit_price: &str) -> bool {
+    let Some((int_part, frac_part)) = split_validated_decimal(credit_price) else {
+        return false;
+    };
     int_part.bytes().chain(frac_part.bytes()).any(|b| b != b'0')
 }
 
@@ -1188,5 +1241,52 @@ mod tests {
             9_999,
         )];
         assert!(select_cheapest_listing(&orders2, "0", now, true).is_none());
+    }
+}
+
+/// Characterizes `charge_is_positive` and `payment_is_positive` on the
+/// shared edge-input set used across all decimal-string validators in this
+/// crate (see the sibling `characterization_*` tests in money.rs,
+/// ports/checkout.rs, purchase_intent.rs, and handlers/packs.rs).
+///
+/// `charge_is_positive` shares its accept/reject grammar exactly with
+/// `parse_nonneg_decimal` in ports/checkout.rs (both now call
+/// `split_validated_decimal`): scientific notation and a stray extra `.` are
+/// rejected, surrounding whitespace is tolerated (unlike `CreditAmount`,
+/// which has no `.trim()`), and there is no magnitude bound (a huge digit
+/// string is accepted, unlike `CreditAmount`'s `MAX_MAGNITUDE_EXP`).
+///
+/// `payment_is_positive` is a DIFFERENT, much looser function: it operates on
+/// raw wei integer strings, not Credits decimals, and only rejects a string
+/// that is all `'0'` bytes after trimming — it does no grammar validation at
+/// all, so malformed input like `"1e18"` or `"1.2.3"` reads as "positive".
+#[cfg(test)]
+mod characterization_charge_and_payment_positivity {
+    use super::{charge_is_positive, payment_is_positive};
+
+    #[test]
+    fn current_accept_reject_on_edge_inputs() {
+        assert!(!charge_is_positive("1e18"));
+        assert!(!charge_is_positive("1E18"));
+        assert!(charge_is_positive(" 1.5 "));
+        assert!(charge_is_positive(".5"));
+        assert!(charge_is_positive("5."));
+        assert!(charge_is_positive("01.50"));
+        assert!(!charge_is_positive(""));
+        assert!(!charge_is_positive("-1"));
+        assert!(!charge_is_positive("1.2.3"));
+        assert!(
+            charge_is_positive(&"9".repeat(50)),
+            "no magnitude bound here, unlike CreditAmount"
+        );
+
+        // payment_is_positive has no grammar check at all — only an
+        // all-zero-bytes rejection — so it reads every one of these
+        // malformed/exotic literals as positive.
+        for s in ["1e18", "1E18", " 1.5 ", ".5", "5.", "01.50", "-1", "1.2.3"] {
+            assert!(payment_is_positive(s), "{s:?} must read as positive");
+        }
+        assert!(payment_is_positive(""), "empty reads as positive too");
+        assert!(payment_is_positive(&"9".repeat(50)));
     }
 }

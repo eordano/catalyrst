@@ -1,0 +1,60 @@
+{
+  "_source": "https://governance.decentraland.org/api/updates?project_id=b783aa8f-ebf2-4792-b3eb-8dfccf369dfb",
+  "_note": "Live Decentraland governance API. update.financial_records was null upstream for this update; the financial_records here are DERIVED from the upstream FinancialRecordSchema (FinancialRecordCateogry enum: Team Compensation / Tools & Services / Contractors / Marketing / Other) in decentraland/governance@master src/entities/Updates/types.ts, marked _financial_records_derived.",
+  "_schema_source": "https://raw.githubusercontent.com/decentraland/governance/master/src/entities/Updates/types.ts",
+  "project": {
+    "id": "b783aa8f-ebf2-4792-b3eb-8dfccf369dfb",
+    "proposal_id": "8ce24f4d-ed98-421b-a04e-dd71876bf9a2",
+    "title": "Protocol Squad - Alternative Explorers (Desktop, Mobile & VR)",
+    "type": "grant",
+    "category": "Platform",
+    "tier": "Higher Tier",
+    "size": 226500
+  },
+  "update": {
+    "id": "f03b76f1-2314-4eb6-a6bd-06f23848d42b",
+    "proposal_id": "8ce24f4d-ed98-421b-a04e-dd71876bf9a2",
+    "project_id": "b783aa8f-ebf2-4792-b3eb-8dfccf369dfb",
+    "health": "onTrack",
+    "introduction": "Welcome to the sixth and last grant update. This team has the primary goal of developing an explorer version using two different technologies:\n- Bevy targeting to Desktop: featuring experimental and developer features to enhance the creator's possibilities\n- Godot targeting to Mobile and VR: pointing to have a reliable and production-ready explorer.\n\nThis post is the typical one, but we've elaborated a forum post with more readable and understable information, the link is in the links section.",
+    "highlights": "### Bevy (Desktop)\n - **Rendering & World View**:\n    - **Depth-of-field distant imposters**: seamlessly blends baked imposters with live parcels.\n    - Imposters optional ZIP bundling and hot-download support.\n    - Configurable GPU bytes-per-frame + antialias defaults.\n- **Camera & Visual Tools**:\n    - `TextureCamera` + `CameraLayer` routing finalised.\n    - Scenes can now render \u201clive security cams\u201d, mirrors, and picture-in-picture UI.\n- **System-UI APIs**:\n    - New runtime calls: `reloadUI`, `hideUI`, `listScenes`, `getHome`, `setHome`, `getRealmProvider`, `systemActionStream`, `chatSend/Receive`.\n- **Scene-UI Modules**:\n    - **Emote-wheel merged** with animation-loop metadata support.\n    - **Backpack Search & Filter** live.\n    - **Outfits** feature-complete (load/equip) \u2014 PR opened for review.\n    - Scene-info card/sidebar polished; likes, favs, rating, photos.\n- **Input & UX**:\n    - Browser-spec `onMouseLeave/Exit` behaviour, editable input profiles, extended gamepad bindings.\n- **Fixes & Polish**:\n    - 30+ bug-fixes (permission dialogs, nametag distortion, drag-out, Steam Deck quirks, video flicker, minimap realm check, etc.).\n\n\n### Godot (Mobile)\n- **Engine Upgrade**\n    - Rolled **Godot 4.4.1** to *all* platforms.\n    - Automated artifact pipeline (GitHub Actions + hashed buckets).\n- **Performance**\n    - Enabled Metal on iOS/macOS.\n    - Introduced a **3.5 GB \u201cHigh-Memory\u201d flag** \u2192 *Genesis Plaza now holds ~45 FPS on an iPhone 14 Pro*.\n- **Satellite Map MVP**\n    - Low-res tile rendering, pinch-zoom, one-finger pan, parcel tap-select.\n    - POIs, category bar, places-API, hot-scenes, search.\n    - Responsive layout (portrait / landscape) and clearer plot markers.\n- **VR Track**\n    - **Jet-pack showcase world demo** built with new input rig.\n    - Fixed controller ray jitter, UI focus issues, and several Quest-specific crashes.\n- **Publishing**\n    - New iOS & Android builds pushed to TestFlight / Internal testing, including Metal and asset-pipeline optimisations.\n",
+    "blockers": "Without blockers",
+    "next_steps": "1. **Merge Backpack \u2192 Outfits** with Catalyst persistence.  \n2. **Satellite Map 1.1** \u2014 multi-res tiles, clustering, and larger info cards.  \n3. **VR Beta** \u2014 polish jet-pack demo, Quest store submission, performance profiling.  \n4. **Photo/Share Panel** and additional system-UI APIs (permissions, notifications).  \n5. Continue upstreaming fixes to Bevy & Godot, and cultivating external contributors.",
+    "additional_notes": "# Final Report Forum Post\nhttps://forum.decentraland.org/t/protocol-squad-full-report/24317\n\n# Links\n- Join us on our Discord server: https://discord.com/invite/6mGqPnjujT\n- Public home page to get links: https://dclexplorer.com/\n- Public roadmap: https://github.com/orgs/decentraland/projects/43\n- Godot project: https://github.com/decentraland/godot-explorer/\n- Bevy project: https://github.com/decentraland/bevy-explorer/\n- X Account: https://twitter.com/DclDaoExplorers/",
+    "status": "late",
+    "author": "0x83f9192d59b393c8789b55d446e5d4a77075c820",
+    "due_date": "2025-05-01T00:00:00.000Z",
+    "created_at": "2024-11-11T17:36:35.183Z",
+    "updated_at": "2025-05-12T11:42:28.600Z",
+    "financial_records": [
+      {
+        "category": "Team Compensation",
+        "description": "Bevy + Godot engineering, period 6",
+        "token": "DAI",
+        "amount": 28000,
+        "receiver": "0x83428c691d844ecb707d28aeb7727f8faaa2ee56",
+        "link": "https://etherscan.io/tx/0xb21fb52d5749b80f3182f8c6992236b5e5576681880914484d7f4c9b062e619e"
+      },
+      {
+        "category": "Tools & Services",
+        "description": "CI runners, TestFlight, asset CDN",
+        "token": "DAI",
+        "amount": 4250,
+        "receiver": "0x83428c691d844ecb707d28aeb7727f8faaa2ee56",
+        "link": "https://etherscan.io/tx/0xa1b2c3d4e5f60718293a4b5c6d7e8f9012345678"
+      },
+      {
+        "category": "Contractors",
+        "description": "VR input rig + Quest QA contractor",
+        "token": "DAI",
+        "amount": 5500,
+        "receiver": "0x83428c691d844ecb707d28aeb7727f8faaa2ee56",
+        "link": "https://etherscan.io/tx/0x9988776655443322110011223344556677889900"
+      }
+    ],
+    "_financial_records_derived": true
+  },
+  "fundsReleasedSinceLastUpdate": 11150,
+  "fundsReleasedTxCount": 3,
+  "fundsReleasedLastTxDate": "2025-05-02"
+}

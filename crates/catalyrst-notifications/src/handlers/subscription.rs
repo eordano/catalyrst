@@ -21,10 +21,14 @@ pub async fn get_subscription(
 ) -> Result<Json<Subscription>, ApiError> {
     let signer = require_signer(&headers, "get", "/subscription")?;
 
-    let sub = match state.notifications.get_subscription(&signer).await? {
+    let sub = match state
+        .notifications
+        .get_subscription(signer.as_str())
+        .await?
+    {
         Some(sub) => sub,
         None => Subscription {
-            address: signer,
+            address: signer.as_str().to_string(),
             email: None,
             unconfirmed_email: None,
             details: normalize_details(&serde_json::json!({})),
@@ -44,7 +48,7 @@ pub async fn put_subscription(
 
     let sub = state
         .notifications
-        .put_subscription_details(&signer, &details)
+        .put_subscription_details(signer.as_str(), &details)
         .await?;
     Ok(Json(sub))
 }
@@ -76,7 +80,7 @@ pub async fn put_set_email(
 
     match state
         .notifications
-        .set_email(&signer, email, body.is_credits_workflow)
+        .set_email(signer.as_str(), email, body.is_credits_workflow)
         .await?
     {
         SetEmailOutcome::NoEmailSent => {}
@@ -84,7 +88,7 @@ pub async fn put_set_email(
             state
                 .notifications
                 .email
-                .send_confirmation(source, email, &signer, &code)
+                .send_confirmation(source, email, signer.as_str(), &code)
                 .await?;
         }
     }
@@ -145,7 +149,7 @@ pub async fn get_community_opt_out(
 
     let opted_out = state
         .notifications
-        .is_opted_out(&signer, SCOPE_COMMUNITY, &community_id)
+        .is_opted_out(signer.as_str(), SCOPE_COMMUNITY, &community_id)
         .await?;
     Ok(Json(serde_json::json!({
         "scope": SCOPE_COMMUNITY,
@@ -164,7 +168,7 @@ pub async fn delete_community_opt_out(
 
     state
         .notifications
-        .delete_opt_out(&signer, SCOPE_COMMUNITY, &community_id)
+        .delete_opt_out(signer.as_str(), SCOPE_COMMUNITY, &community_id)
         .await?;
     Ok(StatusCode::NO_CONTENT)
 }
@@ -192,7 +196,7 @@ pub async fn post_opt_out(
 
     state
         .notifications
-        .create_opt_out(&signer, &body.scope, &body.scope_id)
+        .create_opt_out(signer.as_str(), &body.scope, &body.scope_id)
         .await?;
     Ok((StatusCode::CREATED, Json(serde_json::json!({ "ok": true }))))
 }

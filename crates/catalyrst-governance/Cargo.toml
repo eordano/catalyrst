@@ -1,18 +1,24 @@
 [package]
 name = "catalyrst-governance"
-version = "0.9.10"
+version = "0.16.0"
 edition = "2021"
 description = "Governance API component for the catalyrst stack"
+
+[package.metadata.generated]
+gate = "sites/scripts/gen-ts-check.sh"
+ts-bindings = "ui3/src/generated/catalyst/governance"
 
 [[bin]]
 name = "catalyrst-governance"
 path = "src/main.rs"
 
 [dependencies]
+catalyrst-db = { workspace = true }
 catalyrst-envcfg = { workspace = true }
+catalyrst-crypto = { workspace = true }
+alloy = { workspace = true }
 tokio = { workspace = true }
 axum = { workspace = true }
-tower = { workspace = true }
 tower-http = { workspace = true }
 reqwest = { workspace = true }
 sqlx = { workspace = true }
@@ -22,12 +28,12 @@ chrono = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 anyhow = { workspace = true }
-thiserror = { workspace = true }
 clap = { workspace = true }
-url = { workspace = true }
-futures = { workspace = true }
-async-trait = { workspace = true }
 ts-rs = { workspace = true, optional = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+tower = { workspace = true }
 
 [features]
 ts = ["dep:ts-rs"]

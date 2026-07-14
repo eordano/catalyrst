@@ -1,10 +1,10 @@
 #![allow(dead_code)]
 
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
+use alloy::signers::{local::PrivateKeySigner, Signer};
 use axum::http::{HeaderMap, HeaderName, HeaderValue};
-use ethers_signers::{LocalWallet, Signer};
 use sha2::{Digest, Sha256};
 
 use catalyrst_credits::auth_chain::build_payload;
@@ -14,7 +14,7 @@ use catalyrst_credits::{AppState, AppStateInner};
 
 static WALLET_COUNTER: AtomicU64 = AtomicU64::new(0);
 
-pub fn scratch_wallet() -> LocalWallet {
+pub fn scratch_wallet() -> PrivateKeySigner {
     let mut h = Sha256::new();
     h.update(std::process::id().to_le_bytes());
     h.update(
@@ -26,10 +26,10 @@ pub fn scratch_wallet() -> LocalWallet {
     );
     h.update(WALLET_COUNTER.fetch_add(1, Ordering::Relaxed).to_le_bytes());
     let key: [u8; 32] = h.finalize().into();
-    LocalWallet::from_bytes(&key).expect("wallet from bytes")
+    PrivateKeySigner::from_slice(&key).expect("wallet from bytes")
 }
 
-pub fn wallet_addr(w: &LocalWallet) -> String {
+pub fn wallet_addr(w: &PrivateKeySigner) -> String {
     format!("{:#x}", w.address())
 }
 
@@ -37,7 +37,7 @@ fn link_json(kind: &str, payload: &str, signature: &str) -> String {
     serde_json::json!({ "type": kind, "payload": payload, "signature": signature }).to_string()
 }
 
-pub async fn signed_headers(wallet: &LocalWallet, method: &str, path: &str) -> HeaderMap {
+pub async fn signed_headers(wallet: &PrivateKeySigner, method: &str, path: &str) -> HeaderMap {
     let root_addr = wallet_addr(wallet);
     let ephemeral = scratch_wallet();
     let ephemeral_addr = wallet_addr(&ephemeral);
@@ -46,20 +46,19 @@ pub async fn signed_headers(wallet: &LocalWallet, method: &str, path: &str) -> H
         "Decentraland Login\nEphemeral address: {}\nExpiration: 2099-01-01T00:00:00.000Z",
         ephemeral_addr
     );
-    let ephemeral_sig = format!(
-        "0x{}",
-        wallet
-            .sign_message(ephemeral_payload.as_bytes())
-            .await
-            .unwrap()
-    );
+    let ephemeral_sig = wallet
+        .sign_message(ephemeral_payload.as_bytes())
+        .await
+        .unwrap()
+        .to_string();
 
     let ts_ms = chrono_now_ms();
     let canonical = build_payload(method, path, &ts_ms.to_string(), "{}");
-    let entity_sig = format!(
-        "0x{}",
-        ephemeral.sign_message(canonical.as_bytes()).await.unwrap()
-    );
+    let entity_sig = ephemeral
+        .sign_message(canonical.as_bytes())
+        .await
+        .unwrap()
+        .to_string();
 
     let mut headers = HeaderMap::new();
     headers.insert(
@@ -94,7 +93,7 @@ fn chrono_now_ms() -> i64 {
 }
 
 pub async fn pool() -> Option<sqlx::PgPool> {
-    let url = std::env::var("CREDITS_TEST_PG_CONNECTION_STRING").ok()?;
+    let url = catalyrst_testgate::require_pg("CREDITS_TEST_PG_CONNECTION_STRING")?;
     let pool = sqlx::postgres::PgPoolOptions::new()
         .max_connections(4)
         .connect(&url)
@@ -153,4 +152,106 @@ pub fn test_state_with_market(
 pub fn status_of(err: catalyrst_credits::http::ApiError) -> u16 {
     use axum::response::IntoResponse;
     err.into_response().status().as_u16()
+}
+
+// --------------------------------------------------------- SQL-count capture -
+
+/// A scoped counting subscriber that records every sqlx query event emitted on
+/// the current thread while it is alive. Used by `query_counts.rs` to assert how
+/// many DB round trips a call path makes.
+///
+/// sqlx logs each executed statement as a DEBUG event on a target starting with
+/// `sqlx` (`sqlx::query`), carrying the SQL in the `db.statement` field and a
+/// short form in `summary`. We capture the rendered field text of each such
+/// event so `count()` / `count_containing()` can be asserted.
+///
+/// The subscriber is installed thread-locally via `set_default`, so tests MUST
+/// run on the current-thread flavor (`#[tokio::test]`, default) for the pool's
+/// query futures to be polled on the same thread that owns the subscriber. The
+/// `rebuild_interest_cache()` calls are load-bearing: sqlx's tracing callsites
+/// cache their interest the first time they fire, so without a rebuild right
+/// after install (and again on drop) the cached "never" verdict from the outer
+/// no-op subscriber sticks and nothing is recorded.
+struct CountingSubscriber {
+    events: Arc<Mutex<Vec<String>>>,
+}
+
+impl tracing::Subscriber for CountingSubscriber {
+    fn enabled(&self, metadata: &tracing::Metadata<'_>) -> bool {
+        *metadata.level() == tracing::Level::DEBUG && metadata.target().starts_with("sqlx")
+    }
+
+    fn new_span(&self, _: &tracing::span::Attributes<'_>) -> tracing::span::Id {
+        tracing::span::Id::from_u64(1)
+    }
+
+    fn record(&self, _: &tracing::span::Id, _: &tracing::span::Record<'_>) {}
+    fn record_follows_from(&self, _: &tracing::span::Id, _: &tracing::span::Id) {}
+
+    fn event(&self, event: &tracing::Event<'_>) {
+        let mut collector = FieldCollector(String::new());
+        event.record(&mut collector);
+        self.events
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .push(collector.0);
+    }
+
+    fn enter(&self, _: &tracing::span::Id) {}
+    fn exit(&self, _: &tracing::span::Id) {}
+}
+
+struct FieldCollector(String);
+
+impl tracing::field::Visit for FieldCollector {
+    fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
+        use std::fmt::Write;
+        let _ = write!(self.0, " {}={:?}", field.name(), value);
+    }
+}
+
+pub struct SqlCapture {
+    events: Arc<Mutex<Vec<String>>>,
+    guard: Option<tracing::subscriber::DefaultGuard>,
+}
+
+impl SqlCapture {
+    /// Total sqlx query events captured while this guard was alive.
+    pub fn count(&self) -> usize {
+        self.events.lock().unwrap_or_else(|p| p.into_inner()).len()
+    }
+
+    /// How many captured statements contain `needle` (matched against the
+    /// rendered field text, which includes `db.statement`).
+    pub fn count_containing(&self, needle: &str) -> usize {
+        self.events
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .iter()
+            .filter(|s| s.contains(needle))
+            .count()
+    }
+}
+
+impl Drop for SqlCapture {
+    fn drop(&mut self) {
+        // Restore the previous subscriber FIRST, then rebuild so the sqlx
+        // callsites re-evaluate interest against it.
+        self.guard.take();
+        tracing::callsite::rebuild_interest_cache();
+    }
+}
+
+/// Install a scoped SQL-counting subscriber for the current thread. Drop the
+/// returned guard to stop capturing.
+pub fn sql_capture() -> SqlCapture {
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let guard = tracing::subscriber::set_default(CountingSubscriber {
+        events: events.clone(),
+    });
+    tracing::callsite::rebuild_interest_cache();
+    SqlCapture {
+        events,
+        guard: Some(guard),
+    }
 }

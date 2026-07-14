@@ -1,6 +1,6 @@
 -- Schema for the catalyrst-governance archive.
--- Faithfully mirrors scripts/governance-archive-schema.sql from the umbrella
--- reference node. Modeled after the Decentraland governance API response shapes
+-- Faithfully mirrors scripts/governance-archive-schema.sql from the reference
+-- node. Modeled after the Decentraland governance API response shapes
 -- (https://governance.decentraland.org/api). Lives in its own `governance`
 -- database; read consumers connect via a dedicated RO role.
 

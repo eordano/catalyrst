@@ -1,0 +1,69 @@
+.mac {
+  --mob-b: var(--safe-bottom, env(safe-area-inset-bottom, 0px));
+  --mob-r: var(--safe-right, env(safe-area-inset-right, 0px));
+  position: fixed;
+  z-index: var(--z-panel);
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  color: #fff;
+  font-family: var(--font-sans);
+  pointer-events: none;
+}
+.mac > * { pointer-events: auto; }
+
+.mac__combos {
+  display: flex;
+  gap: 10px;
+}
+
+.mac__btn {
+  width: 48px;
+  height: 48px;
+  padding: 0;
+  border: 1.5px solid rgba(255, 255, 255, .28);
+  border-radius: 50%;
+  cursor: pointer;
+  color: #fff;
+  background: rgba(14, 12, 18, .58);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform .08s ease, background .08s ease;
+}
+.mac__btn--main {
+  width: 72px;
+  height: 72px;
+  border-color: rgba(255, 255, 255, .42);
+  background: rgba(20, 16, 26, .66);
+}
+.mac__btn.is-held {
+  background: color-mix(in srgb, var(--brand) 42%, rgba(14, 12, 18, .66));
+  border-color: var(--brand);
+  transform: scale(.94);
+}
+.mac__btn:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+.mac__icon { width: 24px; height: 24px; display: block; }
+
+.mac[data-orientation="landscape"] {
+  right: calc(16px + var(--mob-r));
+  bottom: calc(16px + var(--mob-b));
+  flex-direction: row;
+}
+.mac[data-orientation="landscape"] .mac__combos {
+  flex-direction: column;
+}
+
+.mac[data-orientation="portrait"] {
+  right: calc(14px + var(--mob-r));
+  bottom: calc(14px + var(--mob-b) + var(--mob-tabbar-h, 0px));
+  flex-direction: row;
+  align-items: center;
+}
+.mac[data-orientation="portrait"] .mac__btn--main { width: 64px; height: 64px; }

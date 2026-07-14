@@ -1,0 +1,329 @@
+.am {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 96px 24px 72px;
+  color: #fff;
+}
+
+.am__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 8px;
+}
+
+.am__title {
+  font-size: 30px;
+  font-weight: 800;
+  margin: 0 0 6px;
+}
+
+.am__sub {
+  margin: 0;
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.66);
+  max-width: 640px;
+}
+
+.am__range {
+  display: inline-flex;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.am__range button {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.7);
+  font-weight: 600;
+  font-size: 13px;
+  padding: 8px 18px;
+  cursor: pointer;
+}
+.am__range button.is-active {
+  background: var(--brand);
+  color: #fff;
+}
+
+.am__cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 16px;
+  margin: 24px 0 8px;
+}
+
+.am-card {
+  display: block;
+  text-align: left;
+  width: 100%;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.04);
+  padding: 18px 20px;
+  color: inherit;
+  text-decoration: none;
+  cursor: pointer;
+  transition: border-color 0.15s ease, transform 0.15s ease;
+}
+.am-card:hover {
+  border-color: color-mix(in srgb, var(--brand) 70%, transparent);
+  transform: translateY(-2px);
+}
+
+.am-card__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+.am-card__label {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.78);
+}
+.am-badge {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 3px 8px;
+  border-radius: 999px;
+}
+.am-badge--live {
+  background: color-mix(in srgb, var(--success) 18%, transparent);
+  color: var(--success);
+}
+.am-badge--fixture {
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.am-card__depth {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.am-card__depth b {
+  font-size: 40px;
+  font-weight: 800;
+  line-height: 1;
+}
+.am-card__depth span {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.am-card__stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+.am-stat__k {
+  display: block;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.55);
+  margin-bottom: 3px;
+}
+.am-stat__v {
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.am-split {
+  display: flex;
+  height: 8px;
+  border-radius: 999px;
+  overflow: hidden;
+  margin-top: 14px;
+  background: rgba(255, 255, 255, 0.12);
+}
+.am-split__pos {
+  background: var(--success);
+}
+.am-split__neg {
+  background: var(--warning);
+}
+.am-card__cta {
+  margin-top: 14px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--brand);
+}
+
+.am__panels {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-top: 24px;
+}
+@media (max-width: 860px) {
+  .am__panels {
+    grid-template-columns: 1fr;
+  }
+}
+.am-panel {
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.04);
+  padding: 20px;
+}
+.am-panel__title {
+  font-size: 15px;
+  font-weight: 700;
+  margin: 0 0 16px;
+}
+
+.am-spark {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.am-spark__row {
+  display: grid;
+  grid-template-columns: 120px 1fr 48px;
+  align-items: center;
+  gap: 12px;
+}
+.am-spark__label {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.75);
+}
+.am-spark__now {
+  font-size: 15px;
+  font-weight: 700;
+  text-align: right;
+}
+.am-spark svg {
+  display: block;
+  width: 100%;
+  height: 38px;
+}
+
+.am-funnel {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.am-funnel__row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.am-funnel__label {
+  font-size: 13px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.8);
+}
+.am-funnel__bars {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.am-funnel__bar {
+  position: relative;
+  height: 22px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--brand) 55%, transparent);
+  min-width: 2px;
+}
+.am-funnel__bar span {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 11px;
+  font-weight: 700;
+  color: #fff;
+}
+.am-funnel__bar small {
+  position: absolute;
+  left: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.85);
+}
+.am-funnel__bar--reviewed {
+  background: color-mix(in srgb, var(--brand) 38%, transparent);
+}
+.am-funnel__bar--resolved {
+  background: color-mix(in srgb, var(--success) 55%, transparent);
+}
+
+.am__footnote {
+  margin-top: 28px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+/* ---- honest tiles ------------------------------------------------- */
+/* A metric tile is either a real measurement with its provenance, or an
+   explicit empty state carrying the reason. Never a zero and never a dash:
+   both still read as a measurement. */
+.am__tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 14px;
+  margin: 24px 0 8px;
+}
+.am-tile {
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.04);
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.am-tile--unavailable {
+  border-style: dashed;
+  background: transparent;
+}
+.am-tile__label {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.7);
+}
+.am-tile__value {
+  font-size: 38px;
+  font-weight: 800;
+  line-height: 1;
+}
+.am-tile__source {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.55);
+}
+.am-tile__reason {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.5);
+  line-height: 1.45;
+}
+.am__links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 20px 0 4px;
+}
+.am__links a {
+  font-size: 13px;
+  font-weight: 700;
+  text-decoration: none;
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.82);
+}
+.am__links a:hover {
+  background: rgba(255, 255, 255, 0.12);
+}

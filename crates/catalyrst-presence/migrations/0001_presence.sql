@@ -1,7 +1,7 @@
 -- catalyrst-presence: unified user-count history archive.
 --
--- This ONE migration consolidates the three personal-umbrella archivers that
--- used to each own a separate database:
+-- This ONE migration consolidates the three standalone archivers that used to
+-- each own a separate database:
 --
 --   * archipelago-archive.py  (peer / island / hot-scene snapshots)
 --   * comms-archive.py        (per-genesis-scene occupancy: who is in each scene)

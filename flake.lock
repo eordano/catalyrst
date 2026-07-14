@@ -1,29 +1,63 @@
 {
   "nodes": {
-    "archipelago": {
-      "flake": false,
+    "abgen": {
+      "inputs": {
+        "crane": "crane",
+        "nixpkgs": "nixpkgs"
+      },
       "locked": {
-        "lastModified": 1778673508,
-        "narHash": "sha256-X/SHFkYVYCrFDghDTsRV2TNvOMcRGOOrMKju+JxLnvk=",
+        "lastModified": 1785547872,
+        "narHash": "sha256-ZVfTw6flx6nHYz3irCImj3tNEte421wm7EnVutjMghc=",
         "owner": "decentraland",
-        "repo": "archipelago-workers",
-        "rev": "537def15e2609cf0ecc8ba5bd7ad400702e455c8",
+        "repo": "abgen",
+        "rev": "5026945966244fc007c10e2ffd45320965a7348f",
         "type": "github"
       },
       "original": {
         "owner": "decentraland",
-        "repo": "archipelago-workers",
-        "rev": "537def15e2609cf0ecc8ba5bd7ad400702e455c8",
+        "repo": "abgen",
+        "type": "github"
+      }
+    },
+    "crane": {
+      "locked": {
+        "lastModified": 1779041105,
+        "narHash": "sha256-nnGD2f8OlAZT2i5OfwikJsw+ifWfiA4d6A8BWlgOXV0=",
+        "owner": "ipetkov",
+        "repo": "crane",
+        "rev": "10e6e3cb966f7cfcc789fe5eee7a85f3188ce08b",
+        "type": "github"
+      },
+      "original": {
+        "owner": "ipetkov",
+        "ref": "v0.23.4",
+        "repo": "crane",
         "type": "github"
       }
     },
     "nixpkgs": {
       "locked": {
-        "lastModified": 1783389287,
-        "narHash": "sha256-0xIy4dVLqq47rA+mRy0hXDfjhQd4E5PoIns/RmB7nR4=",
+        "lastModified": 1785454630,
+        "narHash": "sha256-LQy14TZp77TwbQf40gg1V3jo8FwJG0jGDkAH+zRHqg8=",
         "owner": "NixOS",
         "repo": "nixpkgs",
-        "rev": "0ad6f47ea4fe188f4bc8f0380f93ae8523337c6c",
+        "rev": "1559d3daa3ecc813a650b79375ea61b6741b8746",
+        "type": "github"
+      },
+      "original": {
+        "owner": "NixOS",
+        "ref": "nixos-unstable",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
+    "nixpkgs_2": {
+      "locked": {
+        "lastModified": 1785599192,
+        "narHash": "sha256-dg4RTtDxnXY13UkJNdhmgTUTl0n/IJBlCigfO7nutZw=",
+        "owner": "NixOS",
+        "repo": "nixpkgs",
+        "rev": "6d65bfc1bcef2ef39a239d38e577e92a89fb0f07",
         "type": "github"
       },
       "original": {
@@ -35,10 +69,9 @@
     },
     "root": {
       "inputs": {
-        "archipelago": "archipelago",
-        "nixpkgs": "nixpkgs",
-        "rust-overlay": "rust-overlay",
-        "uws-node24": "uws-node24"
+        "abgen": "abgen",
+        "nixpkgs": "nixpkgs_2",
+        "rust-overlay": "rust-overlay"
       }
     },
     "rust-overlay": {
@@ -48,33 +81,16 @@
         ]
       },
       "locked": {
-        "lastModified": 1783614422,
-        "narHash": "sha256-zSX553aXiIKJHWzUF6nrDKgeNRlfNK/SdyNYSbs2nkM=",
+        "lastModified": 1785648791,
+        "narHash": "sha256-4wZa7NDOxbcm9pTNNcg88nvvPb9uVcWsJ+Ncil8eB1I=",
         "owner": "oxalica",
         "repo": "rust-overlay",
-        "rev": "e8e9d70b96113fd49ccde6c3e08fb260b6ef5dd6",
+        "rev": "32346a8154e65fa10bac36f7b476a5294cb8b150",
         "type": "github"
       },
       "original": {
         "owner": "oxalica",
         "repo": "rust-overlay",
-        "type": "github"
-      }
-    },
-    "uws-node24": {
-      "flake": false,
-      "locked": {
-        "lastModified": 1778129597,
-        "narHash": "sha256-4kCJB59ePD09g0YmpTk4EDSlKndH2cwvzc5/ZZT5xyU=",
-        "owner": "uNetworking",
-        "repo": "uWebSockets.js",
-        "rev": "e0f56ebb4b349017f006e14d1cd29052f2a7121d",
-        "type": "github"
-      },
-      "original": {
-        "owner": "uNetworking",
-        "ref": "v20.67.0",
-        "repo": "uWebSockets.js",
         "type": "github"
       }
     }

@@ -7,8 +7,23 @@ use serde_json::{json, Value};
 use crate::cache;
 use crate::AppState;
 
-const IMAGE_BASE_URL: &str = "https://api.decentraland.org/v1";
-const EXTERNAL_BASE_URL: &str = "https://market.decentraland.org";
+fn image_base_url() -> String {
+    std::env::var("MAP_IMAGE_BASE_URL")
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "http://127.0.0.1:5162/v1".to_string())
+}
+
+/// Marketplace web page for a token. No production fallback: this stack does
+/// not host a marketplace UI, so an unset value yields no external link
+/// rather than one pointing at production.
+fn external_base_url() -> Option<String> {
+    std::env::var("MAP_EXTERNAL_BASE_URL")
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+}
 
 fn finalize(mut resp: Response, last: i64) -> Response {
     cache::apply(&mut resp, last, cache::DEFAULT_MAX_AGE, cache::DEFAULT_SWR);
@@ -91,8 +106,9 @@ async fn get_parcel_inner(state: &AppState, x: String, y: String) -> Response {
         "id": token_id,
         "name": name.unwrap_or_else(|| format!("Parcel {},{}", xi, yi)),
         "description": description.unwrap_or_default(),
-        "image": format!("{IMAGE_BASE_URL}/parcels/{xi}/{yi}/map.png?size=24&width=1024&height=1024"),
-        "external_url": format!("{EXTERNAL_BASE_URL}/contracts/{}/tokens/{}", state.map.land_contract(), token_id),
+        "image": format!("{}/parcels/{xi}/{yi}/map.png?size=24&width=1024&height=1024", image_base_url()),
+        "external_url": external_base_url()
+            .map(|b| format!("{b}/contracts/{}/tokens/{}", state.map.land_contract(), token_id)),
         "background_color": "000000",
         "attributes": attributes,
     });
@@ -167,8 +183,9 @@ async fn build_estate_nft(state: &AppState, id: &str) -> Result<Option<Value>, s
         "id": id,
         "name": name.unwrap_or_default(),
         "description": description.unwrap_or_default(),
-        "image": format!("{IMAGE_BASE_URL}/estates/{id}/map.png?size=24&width=1024&height=1024"),
-        "external_url": format!("{EXTERNAL_BASE_URL}/contracts/{}/tokens/{}", state.map.estate_contract(), id),
+        "image": format!("{}/estates/{id}/map.png?size=24&width=1024&height=1024", image_base_url()),
+        "external_url": external_base_url()
+            .map(|b| format!("{b}/contracts/{}/tokens/{}", state.map.estate_contract(), id)),
         "background_color": "000000",
         "attributes": attributes,
     })))
@@ -216,8 +233,9 @@ fn dissolved_estate_nft(
         "id": id,
         "name": name,
         "description": description,
-        "image": format!("{IMAGE_BASE_URL}/estates/{id}/map.png?size=24&width=1024&height=1024"),
-        "external_url": format!("{EXTERNAL_BASE_URL}/contracts/{estate_contract}/tokens/{id}"),
+        "image": format!("{}/estates/{id}/map.png?size=24&width=1024&height=1024", image_base_url()),
+        "external_url": external_base_url()
+            .map(|b| format!("{b}/contracts/{estate_contract}/tokens/{id}")),
         "background_color": "000000",
         "attributes": [
             { "trait_type": "Size", "value": 0, "display_type": "number" },
@@ -341,13 +359,15 @@ mod tests {
         assert_eq!(v["name"], "Old Estate");
         assert_eq!(v["description"], "gone");
         assert_eq!(v["background_color"], "000000");
-        assert_eq!(
-            v["external_url"],
-            "https://market.decentraland.org/contracts/0xestate/tokens/42"
+        assert!(
+            v["external_url"].is_null(),
+            "with MAP_EXTERNAL_BASE_URL unset there must be no marketplace link, \
+             never a production one: {}",
+            v["external_url"]
         );
         assert_eq!(
             v["image"],
-            "https://api.decentraland.org/v1/estates/42/map.png?size=24&width=1024&height=1024"
+            "http://127.0.0.1:5162/v1/estates/42/map.png?size=24&width=1024&height=1024"
         );
         let attrs = v["attributes"].as_array().unwrap();
         assert_eq!(attrs.len(), 1);
