@@ -14,6 +14,9 @@ pub struct Config {
     pub content_dir: PathBuf,
 
     pub comms_gatekeeper_url: String,
+
+    pub mirror_upstream: bool,
+    pub upstream_url: String,
 }
 
 impl Config {
@@ -36,6 +39,14 @@ impl Config {
                 .ok()
                 .filter(|s| !s.trim().is_empty())
                 .unwrap_or_else(|| "http://127.0.0.1:5138".to_string()),
+
+            mirror_upstream: env::var("EVENTS_MIRROR_UPSTREAM")
+                .map(|v| matches!(v.trim(), "1" | "true" | "yes" | "on"))
+                .unwrap_or(false),
+            upstream_url: env::var("EVENTS_UPSTREAM_URL")
+                .ok()
+                .filter(|s| !s.trim().is_empty())
+                .unwrap_or_else(|| "https://events.decentraland.org".to_string()),
         })
     }
 }

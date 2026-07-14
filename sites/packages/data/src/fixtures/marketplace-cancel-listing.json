@@ -1,0 +1,41 @@
+{
+  "_source": "https://catalyst.example.com/credits/v1/orders?owner=0x00009dc8aac69accf38e87ab42a82a28be68f2a0&status=open&first=3 (live catalyrst-market, fetched 2026-06-23). The cancel endpoint POST /credits/v1/federation/order/cancel requires a signed auth-chain (require_signer) and enforces 'only the order signer may cancel this order' (catalyrst-market/src/handlers/federation.rs::cancel_order), so the on-chain cancel is SIMULATED in the wizard. The OrderCancel message shape is { order_signature_hash, signed_at } (catalyrst-market/src/fed/messages.rs).",
+  "_note": "Used as the fixture fallback when the live catalyst orders query is empty/unreachable. The default owner below is the live test seller whose open Order rows are returned by the orders endpoint; the route also accepts ?owner= and ?order= to target a specific live order.",
+  "owner": "0x00009dc8aac69accf38e87ab42a82a28be68f2a0",
+  "orders": [
+    {
+      "id": "0x6ae4b880dad7bc413a256447d59eeac51ad8fa6225ea1e4722cb73c33fcc0cb1",
+      "marketplaceAddress": "0x480a0f4e360e8964e68858dd231c2922f1df45ef",
+      "contractAddress": "0x66194b1abcbfbedd83841775404b245c8f9e4183",
+      "tokenId": "210624583337114373395836055367340864637790190801098222508622002900",
+      "owner": "0x00009dc8aac69accf38e87ab42a82a28be68f2a0",
+      "buyer": null,
+      "price": "1000000000000000000",
+      "status": "open",
+      "expiresAt": 2377296000,
+      "createdAt": 1782128050000,
+      "updatedAt": 1782128050000,
+      "network": "MATIC",
+      "chainId": 137,
+      "issuedId": "47828",
+      "tradeId": ""
+    },
+    {
+      "id": "0xbf550f181409428a91b80e2014140370aa8405aa4ccef41fa648d73c70a777c8",
+      "marketplaceAddress": "0x480a0f4e360e8964e68858dd231c2922f1df45ef",
+      "contractAddress": "0x66194b1abcbfbedd83841775404b245c8f9e4183",
+      "tokenId": "210624583337114373395836055367340864637790190801098222508622002898",
+      "owner": "0x00009dc8aac69accf38e87ab42a82a28be68f2a0",
+      "buyer": null,
+      "price": "1000000000000000000",
+      "status": "open",
+      "expiresAt": 2317766400,
+      "createdAt": 1782128039000,
+      "updatedAt": 1782128039000,
+      "network": "MATIC",
+      "chainId": 137,
+      "issuedId": "47826",
+      "tradeId": ""
+    }
+  ]
+}

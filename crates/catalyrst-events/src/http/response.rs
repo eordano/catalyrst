@@ -2,12 +2,11 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 use serde::Serialize;
-use serde_json::json;
 use thiserror::Error;
 
-pub use catalyrst_types::{HttpError, InvalidParameterError};
+pub use catalyrst_types::{ApiErrorBody, HttpError, InvalidParameterError};
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "events/"))]
 pub struct ApiOk<T> {
     pub ok: bool,
@@ -68,14 +67,14 @@ impl IntoResponse for ApiError {
             ApiError::Internal(s) => (500, s.clone()),
         };
         let status = StatusCode::from_u16(code).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
-        let body = json!({ "ok": false, "error": message });
-        (status, Json(body)).into_response()
+        (status, Json(ApiErrorBody::new(message))).into_response()
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     #[test]
     fn wire_identity_api_ok_envelope() {

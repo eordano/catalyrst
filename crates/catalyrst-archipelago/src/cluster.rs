@@ -24,9 +24,6 @@ pub fn to_parcel(x: f32, z: f32) -> [i32; 2] {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Position3D(pub f32, pub f32, pub f32);
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Parcel(pub i32, pub i32);
 
 #[derive(Clone, Debug, Serialize)]

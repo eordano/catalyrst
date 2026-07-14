@@ -45,17 +45,14 @@ pub struct Config {
 
     pub fetch_max_body_bytes: usize,
 
-    // The ONLY origin ~system/SignedFetch may reach (the world-storage service).
     pub storage_url: Option<String>,
 
-    // Even when true, http is honored only for loopback hosts.
     pub storage_allow_http: bool,
 
     pub delegation_minter_url: Option<String>,
 
     pub delegation_minter_token: Option<String>,
 
-    // Pre-minted base64 envelope for dev/local runs; disables renewal.
     pub storage_delegation: Option<String>,
 
     pub signed_fetch_max_response_bytes: usize,
@@ -70,7 +67,7 @@ pub struct Config {
 impl Config {
     pub fn from_env() -> Result<Self> {
         let http_host = env::var("HTTP_SERVER_HOST").unwrap_or_else(|_| "127.0.0.1".into());
-        let http_port = get_port("HTTP_SERVER_PORT", 5153)?;
+        let http_port = get_port("HTTP_SERVER_PORT", 5209)?;
 
         let opt = |k: &str| env::var(k).ok().filter(|s| !s.is_empty());
 

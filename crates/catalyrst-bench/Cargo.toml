@@ -1,6 +1,6 @@
 [package]
 name = "catalyrst-bench"
-version = "0.9.10"
+version = "0.15.3"
 edition = "2021"
 
 [[bench]]
@@ -19,11 +19,9 @@ serde_json = { workspace = true }
 bytes = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { workspace = true }
-ethers-core = { workspace = true }
-ethers-signers = { workspace = true }
+alloy = { workspace = true }
 axum = { workspace = true }
 tower = { workspace = true }
 sqlx = { workspace = true }
 async-trait = { workspace = true }
 dashmap = { workspace = true }
-tracing = { workspace = true }

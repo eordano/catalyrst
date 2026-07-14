@@ -1,0 +1,131 @@
+.submit-hangout {
+  position: relative;
+}
+
+.submit-hangout__controls {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: min(680px, calc(100vw - 32px));
+  padding: 16px 20px;
+  border-radius: 16px;
+  background: rgba(20, 8, 32, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(8px);
+  color: #fcfcfc;
+}
+
+.submit-hangout__fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.submit-hangout__coords {
+  display: flex;
+  gap: 12px;
+}
+
+.submit-hangout__fieldlabel {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.8);
+  flex: 1 1 180px;
+}
+
+.submit-hangout__fieldcheck {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.submit-hangout__field {
+  appearance: none;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.submit-hangout__nav {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+.submit-hangout__btn {
+  appearance: none;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  border-radius: 999px;
+  padding: 9px 20px;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.submit-hangout__btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.submit-hangout__btn--primary {
+  background: #ff2d55;
+  border-color: #ff2d55;
+}
+
+.submit-hangout__hint,
+.submit-hangout__status {
+  margin: 0;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.78);
+}
+
+.submit-hangout__error {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: #ff8aa0;
+}
+
+.submit-hangout__review {
+  font-size: 13px;
+}
+
+.submit-hangout__reviewtitle {
+  margin: 0 0 8px;
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.submit-hangout__reviewlist {
+  display: grid;
+  grid-template-columns: 90px 1fr;
+  gap: 4px 12px;
+  margin: 0;
+}
+
+.submit-hangout__reviewlist dt {
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.submit-hangout__reviewlist dd {
+  margin: 0;
+  color: #fff;
+}

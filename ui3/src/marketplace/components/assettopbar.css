@@ -1,0 +1,108 @@
+.topbar { min-width: 0; }
+
+.topbar--inline {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.topbar--inline .topbar__search { width: clamp(200px, 30vw, 360px); }
+.topbar__search .search { width: 100%; }
+
+.topbar__count--inline {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink-6);
+  white-space: nowrap;
+}
+.topbar__tools { display: flex; align-items: center; gap: 10px; flex: 0 0 auto; }
+
+.topbar--stacked .topbar__searchrow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.topbar--stacked .topbar__search { flex: 1; }
+.topbar--stacked .topbar__inforow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  min-height: 26px;
+}
+.topbar--stacked .topbar__count {
+  color: #fff;
+  font-size: 17px;
+  margin: 0;
+}
+
+.topbar__sort { display: inline-flex; align-items: center; gap: 8px; }
+.topbar__sortlabel {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink-45);
+  white-space: nowrap;
+}
+.topbar__sortwrap { position: relative; display: inline-flex; align-items: center; }
+.topbar__sortselect {
+  -webkit-appearance: none;
+  appearance: none;
+  border: 0;
+  background: none;
+  color: var(--brand);
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.2px;
+  height: 26px;
+  padding: 0 16px 0 0;
+}
+.topbar__sortselect:hover { color: var(--brand-hover); }
+.topbar__sortselect:focus { outline: none; }
+.topbar__sortselect option {
+  background: var(--panel);
+  color: #fff;
+  text-transform: none;
+  font-weight: 600;
+}
+.topbar__sortcaret {
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--brand);
+  pointer-events: none;
+}
+
+.topbar__view {
+  display: inline-flex;
+  flex: 0 0 auto;
+  border: 1px solid var(--line);
+  border-radius: var(--r-control);
+  background: var(--fill-2);
+  overflow: hidden;
+}
+.topbar__viewbtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border: 0;
+  cursor: pointer;
+  background: transparent;
+  color: var(--ink-6);
+}
+.topbar__viewbtn:hover { color: var(--ink-85); }
+.topbar__viewbtn.is-active { background: var(--brand); color: #fff; }
+
+@media (max-width: 760px) {
+  .topbar--inline { flex-wrap: wrap; }
+  .topbar--inline .topbar__search { flex: 1 1 100%; width: 100%; }
+  .topbar__count--inline { flex: 1 1 auto; order: 3; }
+  .topbar--inline .topbar__tools { order: 2; }
+  .topbar__sortlabel { display: none; }
+}

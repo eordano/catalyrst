@@ -1,5 +1,5 @@
 use chrono::NaiveDateTime;
-use sqlx::postgres::{PgPool, PgPoolOptions};
+use sqlx::postgres::PgPool;
 use sqlx::Row;
 use uuid::Uuid;
 
@@ -78,7 +78,15 @@ pub struct Db {
 
 impl Db {
     pub async fn connect(url: &str) -> anyhow::Result<Self> {
-        let pool = PgPoolOptions::new().max_connections(5).connect(url).await?;
+        let pool = catalyrst_db::connect_pool(
+            url,
+            &catalyrst_db::PoolSettings {
+                max_connections: 5,
+                idle_timeout_secs: 600,
+                ..catalyrst_db::PoolSettings::default()
+            },
+        )
+        .await?;
         let db = Self { pool };
         db.ensure_schema().await?;
         Ok(db)

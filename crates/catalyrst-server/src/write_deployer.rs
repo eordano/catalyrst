@@ -10,15 +10,15 @@ use sqlx::PgPool;
 use tracing::{info, warn};
 
 use catalyrst_crypto::{Eip1654Validator, RpcEip1654Validator, ValidationCache};
-use catalyrst_storage::ContentStorage;
+use catalyrst_storage::{ContentStorage, StorageError};
 use catalyrst_validator::content_validator::{CalculatedHash, ContentValidator, ExternalCalls};
 use catalyrst_validator::error::ValidationResponse;
-use catalyrst_validator::squid_checker::SquidBlockchainChecker;
+use catalyrst_validator::squid_checker::{LandOperatorResolver, SquidBlockchainChecker};
 use catalyrst_validator::types::{
     AuthChain as VAuthChain, DeploymentAuditInfo, DeploymentToValidate, Entity as VEntity,
 };
 
-use crate::state::Deployer;
+use crate::state::{DeployFailure, Deployer};
 
 const DECENTRALAND_ADDRESS: &str = "0x1337e0507eb4ab47e08a179573ed4533d9e22a7b";
 
@@ -60,17 +60,27 @@ fn to_crypto_chain(chain: &VAuthChain) -> Result<catalyrst_crypto::AuthChain, St
 
 #[async_trait]
 impl ExternalCalls for LiveExternalCalls {
-    async fn is_content_stored_already(&self, hashes: &[String]) -> HashMap<String, bool> {
-        let mut out = HashMap::with_capacity(hashes.len());
-        for h in hashes {
-            out.insert(h.clone(), self.storage.exist(h).await.unwrap_or(false));
-        }
-        out
+    async fn is_content_stored_already(
+        &self,
+        hashes: &[String],
+    ) -> Result<HashMap<String, bool>, String> {
+        let refs: Vec<&str> = hashes.iter().map(|h| h.as_str()).collect();
+        self.storage
+            .exist_multiple(&refs)
+            .await
+            .map(|found| found.into_iter().collect())
+            .map_err(|e| e.to_string())
     }
 
-    async fn fetch_content_file_size(&self, hash: &str) -> Option<usize> {
-        let info = self.storage.file_info(hash).await.ok().flatten()?;
-        Some(info.content_size.unwrap_or(info.size) as usize)
+    async fn fetch_content_file_size(&self, hash: &str) -> Result<Option<usize>, String> {
+        let info = match self.storage.file_info(hash).await {
+            Ok(info) => info,
+            Err(StorageError::InvalidId(_)) | Err(StorageError::PathTraversal(_)) => {
+                return Ok(None)
+            }
+            Err(e) => return Err(e.to_string()),
+        };
+        Ok(info.map(|i| i.content_size.unwrap_or(i.size) as usize))
     }
 
     async fn validate_signature(
@@ -236,6 +246,7 @@ impl WriteDeployer {
         tpr_subgraph_url: Option<String>,
         blocks_l2_subgraph_url: Option<String>,
         third_party_root_via_squid: bool,
+        land_operator_resolver: Option<Arc<dyn LandOperatorResolver>>,
     ) -> Self {
         let eip1654: Arc<dyn Eip1654Validator> = Arc::new(ValidationCache::new(Arc::new(
             RpcEip1654Validator::new(eth_rpc_url),
@@ -252,7 +263,7 @@ impl WriteDeployer {
             )),
             _ => None,
         };
-        let blockchain_checker = if tp_subgraph.is_some() || third_party_root_via_squid {
+        let mut blockchain_checker = if tp_subgraph.is_some() || third_party_root_via_squid {
             SquidBlockchainChecker::with_third_party(
                 squid_pool,
                 additional_dcl_address,
@@ -262,6 +273,9 @@ impl WriteDeployer {
         } else {
             SquidBlockchainChecker::new(squid_pool, additional_dcl_address)
         };
+        if let Some(resolver) = land_operator_resolver {
+            blockchain_checker = blockchain_checker.with_operator_resolver(resolver);
+        }
         let validator =
             ContentValidator::new(external_calls, blockchain_checker, ignore_blockchain_access);
 
@@ -329,8 +343,8 @@ impl Deployer for WriteDeployer {
         files: Vec<Bytes>,
         entity_id: &str,
         auth_chain: Value,
-        _context: &str,
-    ) -> Result<i64, Vec<String>> {
+        context: &str,
+    ) -> Result<i64, DeployFailure> {
         let mut by_v0: HashMap<String, Bytes> = HashMap::new();
         let mut by_v1: HashMap<String, Bytes> = HashMap::new();
         for f in &files {
@@ -351,9 +365,9 @@ impl Deployer for WriteDeployer {
         if entity.id.is_empty() {
             entity.id = entity_id.to_string();
         } else if entity.id != entity_id {
-            return Err(vec![
-                "Entity id does not match the uploaded entity file.".to_string()
-            ]);
+            return Err(
+                vec!["Entity id does not match the uploaded entity file.".to_string()].into(),
+            );
         }
 
         let now_ms = chrono::Utc::now().timestamp_millis();
@@ -361,12 +375,11 @@ impl Deployer for WriteDeployer {
             return Err(vec![
                 "The request is not recent enough, please submit it again with a new timestamp."
                     .to_string(),
-            ]);
+            ]
+            .into());
         }
         if now_ms - entity.timestamp < -REQUEST_TTL_FORWARDS_MS {
-            return Err(vec![
-                "The request timestamp is too far in the future.".to_string()
-            ]);
+            return Err(vec!["The request timestamp is too far in the future.".to_string()].into());
         }
 
         let pointers_lc: Vec<String> = entity.pointers.iter().map(|p| p.to_lowercase()).collect();
@@ -381,13 +394,13 @@ impl Deployer for WriteDeployer {
             .rate_limiter
             .is_rate_limited(entity.entity_type.as_str(), &pointers_lc)
         {
-            return Err(rate_limited_msg());
+            return Err(rate_limited_msg().into());
         }
         let content_unchanged = entity.entity_type
             == catalyrst_validator::types::EntityType::Profile
             && self.is_content_unchanged(&entity).await;
         if content_unchanged && self.rate_limiter.is_unchanged_limited(&pointers_lc) {
-            return Err(rate_limited_msg());
+            return Err(rate_limited_msg().into());
         }
 
         self.rate_limiter
@@ -418,7 +431,8 @@ impl Deployer for WriteDeployer {
                 if prev != *f {
                     return Err(vec![format!(
                         "two different uploaded files map to the same content hash {key}"
-                    )]);
+                    )]
+                    .into());
                 }
             }
         }
@@ -438,24 +452,33 @@ impl Deployer for WriteDeployer {
                 return Err(vec![
                     "There is a newer entity pointed by one or more of the pointers you provided."
                         .to_string(),
-                ])
+                ]
+                .into())
             }
             Ok(false) => {}
-            Err(e) => return Err(vec![e]),
+            Err(e) => return Err(DeployFailure::Unavailable(vec![e])),
         }
 
         match self.validator.validate(&deployment).await {
             ValidationResponse::Ok => {}
             ValidationResponse::Failed { errors } => {
                 warn!(entity_id, ?errors, "deployment rejected by validation");
-                return Err(errors);
+                return Err(DeployFailure::Rejected(errors));
+            }
+            ValidationResponse::Unavailable { errors } => {
+                warn!(
+                    entity_id,
+                    ?errors,
+                    "deployment undecidable; this node is damaged"
+                );
+                return Err(DeployFailure::Unavailable(errors));
             }
         }
 
         let creation_ts = self
-            .persist(&entity, &entity_bytes, &files, &audit_info)
+            .persist(&entity, &entity_bytes, &files, &audit_info, context)
             .await
-            .map_err(|e| vec![e])?;
+            .map_err(|e| DeployFailure::Unavailable(vec![e]))?;
 
         Ok(creation_ts)
     }
@@ -468,6 +491,7 @@ impl WriteDeployer {
         entity_bytes: &Bytes,
         files: &[Bytes],
         audit_info: &DeploymentAuditInfo,
+        context: &str,
     ) -> Result<i64, String> {
         self.storage
             .store(&entity.id, entity_bytes.clone())
@@ -497,7 +521,15 @@ impl WriteDeployer {
             Some(m) if !m.is_null() => serde_json::json!({ "v": m }),
             _ => Value::Null,
         };
-        let pointers: Vec<String> = entity.pointers.iter().map(|p| p.to_lowercase()).collect();
+        let pointers: Vec<String> = {
+            let mut seen = std::collections::HashSet::new();
+            entity
+                .pointers
+                .iter()
+                .map(|p| p.to_lowercase())
+                .filter(|p| seen.insert(p.clone()))
+                .collect()
+        };
         let auth_chain_json =
             serde_json::to_value(&audit_info.auth_chain).map_err(|e| e.to_string())?;
 
@@ -567,6 +599,13 @@ impl WriteDeployer {
             info!(entity_id = %entity.id, "entity already deployed; treating as success");
             return Ok(now_ms);
         };
+
+        if context == "LOCAL" && entity.entity_type == catalyrst_validator::types::EntityType::Scene
+        {
+            crate::land_publish::record_local_provenance(&mut tx, &entity.id, &deployer_address)
+                .await
+                .map_err(|e| format!("local provenance insert failed: {e}"))?;
+        }
 
         if !entity.content.is_empty() {
             let deployments: Vec<i32> = vec![dep_id; entity.content.len()];
@@ -690,6 +729,111 @@ impl WriteDeployer {
 mod tests {
     use super::*;
     use catalyrst_validator::types::AuthLink as VAuthLink;
+    use std::os::unix::fs::PermissionsExt;
+
+    const STORED_HASH: &str = "bafkreihdwdcefgh4dqkjv67uzcmw7ojee6xedzdetojuzjevtenosa7776";
+
+    struct NoEip1654;
+
+    #[async_trait]
+    impl Eip1654Validator for NoEip1654 {
+        async fn validate_signature(
+            &self,
+            _contract_address: &str,
+            _hash: &[u8],
+            _signature: &[u8],
+        ) -> Result<bool, catalyrst_crypto::AuthError> {
+            Ok(false)
+        }
+    }
+
+    async fn external_calls_over_temp_storage(
+        tag: &str,
+    ) -> (LiveExternalCalls, std::path::PathBuf) {
+        let tmp = std::env::temp_dir().join(format!(
+            "catalyrst-extcalls-{tag}-{}-{}",
+            std::process::id(),
+            rand::random::<u32>()
+        ));
+        let storage = ContentStorage::new(&tmp).await.unwrap();
+        storage
+            .store(STORED_HASH, Bytes::from_static(b"content"))
+            .await
+            .unwrap();
+        let calls = LiveExternalCalls {
+            storage: Arc::new(storage),
+            eip1654: Arc::new(NoEip1654),
+            additional_dcl_address: None,
+        };
+        (calls, tmp)
+    }
+
+    fn seal_shard(root: &std::path::Path, hash: &str) -> std::path::PathBuf {
+        let shard = root
+            .join("contents")
+            .join(catalyrst_storage::hex_prefix(hash));
+        std::fs::set_permissions(&shard, std::fs::Permissions::from_mode(0o000)).unwrap();
+        shard
+    }
+
+    fn unseal_shard(shard: &std::path::Path) {
+        let _ = std::fs::set_permissions(shard, std::fs::Permissions::from_mode(0o755));
+    }
+
+    #[tokio::test]
+    async fn an_unreadable_shard_faults_the_existence_probe_instead_of_answering_absent() {
+        let (calls, tmp) = external_calls_over_temp_storage("exist").await;
+        assert_eq!(
+            calls
+                .is_content_stored_already(&[STORED_HASH.to_string()])
+                .await
+                .unwrap()
+                .get(STORED_HASH),
+            Some(&true)
+        );
+
+        let shard = seal_shard(&tmp, STORED_HASH);
+        let result = calls
+            .is_content_stored_already(&[STORED_HASH.to_string()])
+            .await;
+        unseal_shard(&shard);
+        let _ = std::fs::remove_dir_all(&tmp);
+
+        let err = result.expect_err("damage this node cannot read is never a depositor's miss");
+        assert!(err.contains("I/O error"), "unexpected cause: {err}");
+    }
+
+    #[tokio::test]
+    async fn an_unreadable_shard_faults_the_size_probe_instead_of_answering_absent() {
+        let (calls, tmp) = external_calls_over_temp_storage("size").await;
+        assert_eq!(
+            calls.fetch_content_file_size(STORED_HASH).await.unwrap(),
+            Some(7)
+        );
+
+        let shard = seal_shard(&tmp, STORED_HASH);
+        let result = calls.fetch_content_file_size(STORED_HASH).await;
+        unseal_shard(&shard);
+        let _ = std::fs::remove_dir_all(&tmp);
+
+        let err = result.expect_err("damage this node cannot read is never a depositor's miss");
+        assert!(err.contains("I/O error"), "unexpected cause: {err}");
+    }
+
+    #[tokio::test]
+    async fn an_id_that_cannot_name_content_is_absent_rather_than_a_fault() {
+        let (calls, tmp) = external_calls_over_temp_storage("invalid").await;
+        let bogus = "../../etc/passwd".to_string();
+
+        let stored = calls
+            .is_content_stored_already(std::slice::from_ref(&bogus))
+            .await
+            .expect("a provably-invalid id is absence, not damage");
+        assert_eq!(stored.get(&bogus), Some(&false));
+        assert_eq!(calls.fetch_content_file_size(&bogus).await.unwrap(), None);
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
 
     #[test]
     fn auth_chain_bridges_to_crypto_types() {

@@ -7,14 +7,6 @@ pub fn get_marketplace_contracts(chain_id: ChainId) -> Vec<Contract> {
     }
 }
 
-pub fn get_collection_store_address(polygon_chain_id: ChainId) -> &'static str {
-    match polygon_chain_id {
-        ChainId::MaticMainnet => "0x214ffc0f0103735728dc66b61a22e4f163e275ae",
-        ChainId::MaticAmoy => "0xe36abc9ec616c83caaa386541380829106149d68",
-        _ => "",
-    }
-}
-
 fn ethereum_mainnet_contracts() -> Vec<Contract> {
     use NftCategory::*;
     const ETH: ChainId = ChainId::EthereumMainnet;

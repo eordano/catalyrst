@@ -1,53 +1,32 @@
 use std::collections::{BTreeMap, HashMap};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::Duration;
 
 use axum::extract::{Multipart, State};
-use axum::http::{header, HeaderMap, StatusCode};
+use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 use bytes::{Bytes, BytesMut};
 use serde_json::{json, Value};
 
+use crate::upload_limits;
 use crate::AppState;
 
 const MAX_DEPLOY_FILES: usize = 1000;
 const MAX_AUTH_CHAIN_LENGTH: usize = 10;
 const MAX_DEPLOY_FILE_BYTES: usize = 50 * 1024 * 1024;
 
+const MAX_ENTITY_FILE_SIZE_BYTES: usize = 5 * 1024 * 1024;
+
+/// Payload cap for a deployment: every file chunk and field value, multipart framing excluded.
 pub const MAX_UPLOAD_SIZE_BYTES: usize = 350 * 1024 * 1024;
 
-pub const DEFAULT_MAX_IN_FLIGHT_UPLOAD_BYTES: u64 = 4 * 1024 * 1024 * 1024;
+/// Wire-size cap for the whole multipart body; enforced on the Content-Length precheck and as this route's axum body limit.
+pub const MAX_UPLOAD_WIRE_SIZE_BYTES: usize = MAX_UPLOAD_SIZE_BYTES + 10 * 1024 * 1024;
 
-static IN_FLIGHT_UPLOAD_BYTES: AtomicU64 = AtomicU64::new(0);
-
-struct InFlightGuard(u64);
-
-impl Drop for InFlightGuard {
-    fn drop(&mut self) {
-        IN_FLIGHT_UPLOAD_BYTES.fetch_sub(self.0, Ordering::AcqRel);
-    }
-}
+const _: () = assert!(MAX_UPLOAD_WIRE_SIZE_BYTES >= MAX_UPLOAD_SIZE_BYTES);
 
 fn declared_length_exceeds_limit(declared_len: u64) -> bool {
-    declared_len > MAX_UPLOAD_SIZE_BYTES as u64
-}
-
-fn try_reserve_in_flight(reserved: u64, max: u64) -> Option<InFlightGuard> {
-    let mut current = IN_FLIGHT_UPLOAD_BYTES.load(Ordering::Acquire);
-    loop {
-        if current > 0 && current.saturating_add(reserved) > max {
-            return None;
-        }
-        match IN_FLIGHT_UPLOAD_BYTES.compare_exchange_weak(
-            current,
-            current.saturating_add(reserved),
-            Ordering::AcqRel,
-            Ordering::Acquire,
-        ) {
-            Ok(_) => return Some(InFlightGuard(reserved)),
-            Err(actual) => current = actual,
-        }
-    }
+    declared_len > MAX_UPLOAD_WIRE_SIZE_BYTES as u64
 }
 
 const MAX_WORLD_SIZE_BYTES: i64 = 300 * 1024 * 1024;
@@ -86,16 +65,15 @@ fn present_truthy(v: &Value, key: &str) -> bool {
     }
 }
 
-async fn store_blob(dir: &std::path::Path, hash: &str, bytes: &[u8]) -> std::io::Result<()> {
-    let dst = dir.join(hash);
-    if tokio::fs::try_exists(&dst).await.unwrap_or(false) {
-        return Ok(());
-    }
+/// Writes `bytes` to `dir/filename` via a nonce-suffixed temp file + rename, so a reader never
+/// observes a partially-written file; the temp file is best-effort cleaned up on a failed rename.
+async fn write_atomic(dir: &std::path::Path, filename: &str, bytes: &[u8]) -> std::io::Result<()> {
+    let dst = dir.join(filename);
     let nonce = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_nanos())
         .unwrap_or(0);
-    let tmp = dir.join(format!(".{hash}.{}.{nonce}.part", std::process::id()));
+    let tmp = dir.join(format!(".{filename}.{}.{nonce}.part", std::process::id()));
     tokio::fs::write(&tmp, bytes).await?;
     match tokio::fs::rename(&tmp, &dst).await {
         Ok(()) => Ok(()),
@@ -106,28 +84,20 @@ async fn store_blob(dir: &std::path::Path, hash: &str, bytes: &[u8]) -> std::io:
     }
 }
 
+async fn store_blob(dir: &std::path::Path, hash: &str, bytes: &[u8]) -> std::io::Result<()> {
+    let dst = dir.join(hash);
+    if tokio::fs::try_exists(&dst).await.unwrap_or(false) {
+        return Ok(());
+    }
+    write_atomic(dir, hash, bytes).await
+}
+
 async fn store_auth_file(
     dir: &std::path::Path,
     entity_id: &str,
     bytes: &[u8],
 ) -> std::io::Result<()> {
-    let dst = dir.join(format!("{entity_id}.auth"));
-    let nonce = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
-    let tmp = dir.join(format!(
-        ".{entity_id}.auth.{}.{nonce}.part",
-        std::process::id()
-    ));
-    tokio::fs::write(&tmp, bytes).await?;
-    match tokio::fs::rename(&tmp, &dst).await {
-        Ok(()) => Ok(()),
-        Err(e) => {
-            let _ = tokio::fs::remove_file(&tmp).await;
-            Err(e)
-        }
-    }
+    write_atomic(dir, &format!("{entity_id}.auth"), bytes).await
 }
 
 fn extract_auth_chain_from_fields(fields: &BTreeMap<String, String>) -> Result<Value, String> {
@@ -240,74 +210,180 @@ fn validate_parcel_in_bounds(parcel: &str) -> Result<(), String> {
     Ok(())
 }
 
+#[utoipa::path(
+    post,
+    path = "/entities",
+    tag = "entities",
+    request_body = Vec<u8>,
+    responses(
+        (status = 200, body = serde_json::Value),
+        (status = 400, body = serde_json::Value),
+        (status = 401, body = serde_json::Value),
+        (status = 403, body = serde_json::Value),
+        (status = 408, body = serde_json::Value),
+        (status = 413, body = serde_json::Value),
+        (status = 500, body = serde_json::Value),
+        (status = 503, body = serde_json::Value)
+    )
+)]
 pub async fn deploy_entity(
     State(state): State<AppState>,
     headers: HeaderMap,
     multipart: Multipart,
 ) -> Response {
-    let declared: Option<u64> = headers
-        .get(header::CONTENT_LENGTH)
-        .and_then(|v| v.to_str().ok())
-        .and_then(|s| s.parse::<u64>().ok());
+    let declared: Option<u64> = match upload_limits::declared_content_length(&headers) {
+        upload_limits::DeclaredContentLength::Invalid => {
+            return err_one(upload_limits::INVALID_CONTENT_LENGTH_MESSAGE).into_response();
+        }
+        upload_limits::DeclaredContentLength::Absent => None,
+        upload_limits::DeclaredContentLength::Bytes(n) => Some(n),
+    };
 
     if let Some(len) = declared {
         if declared_length_exceeds_limit(len) {
-            return err_one("The multipart request is too large.").into_response();
+            return err_one(upload_limits::PAYLOAD_TOO_LARGE_MESSAGE).into_response();
         }
     }
 
-    let reserved = declared
-        .map(|l| l.min(MAX_UPLOAD_SIZE_BYTES as u64))
-        .unwrap_or(MAX_UPLOAD_SIZE_BYTES as u64);
-    let _guard = match try_reserve_in_flight(reserved, state.cfg.max_in_flight_upload_bytes) {
-        Some(g) => g,
+    let _slot = match upload_limits::try_acquire_upload_slot(state.cfg.max_concurrent_uploads) {
+        Some(s) => s,
         None => {
             tracing::warn!(
-                reserved,
-                in_flight = IN_FLIGHT_UPLOAD_BYTES.load(Ordering::Acquire),
-                max = state.cfg.max_in_flight_upload_bytes,
-                "POST /entities shed: aggregate in-flight upload budget exceeded"
+                active = upload_limits::active_uploads(),
+                max = state.cfg.max_concurrent_uploads,
+                "POST /entities shed: concurrent-upload cap exceeded"
             );
-            return (
-                StatusCode::SERVICE_UNAVAILABLE,
-                [("Retry-After", "5")],
-                Json(json!({
-                    "error": "Service Unavailable",
-                    "message": "Server is buffering too many uploads, please retry shortly."
-                })),
-            )
-                .into_response();
+            return upload_limits::shed_response(upload_limits::CONCURRENCY_SHED_MESSAGE);
         }
     };
 
-    deploy_entity_inner(state, headers, multipart)
-        .await
-        .into_response()
+    let mut bytes_lease = upload_limits::reserve_in_flight();
+    let mut files_lease = upload_limits::reserve_in_flight_files();
+
+    let form = match tokio::time::timeout(
+        Duration::from_millis(state.cfg.multipart_upload_timeout_ms),
+        read_deploy_form(
+            multipart,
+            &mut bytes_lease,
+            &mut files_lease,
+            state.cfg.max_in_flight_upload_bytes,
+            state.cfg.max_in_flight_upload_files,
+        ),
+    )
+    .await
+    {
+        Ok(Ok(form)) => form,
+        Ok(Err(resp)) => return resp,
+        Err(_) => {
+            tracing::warn!(
+                timeout_ms = state.cfg.multipart_upload_timeout_ms,
+                "POST /entities: multipart upload timed out"
+            );
+            return upload_limits::timeout_response(upload_limits::MULTIPART_TIMEOUT_MESSAGE);
+        }
+    };
+
+    let timeout_ms = state.cfg.deployment_processing_timeout_ms;
+    match tokio::time::timeout(
+        Duration::from_millis(timeout_ms),
+        deploy_entity_inner(state, headers, form),
+    )
+    .await
+    {
+        Ok(resp) => resp.into_response(),
+        Err(_) => {
+            tracing::warn!(
+                timeout_ms,
+                "POST /entities: deployment processing timed out"
+            );
+            upload_limits::timeout_response(&format!(
+                "Deployment processing exceeded the {timeout_ms}ms deadline."
+            ))
+        }
+    }
 }
 
-async fn deploy_entity_inner(
-    state: AppState,
-    headers: HeaderMap,
+struct DeployForm {
+    fields: BTreeMap<String, String>,
+    files: Vec<Bytes>,
+}
+
+fn account_deploy_bytes(
+    total_bytes: &mut usize,
+    added: usize,
+    bytes_lease: &mut upload_limits::InFlightBytesGuard,
+    max_in_flight_bytes: u64,
+) -> Result<(), Response> {
+    match upload_limits::account_payload_bytes(
+        total_bytes,
+        added,
+        MAX_UPLOAD_SIZE_BYTES,
+        bytes_lease,
+        max_in_flight_bytes,
+    ) {
+        Ok(()) => Ok(()),
+        Err(upload_limits::PayloadAccountError::PayloadTooLarge) => {
+            Err(err_one(upload_limits::PAYLOAD_TOO_LARGE_MESSAGE).into_response())
+        }
+        Err(upload_limits::PayloadAccountError::BudgetExhausted) => {
+            tracing::warn!(
+                total_bytes,
+                in_flight = upload_limits::in_flight_upload_bytes(),
+                max = max_in_flight_bytes,
+                "POST /entities shed: aggregate in-flight upload budget exceeded"
+            );
+            Err(upload_limits::shed_response(
+                upload_limits::BYTES_SHED_MESSAGE,
+            ))
+        }
+    }
+}
+
+async fn read_deploy_form(
     mut multipart: Multipart,
-) -> impl IntoResponse {
+    bytes_lease: &mut upload_limits::InFlightBytesGuard,
+    files_lease: &mut upload_limits::InFlightFilesGuard,
+    max_in_flight_bytes: u64,
+    max_in_flight_files: u64,
+) -> Result<DeployForm, Response> {
     let mut fields: BTreeMap<String, String> = BTreeMap::new();
     let mut files: Vec<Bytes> = Vec::new();
+    let mut total_bytes: usize = 0;
+    let mut part_count: usize = 0;
+    let mut field_count: usize = 0;
 
     loop {
         let field = match multipart.next_field().await {
             Ok(Some(f)) => f,
             Ok(None) => break,
             Err(e) => {
-                return err_one(format!("Failed to read multipart field: {e}"));
+                return Err(err_one(format!("Failed to read multipart field: {e}")).into_response());
             }
         };
         let mut field = field;
         let name = field.name().unwrap_or("").to_string();
 
+        part_count += 1;
+        if part_count > upload_limits::MAX_MULTIPART_PARTS {
+            return Err(err_one(upload_limits::TOO_MANY_PARTS_MESSAGE).into_response());
+        }
+
         if field.file_name().is_some() {
             if files.len() >= MAX_DEPLOY_FILES {
-                return err_one(format!(
+                return Err(err_one(format!(
                     "deployment exceeds maximum of {MAX_DEPLOY_FILES} files"
+                ))
+                .into_response());
+            }
+            if !files_lease.try_resize(files.len() as u64 + 1, max_in_flight_files) {
+                tracing::warn!(
+                    request_files = files.len() + 1,
+                    in_flight = upload_limits::in_flight_upload_files(),
+                    max = max_in_flight_files,
+                    "POST /entities shed: aggregate in-flight upload-file budget exceeded"
+                );
+                return Err(upload_limits::shed_response(
+                    upload_limits::FILES_SHED_MESSAGE,
                 ));
             }
             let mut buf = BytesMut::new();
@@ -315,26 +391,74 @@ async fn deploy_entity_inner(
                 match field.chunk().await {
                     Ok(Some(chunk)) => {
                         if buf.len().saturating_add(chunk.len()) > MAX_DEPLOY_FILE_BYTES {
-                            return err_one(format!(
-                                "an uploaded file exceeds {MAX_DEPLOY_FILE_BYTES} bytes"
-                            ));
+                            return Err(err_one(
+                                "An uploaded file exceeds the maximum allowed size.",
+                            )
+                            .into_response());
                         }
+                        account_deploy_bytes(
+                            &mut total_bytes,
+                            chunk.len(),
+                            bytes_lease,
+                            max_in_flight_bytes,
+                        )?;
                         buf.extend_from_slice(&chunk);
                     }
                     Ok(None) => break,
-                    Err(e) => return err_one(format!("Failed to read file data: {e}")),
+                    Err(e) => {
+                        return Err(
+                            err_one(format!("Failed to read file data: {e}")).into_response()
+                        )
+                    }
                 }
             }
             files.push(buf.freeze());
         } else {
-            match field.text().await {
-                Ok(value) => {
-                    fields.insert(name, value);
-                }
-                Err(e) => return err_one(format!("Failed to read field value: {e}")),
+            field_count += 1;
+            if field_count > upload_limits::MAX_MULTIPART_FIELDS {
+                return Err(err_one(upload_limits::TOO_MANY_FIELDS_MESSAGE).into_response());
             }
+            let mut buf = BytesMut::new();
+            loop {
+                match field.chunk().await {
+                    Ok(Some(chunk)) => {
+                        if buf.len().saturating_add(chunk.len())
+                            > upload_limits::MAX_MULTIPART_FIELD_VALUE_BYTES
+                        {
+                            return Err(
+                                err_one(upload_limits::PAYLOAD_TOO_LARGE_MESSAGE).into_response()
+                            );
+                        }
+                        account_deploy_bytes(
+                            &mut total_bytes,
+                            chunk.len(),
+                            bytes_lease,
+                            max_in_flight_bytes,
+                        )?;
+                        buf.extend_from_slice(&chunk);
+                    }
+                    Ok(None) => break,
+                    Err(e) => {
+                        return Err(
+                            err_one(format!("Failed to read field value: {e}")).into_response()
+                        )
+                    }
+                }
+            }
+            let value = String::from_utf8_lossy(&buf).into_owned();
+            fields.insert(name, value);
         }
     }
+
+    Ok(DeployForm { fields, files })
+}
+
+async fn deploy_entity_inner(
+    state: AppState,
+    headers: HeaderMap,
+    form: DeployForm,
+) -> impl IntoResponse {
+    let DeployForm { fields, files } = form;
 
     let entity_id = match fields.get("entityId") {
         Some(id) if !id.is_empty() => id.clone(),
@@ -360,6 +484,10 @@ async fn deploy_entity_inner(
             ));
         }
     };
+
+    if entity_bytes.len() > MAX_ENTITY_FILE_SIZE_BYTES {
+        return err_one(entity_file_too_large_error());
+    }
 
     let entity: Value = match serde_json::from_slice(&entity_bytes) {
         Ok(v) => v,
@@ -485,12 +613,27 @@ async fn deploy_entity_inner(
                 }
                 match by_hash.get(hash) {
                     Some(blob) => {
-                        total_content_size =
-                            total_content_size.saturating_add(blob.len() as i64);
+                        total_content_size = total_content_size.saturating_add(blob.len() as i64);
                     }
-                    None => errors.push(format!(
-                        "The file {file} ({hash}) was not uploaded or its hash does not match its content"
-                    )),
+                    None => {
+                        // clients omit files the /available-content probe reported as stored
+                        let already_stored = super::contents::is_retrievable_content_key(hash)
+                            && matches!(
+                                tokio::fs::metadata(state.cfg.contents_dir.join(hash)).await,
+                                Ok(ref m) if m.is_file()
+                            );
+                        if already_stored {
+                            let size = tokio::fs::metadata(state.cfg.contents_dir.join(hash))
+                                .await
+                                .map(|m| m.len() as i64)
+                                .unwrap_or(0);
+                            total_content_size = total_content_size.saturating_add(size);
+                        } else {
+                            errors.push(format!(
+                                "The file {file} ({hash}) was not uploaded or its hash does not match its content"
+                            ));
+                        }
+                    }
                 }
             }
         }
@@ -504,6 +647,8 @@ async fn deploy_entity_inner(
             MAX_WORLD_SIZE_BYTES
         ));
     }
+
+    validate_navmap_thumbnail(&entity, &mut errors);
 
     let signer: Option<String> =
         match serde_json::from_value::<catalyrst_crypto::AuthChain>(auth_chain_value.clone()) {
@@ -600,11 +745,10 @@ async fn deploy_entity_inner(
         ));
     }
 
-    let resolved_owner = owner_id
+    let resolved_name_owner: Option<String> = owner_id
         .as_deref()
         .and_then(|oid| oid.split('-').next())
-        .map(|a| a.to_lowercase())
-        .unwrap_or_else(|| signer.clone());
+        .map(|a| a.to_lowercase());
 
     let mut blobs_to_store: Vec<(String, Bytes)> = Vec::new();
     blobs_to_store.push((entity_id.clone(), entity_bytes.clone()));
@@ -648,7 +792,7 @@ async fn deploy_entity_inner(
         .worlds
         .deploy_scene(
             &world_name,
-            &resolved_owner,
+            resolved_name_owner.as_deref(),
             &entity_id,
             &signer,
             &auth_chain_value,
@@ -666,7 +810,7 @@ async fn deploy_entity_inner(
         entity_id = %entity_id,
         signer = %signer,
         world = %world_name,
-        owner = %resolved_owner,
+        name_owner = ?resolved_name_owner,
         authz = if owns_name { "name-ownership" } else { "acl" },
         file_count = files.len(),
         content_size = total_content_size,
@@ -686,18 +830,101 @@ async fn deploy_entity_inner(
     )
 }
 
-fn address_matches_account_id(address: &str, account_id: &str) -> bool {
-    account_id
-        .to_lowercase()
-        .starts_with(&address.to_lowercase())
+fn entity_file_too_large_error() -> String {
+    format!(
+        "The entity file is too large. The maximum allowed size is {MAX_ENTITY_FILE_SIZE_BYTES} bytes."
+    )
 }
 
+fn has_uri_scheme(path: &str) -> bool {
+    let mut chars = path.chars();
+    match chars.next() {
+        Some(c) if c.is_ascii_alphabetic() => {}
+        _ => return false,
+    }
+    for c in chars {
+        match c {
+            ':' => return true,
+            c if c.is_ascii_alphanumeric() || matches!(c, '+' | '.' | '-') => {}
+            _ => return false,
+        }
+    }
+    false
+}
+
+fn is_relative_thumbnail_path(path: &str) -> bool {
+    if has_uri_scheme(path) || path.starts_with('/') {
+        return false;
+    }
+    let js_ws = |c: char| c.is_whitespace() || c == '\u{FEFF}';
+    if path.starts_with(js_ws) || path.ends_with(js_ws) {
+        return false;
+    }
+    if path.chars().any(|c| c.is_control()) {
+        return false;
+    }
+    !path.contains(['<', '>', '"'])
+}
+
+fn validate_navmap_thumbnail(entity: &Value, errors: &mut Vec<String>) {
+    let thumb = match entity
+        .get("metadata")
+        .and_then(|m| m.get("display"))
+        .and_then(|d| d.get("navmapThumbnail"))
+    {
+        None | Some(Value::Null) => return,
+        Some(Value::String(s)) if s.is_empty() => return,
+        Some(Value::Bool(false)) => return,
+        Some(Value::Number(n)) if n.as_f64() == Some(0.0) => return,
+        Some(Value::String(s)) => s.as_str(),
+        Some(other) => {
+            errors.push(format!(
+                "Scene thumbnail '{other}' must be a relative path to a file included in the deployment."
+            ));
+            return;
+        }
+    };
+    if !is_relative_thumbnail_path(thumb) {
+        errors.push(format!(
+            "Scene thumbnail '{thumb}' must be a relative path to a file included in the deployment."
+        ));
+        return;
+    }
+    let file_present = matches!(
+        entity.get("content"),
+        Some(Value::Array(items)) if items
+            .iter()
+            .any(|item| item.get("file").and_then(|f| f.as_str()) == Some(thumb))
+    );
+    if !file_present {
+        errors.push(format!(
+            "Scene thumbnail '{thumb}' must be a file included in the deployment."
+        ));
+    }
+}
+
+// `account_id` is `0x<address>-<NETWORK>`; compare only the address segment and
+// compare it whole. A prefix test would let a truncated address ("0x") match
+// every account.
+fn address_matches_account_id(address: &str, account_id: &str) -> bool {
+    account_id
+        .split('-')
+        .next()
+        .is_some_and(|owner| owner.eq_ignore_ascii_case(address))
+}
+
+// Ownership comes from the NFT entity, never from `ens.owner_id`: the squid's
+// ENS handler seeds the owner from the registrar *caller* and never updates it,
+// so a DCLControllerV2 registration records the controller contract rather than
+// the buyer. `nft.owner_id` is the ERC-721 owner and tracks later transfers.
 async fn resolve_name_owner_id(
     pool: &sqlx::PgPool,
     label: &str,
 ) -> Result<Option<String>, sqlx::Error> {
     sqlx::query_scalar(
-        "SELECT owner_id FROM squid_marketplace.ens WHERE lower(subdomain)=lower($1)",
+        "SELECT n.owner_id FROM squid_marketplace.nft n
+         JOIN squid_marketplace.ens e ON n.ens_id = e.id
+         WHERE n.category = 'ens' AND lower(e.subdomain) = lower($1)",
     )
     .bind(label)
     .fetch_optional(pool)
@@ -717,6 +944,26 @@ mod tests {
         assert!(!address_matches_account_id(
             "0xdeadbeef",
             "0x959e104e1a4db6317fa58f8295f586e1a978c297-ETHEREUM"
+        ));
+    }
+
+    #[test]
+    fn a_truncated_address_never_matches() {
+        let account_id = "0x959e104e1a4db6317fa58f8295f586e1a978c297-ETHEREUM";
+        for prefix in [
+            "0x",
+            "0x959e",
+            "0x959e104e1a4db6317fa58f8295f586e1a978c29",
+            "",
+        ] {
+            assert!(
+                !address_matches_account_id(prefix, account_id),
+                "prefix {prefix:?} must not authorize"
+            );
+        }
+        assert!(!address_matches_account_id(
+            "0x959e104e1a4db6317fa58f8295f586e1a978c297-ETHEREUM",
+            account_id
         ));
     }
 
@@ -814,18 +1061,397 @@ mod tests {
     }
 
     #[test]
-    fn upload_precheck_rejects_oversized_declared_length() {
-        assert!(declared_length_exceeds_limit(
+    fn thumbnail_relative_paths_are_accepted() {
+        assert!(is_relative_thumbnail_path("thumb.png"));
+        assert!(is_relative_thumbnail_path("images/thumbnail.png"));
+        assert!(is_relative_thumbnail_path("dir/na:me.png"));
+    }
+
+    #[test]
+    fn thumbnail_non_relative_paths_are_rejected() {
+        for value in [
+            "https://example.com/image.png",
+            "https://example.com/x\"><script>alert(1)</script><meta name=\"y",
+            "//evil.example/x.png",
+            "/thumb.png",
+            "data:text/html,<b>x</b>",
+            "javascript:alert(1)",
+            "HtTpS://evil.example/x.png",
+            " thumb.png",
+            "thumb.png ",
+            "thumb\nname.png",
+            "thumb\".png",
+            "thumb<img>.png",
+            "\u{FEFF}thumb.png",
+            "thumb.png\u{FEFF}",
+        ] {
+            assert!(
+                !is_relative_thumbnail_path(value),
+                "expected rejection: {value:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn thumbnail_validation_pushes_upstream_error_strings() {
+        let mut errors = Vec::new();
+        let entity = json!({
+            "content": [{ "file": "https://example.com/image.png", "hash": "bafyx" }],
+            "metadata": { "display": { "navmapThumbnail": "https://example.com/image.png" } }
+        });
+        validate_navmap_thumbnail(&entity, &mut errors);
+        assert_eq!(
+            errors,
+            vec![
+                "Scene thumbnail 'https://example.com/image.png' must be a relative path to a file included in the deployment."
+                    .to_string()
+            ]
+        );
+
+        let mut errors = Vec::new();
+        let entity = json!({
+            "content": [{ "file": "other.png", "hash": "bafyx" }],
+            "metadata": { "display": { "navmapThumbnail": "thumb.png" } }
+        });
+        validate_navmap_thumbnail(&entity, &mut errors);
+        assert_eq!(
+            errors,
+            vec![
+                "Scene thumbnail 'thumb.png' must be a file included in the deployment."
+                    .to_string()
+            ]
+        );
+
+        let mut errors = Vec::new();
+        let entity = json!({
+            "content": [{ "file": "images/thumbnail.png", "hash": "bafyx" }],
+            "metadata": { "display": { "navmapThumbnail": "images/thumbnail.png" } }
+        });
+        validate_navmap_thumbnail(&entity, &mut errors);
+        assert!(errors.is_empty());
+
+        let mut errors = Vec::new();
+        validate_navmap_thumbnail(&json!({ "metadata": {} }), &mut errors);
+        validate_navmap_thumbnail(
+            &json!({ "metadata": { "display": { "navmapThumbnail": null } } }),
+            &mut errors,
+        );
+        validate_navmap_thumbnail(
+            &json!({ "metadata": { "display": { "navmapThumbnail": "" } } }),
+            &mut errors,
+        );
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn thumbnail_bom_prefixed_path_is_rejected_even_when_content_matches() {
+        let mut errors = Vec::new();
+        let entity = json!({
+            "content": [{ "file": "\u{FEFF}thumb.png", "hash": "bafyx" }],
+            "metadata": { "display": { "navmapThumbnail": "\u{FEFF}thumb.png" } }
+        });
+        validate_navmap_thumbnail(&entity, &mut errors);
+        assert_eq!(
+            errors,
+            vec![
+                "Scene thumbnail '\u{FEFF}thumb.png' must be a relative path to a file included in the deployment."
+                    .to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn thumbnail_non_string_values_fail_validation() {
+        let mut errors = Vec::new();
+        let entity = json!({
+            "content": [{ "file": "thumb.png", "hash": "bafyx" }],
+            "metadata": { "display": { "navmapThumbnail":
+                ["https://x\"><script>alert(1)</script><meta name=\"y"] } }
+        });
+        validate_navmap_thumbnail(&entity, &mut errors);
+        assert_eq!(
+            errors,
+            vec![
+                "Scene thumbnail '[\"https://x\\\"><script>alert(1)</script><meta name=\\\"y\"]' must be a relative path to a file included in the deployment."
+                    .to_string()
+            ]
+        );
+
+        let mut errors = Vec::new();
+        validate_navmap_thumbnail(
+            &json!({ "metadata": { "display": { "navmapThumbnail": 5 } } }),
+            &mut errors,
+        );
+        assert_eq!(
+            errors,
+            vec![
+                "Scene thumbnail '5' must be a relative path to a file included in the deployment."
+                    .to_string()
+            ]
+        );
+
+        let mut errors = Vec::new();
+        validate_navmap_thumbnail(
+            &json!({ "metadata": { "display": { "navmapThumbnail": {"a": 1} } } }),
+            &mut errors,
+        );
+        assert_eq!(
+            errors,
+            vec![
+                "Scene thumbnail '{\"a\":1}' must be a relative path to a file included in the deployment."
+                    .to_string()
+            ]
+        );
+
+        let mut errors = Vec::new();
+        validate_navmap_thumbnail(
+            &json!({ "metadata": { "display": { "navmapThumbnail": true } } }),
+            &mut errors,
+        );
+        assert_eq!(
+            errors,
+            vec![
+                "Scene thumbnail 'true' must be a relative path to a file included in the deployment."
+                    .to_string()
+            ]
+        );
+
+        let mut errors = Vec::new();
+        validate_navmap_thumbnail(
+            &json!({ "metadata": { "display": { "navmapThumbnail": false } } }),
+            &mut errors,
+        );
+        validate_navmap_thumbnail(
+            &json!({ "metadata": { "display": { "navmapThumbnail": 0 } } }),
+            &mut errors,
+        );
+        validate_navmap_thumbnail(
+            &json!({ "metadata": { "display": { "navmapThumbnail": 0.0 } } }),
+            &mut errors,
+        );
+        assert!(errors.is_empty(), "falsy values must skip: {errors:?}");
+    }
+
+    #[test]
+    fn entity_file_cap_matches_upstream_constant_and_message() {
+        assert_eq!(MAX_ENTITY_FILE_SIZE_BYTES, 5 * 1024 * 1024);
+        assert_eq!(
+            entity_file_too_large_error(),
+            "The entity file is too large. The maximum allowed size is 5242880 bytes."
+        );
+    }
+
+    #[test]
+    fn upload_precheck_compares_against_the_wire_cap() {
+        assert_eq!(MAX_UPLOAD_WIRE_SIZE_BYTES, 360 * 1024 * 1024);
+        assert!(!declared_length_exceeds_limit(
             MAX_UPLOAD_SIZE_BYTES as u64 + 1
         ));
-        assert!(declared_length_exceeds_limit(
-            MAX_UPLOAD_SIZE_BYTES as u64 * 2
-        ));
-        assert!(!declared_length_exceeds_limit(MAX_UPLOAD_SIZE_BYTES as u64));
         assert!(!declared_length_exceeds_limit(
-            MAX_UPLOAD_SIZE_BYTES as u64 - 1
+            MAX_UPLOAD_WIRE_SIZE_BYTES as u64
         ));
+        assert!(declared_length_exceeds_limit(
+            MAX_UPLOAD_WIRE_SIZE_BYTES as u64 + 1
+        ));
+        assert!(declared_length_exceeds_limit(u64::MAX));
         assert!(!declared_length_exceeds_limit(0));
         assert!(!declared_length_exceeds_limit(1024));
+    }
+
+    async fn multipart_from(parts: &[(&str, Option<&str>, &str)]) -> Multipart {
+        use axum::extract::FromRequest;
+        let boundary = "xyzgate";
+        let mut body = String::new();
+        for (name, filename, value) in parts {
+            body.push_str(&format!("--{boundary}\r\n"));
+            match filename {
+                Some(f) => body.push_str(&format!(
+                    "Content-Disposition: form-data; name=\"{name}\"; filename=\"{f}\"\r\nContent-Type: application/octet-stream\r\n\r\n"
+                )),
+                None => {
+                    body.push_str(&format!("Content-Disposition: form-data; name=\"{name}\"\r\n\r\n"))
+                }
+            }
+            body.push_str(value);
+            body.push_str("\r\n");
+        }
+        body.push_str(&format!("--{boundary}--\r\n"));
+        let req = axum::http::Request::builder()
+            .header(
+                "content-type",
+                format!("multipart/form-data; boundary={boundary}"),
+            )
+            .body(axum::body::Body::from(body))
+            .unwrap();
+        Multipart::from_request(req, &()).await.unwrap()
+    }
+
+    async fn response_json(resp: Response) -> (StatusCode, Value) {
+        let status = resp.status();
+        let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+            .await
+            .unwrap();
+        (status, serde_json::from_slice(&body).unwrap())
+    }
+
+    #[tokio::test]
+    async fn read_deploy_form_grows_the_lease_from_parsed_payload_bytes() {
+        let multipart = multipart_from(&[
+            ("entityId", None, "bafy123"),
+            ("file1", Some("a.txt"), "hello world"),
+        ])
+        .await;
+        let mut bytes_lease = upload_limits::reserve_in_flight();
+        let mut files_lease = upload_limits::reserve_in_flight_files();
+        let form = read_deploy_form(
+            multipart,
+            &mut bytes_lease,
+            &mut files_lease,
+            u64::MAX,
+            u64::MAX,
+        )
+        .await
+        .expect("form parses");
+        assert_eq!(form.fields.get("entityId").unwrap(), "bafy123");
+        assert_eq!(form.files.len(), 1);
+        assert_eq!(bytes_lease.reserved(), 7 + 11);
+        assert_eq!(files_lease.reserved(), 1);
+    }
+
+    #[tokio::test]
+    async fn read_deploy_form_sheds_when_the_byte_budget_is_exhausted() {
+        let multipart = multipart_from(&[("entityId", None, "bafy123")]).await;
+        let mut bytes_lease = upload_limits::reserve_in_flight();
+        let mut files_lease = upload_limits::reserve_in_flight_files();
+        let resp = match read_deploy_form(
+            multipart,
+            &mut bytes_lease,
+            &mut files_lease,
+            0,
+            u64::MAX,
+        )
+        .await
+        {
+            Err(resp) => resp,
+            Ok(_) => panic!("must shed"),
+        };
+        let (status, body) = response_json(resp).await;
+        assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(
+            body,
+            json!({
+                "error": "Service Unavailable",
+                "message": "Server is buffering too many uploads, please retry shortly."
+            })
+        );
+        assert_eq!(bytes_lease.reserved(), 0);
+    }
+
+    #[tokio::test]
+    async fn read_deploy_form_sheds_when_the_file_budget_is_exhausted() {
+        let multipart = multipart_from(&[
+            ("entityId", None, "bafy123"),
+            ("file1", Some("a.txt"), "hello world"),
+        ])
+        .await;
+        let mut bytes_lease = upload_limits::reserve_in_flight();
+        let mut files_lease = upload_limits::reserve_in_flight_files();
+        let resp = match read_deploy_form(
+            multipart,
+            &mut bytes_lease,
+            &mut files_lease,
+            u64::MAX,
+            0,
+        )
+        .await
+        {
+            Err(resp) => resp,
+            Ok(_) => panic!("must shed"),
+        };
+        let (status, body) = response_json(resp).await;
+        assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(
+            body,
+            json!({
+                "error": "Service Unavailable",
+                "message": "Server is buffering too many upload files, please retry shortly."
+            })
+        );
+        assert_eq!(files_lease.reserved(), 0);
+    }
+
+    #[tokio::test]
+    async fn read_deploy_form_caps_each_field_value_at_one_megabyte() {
+        let big = "a".repeat(upload_limits::MAX_MULTIPART_FIELD_VALUE_BYTES + 1);
+        let multipart = multipart_from(&[("authChain", None, big.as_str())]).await;
+        let mut bytes_lease = upload_limits::reserve_in_flight();
+        let mut files_lease = upload_limits::reserve_in_flight_files();
+        let resp = match read_deploy_form(
+            multipart,
+            &mut bytes_lease,
+            &mut files_lease,
+            u64::MAX,
+            u64::MAX,
+        )
+        .await
+        {
+            Err(resp) => resp,
+            Ok(_) => panic!("oversized field must be rejected"),
+        };
+        let (status, body) = response_json(resp).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(
+            body,
+            json!({ "errors": ["The multipart request is too large."] })
+        );
+        assert!(bytes_lease.reserved() <= upload_limits::MAX_MULTIPART_FIELD_VALUE_BYTES as u64);
+
+        let exact = "a".repeat(upload_limits::MAX_MULTIPART_FIELD_VALUE_BYTES);
+        let multipart = multipart_from(&[("authChain", None, exact.as_str())]).await;
+        let mut bytes_lease = upload_limits::reserve_in_flight();
+        let mut files_lease = upload_limits::reserve_in_flight_files();
+        let form = read_deploy_form(
+            multipart,
+            &mut bytes_lease,
+            &mut files_lease,
+            u64::MAX,
+            u64::MAX,
+        )
+        .await
+        .expect("1 MB field parses");
+        assert_eq!(
+            form.fields.get("authChain").unwrap().len(),
+            upload_limits::MAX_MULTIPART_FIELD_VALUE_BYTES
+        );
+    }
+
+    #[tokio::test]
+    async fn read_deploy_form_rejects_more_than_one_hundred_fields() {
+        let names: Vec<String> = (0..=upload_limits::MAX_MULTIPART_FIELDS)
+            .map(|i| format!("f{i}"))
+            .collect();
+        let parts: Vec<(&str, Option<&str>, &str)> =
+            names.iter().map(|n| (n.as_str(), None, "v")).collect();
+        let multipart = multipart_from(&parts).await;
+        let mut bytes_lease = upload_limits::reserve_in_flight();
+        let mut files_lease = upload_limits::reserve_in_flight_files();
+        let resp = match read_deploy_form(
+            multipart,
+            &mut bytes_lease,
+            &mut files_lease,
+            u64::MAX,
+            u64::MAX,
+        )
+        .await
+        {
+            Err(resp) => resp,
+            Ok(_) => panic!("101st field must be rejected"),
+        };
+        let (status, body) = response_json(resp).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(
+            body,
+            json!({ "errors": ["The multipart request has too many fields."] })
+        );
     }
 }

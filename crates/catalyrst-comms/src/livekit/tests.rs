@@ -4,7 +4,7 @@ use base64::Engine;
 
 #[test]
 fn jwt_has_three_dot_parts() {
-    let tok = AccessToken::new("devkey", "devsecret", "0xabc", VideoGrants::join("room1"))
+    let tok = AccessToken::new("devkey", "devsecret", "0xabc", join_grants("room1"))
         .to_jwt()
         .unwrap();
     assert_eq!(tok.split('.').count(), 3);
@@ -79,7 +79,7 @@ fn decode_jwt_payload(jwt: &str) -> serde_json::Value {
 
 #[test]
 fn private_voice_grants_match_upstream_generate_credentials() {
-    let mut grants = VideoGrants::join("voice-chat-private-call1");
+    let mut grants = join_grants("voice-chat-private-call1");
     grants.can_publish = true;
     grants.can_subscribe = true;
     grants.can_update_own_metadata = false;
@@ -105,7 +105,7 @@ fn private_voice_grants_match_upstream_generate_credentials() {
 
 #[test]
 fn community_speaker_grant_omits_publish_sources_restriction() {
-    let mut grants = VideoGrants::join("voice-chat-community-c1");
+    let mut grants = join_grants("voice-chat-community-c1");
     grants.can_publish = true;
     grants.can_update_own_metadata = false;
     let jwt = AccessToken::new("devkey", "devsecret", "0xabc", grants)
@@ -124,7 +124,7 @@ fn community_speaker_grant_omits_publish_sources_restriction() {
 
 #[test]
 fn community_listener_cannot_publish() {
-    let mut grants = VideoGrants::join("voice-chat-community-c1");
+    let mut grants = join_grants("voice-chat-community-c1");
     grants.can_publish = false;
     grants.can_subscribe = true;
     let jwt = AccessToken::new("devkey", "devsecret", "0xabc", grants)
@@ -564,6 +564,58 @@ async fn append_is_noop_when_value_already_present() {
         "an already-present value must not trigger a write"
     );
     assert!(caps[0].line.contains("ListRooms"));
+}
+
+fn sign_webhook_jwt(api_key: &str, api_secret: &str, body: &[u8], exp: u64, nbf: u64) -> String {
+    use base64::engine::general_purpose::STANDARD;
+    use hmac::{Hmac, KeyInit, Mac};
+    use sha2::{Digest, Sha256};
+    let digest = STANDARD.encode(Sha256::digest(body));
+    let header = URL_SAFE_NO_PAD.encode(br#"{"alg":"HS256","typ":"JWT"}"#);
+    let payload = URL_SAFE_NO_PAD.encode(
+        serde_json::json!({ "iss": api_key, "exp": exp, "nbf": nbf, "sha256": digest }).to_string(),
+    );
+    let signing_input = format!("{header}.{payload}");
+    let mut mac = <Hmac<Sha256>>::new_from_slice(api_secret.as_bytes()).unwrap();
+    mac.update(signing_input.as_bytes());
+    let sig = URL_SAFE_NO_PAD.encode(mac.finalize().into_bytes());
+    format!("{signing_input}.{sig}")
+}
+
+#[test]
+fn webhook_token_round_trips_and_rejects_tampering() {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    let body = br#"{"event":"ingress_started"}"#;
+    let tok = sign_webhook_jwt("APIkey", "secret", body, now + 300, now);
+
+    assert!(verify_webhook_token("APIkey", "secret", body, &tok));
+    assert!(verify_webhook_token(
+        "APIkey",
+        "secret",
+        body,
+        &format!("Bearer {tok}")
+    ));
+
+    assert!(!verify_webhook_token("APIkey", "wrong", body, &tok));
+    assert!(!verify_webhook_token("other", "secret", body, &tok));
+    assert!(!verify_webhook_token(
+        "APIkey",
+        "secret",
+        br#"{"event":"ingress_ended"}"#,
+        &tok
+    ));
+
+    let expired = sign_webhook_jwt("APIkey", "secret", body, now - 3600, now - 7200);
+    assert!(!verify_webhook_token("APIkey", "secret", body, &expired));
+
+    let future = sign_webhook_jwt("APIkey", "secret", body, now + 7200, now + 3600);
+    assert!(!verify_webhook_token("APIkey", "secret", body, &future));
+
+    assert!(!verify_webhook_token("APIkey", "secret", body, "not-a-jwt"));
+    assert!(!verify_webhook_token("APIkey", "secret", body, ""));
 }
 
 #[tokio::test]

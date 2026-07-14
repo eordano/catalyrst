@@ -60,21 +60,4 @@ impl UsageGrantsComponent {
             })
             .collect()
     }
-
-    pub async fn get_active_grant_urns_for(&self, owner: &str) -> Vec<String> {
-        let Some(pool) = &self.pool else {
-            return Vec::new();
-        };
-        let rows = sqlx::query(
-            "SELECT DISTINCT urn FROM marketplace.usage_grants \
-             WHERE status = 'active' AND grantee_address = lower($1)",
-        )
-        .bind(owner)
-        .fetch_all(pool)
-        .await
-        .unwrap_or_default();
-        rows.iter()
-            .filter_map(|r| r.try_get::<String, _>("urn").ok())
-            .collect()
-    }
 }

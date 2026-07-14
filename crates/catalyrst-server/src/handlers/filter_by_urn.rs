@@ -98,7 +98,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn invalid_collection_urn_response_is_400_with_upstream_body() {
+    async fn invalid_collection_urn_response_is_400_with_envelope_body() {
         let err: AppError =
             InvalidRequestError::new(invalid_collection_urn_message("not-a-real-urn")).into();
         let resp = err.into_response();
@@ -109,7 +109,11 @@ mod tests {
         let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(
             body,
-            json!({ "error": "Invalid URN format: not-a-real-urn" })
+            json!({
+                "ok": false,
+                "error": "Invalid URN format: not-a-real-urn",
+                "message": "Invalid URN format: not-a-real-urn"
+            })
         );
     }
 }
