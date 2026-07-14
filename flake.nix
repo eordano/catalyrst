@@ -486,6 +486,21 @@
           }
         ));
 
+      # Stateless, sandboxed tests. `nix flake check` (or
+      # `nix build .#checks.<system>.catalyrst-server-tests`) builds the
+      # catalyrst derivation with its check phase enabled — no devShell, no
+      # mutable cargo target dir. Covers the catalyrst-server input-validation
+      # unit tests (nul_guard middleware, DatabaseError->AppError mapping,
+      # active_entities validator).
+      checks = forAllSystems (pkgs: {
+        catalyrst-server-tests =
+          self.packages.${pkgs.stdenv.hostPlatform.system}.catalyrst.overrideAttrs (old: {
+          pname = "catalyrst-server-tests";
+          doCheck = true;
+          cargoTestFlags = (old.cargoTestFlags or [ ]) ++ [ "-p" "catalyrst-server" ];
+        });
+      });
+
       devShells = forAllSystems (pkgs:
         let
           librusty_v8 = pkgs.callPackage ./crates/catalyrst-scene-state/nix/librusty_v8.nix { };
