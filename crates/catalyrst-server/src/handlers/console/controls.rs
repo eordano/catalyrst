@@ -5,7 +5,7 @@ pub(super) fn controls(va: &ViewerAdmin, which: &str) -> String {
         return String::new();
     }
     let mut b = String::new();
-    b.push_str("<section><div class=\"shead\"><h3>Operator controls</h3><span class=\"c\">privileged actions — confirm before each</span></div>");
+    b.push_str("<section><div class=\"shead\"><h3>Operator controls</h3><span class=\"c\">privileged actions \u{2014} confirm before each</span></div>");
 
     if !va.is_admin {
         b.push_str("<div class=\"ctlcard\"><div class=\"ctlh\">Sign in</div>");
@@ -86,7 +86,7 @@ pub(super) fn controls(va: &ViewerAdmin, which: &str) -> String {
         let mut inner = String::new();
         inner.push_str("<form class=\"ctlform\" data-admin-action=\"/admin/api/social/user-ban\" data-confirm=\"Ban this user?\">");
         inner.push_str(
-            "<label>Address<input name=\"address\" placeholder=\"0x…\" required></label>",
+            "<label>Address<input name=\"address\" placeholder=\"0x\u{2026}\" required></label>",
         );
         inner.push_str(
             "<label>Reason<input name=\"reason\" placeholder=\"reason (optional)\"></label>",
@@ -164,7 +164,7 @@ pub(super) fn controls(va: &ViewerAdmin, which: &str) -> String {
         inner.push_str("<div class=\"ctl-result\"></div>");
 
         inner.push_str("<form class=\"ctlform\" data-admin-action=\"/admin/api/content/denylist/add\" data-confirm=\"Add this entity to the content denylist?\">");
-        inner.push_str("<label>Entity ID<input name=\"entity_id\" placeholder=\"bafy… / Qm…\" required></label>");
+        inner.push_str("<label>Entity ID<input name=\"entity_id\" placeholder=\"bafy\u{2026} / Qm\u{2026}\" required></label>");
         inner.push_str("<div class=\"btnrow\">");
         inner.push_str("<button class=\"btn\" type=\"submit\">Denylist add</button>");
         inner.push_str("<button class=\"btn ghost\" type=\"button\" data-admin-action=\"/admin/api/content/denylist/remove\" data-fields=\"entity_id\" data-confirm=\"Remove this entity from the denylist?\">Denylist remove</button>");
@@ -283,12 +283,12 @@ pub(super) fn controls(va: &ViewerAdmin, which: &str) -> String {
         );
         inner.push_str("<form class=\"ctlform\" data-admin-action=\"/admin/api/worlds/ban-status\" data-result=\"#worlds-ban-out\">");
         inner.push_str("<label>Ban status<input name=\"world_name\" placeholder=\"name.dcl.eth\" required></label>");
-        inner.push_str("<input name=\"address\" placeholder=\"0x… (optional)\"><input name=\"parcel\" placeholder=\"parcel (optional)\">");
+        inner.push_str("<input name=\"address\" placeholder=\"0x\u{2026} (optional)\"><input name=\"parcel\" placeholder=\"parcel (optional)\">");
         inner.push_str("<button class=\"btn\" type=\"submit\">Check ban status</button>");
         inner.push_str("<pre class=\"ctl-result sqlout\" id=\"worlds-ban-out\"></pre></form>");
         inner.push_str("<form class=\"ctlform\" data-admin-action=\"/admin/api/worlds/blocked-add\" data-confirm=\"Block this wallet from worlds?\">");
         inner.push_str(
-            "<label>Blocked wallets<input name=\"wallet\" placeholder=\"0x…\" required></label>",
+            "<label>Blocked wallets<input name=\"wallet\" placeholder=\"0x\u{2026}\" required></label>",
         );
         inner.push_str("<div class=\"btnrow\">");
         inner.push_str("<button class=\"btn\" type=\"submit\">Block wallet</button>");
@@ -436,7 +436,7 @@ pub(super) fn controls(va: &ViewerAdmin, which: &str) -> String {
     if want("social") && has_service("social") && env_set_any(&["CATALYRST_BADGES_ADMIN_TOKEN"]) {
         let mut inner = String::new();
         inner.push_str("<form class=\"ctlform\" data-admin-action=\"/admin/api/badges/grant\" data-confirm=\"Grant this badge?\">");
-        inner.push_str("<label>Grant / revoke badge<input name=\"address\" placeholder=\"0x…\" required></label>");
+        inner.push_str("<label>Grant / revoke badge<input name=\"address\" placeholder=\"0x\u{2026}\" required></label>");
         inner.push_str(
             "<label>Badge ID<input name=\"badge_id\" placeholder=\"badge id\" required></label>",
         );
@@ -468,7 +468,7 @@ pub(super) fn controls(va: &ViewerAdmin, which: &str) -> String {
         inner.push_str("</div><pre class=\"ctl-result sqlout\" id=\"srpc-out\"></pre></form>");
         inner.push_str("<form class=\"ctlform\" data-admin-action=\"/admin/api/social-rpc/disconnect\" data-confirm=\"Force-disconnect this address?\">");
         inner.push_str(
-            "<label>Operate<input name=\"address\" placeholder=\"0x…\" required></label>",
+            "<label>Operate<input name=\"address\" placeholder=\"0x\u{2026}\" required></label>",
         );
         inner.push_str("<input name=\"presence\" placeholder=\"presence (for force-presence)\">");
         inner.push_str("<div class=\"btnrow\">");
@@ -504,28 +504,8 @@ pub(super) fn controls(va: &ViewerAdmin, which: &str) -> String {
     if want("data") && has_service("data") && env_set_any(&["CATALYRST_CREDITS_ADMIN_TOKEN"]) {
         let mut inner = String::new();
 
-        inner.push_str("<form class=\"ctlform\" data-admin-action=\"/admin/api/credits/season-create\" data-confirm=\"Create / update this credits season?\">");
-        inner.push_str("<label>Seasons<span class=\"hint\">credits program seasons</span></label>");
-        inner.push_str("<input name=\"id\" placeholder=\"id (for update/delete)\"><input name=\"name\" placeholder=\"name\"><input name=\"start_at\" placeholder=\"start_at\"><input name=\"end_at\" placeholder=\"end_at\">");
-        inner.push_str("<div class=\"btnrow\">");
-        inner.push_str("<button class=\"btn ghost\" type=\"button\" data-admin-action=\"/admin/api/credits/seasons-list\" data-fields=\"\">List seasons</button>");
-        inner.push_str("<button class=\"btn\" type=\"submit\">Create season</button>");
-        inner.push_str("<button class=\"btn ghost\" type=\"button\" data-admin-action=\"/admin/api/credits/season-update\" data-fields=\"id,name,start_at,end_at\" data-confirm=\"Update this season?\">Update season</button>");
-        inner.push_str("<button class=\"btn danger\" type=\"button\" data-admin-action=\"/admin/api/credits/season-delete\" data-fields=\"id\" data-confirm=\"Delete this season? This is irreversible.\">Delete season</button>");
-        inner.push_str("</div><div class=\"ctl-result\"></div></form>");
-
-        inner.push_str("<form class=\"ctlform\" data-admin-action=\"/admin/api/credits/goal-create\" data-confirm=\"Create / update this goal?\">");
-        inner.push_str("<label>Goals<span class=\"hint\">weekly credit goals</span></label>");
-        inner.push_str("<input name=\"id\" placeholder=\"id (for update/delete)\"><input name=\"weekId\" placeholder=\"weekId (for list)\"><input name=\"description\" placeholder=\"description\">");
-        inner.push_str("<div class=\"btnrow\">");
-        inner.push_str("<button class=\"btn ghost\" type=\"button\" data-admin-action=\"/admin/api/credits/goals-list\" data-fields=\"weekId\">List goals</button>");
-        inner.push_str("<button class=\"btn\" type=\"submit\">Create goal</button>");
-        inner.push_str("<button class=\"btn ghost\" type=\"button\" data-admin-action=\"/admin/api/credits/goal-update\" data-fields=\"id,description\" data-confirm=\"Update this goal?\">Update goal</button>");
-        inner.push_str("<button class=\"btn danger\" type=\"button\" data-admin-action=\"/admin/api/credits/goal-delete\" data-fields=\"id\" data-confirm=\"Delete this goal? This is irreversible.\">Delete goal</button>");
-        inner.push_str("</div><div class=\"ctl-result\"></div></form>");
-
         inner.push_str("<form class=\"ctlform danger-form\" data-admin-action=\"/admin/api/credits/grant\" data-confirm=\"GRANT credits to this address? This mints real spendable Marketplace Credits. Confirm the address and amount are correct.\">");
-        inner.push_str("<label class=\"danger-lab\">⚠ Credits grant / revoke (financial)<input name=\"address\" placeholder=\"0x…\" required></label>");
+        inner.push_str("<label class=\"danger-lab\">\u{26A0} Credits grant / revoke (financial)<input name=\"address\" placeholder=\"0x\u{2026}\" required></label>");
         inner.push_str("<input name=\"amount\" placeholder=\"amount\"><input name=\"reason\" placeholder=\"reason (audited)\">");
         inner.push_str("<div class=\"btnrow\">");
         inner.push_str("<button class=\"btn danger\" type=\"submit\">Grant credits</button>");
@@ -542,7 +522,7 @@ pub(super) fn controls(va: &ViewerAdmin, which: &str) -> String {
     if want("data") && has_service("data") && env_set_any(&["CATALYRST_PRICE_ADMIN_TOKEN"]) {
         let mut inner = String::new();
         inner.push_str("<form class=\"ctlform danger-form\" data-admin-action=\"/admin/api/price/override-set\" data-confirm=\"SET a manual price override? This replaces the live market price feed for this pair and affects every price-quoting surface.\">");
-        inner.push_str("<label class=\"danger-lab\">⚠ Price override (financial)<input name=\"token\" placeholder=\"token e.g. mana\" required></label>");
+        inner.push_str("<label class=\"danger-lab\">\u{26A0} Price override (financial)<input name=\"token\" placeholder=\"token e.g. mana\" required></label>");
         inner.push_str("<input name=\"vs\" placeholder=\"vs e.g. usd\" required><input name=\"price\" placeholder=\"price\">");
         inner.push_str("<div class=\"btnrow\">");
         inner.push_str("<button class=\"btn danger\" type=\"submit\">Set override</button>");
@@ -589,14 +569,14 @@ pub(super) fn controls(va: &ViewerAdmin, which: &str) -> String {
         inner.push_str("</div><pre class=\"ctl-result sqlout\" id=\"rpc-out\"></pre>");
         inner.push_str("<form class=\"ctlform\" data-admin-action=\"/admin/api/rpc/methods-add\" data-confirm=\"Add this method to the allowlist?\">");
         inner.push_str(
-            "<label>Method allowlist<input name=\"method\" placeholder=\"eth_…\" required></label>",
+            "<label>Method allowlist<input name=\"method\" placeholder=\"eth_\u{2026}\" required></label>",
         );
         inner.push_str("<div class=\"btnrow\">");
         inner.push_str("<button class=\"btn\" type=\"submit\">Add method</button>");
         inner.push_str("<button class=\"btn ghost\" type=\"button\" data-admin-action=\"/admin/api/rpc/methods-remove\" data-fields=\"method\" data-confirm=\"Remove this method from the allowlist?\">Remove method</button>");
         inner.push_str("</div><div class=\"ctl-result\"></div></form>");
         inner.push_str("<form class=\"ctlform\" data-admin-action=\"/admin/api/rpc/networks-set\" data-confirm=\"Set this network's RPC upstream?\">");
-        inner.push_str("<label>Networks<input name=\"network\" placeholder=\"mainnet / sepolia / …\" required></label>");
+        inner.push_str("<label>Networks<input name=\"network\" placeholder=\"mainnet / sepolia / \u{2026}\" required></label>");
         inner.push_str("<input name=\"url\" placeholder=\"upstream url (for set)\">");
         inner.push_str("<div class=\"btnrow\">");
         inner.push_str("<button class=\"btn\" type=\"submit\">Set network</button>");
@@ -696,7 +676,7 @@ pub(super) fn controls(va: &ViewerAdmin, which: &str) -> String {
         inner
             .push_str("</div><pre class=\"ctl-result sqlout\" id=\"tel-export-out\"></pre></form>");
         inner.push_str("<form class=\"ctlform danger-form\" data-admin-action=\"/admin/api/telemetry/purge\" data-confirm=\"PURGE telemetry data? This permanently deletes stored events.\">");
-        inner.push_str("<label class=\"danger-lab\">⚠ Destructive<input name=\"before\" placeholder=\"before ISO date (purge)\"></label>");
+        inner.push_str("<label class=\"danger-lab\">\u{26A0} Destructive<input name=\"before\" placeholder=\"before ISO date (purge)\"></label>");
         inner.push_str("<input name=\"fingerprint\" placeholder=\"fingerprint (bulk-delete)\">");
         inner.push_str("<div class=\"btnrow\">");
         inner.push_str("<button class=\"btn danger\" type=\"submit\">Purge</button>");
@@ -759,5 +739,5 @@ fn ctl_button(label: &str, action: &str, confirm: &str) -> String {
 }
 
 pub(super) fn admin_disabled_note() -> &'static str {
-    "<div class=\"note\">Admin write controls are disabled — set ADMIN_ADDRESSES + SESSION_SECRET to enable them. This page is read-only.</div>"
+    "<div class=\"note\">Admin write controls are disabled \u{2014} set ADMIN_ADDRESSES + SESSION_SECRET to enable them. This page is read-only.</div>"
 }

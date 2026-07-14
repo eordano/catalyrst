@@ -1,0 +1,342 @@
+.editor-wizard .eui-root {
+  /* 53, not 52: the bar is height:52px PLUS a 1px border-bottom, and because it
+     is a sibling of .eui-root it never sees that element's border-box reset, so
+     it renders content-box at 53. At 52 the border row landed on top of the
+     ribbon's tab strip -- z-index 200 over .eui-root's 50 -- and stole the top
+     pixel of every tab. */
+  --eui-appbar-h: 53px;
+  --eui-bottom-inset: 64px;
+}
+/* The place step tucks both bars behind the overlay, so there is nothing to clear. */
+.editor-wizard[data-step="place"] .eui-root {
+  --eui-appbar-h: 0px;
+}
+
+.editor-wizard__controls {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: var(--z-toast);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  background: var(--panel);
+  border-top: 1px solid var(--line);
+  color: var(--text);
+  font: 13px/1.5 var(--font-sans);
+}
+
+.editor-wizard__steplabel {
+  margin-right: 8px;
+  color: var(--ink-7);
+}
+
+.editor-wizard__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.editor-wizard__axes,
+.editor-wizard__assets,
+.editor-wizard__components,
+.editor-wizard__entities {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.editor-wizard__btn {
+  padding: 8px 16px;
+  font: 600 13px/1.5 var(--font-sans);
+  border-radius: var(--r-control);
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.editor-wizard__btn:hover:not(:disabled) {
+  background: var(--fill-2);
+}
+
+.editor-wizard__btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.editor-wizard__btn--primary {
+  background: var(--brand-cta);
+  border-color: var(--brand-cta);
+  color: var(--on-brand);
+}
+
+.editor-wizard__btn--primary:hover:not(:disabled) {
+  background: var(--brand-hover);
+  border-color: var(--brand-hover);
+}
+
+.editor-wizard__btn.is-set {
+  border-color: var(--brand);
+  color: #fff;
+  background: color-mix(in srgb, var(--brand) 24%, transparent);
+}
+
+.editor-wizard__btn--danger {
+  border-color: color-mix(in srgb, var(--error) 60%, var(--line));
+  color: var(--error);
+}
+
+.editor-wizard__btn--danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--error) 16%, transparent);
+}
+
+.editor-wizard__appbar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: var(--z-toast);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 52px;
+  padding: 0 16px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+  color: var(--text);
+  font: 13px/1.5 var(--font-sans);
+}
+
+.editor-wizard[data-step="place"] .editor-wizard__appbar,
+.editor-wizard[data-step="place"] .editor-wizard__controls {
+  z-index: 1;
+}
+
+@media (max-width: 768px) {
+  .editor-wizard__appbar,
+  .editor-wizard__controls {
+    display: none;
+  }
+}
+
+.editor-wizard__appbar-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.editor-wizard__appbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+.editor-wizard__appbar .editor-wizard__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.editor-wizard__appbar .editor-wizard__btn svg {
+  flex: 0 0 auto;
+}
+
+.editor-wizard__split {
+  position: relative;
+  display: inline-flex;
+  align-items: stretch;
+}
+
+.editor-wizard__btn--main {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+/* The first five tab stops on the page had no author ring and inherited the UA
+   one at 1.05:1 in dark. */
+.editor-wizard__btn:focus-visible,
+.editor-wizard__caret:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring-color);
+  outline-offset: 2px;
+}
+.editor-wizard__caret {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-left: none;
+  border-radius: 0 var(--r-control) var(--r-control) 0;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.editor-wizard__caret:hover:not(:disabled) {
+  background: var(--fill-2);
+}
+
+.editor-wizard__caret--primary {
+  border-color: var(--brand-cta);
+  background: var(--brand-cta);
+  color: var(--on-brand);
+}
+
+.editor-wizard__caret--primary:hover:not(:disabled) {
+  background: var(--brand-hover);
+  border-color: var(--brand-hover);
+}
+
+.editor-wizard__caret svg {
+  flex: 0 0 auto;
+}
+
+.editor-wizard__menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 220px;
+  z-index: var(--z-modal);
+  display: flex;
+  flex-direction: column;
+  padding: 6px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  box-shadow: var(--shadow-modal);
+}
+
+.editor-wizard__menu-title {
+  padding: 4px 8px 6px;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-45);
+}
+
+.editor-wizard__menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  border: none;
+  border-radius: var(--r-control);
+  background: transparent;
+  color: var(--text);
+  font: 14px/1.5 var(--font-sans);
+  text-align: left;
+  cursor: pointer;
+}
+
+.editor-wizard__menu-item:hover {
+  background: var(--fill-2);
+}
+
+.editor-wizard__menu-sep {
+  height: 1px;
+  margin: 6px 8px;
+  background: var(--line);
+}
+
+.editor-wizard__menu-check {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  border-radius: var(--r-control);
+  border: 1px solid var(--ink-45);
+  background: transparent;
+}
+
+.editor-wizard__menu-check.is-checked {
+  border-color: var(--brand);
+  background: var(--brand);
+  box-shadow: inset 0 0 0 2px var(--panel);
+}
+
+.editor-wizard__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 28px;
+  padding: 0 12px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--line);
+  background: var(--fill-2);
+  color: var(--ink-7);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.editor-wizard__chip-dot {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--ink-45);
+}
+
+.editor-wizard__chip.is-online {
+  color: var(--text);
+}
+
+.editor-wizard__chip.is-online .editor-wizard__chip-dot {
+  background: var(--online);
+}
+
+.editor-wizard__search {
+  flex: 1 1 200px;
+  min-width: 160px;
+  padding: 8px 12px;
+  font: 13px/1.5 var(--font-sans);
+  color: var(--text);
+  background: var(--fill-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-control);
+}
+
+.editor-wizard__search::placeholder {
+  color: var(--ink-6);
+}
+
+.editor-wizard__search:focus {
+  outline: none;
+  border-color: var(--brand);
+}
+
+.editor-wizard__saved {
+  color: var(--success);
+  font-weight: 600;
+}
+
+.editor-wizard__spinner {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink-7);
+}
+
+.editor-wizard__spinner::before {
+  content: "";
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  border: 2px solid var(--line);
+  border-top-color: var(--brand);
+  border-radius: 50%;
+  animation: u-spin 0.8s linear infinite;
+}

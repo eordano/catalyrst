@@ -1,14 +1,16 @@
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use crate::decentraland::common::Vector3;
 use crate::decentraland::pulse::{EmoteStopReason, GlideState, PlayerAnimationFlags, PlayerState};
 use crate::interest::{ParcelEncoder, SpatialGrid};
+use crate::messages::spec;
 
 pub const NO_SEQ: u32 = u32::MAX;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct EmoteState {
-    pub emote_id: Option<String>,
+    pub emote_id: Option<Arc<str>>,
     pub start_seq: u32,
     pub start_tick: u32,
     pub duration_ms: Option<u32>,
@@ -16,23 +18,32 @@ pub struct EmoteState {
     pub stop_reason: Option<EmoteStopReason>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+/// Canonical per-peer state. Quantized fields hold the client's raw wire codes,
+/// relayed verbatim to observers; `global_position` is the decoded world
+/// position derived at publish time for AOI queries.
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct PeerSnapshot {
     pub seq: u32,
     pub server_tick: u32,
 
     pub parcel: i32,
-    pub local_position: Vector3,
+    pub position_x: u32,
+    pub position_y: u32,
+    pub position_z: u32,
     pub global_position: Vector3,
-    pub velocity: Vector3,
-    pub rotation_y: f32,
+    pub velocity_x: u32,
+    pub velocity_y: u32,
+    pub velocity_z: u32,
+    pub rotation_y: u32,
 
     pub jump_count: i32,
-    pub movement_blend: f32,
-    pub slide_blend: f32,
-    pub head_yaw: Option<f32>,
-    pub head_pitch: Option<f32>,
-    pub point_at: Option<Vector3>,
+    pub movement_blend: u32,
+    pub slide_blend: u32,
+    pub head_yaw: Option<u32>,
+    pub head_pitch: Option<u32>,
+    pub point_at_x: Option<u32>,
+    pub point_at_y: Option<u32>,
+    pub point_at_z: Option<u32>,
     pub animation_flags: i32,
     pub glide_state: i32,
 
@@ -40,35 +51,9 @@ pub struct PeerSnapshot {
 
     pub emote: Option<EmoteState>,
 
-    pub realm: Option<String>,
+    pub realm: Option<Arc<str>>,
 
     pub last_teleport_seq: u32,
-}
-
-impl Default for PeerSnapshot {
-    fn default() -> Self {
-        Self {
-            seq: 0,
-            server_tick: 0,
-            parcel: 0,
-            local_position: Vector3::default(),
-            global_position: Vector3::default(),
-            velocity: Vector3::default(),
-            rotation_y: 0.0,
-            jump_count: 0,
-            movement_blend: 0.0,
-            slide_blend: 0.0,
-            head_yaw: None,
-            head_pitch: None,
-            point_at: None,
-            animation_flags: PlayerAnimationFlags::None as i32,
-            glide_state: GlideState::PropClosed as i32,
-            is_teleport: false,
-            emote: None,
-            realm: None,
-            last_teleport_seq: 0,
-        }
-    }
 }
 
 impl PeerSnapshot {
@@ -86,6 +71,10 @@ struct PeerRing {
 pub struct SnapshotBoard {
     ring_capacity: usize,
     peers: Vec<PeerRing>,
+    active_ids: Vec<u32>,
+    /// Reverse index for scene-listener queries, maintained by `publish`/`clear_active`.
+    parcel_index: HashMap<i32, Vec<u32>>,
+    peer_parcel: HashMap<u32, i32>,
 }
 
 impl SnapshotBoard {
@@ -101,6 +90,9 @@ impl SnapshotBoard {
         Self {
             ring_capacity,
             peers,
+            active_ids: Vec::new(),
+            parcel_index: HashMap::new(),
+            peer_parcel: HashMap::new(),
         }
     }
 
@@ -124,10 +116,43 @@ impl SnapshotBoard {
             ..snapshot
         };
 
+        let new_parcel = to_write.parcel;
         let slot = (to_write.seq as usize) % self.ring_capacity;
         let p = &mut self.peers[index];
         p.last_seq = to_write.seq;
         p.ring[slot] = to_write;
+
+        self.set_parcel(id, new_parcel);
+    }
+
+    fn set_parcel(&mut self, id: u32, parcel: i32) {
+        if self.peer_parcel.get(&id) == Some(&parcel) {
+            return;
+        }
+        self.clear_parcel(id);
+        self.parcel_index.entry(parcel).or_default().push(id);
+        self.peer_parcel.insert(id, parcel);
+    }
+
+    fn clear_parcel(&mut self, id: u32) {
+        if let Some(parcel) = self.peer_parcel.remove(&id) {
+            if let Some(bucket) = self.parcel_index.get_mut(&parcel) {
+                if let Some(pos) = bucket.iter().position(|&p| p == id) {
+                    bucket.swap_remove(pos);
+                }
+                if bucket.is_empty() {
+                    self.parcel_index.remove(&parcel);
+                }
+            }
+        }
+    }
+
+    /// Membership only: callers still apply the active/realm/self filters per candidate.
+    pub fn peers_in_parcel(&self, parcel: i32) -> &[u32] {
+        self.parcel_index
+            .get(&parcel)
+            .map(|v| v.as_slice())
+            .unwrap_or(&[])
     }
 
     fn inherit_emote_state(&self, index: usize) -> Option<EmoteState> {
@@ -142,7 +167,7 @@ impl SnapshotBoard {
         }
     }
 
-    fn inherit_realm(&self, index: usize) -> Option<String> {
+    fn inherit_realm(&self, index: usize) -> Option<Arc<str>> {
         let p = &self.peers[index];
         if p.last_seq == NO_SEQ {
             return None;
@@ -190,7 +215,12 @@ impl SnapshotBoard {
     }
 
     pub fn set_active(&mut self, id: u32) {
-        self.peers[id as usize].active = true;
+        if !self.peers[id as usize].active {
+            self.peers[id as usize].active = true;
+            if let Err(pos) = self.active_ids.binary_search(&id) {
+                self.active_ids.insert(pos, id);
+            }
+        }
     }
 
     pub fn clear_active(&mut self, id: u32) {
@@ -200,15 +230,14 @@ impl SnapshotBoard {
         for slot in p.ring.iter_mut() {
             *slot = PeerSnapshot::default();
         }
+        if let Ok(pos) = self.active_ids.binary_search(&id) {
+            self.active_ids.remove(pos);
+        }
+        self.clear_parcel(id);
     }
 
-    pub fn active_peers(&self) -> Vec<u32> {
-        self.peers
-            .iter()
-            .enumerate()
-            .filter(|(_, p)| p.active)
-            .map(|(i, _)| i as u32)
-            .collect()
+    pub fn active_peers(&self) -> &[u32] {
+        &self.active_ids
     }
 }
 
@@ -219,19 +248,11 @@ pub struct EmoteInput {
     pub start_tick: Option<u32>,
 }
 
-fn get_head_yaw(state: &PlayerState) -> Option<f32> {
-    state.head_yaw
-}
-
-fn get_head_pitch(state: &PlayerState) -> Option<f32> {
-    state.head_pitch
-}
-
-fn get_point_at(state: &PlayerState) -> Option<Vector3> {
-    if state.state_flags & (PlayerAnimationFlags::PointingAt as u32) != 0 {
-        state.point_at
-    } else {
-        None
+fn decode_local_position(position_x: u32, position_y: u32, position_z: u32) -> Vector3 {
+    Vector3 {
+        x: spec::POSITION_X.decode(position_x),
+        y: spec::POSITION_Y.decode(position_y),
+        z: spec::POSITION_Z.decode(position_z),
     }
 }
 
@@ -248,31 +269,40 @@ impl PeerSnapshotPublisher {
         emote: Option<EmoteInput>,
     ) -> PeerSnapshot {
         let seq = board.last_seq(from).wrapping_add(1);
-        let local_position = state.position.unwrap_or_default();
+        let local_position =
+            decode_local_position(state.position_x, state.position_y, state.position_z);
         let global_position = encoder.decode_to_global_position(state.parcel_index, local_position);
 
         let emote_state = emote.map(|e| EmoteState {
-            emote_id: Some(e.emote_id),
+            emote_id: Some(e.emote_id.into()),
             start_seq: seq,
             start_tick: e.start_tick.unwrap_or(now),
             duration_ms: e.duration_ms,
             stop_reason: None,
         });
 
+        let pointing = state.state_flags & (PlayerAnimationFlags::PointingAt as u32) != 0;
+
         let snapshot = PeerSnapshot {
             seq,
             server_tick: now,
             parcel: state.parcel_index,
-            local_position,
+            position_x: state.position_x,
+            position_y: state.position_y,
+            position_z: state.position_z,
             global_position,
-            velocity: state.velocity.unwrap_or_default(),
+            velocity_x: state.velocity_x,
+            velocity_y: state.velocity_y,
+            velocity_z: state.velocity_z,
             rotation_y: state.rotation_y,
             jump_count: state.jump_count,
             movement_blend: state.movement_blend,
             slide_blend: state.slide_blend,
-            head_yaw: get_head_yaw(state),
-            head_pitch: get_head_pitch(state),
-            point_at: get_point_at(state),
+            head_yaw: state.head_yaw,
+            head_pitch: state.head_pitch,
+            point_at_x: state.point_at_x.filter(|_| pointing),
+            point_at_y: state.point_at_y.filter(|_| pointing),
+            point_at_z: state.point_at_z.filter(|_| pointing),
             animation_flags: state.state_flags as i32,
             glide_state: state.glide_state,
             is_teleport: false,
@@ -286,6 +316,7 @@ impl PeerSnapshotPublisher {
         snapshot
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn publish_teleport(
         board: &mut SnapshotBoard,
         grid: &mut SpatialGrid,
@@ -293,42 +324,55 @@ impl PeerSnapshotPublisher {
         from: u32,
         now: u32,
         parcel_index: i32,
-        local_position: Vector3,
+        position_x: u32,
+        position_y: u32,
+        position_z: u32,
         realm: String,
     ) -> PeerSnapshot {
         let seq = board.last_seq(from).wrapping_add(1);
+        let local_position = decode_local_position(position_x, position_y, position_z);
         let global_position = encoder.decode_to_global_position(parcel_index, local_position);
 
-        let mut rotation_y = 0.0;
+        let mut rotation_y = 0;
         let mut head_yaw = None;
         let mut head_pitch = None;
-        let mut point_at = None;
+        let mut point_at_x = None;
+        let mut point_at_y = None;
+        let mut point_at_z = None;
         if let Some(prev) = board.try_read(from) {
             rotation_y = prev.rotation_y;
             head_yaw = prev.head_yaw;
             head_pitch = prev.head_pitch;
-            point_at = prev.point_at;
+            point_at_x = prev.point_at_x;
+            point_at_y = prev.point_at_y;
+            point_at_z = prev.point_at_z;
         }
 
         let snapshot = PeerSnapshot {
             seq,
             server_tick: now,
             parcel: parcel_index,
-            local_position,
+            position_x,
+            position_y,
+            position_z,
             global_position,
-            velocity: Vector3::default(),
+            velocity_x: 0,
+            velocity_y: 0,
+            velocity_z: 0,
             rotation_y,
             jump_count: 0,
-            movement_blend: 0.0,
-            slide_blend: 0.0,
+            movement_blend: 0,
+            slide_blend: 0,
             head_yaw,
             head_pitch,
-            point_at,
+            point_at_x,
+            point_at_y,
+            point_at_z,
             animation_flags: PlayerAnimationFlags::Grounded as i32,
             glide_state: GlideState::PropClosed as i32,
             is_teleport: true,
             emote: None,
-            realm: Some(realm),
+            realm: Some(realm.into()),
             last_teleport_seq: 0,
         };
 
@@ -367,7 +411,13 @@ impl IdentityBoard {
 
     pub fn remove(&mut self, id: u32) {
         if let Some(w) = self.wallets_by_peer[id as usize].take() {
-            self.peers_by_wallet.remove(&w.to_lowercase());
+            // Value-checked: after a duplicate-session eviction rebinds the wallet to the
+            // replacement peer, a delayed cleanup of the evicted peer must not delete that live
+            // forward mapping.
+            let key = w.to_lowercase();
+            if self.peers_by_wallet.get(&key) == Some(&id) {
+                self.peers_by_wallet.remove(&key);
+            }
         }
     }
 }
@@ -409,7 +459,7 @@ mod tests {
         PeerSnapshot {
             seq: 0,
             global_position: v3(1.0, 0.0, 1.0),
-            realm: seq_realm.map(|s| s.to_string()),
+            realm: seq_realm.map(Arc::from),
             ..Default::default()
         }
     }
@@ -616,5 +666,17 @@ mod tests {
         b.remove(2);
         assert_eq!(b.wallet_by_peer(2), None);
         assert_eq!(b.peer_by_wallet("0xabc"), None);
+    }
+
+    #[test]
+    fn identity_board_remove_preserves_live_rebound_wallet() {
+        let mut b = IdentityBoard::new(8);
+        b.set(2, "0xW".into());
+        b.set(5, "0xW".into()); // duplicate-session rebind to the replacement peer
+        b.remove(2); // delayed cleanup of the evicted peer must not clobber the live binding
+        assert_eq!(b.peer_by_wallet("0xw"), Some(5));
+        assert_eq!(b.wallet_by_peer(2), None);
+        b.remove(5);
+        assert_eq!(b.peer_by_wallet("0xw"), None);
     }
 }

@@ -1,7 +1,7 @@
 # catalyrst-camera-reel routes (port `5163`)
 
 Rust port of decentraland/camera-reel-service. All under `/api`; CORS allow-any-origin, methods
-GET/POST/PATCH/DELETE. Plus `GET /health/live`. Port `5163` (see `umbrella/env/catalyrst-camera-reel.env`,
+GET/POST/PATCH/DELETE. Plus `GET /health/live`. Port `5163` (see the deployment's `catalyrst-camera-reel` env file,
 which notes "5149 is catalyrst-sync" - `5143` belongs to `catalyrst-world-storage`, not this crate).
 
 | Method | Path | Auth | Notes |
@@ -22,7 +22,7 @@ which notes "5149 is catalyrst-sync" - `5143` belongs to `catalyrst-world-storag
 ## Deviations from upstream
 
 - File store: rust-s3 `Bucket` -> catalyrst-storage `ContentStorage` (sharded, content-addressed). Image/thumbnail keyed by dcl IPFS CIDv1 (catalyrst-hashing). `image.url`/`thumbnailUrl` = `{API_URL}/api/images/{hash}`; GET streams instead of redirecting.
-- Auth: upstream `dcl-crypto-middleware-rs` -> catalyrst-crypto `verify_auth_chain` over `x-identity-auth-chain-*` headers (auth_chain.rs copied from catalyrst-communities).
+- Auth: upstream `dcl-crypto-middleware-rs` -> catalyrst-crypto `verify_auth_chain` over `x-identity-auth-chain-*` headers (auth_chain.rs copied from catalyrst-social-service).
 - PlacesClient base_url -> the local catalyrst-places service (`http://127.0.0.1:5134`). moka TTL 300s / max 1000 preserved.
 - SNS (camera/photoTaken, camera/photoPrivacyChanged): no-op. The explorer never observes it.
 - DB: shared `places_events` DB, table `camera_reel_images` (distinct from any bare `images`).

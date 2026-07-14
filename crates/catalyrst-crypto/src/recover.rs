@@ -1,14 +1,14 @@
-use ethers_core::types::{RecoveryMessage, Signature, H160, H256};
+use alloy_primitives::{Address, Signature, B256};
 
 use crate::AuthError;
 
 pub fn recover_address(message: &[u8], signature: &str) -> Result<String, AuthError> {
     let sig_bytes = parse_signature_hex(signature)?;
     reject_high_s(&sig_bytes)?;
-    let sig = parse_ethers_signature(&sig_bytes)?;
+    let sig = parse_signature(&sig_bytes)?;
 
-    let recovered: H160 = sig
-        .recover(RecoveryMessage::Data(message.to_vec()))
+    let recovered: Address = sig
+        .recover_address_from_msg(message)
         .map_err(|e| AuthError::RecoveryFailed(format!("ecrecover failed: {}", e)))?;
 
     Ok(format!("{:#x}", recovered))
@@ -20,10 +20,10 @@ pub fn recover_address_from_digest(
 ) -> Result<String, AuthError> {
     let sig_bytes = parse_signature_hex(signature)?;
     reject_high_s(&sig_bytes)?;
-    let sig = parse_ethers_signature(&sig_bytes)?;
+    let sig = parse_signature(&sig_bytes)?;
 
-    let recovered: H160 = sig
-        .recover(RecoveryMessage::Hash(H256::from(*digest)))
+    let recovered: Address = sig
+        .recover_address_from_prehash(&B256::from(*digest))
         .map_err(|e| AuthError::RecoveryFailed(format!("ecrecover failed: {}", e)))?;
 
     Ok(format!("{:#x}", recovered))
@@ -79,7 +79,7 @@ fn parse_signature_hex(hex: &str) -> Result<[u8; 65], AuthError> {
     Ok(arr)
 }
 
-fn parse_ethers_signature(bytes: &[u8; 65]) -> Result<Signature, AuthError> {
+fn parse_signature(bytes: &[u8; 65]) -> Result<Signature, AuthError> {
     let mut v = bytes[64];
     if v >= 27 {
         v -= 27;
@@ -89,7 +89,7 @@ fn parse_ethers_signature(bytes: &[u8; 65]) -> Result<Signature, AuthError> {
     sig_bytes[..64].copy_from_slice(&bytes[..64]);
     sig_bytes[64] = v;
 
-    Signature::try_from(sig_bytes.as_slice())
+    Signature::from_raw_array(&sig_bytes)
         .map_err(|e| AuthError::RecoveryFailed(format!("Invalid signature bytes: {}", e)))
 }
 
@@ -110,29 +110,28 @@ mod tests {
         assert!(parse_signature_hex("0xdeadbeef").is_err());
     }
 
-    #[tokio::test]
-    async fn test_high_s_malleated_signature_rejected() {
-        use ethers_signers::{LocalWallet, Signer};
+    #[test]
+    fn test_high_s_malleated_signature_rejected() {
+        use alloy::signers::{local::PrivateKeySigner, SignerSync};
+        use alloy_primitives::U256;
 
-        let wallet: LocalWallet =
+        let wallet: PrivateKeySigner =
             "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
                 .parse()
                 .unwrap();
         let addr = format!("{:#x}", wallet.address());
         let msg = b"get:/foo:1700000000000:{}";
-        let sig = wallet.sign_message(&msg[..]).await.unwrap();
+        let sig = wallet.sign_message_sync(&msg[..]).unwrap();
 
-        let sig_hex = format!("0x{}", sig);
+        let sig_hex = sig.to_string();
         let rec = recover_address(msg, &sig_hex).expect("low-s sig must verify");
         assert_eq!(rec, addr, "canonical sig recovers signer");
 
         let mut raw = parse_signature_hex(&sig_hex).unwrap();
-        let s = ethers_core::types::U256::from_big_endian(&raw[32..64]);
-        let n = ethers_core::types::U256::from_big_endian(&SECP256K1_N);
+        let s = U256::from_be_slice(&raw[32..64]);
+        let n = U256::from_be_slice(&SECP256K1_N);
         let s2 = n - s;
-        let mut s2_be = [0u8; 32];
-        s2.to_big_endian(&mut s2_be);
-        raw[32..64].copy_from_slice(&s2_be);
+        raw[32..64].copy_from_slice(&s2.to_be_bytes::<32>());
         raw[64] = if raw[64] == 27 {
             28
         } else if raw[64] == 28 {
@@ -158,25 +157,25 @@ mod tests {
         s
     }
 
-    #[tokio::test]
-    async fn test_recover_from_raw_digest() {
-        use ethers_core::utils::keccak256;
-        use ethers_signers::{LocalWallet, Signer};
+    #[test]
+    fn test_recover_from_raw_digest() {
+        use alloy::signers::{local::PrivateKeySigner, SignerSync};
+        use alloy_primitives::keccak256;
 
-        let wallet: LocalWallet =
+        let wallet: PrivateKeySigner =
             "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
                 .parse()
                 .unwrap();
         let addr = format!("{:#x}", wallet.address());
 
         let digest = keccak256(b"some 32-byte typed-data digest input");
-        let sig = wallet.sign_hash(H256::from(digest)).unwrap();
-        let sig_hex = format!("0x{}", sig);
+        let sig = wallet.sign_hash_sync(&digest).unwrap();
+        let sig_hex = sig.to_string();
 
-        let rec = recover_address_from_digest(&digest, &sig_hex).expect("digest sig must verify");
+        let rec = recover_address_from_digest(&digest.0, &sig_hex).expect("digest sig must verify");
         assert_eq!(rec, addr);
 
-        let prefixed = recover_address(&digest, &sig_hex).unwrap();
+        let prefixed = recover_address(digest.as_slice(), &sig_hex).unwrap();
         assert_ne!(prefixed, addr);
     }
 
@@ -184,7 +183,7 @@ mod tests {
     fn test_v_normalization() {
         let mut bytes = [0u8; 65];
         bytes[64] = 27;
-        let sig = parse_ethers_signature(&bytes);
-        assert!(sig.is_err() || sig.unwrap().v == 0);
+        let sig = parse_signature(&bytes);
+        assert!(sig.is_err() || !sig.unwrap().v());
     }
 }

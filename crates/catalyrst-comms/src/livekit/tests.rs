@@ -4,7 +4,7 @@ use base64::Engine;
 
 #[test]
 fn jwt_has_three_dot_parts() {
-    let tok = AccessToken::new("devkey", "devsecret", "0xabc", VideoGrants::join("room1"))
+    let tok = AccessToken::new("devkey", "devsecret", "0xabc", join_grants("room1"))
         .to_jwt()
         .unwrap();
     assert_eq!(tok.split('.').count(), 3);
@@ -18,7 +18,7 @@ fn adapter_url_prefixes_wss() {
 
 #[test]
 fn room_names_match_upstream() {
-    assert_eq!(scene_room_name("abc"), "scene:abc");
+    assert_eq!(scene_room_name("main", "abc"), "scene:main:abc");
 
     assert_eq!(world_scene_room_name("foo.eth", "xyz"), "world-foo.eth-xyz");
     assert_eq!(world_room_name("foo.eth"), "world-foo.eth");
@@ -79,7 +79,7 @@ fn decode_jwt_payload(jwt: &str) -> serde_json::Value {
 
 #[test]
 fn private_voice_grants_match_upstream_generate_credentials() {
-    let mut grants = VideoGrants::join("voice-chat-private-call1");
+    let mut grants = join_grants("voice-chat-private-call1");
     grants.can_publish = true;
     grants.can_subscribe = true;
     grants.can_update_own_metadata = false;
@@ -105,7 +105,7 @@ fn private_voice_grants_match_upstream_generate_credentials() {
 
 #[test]
 fn community_speaker_grant_omits_publish_sources_restriction() {
-    let mut grants = VideoGrants::join("voice-chat-community-c1");
+    let mut grants = join_grants("voice-chat-community-c1");
     grants.can_publish = true;
     grants.can_update_own_metadata = false;
     let jwt = AccessToken::new("devkey", "devsecret", "0xabc", grants)
@@ -124,7 +124,7 @@ fn community_speaker_grant_omits_publish_sources_restriction() {
 
 #[test]
 fn community_listener_cannot_publish() {
-    let mut grants = VideoGrants::join("voice-chat-community-c1");
+    let mut grants = join_grants("voice-chat-community-c1");
     grants.can_publish = false;
     grants.can_subscribe = true;
     let jwt = AccessToken::new("devkey", "devsecret", "0xabc", grants)
@@ -434,8 +434,10 @@ async fn capture_seq(
 
 #[tokio::test]
 async fn merge_metadata_read_modify_writes_merged_blob() {
+    // First response is a single-participant GetParticipant reply (the whole
+    // body IS the ParticipantInfo), not a ListParticipants roster.
     let (host, rx) = capture_seq(vec![
-        r#"{"participants":[{"identity":"0xabc","metadata":"{\"role\":\"owner\",\"muted\":false}"}]}"#,
+        r#"{"identity":"0xabc","metadata":"{\"role\":\"owner\",\"muted\":false}"}"#,
         "{}",
     ])
     .await;
@@ -449,13 +451,34 @@ async fn merge_metadata_read_modify_writes_merged_blob() {
         .unwrap();
     let caps = rx.await.unwrap();
     assert_eq!(caps.len(), 2);
-    assert!(caps[0].line.contains("ListParticipants"));
+    assert!(caps[0].line.contains("GetParticipant"));
+    assert_eq!(
+        caps[0].body,
+        serde_json::json!({ "room": "voice-chat-community-c1", "identity": "0xabc" })
+    );
     assert!(caps[1].line.contains("UpdateParticipant"));
+    // The merge must NEVER fetch the whole roster.
+    assert!(
+        caps.iter().all(|c| !c.line.contains("ListParticipants")),
+        "merge must never fetch the whole roster"
+    );
 
     let written: serde_json::Value =
         serde_json::from_str(caps[1].body["metadata"].as_str().unwrap()).unwrap();
     assert_eq!(written["role"], "owner");
     assert_eq!(written["muted"], true);
+}
+
+#[tokio::test]
+async fn get_participant_maps_not_found_to_none() {
+    let (host, _rx) = capture_once("404 Not Found", "not_found").await;
+    let http = reqwest::Client::new();
+    let client = RoomServiceClient::new(&http, &host, "devkey", "devsecret");
+    let got = client
+        .get_participant("voice-chat-community-c1", "0xabc")
+        .await
+        .unwrap();
+    assert!(got.is_none(), "missing participant maps to None");
 }
 
 #[test]
@@ -566,6 +589,58 @@ async fn append_is_noop_when_value_already_present() {
     assert!(caps[0].line.contains("ListRooms"));
 }
 
+fn sign_webhook_jwt(api_key: &str, api_secret: &str, body: &[u8], exp: u64, nbf: u64) -> String {
+    use base64::engine::general_purpose::STANDARD;
+    use hmac::{Hmac, KeyInit, Mac};
+    use sha2::{Digest, Sha256};
+    let digest = STANDARD.encode(Sha256::digest(body));
+    let header = URL_SAFE_NO_PAD.encode(br#"{"alg":"HS256","typ":"JWT"}"#);
+    let payload = URL_SAFE_NO_PAD.encode(
+        serde_json::json!({ "iss": api_key, "exp": exp, "nbf": nbf, "sha256": digest }).to_string(),
+    );
+    let signing_input = format!("{header}.{payload}");
+    let mut mac = <Hmac<Sha256>>::new_from_slice(api_secret.as_bytes()).unwrap();
+    mac.update(signing_input.as_bytes());
+    let sig = URL_SAFE_NO_PAD.encode(mac.finalize().into_bytes());
+    format!("{signing_input}.{sig}")
+}
+
+#[test]
+fn webhook_token_round_trips_and_rejects_tampering() {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    let body = br#"{"event":"ingress_started"}"#;
+    let tok = sign_webhook_jwt("APIkey", "secret", body, now + 300, now);
+
+    assert!(verify_webhook_token("APIkey", "secret", body, &tok));
+    assert!(verify_webhook_token(
+        "APIkey",
+        "secret",
+        body,
+        &format!("Bearer {tok}")
+    ));
+
+    assert!(!verify_webhook_token("APIkey", "wrong", body, &tok));
+    assert!(!verify_webhook_token("other", "secret", body, &tok));
+    assert!(!verify_webhook_token(
+        "APIkey",
+        "secret",
+        br#"{"event":"ingress_ended"}"#,
+        &tok
+    ));
+
+    let expired = sign_webhook_jwt("APIkey", "secret", body, now - 3600, now - 7200);
+    assert!(!verify_webhook_token("APIkey", "secret", body, &expired));
+
+    let future = sign_webhook_jwt("APIkey", "secret", body, now + 7200, now + 3600);
+    assert!(!verify_webhook_token("APIkey", "secret", body, &future));
+
+    assert!(!verify_webhook_token("APIkey", "secret", body, "not-a-jwt"));
+    assert!(!verify_webhook_token("APIkey", "secret", body, ""));
+}
+
 #[tokio::test]
 async fn metadata_write_is_noop_for_missing_room() {
     let (host, rx) = capture_seq(vec![r#"{"rooms":[]}"#]).await;
@@ -578,4 +653,102 @@ async fn metadata_write_is_noop_for_missing_room() {
     let caps = rx.await.unwrap();
     assert_eq!(caps.len(), 1);
     assert!(caps[0].line.contains("ListRooms"));
+}
+
+/// A mock LiveKit that spawns a task PER connection (unlike `capture_seq`,
+/// which serves one socket serially and would deadlock under concurrent
+/// connections). Each request is recorded, then answered after `delay` by
+/// request line: ListRooms -> 16 rooms r0..r15; ListParticipants -> the target
+/// `0xban` only in room r7, else an empty roster; RemoveParticipant -> `{}`.
+async fn capture_concurrent(
+    delay: std::time::Duration,
+) -> (String, std::sync::Arc<std::sync::Mutex<Vec<Captured>>>) {
+    use tokio::io::AsyncWriteExt;
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let captured = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let captured_for_server = captured.clone();
+    tokio::spawn(async move {
+        loop {
+            let (mut sock, _) = match listener.accept().await {
+                Ok(pair) => pair,
+                Err(_) => break,
+            };
+            let captured = captured_for_server.clone();
+            tokio::spawn(async move {
+                while let Some((line, body)) = read_one_request(&mut sock).await {
+                    let resp_body: String = if line.contains("ListRooms") {
+                        let rooms: Vec<serde_json::Value> = (0..16)
+                            .map(|i| serde_json::json!({ "name": format!("r{i}") }))
+                            .collect();
+                        serde_json::json!({ "rooms": rooms }).to_string()
+                    } else if line.contains("ListParticipants") {
+                        if body["room"] == "r7" {
+                            r#"{"participants":[{"identity":"0xban"}]}"#.to_string()
+                        } else {
+                            r#"{"participants":[]}"#.to_string()
+                        }
+                    } else {
+                        "{}".to_string()
+                    };
+                    captured.lock().unwrap().push(Captured {
+                        line,
+                        auth: String::new(),
+                        body,
+                    });
+                    tokio::time::sleep(delay).await;
+                    let resp = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{resp_body}",
+                        resp_body.len()
+                    );
+                    if sock.write_all(resp.as_bytes()).await.is_err() {
+                        break;
+                    }
+                    let _ = sock.flush().await;
+                }
+            });
+        }
+    });
+    (format!("http://{addr}"), captured)
+}
+
+#[tokio::test]
+async fn ban_kick_fans_out_bounded_not_sequential() {
+    let delay = std::time::Duration::from_millis(25);
+    let (host, captured) = capture_concurrent(delay).await;
+    let http = reqwest::Client::new();
+    let client = RoomServiceClient::new(&http, &host, "devkey", "devsecret");
+
+    let t0 = tokio::time::Instant::now();
+    client
+        .remove_participant_from_all_rooms("0xban")
+        .await
+        .unwrap();
+    let elapsed = t0.elapsed();
+
+    // Sequential would be >=18 delayed calls (~450ms); bounded fan-out is
+    // ~25 + ceil(16/8)*25 + 25 ~= 100ms. The 250ms bound cleanly separates them.
+    assert!(
+        elapsed < std::time::Duration::from_millis(250),
+        "kick must fan out concurrently, took {elapsed:?}"
+    );
+
+    let caps = captured.lock().unwrap();
+    let lp: Vec<_> = caps
+        .iter()
+        .filter(|c| c.line.contains("ListParticipants"))
+        .collect();
+    assert_eq!(lp.len(), 16, "every room must be listed");
+    let rooms: std::collections::BTreeSet<&str> = lp
+        .iter()
+        .map(|c| c.body["room"].as_str().unwrap())
+        .collect();
+    assert_eq!(rooms.len(), 16, "every room listed exactly once");
+
+    let rm: Vec<_> = caps
+        .iter()
+        .filter(|c| c.line.contains("RemoveParticipant"))
+        .collect();
+    assert_eq!(rm.len(), 1, "only the room containing the ban is kicked");
+    assert_eq!(rm[0].body["room"], "r7");
 }

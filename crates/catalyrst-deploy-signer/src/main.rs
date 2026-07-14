@@ -6,6 +6,7 @@ use std::{
     time::SystemTime,
 };
 
+use alloy::signers::{local::PrivateKeySigner, Signer};
 use anyhow::{bail, Context, Result};
 use axum::{
     extract::State,
@@ -17,20 +18,19 @@ use axum::{
 use base64::Engine as _;
 use catalyrst_hashing::hash_bytes_v1;
 use clap::Parser;
-use ethers_signers::{LocalWallet, Signer};
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-fn load_or_create_key(path: &std::path::Path) -> Result<LocalWallet> {
+fn load_or_create_key(path: &std::path::Path) -> Result<PrivateKeySigner> {
     if path.exists() {
         let raw = std::fs::read_to_string(path)
             .with_context(|| format!("reading key {}", path.display()))?;
         let hexs = raw.trim().trim_start_matches("0x");
-        let wallet: LocalWallet = hexs.parse().context("parsing private key hex")?;
+        let wallet: PrivateKeySigner = hexs.parse().context("parsing private key hex")?;
         Ok(wallet)
     } else {
-        let wallet = LocalWallet::new(&mut ethers_core::rand::thread_rng());
-        let hexs = format!("0x{}", hex::encode(wallet.signer().to_bytes()));
+        let wallet = PrivateKeySigner::random();
+        let hexs = format!("0x{}", hex::encode(wallet.to_bytes()));
         std::fs::write(path, format!("{hexs}\n"))
             .with_context(|| format!("writing key {}", path.display()))?;
         #[cfg(unix)]
@@ -39,7 +39,7 @@ fn load_or_create_key(path: &std::path::Path) -> Result<LocalWallet> {
             let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
         }
         tracing::warn!(
-            "generated NEW deploy key at {} — address {} — keep the file secret",
+            "generated NEW deploy key at {} \u{2014} address {} \u{2014} keep the file secret",
             path.display(),
             addr_str(&wallet)
         );
@@ -47,16 +47,31 @@ fn load_or_create_key(path: &std::path::Path) -> Result<LocalWallet> {
     }
 }
 
-fn addr_str(w: &LocalWallet) -> String {
+fn addr_str(w: &PrivateKeySigner) -> String {
     format!("{:#x}", w.address())
 }
 
-async fn eip191_sign(w: &LocalWallet, msg: &str) -> Result<String> {
+async fn eip191_sign(w: &PrivateKeySigner, msg: &str) -> Result<String> {
     let sig = w
         .sign_message(msg.as_bytes())
         .await
         .context("EIP-191 sign")?;
-    Ok(format!("0x{sig}"))
+    Ok(sig.to_string())
+}
+
+/// The tail shared by `deploy` and `do_grant`: both post a request and then either surface a
+/// success message or bail with the response body attached to a caller-supplied context.
+fn ok_or_bail(
+    status: reqwest::StatusCode,
+    body: &str,
+    ok_msg: impl FnOnce() -> String,
+    reject_ctx: &str,
+) -> Result<String> {
+    if status.is_success() {
+        Ok(ok_msg())
+    } else {
+        bail!("{reject_ctx} (HTTP {}): {}", status.as_u16(), body)
+    }
 }
 
 fn read_world(args: &Args) -> Result<String> {
@@ -78,7 +93,7 @@ fn read_world(args: &Args) -> Result<String> {
 struct Args {
     #[arg(long, default_value = ".")]
     scene_dir: PathBuf,
-    #[arg(long, default_value = "https://worlds-content-server.decentraland.org")]
+    #[arg(long)]
     content_server: String,
     #[arg(long, default_value = "0.0.0.0")]
     bind: String,
@@ -158,6 +173,24 @@ struct Prepared {
     content_server: String,
     pointers: Vec<String>,
     metadata: Value,
+}
+
+impl Prepared {
+    /// A world is entered by realm URL, not by name: a bare `foo.dcl.eth`
+    /// resolves against Decentraland's worlds server, which is a different
+    /// world that merely shares the name.
+    fn realm_url(&self) -> String {
+        catalyrst_types::world_realm_url(&self.content_server, &self.world)
+    }
+
+    /// Where this deployment puts an arriving visitor, so the link lands them in
+    /// the scene they just published rather than at the world origin.
+    fn deep_link(&self) -> String {
+        let base = self.metadata["scene"]["base"]
+            .as_str()
+            .or_else(|| self.pointers.first().map(String::as_str));
+        catalyrst_types::realm_deep_link(&self.realm_url(), catalyrst_types::parse_position(base))
+    }
 }
 
 fn build_entity(p: &Prepared, timestamp: i64) -> (String, Vec<u8>) {
@@ -247,7 +280,7 @@ fn prepare(args: &Args) -> Result<Prepared> {
         })
         .unwrap_or_default();
     if pointers.is_empty() {
-        bail!("scene.parcels is missing/empty in scene.json — cannot form entity pointers");
+        bail!("scene.parcels is missing/empty in scene.json \u{2014} cannot form entity pointers");
     }
 
     Ok(Prepared {
@@ -285,6 +318,11 @@ async fn info(State(st): State<AppState>) -> Json<Value> {
         "entityId": entity_id,
         "contentServer": p.content_server,
         "timestamp": ts,
+        "deepLink": p.deep_link(),
+        "realmUrl": p.realm_url(),
+        // Kept as a fallback for anyone without the protocol handler registered,
+        // and labelled as such on the page: decentraland.org forwards `realm`
+        // only for realms it whitelists, so it cannot reach a self-hosted node.
         "playUrl": format!("https://decentraland.org/play/?realm={}", p.world),
         "files": p.files.iter().map(|(f, h, b)| json!({"file": f, "hash": h, "size": b.len()})).collect::<Vec<_>>(),
     }))
@@ -303,7 +341,7 @@ async fn sign(State(st): State<AppState>, Json(req): Json<SignReq>) -> Json<Valu
     let Some(entity_bytes) = entity_bytes else {
         return Json(json!({
             "ok": false,
-            "error": "unknown/stale entity id — reload the page and sign again (the deployment expires after ~5 min)"
+            "error": "unknown/stale entity id \u{2014} reload the page and sign again (the deployment expires after ~5 min)"
         }));
     };
     match deploy(
@@ -375,27 +413,27 @@ async fn deploy(
         .context("posting to content server")?;
     let status = resp.status();
     let body = resp.text().await.unwrap_or_default();
-    if status.is_success() {
-        Ok(format!(
-            "Deployed to {} \u{2713} (HTTP {}). Live at https://decentraland.org/play/?realm={} — server: {}",
-            p.world, status.as_u16(), p.world, body
-        ))
-    } else {
-        bail!(
-            "content server rejected the deployment (HTTP {}): {}",
-            status.as_u16(),
-            body
-        )
-    }
+    ok_or_bail(
+        status,
+        &body,
+        || {
+            format!(
+                "Deployed to {} \u{2713} (HTTP {}). Walk in with: {} \u{2014} server: {}",
+                p.world,
+                status.as_u16(),
+                p.deep_link(),
+                body
+            )
+        },
+        "content server rejected the deployment",
+    )
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
-        )
-        .init();
+    // Clap owns the CLI surface here, so only the tracing half of the
+    // standard envcfg bootstrap applies.
+    catalyrst_envcfg::init_tracing("info");
 
     let args = Args::parse();
     let content_server = args.content_server.trim_end_matches('/').to_string();
@@ -472,12 +510,15 @@ async fn main() -> Result<()> {
         .await
         .with_context(|| format!("binding {addr}"))?;
     tracing::info!("");
-    tracing::info!("  ┌───────────────────────────────────────────────────────────");
-    tracing::info!("  │  Open the signing page in a browser with your wallet:");
-    tracing::info!("  │    http://{}:{}/", args.bind, args.port);
-    tracing::info!("  │  Connect the wallet that controls  {}", world_disp);
-    tracing::info!("  │  then Sign → it deploys and this process exits on success.");
-    tracing::info!("  └───────────────────────────────────────────────────────────");
+    tracing::info!("  \u{250C}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}");
+    tracing::info!("  \u{2502}  Open the signing page in a browser with your wallet:");
+    tracing::info!("  \u{2502}    http://{}:{}/", args.bind, args.port);
+    tracing::info!(
+        "  \u{2502}  Connect the wallet that controls  {}",
+        world_disp
+    );
+    tracing::info!("  \u{2502}  then Sign \u{2192} it deploys and this process exits on success.");
+    tracing::info!("  \u{2514}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}");
     tracing::info!("");
 
     axum::serve(listener, app).await.context("serving")?;
@@ -556,28 +597,27 @@ async fn do_grant(st: &GrantState, req: &GrantReq) -> Result<String> {
         .context("PUT permission to content server")?;
     let status = resp.status();
     let body = resp.text().await.unwrap_or_default();
-    if status.is_success() {
-        Ok(format!(
-            "Granted '{}' on {} to {} \u{2713} (HTTP {}). Future deploys are unattended.",
-            st.permission,
-            st.world,
-            st.deploy_address,
-            status.as_u16()
-        ))
-    } else {
-        bail!(
-            "permission server rejected the grant (HTTP {}): {}",
-            status.as_u16(),
-            body
-        )
-    }
+    ok_or_bail(
+        status,
+        &body,
+        || {
+            format!(
+                "Granted '{}' on {} to {} \u{2713} (HTTP {}). Future deploys are unattended.",
+                st.permission,
+                st.world,
+                st.deploy_address,
+                status.as_u16()
+            )
+        },
+        "permission server rejected the grant",
+    )
 }
 
 async fn run_grant(
     args: &Args,
     content_server: &str,
     world: &str,
-    wallet: &LocalWallet,
+    wallet: &PrivateKeySigner,
 ) -> Result<()> {
     let deploy_address = addr_str(wallet);
     let permission = args.permission.to_lowercase();
@@ -609,13 +649,15 @@ async fn run_grant(
         .await
         .with_context(|| format!("binding {addr}"))?;
     tracing::info!("");
-    tracing::info!("  ┌───────────────────────────────────────────────────────────");
-    tracing::info!("  │  GRANT '{}' on  {}", permission, world);
-    tracing::info!("  │  to deploy-key address:  {}", deploy_address);
-    tracing::info!("  │  Open in a browser with the OWNER wallet of the World:");
-    tracing::info!("  │    http://{}:{}/", args.bind, args.port);
-    tracing::info!("  │  Sign once → permission set → future deploys need no wallet.");
-    tracing::info!("  └───────────────────────────────────────────────────────────");
+    tracing::info!("  \u{250C}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}");
+    tracing::info!("  \u{2502}  GRANT '{}' on  {}", permission, world);
+    tracing::info!("  \u{2502}  to deploy-key address:  {}", deploy_address);
+    tracing::info!("  \u{2502}  Open in a browser with the OWNER wallet of the World:");
+    tracing::info!("  \u{2502}    http://{}:{}/", args.bind, args.port);
+    tracing::info!(
+        "  \u{2502}  Sign once \u{2192} permission set \u{2192} future deploys need no wallet."
+    );
+    tracing::info!("  \u{2514}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}");
     tracing::info!("");
     axum::serve(listener, app)
         .with_graceful_shutdown(async move {
@@ -623,14 +665,12 @@ async fn run_grant(
         })
         .await
         .context("serving grant page")?;
-    tracing::info!("grant complete — exiting.");
+    tracing::info!("grant complete \u{2014} exiting.");
     Ok(())
 }
 
 const STORAGE_DELEGATION_PREFIX: &str = "Decentraland Authoritative Storage Delegation";
 
-// Mirror of catalyrst-world-storage::is_valid_parcel — the parcel goes verbatim
-// into the signed claim the verifier matches against.
 fn is_valid_parcel(parcel: &str) -> bool {
     fn is_coord(s: &str) -> bool {
         let digits = s.strip_prefix('-').unwrap_or(s);
@@ -660,16 +700,14 @@ fn validate_delegation_req(
     Ok((world, scene_id.to_string(), parcel.to_string()))
 }
 
-// The envelope carries a throwaway ephemeral PRIVATE key: never log it, and only
-// hand it out on loopback or behind the bearer token.
 async fn mint_delegation_envelope(
-    authoritative: &LocalWallet,
+    authoritative: &PrivateKeySigner,
     world: &str,
     scene_id: &str,
     parcel: &str,
     ttl: std::time::Duration,
 ) -> Result<String> {
-    let ephemeral = LocalWallet::new(&mut ethers_core::rand::thread_rng());
+    let ephemeral = PrivateKeySigner::random();
     let expiration = chrono::Utc::now() + chrono::Duration::seconds(ttl.as_secs() as i64);
     let payload = format!(
         "{STORAGE_DELEGATION_PREFIX}\nEphemeral: {}\nWorld: {}\nSceneId: {}\nParcel: {}\nExpiration: {}",
@@ -683,10 +721,10 @@ async fn mint_delegation_envelope(
     let envelope = json!({
         "v": 1,
         "ephemeral": {
-            "privateKey": format!("0x{}", hex::encode(ephemeral.signer().to_bytes())),
+            "privateKey": format!("0x{}", hex::encode(ephemeral.to_bytes())),
             "publicKey": format!(
                 "0x{}",
-                hex::encode(ephemeral.signer().verifying_key().to_encoded_point(false).as_bytes())
+                hex::encode(ephemeral.credential().verifying_key().to_encoded_point(false).as_bytes())
             ),
             "address": addr_str(&ephemeral),
         },
@@ -697,7 +735,7 @@ async fn mint_delegation_envelope(
 
 #[derive(Clone)]
 struct MinterState {
-    wallet: Arc<LocalWallet>,
+    wallet: Arc<PrivateKeySigner>,
     ttl: std::time::Duration,
     token: Option<String>,
 }
@@ -752,19 +790,12 @@ async fn mint_delegation(
     }
 }
 
-// An empty --delegation-token is treated as ABSENT: otherwise it would both open
-// the public --bind below AND authorize anyone presenting an empty `Bearer `. An
-// unset shell var expanding to "" is the realistic trigger, so fail safe to
-// loopback-only + no-token rather than a publicly-exposed, trivially-bypassable
-// authoritative minter.
 fn effective_delegation_token(raw: &Option<String>) -> Option<String> {
     raw.clone().filter(|s| !s.is_empty())
 }
 
-async fn run_delegation_minter(args: &Args, wallet: LocalWallet) -> Result<()> {
+async fn run_delegation_minter(args: &Args, wallet: PrivateKeySigner) -> Result<()> {
     let token = effective_delegation_token(&args.delegation_token);
-    // Without a token the response (which contains an ephemeral private key) must
-    // never leave the machine: force loopback regardless of --bind.
     let bind = if token.is_some() {
         args.bind.clone()
     } else {
@@ -792,7 +823,7 @@ async fn run_delegation_minter(args: &Args, wallet: LocalWallet) -> Result<()> {
         .await
         .with_context(|| format!("binding {addr}"))?;
     tracing::info!(
-        "delegation minter listening on {addr} — authoritative address {address} (configure it as AUTHORITATIVE_SERVER_ADDRESS in world-storage)"
+        "delegation minter listening on {addr} \u{2014} authoritative address {address} (configure it as AUTHORITATIVE_SERVER_ADDRESS in world-storage)"
     );
     axum::serve(listener, app)
         .await
@@ -825,13 +856,13 @@ const GRANT_PAGE: &str = r##"<!doctype html>
   .info{background:#101a2c;border:1px solid #24314d;color:#a9c0e6}
 </style></head>
 <body><div class="card">
-  <h1>Grant deploy <span class="t">·</span> owner signature</h1>
+  <h1>Grant deploy <span class="t">&#xB7;</span> owner signature</h1>
   <p class="sub">Connect the wallet that OWNS this World and authorize the deploy key once. After this, deployments run unattended (no wallet).</p>
   <div class="kv">
-    <b>World</b><code id="world">…</code>
-    <b>Permission</b><code id="perm">…</code>
-    <b>Deploy key</b><code id="addr">…</code>
-    <b>Content server</b><code id="cs">…</code>
+    <b>World</b><code id="world">&#x2026;</code>
+    <b>Permission</b><code id="perm">&#x2026;</code>
+    <b>Deploy key</b><code id="addr">&#x2026;</code>
+    <b>Content server</b><code id="cs">&#x2026;</code>
   </div>
   <button id="go" disabled>Connect owner wallet &amp; grant</button>
   <div id="status"></div>
@@ -855,19 +886,19 @@ $("go").onclick=async()=>{
   try{
     if(!window.ethereum){show("err","No wallet found. Open in a browser with MetaMask (or another EIP-1193 wallet).");return;}
     btn.disabled=true;
-    show("info","Requesting wallet…");
+    show("info","Requesting wallet\u2026");
     const accounts=await window.ethereum.request({method:"eth_requestAccounts"});
     const owner=accounts[0];
     const ts=Date.now();
     const payload=("put:"+INFO.path+":"+ts+":{}").toLowerCase();
-    show("info","Signing authorization with "+owner+" …");
+    show("info","Signing authorization with "+owner+" \u2026");
     const signature=await window.ethereum.request({method:"personal_sign",params:[payload,owner]});
-    show("info","Submitting grant…");
+    show("info","Submitting grant\u2026");
     const r=await (await fetch("grant",{method:"POST",headers:{"content-type":"application/json"},
       body:JSON.stringify({ownerAddress:owner,signature,timestamp:ts})})).json();
-    if(r.ok){show("ok","✓ "+r.message+"\n\nYou can close this tab.");}
-    else{show("err","✗ "+r.error);btn.disabled=false;}
-  }catch(e){show("err","✗ "+(e&&e.message?e.message:e));btn.disabled=false;}
+    if(r.ok){show("ok","\u2713 "+r.message+"\n\nYou can close this tab.");}
+    else{show("err","\u2717 "+r.error);btn.disabled=false;}
+  }catch(e){show("err","\u2717 "+(e&&e.message?e.message:e));btn.disabled=false;}
 };
 load();
 </script></body></html>
@@ -901,12 +932,12 @@ const PAGE: &str = r##"<!doctype html>
   a{color:#22e6d0}
 </style></head>
 <body><div class="card">
-  <h1>Deploy <span class="t">·</span> signature required</h1>
+  <h1>Deploy <span class="t">&#xB7;</span> signature required</h1>
   <p class="sub">Connect the wallet that controls this World and sign the deployment. One-time; the signer exits on success.</p>
   <div class="kv">
-    <b>World</b><code id="world">…</code>
-    <b>Content server</b><code id="cs">…</code>
-    <b>Entity id</b><code id="eid">…</code>
+    <b>World</b><code id="world">&#x2026;</code>
+    <b>Content server</b><code id="cs">&#x2026;</code>
+    <b>Entity id</b><code id="eid">&#x2026;</code>
     <b>Files</b><div><ul id="files"></ul></div>
   </div>
   <button id="go" disabled>Connect wallet &amp; sign &amp; deploy</button>
@@ -931,22 +962,22 @@ $("go").onclick=async()=>{
   try{
     if(!window.ethereum){show("err","No wallet found. Open this in a browser with MetaMask (or another EIP-1193 wallet).");return;}
     btn.disabled=true;
-    show("info","Requesting wallet…");
+    show("info","Requesting wallet\u2026");
     const accounts=await window.ethereum.request({method:"eth_requestAccounts"});
     const address=accounts[0];
     // Re-mint a fresh entity NOW: the content server rejects deployments whose
     // timestamp is older than ~5 min, so we sign one that's only seconds old.
-    show("info","Preparing a fresh deployment…");
+    show("info","Preparing a fresh deployment\u2026");
     INFO=await (await fetch("api/info")).json();
     $("eid").textContent=INFO.entityId;
-    show("info","Signing entity id with "+address+" …");
+    show("info","Signing entity id with "+address+" \u2026");
     const signature=await window.ethereum.request({method:"personal_sign",params:[INFO.entityId,address]});
-    show("info","Uploading deployment to "+INFO.contentServer+" …");
+    show("info","Uploading deployment to "+INFO.contentServer+" \u2026");
     const r=await (await fetch("sign",{method:"POST",headers:{"content-type":"application/json"},
       body:JSON.stringify({address,signature,entityId:INFO.entityId})})).json();
-    if(r.ok){show("ok","✓ "+r.message+"\n\nOpen: "+INFO.playUrl);}
-    else{show("err","✗ "+r.error);btn.disabled=false;}
-  }catch(e){show("err","✗ "+(e&&e.message?e.message:e));btn.disabled=false;}
+    if(r.ok){show("ok","\u2713 "+r.message+"\n\nOpen: "+INFO.deepLink+"\n\nIf your browser will not open that link, paste it into the address bar. The decentraland.org launcher page ("+INFO.playUrl+") only forwards realms it whitelists, so it will not reach this server.");}
+    else{show("err","\u2717 "+r.error);btn.disabled=false;}
+  }catch(e){show("err","\u2717 "+(e&&e.message?e.message:e));btn.disabled=false;}
 };
 load();
 </script></body></html>
@@ -956,10 +987,8 @@ load();
 mod delegation_tests {
     use super::*;
 
-    const KEY: &str = "0x4c0883a69102937d6231471b5dbb6204fe5129617082792ae468d01a3f362318";
-
-    fn authoritative() -> LocalWallet {
-        KEY.trim_start_matches("0x").parse().unwrap()
+    fn authoritative() -> PrivateKeySigner {
+        PrivateKeySigner::random()
     }
 
     fn decode(envelope: &str) -> Value {
@@ -969,9 +998,6 @@ mod delegation_tests {
         serde_json::from_slice(&bytes).expect("envelope must be JSON")
     }
 
-    // Mirror of the verifier's exact-field claim parse
-    // (catalyrst-world-storage/src/delegation.rs::parse_claim) so minter/verifier
-    // format drift fails this test.
     fn strict_parse_claim(payload: &str) -> Option<[String; 5]> {
         const FIELDS: [&str; 5] = ["Ephemeral:", "World:", "SceneId:", "Parcel:", "Expiration:"];
         let mut lines = payload.split('\n');
@@ -1048,16 +1074,15 @@ mod delegation_tests {
         .unwrap();
         let v = decode(&envelope);
         let payload = v["scope"]["payload"].as_str().unwrap().to_string();
-        let sig: ethers_core::types::Signature = v["scope"]["signature"]
+        let sig: alloy::primitives::Signature = v["scope"]["signature"]
             .as_str()
             .unwrap()
             .trim_start_matches("0x")
             .parse()
             .unwrap();
-        let recovered = sig.recover(payload).unwrap();
+        let recovered = sig.recover_address_from_msg(payload).unwrap();
         assert_eq!(format!("{recovered:#x}"), addr_str(&wallet));
 
-        // The ephemeral key must be fresh per envelope and distinct from the signer.
         let eph = v["ephemeral"]["address"].as_str().unwrap();
         assert_ne!(eph, addr_str(&wallet));
         let envelope2 = mint_delegation_envelope(
@@ -1085,9 +1110,6 @@ mod delegation_tests {
 
     #[test]
     fn empty_delegation_token_is_treated_as_absent() {
-        // Exploit guard: `--delegation-token ""` (e.g. an unset shell var) must NOT
-        // count as a configured token — that would open the public --bind and let
-        // an empty `Bearer ` authorize minting of authoritative delegations.
         assert_eq!(effective_delegation_token(&Some(String::new())), None);
         assert_eq!(effective_delegation_token(&None), None);
         assert_eq!(

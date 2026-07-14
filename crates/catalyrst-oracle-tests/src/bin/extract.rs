@@ -62,7 +62,7 @@ async fn main() -> Result<()> {
         .expect("CATALYRST_ORACLE_CONTENT_ROOT not set");
 
     let db_url = std::env::var("CATALYRST_ORACLE_DB_URL")
-        .expect("CATALYRST_ORACLE_DB_URL not set — point at a populated content DB");
+        .expect("CATALYRST_ORACLE_DB_URL not set -- point at a populated content DB");
     let pool = PgPoolOptions::new()
         .max_connections(4)
         .connect(&db_url)

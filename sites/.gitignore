@@ -1,0 +1,7 @@
+node_modules
+build
+public
+.env
+.react-router
+scripts/drive/out/
+tsconfig.tsbuildinfo

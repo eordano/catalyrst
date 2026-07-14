@@ -1,0 +1,3156 @@
+{
+ "description": "Source-derived HTTP/WS request shapes from unity-explorer (PR #9728 base-domain worktree), reconciled against the dynamic corpus, synthetic probes, and deferrals. Every shape carries exactly one disposition. Verified by the source_inventory_reconciles test in catalyrst-conformance.",
+ "allowedDeferralReasons": [
+  "needs-real-wallet",
+  "desktop-shell-only",
+  "error-path-only",
+  "documented-intentional-upstream-dependency",
+  "immutable-content-addressed"
+ ],
+ "allowedUpstreamHosts": [
+  "__scene__",
+  "api.coingecko.com",
+  "api.segment.com",
+  "api.segment.io",
+  "docs.google.com",
+  "drive.usercontent.google.com",
+  "github.com",
+  "media.githubusercontent.com",
+  "opensea.decentraland.org",
+  "www.youtube.com",
+  "*.thirdweb.com"
+ ],
+ "upstreamRule": "documented-intentional-upstream-dependency is permitted ONLY for allowedUpstreamHosts (genuinely external providers/content) and the synthetic __scene__ passthrough. Every other host is a first-party base-domain/gateway obligation and must be corpus | probe | needs-real-wallet | desktop-shell-only | immutable-content-addressed. The checker rejects violations.",
+ "shapeCount": 193,
+ "shapes": [
+  {
+   "id": "* __scene__ /scene-authored-passthrough",
+   "method": "*",
+   "host": "__scene__",
+   "pathTemplate": "/scene-authored-passthrough",
+   "auth": "scene",
+   "bucket": "scene-signedfetch",
+   "sites": [
+    "Explorer/Assets/DCL/Infrastructure/Global/Dynamic/Bootstraper.cs:303",
+    "Explorer/Assets/DCL/Infrastructure/Global/Dynamic/GlobalWorldFactory.cs:166",
+    "Explorer/Assets/DCL/Infrastructure/Global/Dynamic/GlobalWorldFactory.cs:167"
+   ],
+   "disposition": {
+    "kind": "deferred",
+    "reason": "documented-intentional-upstream-dependency",
+    "rationale": "Scene-authored fetch/signedFetch/websocket destination; the client is a transparent proxy for a URL the running SDK scene chooses, not a fixed deployment endpoint."
+   }
+  },
+  {
+   "id": "DELETE camera-reel-service.decentraland.org /api/images/{v}",
+   "method": "DELETE",
+   "host": "camera-reel-service.decentraland.org",
+   "pathTemplate": "/api/images/{v}",
+   "auth": "signed-fetch",
+   "bucket": "quests-credits-camera-reel",
+   "sites": [
+    "Explorer/Assets/DCL/InWorldCamera/CameraReelStorageService/CameraReelImagesMetadataRemoteDatabase.cs:30",
+    "Explorer/Assets/DCL/InWorldCamera/CameraReelStorageService/CameraReelImagesMetadataRemoteDatabase.cs:189"
+   ],
+   "disposition": {
+    "kind": "deferred",
+    "reason": "needs-real-wallet",
+    "rationale": "First-party signed service over per-user/social-graph state; header construction proven-equivalent in synthetic-probes. Unlock: signed identity + seeded state."
+   }
+  },
+  {
+   "id": "DELETE events.decentraland.org /api/events/{v}/attendees",
+   "method": "DELETE",
+   "host": "events.decentraland.org",
+   "pathTemplate": "/api/events/{v}/attendees",
+   "auth": "signed-fetch",
+   "bucket": "events-places-worlds",
+   "sites": [
+    "Explorer/Assets/DCL/EventsApi/HttpEventsApiService.cs:39",
+    "Explorer/Assets/DCL/EventsApi/HttpEventsApiService.cs:193"
+   ],
+   "disposition": {
+    "kind": "deferred",
+    "reason": "needs-real-wallet",
+    "rationale": "First-party signed service over per-user/social-graph state; header construction proven-equivalent in synthetic-probes. Unlock: signed identity + seeded state."
+   }
+  },
+  {
+   "id": "DELETE notifications.decentraland.org /subscription/opt-outs/community/{v}",
+   "method": "DELETE",
+   "host": "notifications.decentraland.org",
+   "pathTemplate": "/subscription/opt-outs/community/{v}",
+   "auth": "signed-fetch",
+   "bucket": "friends-social-mutes",
+   "sites": [
+    "Explorer/Assets/DCL/Communities/CommunitiesDataProvider/CommunitiesDataProvider.cs:60",
+    "Explorer/Assets/DCL/Communities/CommunitiesDataProvider/CommunitiesDataProvider.cs:547"
+   ],
+   "disposition": {
+    "kind": "deferred",
+    "reason": "needs-real-wallet",
+    "rationale": "First-party signed service over per-user/social-graph state; header construction proven-equivalent in synthetic-probes. Unlock: signed identity + seeded state."
+   }
+  },
+  {
+   "id": "DELETE social-api.decentraland.org /v{n}/communities/{v}",
+   "method": "DELETE",
+   "host": "social-api.decentraland.org",
+   "pathTemplate": "/v{n}/communities/{v}",
+   "auth": "signed-fetch",
+   "bucket": "friends-social-mutes",
+   "sites": [
+    "Explorer/Assets/DCL/Communities/CommunitiesDataProvider/CommunitiesDataProvider.cs:54",
+    "Explorer/Assets/DCL/Communities/CommunitiesDataProvider/CommunitiesDataProvider.cs:358"
+   ],
+   "disposition": {
+    "kind": "deferred",
+    "reason": "needs-real-wallet",
+    "rationale": "First-party signed service over per-user/social-graph state; header construction proven-equivalent in synthetic-probes. Unlock: signed identity + seeded state."
+   }
+  },
+  {
+   "id": "DELETE social-api.decentraland.org /v{n}/communities/{v}/members/{v}",
+   "method": "DELETE",
+   "host": "social-api.decentraland.org",
+   "pathTemplate": "/v{n}/communities/{v}/members/{v}",
+   "auth": "signed-fetch",
+   "bucket": "friends-social-mutes",
+   "sites": [
+    "Explorer/Assets/DCL/Communities/CommunitiesDataProvider/CommunitiesDataProvider.cs:54",
+    "Explorer/Assets/DCL/Communities/CommunitiesDataProvider/CommunitiesDataProvider.cs:326"
+   ],
+   "disposition": {
+    "kind": "deferred",
+    "reason": "needs-real-wallet",
+    "rationale": "First-party signed service over per-user/social-graph state; header construction proven-equivalent in synthetic-probes. Unlock: signed identity + seeded state."
+   }
+  },
+  {
+   "id": "DELETE social-api.decentraland.org /v{n}/communities/{v}/members/{v}/bans",
+   "method": "DELETE",
+   "host": "social-api.decentraland.org",
+   "pathTemplate": "/v{n}/communities/{v}/members/{v}/bans",
+   "auth": "signed-fetch",
+   "bucket": "friends-social-mutes",
+   "sites": [
+    "Explorer/Assets/DCL/Communities/CommunitiesDataProvider/CommunitiesDataProvider.cs:54",
+    "Explorer/Assets/DCL/Communities/CommunitiesDataProvider/CommunitiesDataProvider.cs:315"
+   ],
+   "disposition": {
+    "kind": "deferred",
+    "reason": "needs-real-wallet",
+    "rationale": "First-party signed service over per-user/social-graph state; header construction proven-equivalent in synthetic-probes. Unlock: signed identity + seeded state."
+   }
+  },
+  {
+   "id": "DELETE social-api.decentraland.org /v{n}/communities/{v}/places/{v}",
+   "method": "DELETE",
+   "host": "social-api.decentraland.org",
+   "pathTemplate": "/v{n}/communities/{v}/places/{v}",
+   "auth": "signed-fetch",
+   "bucket": "friends-social-mutes",
+   "sites": [
+    "Explorer/Assets/DCL/Communities/CommunitiesDataProvider/CommunitiesDataProvider.cs:54",
+    "Explorer/Assets/DCL/Communities/CommunitiesDataProvider/CommunitiesDataProvider.cs:386"
+   ],
+   "disposition": {
+    "kind": "deferred",
+    "reason": "needs-real-wallet",
+    "rationale": "First-party signed service over per-user/social-graph state; header construction proven-equivalent in synthetic-probes. Unlock: signed identity + seeded state."
+   }
+  },
+  {
+   "id": "DELETE social-api.decentraland.org /v{n}/communities/{v}/posts/{v}",
+   "method": "DELETE",
+   "host": "social-api.decentraland.org",
+   "pathTemplate": "/v{n}/communities/{v}/posts/{v}",
+   "auth": "signed-fetch",
+   "bucket": "friends-social-mutes",
+   "sites": [
+    "Explorer/Assets/DCL/Communities/CommunitiesDataProvider/CommunitiesDataProvider.cs:54",
+    "Explorer/Assets/DCL/Communities/CommunitiesDataProvider/CommunitiesDataProvider.cs:504"
+   ],
+   "disposition": {
+    "kind": "deferred",
+    "reason": "needs-real-wallet",
+    "rationale": "First-party signed service over per-user/social-graph state; header construction proven-equivalent in synthetic-probes. Unlock: signed identity + seeded state."
+   }
+  },
+  {
+   "id": "DELETE social-api.decentraland.org /v{n}/communities/{v}/posts/{v}/like",
+   "method": "DELETE",
+   "host": "social-api.decentraland.org",
+   "pathTemplate": "/v{n}/communities/{v}/posts/{v}/like",
+   "auth": "signed-fetch",
+   "bucket": "friends-social-mutes",
+   "sites": [
+    "Explorer/Assets/DCL/Communities/CommunitiesDataProvider/CommunitiesDataProvider.cs:54",
+    "Explorer/Assets/DCL/Communities/CommunitiesDataProvider/CommunitiesDataProvider.cs:526"
+   ],
+   "disposition": {
+    "kind": "deferred",
+    "reason": "needs-real-wallet",
+    "rationale": "First-party signed service over per-user/social-graph state; header construction proven-equivalent in synthetic-probes. Unlock: signed identity + seeded state."
+   }
+  },
+  {
+   "id": "DELETE social-api.decentraland.org /v{n}/mutes",
+   "method": "DELETE",
+   "host": "social-api.decentraland.org",
+   "pathTemplate": "/v{n}/mutes",
+   "auth": "signed-fetch",
+   "bucket": "friends-social-mutes",
+   "sites": [
+    "Explorer/Assets/DCL/VoiceChat/NearbyVoiceChat/MutePersistence/RestNearbyMuteRepository.cs:21",
+    "Explorer/Assets/DCL/VoiceChat/NearbyVoiceChat/MutePersistence/RestNearbyMuteRepository.cs:91"
+   ],
+   "disposition": {
+    "kind": "deferred",
+    "reason": "needs-real-wallet",
+    "rationale": "First-party signed service over per-user/social-graph state; header construction proven-equivalent in synthetic-probes. Unlock: signed identity + seeded state."
+   }
+  },
+  {
+   "id": "GET 127.0.0.1:5147 /manifest/{v}_{v}.json",
+   "method": "GET",
+   "host": "127.0.0.1:5147",
+   "pathTemplate": "/manifest/{v}_{v}.json",
+   "auth": "none",
+   "bucket": "asset-bundles-content",
+   "sites": [
+    "Explorer/Assets/DCL/Infrastructure/Global/Dynamic/AbgenSidecar.cs:187"
+   ],
+   "disposition": {
+    "kind": "deferred",
+    "reason": "desktop-shell-only",
+    "rationale": "Local dev/editor tooling endpoint (abgen plugin / MCP / preview server); never reached by a shipped player boot."
+   }
+  },
+  {
+   "id": "GET 127.0.0.1:5147 /progress/{v}",
+   "method": "GET",
+   "host": "127.0.0.1:5147",
+   "pathTemplate": "/progress/{v}",
+   "auth": "none",
+   "bucket": "asset-bundles-content",
+   "sites": [
+    "Explorer/Assets/DCL/Infrastructure/Global/Dynamic/AbgenSidecar.cs:319"
+   ],
+   "disposition": {
+    "kind": "deferred",
+    "reason": "desktop-shell-only",
+    "rationale": "Local dev/editor tooling endpoint (abgen plugin / MCP / preview server); never reached by a shipped player boot."
+   }
+  },
+  {
+   "id": "GET ab-cdn.decentraland.org /LOD/1/{v}_1_mac",
+   "method": "GET",
+   "host": "ab-cdn.decentraland.org",
+   "pathTemplate": "/LOD/1/{v}_1_mac",
+   "auth": "none",
+   "bucket": "other",
+   "sites": [
+    "Explorer/Assets/DCL/WebRequests/Analytics/WebRequestStressTestUtility.cs:59"
+   ],
+   "disposition": {
+    "kind": "deferred",
+    "reason": "immutable-content-addressed",
+    "rationale": "Content/world/community-id-keyed asset or manifest; served identically by key on any deployment or CDN."
+   }
+  },
+  {
+   "id": "GET ab-cdn.decentraland.org /manifest/{v}_{v}.json",
+   "method": "GET",
+   "host": "ab-cdn.decentraland.org",
+   "pathTemplate": "/manifest/{v}_{v}.json",
+   "auth": "none",
+   "bucket": "asset-bundles-content",
+   "sites": [
+    "Explorer/Assets/DCL/Infrastructure/ECS/Unity/StreamableLoading/AssetBundles/LoadAssetBundleManifestSystem.cs:62",
+    "Explorer/Assets/DCL/Infrastructure/SceneLifeCycle/SceneFacade/Systems/LoadHybridSceneSystemLogic.cs:80"
+   ],
+   "disposition": {
+    "kind": "deferred",
+    "reason": "immutable-content-addressed",
+    "rationale": "Content/world/community-id-keyed asset or manifest; served identically by key on any deployment or CDN."
+   }
+  },
+  {
+   "id": "GET ab-cdn.decentraland.org /{v}/{v}",
+   "method": "GET",
+   "host": "ab-cdn.decentraland.org",
+   "pathTemplate": "/{v}/{v}",
+   "auth": "none",
+   "bucket": "asset-bundles-content",
+   "sites": [
+    "Explorer/Assets/DCL/Infrastructure/Global/StaticContainer.cs:252"
+   ],
+   "disposition": {
+    "kind": "deferred",
+    "reason": "immutable-content-addressed",
+    "rationale": "Content/world/community-id-keyed asset or manifest; served identically by key on any deployment or CDN."
+   }
+  },
+  {
+   "id": "GET ab-cdn.decentraland.org /{v}/{v}{v}",
+   "method": "GET",
+   "host": "ab-cdn.decentraland.org",
+   "pathTemplate": "/{v}/{v}{v}",
+   "auth": "none",
+   "bucket": "asset-bundles-content",
+   "sites": [
+    "Explorer/Assets/DCL/Infrastructure/ECS/Unity/StreamableLoading/AssetBundles/LoadAssetBundleSystem.cs:87"
+   ],
+   "disposition": {
+    "kind": "deferred",
+    "reason": "immutable-content-addressed",
+    "rationale": "Content/world/community-id-keyed asset or manifest; served identically by key on any deployment or CDN."
+   }
+  },
+  {
+   "id": "GET api.coingecko.com /api/v{n}/simple/price",
+   "method": "GET",
+   "host": "api.coingecko.com",
+   "pathTemplate": "/api/v{n}/simple/price",
+   "auth": "none",
+   "bucket": "other",
+   "sites": [
+    "Explorer/Assets/DCL/Donations/DonationsService.cs:75",
+    "Explorer/Assets/DCL/Donations/DonationsService.cs:255",
+    "Explorer/Assets/DCL/Donations/DonationsService.cs:256"
+   ],
+   "disposition": {
+    "kind": "deferred",
+    "reason": "documented-intentional-upstream-dependency",
+    "rationale": "Genuinely-external provider/content (YouTube / Thirdweb / Google-Drive / GitHub tiles / CoinGecko / OpenSea proxy); not a base-domain obligation."
+   }
+  },
+  {
+   "id": "GET api.decentraland.org /v{n}/map.png",
+   "method": "GET",
+   "host": "api.decentraland.org",
+   "pathTemplate": "/v{n}/map.png",
+   "auth": "none",
+   "bucket": "events-places-worlds",
+   "sites": [
+    "Explorer/Assets/DCL/MapRenderer/MapLayers/Atlas/ParcelAtlas/ParcelChunkController.cs:29",
+    "Explorer/Assets/DCL/NetworkDefinitions/Browser/GatewayUrlsSource.cs:32",
+    "Explorer/Assets/DCL/MapRenderer/MapLayers/Atlas/ParcelAtlas/ParcelChunkController.cs:66"
+   ],
+   "disposition": {
+    "kind": "corpus",
+    "ref": "GET api.decentraland.org/v{n}/map.png"
+   }
+  },
+  {
+   "id": "GET archipelago-ea-stats.decentraland.org /comms/peers",
+   "method": "GET",
+   "host": "archipelago-ea-stats.decentraland.org",
+   "pathTemplate": "/comms/peers",
+   "auth": "none",
+   "bucket": "friends-social-mutes",
+   "sites": [
+    "Explorer/Assets/DCL/Infrastructure/Global/Dynamic/PlacesAndEventsContainer.cs:57",
+    "Explorer/Assets/DCL/NetworkDefinitions/Browser/GatewayUrlsSource.cs:40",
+    "Explorer/Assets/DCL/Multiplayer/Connectivity/ArchipelagoHttpOnlineUsersProvider.cs:28"
+   ],
+   "disposition": {
+    "kind": "corpus",
+    "ref": "GET gateway.decentraland.org/archipelago-ea-stats/comms/peers"
+   }
+  },
+  {
+   "id": "GET archipelago-ea-stats.decentraland.org /hot-scenes",
+   "method": "GET",
+   "host": "archipelago-ea-stats.decentraland.org",
+   "pathTemplate": "/hot-scenes",
+   "auth": "none",
+   "bucket": "chat-comms-voice",
+   "sites": [
+    "Explorer/Assets/DCL/Chat/Commands/GoToChatCommand.cs:74",
+    "Explorer/Assets/DCL/NetworkDefinitions/Browser/GatewayUrlsSource.cs:43"
+   ],
+   "disposition": {
+    "kind": "corpus",
+    "ref": "GET archipelago-ea-stats.decentraland.org/hot-scenes"
+   }
+  },
+  {
+   "id": "GET archipelago-ea-stats.decentraland.org /status",
+   "method": "GET",
+   "host": "archipelago-ea-stats.decentraland.org",
+   "pathTemplate": "/status",
+   "auth": "none",
+   "bucket": "other",
+   "sites": [
+    "Explorer/Assets/DCL/NetworkDefinitions/Browser/GatewayUrlsSource.cs:42"
+   ],
+   "disposition": {
+    "kind": "probe",
+    "ref": "probe:archipelago-status-get"
+   }
+  },
+  {
+   "id": "GET asset-bundle-registry.decentraland.org /entities/versions",
+   "method": "GET",
+   "host": "asset-bundle-registry.decentraland.org",
+   "pathTemplate": "/entities/versions",
+   "auth": "none",
+   "bucket": "other",
+   "sites": [
+    "Explorer/Assets/DCL/NetworkDefinitions/Browser/GatewayUrlsSource.cs:58"
+   ],
+   "disposition": {
+    "kind": "probe",
+    "ref": "probe:ab-registry-versions"
+   }
+  },
+  {
+   "id": "GET asset-bundle-registry.decentraland.org /world-manifest/{v}",
+   "method": "GET",
+   "host": "asset-bundle-registry.decentraland.org",
+   "pathTemplate": "/world-manifest/{v}",
+   "auth": "none",
+   "bucket": "realm-scene-entry",
+   "sites": [
+    "Explorer/Assets/DCL/Infrastructure/Global/Dynamic/RealmController.cs:142"
+   ],
+   "disposition": {
+    "kind": "deferred",
+    "reason": "immutable-content-addressed",
+    "rationale": "Content/world/community-id-keyed asset or manifest; served identically by key on any deployment or CDN."
+   }
+  },
+  {
+   "id": "GET asset-bundle-registry.decentraland.org /worlds/{v}.dcl.eth/manifest",
+   "method": "GET",
+   "host": "asset-bundle-registry.decentraland.org",
+   "pathTemplate": "/worlds/{v}.dcl.eth/manifest",
+   "auth": "none",
+   "bucket": "realm-scene-entry",
+   "sites": [
+    "Explorer/Assets/DCL/Infrastructure/Global/Dynamic/WorldManifestProvider.cs:65"
+   ],
+   "disposition": {
+    "kind": "deferred",
+    "reason": "immutable-content-addressed",
+    "rationale": "Content/world/community-id-keyed asset or manifest; served identically by key on any deployment or CDN."
+   }
+  },
+  {
+   "id": "GET asset-bundle-registry.decentraland.org /worlds/{v}/manifest",
+   "method": "GET",
+   "host": "asset-bundle-registry.decentraland.org",
+   "pathTemplate": "/worlds/{v}/manifest",
+   "auth": "none",
+   "bucket": "realm-scene-entry",
+   "sites": [
+    "Explorer/Assets/DCL/Infrastructure/Global/Dynamic/WorldManifestProvider.cs:64"
+   ],
+   "disposition": {
+    "kind": "deferred",
+    "reason": "immutable-content-addressed",
+    "rationale": "Content/world/community-id-keyed asset or manifest; served identically by key on any deployment or CDN."
+   }
+  },
+  {
+   "id": "GET assets-cdn.decentraland.org /social/communities/{v}/raw-thumbnail.png",
+   "method": "GET",
+   "host": "assets-cdn.decentraland.org",
+   "pathTemplate": "/social/communities/{v}/raw-thumbnail.png",
+   "auth": "none",
+   "bucket": "friends-social-mutes",
+   "sites": [
+    "Explorer/Assets/DCL/Communities/CommunitiesDataProvider/CommunitiesDataProvider.cs:89",
+    "Explorer/Assets/DCL/Communities/CommunitiesDataProvider/CommunitiesDataProvider.cs:115",
+    "Explorer/Assets/DCL/Communities/CommunitiesDataProvider/CommunitiesDataProvider.cs:210"
+   ],
+   "disposition": {
+    "kind": "probe",
+    "ref": "probe:assets-cdn-thumbnail"
+   }
+  },
+  {
+   "id": "GET auth-api.decentraland.org /identities/{v}",
+   "method": "GET",
+   "host": "auth-api.decentraland.org",
+   "pathTemplate": "/identities/{v}",
+   "auth": "none",
+   "bucket": "auth",
+   "sites": [
+    "Explorer/Assets/DCL/Web3/Authenticators/Implementations/TokenFileAuthenticator.cs:85",
+    "Explorer/Assets/DCL/Web3/Authenticators/Implementations/Dapp/DappDeepLinkAuthenticator.cs:132"
+   ],
+   "disposition": {
+    "kind": "deferred",
+    "reason": "desktop-shell-only",
+    "rationale": "QR/remote wallet login handshake; bypassed by --skip-auth-screen and never exercised by a throwaway/guest identity."
+   }
+  },
+  {
+   "id": "GET badges.decentraland.org /badges/{v}/tiers",
+   "method": "GET",
+   "host": "badges.decentraland.org",
+   "pathTemplate": "/badges/{v}/tiers",
+   "auth": "none",
+   "bucket": "profile-avatar",
+   "sites": [
+    "Explorer/Assets/DCL/BadgesAPIService/BadgesAPIClient.cs:21",
+    "Explorer/Assets/DCL/BadgesAPIService/BadgesAPIClient.cs:71"
+   ],
+   "disposition": {
+    "kind": "probe",
+    "ref": "probe:badges-tiers"
+   }
+  },
+  {
+   "id": "GET badges.decentraland.org /categories",
+   "method": "GET",
+   "host": "badges.decentraland.org",
+   "pathTemplate": "/categories",
+   "auth": "none",
+   "bucket": "profile-avatar",
+   "sites": [
+    "Explorer/Assets/DCL/BadgesAPIService/BadgesAPIClient.cs:21",
+    "Explorer/Assets/DCL/BadgesAPIService/BadgesAPIClient.cs:39"
+   ],
+   "disposition": {
+    "kind": "corpus",
+    "ref": "GET badges.decentraland.org/categories"
+   }
+  },
+  {
+   "id": "GET badges.decentraland.org /users/{v}/badges",
+   "method": "GET",
+   "host": "badges.decentraland.org",
+   "pathTemplate": "/users/{v}/badges",
+   "auth": "none",
+   "bucket": "profile-avatar",
+   "sites": [
+    "Explorer/Assets/DCL/BadgesAPIService/BadgesAPIClient.cs:21",
+    "Explorer/Assets/DCL/BadgesAPIService/BadgesAPIClient.cs:61"
+   ],
+   "disposition": {
+    "kind": "corpus",
+    "ref": "GET badges.decentraland.org/users/{address}/badges"
+   }
+  },
+  {
+   "id": "GET badges.decentraland.org /users/{v}/preview",
+   "method": "GET",
+   "host": "badges.decentraland.org",
+   "pathTemplate": "/users/{v}/preview",
+   "auth": "none",
+   "bucket": "profile-avatar",
+   "sites": [
+    "Explorer/Assets/DCL/BadgesAPIService/BadgesAPIClient.cs:21",
+    "Explorer/Assets/DCL/BadgesAPIService/BadgesAPIClient.cs:49"
+   ],
+   "disposition": {
+    "kind": "corpus",
+    "ref": "GET badges.decentraland.org/users/{address}/preview"
+   }
+  },
+  {
+   "id": "GET builder-api.decentraland.org /v{n}/collections/{v}/items",
+   "method": "GET",
+   "host": "builder-api.decentraland.org",
+   "pathTemplate": "/v{n}/collections/{v}/items",
+   "auth": "signed-fetch",
+   "bucket": "marketplace-backpack-emotes",
+   "sites": [
+    "Explorer/Assets/DCL/Infrastructure/Global/Dynamic/WearableContainer.cs:89",
+    "Explorer/Assets/DCL/AvatarRendering/Loading/Systems/LoadTrimmedElementsByIntentionSystem.cs:109"
+   ],
+   "disposition": {
+    "kind": "deferred",
+    "reason": "desktop-shell-only",
+    "rationale": "Creator/builder tooling surface (collections editor, newsletter opt-in); not exercised on player boot/idle."
+   }
+  },
+  {
+   "id": "GET builder-api.decentraland.org /v{n}/storage/contents/{v}",
+   "method": "GET",
+   "host": "builder-api.decentraland.org",
+   "pathTemplate": "/v{n}/storage/contents/{v}",
+   "auth": "none",
+   "bucket": "marketplace-backpack-emotes",
+   "sites": [
+    "Explorer/Assets/DCL/Infrastructure/Global/Dynamic/WearableContainer.cs:90"
+   ],
+   "disposition": {
+    "kind": "deferred",
+    "reason": "desktop-shell-only",
+    "rationale": "Creator/builder tooling surface (collections editor, newsletter opt-in); not exercised on player boot/idle."
+   }
+  },
+  {
+   "id": "GET camera-reel-service.decentraland.org /api/images",
+   "method": "GET",
+   "host": "camera-reel-service.decentraland.org",
+   "pathTemplate": "/api/images",
+   "auth": "none",
+   "bucket": "other",
+   "sites": [
+    "Explorer/Assets/DCL/NetworkDefinitions/Browser/GatewayUrlsSource.cs:53"
+   ],
+   "disposition": {
+    "kind": "deferred",
+    "reason": "needs-real-wallet",
+    "rationale": "First-party signed service over per-user/social-graph state; header construction proven-equivalent in synthetic-probes. Unlock: signed identity + seeded state."
+   }
+  },
+  {
+   "id": "GET camera-reel-service.decentraland.org /api/images/{v}/metadata",
+   "method": "GET",
+   "host": "camera-reel-service.decentraland.org",
+   "pathTemplate": "/api/images/{v}/metadata",
+   "auth": "signed-fetch",
+   "bucket": "quests-credits-camera-reel",
+   "sites": [
+    "Explorer/Assets/DCL/InWorldCamera/CameraReelStorageService/CameraReelImagesMetadataRemoteDatabase.cs:30",
+    "Explorer/Assets/DCL/InWorldCamera/CameraReelStorageService/CameraReelImagesMetadataRemoteDatabase.cs:75"
+   ],
+   "disposition": {
+    "kind": "deferred",
+    "reason": "needs-real-wallet",
+    "rationale": "First-party signed service over per-user/social-graph state; header construction proven-equivalent in synthetic-probes. Unlock: signed identity + seeded state."
+   }
+  },
+  {
+   "id": "GET camera-reel-service.decentraland.org /api/places",
+   "method": "GET",
+   "host": "camera-reel-service.decentraland.org",
+   "pathTemplate": "/api/places",
+   "auth": "none",
+   "bucket": "other",
+   "sites": [
+    "Explorer/Assets/DCL/NetworkDefinitions/Browser/GatewayUrlsSource.cs:54"
+   ],
+   "disposition": {
+    "kind": "deferred",
+    "reason": "needs-real-wallet",
+    "rationale": "First-party signed service over per-user/social-graph state; header construction proven-equivalent in synthetic-probes. Unlock: signed identity + seeded state."
+   }
+  },
+  {
+   "id": "GET camera-reel-service.decentraland.org /api/places/{v}/images",
+   "method": "GET",
+   "host": "camera-reel-service.decentraland.org",
+   "pathTemplate": "/api/places/{v}/images",
+   "auth": "signed-fetch",
+   "bucket": "quests-credits-camera-reel",
+   "sites": [
+    "Explorer/Assets/DCL/InWorldCamera/CameraReelStorageService/CameraReelImagesMetadataRemoteDatabase.cs:32",
+    "Explorer/Assets/DCL/InWorldCamera/CameraReelStorageService/CameraReelImagesMetadataRemoteDatabase.cs:123"
+   ],
+   "disposition": {
+    "kind": "corpus",
+    "ref": "GET camera-reel-service.decentraland.org/api/places/{uuid}/images"
+   }
+  },
+  {
+   "id": "GET camera-reel-service.decentraland.org /api/users",
+   "method": "GET",
+   "host": "camera-reel-service.decentraland.org",
+   "pathTemplate": "/api/users",
+   "auth": "none",
+   "bucket": "other",
+   "sites": [
+    "Explorer/Assets/DCL/NetworkDefinitions/Browser/GatewayUrlsSource.cs:55"
+   ],
+   "disposition": {
+    "kind": "deferred",
+    "reason": "needs-real-wallet",
+    "rationale": "First-party signed service over per-user/social-graph state; header construction proven-equivalent in synthetic-probes. Unlock: signed identity + seeded state."
+   }
+  },
+  {
+   "id": "GET camera-reel-service.decentraland.org /api/users/{v}",
+   "method": "GET",
+   "host": "camera-reel-service.decentraland.org",
+   "pathTemplate": "/api/users/{v}",
+   "auth": "signed-fetch",
+   "bucket": "quests-credits-camera-reel",
+   "sites": [
+    "Explorer/Assets/DCL/InWorldCamera/CameraReelStorageService/CameraReelImagesMetadataRemoteDatabase.cs:31",
+    "Explorer/Assets/DCL/InWorldCamera/CameraReelStorageService/CameraReelImagesMetadataRemoteDatabase.cs:44",
+    "Explorer/Assets/DCL/InWorldCamera/CameraReelStorageService/CameraReelImagesMetadataRemoteDatabase.cs:59"
+   ],
+   "disposition": {
+    "kind": "corpus",
+    "ref": "GET gateway.decentraland.org/camera-reel-service/api/users/{address}"
+   }
+  },
+  {
+   "id": "GET camera-reel-service.decentraland.org /api/users/{v}/images",
+   "method": "GET",
+   "host": "camera-reel-service.decentraland.org",
+   "pathTemplate": "/api/users/{v}/images",
+   "auth": "signed-fetch",
+   "bucket": "quests-credits-camera-reel",
+   "sites": [
+    "Explorer/Assets/DCL/InWorldCamera/CameraReelStorageService/CameraReelImagesMetadataRemoteDatabase.cs:31",
+    "Explorer/Assets/DCL/InWorldCamera/CameraReelStorageService/CameraReelImagesMetadataRemoteDatabase.cs:91",
+    "Explorer/Assets/DCL/InWorldCamera/CameraReelStorageService/CameraReelImagesMetadataRemoteDatabase.cs:107"
+   ],
+   "disposition": {
+    "kind": "deferred",
+    "reason": "needs-real-wallet",
+    "rationale": "First-party signed service over per-user/social-graph state; header construction proven-equivalent in synthetic-probes. Unlock: signed identity + seeded state."
+   }
+  },
+  {
+   "id": "GET comms-gatekeeper-local.decentraland.org /get-scene-adapter",
+   "method": "GET",
+   "host": "comms-gatekeeper-local.decentraland.org",
+   "pathTemplate": "/get-scene-adapter",
+   "auth": "signed-fetch",
+   "bucket": "chat-comms-voice",
+   "sites": [
+    "Explorer/Assets/DCL/Multiplayer/Connections/GateKeeper/Rooms/Options/GateKeeperSceneRoomOptions.cs:47",
+    "Explorer/Assets/DCL/NetworkDefinitions/Browser/GatewayUrlsSource.cs:36"
+   ],
+   "disposition": {
+    "kind": "deferred",
+    "reason": "desktop-shell-only",
+    "rationale": "LocalGateKeeperSceneAdapter: scene comms adapter used ONLY in LocalSceneDevelopment mode; not a production boot obligation."
+   }
+  },
+  {
+   "id": "GET comms-gatekeeper.decentraland.org /get-scene-adapter",
+   "method": "GET",
+   "host": "comms-gatekeeper.decentraland.org",
+   "pathTemplate": "/get-scene-adapter",
+   "auth": "signed-fetch",
+   "bucket": "chat-comms-voice",
+   "sites": [
+    "Explorer/Assets/DCL/Multiplayer/Connections/GateKeeper/Rooms/Options/GateKeeperSceneRoomOptions.cs:55",
+    "Explorer/Assets/DCL/NetworkDefinitions/Browser/GatewayUrlsSource.cs:35"
+   ],
+   "disposition": {
+    "kind": "deferred",
+    "reason": "needs-real-wallet",
+    "rationale": "First-party signed-fetch endpoint over per-user/social state; header construction proven-equivalent in synthetic-probes. Unlock: signed identity + seeded state."
+   }
+  },
+  {
+   "id": "GET comms-gatekeeper.decentraland.org /private-messages/token",
+   "method": "GET",
+   "host": "comms-gatekeeper.decentraland.org",
+   "pathTemplate": "/private-messages/token",
+   "auth": "signed-fetch",
+   "bucket": "chat-comms-voice",
+   "sites": [
+    "Explorer/Assets/DCL/Infrastructure/Global/Dynamic/CommsContainer.cs:151",
+    "Explorer/Assets/DCL/NetworkDefinitions/Browser/GatewayUrlsSource.cs:37",
+    "Explorer/Assets/DCL/Multiplayer/Connections/Archipelago/Rooms/ChatConnectiveRoom.cs:95"
+   ],
+   "disposition": {
+    "kind": "corpus",
+    "ref": "GET gateway.decentraland.org/comms-gatekeeper/private-messages/token"
+   }
+  },
+  {
+   "id": "GET comms-gatekeeper.decentraland.org /status",
+   "method": "GET",
+   "host": "comms-gatekeeper.decentraland.org",
+   "pathTemplate": "/status",
+   "auth": "none",
+   "bucket": "other",
+   "sites": [
+    "Explorer/Assets/DCL/NetworkDefinitions/Browser/GatewayUrlsSource.cs:38"
+   ],
+   "disposition": {
+    "kind": "probe",
+    "ref": "probe:gatekeeper-status-get"
+   }
+  },
+  {
+   "id": "GET comms-gatekeeper.decentraland.org /users/{v}/bans",
+   "method": "GET",
+   "host": "comms-gatekeeper.decentraland.org",
+   "pathTemplate": "/users/{v}/bans",
+   "auth": "signed-fetch",
+   "bucket": "boot",
+   "sites": [
+    "Explorer/Assets/DCL/ApplicationGuards/ApplicationBlocklistGuard/ModerationDataProvider.cs:21",
+    "Explorer/Assets/DCL/NetworkDefinitions/Browser/GatewayUrlsSource.cs:39",
+    "Explorer/Assets/DCL/ApplicationGuards/ApplicationBlocklistGuard/ModerationDataProvider.cs:23"
+   ],
+   "disposition": {
+    "kind": "corpus",
+    "ref": "GET gateway.decentraland.org/comms-gatekeeper/users/{address}/bans"
+   }
+  },
+  {
+   "id": "GET config.decentraland.org /denylist.json",
+   "method": "GET",
+   "host": "config.decentraland.org",
+   "pathTemplate": "/denylist.json",
+   "auth": "none",
+   "bucket": "boot",
+   "sites": [
+    "Explorer/Assets/DCL/ApplicationGuards/ApplicationBlocklistGuard/ApplicationBlocklistGuard.cs:35",
+    "Explorer/Assets/DCL/ApplicationGuards/ApplicationBlocklistGuard/ApplicationBlocklistGuard.cs:34"
+   ],
+   "disposition": {
+    "kind": "corpus",
+    "ref": "GET config.decentraland.org/denylist.json"
+   }
+  },
+  {
+   "id": "GET credits.decentraland.org /captcha",
+   "method": "GET",
+   "host": "credits.decentraland.org",
+   "pathTemplate": "/captcha",
+   "auth": "signed-fetch",
+   "bucket": "quests-credits-camera-reel",
+   "sites": [
+    "Explorer/Assets/DCL/MarketplaceCredits/MarketplaceCreditsAPIService/MarketplaceCreditsAPIClient.cs:27",
+    "Explorer/Assets/DCL/MarketplaceCredits/MarketplaceCreditsAPIService/MarketplaceCreditsAPIClient.cs:155"
+   ],
+   "disposition": {
+    "kind": "deferred",
+    "reason": "needs-real-wallet",
+    "rationale": "First-party signed service over per-user/social-graph state; header construction proven-equivalent in synthetic-probes. Unlock: signed identity + seeded state."
+   }
+  },
+  {
+   "id": "GET credits.decentraland.org /credits/orders/{v}",
+   "method": "GET",
+   "host": "credits.decentraland.org",
+   "pathTemplate": "/credits/orders/{v}",
+   "auth": "signed-fetch",
+   "bucket": "quests-credits-camera-reel",
+   "sites": [
+    "Explorer/Assets/DCL/MarketplaceCredits/MarketplaceCreditsAPIService/MarketplaceCreditsAPIClient.cs:27",
+    "Explorer/Assets/DCL/MarketplaceCredits/MarketplaceCreditsAPIService/MarketplaceCreditsAPIClient.cs:265"
+   ],
+   "disposition": {
+    "kind": "deferred",
+    "reason": "needs-real-wallet",
+    "rationale": "First-party signed service over per-user/social-graph state; header construction proven-equivalent in synthetic-probes. Unlock: signed identity + seeded state."
+   }
+  },
+  {
+   "id": "GET credits.decentraland.org /credits/packs",
+   "method": "GET",
+   "host": "credits.decentraland.org",
+   "pathTemplate": "/credits/packs",
+   "auth": "none",
+   "bucket": "quests-credits-camera-reel",
+   "sites": [
+    "Explorer/Assets/DCL/MarketplaceCredits/MarketplaceCreditsAPIService/MarketplaceCreditsAPIClient.cs:27",
+    "Explorer/Assets/DCL/MarketplaceCredits/MarketplaceCreditsAPIService/MarketplaceCreditsAPIClient.cs:91"
+   ],
+   "disposition": {
+    "kind": "probe",
+    "ref": "probe:credits-packs"
+   }
+  },
+  {
+   "id": "GET credits.decentraland.org /seasons",
+   "method": "GET",
+   "host": "credits.decentraland.org",
+   "pathTemplate": "/seasons",
+   "auth": "signed-fetch",
+   "bucket": "quests-credits-camera-reel",
+   "sites": [
+    "Explorer/Assets/DCL/MarketplaceCredits/MarketplaceCreditsAPIService/MarketplaceCreditsAPIClient.cs:27",
+    "Explorer/Assets/DCL/MarketplaceCredits/MarketplaceCreditsAPIService/MarketplaceCreditsAPIClient.cs:137"
+   ],
+   "disposition": {
+    "kind": "deferred",
+    "reason": "needs-real-wallet",
+    "rationale": "First-party signed service over per-user/social-graph state; header construction proven-equivalent in synthetic-probes. Unlock: signed identity + seeded state."
+   }
+  },
+  {
+   "id": "GET credits.decentraland.org /users/{v}/credits",
+   "method": "GET",
+   "host": "credits.decentraland.org",
+   "pathTemplate": "/users/{v}/credits",
+   "auth": "signed-fetch",
+   "bucket": "quests-credits-camera-reel",
+   "sites": [
+    "Explorer/Assets/DCL/MarketplaceCredits/MarketplaceCreditsAPIService/MarketplaceCreditsAPIClient.cs:27",
+    "Explorer/Assets/DCL/MarketplaceCredits/MarketplaceCreditsAPIService/MarketplaceCreditsAPIClient.cs:80"
+   ],
+   "disposition": {
+    "kind": "corpus",
+    "ref": "GET gateway.decentraland.org/credits/users/{address}/credits"
+   }
+  },
+  {
+   "id": "GET credits.decentraland.org /users/{v}/progress",
+   "method": "GET",
+   "host": "credits.decentraland.org",
+   "pathTemplate": "/users/{v}/progress",
+   "auth": "signed-fetch",
+   "bucket": "quests-credits-camera-reel",
+   "sites": [
+    "Explorer/Assets/DCL/MarketplaceCredits/MarketplaceCreditsAPIService/MarketplaceCreditsAPIClient.cs:27",
+    "Explorer/Assets/DCL/MarketplaceCredits/MarketplaceCreditsAPIService/MarketplaceCreditsAPIClient.cs:49"
+   ],
+   "disposition": {
+    "kind": "deferred",
+    "reason": "needs-real-wallet",
+    "rationale": "First-party signed service over per-user/social-graph state; header construction proven-equivalent in synthetic-probes. Unlock: signed identity + seeded state."
+   }
+  },
+  {
+   "id": "GET decentraland.org /",
+   "method": "GET",
+   "host": "decentraland.org",
+   "pathTemplate": "/",
+   "auth": "none",
+   "bucket": "chat-comms-voice",
+   "sites": [
+    "Explorer/Assets/DCL/Infrastructure/Global/Dynamic/ChatContainer.cs:107",
+    "Explorer/Assets/DCL/Infrastructure/Global/Dynamic/RealmController.cs:380"
+   ],
+   "disposition": {
+    "kind": "deferred",
+    "reason": "desktop-shell-only",
+    "rationale": "Web-app / AuthSignatureWebApp browser handoff (login, marketing pages); browser-open, bypassed by --skip-auth-screen."
+   }
+  },
+  {
+   "id": "GET decentraland.org /auth/requests/{v}",
+   "method": "GET",
+   "host": "decentraland.org",
+   "pathTemplate": "/auth/requests/{v}",
+   "auth": "none",
+   "bucket": "auth",
+   "sites": [
+    "Explorer/Assets/DCL/Infrastructure/Global/Dynamic/BootstrapContainer.cs:227",
+    "Explorer/Assets/DCL/Infrastructure/Global/Dynamic/BootstrapContainer.cs:242",
+    "Explorer/Assets/DCL/Web3/Authenticators/Implementations/Dapp/DappWeb3EthereumApi.Default.cs:21"
+   ],
+   "disposition": {
+    "kind": "deferred",
+    "reason": "desktop-shell-only",
+    "rationale": "Web-app / AuthSignatureWebApp browser handoff (login, marketing pages); browser-open, bypassed by --skip-auth-screen."
+   }
+  },
+  {
+   "id": "GET drive.usercontent.google.com /download",
+   "method": "GET",
+   "host": "drive.usercontent.google.com",
+   "pathTemplate": "/download",
+   "auth": "none",
+   "bucket": "other",
+   "sites": [
+    "Explorer/Assets/DCL/SDKComponents/MediaStream/GoogleDriveMediaExtensions.cs:26"
+   ],
+   "disposition": {
+    "kind": "deferred",
+    "reason": "documented-intentional-upstream-dependency",
+    "rationale": "Genuinely-external provider/content (YouTube / Thirdweb / Google-Drive / GitHub tiles / CoinGecko / OpenSea proxy); not a base-domain obligation."
+   }
+  },
+  {
+   "id": "GET events.decentraland.org /api/events",
+   "method": "GET",
+   "host": "events.decentraland.org",
+   "pathTemplate": "/api/events",
+   "auth": "signed-fetch",
+   "bucket": "events-places-worlds",
+   "sites": [
+    "Explorer/Assets/DCL/EventsApi/HttpEventsApiService.cs:39",
+    "Explorer/Assets/DCL/EventsApi/HttpEventsApiService.cs:96",
+    "Explorer/Assets/DCL/EventsApi/HttpEventsApiService.cs:115"
+   ],
+   "disposition": {
+    "kind": "corpus",
+    "ref": "GET events.decentraland.org/api/events"
+   }
+  },
+  {
+   "id": "GET explorer-artifacts.decentraland.org /@dcl/unity-explorer/releases/latest.json",
+   "method": "GET",
+   "host": "explorer-artifacts.decentraland.org",
+   "pathTemplate": "/@dcl/unity-explorer/releases/latest.json",
+   "auth": "none",
+   "bucket": "boot",
+   "sites": [
+    "Explorer/Assets/DCL/ApplicationGuards/ApplicationVersionGuard/ApplicationVersionGuard.cs:44"
+   ],
+   "disposition": {
+    "kind": "deferred",
+    "reason": "desktop-shell-only",
+    "rationale": "Launcher self-update manifest; fetched by the desktop shell/updater, not the in-client boot path."
+   }
+  },
+  {
+   "id": "GET feature-flags.decentraland.org /{v}.json",
+   "method": "GET",
+   "host": "feature-flags.decentraland.org",
+   "pathTemplate": "/{v}.json",
+   "auth": "none",
+   "bucket": "boot",
+   "sites": [
+    "Explorer/Assets/DCL/FeatureFlags/FeatureFlagOptions.cs:29",
+    "Explorer/Assets/DCL/FeatureFlags/HttpFeatureFlagsProvider.cs:37"
+   ],
+   "disposition": {
+    "kind": "probe",
+    "ref": "probe:feature-flags"
+   }
+  },
+  {
+   "id": "GET github.com /decentraland/abgen/releases/download/v{v}/abgen-v{v}-{v}.tar.gz",
+   "method": "GET",
+   "host": "github.com",
+   "pathTemplate": "/decentraland/abgen/releases/download/v{v}/abgen-v{v}-{v}.tar.gz",
+   "auth": "none",
+   "bucket": "asset-bundles-content",
+   "sites": [
+    "Explorer/Assets/DCL/Infrastructure/Global/Dynamic/AbgenSidecar.cs:433"
+   ],
+   "disposition": {
+    "kind": "deferred",
+    "reason": "documented-intentional-upstream-dependency",
+    "rationale": "Genuinely-external provider/content (YouTube / Thirdweb / Google-Drive / GitHub tiles / CoinGecko / OpenSea proxy); not a base-domain obligation."
+   }
+  },
+  {
+   "id": "GET lod-generator-unity-cdn.decentraland.org /lods-unity/manifests/{v}_InitialSceneState.json",
+   "method": "GET",
+   "host": "lod-generator-unity-cdn.decentraland.org",
+   "pathTemplate": "/lods-unity/manifests/{v}_InitialSceneState.json",
+   "auth": "none",
+   "bucket": "asset-bundles-content",
+   "sites": [
+    "Explorer/Assets/DCL/Infrastructure/ECS/Unity/StreamableLoading/AssetBundles/InitialSceneState/LoadISSDescriptorSystem.cs:76"
+   ],
+   "disposition": {
+    "kind": "deferred",
+    "reason": "immutable-content-addressed",
+    "rationale": "Content/world/community-id-keyed asset or manifest; served identically by key on any deployment or CDN."
+   }
+  },
+  {
+   "id": "GET marketplace-api.decentraland.org /v{n}/catalog",
+   "method": "GET",
+   "host": "marketplace-api.decentraland.org",
+   "pathTemplate": "/v{n}/catalog",
+   "auth": "none",
+   "bucket": "profile-avatar",
+   "sites": [
+    "Explorer/Assets/DCL/Passport/Modules/Creations/CreationsDetailsPassportModuleController.cs:218",
+    "Explorer/Assets/DCL/Passport/Modules/EquippedItemsPassportModuleController.cs:285",
+    "Explorer/Assets/DCL/Passport/Modules/EquippedItemsPassportModuleController.cs:296"
+   ],
+   "disposition": {
+    "kind": "corpus",
+    "ref": "GET marketplace-api.decentraland.org/v{n}/catalog"
+   }
+  },
+  {
+   "id": "GET marketplace-api.decentraland.org /v{n}/catalog/unified",
+   "method": "GET",
+   "host": "marketplace-api.decentraland.org",
+   "pathTemplate": "/v{n}/catalog/unified",
+   "auth": "none",
+   "bucket": "quests-credits-camera-reel",
+   "sites": [
+    "Explorer/Assets/DCL/MarketplaceCredits/Purchase/Api/MarketplaceShopAPIClient.cs:28",
+    "Explorer/Assets/DCL/MarketplaceCredits/Purchase/Api/MarketplaceShopAPIClient.cs:36"
+   ],
+   "disposition": {
+    "kind": "probe",
+    "ref": "probe:marketplace-unified"
+   }
+  },
+  {
+   "id": "GET marketplace-api.decentraland.org /v{n}/trades/{v}",
+   "method": "GET",
+   "host": "marketplace-api.decentraland.org",
+   "pathTemplate": "/v{n}/trades/{v}",
+   "auth": "none",
+   "bucket": "quests-credits-camera-reel",
+   "sites": [
+    "Explorer/Assets/DCL/MarketplaceCredits/Purchase/Api/MarketplaceShopAPIClient.cs:18",
+    "Explorer/Assets/DCL/MarketplaceCredits/Purchase/Api/MarketplaceShopAPIClient.cs:46"
+   ],
+   "disposition": {
+    "kind": "probe",
+    "ref": "probe:marketplace-trades"
+   }
+  },
+  {
+   "id": "GET media.githubusercontent.com /media/genesis-city/parcels/new-client-images/maps/lod-0/3/{v}%2C{v}.jpg",
+   "method": "GET",
+   "host": "media.githubusercontent.com",
+   "pathTemplate": "/media/genesis-city/parcels/new-client-images/maps/lod-0/3/{v}%2C{v}.jpg",
+   "auth": "none",
+   "bucket": "events-places-worlds",
+   "sites": [
+    "Explorer/Assets/DCL/MapRenderer/MapLayers/Atlas/SatelliteAtlas/SatelliteChunkController.cs:79"
+   ],
+   "disposition": {
+    "kind": "deferred",
+    "reason": "documented-intentional-upstream-dependency",
+    "rationale": "Genuinely-external provider/content (YouTube / Thirdweb / Google-Drive / GitHub tiles / CoinGecko / OpenSea proxy); not a base-domain obligation."
+   }
+  },
+  {
+   "id": "GET metamorph-api.decentraland.org /convert",
+   "method": "GET",
+   "host": "metamorph-api.decentraland.org",
+   "pathTemplate": "/convert",
+   "auth": "none",
+   "bucket": "asset-bundles-content",
+   "sites": [
+    "Explorer/Assets/DCL/Infrastructure/ECS/Unity/StreamableLoading/NFTShapes/LoadNFTTypeSystem.cs:41",
+    "Explorer/Assets/DCL/NetworkDefinitions/Browser/GatewayUrlsSource.cs:60",
+    "Explorer/Assets/DCL/WebRequests/Texture/GetTextureWebRequest.cs:41"
+   ],
+   "disposition": {
+    "kind": "probe",
+    "ref": "probe:metamorph-convert"
+   }
+  },
+  {
+   "id": "GET notifications.decentraland.org /notifications",
+   "method": "GET",
+   "host": "notifications.decentraland.org",
+   "pathTemplate": "/notifications",
+   "auth": "signed-fetch",
+   "bucket": "notifications",
+   "sites": [
+    "Explorer/Assets/DCL/Notifications/NotificationsRequestController.cs:73",
+    "Explorer/Assets/DCL/Notifications/NotificationsRequestController.cs:104",
+    "Explorer/Assets/DCL/Notifications/NotificationsRequestController.cs:80"
+   ],
+   "disposition": {
+    "kind": "corpus",
+    "ref": "GET gateway.decentraland.org/notifications/notifications"
+   }
+  },
+  {
+   "id": "GET notifications.decentraland.org /subscription",
+   "method": "GET",
+   "host": "notifications.decentraland.org",
+   "pathTemplate": "/subscription",
+   "auth": "signed-fetch",
+   "bucket": "quests-credits-camera-reel",
+   "sites": [
+    "Explorer/Assets/DCL/MarketplaceCredits/MarketplaceCreditsAPIService/MarketplaceCreditsAPIClient.cs:28",
+    "Explorer/Assets/DCL/MarketplaceCredits/MarketplaceCreditsAPIService/MarketplaceCreditsAPIClient.cs:321"
+   ],
+   "disposition": {
+    "kind": "deferred",
+    "reason": "needs-real-wallet",
+    "rationale": "First-party signed service over per-user/social-graph state; header construction proven-equivalent in synthetic-probes. Unlock: signed identity + seeded state."
+   }
+  },
+  {
+   "id": "GET notifications.decentraland.org /subscription/opt-outs/community/{v}",
+   "method": "GET",
+   "host": "notifications.decentraland.org",
+   "pathTemplate": "/subscription/opt-outs/community/{v}",
+   "auth": "signed-fetch",
+   "bucket": "friends-social-mutes",
+   "sites": [
+    "Explorer/Assets/DCL/Communities/CommunitiesDataProvider/CommunitiesDataProvider.cs:60",
+    "Explorer/Assets/DCL/Communities/CommunitiesDataProvider/CommunitiesDataProvider.cs:537"
+   ],
+   "disposition": {
+    "kind": "deferred",
+    "reason": "needs-real-wallet",
+    "rationale": "First-party signed service over per-user/social-graph state; header construction proven-equivalent in synthetic-probes. Unlock: signed identity + seeded state."
+   }
+  },
+  {
+   "id": "GET opensea.decentraland.org /api/v{n}/chain/{v}",
+   "method": "GET",
+   "host": "opensea.decentraland.org",
+   "pathTemplate": "/api/v{n}/chain/{v}",
+   "auth": "none",
+   "bucket": "other",
+   "sites": [
+    "Explorer/Assets/DCL/NftInfoAPIService/OpenSeaAPIClient.cs:29"
+   ],
+   "disposition": {
+    "kind": "deferred",
+    "reason": "documented-intentional-upstream-dependency",
+    "rationale": "Genuinely-external provider/content (YouTube / Thirdweb / Google-Drive / GitHub tiles / CoinGecko / OpenSea proxy); not a base-domain obligation."
+   }
+  },
+  {
+   "id": "GET opensea.decentraland.org /api/v{n}/chain/{v}/contract/{v}/nfts/{v}",
+   "method": "GET",
+   "host": "opensea.decentraland.org",
+   "pathTemplate": "/api/v{n}/chain/{v}/contract/{v}/nfts/{v}",
+   "auth": "none",
+   "bucket": "asset-bundles-content",
+   "sites": [
+    "Explorer/Assets/DCL/Infrastructure/ECS/Unity/StreamableLoading/NFTShapes/URNs/IURNSource.cs:11",
+    "Explorer/Assets/DCL/NftInfoAPIService/OpenSeaAPIClient.cs:17",
+    "Explorer/Assets/DCL/NftInfoAPIService/OpenSeaAPIClient.cs:29"
+   ],
+   "disposition": {
+    "kind": "deferred",
+    "reason": "documented-intentional-upstream-dependency",
+    "rationale": "Genuinely-external provider/content (YouTube / Thirdweb / Google-Drive / GitHub tiles / CoinGecko / OpenSea proxy); not a base-domain obligation."
+   }
+  },
+  {
+   "id": "GET peer.decentraland.org /content/contents/{v}",
+   "method": "GET",
+   "host": "peer.decentraland.org",
+   "pathTemplate": "/content/contents/{v}",
+   "auth": "none",
+   "bucket": "asset-bundles-content",
+   "sites": [
+    "Explorer/Assets/DCL/AvatarRendering/Emotes/Systems/Load/LoadEmotesByPointersSystem.cs:278",
+    "Explorer/Assets/DCL/AvatarRendering/Emotes/Systems/Load/LoadEmotesByPointersSystem.cs:279",
+    "Explorer/Assets/DCL/AvatarRendering/Thumbnails/Utils/LoadThumbnailsUtils.cs:88"
+   ],
+   "disposition": {
+    "kind": "deferred",
+    "reason": "immutable-content-addressed",
+    "rationale": "Content/world/community-id-keyed asset or manifest; served identically by key on any deployment or CDN."
+   }
+  },
+  {
+   "id": "GET peer.decentraland.org /lambdas/contracts/servers",
+   "method": "GET",
+   "host": "peer.decentraland.org",
+   "pathTemplate": "/lambdas/contracts/servers",
+   "auth": "none",
+   "bucket": "boot",
+   "sites": [
+    "Explorer/Assets/DCL/Infrastructure/Global/Dynamic/MainSceneLoader.cs:868",
+    "Explorer/Assets/DCL/Infrastructure/Global/Dynamic/RealmUrl/Names/RealmNamesMap.cs:44",
+    "Explorer/Assets/DCL/Infrastructure/Global/Dynamic/MainSceneLoader.cs:869"
+   ],
+   "disposition": {
+    "kind": "corpus",
+    "ref": "GET peer.decentraland.org/lambdas/contracts/servers"
+   }
+  },
+  {
+   "id": "GET peer.decentraland.org /lambdas/explorer/{v}/{v}",
+   "method": "GET",
+   "host": "peer.decentraland.org",
+   "pathTemplate": "/lambdas/explorer/{v}/{v}",
+   "auth": "none",
+   "bucket": "marketplace-backpack-emotes",
+   "sites": [
+    "Explorer/Assets/DCL/AvatarRendering/Loading/Systems/LoadTrimmedElementsByIntentionSystem.cs:87",
+    "Explorer/Assets/DCL/AvatarRendering/Loading/Systems/LoadTrimmedElementsByIntentionSystem.cs:127"
+   ],
+   "disposition": {
+    "kind": "probe",
+    "ref": "probe:lambdas-explorer-wearables"
+   }
+  },
+  {
+   "id": "GET peer.decentraland.org /lambdas/outfits/{v}",
+   "method": "GET",
+   "host": "peer.decentraland.org",
+   "pathTemplate": "/lambdas/outfits/{v}",
+   "auth": "none",
+   "bucket": "marketplace-backpack-emotes",
+   "sites": [
+    "Explorer/Assets/DCL/Backpack/AvatarSection/Outfits/Commands/LoadOutfitsCommand.cs:52",
+    "Explorer/Assets/DCL/Backpack/AvatarSection/Outfits/Commands/LoadOutfitsCommand.cs:58"
+   ],
+   "disposition": {
+    "kind": "probe",
+    "ref": "probe:lambdas-outfits"
+   }
+  },
+  {
+   "id": "GET peer.decentraland.org /lambdas/profiles/{v}",
+   "method": "GET",
+   "host": "peer.decentraland.org",
+   "pathTemplate": "/lambdas/profiles/{v}",
+   "auth": "none",
+   "bucket": "profile-avatar",
+   "sites": [
+    "Explorer/Assets/DCL/Profiles/Repository/RealmProfileRepository.cs:403",
+    "Explorer/Assets/DCL/Profiles/Repository/ProfilesRequest.cs:51"
+   ],
+   "disposition": {
+    "kind": "corpus",
+    "ref": "GET peer.decentraland.org/lambdas/profiles/{address}"
+   }
+  },
+  {
+   "id": "GET peer.decentraland.org /lambdas/third-party-integrations",
+   "method": "GET",
+   "host": "peer.decentraland.org",
+   "pathTemplate": "/lambdas/third-party-integrations",
+   "auth": "none",
+   "bucket": "marketplace-backpack-emotes",
+   "sites": [
+    "Explorer/Assets/DCL/AvatarRendering/Wearables/ThirdParty/RealmThirdPartyNftProviderSource.cs:31",
+    "Explorer/Assets/DCL/AvatarRendering/Wearables/ThirdParty/RealmThirdPartyNftProviderSource.cs:36"
+   ],
+   "disposition": {
+    "kind": "probe",
+    "ref": "probe:lambdas-tpi"
+   }
+  },
+  {
+   "id": "GET peer.decentraland.org /lambdas/users/{v}/names",
+   "method": "GET",
+   "host": "peer.decentraland.org",
+   "pathTemplate": "/lambdas/users/{v}/names",
+   "auth": "none",
+   "bucket": "profile-avatar",
+   "sites": [
+    "Explorer/Assets/DCL/Profiles/RealmNftNamesProvider.cs:29",
+    "Explorer/Assets/DCL/Profiles/RealmNftNamesProvider.cs:35"
+   ],
+   "disposition": {
+    "kind": "corpus",
+    "ref": "GET peer.decentraland.org/lambdas/users/{address}/names"
+   }
+  },
+  {
+   "id": "GET places-dcf8abb.s3.amazonaws.com /WorldManifest.json",
+   "method": "GET",
+   "host": "places-dcf8abb.s3.amazonaws.com",
+   "pathTemplate": "/WorldManifest.json",
+   "auth": "none",
+   "bucket": "realm-scene-entry",
+   "sites": [
+    "Explorer/Assets/DCL/Infrastructure/Global/Dynamic/WorldManifestProvider.cs:93",
+    "Explorer/Assets/DCL/Infrastructure/Global/Dynamic/WorldManifestProvider.cs:92"
+   ],
+   "disposition": {
+    "kind": "corpus",
+    "ref": "GET places-dcf8abb.s3.amazonaws.com/WorldManifest.json"
+   }
+  },
+  {
+   "id": "GET places.decentraland.org /api/destinations",
+   "method": "GET",
+   "host": "places.decentraland.org",
+   "pathTemplate": "/api/destinations",
+   "auth": "signed-fetch",
+   "bucket": "other",
+   "sites": [
+    "Explorer/Assets/DCL/NetworkDefinitions/Browser/GatewayUrlsSource.cs:27",
+    "Explorer/Assets/DCL/PlacesAPIService/PlacesAPIClient.cs:38",
+    "Explorer/Assets/DCL/PlacesAPIService/PlacesAPIClient.cs:266"
+   ],
+   "disposition": {
+    "kind": "corpus",
+    "ref": "GET places.decentraland.org/api/destinations"
+   }
+  },
+  {
+   "id": "GET places.decentraland.org /api/map",
+   "method": "GET",
+   "host": "places.decentraland.org",
+   "pathTemplate": "/api/map",
+   "auth": "none",
+   "bucket": "other",
+   "sites": [
+    "Explorer/Assets/DCL/NetworkDefinitions/Browser/GatewayUrlsSource.cs:28",
+    "Explorer/Assets/DCL/PlacesAPIService/PlacesAPIClient.cs:41",
+    "Explorer/Assets/DCL/PlacesAPIService/PlacesAPIClient.cs:443"
+   ],
+   "disposition": {
+    "kind": "corpus",
+    "ref": "GET places.decentraland.org/api/map"
+   }
+  },
+  {
+   "id": "GET places.decentraland.org /api/places",
+   "method": "GET",
+   "host": "places.decentraland.org",
+   "pathTemplate": "/api/places",
+   "auth": "signed-fetch",
+   "bucket": "other",
+   "sites": [
+    "Explorer/Assets/DCL/NetworkDefinitions/Browser/GatewayUrlsSource.cs:25",
+    "Explorer/Assets/DCL/PlacesAPIService/PlacesAPIClient.cs:36",
+    "Explorer/Assets/DCL/PlacesAPIService/PlacesAPIClient.cs:99"
+   ],
+   "disposition": {
+    "kind": "corpus",
+    "ref": "GET places.decentraland.org/api/places"
+   }
+  },
+  {
+   "id": "GET places.decentraland.org /api/report",
+   "method": "GET",
+   "host": "places.decentraland.org",
+   "pathTemplate": "/api/report",
+   "auth": "none",
+   "bucket": "other",
+   "sites": [
+    "Explorer/Assets/DCL/NetworkDefinitions/Browser/GatewayUrlsSource.cs:29"
+   ],
+   "disposition": {
+    "kind": "deferred",
+    "reason": "needs-real-wallet",
+    "rationale": "Content-moderation report submission; requires an authenticated reporter identity and a target context."
+   }
+  },
+  {
+   "id": "GET places.decentraland.org /api/worlds",
+   "method": "GET",
+   "host": "places.decentraland.org",
+   "pathTemplate": "/api/worlds",
+   "auth": "signed-fetch",
+   "bucket": "other",
+   "sites": [
+    "Explorer/Assets/DCL/NetworkDefinitions/Browser/GatewayUrlsSource.cs:26",
+    "Explorer/Assets/DCL/PlacesAPIService/PlacesAPIClient.cs:37",
+    "Explorer/Assets/DCL/PlacesAPIService/PlacesAPIClient.cs:168"
+   ],
+   "disposition": {
+    "kind": "corpus",
+    "ref": "GET places.decentraland.org/api/worlds"
+   }
+  },
+  {
+   "id": "GET realm-provider-ea.decentraland.org /main",
+   "method": "GET",
+   "host": "realm-provider-ea.decentraland.org",
+   "pathTemplate": "/main",
+   "auth": "none",
+   "bucket": "other",
+   "sites": [
+    "Explorer/Assets/DCL/NetworkDefinitions/Browser/GatewayUrlsSource.cs:49"
+   ],
+   "disposition": {
+    "kind": "probe",
+    "ref": "probe:realm-provider-main"
+   }
+  },
+  {
+   "id": "GET realm-provider-ea.decentraland.org /main/about",
+   "method": "GET",
+   "host": "realm-provider-ea.decentraland.org",
+   "pathTemplate": "/main/about",
+   "auth": "none",
+   "bucket": "realm-scene-entry",
+   "sites": [
+    "Explorer/Assets/DCL/Chat/Commands/ChatTeleporter.cs:37",
+    "Explorer/Assets/DCL/Infrastructure/Global/Dynamic/RealmUrl/RealmUrls.cs:29",
+    "Explorer/Assets/DCL/Infrastructure/Global/Dynamic/RealmUrl/RealmUrls.cs:37"
+   ],
+   "disposition": {
+    "kind": "corpus",
+    "ref": "GET realm-provider-ea.decentraland.org/main/about"
+   }
+  },
+  {
+   "id": "GET renderer-artifacts.decentraland.org /sdk7-adaption-layer/main/index.js",
+   "method": "GET",
+   "host": "renderer-artifacts.decentraland.org",
+   "pathTemplate": "/sdk7-adaption-layer/main/index.js",
+   "auth": "none",
+   "bucket": "asset-bundles-content",
+   "sites": [
+    "Explorer/Assets/DCL/Infrastructure/SceneRunner/SceneInstanceDeps.cs:185"
+   ],
+   "disposition": {
+    "kind": "probe",
+    "ref": "probe:renderer-sdk7-adaption"
+   }
+  },
+  {
+   "id": "GET res.soulmagic.online /v{n}/ui_atlas_5.png",
+   "method": "GET",
+   "host": "res.soulmagic.online",
+   "pathTemplate": "/v{n}/ui_atlas_5.png",
+   "auth": "none",
+   "bucket": "other",
+   "sites": [
+    "Explorer/Assets/DCL/WebRequests/Analytics/WebRequestStressTestUtility.cs:69"
+   ],
+   "disposition": {
+    "kind": "deferred",
+    "reason": "desktop-shell-only",
+    "rationale": "Debug/playground utility asset host, gated behind a developer stress/demo tool."
+   }
+  },
+  {
+   "id": "GET sdk-team-cdn.decentraland.org /ipfs/goerli-plaza-main-latest/about",
+   "method": "GET",
+   "host": "sdk-team-cdn.decentraland.org",
+   "pathTemplate": "/ipfs/goerli-plaza-main-latest/about",
+   "auth": "none",
+   "bucket": "realm-scene-entry",
+   "sites": [
+    "Explorer/Assets/DCL/Infrastructure/SceneRunner/Scene/HibridScene/IGetHash.cs:23"
+   ],
+   "disposition": {
+    "kind": "deferred",
+    "reason": "desktop-shell-only",
+    "rationale": "Debug/playground utility asset host, gated behind a developer stress/demo tool."
+   }
+  },
+  {
+   "id": "GET social-api.decentraland.org /v{n}/communities",
+   "method": "GET",
+   "host": "social-api.decentraland.org",
+   "pathTemplate": "/v{n}/communities",
+   "auth": "signed-fetch",
+   "bucket": "friends-social-mutes",
+   "sites": [
+    "Explorer/Assets/DCL/Communities/CommunitiesDataProvider/CommunitiesDataProvider.cs:58",
+    "Explorer/Assets/DCL/NetworkDefinitions/Browser/GatewayUrlsSource.cs:69",
+    "Explorer/Assets/DCL/NetworkDefinitions/Browser/GatewayUrlsSource.cs:70"
+   ],
+   "disposition": {
+    "kind": "corpus",
+    "ref": "GET gateway.decentraland.org/social-api/v{n}/communities"
+   }
+  },
+  {
+   "id": "GET social-api.decentraland.org /v{n}/communities/{v}",
+   "method": "GET",
+   "host": "social-api.decentraland.org",
+   "pathTemplate": "/v{n}/communities/{v}",
+   "auth": "signed-fetch",
+   "bucket": "friends-social-mutes",
+   "sites": [
+    "Explorer/Assets/DCL/Communities/CommunitiesDataProvider/CommunitiesDataProvider.cs:58",
+    "Explorer/Assets/DCL/Communities/CommunitiesDataProvider/CommunitiesDataProvider.cs:86"
+   ],
+   "disposition": {
+    "kind": "deferred",
+    "reason": "needs-real-wallet",
+    "rationale": "First-party signed service over per-user/social-graph state; header construction proven-equivalent in synthetic-probes. Unlock: signed identity + seeded state."
+   }
+  },
+  {
+   "id": "GET social-api.decentraland.org /v{n}/communities/{v}/bans",
+   "method": "GET",
+   "host": "social-api.decentraland.org",
+   "pathTemplate": "/v{n}/communities/{v}/bans",
+   "auth": "signed-fetch",
+   "bucket": "friends-social-mutes",
+   "sites": [
+    "Explorer/Assets/DCL/Communities/CommunitiesDataProvider/CommunitiesDataProvider.cs:58",
+    "Explorer/Assets/DCL/Communities/CommunitiesDataProvider/CommunitiesDataProvider.cs:246"
+   ],
+   "disposition": {
+    "kind": "deferred",
+    "reason": "needs-real-wallet",
+    "rationale": "First-party signed service over per-user/social-graph state; header construction proven-equivalent in synthetic-probes. Unlock: signed identity + seeded state."
+   }
+  },
+  {
+   "id": "GET social-api.decentraland.org /v{n}/communities/{v}/members",
+   "method": "GET",
+   "host": "social-api.decentraland.org",
+   "pathTemplate": "/v{n}/communities/{v}/members",
+   "auth": "signed-fetch",
+   "bucket": "friends-social-mutes",
+   "sites": [
+    "Explorer/Assets/DCL/Communities/CommunitiesDataProvider/CommunitiesDataProvider.cs:58",
+    "Explorer/Assets/DCL/Communities/CommunitiesDataProvider/CommunitiesDataProvider.cs:234",
+    "Explorer/Assets/DCL/Communities/CommunitiesDataProvider/CommunitiesDataProvider.cs:258"
+   ],
+   "disposition": {
+    "kind": "deferred",
+    "reason": "needs-real-wallet",
+    "rationale": "First-party signed service over per-user/social-graph state; header construction proven-equivalent in synthetic-probes. Unlock: signed identity + seeded state."
+   }
+  },
+  {
+   "id": "GET social-api.decentraland.org /v{n}/communities/{v}/places",
+   "method": "GET",
+   "host": "social-api.decentraland.org",
+   "pathTemplate": "/v{n}/communities/{v}/places",
+   "auth": "signed-fetch",
+   "bucket": "friends-social-mutes",
+   "sites": [
+    "Explorer/Assets/DCL/Communities/CommunitiesDataProvider/CommunitiesDataProvider.cs:54",
+    "Explorer/Assets/DCL/Communities/CommunitiesDataProvider/CommunitiesDataProvider.cs:280"
+   ],
+   "disposition": {
+    "kind": "deferred",
+    "reason": "needs-real-wallet",
+    "rationale": "First-party signed service over per-user/social-graph state; header construction proven-equivalent in synthetic-probes. Unlock: signed identity + seeded state."
+   }
+  },
+  {
+   "id": "GET social-api.decentraland.org /v{n}/communities/{v}/posts",
+   "method": "GET",
+   "host": "social-api.decentraland.org",
+   "pathTemplate": "/v{n}/communities/{v}/posts",
+   "auth": "signed-fetch",
+   "bucket": "friends-social-mutes",
+   "sites": [
+    "Explorer/Assets/DCL/Communities/CommunitiesDataProvider/CommunitiesDataProvider.cs:58",
+    "Explorer/Assets/DCL/Communities/CommunitiesDataProvider/CommunitiesDataProvider.cs:481"
+   ],
+   "disposition": {
+    "kind": "deferred",
+    "reason": "needs-real-wallet",
+    "rationale": "First-party signed service over per-user/social-graph state; header construction proven-equivalent in synthetic-probes. Unlock: signed identity + seeded state."
+   }
+  },
+  {
+   "id": "GET social-api.decentraland.org /v{n}/communities/{v}/requests",
+   "method": "GET",
+   "host": "social-api.decentraland.org",
+   "pathTemplate": "/v{n}/communities/{v}/requests",
+   "auth": "signed-fetch",
+   "bucket": "friends-social-mutes",
+   "sites": [
+    "Explorer/Assets/DCL/Communities/CommunitiesDataProvider/CommunitiesDataProvider.cs:58",
+    "Explorer/Assets/DCL/Communities/CommunitiesDataProvider/CommunitiesDataProvider.cs:138",
+    "Explorer/Assets/DCL/Communities/CommunitiesDataProvider/CommunitiesDataProvider.cs:413"
+   ],
+   "disposition": {
+    "kind": "deferred",
+    "reason": "needs-real-wallet",
+    "rationale": "First-party signed service over per-user/social-graph state; header construction proven-equivalent in synthetic-probes. Unlock: signed identity + seeded state."
+   }
+  },
+  {
+   "id": "GET social-api.decentraland.org /v{n}/community-voice-chats/active",
+   "method": "GET",
+   "host": "social-api.decentraland.org",
+   "pathTemplate": "/v{n}/community-voice-chats/active",
+   "auth": "signed-fetch",
+   "bucket": "other",
+   "sites": [
+    "Explorer/Assets/DCL/NetworkDefinitions/Browser/GatewayUrlsSource.cs:73",
+    "Explorer/Assets/DCL/VoiceChat/Services/RPCCommunityVoiceChatService.cs:52",
+    "Explorer/Assets/DCL/VoiceChat/Services/RPCCommunityVoiceChatService.cs:139"
+   ],
+   "disposition": {
+    "kind": "corpus",
+    "ref": "GET gateway.decentraland.org/social-api/v{n}/community-voice-chats/active"
+   }
+  },
+  {
+   "id": "GET social-api.decentraland.org /v{n}/members",
+   "method": "GET",
+   "host": "social-api.decentraland.org",
+   "pathTemplate": "/v{n}/members",
+   "auth": "none",
+   "bucket": "other",
+   "sites": [
+    "Explorer/Assets/DCL/NetworkDefinitions/Browser/GatewayUrlsSource.cs:71",
+    "Explorer/Assets/DCL/NetworkDefinitions/Browser/GatewayUrlsSource.cs:72"
+   ],
+   "disposition": {
+    "kind": "deferred",
+    "reason": "needs-real-wallet",
+    "rationale": "First-party signed service over per-user/social-graph state; header construction proven-equivalent in synthetic-probes. Unlock: signed identity + seeded state."
+   }
+  },
+  {
+   "id": "GET social-api.decentraland.org /v{n}/members/{v}/invites",
+   "method": "GET",
+   "host": "social-api.decentraland.org",
+   "pathTemplate": "/v{n}/members/{v}/invites",
+   "auth": "signed-fetch",
+   "bucket": "friends-social-mutes",
+   "sites": [
+    "Explorer/Assets/DCL/Communities/CommunitiesDataProvider/CommunitiesDataProvider.cs:55",
+    "Explorer/Assets/DCL/Communities/CommunitiesDataProvider/CommunitiesDataProvider.cs:471"
+   ],
+   "disposition": {
+    "kind": "deferred",
+    "reason": "needs-real-wallet",
+    "rationale": "First-party signed service over per-user/social-graph state; header construction proven-equivalent in synthetic-probes. Unlock: signed identity + seeded state."
+   }
+  },
+  {
+   "id": "GET social-api.decentraland.org /v{n}/members/{v}/requests",
+   "method": "GET",
+   "host": "social-api.decentraland.org",
+   "pathTemplate": "/v{n}/members/{v}/requests",
+   "auth": "signed-fetch",
+   "bucket": "friends-social-mutes",
+   "sites": [
+    "Explorer/Assets/DCL/Communities/CommunitiesDataProvider/CommunitiesDataProvider.cs:59",
+    "Explorer/Assets/DCL/Communities/CommunitiesDataProvider/CommunitiesDataProvider.cs:397"
+   ],
+   "disposition": {
+    "kind": "deferred",
+    "reason": "needs-real-wallet",
+    "rationale": "First-party signed service over per-user/social-graph state; header construction proven-equivalent in synthetic-probes. Unlock: signed identity + seeded state."
+   }
+  },
+  {
+   "id": "GET social-api.decentraland.org /v{n}/mutes",
+   "method": "GET",
+   "host": "social-api.decentraland.org",
+   "pathTemplate": "/v{n}/mutes",
+   "auth": "signed-fetch",
+   "bucket": "friends-social-mutes",
+   "sites": [
+    "Explorer/Assets/DCL/VoiceChat/NearbyVoiceChat/MutePersistence/RestNearbyMuteRepository.cs:21",
+    "Explorer/Assets/DCL/VoiceChat/NearbyVoiceChat/MutePersistence/RestNearbyMuteRepository.cs:35"
+   ],
+   "disposition": {
+    "kind": "corpus",
+    "ref": "GET social-api.decentraland.org/v{n}/mutes"
+   }
+  },
+  {
+   "id": "GET worlds-content-server.decentraland.org /contents/",
+   "method": "GET",
+   "host": "worlds-content-server.decentraland.org",
+   "pathTemplate": "/contents/",
+   "auth": "none",
+   "bucket": "other",
+   "sites": [
+    "Explorer/Assets/DCL/NetworkDefinitions/Browser/GatewayUrlsSource.cs:47"
+   ],
+   "disposition": {
+    "kind": "deferred",
+    "reason": "immutable-content-addressed",
+    "rationale": "Content/world/community-id-keyed asset or manifest; served identically by key on any deployment or CDN."
+   }
+  },
+  {
+   "id": "GET worlds-content-server.decentraland.org /contents/{v}",
+   "method": "GET",
+   "host": "worlds-content-server.decentraland.org",
+   "pathTemplate": "/contents/{v}",
+   "auth": "none",
+   "bucket": "asset-bundles-content",
+   "sites": [
+    "Explorer/Assets/DCL/Infrastructure/Global/Dynamic/GlobalWorldFactory.cs:181",
+    "Explorer/Assets/DCL/Infrastructure/SceneLifeCycle/Systems/LoadFixedPointersSystem.cs:111",
+    "Explorer/Assets/DCL/Infrastructure/SceneLifeCycle/Systems/LoadFixedPointersSystem.cs:135"
+   ],
+   "disposition": {
+    "kind": "corpus",
+    "ref": "GET worlds-content-server.decentraland.org/contents/{cid}"
+   }
+  },
+  {
+   "id": "GET worlds-content-server.decentraland.org /wallet/{v}/connected-world",
+   "method": "GET",
+   "host": "worlds-content-server.decentraland.org",
+   "pathTemplate": "/wallet/{v}/connected-world",
+   "auth": "none",
+   "bucket": "friends-social-mutes",
+   "sites": [
+    "Explorer/Assets/DCL/Infrastructure/Global/Dynamic/PlacesAndEventsContainer.cs:62",
+    "Explorer/Assets/DCL/NetworkDefinitions/Browser/GatewayUrlsSource.cs:41",
+    "Explorer/Assets/DCL/Multiplayer/Connectivity/WorldInfoOnlineUsersProviderDecorator.cs:54"
+   ],
+   "disposition": {
+    "kind": "probe",
+    "ref": "probe:worlds-connected-world"
+   }
+  },
+  {
+   "id": "GET worlds-content-server.decentraland.org /world/{v}/about",
+   "method": "GET",
+   "host": "worlds-content-server.decentraland.org",
+   "pathTemplate": "/world/{v}/about",
+   "auth": "none",
+   "bucket": "realm-scene-entry",
+   "sites": [
+    "Explorer/Assets/DCL/Chat/Commands/ChatTeleporter.cs:33",
+    "Explorer/Assets/DCL/Communities/NotificationHandler.cs:62",
+    "Explorer/Assets/DCL/Communities/CommunitiesCard/Events/EventListController.cs:154"
+   ],
+   "disposition": {
+    "kind": "probe",
+    "ref": "probe:worlds-about"
+   }
+  },
+  {
+   "id": "GET worlds-content-server.decentraland.org /world/{v}/permissions",
+   "method": "GET",
+   "host": "worlds-content-server.decentraland.org",
+   "pathTemplate": "/world/{v}/permissions",
+   "auth": "none",
+   "bucket": "realm-scene-entry",
+   "sites": [
+    "Explorer/Assets/DCL/RealmNavigation/PrivateWorlds/WorldPermissionsService.cs:167",
+    "Explorer/Assets/DCL/RealmNavigation/PrivateWorlds/WorldPermissionsService.cs:173"
+   ],
+   "disposition": {
+    "kind": "probe",
+    "ref": "probe:worlds-permissions"
+   }
+  },
+  {
+   "id": "GET worlds-content-server.decentraland.org /worlds/{v}/scenes/{v}/comms",
+   "method": "GET",
+   "host": "worlds-content-server.decentraland.org",
+   "pathTemplate": "/worlds/{v}/scenes/{v}/comms",
+   "auth": "signed-fetch",
+   "bucket": "chat-comms-voice",
+   "sites": [
+    "Explorer/Assets/DCL/Multiplayer/Connections/GateKeeper/Rooms/Options/GateKeeperSceneRoomOptions.cs:52"
+   ],
+   "disposition": {
+    "kind": "deferred",
+    "reason": "needs-real-wallet",
+    "rationale": "First-party signed-fetch endpoint over per-user/social state; header construction proven-equivalent in synthetic-probes. Unlock: signed identity + seeded state."
+   }
+  },
+  {
+   "id": "GET www.youtube.com /sw.js_data",
+   "method": "GET",
+   "host": "www.youtube.com",
+   "pathTemplate": "/sw.js_data",
+   "auth": "none",
+   "bucket": "other",
+   "sites": [
+    "Explorer/Assets/DCL/SDKComponents/MediaStream/YouTube/InnerTubeClient.cs:343"
+   ],
+   "disposition": {
+    "kind": "deferred",
+    "reason": "documented-intentional-upstream-dependency",
+    "rationale": "Genuinely-external provider/content (YouTube / Thirdweb / Google-Drive / GitHub tiles / CoinGecko / OpenSea proxy); not a base-domain obligation."
+   }
+  },
+  {
+   "id": "HEAD ab-cdn.decentraland.org /{v}/{v}/main.crdt",
+   "method": "HEAD",
+   "host": "ab-cdn.decentraland.org",
+   "pathTemplate": "/{v}/{v}/main.crdt",
+   "auth": "none",
+   "bucket": "asset-bundles-content",
+   "sites": [
+    "Explorer/Assets/DCL/Infrastructure/SceneLifeCycle/SceneFacade/Systems/LoadSceneSystemLogic.cs:55"
+   ],
+   "disposition": {
+    "kind": "deferred",
+    "reason": "immutable-content-addressed",
+    "rationale": "Content/world/community-id-keyed asset or manifest; served identically by key on any deployment or CDN."
+   }
+  },
+  {
+   "id": "HEAD ab-cdn.decentraland.org /{v}/{v}/scene.json",
+   "method": "HEAD",
+   "host": "ab-cdn.decentraland.org",
+   "pathTemplate": "/{v}/{v}/scene.json",
+   "auth": "none",
+   "bucket": "asset-bundles-content",
+   "sites": [
+    "Explorer/Assets/DCL/Infrastructure/SceneLifeCycle/SceneFacade/Systems/LoadSceneSystemLogic.cs:54"
+   ],
+   "disposition": {
+    "kind": "deferred",
+    "reason": "immutable-content-addressed",
+    "rationale": "Content/world/community-id-keyed asset or manifest; served identically by key on any deployment or CDN."
+   }
+  },
+  {
+   "id": "HEAD ab-cdn.decentraland.org /{v}/{v}/{v}",
+   "method": "HEAD",
+   "host": "ab-cdn.decentraland.org",
+   "pathTemplate": "/{v}/{v}/{v}",
+   "auth": "none",
+   "bucket": "asset-bundles-content",
+   "sites": [
+    "Explorer/Assets/DCL/Infrastructure/SceneLifeCycle/SceneFacade/Systems/LoadSceneSystemLogic.cs:53"
+   ],
+   "disposition": {
+    "kind": "deferred",
+    "reason": "immutable-content-addressed",
+    "rationale": "Content/world/community-id-keyed asset or manifest; served identically by key on any deployment or CDN."
+   }
+  },
+  {
+   "id": "HEAD ab-cdn.decentraland.org /{v}/{v}{v}",
+   "method": "HEAD",
+   "host": "ab-cdn.decentraland.org",
+   "pathTemplate": "/{v}/{v}{v}",
+   "auth": "none",
+   "bucket": "asset-bundles-content",
+   "sites": [
+    "Explorer/Assets/DCL/Infrastructure/ECS/Unity/StreamableLoading/AssetBundles/LoadAssetBundleSystem.cs:83"
+   ],
+   "disposition": {
+    "kind": "deferred",
+    "reason": "immutable-content-addressed",
+    "rationale": "Content/world/community-id-keyed asset or manifest; served identically by key on any deployment or CDN."
+   }
+  },
+  {
+   "id": "HEAD archipelago-ea-stats.decentraland.org /status",
+   "method": "HEAD",
+   "host": "archipelago-ea-stats.decentraland.org",
+   "pathTemplate": "/status",
+   "auth": "none",
+   "bucket": "boot",
+   "sites": [
+    "Explorer/Assets/DCL/Infrastructure/Global/Dynamic/MainSceneLoader.cs:698",
+    "Explorer/Assets/DCL/Multiplayer/HealthChecks/URLHealthCheck.cs:42"
+   ],
+   "disposition": {
+    "kind": "corpus",
+    "ref": "HEAD gateway.decentraland.org/archipelago-ea-stats/status"
+   }
+  },
+  {
+   "id": "HEAD comms-gatekeeper.decentraland.org /status",
+   "method": "HEAD",
+   "host": "comms-gatekeeper.decentraland.org",
+   "pathTemplate": "/status",
+   "auth": "none",
+   "bucket": "boot",
+   "sites": [
+    "Explorer/Assets/DCL/Infrastructure/Global/Dynamic/MainSceneLoader.cs:699"
+   ],
+   "disposition": {
+    "kind": "corpus",
+    "ref": "HEAD gateway.decentraland.org/comms-gatekeeper/status"
+   }
+  },
+  {
+   "id": "HEAD decentraland.org /",
+   "method": "HEAD",
+   "host": "decentraland.org",
+   "pathTemplate": "/",
+   "auth": "none",
+   "bucket": "chat-comms-voice",
+   "sites": [
+    "Explorer/Assets/DCL/PluginSystem/Global/MultiplayerConnectionWatchdog.cs:65",
+    "Explorer/Assets/DCL/PluginSystem/Global/EnsureClockSync.cs:68",
+    "Explorer/Assets/DCL/PluginSystem/Global/EnsureClockSync.cs:66"
+   ],
+   "disposition": {
+    "kind": "deferred",
+    "reason": "desktop-shell-only",
+    "rationale": "Web-app / AuthSignatureWebApp browser handoff (login, marketing pages); browser-open, bypassed by --skip-auth-screen."
+   }
+  },
+  {
+   "id": "PATCH camera-reel-service.decentraland.org /api/images/{v}/visibility",
+   "method": "PATCH",
+   "host": "camera-reel-service.decentraland.org",
+   "pathTemplate": "/api/images/{v}/visibility",
+   "auth": "signed-fetch",
+   "bucket": "quests-credits-camera-reel",
+   "sites": [
+    "Explorer/Assets/DCL/InWorldCamera/CameraReelStorageService/CameraReelImagesMetadataRemoteDatabase.cs:30",
+    "Explorer/Assets/DCL/InWorldCamera/CameraReelStorageService/CameraReelImagesMetadataRemoteDatabase.cs:205"
+   ],
+   "disposition": {
+    "kind": "deferred",
+    "reason": "needs-real-wallet",
+    "rationale": "First-party signed service over per-user/social-graph state; header construction proven-equivalent in synthetic-probes. Unlock: signed identity + seeded state."
+   }
+  },
+  {
+   "id": "PATCH places.decentraland.org /api/places/{v}/favorites",
+   "method": "PATCH",
+   "host": "places.decentraland.org",
+   "pathTemplate": "/api/places/{v}/favorites",
+   "auth": "signed-fetch",
+   "bucket": "events-places-worlds",
+   "sites": [
+    "Explorer/Assets/DCL/PlacesAPIService/PlacesAPIClient.cs:36",
+    "Explorer/Assets/DCL/PlacesAPIService/PlacesAPIClient.cs:388"
+   ],
+   "disposition": {
+    "kind": "deferred",
+    "reason": "needs-real-wallet",
+    "rationale": "First-party signed-fetch endpoint over per-user/social state; header construction proven-equivalent in synthetic-probes. Unlock: signed identity + seeded state."
+   }
+  },
+  {
+   "id": "PATCH places.decentraland.org /api/places/{v}/likes",
+   "method": "PATCH",
+   "host": "places.decentraland.org",
+   "pathTemplate": "/api/places/{v}/likes",
+   "auth": "signed-fetch",
+   "bucket": "events-places-worlds",
+   "sites": [
+    "Explorer/Assets/DCL/PlacesAPIService/PlacesAPIClient.cs:36",
+    "Explorer/Assets/DCL/PlacesAPIService/PlacesAPIClient.cs:415"
+   ],
+   "disposition": {
+    "kind": "deferred",
+    "reason": "needs-real-wallet",
+    "rationale": "First-party signed-fetch endpoint over per-user/social state; header construction proven-equivalent in synthetic-probes. Unlock: signed identity + seeded state."
+   }
+  },
+  {
+   "id": "PATCH social-api.decentraland.org /v{n}/communities/{v}/members/{v}",
+   "method": "PATCH",
+   "host": "social-api.decentraland.org",
+   "pathTemplate": "/v{n}/communities/{v}/members/{v}",
+   "auth": "signed-fetch",
+   "bucket": "friends-social-mutes",
+   "sites": [
+    "Explorer/Assets/DCL/Communities/CommunitiesDataProvider/CommunitiesDataProvider.cs:54",
+    "Explorer/Assets/DCL/Communities/CommunitiesDataProvider/CommunitiesDataProvider.cs:372"
+   ],
+   "disposition": {
+    "kind": "deferred",
+    "reason": "needs-real-wallet",
+    "rationale": "First-party signed service over per-user/social-graph state; header construction proven-equivalent in synthetic-probes. Unlock: signed identity + seeded state."
+   }
+  },
+  {
+   "id": "PATCH social-api.decentraland.org /v{n}/communities/{v}/requests/{v}",
+   "method": "PATCH",
+   "host": "social-api.decentraland.org",
+   "pathTemplate": "/v{n}/communities/{v}/requests/{v}",
+   "auth": "signed-fetch",
+   "bucket": "friends-social-mutes",
+   "sites": [
+    "Explorer/Assets/DCL/Communities/CommunitiesDataProvider/CommunitiesDataProvider.cs:54",
+    "Explorer/Assets/DCL/Communities/CommunitiesDataProvider/CommunitiesDataProvider.cs:425"
+   ],
+   "disposition": {
+    "kind": "deferred",
+    "reason": "needs-real-wallet",
+    "rationale": "First-party signed service over per-user/social-graph state; header construction proven-equivalent in synthetic-probes. Unlock: signed identity + seeded state."
+   }
+  },
+  {
+   "id": "POST *.thirdweb.com /*",
+   "method": "POST",
+   "host": "*.thirdweb.com",
+   "pathTemplate": "/*",
+   "auth": "bearer",
+   "bucket": "auth",
+   "sites": [
+    "Explorer/Assets/DCL/Web3/Authenticators/Implementations/ThirdWeb/ThirdWebLoginService.cs:57"
+   ],
+   "disposition": {
+    "kind": "deferred",
+    "reason": "documented-intentional-upstream-dependency",
+    "rationale": "Genuinely-external provider/content (YouTube / Thirdweb / Google-Drive / GitHub tiles / CoinGecko / OpenSea proxy); not a base-domain obligation."
+   }
+  },
+  {
+   "id": "POST api.segment.io /v{n}/batch",
+   "method": "POST",
+   "host": "api.segment.io",
+   "pathTemplate": "/v{n}/batch",
+   "auth": "bearer",
+   "bucket": "other",
+   "sites": [
+    "Explorer/Assets/Plugins/RustSegment/SegmentServerWrap/RustSegmentAnalyticsService.cs:78"
+   ],
+   "disposition": {
+    "kind": "deferred",
+    "reason": "documented-intentional-upstream-dependency",
+    "rationale": "Genuinely-external provider/content (YouTube / Thirdweb / Google-Drive / GitHub tiles / CoinGecko / OpenSea proxy); not a base-domain obligation."
+   }
+  },
+  {
+   "id": "POST asset-bundle-registry.decentraland.org /entities/active",
+   "method": "POST",
+   "host": "asset-bundle-registry.decentraland.org",
+   "pathTemplate": "/entities/active",
+   "auth": "none",
+   "bucket": "marketplace-backpack-emotes",
+   "sites": [
+    "Explorer/Assets/DCL/AvatarRendering/Emotes/Systems/Load/LoadEmotesByPointersSystem.cs:184",
+    "Explorer/Assets/DCL/AvatarRendering/Loading/Systems/BatchPointersSystemBase.cs:49",
+    "Explorer/Assets/DCL/AvatarRendering/Wearables/Systems/ResolveWearablePromisesSystem.cs:162"
+   ],
+   "disposition": {
+    "kind": "corpus",
+    "ref": "POST gateway.decentraland.org/asset-bundle-registry/entities/active"
+   }
+  },
+  {
+   "id": "POST asset-bundle-registry.decentraland.org /entities/versions",
+   "method": "POST",
+   "host": "asset-bundle-registry.decentraland.org",
+   "pathTemplate": "/entities/versions",
+   "auth": "none",
+   "bucket": "marketplace-backpack-emotes",
+   "sites": [
+    "Explorer/Assets/DCL/AvatarRendering/Loading/Systems/LoadTrimmedElementsByIntentionSystem.cs:170",
+    "Explorer/Assets/DCL/Infrastructure/ECS/Unity/StreamableLoading/AssetBundles/AssetBundleRegistryVersionHelper.cs:69"
+   ],
+   "disposition": {
+    "kind": "probe",
+    "ref": "probe:ab-registry-versions"
+   }
+  },
+  {
+   "id": "POST asset-bundle-registry.decentraland.org /profiles",
+   "method": "POST",
+   "host": "asset-bundle-registry.decentraland.org",
+   "pathTemplate": "/profiles",
+   "auth": "none",
+   "bucket": "profile-avatar",
+   "sites": [
+    "Explorer/Assets/DCL/Profiles/Repository/RealmProfileRepository.cs:416"
+   ],
+   "disposition": {
+    "kind": "corpus",
+    "ref": "POST gateway.decentraland.org/asset-bundle-registry/profiles"
+   }
+  },
+  {
+   "id": "POST asset-bundle-registry.decentraland.org /profiles/metadata",
+   "method": "POST",
+   "host": "asset-bundle-registry.decentraland.org",
+   "pathTemplate": "/profiles/metadata",
+   "auth": "none",
+   "bucket": "profile-avatar",
+   "sites": [
+    "Explorer/Assets/DCL/Profiles/Repository/RealmProfileRepository.cs:415"
+   ],
+   "disposition": {
+    "kind": "deferred",
+    "reason": "needs-real-wallet",
+    "rationale": "First-party state-mutating request requiring an authenticated actor and/or populated backend state."
+   }
+  },
+  {
+   "id": "POST auth-api.decentraland.org /requests",
+   "method": "POST",
+   "host": "auth-api.decentraland.org",
+   "pathTemplate": "/requests",
+   "auth": "wallet-sig",
+   "bucket": "auth",
+   "sites": [
+    "Explorer/Assets/DCL/Infrastructure/Global/Dynamic/BootstrapContainer.cs:226",
+    "Explorer/Assets/DCL/Infrastructure/Global/Dynamic/BootstrapContainer.cs:241",
+    "Explorer/Assets/DCL/Web3/Authenticators/Implementations/Dapp/DappWeb3EthereumApi.Default.cs:20"
+   ],
+   "disposition": {
+    "kind": "deferred",
+    "reason": "desktop-shell-only",
+    "rationale": "QR/remote wallet login handshake; bypassed by --skip-auth-screen and never exercised by a throwaway/guest identity."
+   }
+  },
+  {
+   "id": "POST autotranslate-server.decentraland.org /translate",
+   "method": "POST",
+   "host": "autotranslate-server.decentraland.org",
+   "pathTemplate": "/translate",
+   "auth": "none",
+   "bucket": "chat-comms-voice",
+   "sites": [
+    "Explorer/Assets/DCL/Translation/Service/Provider/DclTranslationProvider.cs:20",
+    "Explorer/Assets/DCL/Translation/Service/Provider/DclTranslationProvider.cs:74",
+    "Explorer/Assets/DCL/Translation/Service/Provider/DclTranslationProvider.cs:101"
+   ],
+   "disposition": {
+    "kind": "deferred",
+    "reason": "needs-real-wallet",
+    "rationale": "Chat auto-translate fires only on a received chat message in a populated room. Unlock: signed identity in a live comms room."
+   }
+  },
+  {
+   "id": "POST builder-api.decentraland.org /v{n}/newsletter",
+   "method": "POST",
+   "host": "builder-api.decentraland.org",
+   "pathTemplate": "/v{n}/newsletter",
+   "auth": "none",
+   "bucket": "auth",
+   "sites": [
+    "Explorer/Assets/DCL/AuthenticationScreenFlow/States/LobbyForNewAccountAuthState.cs:331",
+    "Explorer/Assets/DCL/AuthenticationScreenFlow/States/LobbyForNewAccountAuthState.cs:334"
+   ],
+   "disposition": {
+    "kind": "deferred",
+    "reason": "desktop-shell-only",
+    "rationale": "Creator/builder tooling surface (collections editor, newsletter opt-in); not exercised on player boot/idle."
+   }
+  },
+  {
+   "id": "POST camera-reel-service.decentraland.org /api/images",
+   "method": "POST",
+   "host": "camera-reel-service.decentraland.org",
+   "pathTemplate": "/api/images",
+   "auth": "signed-fetch",
+   "bucket": "quests-credits-camera-reel",
+   "sites": [
+    "Explorer/Assets/DCL/InWorldCamera/CameraReelStorageService/CameraReelImagesMetadataRemoteDatabase.cs:30",
+    "Explorer/Assets/DCL/InWorldCamera/CameraReelStorageService/CameraReelImagesMetadataRemoteDatabase.cs:221"
+   ],
+   "disposition": {
+    "kind": "deferred",
+    "reason": "needs-real-wallet",
+    "rationale": "First-party signed service over per-user/social-graph state; header construction proven-equivalent in synthetic-probes. Unlock: signed identity + seeded state."
+   }
+  },
+  {
+   "id": "POST camera-reel-service.decentraland.org /api/places/images",
+   "method": "POST",
+   "host": "camera-reel-service.decentraland.org",
+   "pathTemplate": "/api/places/images",
+   "auth": "signed-fetch",
+   "bucket": "quests-credits-camera-reel",
+   "sites": [
+    "Explorer/Assets/DCL/InWorldCamera/CameraReelStorageService/CameraReelImagesMetadataRemoteDatabase.cs:32",
+    "Explorer/Assets/DCL/InWorldCamera/CameraReelStorageService/CameraReelImagesMetadataRemoteDatabase.cs:158"
+   ],
+   "disposition": {
+    "kind": "deferred",
+    "reason": "needs-real-wallet",
+    "rationale": "First-party signed service over per-user/social-graph state; header construction proven-equivalent in synthetic-probes. Unlock: signed identity + seeded state."
+   }
+  },
+  {
+   "id": "POST comms-gatekeeper.decentraland.org /get-scene-adapter",
+   "method": "POST",
+   "host": "comms-gatekeeper.decentraland.org",
+   "pathTemplate": "/get-scene-adapter",
+   "auth": "signed-fetch",
+   "bucket": "chat-comms-voice",
+   "sites": [
+    "Explorer/Assets/DCL/Multiplayer/Connections/GateKeeper/Rooms/GateKeeperSceneRoom.cs:222"
+   ],
+   "disposition": {
+    "kind": "corpus",
+    "ref": "POST gateway.decentraland.org/comms-gatekeeper/get-scene-adapter"
+   }
+  },
+  {
+   "id": "POST credits.decentraland.org /captcha",
+   "method": "POST",
+   "host": "credits.decentraland.org",
+   "pathTemplate": "/captcha",
+   "auth": "signed-fetch",
+   "bucket": "quests-credits-camera-reel",
+   "sites": [
+    "Explorer/Assets/DCL/MarketplaceCredits/MarketplaceCreditsAPIService/MarketplaceCreditsAPIClient.cs:27",
+    "Explorer/Assets/DCL/MarketplaceCredits/MarketplaceCreditsAPIService/MarketplaceCreditsAPIClient.cs:173"
+   ],
+   "disposition": {
+    "kind": "deferred",
+    "reason": "needs-real-wallet",
+    "rationale": "First-party signed service over per-user/social-graph state; header construction proven-equivalent in synthetic-probes. Unlock: signed identity + seeded state."
+   }
+  },
+  {
+   "id": "POST credits.decentraland.org /credits/authorize",
+   "method": "POST",
+   "host": "credits.decentraland.org",
+   "pathTemplate": "/credits/authorize",
+   "auth": "signed-fetch",
+   "bucket": "quests-credits-camera-reel",
+   "sites": [
+    "Explorer/Assets/DCL/MarketplaceCredits/MarketplaceCreditsAPIService/MarketplaceCreditsAPIClient.cs:27",
+    "Explorer/Assets/DCL/MarketplaceCredits/MarketplaceCreditsAPIService/MarketplaceCreditsAPIClient.cs:100"
+   ],
+   "disposition": {
+    "kind": "deferred",
+    "reason": "needs-real-wallet",
+    "rationale": "First-party signed service over per-user/social-graph state; header construction proven-equivalent in synthetic-probes. Unlock: signed identity + seeded state."
+   }
+  },
+  {
+   "id": "POST credits.decentraland.org /credits/authorize/cancel",
+   "method": "POST",
+   "host": "credits.decentraland.org",
+   "pathTemplate": "/credits/authorize/cancel",
+   "auth": "signed-fetch",
+   "bucket": "quests-credits-camera-reel",
+   "sites": [
+    "Explorer/Assets/DCL/MarketplaceCredits/MarketplaceCreditsAPIService/MarketplaceCreditsAPIClient.cs:27",
+    "Explorer/Assets/DCL/MarketplaceCredits/MarketplaceCreditsAPIService/MarketplaceCreditsAPIClient.cs:129"
+   ],
+   "disposition": {
+    "kind": "deferred",
+    "reason": "needs-real-wallet",
+    "rationale": "First-party signed service over per-user/social-graph state; header construction proven-equivalent in synthetic-probes. Unlock: signed identity + seeded state."
+   }
+  },
+  {
+   "id": "POST credits.decentraland.org /credits/checkout",
+   "method": "POST",
+   "host": "credits.decentraland.org",
+   "pathTemplate": "/credits/checkout",
+   "auth": "signed-fetch",
+   "bucket": "quests-credits-camera-reel",
+   "sites": [
+    "Explorer/Assets/DCL/MarketplaceCredits/MarketplaceCreditsAPIService/MarketplaceCreditsAPIClient.cs:27",
+    "Explorer/Assets/DCL/MarketplaceCredits/MarketplaceCreditsAPIService/MarketplaceCreditsAPIClient.cs:238"
+   ],
+   "disposition": {
+    "kind": "deferred",
+    "reason": "needs-real-wallet",
+    "rationale": "First-party signed service over per-user/social-graph state; header construction proven-equivalent in synthetic-probes. Unlock: signed identity + seeded state."
+   }
+  },
+  {
+   "id": "POST credits.decentraland.org /users",
+   "method": "POST",
+   "host": "credits.decentraland.org",
+   "pathTemplate": "/users",
+   "auth": "signed-fetch",
+   "bucket": "quests-credits-camera-reel",
+   "sites": [
+    "Explorer/Assets/DCL/MarketplaceCredits/MarketplaceCreditsAPIService/MarketplaceCreditsAPIClient.cs:27",
+    "Explorer/Assets/DCL/MarketplaceCredits/MarketplaceCreditsAPIService/MarketplaceCreditsAPIClient.cs:40"
+   ],
+   "disposition": {
+    "kind": "deferred",
+    "reason": "needs-real-wallet",
+    "rationale": "First-party signed service over per-user/social-graph state; header construction proven-equivalent in synthetic-probes. Unlock: signed identity + seeded state."
+   }
+  },
+  {
+   "id": "POST dcl-lists.decentraland.org /pois",
+   "method": "POST",
+   "host": "dcl-lists.decentraland.org",
+   "pathTemplate": "/pois",
+   "auth": "none",
+   "bucket": "events-places-worlds",
+   "sites": [
+    "Explorer/Assets/DCL/PlacesAPIService/PlacesAPIClient.cs:40",
+    "Explorer/Assets/DCL/PlacesAPIService/PlacesAPIClient.cs:427"
+   ],
+   "disposition": {
+    "kind": "corpus",
+    "ref": "POST dcl-lists.decentraland.org/pois"
+   }
+  },
+  {
+   "id": "POST events.decentraland.org /api/events/search",
+   "method": "POST",
+   "host": "events.decentraland.org",
+   "pathTemplate": "/api/events/search",
+   "auth": "signed-fetch",
+   "bucket": "events-places-worlds",
+   "sites": [
+    "Explorer/Assets/DCL/EventsApi/HttpEventsApiService.cs:39",
+    "Explorer/Assets/DCL/EventsApi/HttpEventsApiService.cs:146"
+   ],
+   "disposition": {
+    "kind": "deferred",
+    "reason": "needs-real-wallet",
+    "rationale": "First-party signed service over per-user/social-graph state; header construction proven-equivalent in synthetic-probes. Unlock: signed identity + seeded state."
+   }
+  },
+  {
+   "id": "POST events.decentraland.org /api/events/{v}/attendees",
+   "method": "POST",
+   "host": "events.decentraland.org",
+   "pathTemplate": "/api/events/{v}/attendees",
+   "auth": "signed-fetch",
+   "bucket": "events-places-worlds",
+   "sites": [
+    "Explorer/Assets/DCL/EventsApi/HttpEventsApiService.cs:39",
+    "Explorer/Assets/DCL/EventsApi/HttpEventsApiService.cs:173"
+   ],
+   "disposition": {
+    "kind": "deferred",
+    "reason": "needs-real-wallet",
+    "rationale": "First-party signed service over per-user/social-graph state; header construction proven-equivalent in synthetic-probes. Unlock: signed identity + seeded state."
+   }
+  },
+  {
+   "id": "POST notifications.decentraland.org /subscription/opt-outs",
+   "method": "POST",
+   "host": "notifications.decentraland.org",
+   "pathTemplate": "/subscription/opt-outs",
+   "auth": "signed-fetch",
+   "bucket": "friends-social-mutes",
+   "sites": [
+    "Explorer/Assets/DCL/Communities/CommunitiesDataProvider/CommunitiesDataProvider.cs:60",
+    "Explorer/Assets/DCL/Communities/CommunitiesDataProvider/CommunitiesDataProvider.cs:563"
+   ],
+   "disposition": {
+    "kind": "deferred",
+    "reason": "needs-real-wallet",
+    "rationale": "First-party signed service over per-user/social-graph state; header construction proven-equivalent in synthetic-probes. Unlock: signed identity + seeded state."
+   }
+  },
+  {
+   "id": "POST peer.decentraland.org /content/entities",
+   "method": "POST",
+   "host": "peer.decentraland.org",
+   "pathTemplate": "/content/entities",
+   "auth": "none",
+   "bucket": "profile-avatar",
+   "sites": [
+    "Explorer/Assets/DCL/NetworkDefinitions/PublishIpfsEntityCommand.cs:46",
+    "Explorer/Assets/DCL/NetworkDefinitions/PublishIpfsEntityCommand.cs:94",
+    "Explorer/Assets/DCL/NetworkDefinitions/PublishIpfsEntityCommand.cs:93"
+   ],
+   "disposition": {
+    "kind": "deferred",
+    "reason": "needs-real-wallet",
+    "rationale": "First-party state-mutating request requiring an authenticated actor and/or populated backend state."
+   }
+  },
+  {
+   "id": "POST peer.decentraland.org /content/entities/active",
+   "method": "POST",
+   "host": "peer.decentraland.org",
+   "pathTemplate": "/content/entities/active",
+   "auth": "none",
+   "bucket": "realm-scene-entry",
+   "sites": [
+    "Explorer/Assets/DCL/Infrastructure/SceneLifeCycle/SceneDefinition/Systems/LoadSceneDefinitionListSystem.cs:90"
+   ],
+   "disposition": {
+    "kind": "corpus",
+    "ref": "POST peer.decentraland.org/content/entities/active"
+   }
+  },
+  {
+   "id": "POST peer.decentraland.org /content/entities/active/",
+   "method": "POST",
+   "host": "peer.decentraland.org",
+   "pathTemplate": "/content/entities/active/",
+   "auth": "none",
+   "bucket": "realm-scene-entry",
+   "sites": [
+    "Explorer/Assets/DCL/Infrastructure/SceneRunner/Scene/HibridScene/IGetHash.cs:93"
+   ],
+   "disposition": {
+    "kind": "deferred",
+    "reason": "needs-real-wallet",
+    "rationale": "First-party state-mutating request requiring an authenticated actor and/or populated backend state."
+   }
+  },
+  {
+   "id": "POST peer.decentraland.org /lambdas/profiles",
+   "method": "POST",
+   "host": "peer.decentraland.org",
+   "pathTemplate": "/lambdas/profiles",
+   "auth": "none",
+   "bucket": "profile-avatar",
+   "sites": [
+    "Explorer/Assets/DCL/Profiles/Repository/RealmProfileRepository.cs:202",
+    "Explorer/Assets/DCL/Profiles/Repository/RealmProfileRepository.cs:419",
+    "Explorer/Assets/DCL/Profiles/Repository/ProfilesRequest.cs:123"
+   ],
+   "disposition": {
+    "kind": "deferred",
+    "reason": "needs-real-wallet",
+    "rationale": "First-party state-mutating request requiring an authenticated actor and/or populated backend state."
+   }
+  },
+  {
+   "id": "POST places.decentraland.org /api/destinations",
+   "method": "POST",
+   "host": "places.decentraland.org",
+   "pathTemplate": "/api/destinations",
+   "auth": "signed-fetch",
+   "bucket": "events-places-worlds",
+   "sites": [
+    "Explorer/Assets/DCL/PlacesAPIService/PlacesAPIClient.cs:38",
+    "Explorer/Assets/DCL/PlacesAPIService/PlacesAPIClient.cs:373"
+   ],
+   "disposition": {
+    "kind": "deferred",
+    "reason": "needs-real-wallet",
+    "rationale": "First-party signed-fetch endpoint over per-user/social state; header construction proven-equivalent in synthetic-probes. Unlock: signed identity + seeded state."
+   }
+  },
+  {
+   "id": "POST places.decentraland.org /api/places",
+   "method": "POST",
+   "host": "places.decentraland.org",
+   "pathTemplate": "/api/places",
+   "auth": "signed-fetch",
+   "bucket": "events-places-worlds",
+   "sites": [
+    "Explorer/Assets/DCL/PlacesAPIService/PlacesAPIClient.cs:36",
+    "Explorer/Assets/DCL/PlacesAPIService/PlacesAPIClient.cs:340"
+   ],
+   "disposition": {
+    "kind": "deferred",
+    "reason": "needs-real-wallet",
+    "rationale": "First-party signed-fetch endpoint over per-user/social state; header construction proven-equivalent in synthetic-probes. Unlock: signed identity + seeded state."
+   }
+  },
+  {
+   "id": "POST places.decentraland.org /api/report",
+   "method": "POST",
+   "host": "places.decentraland.org",
+   "pathTemplate": "/api/report",
+   "auth": "none",
+   "bucket": "events-places-worlds",
+   "sites": [
+    "Explorer/Assets/DCL/PlacesAPIService/PlacesAPIClient.cs:42",
+    "Explorer/Assets/DCL/PlacesAPIService/PlacesAPIClient.cs:455"
+   ],
+   "disposition": {
+    "kind": "deferred",
+    "reason": "needs-real-wallet",
+    "rationale": "Content-moderation report submission; requires an authenticated reporter identity and a target context."
+   }
+  },
+  {
+   "id": "POST rpc.decentraland.org /{v}",
+   "method": "POST",
+   "host": "rpc.decentraland.org",
+   "pathTemplate": "/{v}",
+   "auth": "none",
+   "bucket": "other",
+   "sites": [
+    "Explorer/Assets/DCL/Web3/Authenticators/Implementations/ThirdWeb/ThirdWebEthereumApi.cs:171"
+   ],
+   "disposition": {
+    "kind": "probe",
+    "ref": "probe:rpc-mainnet"
+   }
+  },
+  {
+   "id": "POST social-api.decentraland.org /v{n}/communities",
+   "method": "POST",
+   "host": "social-api.decentraland.org",
+   "pathTemplate": "/v{n}/communities",
+   "auth": "signed-fetch",
+   "bucket": "friends-social-mutes",
+   "sites": [
+    "Explorer/Assets/DCL/Communities/CommunitiesDataProvider/CommunitiesDataProvider.cs:54",
+    "Explorer/Assets/DCL/Communities/CommunitiesDataProvider/CommunitiesDataProvider.cs:207"
+   ],
+   "disposition": {
+    "kind": "deferred",
+    "reason": "needs-real-wallet",
+    "rationale": "First-party signed service over per-user/social-graph state; header construction proven-equivalent in synthetic-probes. Unlock: signed identity + seeded state."
+   }
+  },
+  {
+   "id": "POST social-api.decentraland.org /v{n}/communities/{v}/members",
+   "method": "POST",
+   "host": "social-api.decentraland.org",
+   "pathTemplate": "/v{n}/communities/{v}/members",
+   "auth": "signed-fetch",
+   "bucket": "friends-social-mutes",
+   "sites": [
+    "Explorer/Assets/DCL/Communities/CommunitiesDataProvider/CommunitiesDataProvider.cs:54",
+    "Explorer/Assets/DCL/Communities/CommunitiesDataProvider/CommunitiesDataProvider.cs:345"
+   ],
+   "disposition": {
+    "kind": "deferred",
+    "reason": "needs-real-wallet",
+    "rationale": "First-party signed service over per-user/social-graph state; header construction proven-equivalent in synthetic-probes. Unlock: signed identity + seeded state."
+   }
+  },
+  {
+   "id": "POST social-api.decentraland.org /v{n}/communities/{v}/members/{v}/bans",
+   "method": "POST",
+   "host": "social-api.decentraland.org",
+   "pathTemplate": "/v{n}/communities/{v}/members/{v}/bans",
+   "auth": "signed-fetch",
+   "bucket": "friends-social-mutes",
+   "sites": [
+    "Explorer/Assets/DCL/Communities/CommunitiesDataProvider/CommunitiesDataProvider.cs:54",
+    "Explorer/Assets/DCL/Communities/CommunitiesDataProvider/CommunitiesDataProvider.cs:301"
+   ],
+   "disposition": {
+    "kind": "deferred",
+    "reason": "needs-real-wallet",
+    "rationale": "First-party signed service over per-user/social-graph state; header construction proven-equivalent in synthetic-probes. Unlock: signed identity + seeded state."
+   }
+  },
+  {
+   "id": "POST social-api.decentraland.org /v{n}/communities/{v}/posts",
+   "method": "POST",
+   "host": "social-api.decentraland.org",
+   "pathTemplate": "/v{n}/communities/{v}/posts",
+   "auth": "signed-fetch",
+   "bucket": "friends-social-mutes",
+   "sites": [
+    "Explorer/Assets/DCL/Communities/CommunitiesDataProvider/CommunitiesDataProvider.cs:54",
+    "Explorer/Assets/DCL/Communities/CommunitiesDataProvider/CommunitiesDataProvider.cs:494"
+   ],
+   "disposition": {
+    "kind": "deferred",
+    "reason": "needs-real-wallet",
+    "rationale": "First-party signed service over per-user/social-graph state; header construction proven-equivalent in synthetic-probes. Unlock: signed identity + seeded state."
+   }
+  },
+  {
+   "id": "POST social-api.decentraland.org /v{n}/communities/{v}/posts/{v}/like",
+   "method": "POST",
+   "host": "social-api.decentraland.org",
+   "pathTemplate": "/v{n}/communities/{v}/posts/{v}/like",
+   "auth": "signed-fetch",
+   "bucket": "friends-social-mutes",
+   "sites": [
+    "Explorer/Assets/DCL/Communities/CommunitiesDataProvider/CommunitiesDataProvider.cs:54",
+    "Explorer/Assets/DCL/Communities/CommunitiesDataProvider/CommunitiesDataProvider.cs:515"
+   ],
+   "disposition": {
+    "kind": "deferred",
+    "reason": "needs-real-wallet",
+    "rationale": "First-party signed service over per-user/social-graph state; header construction proven-equivalent in synthetic-probes. Unlock: signed identity + seeded state."
+   }
+  },
+  {
+   "id": "POST social-api.decentraland.org /v{n}/communities/{v}/requests",
+   "method": "POST",
+   "host": "social-api.decentraland.org",
+   "pathTemplate": "/v{n}/communities/{v}/requests",
+   "auth": "signed-fetch",
+   "bucket": "friends-social-mutes",
+   "sites": [
+    "Explorer/Assets/DCL/Communities/CommunitiesDataProvider/CommunitiesDataProvider.cs:54",
+    "Explorer/Assets/DCL/Communities/CommunitiesDataProvider/CommunitiesDataProvider.cs:455"
+   ],
+   "disposition": {
+    "kind": "deferred",
+    "reason": "needs-real-wallet",
+    "rationale": "First-party signed service over per-user/social-graph state; header construction proven-equivalent in synthetic-probes. Unlock: signed identity + seeded state."
+   }
+  },
+  {
+   "id": "POST social-api.decentraland.org /v{n}/mutes",
+   "method": "POST",
+   "host": "social-api.decentraland.org",
+   "pathTemplate": "/v{n}/mutes",
+   "auth": "signed-fetch",
+   "bucket": "friends-social-mutes",
+   "sites": [
+    "Explorer/Assets/DCL/VoiceChat/NearbyVoiceChat/MutePersistence/RestNearbyMuteRepository.cs:21",
+    "Explorer/Assets/DCL/VoiceChat/NearbyVoiceChat/MutePersistence/RestNearbyMuteRepository.cs:89"
+   ],
+   "disposition": {
+    "kind": "deferred",
+    "reason": "needs-real-wallet",
+    "rationale": "First-party signed service over per-user/social-graph state; header construction proven-equivalent in synthetic-probes. Unlock: signed identity + seeded state."
+   }
+  },
+  {
+   "id": "POST transactions-api.decentraland.org /v{n}/transactions",
+   "method": "POST",
+   "host": "transactions-api.decentraland.org",
+   "pathTemplate": "/v{n}/transactions",
+   "auth": "wallet-sig",
+   "bucket": "auth",
+   "sites": [
+    "Explorer/Assets/DCL/Web3/Authenticators/Implementations/ThirdWeb/ThirdWebEthereumApi.cs:49",
+    "Explorer/Assets/DCL/MarketplaceCredits/Purchase/Relay/CreditsManagerMetaTxRelayer.cs:116",
+    "Explorer/Assets/DCL/MarketplaceCredits/Purchase/Relay/CreditsManagerMetaTxRelayer.cs:119"
+   ],
+   "disposition": {
+    "kind": "deferred",
+    "reason": "needs-real-wallet",
+    "rationale": "Meta-transaction relay for on-chain actions (name claim, marketplace). Unlock: funded wallet + signed tx."
+   }
+  },
+  {
+   "id": "POST worlds-content-server.decentraland.org /worlds/{v}/comms",
+   "method": "POST",
+   "host": "worlds-content-server.decentraland.org",
+   "pathTemplate": "/worlds/{v}/comms",
+   "auth": "signed-fetch",
+   "bucket": "realm-scene-entry",
+   "sites": [
+    "Explorer/Assets/DCL/RealmNavigation/PrivateWorlds/WorldPermissionsService.cs:193",
+    "Explorer/Assets/DCL/RealmNavigation/PrivateWorlds/WorldPermissionsService.cs:204"
+   ],
+   "disposition": {
+    "kind": "deferred",
+    "reason": "needs-real-wallet",
+    "rationale": "First-party signed-fetch endpoint over per-user/social state; header construction proven-equivalent in synthetic-probes. Unlock: signed identity + seeded state."
+   }
+  },
+  {
+   "id": "POST www.youtube.com /youtubei/v{n}/player",
+   "method": "POST",
+   "host": "www.youtube.com",
+   "pathTemplate": "/youtubei/v{n}/player",
+   "auth": "none",
+   "bucket": "other",
+   "sites": [
+    "Explorer/Assets/DCL/SDKComponents/MediaStream/YouTube/InnerTubeClient.cs:247"
+   ],
+   "disposition": {
+    "kind": "deferred",
+    "reason": "documented-intentional-upstream-dependency",
+    "rationale": "Genuinely-external provider/content (YouTube / Thirdweb / Google-Drive / GitHub tiles / CoinGecko / OpenSea proxy); not a base-domain obligation."
+   }
+  },
+  {
+   "id": "PUT notifications.decentraland.org /notifications/read",
+   "method": "PUT",
+   "host": "notifications.decentraland.org",
+   "pathTemplate": "/notifications/read",
+   "auth": "signed-fetch",
+   "bucket": "notifications",
+   "sites": [
+    "Explorer/Assets/DCL/Notifications/NotificationsRequestController.cs:59",
+    "Explorer/Assets/DCL/Notifications/NotificationsRequestController.cs:179"
+   ],
+   "disposition": {
+    "kind": "deferred",
+    "reason": "needs-real-wallet",
+    "rationale": "First-party signed service over per-user/social-graph state; header construction proven-equivalent in synthetic-probes. Unlock: signed identity + seeded state."
+   }
+  },
+  {
+   "id": "PUT notifications.decentraland.org /set-email",
+   "method": "PUT",
+   "host": "notifications.decentraland.org",
+   "pathTemplate": "/set-email",
+   "auth": "signed-fetch",
+   "bucket": "quests-credits-camera-reel",
+   "sites": [
+    "Explorer/Assets/DCL/MarketplaceCredits/MarketplaceCreditsAPIService/MarketplaceCreditsAPIClient.cs:28",
+    "Explorer/Assets/DCL/MarketplaceCredits/MarketplaceCreditsAPIService/MarketplaceCreditsAPIClient.cs:190"
+   ],
+   "disposition": {
+    "kind": "deferred",
+    "reason": "needs-real-wallet",
+    "rationale": "First-party signed service over per-user/social-graph state; header construction proven-equivalent in synthetic-probes. Unlock: signed identity + seeded state."
+   }
+  },
+  {
+   "id": "PUT social-api.decentraland.org /v{n}/communities/{v}",
+   "method": "PUT",
+   "host": "social-api.decentraland.org",
+   "pathTemplate": "/v{n}/communities/{v}",
+   "auth": "signed-fetch",
+   "bucket": "friends-social-mutes",
+   "sites": [
+    "Explorer/Assets/DCL/Communities/CommunitiesDataProvider/CommunitiesDataProvider.cs:54",
+    "Explorer/Assets/DCL/Communities/CommunitiesDataProvider/CommunitiesDataProvider.cs:219"
+   ],
+   "disposition": {
+    "kind": "deferred",
+    "reason": "needs-real-wallet",
+    "rationale": "First-party signed service over per-user/social-graph state; header construction proven-equivalent in synthetic-probes. Unlock: signed identity + seeded state."
+   }
+  },
+  {
+   "id": "WS auth-api.decentraland.org /socket.io/",
+   "method": "WS",
+   "host": "auth-api.decentraland.org",
+   "pathTemplate": "/socket.io/",
+   "auth": "identity-ws",
+   "bucket": "auth",
+   "sites": [
+    "Explorer/Assets/DCL/Web3/Authenticators/Implementations/Dapp/DappWeb3EthereumApi.cs:501"
+   ],
+   "disposition": {
+    "kind": "deferred",
+    "reason": "desktop-shell-only",
+    "rationale": "QR/remote wallet login handshake; bypassed by --skip-auth-screen and never exercised by a throwaway/guest identity."
+   }
+  },
+  {
+   "id": "WS rpc.decentraland.org /{v}",
+   "method": "WS",
+   "host": "rpc.decentraland.org",
+   "pathTemplate": "/{v}",
+   "auth": "none",
+   "bucket": "auth",
+   "sites": [
+    "Explorer/Assets/DCL/Web3/Authenticators/Implementations/Dapp/DappWeb3EthereumApi.cs:296"
+   ],
+   "disposition": {
+    "kind": "probe",
+    "ref": "probe:rpc-ws"
+   }
+  },
+  {
+   "id": "GET __scene__ /",
+   "method": "GET",
+   "host": "__scene__",
+   "pathTemplate": "/",
+   "auth": "none",
+   "bucket": "marketplace-backpack-emotes",
+   "sites": [
+    "Explorer/Assets/DCL/Passport/Modules/Creations/CreationsDetailsPassportModuleController.cs:310"
+   ],
+   "disposition": {
+    "kind": "browser-only"
+   }
+  },
+  {
+   "id": "GET decentraland.beehiiv.com /",
+   "method": "GET",
+   "host": "decentraland.beehiiv.com",
+   "pathTemplate": "/",
+   "auth": "none",
+   "bucket": "quests-credits-camera-reel",
+   "sites": [
+    "Explorer/Assets/DCL/MarketplaceCredits/Sections/MarketplaceCreditsProgramEndedSubController.cs:137"
+   ],
+   "disposition": {
+    "kind": "browser-only"
+   }
+  },
+  {
+   "id": "GET decentraland.org /account/",
+   "method": "GET",
+   "host": "decentraland.org",
+   "pathTemplate": "/account/",
+   "auth": "none",
+   "bucket": "other",
+   "sites": [
+    "Explorer/Assets/DCL/Donations/UI/DonationsPanelController.cs:93"
+   ],
+   "disposition": {
+    "kind": "browser-only"
+   }
+  },
+  {
+   "id": "GET decentraland.org /blog/about-decentraland/decentraland-worldsTake-your-own-virtual-space",
+   "method": "GET",
+   "host": "decentraland.org",
+   "pathTemplate": "/blog/about-decentraland/decentraland-worldsTake-your-own-virtual-space",
+   "auth": "none",
+   "bucket": "friends-social-mutes",
+   "sites": [
+    "Explorer/Assets/DCL/Communities/CommunityCreation/CommunityCreationEditionController.cs:204"
+   ],
+   "disposition": {
+    "kind": "browser-only"
+   }
+  },
+  {
+   "id": "GET decentraland.org /content",
+   "method": "GET",
+   "host": "decentraland.org",
+   "pathTemplate": "/content",
+   "auth": "none",
+   "bucket": "other",
+   "sites": [
+    "Explorer/Assets/DCL/Communities/CommunityCreation/CommunityCreationEditionController.cs:618"
+   ],
+   "disposition": {
+    "kind": "browser-only"
+   }
+  },
+  {
+   "id": "GET decentraland.org /discord/",
+   "method": "GET",
+   "host": "decentraland.org",
+   "pathTemplate": "/discord/",
+   "auth": "none",
+   "bucket": "other",
+   "sites": [
+    "Explorer/Assets/DCL/UI/Sidebar/HelpMenu/HelpMenuController.cs:84"
+   ],
+   "disposition": {
+    "kind": "browser-only"
+   }
+  },
+  {
+   "id": "GET decentraland.org /ethics",
+   "method": "GET",
+   "host": "decentraland.org",
+   "pathTemplate": "/ethics",
+   "auth": "none",
+   "bucket": "other",
+   "sites": [
+    "Explorer/Assets/DCL/Communities/CommunityCreation/CommunityCreationEditionController.cs:621"
+   ],
+   "disposition": {
+    "kind": "browser-only"
+   }
+  },
+  {
+   "id": "GET decentraland.org /help/",
+   "method": "GET",
+   "host": "decentraland.org",
+   "pathTemplate": "/help/",
+   "auth": "none",
+   "bucket": "other",
+   "sites": [
+    "Explorer/Assets/DCL/ApplicationGuards/ApplicationBlocklistGuard/BannedNotificationHandler.cs:50"
+   ],
+   "disposition": {
+    "kind": "browser-only"
+   }
+  },
+  {
+   "id": "GET decentraland.org /jump",
+   "method": "GET",
+   "host": "decentraland.org",
+   "pathTemplate": "/jump",
+   "auth": "none",
+   "bucket": "events-places-worlds",
+   "sites": [
+    "Explorer/Assets/DCL/Minimap/MinimapController.cs:331"
+   ],
+   "disposition": {
+    "kind": "browser-only"
+   }
+  },
+  {
+   "id": "GET decentraland.org /jump/",
+   "method": "GET",
+   "host": "decentraland.org",
+   "pathTemplate": "/jump/",
+   "auth": "none",
+   "bucket": "events-places-worlds",
+   "sites": [
+    "Explorer/Assets/DCL/Events/EventUtilities.cs:102"
+   ],
+   "disposition": {
+    "kind": "browser-only"
+   }
+  },
+  {
+   "id": "GET decentraland.org /marketplace",
+   "method": "GET",
+   "host": "decentraland.org",
+   "pathTemplate": "/marketplace",
+   "auth": "none",
+   "bucket": "marketplace-backpack-emotes",
+   "sites": [
+    "Explorer/Assets/DCL/Backpack/Gifting/Presenters/GiftTransfer/GiftTransferController.cs:142"
+   ],
+   "disposition": {
+    "kind": "browser-only"
+   }
+  },
+  {
+   "id": "GET decentraland.org /marketplace/browse",
+   "method": "GET",
+   "host": "decentraland.org",
+   "pathTemplate": "/marketplace/browse",
+   "auth": "none",
+   "bucket": "quests-credits-camera-reel",
+   "sites": [
+    "Explorer/Assets/DCL/MarketplaceCredits/MarketplaceCreditsMenuController.cs:280"
+   ],
+   "disposition": {
+    "kind": "browser-only"
+   }
+  },
+  {
+   "id": "GET decentraland.org /marketplace/names/claim",
+   "method": "GET",
+   "host": "decentraland.org",
+   "pathTemplate": "/marketplace/names/claim",
+   "auth": "none",
+   "bucket": "friends-social-mutes",
+   "sites": [
+    "Explorer/Assets/DCL/Communities/CommunityCreation/CommunityCreationEditionController.cs:209"
+   ],
+   "disposition": {
+    "kind": "browser-only"
+   }
+  },
+  {
+   "id": "GET decentraland.org /privacy",
+   "method": "GET",
+   "host": "decentraland.org",
+   "pathTemplate": "/privacy",
+   "auth": "none",
+   "bucket": "other",
+   "sites": [
+    "Explorer/Assets/DCL/UI/SystemMenu/SystemSectionPresenter.cs:103"
+   ],
+   "disposition": {
+    "kind": "browser-only"
+   }
+  },
+  {
+   "id": "GET decentraland.org /profile/accounts/{v}/referral",
+   "method": "GET",
+   "host": "decentraland.org",
+   "pathTemplate": "/profile/accounts/{v}/referral",
+   "auth": "none",
+   "bucket": "other",
+   "sites": [
+    "Explorer/Assets/DCL/UI/Sidebar/SidebarController.cs:299"
+   ],
+   "disposition": {
+    "kind": "browser-only"
+   }
+  },
+  {
+   "id": "GET decentraland.org /report/players",
+   "method": "GET",
+   "host": "decentraland.org",
+   "pathTemplate": "/report/players",
+   "auth": "none",
+   "bucket": "other",
+   "sites": [
+    "Explorer/Assets/DCL/UI/ConfirmationDialog/ReportUserHelper.cs:39"
+   ],
+   "disposition": {
+    "kind": "browser-only"
+   }
+  },
+  {
+   "id": "GET decentraland.org /shop",
+   "method": "GET",
+   "host": "decentraland.org",
+   "pathTemplate": "/shop",
+   "auth": "none",
+   "bucket": "marketplace-backpack-emotes",
+   "sites": [
+    "Explorer/Assets/DCL/Backpack/AvatarSection/AvatarController.cs:78"
+   ],
+   "disposition": {
+    "kind": "browser-only"
+   }
+  },
+  {
+   "id": "GET decentraland.org /shop/item/{v}/{v}&utm_source=client",
+   "method": "GET",
+   "host": "decentraland.org",
+   "pathTemplate": "/shop/item/{v}/{v}&utm_source=client",
+   "auth": "none",
+   "bucket": "quests-credits-camera-reel",
+   "sites": [
+    "Explorer/Assets/DCL/InWorldCamera/PhotoDetail/PhotoDetailUtility.cs:15"
+   ],
+   "disposition": {
+    "kind": "browser-only"
+   }
+  },
+  {
+   "id": "GET decentraland.org /social/communities/{v}",
+   "method": "GET",
+   "host": "decentraland.org",
+   "pathTemplate": "/social/communities/{v}",
+   "auth": "none",
+   "bucket": "friends-social-mutes",
+   "sites": [
+    "Explorer/Assets/DCL/Communities/CommunitiesCard/CommunityCardController.cs:800"
+   ],
+   "disposition": {
+    "kind": "browser-only"
+   }
+  },
+  {
+   "id": "GET decentraland.org /terms",
+   "method": "GET",
+   "host": "decentraland.org",
+   "pathTemplate": "/terms",
+   "auth": "none",
+   "bucket": "other",
+   "sites": [
+    "Explorer/Assets/DCL/UI/SystemMenu/SystemSectionPresenter.cs:100"
+   ],
+   "disposition": {
+    "kind": "browser-only"
+   }
+  },
+  {
+   "id": "GET decentraland.org /whats-on/",
+   "method": "GET",
+   "host": "decentraland.org",
+   "pathTemplate": "/whats-on/",
+   "auth": "none",
+   "bucket": "events-places-worlds",
+   "sites": [
+    "Explorer/Assets/DCL/Events/EventUtilities.cs:106"
+   ],
+   "disposition": {
+    "kind": "browser-only"
+   }
+  },
+  {
+   "id": "GET decentraland.org /whats-on/new-event",
+   "method": "GET",
+   "host": "decentraland.org",
+   "pathTemplate": "/whats-on/new-event",
+   "auth": "none",
+   "bucket": "events-places-worlds",
+   "sites": [
+    "Explorer/Assets/DCL/Communities/CommunitiesCard/Events/EventListController.cs:75"
+   ],
+   "disposition": {
+    "kind": "browser-only"
+   }
+  },
+  {
+   "id": "GET discord.gg /decentraland",
+   "method": "GET",
+   "host": "discord.gg",
+   "pathTemplate": "/decentraland",
+   "auth": "none",
+   "bucket": "quests-credits-camera-reel",
+   "sites": [
+    "Explorer/Assets/DCL/MarketplaceCredits/Sections/MarketplaceCreditsProgramEndedSubController.cs:143"
+   ],
+   "disposition": {
+    "kind": "browser-only"
+   }
+  },
+  {
+   "id": "GET docs.decentraland.org /faqs/decentraland-101",
+   "method": "GET",
+   "host": "docs.decentraland.org",
+   "pathTemplate": "/faqs/decentraland-101",
+   "auth": "none",
+   "bucket": "other",
+   "sites": [
+    "Explorer/Assets/DCL/UI/Sidebar/HelpMenu/HelpMenuController.cs:72"
+   ],
+   "disposition": {
+    "kind": "browser-only"
+   }
+  },
+  {
+   "id": "GET docs.decentraland.org /player/FAQs/decentraland-101/#what-hardware-do-i-need-to-run-decentraland",
+   "method": "GET",
+   "host": "docs.decentraland.org",
+   "pathTemplate": "/player/FAQs/decentraland-101/#what-hardware-do-i-need-to-run-decentraland",
+   "auth": "none",
+   "bucket": "other",
+   "sites": [
+    "Explorer/Assets/DCL/ApplicationGuards/ApplicationMinimumSpecsGuard/UI/MinimumSpecsScreenController.cs:74"
+   ],
+   "disposition": {
+    "kind": "browser-only"
+   }
+  },
+  {
+   "id": "GET docs.decentraland.org /player/support/",
+   "method": "GET",
+   "host": "docs.decentraland.org",
+   "pathTemplate": "/player/support/",
+   "auth": "none",
+   "bucket": "marketplace-backpack-emotes",
+   "sites": [
+    "Explorer/Assets/DCL/Backpack/Gifting/Presenters/GiftTransfer/GiftTransferController.cs:256"
+   ],
+   "disposition": {
+    "kind": "browser-only"
+   }
+  },
+  {
+   "id": "GET reels.decentraland.org /{v}",
+   "method": "GET",
+   "host": "reels.decentraland.org",
+   "pathTemplate": "/{v}",
+   "auth": "none",
+   "bucket": "quests-credits-camera-reel",
+   "sites": [
+    "Explorer/Assets/DCL/InWorldCamera/ReelActions/ReelCommonActions.cs:24"
+   ],
+   "disposition": {
+    "kind": "browser-only"
+   }
+  },
+  {
+   "id": "GET twitter.com /intent/tweet",
+   "method": "GET",
+   "host": "twitter.com",
+   "pathTemplate": "/intent/tweet",
+   "auth": "none",
+   "bucket": "events-places-worlds",
+   "sites": [
+    "Explorer/Assets/DCL/Places/PlacesCardSocialActionsController.cs:195"
+   ],
+   "disposition": {
+    "kind": "browser-only"
+   }
+  },
+  {
+   "id": "GET x.com /decentraland",
+   "method": "GET",
+   "host": "x.com",
+   "pathTemplate": "/decentraland",
+   "auth": "none",
+   "bucket": "quests-credits-camera-reel",
+   "sites": [
+    "Explorer/Assets/DCL/MarketplaceCredits/Sections/MarketplaceCreditsProgramEndedSubController.cs:140"
+   ],
+   "disposition": {
+    "kind": "browser-only"
+   }
+  }
+ ]
+}

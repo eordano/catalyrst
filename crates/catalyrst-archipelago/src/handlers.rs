@@ -4,7 +4,7 @@ use crate::livekit::LivekitGrant;
 use crate::state::AppState;
 use axum::body::Bytes;
 use axum::extract::{Path, RawQuery, State};
-use axum::http::{header, HeaderMap, StatusCode};
+use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use axum::routing::{get, post};
 use axum::{Json, Router};
@@ -51,6 +51,17 @@ async fn ping() -> &'static str {
 }
 
 #[derive(Serialize)]
+struct ErrorResp {
+    error: String,
+}
+
+#[derive(Serialize)]
+struct OkErrorResp {
+    ok: bool,
+    error: String,
+}
+
+#[derive(Serialize)]
 struct StatusResp {
     version: String,
     #[serde(rename = "currentTime")]
@@ -60,12 +71,11 @@ struct StatusResp {
 }
 
 async fn status(State(s): State<AppState>) -> impl IntoResponse {
-    let body = Json(StatusResp {
+    Json(StatusResp {
         version: env!("CARGO_PKG_VERSION").to_string(),
         current_time: Utc::now().timestamp_millis(),
         commit_hash: s.cfg.commit_hash.clone(),
-    });
-    ([(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")], body)
+    })
 }
 
 #[derive(Serialize)]
@@ -340,7 +350,9 @@ fn parse_json_body<T: for<'de> Deserialize<'de>>(
     serde_json::from_slice::<T>(body).map_err(|e| {
         (
             StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({"error": format!("invalid json body: {}", e)})),
+            Json(ErrorResp {
+                error: format!("invalid json body: {e}"),
+            }),
         )
             .into_response()
     })
@@ -368,14 +380,20 @@ async fn heartbeat(State(s): State<AppState>, body: Bytes) -> impl IntoResponse 
     if req.address.is_empty() {
         return (
             StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({"ok": false, "error": "missing address"})),
+            Json(OkErrorResp {
+                ok: false,
+                error: "missing address".into(),
+            }),
         )
             .into_response();
     }
     if s.challenges.required() {
         return (
             StatusCode::UNAUTHORIZED,
-            Json(serde_json::json!({"ok": false, "error": "auth required; use /ws after /auth/challenge"})),
+            Json(OkErrorResp {
+                ok: false,
+                error: "auth required; use /ws after /auth/challenge".into(),
+            }),
         )
             .into_response();
     }
@@ -408,7 +426,9 @@ async fn auth_challenge(State(s): State<AppState>, body: Bytes) -> impl IntoResp
     if req.address.is_empty() {
         return (
             StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({"error": "missing address"})),
+            Json(ErrorResp {
+                error: "missing address".into(),
+            }),
         )
             .into_response();
     }
@@ -440,7 +460,9 @@ async fn livekit_token(State(s): State<AppState>, body: Bytes) -> impl IntoRespo
     {
         return (
             StatusCode::UNAUTHORIZED,
-            Json(serde_json::json!({"error": e.to_string()})),
+            Json(ErrorResp {
+                error: e.to_string(),
+            }),
         )
             .into_response();
     }
@@ -448,11 +470,45 @@ async fn livekit_token(State(s): State<AppState>, body: Bytes) -> impl IntoRespo
         s.cluster.remove_peer(&req.address.to_ascii_lowercase());
         return (
             StatusCode::FORBIDDEN,
-            Json(serde_json::json!({"error": "banned"})),
+            Json(ErrorResp {
+                error: "banned".into(),
+            }),
         )
             .into_response();
     }
-    let grant: LivekitGrant = s.livekit.mint(&req.address, &req.room);
+    if s.deny_list.is_denied(&req.address).await {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(ErrorResp {
+                error: "deny-listed".into(),
+            }),
+        )
+            .into_response();
+    }
+    // Do not trust the client-chosen room: resolve the caller's authorized
+    // island server-side and mint against that. `req.room` is enumerable via
+    // the public GET /islands, so honoring it lets any client join/publish to
+    // any island.
+    let addr = req.address.to_ascii_lowercase();
+    let Some((island_id, _)) = s.cluster.island_of(&addr) else {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(ErrorResp {
+                error: "no authorized island".into(),
+            }),
+        )
+            .into_response();
+    };
+    if !req.room.is_empty() && req.room != island_id {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(ErrorResp {
+                error: "room not authorized".into(),
+            }),
+        )
+            .into_response();
+    }
+    let grant: LivekitGrant = s.livekit.mint(&addr, &island_id);
     Json(grant).into_response()
 }
 
@@ -490,7 +546,9 @@ async fn gossip_heartbeat(
         _ => {
             return (
                 StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({"error": "missing X-Archipelago-Node"})),
+                Json(ErrorResp {
+                    error: "missing X-Archipelago-Node".into(),
+                }),
             )
                 .into_response();
         }
@@ -503,7 +561,9 @@ async fn gossip_heartbeat(
         _ => {
             return (
                 StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({"error": "missing X-Archipelago-Sig"})),
+                Json(ErrorResp {
+                    error: "missing X-Archipelago-Sig".into(),
+                }),
             )
                 .into_response();
         }
@@ -516,7 +576,9 @@ async fn gossip_heartbeat(
         _ => {
             return (
                 StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({"error": "missing X-Archipelago-Ts"})),
+                Json(ErrorResp {
+                    error: "missing X-Archipelago-Ts".into(),
+                }),
             )
                 .into_response();
         }
@@ -524,7 +586,9 @@ async fn gossip_heartbeat(
     if let Err(e) = s.gossip.verify(&body, &ts, &sig, &from_node) {
         return (
             StatusCode::UNAUTHORIZED,
-            Json(serde_json::json!({"error": e.to_string()})),
+            Json(ErrorResp {
+                error: e.to_string(),
+            }),
         )
             .into_response();
     }
@@ -533,7 +597,9 @@ async fn gossip_heartbeat(
         Err(e) => {
             return (
                 StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({"error": format!("bad json: {}", e)})),
+                Json(ErrorResp {
+                    error: format!("bad json: {e}"),
+                }),
             )
                 .into_response();
         }
@@ -541,7 +607,9 @@ async fn gossip_heartbeat(
     if batch.from_node != from_node {
         return (
             StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({"error": "header/body node mismatch"})),
+            Json(ErrorResp {
+                error: "header/body node mismatch".into(),
+            }),
         )
             .into_response();
     }

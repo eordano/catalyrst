@@ -1,5 +1,6 @@
 pub mod attendees;
 pub mod categories;
+pub mod event_writes;
 pub mod events;
 pub mod federation;
 pub mod ping;

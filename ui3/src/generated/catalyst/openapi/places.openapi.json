@@ -1,0 +1,5533 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "catalyrst-places",
+    "description": "Rust port of decentraland/places (REST API for places.decentraland.org), federation-aware via catalyrst-fed",
+    "license": {
+      "name": ""
+    },
+    "version": "0.20.0"
+  },
+  "paths": {
+    "/api/categories": {
+      "get": {
+        "tags": [
+          "places"
+        ],
+        "operationId": "get_categories",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiData_Vec_CategoryOut"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/destinations": {
+      "get": {
+        "tags": [
+          "destinations"
+        ],
+        "operationId": "get_destinations_list",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiDataTotal_Destination"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "destinations"
+        ],
+        "operationId": "post_destinations_list_by_id",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiDataTotal_Destination"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/map": {
+      "get": {
+        "tags": [
+          "map"
+        ],
+        "operationId": "get_map_places",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiDataTotalMap_MapEntry"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/map/places": {
+      "get": {
+        "tags": [
+          "map"
+        ],
+        "operationId": "get_all_places_list",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiDataTotal_PlaceRow"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/places": {
+      "get": {
+        "tags": [
+          "places"
+        ],
+        "operationId": "get_place_list",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "positions",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "name": "names",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "name": "categories",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "name": "only_highlighted",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "only_favorites",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "creator_address",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "sdk",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "order_by",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "order",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "owner",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "with_realms_detail",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiDataTotal_PlaceRow"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "places"
+        ],
+        "operationId": "post_place_list_by_id",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiDataTotal_PlaceRow"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/places/status": {
+      "post": {
+        "tags": [
+          "places"
+        ],
+        "operationId": "post_place_status_list_by_id",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiDataTotal_PlaceStatusRow"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/places/{entity_id}/favorites": {
+      "patch": {
+        "tags": [
+          "federation"
+        ],
+        "operationId": "patch_place_favorites",
+        "parameters": [
+          {
+            "name": "entity_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {}
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiData_FavoritesResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/places/{entity_id}/likes": {
+      "patch": {
+        "tags": [
+          "federation"
+        ],
+        "operationId": "patch_place_likes",
+        "parameters": [
+          {
+            "name": "entity_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {}
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiData_LikesResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/places/{place_id}": {
+      "get": {
+        "tags": [
+          "places"
+        ],
+        "operationId": "get_place",
+        "parameters": [
+          {
+            "name": "place_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiData_PlaceRow"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/places/{place_id}/categories": {
+      "get": {
+        "tags": [
+          "places"
+        ],
+        "operationId": "get_place_categories",
+        "parameters": [
+          {
+            "name": "place_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiData_PlaceCategoriesOut"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/places/{place_id}/disable": {
+      "put": {
+        "tags": [
+          "federation"
+        ],
+        "operationId": "put_place_disable",
+        "parameters": [
+          {
+            "name": "place_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {}
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiData_PlaceRow"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "admin"
+        ],
+        "operationId": "patch_place_disable",
+        "parameters": [
+          {
+            "name": "place_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {}
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/places/{place_id}/featured": {
+      "put": {
+        "tags": [
+          "federation"
+        ],
+        "operationId": "put_place_featured",
+        "parameters": [
+          {
+            "name": "place_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {}
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiData_PlaceRow"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "federation"
+        ],
+        "operationId": "delete_place_featured",
+        "parameters": [
+          {
+            "name": "place_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiData_PlaceRow"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/places/{place_id}/highlight": {
+      "put": {
+        "tags": [
+          "federation"
+        ],
+        "operationId": "put_place_highlight",
+        "parameters": [
+          {
+            "name": "place_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {}
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiData_PlaceRow"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/places/{place_id}/ranking": {
+      "put": {
+        "tags": [
+          "federation"
+        ],
+        "operationId": "put_place_ranking",
+        "parameters": [
+          {
+            "name": "place_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {}
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiData_PlaceRow"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/places/{place_id}/rating": {
+      "put": {
+        "tags": [
+          "federation"
+        ],
+        "operationId": "put_place_rating",
+        "parameters": [
+          {
+            "name": "place_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {}
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiData_PlaceRow"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/pois": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "operationId": "get_pois",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiData_Vec_PoiRow"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "operationId": "post_poi",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {}
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiData_PoiRow"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/pois/{position}": {
+      "delete": {
+        "tags": [
+          "admin"
+        ],
+        "operationId": "delete_poi",
+        "parameters": [
+          {
+            "name": "position",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "admin"
+        ],
+        "operationId": "patch_poi",
+        "parameters": [
+          {
+            "name": "position",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {}
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiData_PoiRow"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/report": {
+      "post": {
+        "tags": [
+          "reports"
+        ],
+        "operationId": "post_report",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {}
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/report/upload/{filename}": {
+      "put": {
+        "tags": [
+          "reports"
+        ],
+        "operationId": "put_report_upload",
+        "parameters": [
+          {
+            "name": "filename",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "format": "int32",
+                  "minimum": 0
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/reports": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "operationId": "get_reports",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiDataTotal_ReportRow"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/reports/{id}": {
+      "patch": {
+        "tags": [
+          "admin"
+        ],
+        "operationId": "patch_report",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {}
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiData_ReportRow"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/status": {
+      "get": {
+        "tags": [
+          "status"
+        ],
+        "operationId": "status",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/world_names": {
+      "get": {
+        "tags": [
+          "worlds"
+        ],
+        "operationId": "get_world_names_list",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiDataTotal_String"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/worlds": {
+      "get": {
+        "tags": [
+          "worlds"
+        ],
+        "operationId": "get_world_list",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "names",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "name": "categories",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "name": "only_favorites",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "order_by",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "order",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "owner",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiDataTotal_WorldRow"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/worlds/{world_id}": {
+      "get": {
+        "tags": [
+          "worlds"
+        ],
+        "operationId": "get_world",
+        "parameters": [
+          {
+            "name": "world_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiData_WorldRow"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/worlds/{world_id}/favorites": {
+      "patch": {
+        "tags": [
+          "federation"
+        ],
+        "operationId": "patch_world_favorites",
+        "parameters": [
+          {
+            "name": "world_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {}
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiData_FavoritesResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/worlds/{world_id}/featured": {
+      "put": {
+        "tags": [
+          "federation"
+        ],
+        "operationId": "put_world_featured",
+        "parameters": [
+          {
+            "name": "world_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {}
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiData_WorldRow"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "federation"
+        ],
+        "operationId": "delete_world_featured",
+        "parameters": [
+          {
+            "name": "world_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiData_WorldRow"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/worlds/{world_id}/highlight": {
+      "put": {
+        "tags": [
+          "federation"
+        ],
+        "operationId": "put_world_highlight",
+        "parameters": [
+          {
+            "name": "world_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {}
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiData_WorldRow"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/worlds/{world_id}/likes": {
+      "patch": {
+        "tags": [
+          "federation"
+        ],
+        "operationId": "patch_world_likes",
+        "parameters": [
+          {
+            "name": "world_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {}
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiData_LikesResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/worlds/{world_id}/ranking": {
+      "put": {
+        "tags": [
+          "federation"
+        ],
+        "operationId": "put_world_ranking",
+        "parameters": [
+          {
+            "name": "world_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {}
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiData_WorldRow"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/worlds/{world_id}/rating": {
+      "put": {
+        "tags": [
+          "federation"
+        ],
+        "operationId": "put_world_rating",
+        "parameters": [
+          {
+            "name": "world_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {}
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiData_WorldRow"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/federation/places/changes": {
+      "get": {
+        "tags": [
+          "federation"
+        ],
+        "operationId": "changes",
+        "parameters": [
+          {
+            "name": "since",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/federation/places/snapshot": {
+      "get": {
+        "tags": [
+          "federation"
+        ],
+        "operationId": "snapshot",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/places/place": {
+      "get": {
+        "tags": [
+          "social"
+        ],
+        "operationId": "inject_place_metadata",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "position",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/places/world": {
+      "get": {
+        "tags": [
+          "social"
+        ],
+        "operationId": "inject_world_metadata",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "ApiDataTotalMap_MapEntry": {
+        "type": "object",
+        "required": [
+          "ok",
+          "data",
+          "total"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "object",
+              "required": [
+                "id",
+                "base_position",
+                "categories",
+                "user_favorite",
+                "user_like",
+                "user_dislike",
+                "user_visits",
+                "user_count"
+              ],
+              "properties": {
+                "base_position": {
+                  "type": "string"
+                },
+                "categories": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "contact_name": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "description": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "id": {
+                  "type": "string"
+                },
+                "image": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "realms_detail": {
+                  "type": [
+                    "array",
+                    "null"
+                  ],
+                  "items": {}
+                },
+                "title": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "user_count": {
+                  "type": "integer",
+                  "format": "int32"
+                },
+                "user_dislike": {
+                  "type": "boolean"
+                },
+                "user_favorite": {
+                  "type": "boolean"
+                },
+                "user_like": {
+                  "type": "boolean"
+                },
+                "user_visits": {
+                  "type": "integer",
+                  "format": "int32"
+                }
+              }
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "ok": {
+            "type": "boolean"
+          },
+          "total": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "ApiDataTotal_Destination": {
+        "type": "object",
+        "required": [
+          "ok",
+          "data",
+          "total"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "id",
+                "positions",
+                "base_position",
+                "disabled",
+                "favorites",
+                "likes",
+                "dislikes",
+                "categories",
+                "highlighted",
+                "world",
+                "is_private",
+                "user_favorite",
+                "user_like",
+                "user_dislike",
+                "user_visits"
+              ],
+              "properties": {
+                "base_position": {
+                  "type": "string"
+                },
+                "categories": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "connected_addresses": {
+                  "type": [
+                    "array",
+                    "null"
+                  ],
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "contact_email": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "contact_name": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "content_rating": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "created_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "creator_address": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "deployed_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "description": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "disabled": {
+                  "type": "boolean"
+                },
+                "disabled_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "dislikes": {
+                  "type": "integer",
+                  "format": "int32"
+                },
+                "favorites": {
+                  "type": "integer",
+                  "format": "int32"
+                },
+                "highlighted": {
+                  "type": "boolean"
+                },
+                "highlighted_image": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "id": {
+                  "type": "string"
+                },
+                "image": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "is_private": {
+                  "type": "boolean"
+                },
+                "like_rate": {
+                  "type": [
+                    "number",
+                    "null"
+                  ],
+                  "format": "double"
+                },
+                "like_score": {
+                  "type": [
+                    "number",
+                    "null"
+                  ],
+                  "format": "double"
+                },
+                "likes": {
+                  "type": "integer",
+                  "format": "int32"
+                },
+                "live": {
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
+                },
+                "owner": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "positions": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "ranking": {
+                  "type": [
+                    "number",
+                    "null"
+                  ],
+                  "format": "double"
+                },
+                "realms_detail": {
+                  "type": [
+                    "array",
+                    "null"
+                  ],
+                  "items": {}
+                },
+                "sdk": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "title": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "updated_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "user_count": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "format": "int32"
+                },
+                "user_dislike": {
+                  "type": "boolean"
+                },
+                "user_favorite": {
+                  "type": "boolean"
+                },
+                "user_like": {
+                  "type": "boolean"
+                },
+                "user_visits": {
+                  "type": "integer",
+                  "format": "int32"
+                },
+                "world": {
+                  "type": "boolean"
+                },
+                "world_name": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              }
+            }
+          },
+          "ok": {
+            "type": "boolean"
+          },
+          "total": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "ApiDataTotal_PlaceRow": {
+        "type": "object",
+        "required": [
+          "ok",
+          "data",
+          "total"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "id",
+                "positions",
+                "base_position",
+                "disabled",
+                "favorites",
+                "likes",
+                "dislikes",
+                "categories",
+                "highlighted",
+                "world",
+                "user_favorite",
+                "user_like",
+                "user_dislike",
+                "user_visits"
+              ],
+              "properties": {
+                "base_position": {
+                  "type": "string"
+                },
+                "categories": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "connected_addresses": {
+                  "type": [
+                    "array",
+                    "null"
+                  ],
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "contact_email": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "contact_name": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "content_rating": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "created_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "creator_address": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "deployed_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "deployment_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "Immutable content-entity identifier for this indexed deployment.\nNull for legacy rows awaiting reconciliation (upstream places #856)."
+                },
+                "description": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "disabled": {
+                  "type": "boolean"
+                },
+                "disabled_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "disabled_reason": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "dislikes": {
+                  "type": "integer",
+                  "format": "int32"
+                },
+                "favorites": {
+                  "type": "integer",
+                  "format": "int32"
+                },
+                "highlighted": {
+                  "type": "boolean"
+                },
+                "highlighted_image": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "id": {
+                  "type": "string"
+                },
+                "image": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "like_rate": {
+                  "type": [
+                    "number",
+                    "null"
+                  ],
+                  "format": "double"
+                },
+                "like_score": {
+                  "type": [
+                    "number",
+                    "null"
+                  ],
+                  "format": "double"
+                },
+                "likes": {
+                  "type": "integer",
+                  "format": "int32"
+                },
+                "live": {
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
+                },
+                "owner": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "positions": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "ranking": {
+                  "type": [
+                    "number",
+                    "null"
+                  ],
+                  "format": "double"
+                },
+                "realms_detail": {
+                  "type": [
+                    "array",
+                    "null"
+                  ],
+                  "items": {}
+                },
+                "sdk": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "title": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "updated_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "user_count": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "format": "int32"
+                },
+                "user_dislike": {
+                  "type": "boolean"
+                },
+                "user_favorite": {
+                  "type": "boolean"
+                },
+                "user_like": {
+                  "type": "boolean"
+                },
+                "user_visits": {
+                  "type": "integer",
+                  "format": "int32"
+                },
+                "world": {
+                  "type": "boolean"
+                },
+                "world_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "world_name": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              }
+            }
+          },
+          "ok": {
+            "type": "boolean"
+          },
+          "total": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "ApiDataTotal_PlaceStatusRow": {
+        "type": "object",
+        "required": [
+          "ok",
+          "data",
+          "total"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "id",
+                "disabled",
+                "world",
+                "base_position"
+              ],
+              "properties": {
+                "base_position": {
+                  "type": "string"
+                },
+                "disabled": {
+                  "type": "boolean"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "world": {
+                  "type": "boolean"
+                },
+                "world_name": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              }
+            }
+          },
+          "ok": {
+            "type": "boolean"
+          },
+          "total": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "ApiDataTotal_ReportRow": {
+        "type": "object",
+        "required": [
+          "ok",
+          "data",
+          "total"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "id",
+                "reporter",
+                "signed_url",
+                "filename",
+                "payload",
+                "status",
+                "created_at"
+              ],
+              "properties": {
+                "created_at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "entity_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "filename": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "integer",
+                  "format": "int64"
+                },
+                "moderator_notes": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "payload": {},
+                "reporter": {
+                  "type": "string"
+                },
+                "resolution": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "resolved_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "resolved_by": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "signed_url": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "ok": {
+            "type": "boolean"
+          },
+          "total": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "ApiDataTotal_String": {
+        "type": "object",
+        "required": [
+          "ok",
+          "data",
+          "total"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "ok": {
+            "type": "boolean"
+          },
+          "total": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "ApiDataTotal_WorldRow": {
+        "type": "object",
+        "required": [
+          "ok",
+          "data",
+          "total"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "id",
+                "categories",
+                "likes",
+                "dislikes",
+                "favorites",
+                "disabled",
+                "base_position",
+                "highlighted",
+                "world",
+                "is_private",
+                "show_in_places",
+                "single_player",
+                "user_like",
+                "user_dislike",
+                "user_favorite",
+                "user_visits"
+              ],
+              "properties": {
+                "base_position": {
+                  "type": "string"
+                },
+                "categories": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "contact_name": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "content_rating": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "created_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "deployed_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "description": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "disabled": {
+                  "type": "boolean"
+                },
+                "disabled_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "dislikes": {
+                  "type": "integer",
+                  "format": "int32"
+                },
+                "favorites": {
+                  "type": "integer",
+                  "format": "int32"
+                },
+                "highlighted": {
+                  "type": "boolean"
+                },
+                "highlighted_image": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "id": {
+                  "type": "string"
+                },
+                "image": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "is_private": {
+                  "type": "boolean"
+                },
+                "like_rate": {
+                  "type": [
+                    "number",
+                    "null"
+                  ],
+                  "format": "double"
+                },
+                "like_score": {
+                  "type": [
+                    "number",
+                    "null"
+                  ],
+                  "format": "double"
+                },
+                "likes": {
+                  "type": "integer",
+                  "format": "int32"
+                },
+                "owner": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "ranking": {
+                  "type": [
+                    "number",
+                    "null"
+                  ],
+                  "format": "double"
+                },
+                "show_in_places": {
+                  "type": "boolean"
+                },
+                "single_player": {
+                  "type": "boolean"
+                },
+                "skybox_time": {
+                  "type": [
+                    "number",
+                    "null"
+                  ],
+                  "format": "double"
+                },
+                "title": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "updated_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "user_count": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "format": "int32"
+                },
+                "user_dislike": {
+                  "type": "boolean"
+                },
+                "user_favorite": {
+                  "type": "boolean"
+                },
+                "user_like": {
+                  "type": "boolean"
+                },
+                "user_visits": {
+                  "type": "integer",
+                  "format": "int32"
+                },
+                "world": {
+                  "type": "boolean"
+                },
+                "world_name": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              }
+            }
+          },
+          "ok": {
+            "type": "boolean"
+          },
+          "total": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "ApiData_FavoritesResult": {
+        "type": "object",
+        "required": [
+          "ok",
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "favorites",
+              "user_favorite"
+            ],
+            "properties": {
+              "favorites": {
+                "type": "integer",
+                "format": "int32"
+              },
+              "user_favorite": {
+                "type": "boolean"
+              }
+            }
+          },
+          "ok": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ApiData_LikesResult": {
+        "type": "object",
+        "required": [
+          "ok",
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "likes",
+              "dislikes",
+              "user_like",
+              "user_dislike"
+            ],
+            "properties": {
+              "dislikes": {
+                "type": "integer",
+                "format": "int32"
+              },
+              "likes": {
+                "type": "integer",
+                "format": "int32"
+              },
+              "user_dislike": {
+                "type": "boolean"
+              },
+              "user_like": {
+                "type": "boolean"
+              }
+            }
+          },
+          "ok": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ApiData_PlaceCategoriesOut": {
+        "type": "object",
+        "required": [
+          "ok",
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "categories"
+            ],
+            "properties": {
+              "categories": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "ok": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ApiData_PlaceRow": {
+        "type": "object",
+        "required": [
+          "ok",
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "id",
+              "positions",
+              "base_position",
+              "disabled",
+              "favorites",
+              "likes",
+              "dislikes",
+              "categories",
+              "highlighted",
+              "world",
+              "user_favorite",
+              "user_like",
+              "user_dislike",
+              "user_visits"
+            ],
+            "properties": {
+              "base_position": {
+                "type": "string"
+              },
+              "categories": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "connected_addresses": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                }
+              },
+              "contact_email": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "contact_name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "content_rating": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "created_at": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "creator_address": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "deployed_at": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "deployment_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Immutable content-entity identifier for this indexed deployment.\nNull for legacy rows awaiting reconciliation (upstream places #856)."
+              },
+              "description": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "disabled": {
+                "type": "boolean"
+              },
+              "disabled_at": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "disabled_reason": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "dislikes": {
+                "type": "integer",
+                "format": "int32"
+              },
+              "favorites": {
+                "type": "integer",
+                "format": "int32"
+              },
+              "highlighted": {
+                "type": "boolean"
+              },
+              "highlighted_image": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "id": {
+                "type": "string"
+              },
+              "image": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "like_rate": {
+                "type": [
+                  "number",
+                  "null"
+                ],
+                "format": "double"
+              },
+              "like_score": {
+                "type": [
+                  "number",
+                  "null"
+                ],
+                "format": "double"
+              },
+              "likes": {
+                "type": "integer",
+                "format": "int32"
+              },
+              "live": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "owner": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "positions": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "ranking": {
+                "type": [
+                  "number",
+                  "null"
+                ],
+                "format": "double"
+              },
+              "realms_detail": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {}
+              },
+              "sdk": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "title": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "updated_at": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "user_count": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int32"
+              },
+              "user_dislike": {
+                "type": "boolean"
+              },
+              "user_favorite": {
+                "type": "boolean"
+              },
+              "user_like": {
+                "type": "boolean"
+              },
+              "user_visits": {
+                "type": "integer",
+                "format": "int32"
+              },
+              "world": {
+                "type": "boolean"
+              },
+              "world_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "world_name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          },
+          "ok": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ApiData_PoiRow": {
+        "type": "object",
+        "required": [
+          "ok",
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "position",
+              "enabled",
+              "created_at",
+              "updated_at"
+            ],
+            "properties": {
+              "created_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "created_by": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "description": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "enabled": {
+                "type": "boolean"
+              },
+              "entity_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "position": {
+                "type": "string"
+              },
+              "title": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "updated_at": {
+                "type": "string",
+                "format": "date-time"
+              }
+            }
+          },
+          "ok": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ApiData_ReportRow": {
+        "type": "object",
+        "required": [
+          "ok",
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "id",
+              "reporter",
+              "signed_url",
+              "filename",
+              "payload",
+              "status",
+              "created_at"
+            ],
+            "properties": {
+              "created_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "entity_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "filename": {
+                "type": "string"
+              },
+              "id": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "moderator_notes": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "payload": {},
+              "reporter": {
+                "type": "string"
+              },
+              "resolution": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "resolved_at": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "resolved_by": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "signed_url": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string"
+              }
+            }
+          },
+          "ok": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ApiData_Vec_CategoryOut": {
+        "type": "object",
+        "required": [
+          "ok",
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "name",
+                "active",
+                "count",
+                "i18n"
+              ],
+              "properties": {
+                "active": {
+                  "type": "boolean"
+                },
+                "count": {
+                  "type": "integer",
+                  "format": "int64"
+                },
+                "i18n": {
+                  "$ref": "#/components/schemas/I18n"
+                },
+                "name": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "ok": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ApiData_Vec_PoiRow": {
+        "type": "object",
+        "required": [
+          "ok",
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "position",
+                "enabled",
+                "created_at",
+                "updated_at"
+              ],
+              "properties": {
+                "created_at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "created_by": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "description": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "enabled": {
+                  "type": "boolean"
+                },
+                "entity_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "position": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "updated_at": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              }
+            }
+          },
+          "ok": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ApiData_WorldRow": {
+        "type": "object",
+        "required": [
+          "ok",
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "id",
+              "categories",
+              "likes",
+              "dislikes",
+              "favorites",
+              "disabled",
+              "base_position",
+              "highlighted",
+              "world",
+              "is_private",
+              "show_in_places",
+              "single_player",
+              "user_like",
+              "user_dislike",
+              "user_favorite",
+              "user_visits"
+            ],
+            "properties": {
+              "base_position": {
+                "type": "string"
+              },
+              "categories": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "contact_name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "content_rating": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "created_at": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "deployed_at": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "description": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "disabled": {
+                "type": "boolean"
+              },
+              "disabled_at": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "dislikes": {
+                "type": "integer",
+                "format": "int32"
+              },
+              "favorites": {
+                "type": "integer",
+                "format": "int32"
+              },
+              "highlighted": {
+                "type": "boolean"
+              },
+              "highlighted_image": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "id": {
+                "type": "string"
+              },
+              "image": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "is_private": {
+                "type": "boolean"
+              },
+              "like_rate": {
+                "type": [
+                  "number",
+                  "null"
+                ],
+                "format": "double"
+              },
+              "like_score": {
+                "type": [
+                  "number",
+                  "null"
+                ],
+                "format": "double"
+              },
+              "likes": {
+                "type": "integer",
+                "format": "int32"
+              },
+              "owner": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "ranking": {
+                "type": [
+                  "number",
+                  "null"
+                ],
+                "format": "double"
+              },
+              "show_in_places": {
+                "type": "boolean"
+              },
+              "single_player": {
+                "type": "boolean"
+              },
+              "skybox_time": {
+                "type": [
+                  "number",
+                  "null"
+                ],
+                "format": "double"
+              },
+              "title": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "updated_at": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "user_count": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int32"
+              },
+              "user_dislike": {
+                "type": "boolean"
+              },
+              "user_favorite": {
+                "type": "boolean"
+              },
+              "user_like": {
+                "type": "boolean"
+              },
+              "user_visits": {
+                "type": "integer",
+                "format": "int32"
+              },
+              "world": {
+                "type": "boolean"
+              },
+              "world_name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          },
+          "ok": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ApiErrorBody": {
+        "type": "object",
+        "required": [
+          "ok",
+          "error",
+          "message"
+        ],
+        "properties": {
+          "error": {
+            "type": "string"
+          },
+          "federation_adr": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "ok": {
+            "type": "boolean"
+          }
+        }
+      },
+      "CategoryOut": {
+        "type": "object",
+        "required": [
+          "name",
+          "active",
+          "count",
+          "i18n"
+        ],
+        "properties": {
+          "active": {
+            "type": "boolean"
+          },
+          "count": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "i18n": {
+            "$ref": "#/components/schemas/I18n"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "Destination": {
+        "type": "object",
+        "required": [
+          "id",
+          "positions",
+          "base_position",
+          "disabled",
+          "favorites",
+          "likes",
+          "dislikes",
+          "categories",
+          "highlighted",
+          "world",
+          "is_private",
+          "user_favorite",
+          "user_like",
+          "user_dislike",
+          "user_visits"
+        ],
+        "properties": {
+          "base_position": {
+            "type": "string"
+          },
+          "categories": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "connected_addresses": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "contact_email": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "contact_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "content_rating": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "created_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "creator_address": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "deployed_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "disabled": {
+            "type": "boolean"
+          },
+          "disabled_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "dislikes": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "favorites": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "highlighted": {
+            "type": "boolean"
+          },
+          "highlighted_image": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "image": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "is_private": {
+            "type": "boolean"
+          },
+          "like_rate": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "like_score": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "likes": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "live": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "owner": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "positions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "ranking": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "realms_detail": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {}
+          },
+          "sdk": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "updated_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "user_count": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "user_dislike": {
+            "type": "boolean"
+          },
+          "user_favorite": {
+            "type": "boolean"
+          },
+          "user_like": {
+            "type": "boolean"
+          },
+          "user_visits": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "world": {
+            "type": "boolean"
+          },
+          "world_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "FavoritesResult": {
+        "type": "object",
+        "required": [
+          "favorites",
+          "user_favorite"
+        ],
+        "properties": {
+          "favorites": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "user_favorite": {
+            "type": "boolean"
+          }
+        }
+      },
+      "I18n": {
+        "type": "object",
+        "properties": {
+          "en": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "LikesResult": {
+        "type": "object",
+        "required": [
+          "likes",
+          "dislikes",
+          "user_like",
+          "user_dislike"
+        ],
+        "properties": {
+          "dislikes": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "likes": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "user_dislike": {
+            "type": "boolean"
+          },
+          "user_like": {
+            "type": "boolean"
+          }
+        }
+      },
+      "MapEntry": {
+        "type": "object",
+        "required": [
+          "id",
+          "base_position",
+          "categories",
+          "user_favorite",
+          "user_like",
+          "user_dislike",
+          "user_visits",
+          "user_count"
+        ],
+        "properties": {
+          "base_position": {
+            "type": "string"
+          },
+          "categories": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "contact_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "image": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "realms_detail": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {}
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "user_count": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "user_dislike": {
+            "type": "boolean"
+          },
+          "user_favorite": {
+            "type": "boolean"
+          },
+          "user_like": {
+            "type": "boolean"
+          },
+          "user_visits": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "PlaceCategoriesOut": {
+        "type": "object",
+        "required": [
+          "categories"
+        ],
+        "properties": {
+          "categories": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "PlaceRow": {
+        "type": "object",
+        "required": [
+          "id",
+          "positions",
+          "base_position",
+          "disabled",
+          "favorites",
+          "likes",
+          "dislikes",
+          "categories",
+          "highlighted",
+          "world",
+          "user_favorite",
+          "user_like",
+          "user_dislike",
+          "user_visits"
+        ],
+        "properties": {
+          "base_position": {
+            "type": "string"
+          },
+          "categories": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "connected_addresses": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "contact_email": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "contact_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "content_rating": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "created_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "creator_address": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "deployed_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "deployment_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Immutable content-entity identifier for this indexed deployment.\nNull for legacy rows awaiting reconciliation (upstream places #856)."
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "disabled": {
+            "type": "boolean"
+          },
+          "disabled_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "disabled_reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "dislikes": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "favorites": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "highlighted": {
+            "type": "boolean"
+          },
+          "highlighted_image": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "image": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "like_rate": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "like_score": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "likes": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "live": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "owner": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "positions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "ranking": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "realms_detail": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {}
+          },
+          "sdk": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "updated_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "user_count": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "user_dislike": {
+            "type": "boolean"
+          },
+          "user_favorite": {
+            "type": "boolean"
+          },
+          "user_like": {
+            "type": "boolean"
+          },
+          "user_visits": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "world": {
+            "type": "boolean"
+          },
+          "world_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "world_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "PlaceStatusRow": {
+        "type": "object",
+        "required": [
+          "id",
+          "disabled",
+          "world",
+          "base_position"
+        ],
+        "properties": {
+          "base_position": {
+            "type": "string"
+          },
+          "disabled": {
+            "type": "boolean"
+          },
+          "id": {
+            "type": "string"
+          },
+          "world": {
+            "type": "boolean"
+          },
+          "world_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "PoiRow": {
+        "type": "object",
+        "required": [
+          "position",
+          "enabled",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "created_by": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "entity_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "position": {
+            "type": "string"
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ReportRow": {
+        "type": "object",
+        "required": [
+          "id",
+          "reporter",
+          "signed_url",
+          "filename",
+          "payload",
+          "status",
+          "created_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "entity_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "filename": {
+            "type": "string"
+          },
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "moderator_notes": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "payload": {},
+          "reporter": {
+            "type": "string"
+          },
+          "resolution": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "resolved_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "resolved_by": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "signed_url": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        }
+      },
+      "WorldRow": {
+        "type": "object",
+        "required": [
+          "id",
+          "categories",
+          "likes",
+          "dislikes",
+          "favorites",
+          "disabled",
+          "base_position",
+          "highlighted",
+          "world",
+          "is_private",
+          "show_in_places",
+          "single_player",
+          "user_like",
+          "user_dislike",
+          "user_favorite",
+          "user_visits"
+        ],
+        "properties": {
+          "base_position": {
+            "type": "string"
+          },
+          "categories": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "contact_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "content_rating": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "created_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "deployed_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "disabled": {
+            "type": "boolean"
+          },
+          "disabled_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "dislikes": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "favorites": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "highlighted": {
+            "type": "boolean"
+          },
+          "highlighted_image": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "image": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "is_private": {
+            "type": "boolean"
+          },
+          "like_rate": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "like_score": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "likes": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "owner": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "ranking": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "show_in_places": {
+            "type": "boolean"
+          },
+          "single_player": {
+            "type": "boolean"
+          },
+          "skybox_time": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "updated_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "user_count": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "user_dislike": {
+            "type": "boolean"
+          },
+          "user_favorite": {
+            "type": "boolean"
+          },
+          "user_like": {
+            "type": "boolean"
+          },
+          "user_visits": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "world": {
+            "type": "boolean"
+          },
+          "world_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      }
+    }
+  }
+}

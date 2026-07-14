@@ -1,0 +1,9 @@
+{
+  "address": "0x0000000000000000000000000000000000dead",
+  "email": "wallet@example.com",
+  "unconfirmedEmail": "pending@example.com",
+  "details": {
+    "ignore_all_email": false,
+    "ignore_all_in_app": false
+  }
+}

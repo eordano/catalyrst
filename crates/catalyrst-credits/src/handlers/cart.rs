@@ -58,9 +58,9 @@ pub async fn get_cart(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> Result<Json<CartOut>, ApiError> {
-    let signer = signer_from(&headers, "get", "/cart")?;
-    let cart = state.credits.get_cart(&signer).await?;
-    Ok(Json(cart_out(&signer, &cart)))
+    let signer = signer_from(&headers, "get", "/cart").await?;
+    let cart = state.credits.get_cart(signer.as_str()).await?;
+    Ok(Json(cart_out(signer.as_str(), &cart)))
 }
 
 #[derive(Debug, Deserialize)]
@@ -110,7 +110,7 @@ pub(crate) fn ensure_qty_fillable(kind: &BasisKind, qty: i32) -> Result<(), ApiE
     if kind.is_single_listing() && qty > 1 {
         return Err(ApiError::conflict(
             "this item is stocked from individual marketplace listings, so it's one per checkout \
-             while supplies are listed individually — please keep the quantity at 1",
+             while supplies are listed individually \u{2014} please keep the quantity at 1",
         ));
     }
     Ok(())
@@ -145,7 +145,7 @@ pub async fn add_item(
     headers: HeaderMap,
     Json(body): Json<AddItemBody>,
 ) -> Result<Json<CartOut>, ApiError> {
-    let signer = signer_from(&headers, "post", "/cart/items")?;
+    let signer = signer_from(&headers, "post", "/cart/items").await?;
     let item_id = validate_item_id(&body.item_id)?;
     let collection = validate_collection(&body.collection)?;
     let qty = body.qty.unwrap_or(1);
@@ -168,7 +168,7 @@ pub async fn add_item(
     state
         .credits
         .add_item(
-            &signer,
+            signer.as_str(),
             &item_id,
             &collection,
             &priced.basis.info.urn,
@@ -178,8 +178,8 @@ pub async fn add_item(
         )
         .await?;
 
-    let cart = state.credits.get_cart(&signer).await?;
-    Ok(Json(cart_out(&signer, &cart)))
+    let cart = state.credits.get_cart(signer.as_str()).await?;
+    Ok(Json(cart_out(signer.as_str(), &cart)))
 }
 
 pub async fn remove_item(
@@ -188,15 +188,15 @@ pub async fn remove_item(
     headers: HeaderMap,
 ) -> Result<Json<CartOut>, ApiError> {
     let path = format!("/cart/items/{}/{}", collection, item_id);
-    let signer = signer_from(&headers, "delete", &path)?;
+    let signer = signer_from(&headers, "delete", &path).await?;
     let collection = validate_collection(&collection)?;
     let item_id = validate_item_id(&item_id)?;
     state
         .credits
-        .remove_item(&signer, &collection, &item_id)
+        .remove_item(signer.as_str(), &collection, &item_id)
         .await?;
-    let cart = state.credits.get_cart(&signer).await?;
-    Ok(Json(cart_out(&signer, &cart)))
+    let cart = state.credits.get_cart(signer.as_str()).await?;
+    Ok(Json(cart_out(signer.as_str(), &cart)))
 }
 
 fn idempotency_key(headers: &HeaderMap) -> Result<String, ApiError> {
@@ -258,7 +258,7 @@ pub async fn checkout(
     headers: HeaderMap,
     body: Result<Json<CheckoutBody>, axum::extract::rejection::JsonRejection>,
 ) -> Result<Json<CheckoutStartOut>, ApiError> {
-    let signer = signer_from(&headers, "post", "/checkout")?;
+    let signer = signer_from(&headers, "post", "/checkout").await?;
     let idem = idempotency_key(&headers)?;
 
     if let Some(out) = replay_for_signer(
@@ -266,7 +266,7 @@ pub async fn checkout(
             .credits
             .find_checkout_by_idempotency_key(&idem)
             .await?,
-        &signer,
+        signer.as_str(),
     )? {
         return Ok(Json(out));
     }
@@ -303,7 +303,7 @@ pub async fn checkout(
     match &signed_intent {
         Some((intent, sig)) => {
             let now = chrono::Utc::now().timestamp().max(0) as u64;
-            verify_purchase_intent(intent, sig, &signer, &idem, now)?;
+            verify_purchase_intent(intent, sig, signer.as_str(), &idem, now)?;
         }
         None => ensure_intent_present(false, state.require_purchase_intent)?,
     }
@@ -324,7 +324,7 @@ pub async fn checkout(
         ));
     }
 
-    let cart = state.credits.get_cart(&signer).await?;
+    let cart = state.credits.get_cart(signer.as_str()).await?;
     if cart.items.is_empty() {
         return Err(ApiError::bad_request("cart is empty"));
     }
@@ -399,7 +399,7 @@ pub async fn checkout(
 
     let outcome = state
         .credits
-        .run_checkout(&signer, &idem, &repriced)
+        .run_checkout(signer.as_str(), &idem, &repriced)
         .await?;
 
     Ok(Json(CheckoutStartOut {
@@ -426,7 +426,7 @@ pub async fn get_checkout(
     headers: HeaderMap,
 ) -> Result<Json<CheckoutOut>, ApiError> {
     let path = format!("/checkout/{}", id);
-    let signer = signer_from(&headers, "get", &path)?;
+    let signer = signer_from(&headers, "get", &path).await?;
 
     let row = state
         .credits

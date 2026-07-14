@@ -458,13 +458,20 @@ impl Store {
         .await
     }
 
-    pub async fn list_members(&self, limit: i64, offset: i64) -> Result<Vec<MemberRow>> {
+    pub async fn list_members(
+        &self,
+        limit: i64,
+        offset: i64,
+        role: Option<&str>,
+    ) -> Result<Vec<MemberRow>> {
         let rows = sqlx::query(
             "SELECT address, role, fetched_at FROM members \
+             WHERE ($3::text IS NULL OR role = $3) \
              ORDER BY role, address LIMIT $1 OFFSET $2",
         )
         .bind(limit)
         .bind(offset)
+        .bind(role)
         .fetch_all(&self.pool)
         .await
         .context("list members")?;

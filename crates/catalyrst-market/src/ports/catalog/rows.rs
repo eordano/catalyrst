@@ -120,8 +120,16 @@ pub(super) fn from_db_row_to_catalog_item(
     };
 
     let available_n = row.available.parse::<i64>().unwrap_or(0);
+    // Whether `price` below is the open trade's amount rather than the store
+    // minter's. This decides both the number and its unit, which is why the two
+    // travel from one flag: a v3 trade can be USD-pegged MANA, in which case
+    // `price` is USD wei and only the trade id (emitted below) lets a consumer
+    // read the unit. An item the store minter still prices -- even with an open
+    // trade alongside -- is MANA, so the trade id is withheld there.
+    let priced_by_trade =
+        available_n > 0 && row.open_item_trade_id.is_some() && row.search_is_marketplace_v3_minter;
     let price = if available_n > 0 {
-        if row.open_item_trade_id.is_some() && row.search_is_marketplace_v3_minter {
+        if priced_by_trade {
             row.open_item_trade_price
                 .clone()
                 .unwrap_or_else(|| "0".into())
@@ -170,6 +178,11 @@ pub(super) fn from_db_row_to_catalog_item(
         is_on_sale: (row.search_is_store_minter
             || (row.open_item_trade_id.is_some() && row.search_is_marketplace_v3_minter))
             && available_n > 0,
+        trade_id: if priced_by_trade {
+            row.open_item_trade_id.clone()
+        } else {
+            None
+        },
         creator: row.creator.clone(),
         data,
         network: item_network,

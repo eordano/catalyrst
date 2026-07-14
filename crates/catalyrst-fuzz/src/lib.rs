@@ -65,7 +65,7 @@ mod loom_tests {
                 match result {
                     None => {}
                     Some(entry) => {
-                        assert!(entry.result == true, "torn read: got {:?}", entry);
+                        assert!(entry.result, "torn read: got {:?}", entry);
                     }
                 }
             });
@@ -98,7 +98,7 @@ mod loom_tests {
 
             let result = cache.get(&key);
             assert!(result.is_some(), "key must exist after both inserts");
-            assert_eq!(result.unwrap().result, true);
+            assert!(result.unwrap().result);
         });
     }
 
@@ -150,15 +150,12 @@ mod loom_tests {
             t2.join().unwrap();
 
             let snap = cache.snapshot();
-            match snap.get("entity-1") {
-                Some(reason) => {
-                    assert!(
-                        reason == "initial error" || reason == "updated error",
-                        "corrupt cache entry: {:?}",
-                        reason
-                    );
-                }
-                None => {}
+            if let Some(reason) = snap.get("entity-1") {
+                assert!(
+                    reason == "initial error" || reason == "updated error",
+                    "corrupt cache entry: {:?}",
+                    reason
+                );
             }
         });
     }
@@ -246,6 +243,31 @@ mod loom_tests {
 #[cfg(not(feature = "loom"))]
 #[cfg(test)]
 mod tests {
+    const OPT_OUT: &str = "ALLOW_SKIPPED_INTEGRATION";
+
+    fn skips_allowed() -> bool {
+        match std::env::var(OPT_OUT) {
+            Ok(v) => !v.is_empty() && v != "0" && !v.eq_ignore_ascii_case("false"),
+            Err(_) => false,
+        }
+    }
+
     #[test]
-    fn loom_tests_require_feature_flag() {}
+    fn the_loom_models_were_not_built() {
+        if skips_allowed() {
+            eprintln!(
+                "SKIPPED the_loom_models_were_not_built: cargo feature `loom` unavailable; {OPT_OUT} is set"
+            );
+            return;
+        }
+        panic!(
+            "integration dependency unavailable: cargo feature `loom` on catalyrst-fuzz\n  \
+             the five interleaving models in src/lib.rs are #[cfg(feature = \"loom\")], so \
+             without the feature cargo compiles this crate to zero concurrency coverage and the \
+             suite reports green having proven nothing\n  \
+             this test asserts nothing without it, so it fails instead of passing.\n  \
+             run `cargo test -p catalyrst-fuzz --features loom`, or set {OPT_OUT}=1 to let it \
+             skip on a machine that cannot run it."
+        );
+    }
 }

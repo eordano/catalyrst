@@ -4,8 +4,11 @@ use axum::Json;
 use chrono::Utc;
 use serde::Serialize;
 
+use catalyrst_crypto::signed_fetch::signed_fetch_path;
+
 use crate::auth_chain::{
-    self, build_payload, AuthChainError, AUTH_METADATA_HEADER, AUTH_TIMESTAMP_HEADER, FIVE_MINUTES,
+    self, build_payload, AuthChainError, AuthChainErrorExt, AUTH_METADATA_HEADER,
+    AUTH_TIMESTAMP_HEADER, FIVE_MINUTES,
 };
 use crate::http::pagination::get_number_parameter;
 use crate::http::response::ApiError;
@@ -16,13 +19,6 @@ use crate::AppState;
 pub struct ActivityEnvelope {
     pub data: Vec<ActivityEvent>,
     pub total: i64,
-}
-
-fn signed_fetch_path<'a>(headers: &HeaderMap, fallback: &'a str) -> std::borrow::Cow<'a, str> {
-    match headers.get("x-original-path").and_then(|v| v.to_str().ok()) {
-        Some(raw) => std::borrow::Cow::Owned(raw.split('?').next().unwrap_or(raw).to_string()),
-        None => std::borrow::Cow::Borrowed(fallback),
-    }
 }
 
 fn auth_chain_error_to_api(e: AuthChainError) -> ApiError {
@@ -39,6 +35,18 @@ fn auth_chain_error_to_api(e: AuthChainError) -> ApiError {
     }
 }
 
+#[utoipa::path(
+    get,
+    path = "/v1/activity",
+    tag = "market",
+    params(("address" = String, Query)),
+    responses(
+        (status = 200, body = serde_json::Value),
+        (status = 400, body = crate::http::response::MarketErrorBody),
+        (status = 401, body = crate::http::response::MarketErrorBody),
+        (status = 500, body = crate::http::response::MarketErrorBody)
+    )
+)]
 pub async fn get_activity(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -55,11 +63,14 @@ pub async fn get_activity(
         .and_then(|v| v.to_str().ok())
         .unwrap_or("{}");
 
+    auth_chain::require_auth_metadata(&headers, auth_chain::MARKETPLACE_AUTH_SIGNERS, None)?;
+
     let path = signed_fetch_path(&headers, "/v1/activity");
     let payload = build_payload("get", path.as_ref(), timestamp, metadata);
 
     let now = Utc::now().timestamp();
     let recovered = auth_chain::validate_signature(&chain, &payload, timestamp, FIVE_MINUTES, now)
+        .await
         .map_err(auth_chain_error_to_api)?;
 
     let query_address = pairs
@@ -68,10 +79,10 @@ pub async fn get_activity(
         .map(|(_, v)| v.clone())
         .ok_or_else(|| ApiError::bad_request("Unauthorized"))?;
 
-    if recovered.to_lowercase() != query_address.to_lowercase() {
+    if recovered.as_str() != query_address.to_lowercase() {
         return Err(auth_chain_error_to_api(AuthChainError::AddressMismatch {
             expected: query_address.to_lowercase(),
-            recovered,
+            recovered: recovered.as_str().to_string(),
         }));
     }
 
@@ -80,7 +91,7 @@ pub async fn get_activity(
 
     let (data, total) = state
         .activity
-        .get_user_activity(&recovered, ActivityOptions { limit, offset })
+        .get_user_activity(recovered.as_str(), ActivityOptions { limit, offset })
         .await?;
 
     Ok(Json(ActivityEnvelope { data, total }))

@@ -1,0 +1,134 @@
+{
+  "_source": "https://raw.githubusercontent.com/decentraland/governance/master/src/intl/en.json (key modal.identity_setup.*). Copy/labels/steps are VERBATIM from the live decentraland/governance dapp i18n bundle. Flow structure derived from decentraland/governance src/components/Modal/IdentityConnectModal/* (AccountsConnectModal -> Discord/Forum/PushConnectionFlow -> FlowWithSteps Sign/Copy/Post -> PostConnection success/error, UnlinkAcountCard). NOTE: the modal/component .tsx paths under that ref 404 on raw.githubusercontent (only the i18n bundle resolves), so the component structure is reconstructed faithfully from the ui3 mirror GvAccountIdentityLinkingFlow.jsx + the i18n keys. Governance is NOT a Catalyst service (the DAO runs on Snapshot + Aragon externally) \u2014 there is no catalyrst governance route \u2014 so account linking, signature verification timers, and unlink are SIMULATED here; no remote calls.",
+  "title": "Link your Decentraland profile to external services",
+  "description": "By linking your Decentraland profile to your other social accounts you will be able to enhance your governance experience and never miss a beat of what's going on in the DAO.",
+  "timer": "Time sensitive task. {time} left to complete",
+  "timer_expired": "Signature expired. You'll have to start over.",
+  "verified_label": "Verified",
+  "soon_label": "Soon",
+  "providers": [
+    "forum",
+    "discord",
+    "push"
+  ],
+  "accounts": {
+    "forum": {
+      "id": "forum",
+      "kind": "steps",
+      "card_title": "Decentraland Forum",
+      "card_description": "Publish comments on proposals using your Decentraland profile.",
+      "title": "Decentraland Forum Account",
+      "confirm_label": "Confirm link",
+      "helper_loading": "Linking in progress...",
+      "steps": [
+        {
+          "title": "1. Sign message",
+          "description": "Use your web3 wallet to securely sign a message to start the linking process.",
+          "action": "Sign",
+          "helper": "First, sign the message.",
+          "card_helper_start": "Your web3 wallet will trigger a signing request",
+          "card_helper_active": "Awaiting signature\u2026",
+          "card_helper_success": "Signed correctly",
+          "card_helper_error": "Something went wrong, try again"
+        },
+        {
+          "title": "2. Copy to clipboard",
+          "description": "You'll be using the same content as the signature for the next step.",
+          "action": "Copy",
+          "helper": "Then, copy the signed message.",
+          "card_helper_start": "Signature required",
+          "card_helper_active": "Click to copy to clipboard",
+          "card_helper_success": "Content copied. Click to copy again"
+        },
+        {
+          "title": "3. Post on Forum thread",
+          "description": "Paste the content onto the comment box and publish to complete the linking.",
+          "action": "Open",
+          "helper": "Finally, comment on the signed message on the forum thread.",
+          "card_helper_start": "https://forum.decentraland.org/t/..."
+        }
+      ],
+      "success_text": "Decentraland and Forum accounts linked successfully \ud83c\udf89",
+      "success_body": "Now the comments you left on Proposals will link to your Decentraland profile. Happy governance!",
+      "success_subtext": "Plus, you'll get a fancy icon next to your username",
+      "success_button": "Take me to my Profile",
+      "error_text": "Governance and Forum accounts could not be linked",
+      "error_body": "Something happened. It must have been aliens or a malevolent AI but we can't be sure.",
+      "error_subtext": "Maybe just have a go at it one more time?",
+      "error_button": "Retry"
+    },
+    "discord": {
+      "id": "discord",
+      "kind": "steps",
+      "card_title": "Discord",
+      "card_description": "Receive real-time notifications customized to your activity and never miss any important events.",
+      "title": "Discord Account",
+      "subtitle": "Follow these steps to link your account to your wallet and start getting notifications in Discord.",
+      "confirm_label": "Confirm link",
+      "helper_loading": "Linking in progress...",
+      "steps": [
+        {
+          "title": "1. Sign message",
+          "description": "Use your web3 wallet to securely sign a message to start the linking process.",
+          "action": "Sign",
+          "helper": "First, sign the message.",
+          "card_helper_start": "Your web3 wallet will trigger a signing request",
+          "card_helper_active": "Awaiting signature\u2026",
+          "card_helper_success": "Signed correctly",
+          "card_helper_error": "Something went wrong, try again"
+        },
+        {
+          "title": "2. Copy to clipboard",
+          "description": "You'll be using the same content as the signature for the next step.",
+          "action": "Copy",
+          "helper": "Then, copy the signed message.",
+          "card_helper_start": "Signature required",
+          "card_helper_active": "Click to copy to clipboard",
+          "card_helper_success": "Content copied. Click to copy again"
+        },
+        {
+          "title": "3. Post on Discord channel",
+          "description": "Paste the content onto the designated channel to complete the linking.",
+          "action": "Open",
+          "helper": "Finally, send the signed message on the designated channel.",
+          "card_helper_start": "Discord channel"
+        }
+      ],
+      "success_text": "Discord and Governance accounts linked successfully \ud83c\udf89",
+      "success_body": "You'll start getting notified via Discord DM when there's new activity in proposals relevant to you.",
+      "success_subtext": " ",
+      "success_button": "Take me to my Profile",
+      "error_text": "Discord Account linking failed",
+      "error_body": "Something happened. It must have been aliens or a malevolent AI but we can't be sure.",
+      "error_subtext": "Maybe have a go at it one more time?",
+      "error_button": "Retry"
+    },
+    "push": {
+      "id": "push",
+      "kind": "subscribe",
+      "card_title": "Push Protocol Notifications",
+      "card_description": "Receive notifications in your wallet or on any platform using this native web3 messaging protocol.",
+      "title": "Push Protocol Notifications",
+      "helper": "TRIGGERS MESSAGE SIGN REQUEST",
+      "confirm_label": "Subscribe",
+      "subscribing_title": "Subscribing to Push notifications\u2026",
+      "subscribing_body": "Confirm the signature request in your wallet to enable Governance notifications via Push Protocol.",
+      "success_text": "Push Notifications enabled successfully!",
+      "success_body": "",
+      "success_subtext": "Now you will receive Governance-related notifications in your Push account.",
+      "success_button": "Connect other accounts",
+      "error_text": "Couldn't subscribe",
+      "error_body": "Something went wrong while subscribing. Please try again.",
+      "error_subtext": "",
+      "error_button": "Retry"
+    }
+  },
+  "unlink": {
+    "title": "Unlink Confirmation",
+    "body": "Are you sure you want to unlink this account?",
+    "confirm_button": "Unlink",
+    "cancel_button": "Cancel",
+    "note": "Account linking is not available yet \u2014 no account can be linked or unlinked from this page."
+  },
+  "verification_seconds": 278
+}

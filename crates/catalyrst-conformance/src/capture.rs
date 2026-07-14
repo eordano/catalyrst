@@ -31,7 +31,10 @@ pub(crate) async fn capture_single(
                 .get("retry-after")
                 .and_then(|v| v.to_str().ok())
                 .and_then(parse_retry_after);
-            return Ok(RetryDecision::Retry(hint));
+            return Ok(RetryDecision::Retry {
+                after: hint,
+                rate_limited: status == reqwest::StatusCode::TOO_MANY_REQUESTS,
+            });
         }
         let headers = collect_response_headers(&resp);
         let bytes = resp.bytes().await.context("reading capture body")?;
@@ -43,7 +46,8 @@ pub(crate) async fn capture_single(
         Some(t) => t,
         None => {
             return Ok(PairOutcome::Transient(
-                "baseline kept returning 429/5xx after 3 attempts (capture mode)".to_string(),
+                "baseline kept returning 429/5xx after exhausting retries (capture mode)"
+                    .to_string(),
             ));
         }
     };
@@ -171,7 +175,10 @@ pub(crate) async fn capture_bytes(
                 .get("retry-after")
                 .and_then(|v| v.to_str().ok())
                 .and_then(parse_retry_after);
-            return Ok(RetryDecision::Retry(hint));
+            return Ok(RetryDecision::Retry {
+                after: hint,
+                rate_limited: status == reqwest::StatusCode::TOO_MANY_REQUESTS,
+            });
         }
         let headers = collect_response_headers(&resp);
         let bytes = resp.bytes().await.context("reading capture body")?;

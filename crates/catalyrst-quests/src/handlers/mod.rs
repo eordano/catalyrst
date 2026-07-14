@@ -1,13 +1,38 @@
+pub mod authoring;
+pub mod errors;
+pub mod instances;
+
 use crate::auth_chain::optional_signer;
 use crate::db::{Db, DbError, QuestRewardHook, QuestRewardItem};
+use crate::handlers::errors::QuestError;
 use crate::proto::{Quest, QuestState};
 use crate::state::{compute_instance_state_quest, get_state};
 use crate::AppState;
 use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::Json;
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+
+pub(crate) async fn signer_or_unauthorized(
+    headers: &HeaderMap,
+    method: &str,
+    path: &str,
+) -> Result<String, QuestError> {
+    optional_signer(headers, method, path)
+        .await
+        .map(|s| s.as_str().to_string())
+        .ok_or(QuestError::Unauthorized)
+}
+
+pub(crate) fn url_is_valid(url: &str) -> bool {
+    let regex = Regex::new(
+        r"https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()!@:%_\+.~#?&\/\/=]*)",
+    )
+    .unwrap();
+    regex.is_match(url)
+}
 
 pub async fn health() -> Json<Value> {
     Json(json!({ "status": "ok", "service": "catalyrst-quests" }))
@@ -89,10 +114,10 @@ pub async fn get_quest(
         .get_stored_quest(&id)
         .await
         .map_err(not_found_or_internal)?;
-    let signer = optional_signer(&headers, "get", &format!("/api/quests/{id}"));
+    let signer = optional_signer(&headers, "get", &format!("/api/quests/{id}")).await;
     let is_creator = signer
-        .as_deref()
-        .map(|a| a.eq_ignore_ascii_case(&stored.creator_address))
+        .as_ref()
+        .map(|a| a.as_str().eq_ignore_ascii_case(&stored.creator_address))
         .unwrap_or(false);
     let quest = to_quest(&stored, is_creator)?;
     Ok(Json(GetQuestResponse { quest }))
@@ -122,9 +147,12 @@ pub async fn get_quest_reward(
 
     let mut with_hook = q.with_hook.unwrap_or(false);
     if with_hook {
-        let signer = optional_signer(&headers, "get", &format!("/api/quests/{id}/reward"));
+        let signer = optional_signer(&headers, "get", &format!("/api/quests/{id}/reward")).await;
         let is_creator = match &signer {
-            Some(addr) => db.is_quest_creator(&id, addr).await.map_err(internal)?,
+            Some(addr) => db
+                .is_quest_creator(&id, addr.as_str())
+                .await
+                .map_err(internal)?,
             None => false,
         };
         if !is_creator {
@@ -167,10 +195,10 @@ pub async fn get_quests_by_creator(
         }));
     };
     let creator_lc = creator.to_ascii_lowercase();
-    let signer = optional_signer(&headers, "get", &format!("/api/creators/{creator}/quests"));
+    let signer = optional_signer(&headers, "get", &format!("/api/creators/{creator}/quests")).await;
     let is_owner = signer
-        .as_deref()
-        .map(|a| a.eq_ignore_ascii_case(&creator))
+        .as_ref()
+        .map(|a| a.as_str().eq_ignore_ascii_case(&creator))
         .unwrap_or(false);
 
     let stored = db
@@ -218,6 +246,7 @@ pub async fn get_quest_instances(
         db,
         &quest_id,
         &headers,
+        "get",
         &format!("/api/quests/{quest_id}/instances"),
     )
     .await?;
@@ -274,6 +303,7 @@ pub async fn get_instance_state(
         db,
         &instance.quest_id,
         &headers,
+        "get",
         &format!("/api/instances/{instance_id}/state"),
     )
     .await?;
@@ -318,17 +348,20 @@ async fn require_creator(
     db: &Db,
     quest_id: &str,
     headers: &HeaderMap,
+    method: &str,
     path: &str,
 ) -> Result<String, StatusCode> {
-    let signer = optional_signer(headers, "get", path).ok_or(StatusCode::UNAUTHORIZED)?;
+    let signer = optional_signer(headers, method, path)
+        .await
+        .ok_or(StatusCode::UNAUTHORIZED)?;
     let is_creator = db
-        .is_quest_creator(quest_id, &signer)
+        .is_quest_creator(quest_id, signer.as_str())
         .await
         .map_err(internal)?;
     if !is_creator {
         return Err(StatusCode::FORBIDDEN);
     }
-    Ok(signer)
+    Ok(signer.as_str().to_string())
 }
 
 fn internal(_e: DbError) -> StatusCode {

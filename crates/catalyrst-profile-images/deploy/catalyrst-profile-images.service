@@ -1,5 +1,5 @@
 [Unit]
-Description=catalyrst-profile-images (Rust port of profile-images.decentraland.org — avatar face/body thumbnails, port 5152)
+Description=catalyrst-profile-images (Rust port of profile-images.decentraland.org -- avatar face/body thumbnails, port 5152)
 After=network.target catalyrst.service
 StartLimitIntervalSec=0
 

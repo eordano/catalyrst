@@ -1,0 +1,162 @@
+.nsac {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  border: 1px solid var(--lm-line);
+  border-radius: var(--r-card);
+  overflow: hidden;
+  background: var(--lm-surface);
+  color: var(--lm-ink);
+  transition: transform 0.12s ease, box-shadow 0.12s ease, border-color 0.12s ease;
+}
+.nsac:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.45);
+  border-color: rgba(255, 255, 255, 0.16);
+}
+
+.nsac__media {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  background-color: var(--rar, #2a2730);
+  background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.12) 0%, rgba(0, 0, 0, 0.14) 100%);
+}
+.nsac__img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.nsac__placeholder {
+  position: absolute;
+  inset: 26%;
+  border-radius: 16px;
+  background: linear-gradient(155deg, rgba(255, 255, 255, 0.42) 0%, rgba(255, 255, 255, 0.08) 100%);
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.18);
+}
+
+.nsac__fav {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 3;
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  cursor: pointer;
+  border-radius: var(--r-pill);
+  background: rgba(0, 0, 0, 0.45);
+  -webkit-backdrop-filter: blur(3px);
+  backdrop-filter: blur(3px);
+  transition: background 0.12s ease, transform 0.12s ease;
+}
+.nsac__fav:hover { background: rgba(0, 0, 0, 0.6); transform: scale(1.06); }
+.nsac__fav svg { width: 17px; height: 17px; fill: none; stroke: #fff; stroke-width: 1.7; }
+.nsac__fav.is-on svg { fill: var(--brand); stroke: var(--brand); }
+
+.nsac__buy {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 12px;
+  z-index: 3;
+  padding: 9px 14px;
+  border: 0;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  color: #fff;
+  border-radius: var(--r-control);
+  background: var(--brand-cta);
+  opacity: 0;
+  transform: translateY(6px);
+  transition: opacity 0.14s ease, transform 0.14s ease, background 0.12s ease;
+}
+.nsac__buy:hover { background: var(--brand-hover); }
+.nsac:hover .nsac__buy,
+.nsac__buy:focus-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.nsac__body {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 12px 13px 13px;
+}
+.nsac__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.nsac__name {
+  font-size: 14px;
+  font-weight: 700;
+  min-width: 0;
+}
+.nsac__price {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+  font-size: 15px;
+  font-weight: 700;
+}
+.nsac__manamark { color: var(--lm-ink); flex: 0 0 auto; }
+.nsac__manamark--ethereum { color: var(--brand); }
+.nsac__coinmark { flex: 0 0 auto; }
+.nsac__notforsale {
+  flex: 0 0 auto;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--lm-ink-3);
+}
+.nsac__meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.nsac__time {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--lm-ink-3);
+  min-width: 0;
+}
+.nsac__rarity {
+  flex: 0 0 auto;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  color: var(--rar-ink, #161518);
+  background: var(--rar, var(--rar-common));
+  padding: 2px 9px;
+  border-radius: var(--r-pill);
+  white-space: nowrap;
+}
+
+.nsac__hit {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.nsac__hit:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: -2px;
+  border-radius: var(--r-card);
+}

@@ -32,7 +32,10 @@ async fn bad_amount_is_a_400() {
         let Err(err) = mock_topup(State(state.clone()), headers, body(bad)).await else {
             panic!("amount {bad:?} must be rejected");
         };
-        assert!(matches!(err, ApiError::BadRequest(_)), "{bad:?} → {err:?}");
+        assert!(
+            matches!(err, ApiError::BadRequest(_)),
+            "{bad:?} \u{2192} {err:?}"
+        );
         assert_eq!(common::status_of(err), 400, "for amount {bad:?}");
     }
 }

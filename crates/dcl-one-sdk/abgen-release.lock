@@ -1,0 +1,29 @@
+# The abgen release that every dcl-one-sdk binary embeds.
+#
+# abgen releases are relocatable bundles: a launcher script beside
+# bin/abgen.bin and a bundled lib/ loader, with the Unity templates and shader
+# bundles compiled into the executable. (`/health` on a release run from an
+# empty directory reports `template_ok: true, templates_missing: []` and logs
+# `templates=compiled into this build`.)
+#
+# build.rs reads this file, downloads the archive for the build target into a
+# cache, verifies it against the sha256 below, and embeds the bundle. Set
+# ABGEN_EMBED_BIN to embed a different abgen instead (offline builds, a local
+# abgen checkout); export-overlay/flake.nix parses this same file so a nix
+# build fetches the identical bytes without needing network at compile time.
+#
+# Refresh with: scripts/pin-abgen.sh <tag>   e.g. scripts/pin-abgen.sh v0.17.0
+#
+# Keys are abgen's release targets, not rust target triples: the bundle ships
+# its own loader, so the host ABI it was linked against is irrelevant and
+# *-pc-windows-msvc builds ship the -gnu archive.
+
+version = v0.17.8
+url = https://github.com/decentraland/abgen/releases/download/{version}/abgen-{version}-{target}.tar.gz
+
+aarch64-apple-darwin       = 07fff975084330072011a55498b823ca6cf6ffd1e4ba7d3e385c45c0ade3f890
+x86_64-apple-darwin        = ed28c0526b5b4d03b5e959182632ffc2f21d6c67f0f63ecf26ddef6ccc8462ca
+aarch64-unknown-linux-gnu  = 7de80058972613cc3094deb01c4dd85de603f772235d0e93d0c5a2f9cc49b84a
+x86_64-unknown-linux-gnu   = 7b64cbd0294d17e42462adcb776dbd1709897b58406129ea55f73ec28a8e6d67
+aarch64-pc-windows-gnullvm = a31bbdbcf9cc12750632878d5d06d08365b27dfdeee2a3457dcc1dfc8ae906fa
+x86_64-pc-windows-gnu      = 0533a87f3dc6a718a41c58cb163e8226df2f2f8733a769894114a16c113badd3

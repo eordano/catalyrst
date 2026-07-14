@@ -1,0 +1,662 @@
+//! Generate service code from a service definition in a `.proto` file.
+
+// Guidelines for generated code:
+//
+// Use fully-qualified paths, to reduce the chance of clashing with
+// user provided names.
+
+use proc_macro2::TokenStream;
+use prost_build::{Method, Service, ServiceGenerator};
+use quote::{format_ident, quote};
+
+#[derive(Default)]
+pub struct RPCServiceGenerator {}
+
+pub struct MethodSigTokensParams {
+    body: Option<TokenStream>,
+    with_context: bool,
+    is_for_client: bool,
+}
+
+impl RPCServiceGenerator {
+    pub fn new() -> RPCServiceGenerator {
+        Default::default()
+    }
+
+    fn client_stream_request(&self) -> TokenStream {
+        quote!(ClientStreamRequest)
+    }
+
+    fn server_stream_response(&self) -> TokenStream {
+        quote!(ServerStreamResponse)
+    }
+
+    fn method_sig_tokens(&self, method: &Method, params: MethodSigTokensParams) -> TokenStream {
+        let input_type = self.extract_input_token(method);
+        let output_type = self.extract_output_token(method, params.is_for_client);
+        let name = extract_name_token(method);
+        let context = extract_context_token(&params);
+        let body = extract_body_token(params);
+
+        if let Some(input_type) = input_type {
+            quote! {
+                async fn #name(&self, request: #input_type #context)
+                    #output_type #body
+            }
+        } else {
+            quote! {
+                async fn #name(&self #context)
+                    #output_type #body
+            }
+        }
+    }
+
+    fn extract_input_token(&self, method: &Method) -> Option<TokenStream> {
+        if method.input_type.to_string().eq("()") {
+            None
+        } else {
+            let input_type = format_ident!("{}", method.input_type);
+            Some(match method.client_streaming {
+                true => {
+                    let client_stream_request = self.client_stream_request();
+                    quote!(#client_stream_request<#input_type>)
+                }
+                false => quote!(#input_type),
+            })
+        }
+    }
+
+    fn extract_output_token(&self, method: &Method, is_client: bool) -> TokenStream {
+        if method.output_type.to_string().eq("()") {
+            // The unit type can not be casted to an Ident, so the empty token is needed
+            if is_client {
+                quote! { -> ClientResult<()> }
+            } else {
+                quote! { -> Result<(), Error> }
+            }
+        } else {
+            let output_type = format_ident!("{}", method.output_type);
+            match method.server_streaming {
+                true => {
+                    let server_stream_response = self.server_stream_response();
+                    if is_client {
+                        quote! {-> ClientResult<#server_stream_response<#output_type>>}
+                    } else {
+                        quote! {-> Result<#server_stream_response<#output_type>, Error>}
+                    }
+                }
+                false => {
+                    if is_client {
+                        quote! {-> ClientResult<#output_type>}
+                    } else {
+                        quote! {-> Result<#output_type, Error>}
+                    }
+                }
+            }
+        }
+    }
+
+    fn generate_stream_types(&self, buf: &mut String) {
+        buf.push('\n');
+        buf.push_str("use catalyrst_drpc::stream_protocol::Generator;");
+        buf.push('\n');
+        buf.push_str("pub type ServerStreamResponse<T> = Generator<T>;");
+        buf.push('\n');
+        buf.push_str("pub type ClientStreamRequest<T> = Generator<T>;");
+        buf.push('\n');
+    }
+
+    #[cfg(feature = "client")]
+    fn generate_client_trait(&self, service: &Service, buf: &mut String) {
+        // This is done with strings rather than tokens because Prost provides functions that
+        // return doc comments as strings.
+        buf.push_str("use catalyrst_drpc::client::ClientResult;\n");
+        buf.push('\n');
+        service.comments.append_with_indent(0, buf);
+
+        buf.push_str("#[async_trait::async_trait]\n");
+        buf.push_str(&format!(
+            "pub trait {}ClientDefinition<T: Transport + 'static>: ServiceClient<T> +  Send + Sync + 'static {{",
+            service.name
+        ));
+        for method in service.methods.iter() {
+            buf.push('\n');
+            method.comments.append_with_indent(1, buf);
+            buf.push_str(&format!(
+                "    {};\n",
+                self.method_sig_tokens(
+                    method,
+                    MethodSigTokensParams {
+                        body: None,
+                        with_context: false,
+                        is_for_client: true
+                    }
+                )
+            ));
+        }
+        buf.push_str("}\n");
+    }
+
+    fn get_server_service_name(&self, service: &Service) -> String {
+        format!("{}Server", service.name)
+    }
+
+    #[cfg(feature = "server")]
+    fn generate_server_trait(&self, service: &Service, buf: &mut String) {
+        buf.push_str("use std::sync::Arc;\n");
+        buf.push_str("use catalyrst_drpc::{rpc_protocol::{RemoteErrorResponse}, service_module_definition::ProcedureContext};\n");
+        // This is done with strings rather than tokens because Prost provides functions that
+        // return doc comments as strings.
+        buf.push('\n');
+        service.comments.append_with_indent(0, buf);
+
+        buf.push_str("#[async_trait::async_trait]\n");
+        buf.push_str(&format!(
+            "pub trait {}<Context, Error: RemoteErrorResponse>: Send + Sync + 'static {{",
+            self.get_server_service_name(service)
+        ));
+        for method in service.methods.iter() {
+            buf.push('\n');
+            method.comments.append_with_indent(1, buf);
+            buf.push_str(&format!(
+                "    {};\n",
+                self.method_sig_tokens(
+                    method,
+                    MethodSigTokensParams {
+                        body: None,
+                        with_context: true,
+                        is_for_client: false
+                    }
+                )
+            ));
+        }
+        buf.push_str("}\n");
+    }
+
+    #[cfg(feature = "client")]
+    fn generate_client_service(&self, service: &Service, buf: &mut String) {
+        buf.push('\n');
+
+        buf.push_str(
+            "use catalyrst_drpc::{client::{RpcClientModule, ServiceClient}, transports::Transport};",
+        );
+        buf.push_str(&format!(
+            "pub struct {}Client<T: Transport + 'static> {{",
+            service.name
+        ));
+        buf.push_str(&format!(
+            "    {},\n",
+            "rpc_client_module: RpcClientModule<T>"
+        ));
+        buf.push('}');
+
+        buf.push('\n');
+
+        buf.push_str(&format!(
+            "impl<T: Transport + 'static> ServiceClient<T> for {}Client<T> {{
+    fn set_client_module(rpc_client_module: RpcClientModule<T>) -> Self {{
+        Self {{ rpc_client_module }}
+    }}
+}}
+",
+            service.name
+        ));
+
+        buf.push_str("#[async_trait::async_trait]\n");
+        buf.push_str(&format!(
+            "impl<T: Transport + 'static> {}ClientDefinition<T> for {}Client<T> {{",
+            service.name, service.name
+        ));
+        for method in service.methods.iter() {
+            buf.push('\n');
+            method.comments.append_with_indent(1, buf);
+            let input_type = self.extract_input_token(method);
+            let append_request = input_type.is_some();
+            let body = match (method.client_streaming, method.server_streaming) {
+                (false, false) => self.generate_unary_call(&method.proto_name, append_request),
+                (false, true) => {
+                    self.generate_server_streams_procedure(&method.proto_name, append_request)
+                }
+                (true, false) => {
+                    self.generate_client_streams_procedure(&method.proto_name, append_request)
+                }
+                (true, true) => {
+                    self.generate_bidir_streams_procedure(&method.proto_name, append_request)
+                }
+            };
+            buf.push_str(&format!(
+                "    {}\n",
+                self.method_sig_tokens(
+                    method,
+                    MethodSigTokensParams {
+                        body: Some(body),
+                        with_context: false,
+                        is_for_client: true
+                    }
+                )
+            ));
+        }
+        buf.push_str("}\n");
+    }
+
+    #[cfg(feature = "client")]
+    fn generate_unary_call(&self, name: &str, append_request: bool) -> TokenStream {
+        let request = if append_request {
+            quote!(request)
+        } else {
+            quote! { () }
+        };
+        quote! {
+            self.rpc_client_module
+                .call_unary_procedure(#name, #request)
+                .await
+        }
+    }
+
+    #[cfg(feature = "client")]
+    fn generate_server_streams_procedure(&self, name: &str, append_request: bool) -> TokenStream {
+        let request = if append_request {
+            quote!(request)
+        } else {
+            quote! { () }
+        };
+
+        quote! {
+            self.rpc_client_module
+                .call_server_streams_procedure(#name, #request)
+                .await
+        }
+    }
+
+    #[cfg(feature = "client")]
+    fn generate_client_streams_procedure(&self, name: &str, append_request: bool) -> TokenStream {
+        let request = if append_request {
+            quote!(request)
+        } else {
+            quote! { () }
+        };
+
+        quote! {
+            self.rpc_client_module
+                .call_client_streams_procedure(#name, #request)
+                .await
+        }
+    }
+
+    #[cfg(feature = "client")]
+    fn generate_bidir_streams_procedure(&self, name: &str, append_request: bool) -> TokenStream {
+        let request = if append_request {
+            quote!(request)
+        } else {
+            quote! { () }
+        };
+
+        quote! {
+            self.rpc_client_module
+                .call_bidir_streams_procedure(#name, #request)
+                .await
+        }
+    }
+
+    #[cfg(feature = "server")]
+    fn generate_server_service(&self, service: &Service, buf: &mut String) {
+        buf.push_str("use catalyrst_drpc::server::RpcServerPort;\n");
+        buf.push_str("use catalyrst_drpc::service_module_definition::ServiceModuleDefinition;\n");
+        buf.push_str("use prost::Message;\n");
+
+        let name = format!("{}Registration", service.name);
+        buf.push('\n');
+        buf.push_str(&format!("pub struct {} {{}}\n", name));
+        buf.push('\n');
+
+        buf.push('\n');
+        buf.push_str(&format!("impl {} {{", name));
+        buf.push_str(&format!("    {}", self.generate_register_service(service)));
+        buf.push_str("}\n");
+    }
+
+    #[cfg(feature = "server")]
+    fn generate_register_service(&self, service: &Service) -> TokenStream {
+        let service_name = &service.name;
+        let name = self.get_server_service_name(service);
+        let trait_name: TokenStream = name.parse().unwrap();
+
+        let mut methods: Vec<TokenStream> = vec![];
+        for method in &service.methods {
+            methods.push(match (method.client_streaming, method.server_streaming) {
+                (false, false) => self.generate_add_unary_call(method),
+                (false, true) => self.generate_add_server_streams_procedure(method),
+                (true, false) => self.generate_add_client_streams_procedure(method),
+                (true, true) => self.generate_add_bidir_streams_procedure(method),
+            });
+        }
+        quote! {
+        pub fn register_service<
+                S: #trait_name<Context, Error> + Send + Sync + 'static,
+                Context: Send + Sync + 'static,
+                Error: RemoteErrorResponse + Send + Sync + 'static
+            >(
+                port: &mut RpcServerPort<Context>,
+                service: S
+            ) {
+                let mut service_def = ServiceModuleDefinition::new();
+                let shareable_service = Arc::new(service);
+
+                #(#methods)*
+
+                port.register_module(#service_name.to_string(), service_def)
+            }
+        }
+    }
+
+    #[cfg(feature = "server")]
+    fn generate_add_unary_call(&self, method: &Method) -> TokenStream {
+        let method_name: TokenStream = method.name.parse().unwrap();
+        let proto_method_name = &method.proto_name;
+        let input_type = self.extract_input_token(method);
+
+        let decode;
+        let service_call;
+        let request;
+        if let Some(input_type) = input_type {
+            decode = decode_or_reject(&input_type, proto_method_name);
+            service_call = quote! { service.#method_name(request, context).await };
+            request = quote! {request}
+        } else {
+            decode = TokenStream::default();
+            service_call = quote! { service.#method_name(context).await };
+            request = quote! {_request}
+        };
+        quote! {
+            let service = Arc::clone(&shareable_service);
+            service_def.add_unary(#proto_method_name, move |#request, context| {
+                let service = service.clone();
+                Box::pin(async move {
+                    #decode
+                    match #service_call {
+                        Ok(response) => Ok(response.encode_to_vec()),
+                        Err(err) => Err(err.into())
+                    }
+                })
+            });
+        }
+    }
+
+    #[cfg(feature = "server")]
+    fn generate_add_server_streams_procedure(&self, method: &Method) -> TokenStream {
+        let method_name: TokenStream = method.name.parse().unwrap();
+        let proto_method_name = &method.proto_name;
+        let input_type: TokenStream = method.input_type.parse().unwrap();
+        let extracted_input_type = self.extract_input_token(method);
+
+        let decode;
+        let service_stream;
+        let request;
+        if extracted_input_type.is_some() {
+            decode = decode_or_reject(&input_type, proto_method_name);
+            service_stream = quote! { service.#method_name(request, context).await };
+            request = quote! { request };
+        } else {
+            decode = TokenStream::default();
+            service_stream = quote! {
+                service.#method_name(context).await
+            };
+            request = quote! { _request };
+        };
+
+        quote! {
+            let service = Arc::clone(&shareable_service);
+            service_def.add_server_streams(#proto_method_name, move |#request, context| {
+                let service = service.clone();
+                Box::pin(async move {
+                    #decode
+                    match #service_stream {
+                        // Transforming and filling the new generator is spawned so the response is quick
+                        Ok(server_streams_generator) => Ok(Generator::from_generator(server_streams_generator, |item| Some(item.encode_to_vec()))),
+                        Err(err) => Err(err.into())
+                    }
+                })
+            });
+        }
+    }
+
+    #[cfg(feature = "server")]
+    fn generate_add_client_streams_procedure(&self, method: &Method) -> TokenStream {
+        let method_name: TokenStream = method.name.parse().unwrap();
+        let proto_method_name = &method.proto_name;
+        let input_type: TokenStream = method.input_type.parse().unwrap();
+        let extracted_input_type = self.extract_input_token(method);
+
+        let input;
+        let request;
+        if extracted_input_type.is_some() {
+            // A peer that streams one malformed frame drops that frame; it does
+            // not panic the generator task and silently strand the whole stream.
+            input = quote! {
+                #input_type::decode(item.as_slice()).ok()
+            };
+            request = quote! { request };
+        } else {
+            input = quote! { Some(()) };
+            request = quote! { _request };
+        };
+        quote! {
+            let service = Arc::clone(&shareable_service);
+            service_def.add_client_streams(#proto_method_name, move |#request, context| {
+                let service = service.clone();
+                Box::pin(async move {
+                    let generator = Generator::from_generator(request, |item| {
+                        #input
+                    });
+
+                    match service.#method_name(generator, context).await {
+                        Ok(response) => Ok(response.encode_to_vec()),
+                        Err(err) => Err(err.into())
+                    }
+                })
+            });
+        }
+    }
+
+    #[cfg(feature = "server")]
+    fn generate_add_bidir_streams_procedure(&self, method: &Method) -> TokenStream {
+        let method_name: TokenStream = method.name.parse().unwrap();
+        let proto_method_name = &method.proto_name;
+        let input_type: TokenStream = method.input_type.parse().unwrap();
+        let extracted_input_type = self.extract_input_token(method);
+
+        let input;
+        let request;
+        if extracted_input_type.is_some() {
+            // A peer that streams one malformed frame drops that frame; it does
+            // not panic the generator task and silently strand the whole stream.
+            input = quote! {
+                #input_type::decode(item.as_slice()).ok()
+            };
+            request = quote! { request };
+        } else {
+            input = quote! { Some(()) };
+            request = quote! { _request };
+        };
+
+        quote! {
+            let service = Arc::clone(&shareable_service);
+            service_def.add_bidir_streams(#proto_method_name, move |#request, context| {
+                let service = service.clone();
+                Box::pin(async move {
+                    let generator = Generator::from_generator(request, |item| {
+                        #input
+                    });
+
+                    match service.#method_name(generator, context).await {
+                        Ok(response_generator) => Ok(Generator::from_generator(response_generator, |item| Some(item.encode_to_vec()))),
+                        Err(err) => Err(err.into())
+                    }
+                })
+            });
+        }
+    }
+}
+
+/// Decode a request body into `input_type`, or return a 400 [`RemoteError`] to the
+/// caller. Upstream generated `decode(..).unwrap()` here, so a peer that sent a
+/// malformed body panicked the spawned per-request task and the caller was left
+/// waiting for a response that could never arrive.
+#[cfg(feature = "server")]
+fn decode_or_reject(input_type: &TokenStream, proto_method_name: &str) -> TokenStream {
+    quote! {
+        let request = match #input_type::decode(request.as_slice()) {
+            Ok(request) => request,
+            Err(err) => {
+                return Err(catalyrst_drpc::rpc_protocol::RemoteError {
+                    message_identifier: 0,
+                    error_code: 400,
+                    error_message: format!("{}: malformed request payload: {}", #proto_method_name, err),
+                })
+            }
+        };
+    }
+}
+
+fn extract_name_token(method: &Method) -> proc_macro2::Ident {
+    format_ident!("{}", method.name)
+}
+
+fn extract_context_token(params: &MethodSigTokensParams) -> TokenStream {
+    match params.with_context {
+        true => quote! {, context: ProcedureContext<Context>},
+        false => TokenStream::default(),
+    }
+}
+
+fn extract_body_token(params: MethodSigTokensParams) -> TokenStream {
+    let body = params.body;
+    match body {
+        Some(body) => quote! { { #body } },
+        None => TokenStream::default(),
+    }
+}
+
+impl ServiceGenerator for RPCServiceGenerator {
+    fn generate(&mut self, service: Service, buf: &mut String) {
+        self.generate_stream_types(buf);
+        #[cfg(feature = "client")]
+        self.generate_client_trait(&service, buf);
+        #[cfg(feature = "client")]
+        self.generate_client_service(&service, buf);
+        #[cfg(feature = "server")]
+        self.generate_server_trait(&service, buf);
+        #[cfg(feature = "server")]
+        self.generate_server_service(&service, buf);
+    }
+
+    fn finalize(&mut self, _buf: &mut String) {}
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use prost_build::{Comments, Method, Service};
+
+    fn method(name: &str, client_streaming: bool, server_streaming: bool) -> Method {
+        Method {
+            name: name.to_string(),
+            proto_name: "StartQuest".to_string(),
+            comments: Comments::default(),
+            input_type: "StartQuestRequest".to_string(),
+            output_type: "StartQuestResponse".to_string(),
+            input_proto_type: ".test.StartQuestRequest".to_string(),
+            output_proto_type: ".test.StartQuestResponse".to_string(),
+            options: Default::default(),
+            client_streaming,
+            server_streaming,
+        }
+    }
+
+    /// The server half is emitted through `quote!`, whose Display inserts a space
+    /// between every token (`decode (request . as_slice ())`), while the `use`
+    /// lines are pushed as raw strings. Asserting on source-shaped needles would
+    /// pass vacuously against that, so every assertion here runs against the
+    /// buffer with all whitespace removed.
+    fn generate_squashed(methods: Vec<Method>) -> String {
+        let service = Service {
+            name: "Quests".to_string(),
+            proto_name: "Quests".to_string(),
+            package: "test".to_string(),
+            comments: Comments::default(),
+            methods,
+            options: Default::default(),
+        };
+        let mut buf = String::new();
+        RPCServiceGenerator::new().generate(service, &mut buf);
+        buf.chars().filter(|c| !c.is_whitespace()).collect()
+    }
+
+    fn all_four() -> Vec<Method> {
+        vec![
+            method("start_quest", false, false),
+            method("subscribe", false, true),
+            method("send_events", true, false),
+            method("chat", true, true),
+        ]
+    }
+
+    /// Guard that the squashing above actually yields a haystack the needles can
+    /// match, so the negative assertions below cannot pass by matching nothing.
+    #[test]
+    fn generated_server_half_is_present_to_assert_against() {
+        let buf = generate_squashed(all_four());
+        assert!(
+            buf.contains("service_def.add_unary("),
+            "server registration missing from generated buffer:\n{buf}"
+        );
+        assert!(
+            buf.contains("StartQuestRequest::decode(request.as_slice())"),
+            "unary request decode missing from generated buffer:\n{buf}"
+        );
+        assert!(
+            buf.contains("StartQuestRequest::decode(item.as_slice())"),
+            "stream item decode missing from generated buffer:\n{buf}"
+        );
+    }
+
+    /// Upstream emitted `decode(request.as_slice()).unwrap()`, so a peer sending a
+    /// malformed body panicked the spawned per-request task and the caller waited
+    /// forever for a response that could never come. Every decode of peer bytes
+    /// must stay fallible.
+    #[test]
+    fn no_generated_decode_unwraps_peer_bytes() {
+        let buf = generate_squashed(all_four());
+        assert!(
+            !buf.contains("decode(request.as_slice()).unwrap()"),
+            "unary/server-stream decode must not unwrap:\n{buf}"
+        );
+        assert!(
+            !buf.contains("decode(item.as_slice()).unwrap()"),
+            "stream-item decode must not unwrap:\n{buf}"
+        );
+    }
+
+    /// The non-streaming request decode rejects the caller with a 400 rather than
+    /// dropping the request on the floor.
+    #[test]
+    fn unary_decode_failure_becomes_a_remote_error() {
+        let buf = generate_squashed(vec![method("start_quest", false, false)]);
+        assert!(
+            buf.contains("malformedrequestpayload"),
+            "expected a RemoteError branch:\n{buf}"
+        );
+        assert!(buf.contains("error_code:400"), "expected a 400:\n{buf}");
+    }
+
+    /// A single bad frame in a client stream is skipped, not fatal: the transform
+    /// closure feeding `Generator::from_generator` stays `Option`-valued.
+    #[test]
+    fn stream_item_decode_failure_skips_the_frame() {
+        let buf = generate_squashed(vec![method("send_events", true, false)]);
+        assert!(
+            buf.contains("decode(item.as_slice()).ok()"),
+            "expected a fallible stream-item decode:\n{buf}"
+        );
+    }
+}

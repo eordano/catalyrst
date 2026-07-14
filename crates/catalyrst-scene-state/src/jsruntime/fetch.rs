@@ -1,10 +1,3 @@
-// Outbound-HTTP backend for ~system/SignedFetch. The only reachable origin is the
-// operator-configured world-storage URL, so the exact-match allowlist below IS the
-// SSRF guard: no DNS-block pass is needed and DNS rebinding is out of scope by
-// construction. Requests are signed with the delegated ephemeral key immediately
-// before send (the verifier enforces a 60s freshness window) and redirects are
-// never followed.
-
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -89,8 +82,6 @@ pub(super) fn validate_scene_url(raw: &str, ctx: &StorageCtx) -> Result<url::Url
         return Err("URL userinfo is not allowed");
     }
     check_scheme(&url, ctx.allow_http_loopback)?;
-    // Exact-match origin: scheme + whole host + effective port. No suffix
-    // matching, so storage.example.org.evil.com lookalikes never pass.
     if url.scheme() != ctx.origin.scheme()
         || url.host() != ctx.origin.host()
         || url.port_or_known_default() != ctx.origin.port_or_known_default()
@@ -119,8 +110,43 @@ pub(super) fn sanitize_scene_headers(headers: Vec<(String, String)>) -> Vec<(Str
         .collect()
 }
 
-// Fail closed: without a live delegation there is no identity worth signing with,
-// and unsigned requests 401 at the storage service anyway.
+pub(super) fn build_signed_fetch_headers(
+    delegation: &StorageDelegation,
+    method: &str,
+    url: &url::Url,
+) -> Result<Vec<(String, String)>, &'static str> {
+    let timestamp = Utc::now().timestamp_millis().to_string();
+    let path = match url.query() {
+        Some(q) if !q.is_empty() => format!("{}?{}", url.path(), q),
+        _ => url.path().to_string(),
+    };
+    let metadata = serde_json::json!({
+        "origin": "catalyrst-scene-state://",
+        "signer": "dcl:authoritative-server",
+        "isGuest": false,
+        "realmName": delegation.world,
+        "realm": { "serverName": delegation.world },
+        "sceneId": delegation.scene_id,
+        "parcel": delegation.parcel,
+    })
+    .to_string();
+    let payload = format!("{method}:{path}:{timestamp}:{metadata}").to_lowercase();
+    let chain = catalyrst_crypto::create_simple_auth_chain(&delegation.ephemeral, &payload)
+        .map_err(|_| "signing failed")?;
+    let links = chain.as_array().cloned().unwrap_or_default();
+    let mut headers = Vec::with_capacity(links.len() + 3);
+    for (i, link) in links.iter().enumerate() {
+        headers.push((format!("x-identity-auth-chain-{i}"), link.to_string()));
+    }
+    headers.push(("x-identity-timestamp".to_string(), timestamp));
+    headers.push(("x-identity-metadata".to_string(), metadata));
+    headers.push((
+        "x-authoritative-scope".to_string(),
+        delegation.scope_header.clone(),
+    ));
+    Ok(headers)
+}
+
 async fn current_delegation(ctx: &StorageCtx) -> Result<StorageDelegation, String> {
     let now = Utc::now();
     if let Some(d) = ctx.delegation.lock().clone() {
@@ -162,35 +188,14 @@ async fn run_job(
         }
     }
 
-    // The signed path must include the query, matching world-storage signed_path();
-    // metadata is built ENTIRELY from the delegation's derived claim fields, and the
-    // auth headers are set after the scene headers so they always win.
-    let timestamp = Utc::now().timestamp_millis().to_string();
-    let path = match url.query() {
-        Some(q) if !q.is_empty() => format!("{}?{}", url.path(), q),
-        _ => url.path().to_string(),
-    };
-    let metadata = serde_json::json!({
-        "origin": "catalyrst-scene-state://",
-        "signer": "dcl:authoritative-server",
-        "isGuest": false,
-        "realmName": delegation.world,
-        "realm": { "serverName": delegation.world },
-        "sceneId": delegation.scene_id,
-        "parcel": delegation.parcel,
-    })
-    .to_string();
-    let payload = format!("{}:{}:{}:{}", job.method, path, timestamp, metadata).to_lowercase();
-    let chain = catalyrst_crypto::create_simple_auth_chain(&delegation.ephemeral, &payload)
-        .map_err(|_| "signing failed")?;
-    let links = chain.as_array().cloned().unwrap_or_default();
-    for (i, link) in links.iter().enumerate() {
-        req = req.header(format!("x-identity-auth-chain-{i}"), link.to_string());
+    for (name, value) in build_signed_fetch_headers(&delegation, &job.method, &url)? {
+        if let (Ok(name), Ok(value)) = (
+            reqwest::header::HeaderName::from_bytes(name.as_bytes()),
+            reqwest::header::HeaderValue::from_str(&value),
+        ) {
+            req = req.header(name, value);
+        }
     }
-    req = req
-        .header("x-identity-timestamp", &timestamp)
-        .header("x-identity-metadata", &metadata)
-        .header("x-authoritative-scope", &delegation.scope_header);
     if let Some(body) = job.body {
         req = req.body(body);
     }
@@ -198,8 +203,6 @@ async fn run_job(
     let resp = req.send().await.map_err(|_| "request failed")?;
 
     let status = resp.status();
-    // Redirects are never followed (Policy::none) and the Location target is
-    // withheld so the credential cannot be steered anywhere.
     let drop_location = status.is_redirection();
     let mut headers: Vec<(String, String)> = Vec::new();
     let mut header_bytes = 0usize;
@@ -226,9 +229,6 @@ async fn run_job(
     })
 }
 
-// Dedicated thread with its own current-thread runtime: jsruntime::spawn is also
-// used from sync tests with no ambient tokio runtime. The worker exits when the
-// job sender drops with the scene thread.
 pub(super) fn spawn_fetch_worker(
     ctx: StorageCtx,
     limits: RuntimeLimits,
@@ -326,9 +326,7 @@ mod tests {
             );
         }
 
-        // Without the flag, a loopback http origin cannot even be configured.
         assert!(parse_origin("http://127.0.0.1:5151", false).is_err());
-        // The flag never opens up non-loopback http.
         assert!(parse_origin("http://internal.corp:5151", true).is_err());
     }
 

@@ -11,7 +11,7 @@ const DEFAULT_LIMIT: i64 = 500;
 const MAX_LIMIT: i64 = 5000;
 
 fn clamp_limit(limit: Option<i64>) -> i64 {
-    limit.unwrap_or(DEFAULT_LIMIT).clamp(1, MAX_LIMIT)
+    catalyrst_types::clamp_limit(limit, DEFAULT_LIMIT, MAX_LIMIT)
 }
 
 #[derive(Debug, Deserialize)]
@@ -22,10 +22,29 @@ pub struct ChangesQuery {
     pub limit: Option<i64>,
 }
 
+#[utoipa::path(
+    get,
+    path = "/federation/places/snapshot",
+    tag = "federation",
+    responses(
+        (status = 200, body = serde_json::Value),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn snapshot(State(state): State<AppState>) -> Result<Json<serde_json::Value>, ApiError> {
     Ok(Json(snapshot_view(state.places.writer_pool()).await?))
 }
 
+#[utoipa::path(
+    get,
+    path = "/federation/places/changes",
+    tag = "federation",
+    params(("since" = Option<i64>, Query), ("limit" = Option<i64>, Query)),
+    responses(
+        (status = 200, body = serde_json::Value),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn changes(
     State(state): State<AppState>,
     Query(q): Query<ChangesQuery>,

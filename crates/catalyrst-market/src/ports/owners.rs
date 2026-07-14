@@ -5,7 +5,6 @@ use crate::http::response::ApiError;
 use crate::logic::sql_filters::{clamp_first, clamp_skip};
 use crate::MARKETPLACE_SQUID_SCHEMA;
 
-pub const OWNERS_QUERY_DEFAULT_OFFSET: i64 = 0;
 pub const OWNERS_QUERY_DEFAULT_LIMIT: i64 = 20;
 
 #[derive(Debug, Clone, Copy)]

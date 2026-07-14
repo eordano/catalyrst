@@ -1,0 +1,116 @@
+name: Deploy squid server
+
+on:
+  workflow_dispatch:
+    inputs:
+      deployment-environment:
+        required: true
+        type: choice
+        options:
+          - dev
+          - prd
+        default: dev
+        description: Environment
+      deployment-server:
+        required: true
+        type: choice
+        options:
+          - a
+          - b
+        default: a
+        description: Server
+      tag:
+        required: true
+        default: "latest"
+        type: string
+        description: "Docker tag (quay.io)"
+
+jobs:
+  deployment:
+    if: ${{ inputs.deployment-environment != '' && inputs.deployment-server != '' }}
+    name: "Deploy to: ${{ inputs.deployment-environment }} - server ${{ inputs.deployment-server }}"
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.deployment-environment }}
+    steps:
+      - name: Resolve squid-management-server URL
+        id: mgmt
+        run: |
+          case "${{ inputs.deployment-environment }}" in
+            prd) url="https://squid-management-server.decentraland.org" ;;
+            dev) url="https://squid-management-server.decentraland.zone" ;;
+            *) echo "::error::Unknown environment '${{ inputs.deployment-environment }}'"; exit 1 ;;
+          esac
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+
+      - name: Block deploy if target slot is LIVE
+        env:
+          MGMT_URL: ${{ steps.mgmt.outputs.url }}
+          PROJECT: marketplace
+          SLOT: ${{ inputs.deployment-server }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+        run: |
+          # This guard is intentionally fail-closed: any uncertainty (network error,
+          # bad auth, malformed response, missing field) blocks the deploy. We avoid
+          # `var=$(curl ...)` because `set -e` does NOT propagate command-substitution
+          # failures inside variable assignments -- that pattern silently lets a failed
+          # liveness check fall through to a successful deploy.
+
+          set -euo pipefail
+
+          if [ -z "$CF_ACCESS_CLIENT_ID" ] || [ -z "$CF_ACCESS_CLIENT_SECRET" ]; then
+            echo "::error::CF_ACCESS_CLIENT_ID / CF_ACCESS_CLIENT_SECRET secrets are not configured. The squid-management-server is gated by Cloudflare Access."
+            exit 1
+          fi
+
+          tmp=$(mktemp)
+          curl_exit=0
+          http_status=$(curl -sS -o "$tmp" -w '%{http_code}' \
+            -H "CF-Access-Client-Id: ${CF_ACCESS_CLIENT_ID}" \
+            -H "CF-Access-Client-Secret: ${CF_ACCESS_CLIENT_SECRET}" \
+            "${MGMT_URL}/${PROJECT}/${SLOT}/is-live") || curl_exit=$?
+
+          if [ "$curl_exit" != "0" ]; then
+            echo "::error::curl exited with code $curl_exit when calling ${MGMT_URL}/${PROJECT}/${SLOT}/is-live. Refusing to deploy without a confirmed liveness check."
+            exit 1
+          fi
+
+          if [ "$http_status" != "200" ]; then
+            echo "::error::is-live endpoint returned HTTP $http_status. Refusing to deploy."
+            echo "Response body:"
+            cat "$tmp" || true
+            exit 1
+          fi
+
+          echo "is-live response: $(cat "$tmp")"
+
+          # Strict parsing: .live must be a boolean. Anything else (null, missing, string)
+          # means we don't trust the response and refuse to deploy.
+          live=$(jq -r '.live | if type == "boolean" then tostring else "invalid" end' "$tmp" 2>/dev/null || echo "parse-error")
+
+          if [ "$live" != "true" ] && [ "$live" != "false" ]; then
+            echo "::error::Could not determine .live from response (got: '$live'). Refusing to deploy."
+            exit 1
+          fi
+
+          active_schema=$(jq -r '.activeSchema // "(null)"' "$tmp")
+          live_service=$(jq -r '.liveService // "(null)"' "$tmp")
+
+          echo "Project:       $PROJECT"
+          echo "Slot:          $SLOT"
+          echo "Active schema: $active_schema"
+          echo "Live service:  $live_service"
+          echo "Live:          $live"
+
+          if [ "$live" = "true" ]; then
+            echo "::error::Refusing to deploy: slot '$SLOT' for project '$PROJECT' is currently LIVE (service $live_service serves schema $active_schema, which is what the API queries). Deploy to the other slot, wait for it to catch up, then promote it before redeploying here."
+            exit 1
+          fi
+
+      - name: Trigger deployment
+        uses: decentraland/dcl-deploy-action@main
+        with:
+          dockerImage: "quay.io/decentraland/marketplace-squid-core:${{ inputs.tag }}"
+          serviceName: "marketplace-squid-server-${{ inputs.deployment-server }}"
+          env: ${{ inputs.deployment-environment }}
+          token: ${{ secrets.GITHUB_TOKEN }}

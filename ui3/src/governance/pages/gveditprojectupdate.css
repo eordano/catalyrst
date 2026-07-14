@@ -1,0 +1,484 @@
+.gpu {
+  --gpu-ink: var(--gv-ink);
+  --gpu-muted: var(--gv-muted);
+  --gpu-faint: var(--gv-faint);
+  --gpu-line: var(--gv-line);
+  --gpu-soft: var(--gv-line-soft);
+  --gpu-field-border: var(--gv-faint);
+  --gpu-green: var(--success);
+  --gpu-yellow: var(--warning);
+  --gpu-red: var(--error);
+  --gpu-card-bg: var(--gv-surface);
+
+  min-height: 100%;
+  padding: 0 24px 48px;
+  background: var(--gv-page);
+  color: var(--gpu-ink);
+}
+
+.gpu__inner {
+  max-width: 1010px;
+  margin: 0 auto;
+  padding-top: 32px;
+}
+
+.gpu__header {
+  margin-bottom: 8px;
+}
+.gpu__h1 {
+  margin: 0 0 24px;
+  font-style: normal;
+  font-weight: var(--fw-semibold);
+  font-size: 24px;
+  letter-spacing: 0.4px;
+  color: var(--gpu-ink);
+}
+.gpu__sub {
+  margin: 0 0 8px;
+  font-size: 17px;
+  line-height: 26px;
+  color: var(--gpu-muted);
+}
+
+.gpu__section {
+  margin-bottom: 50px;
+}
+.gpu__sectionhead {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 26px;
+  margin-bottom: 16px;
+}
+.gpu__sicon {
+  min-width: 34px;
+  max-width: 34px;
+  color: var(--gpu-faint);
+}
+.gpu__sectiontitle {
+  font-size: 20px;
+  font-weight: var(--fw-semibold);
+  line-height: 42px;
+  letter-spacing: 0.4px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 0 0 auto;
+  color: var(--gpu-ink);
+}
+.gpu__sectionrule {
+  flex-grow: 100;
+  border-top: 1px solid var(--gpu-line);
+}
+
+.gpu__newbadge {
+  text-transform: uppercase;
+  font-size: 9px;
+  color: #fff;
+  background-color: var(--gpu-red);
+  border-radius: 12px;
+  padding: 0 5px;
+  height: fit-content;
+  line-height: 13px;
+  font-weight: var(--fw-semibold);
+}
+
+.gpu__sectionbody {
+  display: flex;
+  flex-direction: column;
+}
+@media (min-width: 768px) {
+  .gpu__sectionbody {
+    margin-left: 61px;
+  }
+}
+
+.gpu__field {
+  position: relative;
+  padding-bottom: 32px;
+}
+.gpu__label {
+  display: block;
+  margin-bottom: 8px;
+  font-weight: var(--fw-semibold);
+  font-size: 15px;
+  line-height: 24px;
+  color: var(--gpu-muted);
+}
+
+.gpu__healthrow {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 8px;
+}
+@media (min-width: 768px) {
+  .gpu__healthrow {
+    flex-direction: row;
+  }
+}
+.gpu__health {
+  width: 100%;
+  height: 44px;
+  background-color: transparent;
+  border: 1px solid var(--gpu-field-border);
+  border-radius: 6px;
+  cursor: pointer;
+  text-transform: uppercase;
+  font-family: inherit;
+  font-size: 15px;
+  line-height: 26px;
+  letter-spacing: -0.2px;
+  color: var(--gpu-field-border);
+  transition: border-color 0.2s, color 0.2s;
+}
+.gpu__health--onTrack {
+  border-color: var(--gpu-green);
+  color: var(--gpu-green);
+}
+.gpu__health--atRisk {
+  border-color: var(--gpu-yellow);
+  color: var(--gpu-yellow);
+}
+.gpu__health--offTrack {
+  border-color: var(--gpu-red);
+  color: var(--gpu-red);
+}
+
+.gpu__editor {
+  border: 1px solid var(--gpu-line);
+  border-radius: 4px;
+  background: var(--gv-surface);
+  overflow: hidden;
+}
+.gpu__editortoolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 8px;
+  background: var(--gv-wash);
+  border-bottom: 1px solid var(--gpu-soft);
+}
+.gpu__tbicon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 18px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--gpu-muted);
+  border-radius: 3px;
+  cursor: default;
+}
+.gpu__tbicon--italic {
+  font-style: italic;
+}
+.gpu__tbspacer {
+  flex: 1 1 auto;
+}
+.gpu__tbtext {
+  text-transform: uppercase;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--gpu-muted);
+  background: var(--gpu-soft);
+  border-radius: 4px;
+  padding: 3px 8px;
+  cursor: default;
+}
+.gpu__textarea {
+  display: block;
+  width: 100%;
+  border: 0;
+  outline: none;
+  resize: vertical;
+  font-family: inherit;
+  font-size: 15px;
+  line-height: 24px;
+  color: var(--gpu-ink);
+  background: transparent;
+  padding: 10px 12px;
+  box-sizing: border-box;
+}
+
+.gpu__message {
+  margin-top: 6px;
+  text-align: right;
+  font-size: 13px;
+  color: var(--gpu-muted);
+}
+
+.gpu__fcards {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
+  gap: 28px;
+}
+.gpu__fcard {
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: column;
+  padding: 16px;
+  border-radius: var(--r-card);
+  background-color: var(--gpu-card-bg);
+  box-shadow: 0 1px 8px 0 rgba(0, 0, 0, 0.12);
+}
+.gpu__fcardtitle {
+  text-transform: uppercase;
+  font-size: 13px;
+  color: var(--gpu-field-border);
+  margin: 0;
+}
+.gpu__fcardvalue {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 8px 0;
+}
+.gpu__fcardnum {
+  font-size: 22px;
+  font-weight: 700;
+  color: #fff;
+}
+.gpu__fcardsub {
+  font-size: 13px;
+  font-weight: var(--fw-semibold);
+  color: var(--gpu-field-border);
+}
+
+.gpu__reportsub {
+  margin: 0 0 15px;
+  font-size: 15px;
+  line-height: 24px;
+  color: var(--gpu-muted);
+}
+.gpu__reportsub a {
+  color: var(--brand);
+  text-decoration: none;
+}
+.gpu__reportsub a:hover {
+  text-decoration: underline;
+}
+
+.gpu__csv {
+  display: flex;
+  border: 1px solid var(--gv-line);
+  border-radius: 4px;
+  box-shadow: rgba(0, 0, 0, 0.2) 1px 2px 4px 0;
+  background: var(--gv-surface);
+  overflow: hidden;
+  font-family: "SF Mono", Menlo, Consolas, monospace;
+  font-size: 13px;
+  line-height: 19px;
+}
+.gpu__csvgutter {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  padding: 8px 8px 8px 10px;
+  min-width: 34px;
+  color: var(--gpu-field-border);
+  background: var(--gv-wash);
+  border-right: 1px solid var(--gpu-soft);
+  user-select: none;
+}
+.gpu__csvinput {
+  flex: 1 1 auto;
+  border: 0;
+  outline: none;
+  resize: none;
+  min-height: 285px;
+  padding: 8px 12px;
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 19px;
+  color: var(--gpu-ink);
+  background: transparent;
+  white-space: pre;
+  overflow-wrap: normal;
+  box-sizing: border-box;
+}
+
+.gpu__dropzone {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 24px;
+  max-width: 385px;
+  padding: 14px 16px;
+  border: 1px dashed var(--gpu-field-border);
+  border-radius: 6px;
+  color: var(--gpu-muted);
+  font-size: 14px;
+  background: var(--gv-surface);
+}
+.gpu__droplink {
+  color: var(--brand);
+  font-weight: var(--fw-semibold);
+  cursor: pointer;
+}
+
+.gpu__summary {
+  border: 1px solid var(--gpu-line);
+  border-radius: var(--r-card);
+  overflow: hidden;
+  background: var(--gv-surface);
+}
+.gpu__summaryhead,
+.gpu__summaryrow,
+.gpu__summarytotal {
+  display: grid;
+  grid-template-columns: 1.1fr 2fr 0.7fr 0.9fr;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  font-size: 14px;
+}
+.gpu__summaryhead {
+  text-transform: uppercase;
+  font-size: 11px;
+  letter-spacing: 0.4px;
+  font-weight: 700;
+  color: var(--gpu-muted);
+  background: var(--gv-wash);
+  border-bottom: 1px solid var(--gpu-soft);
+}
+.gpu__summaryrow {
+  border-bottom: 1px solid var(--gpu-soft);
+}
+.gpu__cat {
+  font-weight: var(--fw-semibold);
+  color: var(--gpu-ink);
+}
+.gpu__desc {
+  color: var(--gpu-muted);
+}
+.gpu__token {
+  color: var(--gpu-muted);
+}
+.gpu__num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-weight: var(--fw-semibold);
+  color: var(--gpu-ink);
+}
+.gpu__summarytotal {
+  font-weight: 700;
+  color: var(--gpu-ink);
+  background: var(--gv-wash);
+}
+
+.gpu__actions {
+  display: flex;
+  justify-content: space-between;
+  padding-bottom: 32px;
+}
+@media (min-width: 768px) {
+  .gpu__actions {
+    margin-left: 61px;
+  }
+}
+
+.gpu__btn {
+  height: 46px;
+  padding: 0 28px;
+  border-radius: var(--r-pill);
+  border: 0;
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background-color 0.12s ease, opacity 0.12s ease;
+}
+.gpu__btn--primary {
+  background: var(--brand);
+  color: #fff;
+}
+.gpu__btn--primary:hover {
+  background: var(--brand-hover);
+}
+.gpu__btn--primary:disabled,
+.gpu__btn--primary.is-loading {
+  opacity: 0.6;
+  cursor: default;
+}
+.gpu__btn--basic {
+  background: transparent;
+  color: var(--gpu-ink);
+  border: 1px solid var(--gpu-line);
+}
+.gpu__btn--basic:hover {
+  background: var(--gv-wash);
+}
+
+.gpu__scrim {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(22, 20, 26, 0.5);
+  padding: 24px;
+}
+.gpu__modal {
+  position: relative;
+  width: 100%;
+  max-width: 450px;
+  background: var(--gv-surface);
+  border-radius: var(--r-card);
+  padding: 40px 36px 28px;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.3);
+  text-align: center;
+}
+.gpu__modalclose {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  border: 0;
+  background: none;
+  color: var(--gpu-field-border);
+  cursor: pointer;
+  display: inline-flex;
+  padding: 4px;
+}
+.gpu__modalclose:hover {
+  color: var(--gpu-ink);
+}
+.gpu__modaltitle {
+  margin: 0 0 12px;
+  font-size: 22px;
+  font-weight: var(--fw-semibold);
+  color: var(--gpu-ink);
+}
+.gpu__modaldesc {
+  margin: 0 0 28px;
+  font-size: 15px;
+  line-height: 24px;
+  color: var(--gpu-muted);
+}
+.gpu__modalactions {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+}
+.gpu__modalactions .gpu__btn {
+  flex: 1 1 0;
+  padding: 0 16px;
+}
+
+@media (max-width: 768px) {
+  .gpu__fcards {
+    flex-direction: column;
+  }
+  .gpu__summaryhead {
+    display: none;
+  }
+  .gpu__summaryrow,
+  .gpu__summarytotal {
+    grid-template-columns: 1fr 1fr;
+  }
+}

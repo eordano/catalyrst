@@ -28,7 +28,7 @@ fn category_i18n_en(name: &str) -> Option<&'static str> {
     })
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "places/"))]
 pub struct CategoryOut {
     pub name: String,
@@ -38,12 +38,21 @@ pub struct CategoryOut {
     pub i18n: I18n,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "places/"))]
 pub struct I18n {
     pub en: Option<String>,
 }
 
+#[utoipa::path(
+    get,
+    path = "/categories",
+    tag = "places",
+    responses(
+        (status = 200, body = ApiData<Vec<CategoryOut>>),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn get_categories(
     State(state): State<AppState>,
     Query(pairs): Query<HashMap<String, String>>,
@@ -65,11 +74,22 @@ pub async fn get_categories(
     Ok(Json(ApiData::ok(data)))
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct PlaceCategoriesOut {
     pub categories: Vec<String>,
 }
 
+#[utoipa::path(
+    get,
+    path = "/places/{place_id}/categories",
+    tag = "places",
+    params(("place_id" = String, Path)),
+    responses(
+        (status = 200, body = ApiData<PlaceCategoriesOut>),
+        (status = 404, body = catalyrst_types::ApiErrorBody),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn get_place_categories(
     State(state): State<AppState>,
     axum::extract::Path(place_id): axum::extract::Path<String>,

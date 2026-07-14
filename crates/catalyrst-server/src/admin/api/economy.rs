@@ -2,214 +2,6 @@ use super::*;
 
 const CREDITS_TOKEN: &[&str] = &["CATALYRST_CREDITS_ADMIN_TOKEN"];
 
-pub async fn credits_seasons_list(
-    session: AdminSession,
-    State(state): State<Arc<AppState>>,
-) -> Response {
-    let Some(token) = env_token(CREDITS_TOKEN) else {
-        return token_missing("credits");
-    };
-    proxy_audited(
-        &state,
-        &session.address,
-        "credits.seasons.list",
-        None,
-        json!({}),
-        Method::GET,
-        "data",
-        "/admin/seasons",
-        None,
-        Some(&token),
-    )
-    .await
-}
-
-pub async fn credits_season_create(
-    session: AdminSession,
-    State(state): State<Arc<AppState>>,
-    Json(body): Json<Value>,
-) -> Response {
-    let Some(token) = env_token(CREDITS_TOKEN) else {
-        return token_missing("credits");
-    };
-    proxy_audited(
-        &state,
-        &session.address,
-        "credits.season.create",
-        None,
-        body.clone(),
-        Method::POST,
-        "data",
-        "/admin/seasons",
-        Some(body),
-        Some(&token),
-    )
-    .await
-}
-
-#[derive(serde::Deserialize)]
-pub struct CreditsIdReq {
-    pub id: String,
-    #[serde(flatten)]
-    pub extra: Value,
-}
-
-pub async fn credits_season_update(
-    session: AdminSession,
-    State(state): State<Arc<AppState>>,
-    Json(req): Json<CreditsIdReq>,
-) -> Response {
-    let Some(token) = env_token(CREDITS_TOKEN) else {
-        return token_missing("credits");
-    };
-    if !valid_path_segment(&req.id) {
-        return bad_segment("season-id");
-    }
-    proxy_audited(
-        &state,
-        &session.address,
-        "credits.season.update",
-        Some(&req.id),
-        req.extra.clone(),
-        Method::PUT,
-        "data",
-        &format!("/admin/seasons/{}", req.id),
-        Some(req.extra),
-        Some(&token),
-    )
-    .await
-}
-
-#[derive(serde::Deserialize)]
-pub struct IdOnlyReq {
-    pub id: String,
-}
-
-pub async fn credits_season_delete(
-    session: AdminSession,
-    State(state): State<Arc<AppState>>,
-    Json(req): Json<IdOnlyReq>,
-) -> Response {
-    let Some(token) = env_token(CREDITS_TOKEN) else {
-        return token_missing("credits");
-    };
-    if !valid_path_segment(&req.id) {
-        return bad_segment("season-id");
-    }
-    proxy_audited(
-        &state,
-        &session.address,
-        "credits.season.delete",
-        Some(&req.id),
-        json!({ "id": req.id }),
-        Method::DELETE,
-        "data",
-        &format!("/admin/seasons/{}", req.id),
-        None,
-        Some(&token),
-    )
-    .await
-}
-
-pub async fn credits_goals_list(
-    session: AdminSession,
-    State(state): State<Arc<AppState>>,
-    Json(body): Json<Value>,
-) -> Response {
-    let Some(token) = env_token(CREDITS_TOKEN) else {
-        return token_missing("credits");
-    };
-    let qs = query_from_obj(&body, &["weekId"]);
-    proxy_audited(
-        &state,
-        &session.address,
-        "credits.goals.list",
-        None,
-        body.clone(),
-        Method::GET,
-        "data",
-        &format!("/admin/goals{qs}"),
-        None,
-        Some(&token),
-    )
-    .await
-}
-
-pub async fn credits_goal_create(
-    session: AdminSession,
-    State(state): State<Arc<AppState>>,
-    Json(body): Json<Value>,
-) -> Response {
-    let Some(token) = env_token(CREDITS_TOKEN) else {
-        return token_missing("credits");
-    };
-    proxy_audited(
-        &state,
-        &session.address,
-        "credits.goal.create",
-        None,
-        body.clone(),
-        Method::POST,
-        "data",
-        "/admin/goals",
-        Some(body),
-        Some(&token),
-    )
-    .await
-}
-
-pub async fn credits_goal_update(
-    session: AdminSession,
-    State(state): State<Arc<AppState>>,
-    Json(req): Json<CreditsIdReq>,
-) -> Response {
-    let Some(token) = env_token(CREDITS_TOKEN) else {
-        return token_missing("credits");
-    };
-    if !valid_path_segment(&req.id) {
-        return bad_segment("goal-id");
-    }
-    proxy_audited(
-        &state,
-        &session.address,
-        "credits.goal.update",
-        Some(&req.id),
-        req.extra.clone(),
-        Method::PUT,
-        "data",
-        &format!("/admin/goals/{}", req.id),
-        Some(req.extra),
-        Some(&token),
-    )
-    .await
-}
-
-pub async fn credits_goal_delete(
-    session: AdminSession,
-    State(state): State<Arc<AppState>>,
-    Json(req): Json<IdOnlyReq>,
-) -> Response {
-    let Some(token) = env_token(CREDITS_TOKEN) else {
-        return token_missing("credits");
-    };
-    if !valid_path_segment(&req.id) {
-        return bad_segment("goal-id");
-    }
-    proxy_audited(
-        &state,
-        &session.address,
-        "credits.goal.delete",
-        Some(&req.id),
-        json!({ "id": req.id }),
-        Method::DELETE,
-        "data",
-        &format!("/admin/goals/{}", req.id),
-        None,
-        Some(&token),
-    )
-    .await
-}
-
 pub async fn credits_grant(
     session: AdminSession,
     State(state): State<Arc<AppState>>,
@@ -220,7 +12,7 @@ pub async fn credits_grant(
     };
     proxy_audited(
         &state,
-        &session.address,
+        session.address(),
         "credits.grant",
         target_field(&body, "address").as_deref(),
         body.clone(),
@@ -243,7 +35,7 @@ pub async fn credits_revoke(
     };
     proxy_audited(
         &state,
-        &session.address,
+        session.address(),
         "credits.revoke",
         target_field(&body, "address").as_deref(),
         body.clone(),
@@ -277,7 +69,7 @@ pub async fn credits_user_block(
     let address = req.address.trim().to_lowercase();
     proxy_audited(
         &state,
-        &session.address,
+        session.address(),
         "credits.user.block",
         Some(&address),
         req.extra.clone(),
@@ -316,7 +108,7 @@ pub async fn price_override_set(
     }
     proxy_audited(
         &state,
-        &session.address,
+        session.address(),
         "price.override.set",
         Some(&format!("{}/{}", req.token, req.vs)),
         req.extra.clone(),
@@ -351,7 +143,7 @@ pub async fn price_override_delete(
     }
     proxy_audited(
         &state,
-        &session.address,
+        session.address(),
         "price.override.delete",
         Some(&format!("{}/{}", req.token, req.vs)),
         json!({ "token": req.token, "vs": req.vs }),

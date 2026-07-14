@@ -1,0 +1,50 @@
+.filterbox {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r-panel);
+  overflow: hidden;
+}
+
+.filterbox + .filterbox { margin-top: 8px; }
+
+.filterbox__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  color: #fff;
+  font: inherit;
+  text-align: left;
+}
+
+.filterbox__caret {
+  color: var(--ink-6);
+  transition: transform 0.15s ease;
+  flex: 0 0 auto;
+}
+.filterbox__caret.is-open { transform: rotate(180deg); }
+
+.filterbox__body { }
+
+.filterbox--caps .filterbox__head { padding: 14px 16px; }
+.filterbox--caps .filterbox__head:hover { background: var(--fill-1); }
+.filterbox--caps .filterbox__title {
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: var(--ink-6);
+}
+.filterbox--caps .filterbox__body { padding: 2px 16px 16px; }
+
+.filterbox--title .filterbox__head {
+  padding: 16px 18px;
+  font-size: 15px;
+  font-weight: 600;
+}
+.filterbox--title .filterbox__head:hover { color: var(--ink-85); }
+.filterbox--title .filterbox__title { font-size: 15px; font-weight: 600; }
+.filterbox--title .filterbox__body { padding: 0 18px 18px; }

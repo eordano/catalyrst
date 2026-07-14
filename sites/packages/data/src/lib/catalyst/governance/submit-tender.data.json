@@ -1,0 +1,94 @@
+{
+  "_source": "Static config for the Tender submission wizard. Form copy, field labels/sublabels and the success/pending modal copy are verbatim from decentraland/governance-ui src/intl/en.json (page.submit_tender.*, page.submit.*, modal.proposal_pending.*, error.tender.*). Field character limits come from src/types/proposals.ts newProposalTenderScheme.properties (project_name 1-80, summary/problem_statement/technical_specification/use_cases/deliverables 20-3500, target_release_quarter maxLength 7, linked_proposal_id 36-255). The VP gate (SUBMISSION_THRESHOLD_TENDER = 1000) is from src/constants/proposals.ts. The linkable Pitch list is NOT config \u2014 it is fetched LIVE from catalyrst-governance GET /proposals (filtered type==='pitch'); see loadPitches() in governance-submit-tender.ts. Submission is a SIMULATED Snapshot write (the DAO runs on Snapshot + Aragon externally, not a Catalyst service), so no pitches and no default_linked_proposal_id are hardcoded here.",
+  "submission_threshold_tender": 1000,
+  "linked_proposal_param": "linked_proposal_id",
+  "page": {
+    "title": "Tender proposal",
+    "description": "Tender proposals are the second step in the Bidding & Tendering process. The aim of this stage is to refine the problems outlined in the Pitch proposal, providing a clearer vision of what the execution teams should propose in their Bid proposals. This action requires at least 1000 VP.",
+    "linked_proposal_label": "Linked Pitch Proposal",
+    "submit_label": "Submit proposal"
+  },
+  "fields": {
+    "project_name": {
+      "label": "Project name",
+      "min_length": 1,
+      "max_length": 80,
+      "required": true
+    },
+    "summary": {
+      "label": "Summary",
+      "sublabel": "Provide a high-level overview of the idea behind this tender and its connection to the original Pitch proposal.",
+      "markdown": true,
+      "min_length": 20,
+      "max_length": 3500,
+      "required": true
+    },
+    "problem_statement": {
+      "label": "Problem statement",
+      "sublabel": "Describe the specific problem that this solution aims to solve for the Decentraland community.",
+      "markdown": true,
+      "min_length": 20,
+      "max_length": 3500,
+      "required": true
+    },
+    "technical_specification": {
+      "label": "Technical specification",
+      "sublabel": "Outline how the execution team could implement this solution. Please note that this is not binding, and execution teams may propose a new technical pathway in their bid proposals.",
+      "markdown": true,
+      "min_length": 20,
+      "max_length": 3500,
+      "required": true
+    },
+    "use_cases": {
+      "label": "Use cases",
+      "sublabel": "Explain how the target audience will benefit from this project, how they will use it, and the value they will derive from it.",
+      "markdown": true,
+      "min_length": 20,
+      "max_length": 3500,
+      "required": true
+    },
+    "deliverables": {
+      "label": "Deliverables",
+      "sublabel": "Detail all the artifacts that the execution teams should deliver as part of this Tender. For example, working software, documentation, marketing plans, social media strategies, etc.",
+      "markdown": true,
+      "min_length": 20,
+      "max_length": 3500,
+      "required": true
+    },
+    "target_release_quarter": {
+      "label": "Target release quarter",
+      "sublabel": "State the anticipated release date for the community. Please note that this is not binding, and execution teams may propose a new date in their bid proposals.",
+      "placeholder": "Select a target release quarter",
+      "max_length": 7,
+      "required": true
+    },
+    "coAuthors": {
+      "label": "Co-authors",
+      "optional": true,
+      "max": 5,
+      "address_length": 42,
+      "help": "If you co-authored this proposal with someone else, you can add their wallet addresses to acknowledge their work. After you publish the proposal, co-authors will be asked to confirm or reject the request. Only if they confirm, they will be listed publicly on the proposal page."
+    }
+  },
+  "errors": {
+    "linked_proposal_empty": "Linked Pitch Proposal field is empty",
+    "project_name_empty": "Project name is empty",
+    "submission_vp_not_met": "This action requires at least 1000 VP.",
+    "summary_empty": "Summary is empty",
+    "problem_statement_empty": "Problem statement is empty",
+    "technical_specification_empty": "Technical specification is empty",
+    "use_cases_empty": "Use cases are empty",
+    "deliverables_empty": "Deliverables is empty",
+    "target_release_quarter_empty": "Target release quarter is empty"
+  },
+  "default_linked_proposal_id": null,
+  "success": {
+    "title": "Proposal published",
+    "lead": "Your proposal is now published. When the Tender submission period ends, it will be open for voting.",
+    "helper": "Set a reminder in your Calendar for when the voting period begins.",
+    "voting_begins_label": "Voting begins:",
+    "add_to_calendar": "Add to calendar",
+    "note": "This Tender was created in a simulation \u2014 no on-chain transaction or Snapshot proposal was submitted."
+  },
+  "submit_error": "There was an error while trying to create the proposal, please try again later."
+}

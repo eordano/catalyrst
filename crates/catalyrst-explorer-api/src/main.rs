@@ -1,5 +1,3 @@
-use std::net::SocketAddr;
-
 use anyhow::Result;
 use axum::Router;
 use tower_http::trace::TraceLayer;
@@ -13,11 +11,11 @@ const ENV_DOCS: &[(&str, &str)] = &[
     ("REALM_NAME", "realm name (default catalyrst)"),
     (
         "CATALYST_URL",
-        "catalyst content server base URL (default http://127.0.0.1:5140)",
+        "catalyst content server base URL (default http://127.0.0.1:5141)",
     ),
     (
         "LAMBDAS_URL",
-        "lambdas base URL (default http://127.0.0.1:5142)",
+        "lambdas base URL (default http://127.0.0.1:5141/lambdas)",
     ),
     (
         "COMMS_URL",
@@ -25,15 +23,15 @@ const ENV_DOCS: &[(&str, &str)] = &[
     ),
     (
         "UPSTREAM_MARKETPLACE_URL",
-        "upstream marketplace API (default https://marketplace-api.decentraland.org)",
+        "upstream marketplace API (default http://127.0.0.1:5133)",
     ),
     (
         "UPSTREAM_BUILDER_URL",
-        "upstream builder API (default https://builder-api.decentraland.org)",
+        "upstream builder API (default http://127.0.0.1:5144)",
     ),
     (
         "UPSTREAM_WORLDS_URL",
-        "upstream worlds-content-server (default https://worlds-content-server.decentraland.org)",
+        "upstream worlds-content-server (default http://127.0.0.1:5142)",
     ),
     (
         "UPSTREAM_WORLDS_CONTENT_URL",
@@ -63,18 +61,22 @@ const ENV_DOCS: &[(&str, &str)] = &[
         "HOT_SCENES_URL",
         "hot scenes URL (default http://127.0.0.1:5143/hot-scenes)",
     ),
-    ("ONBOARDING_API_KEY", "optional — onboarding API key"),
+    ("ONBOARDING_API_KEY", "optional \u{2014} onboarding API key"),
     (
         "CATALYRST_EXPLORER_API_ADMIN_TOKEN",
-        "optional — bearer token guarding the admin endpoints",
+        "optional \u{2014} bearer token guarding the admin endpoints",
     ),
     (
         "MAP_SATELLITE_BASE_URL",
-        "minimap satellite tiles base URL (default https://genesis.city/map/latest)",
+        "minimap satellite tiles base URL (default http://127.0.0.1:5162/satellite)",
     ),
     (
         "MAP_PARCEL_VIEW_URL",
-        "minimap parcel view image URL (default https://api.decentraland.org/v1/minimap.png)",
+        "minimap parcel view image URL (default http://127.0.0.1:5162/v1/minimap.png)",
+    ),
+    (
+        "HTTP_BASE_URL",
+        "public base URL for self-referencing links, trailing slash stripped (unset = relative)",
     ),
     (
         "RUST_LOG",
@@ -86,13 +88,7 @@ const ENV_DOCS: &[(&str, &str)] = &[
 async fn main() -> Result<()> {
     catalyrst_envcfg::handle_standard_args("catalyrst-explorer-api", ENV_DOCS);
 
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "catalyrst_explorer_api=info,tower_http=info".into()),
-        )
-        .with_target(false)
-        .init();
+    catalyrst_envcfg::init_tracing("catalyrst_explorer_api=info,tower_http=info");
 
     let cfg = Config::from_env()?;
     let state = build_state(&cfg).await?;
@@ -103,9 +99,5 @@ async fn main() -> Result<()> {
         .layer(TraceLayer::new_for_http())
         .with_state(state);
 
-    let addr: SocketAddr = format!("{}:{}", cfg.http_host, cfg.http_port).parse()?;
-    tracing::info!(%addr, "catalyrst-explorer-api listening");
-    let listener = tokio::net::TcpListener::bind(addr).await?;
-    axum::serve(listener, app).await?;
-    Ok(())
+    catalyrst_envcfg::run_service("catalyrst-explorer-api", cfg.http_host, cfg.http_port, app).await
 }

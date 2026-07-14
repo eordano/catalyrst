@@ -1,9 +1,9 @@
+use alloy::signers::{local::PrivateKeySigner, Signer};
 use axum::http::{HeaderMap, HeaderName, HeaderValue};
 use catalyrst_market::auth_chain::{
     build_payload, extract_auth_chain, validate_signature, verify_with_address, AuthChainError,
-    FIVE_MINUTES,
+    AuthChainErrorExt, FIVE_MINUTES,
 };
-use ethers_signers::{LocalWallet, Signer};
 
 fn link_json(kind: &str, payload: &str, signature: &str) -> String {
     serde_json::json!({
@@ -15,14 +15,15 @@ fn link_json(kind: &str, payload: &str, signature: &str) -> String {
 }
 
 async fn build_signed_chain(canonical_payload: &str) -> (HeaderMap, String) {
-    let root: LocalWallet = "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
+    let root: PrivateKeySigner = "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
         .parse()
         .unwrap();
     let root_addr = format!("{:#x}", root.address());
 
-    let ephemeral: LocalWallet = "59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d"
-        .parse()
-        .unwrap();
+    let ephemeral: PrivateKeySigner =
+        "59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d"
+            .parse()
+            .unwrap();
     let ephemeral_addr = format!("{:#x}", ephemeral.address());
 
     let ephemeral_payload = format!(
@@ -33,13 +34,13 @@ async fn build_signed_chain(canonical_payload: &str) -> (HeaderMap, String) {
         .sign_message(ephemeral_payload.as_bytes())
         .await
         .unwrap();
-    let ephemeral_sig_hex = format!("0x{}", ephemeral_sig);
+    let ephemeral_sig_hex = ephemeral_sig.to_string();
 
     let entity_sig = ephemeral
         .sign_message(canonical_payload.as_bytes())
         .await
         .unwrap();
-    let entity_sig_hex = format!("0x{}", entity_sig);
+    let entity_sig_hex = entity_sig.to_string();
 
     let mut headers = HeaderMap::new();
     headers.insert(
@@ -83,9 +84,10 @@ async fn valid_chain_correct_signer_and_matching_address_returns_ok() {
         ts_ms / 1000,
         &root_addr,
     )
+    .await
     .expect("verification should succeed");
 
-    assert_eq!(recovered.to_lowercase(), root_addr.to_lowercase());
+    assert_eq!(recovered, root_addr.to_lowercase());
 }
 
 #[tokio::test]
@@ -105,6 +107,7 @@ async fn valid_chain_but_mismatched_query_address_returns_forbidden() {
         ts_ms / 1000,
         other,
     )
+    .await
     .expect_err("should reject on address mismatch");
 
     assert!(
@@ -132,6 +135,7 @@ async fn expired_timestamp_returns_err() {
         now_secs,
         &root_addr,
     )
+    .await
     .expect_err("should reject on expiration");
 
     assert!(
@@ -183,6 +187,7 @@ async fn tampered_signature_returns_err() {
         FIVE_MINUTES,
         ts_ms / 1000,
     )
+    .await
     .expect_err("should reject tampered signature");
 
     assert!(
@@ -198,7 +203,8 @@ async fn tampered_signature_returns_err() {
         FIVE_MINUTES,
         ts_ms / 1000,
         &root_addr,
-    );
+    )
+    .await;
     assert!(bad_with_addr.is_err());
 }
 

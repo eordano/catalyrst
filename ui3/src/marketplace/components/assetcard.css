@@ -1,0 +1,146 @@
+.ac {
+  display: flex;
+  flex-direction: column;
+  text-align: left;
+  width: 100%;
+  border: 1px solid var(--lm-line);
+  border-radius: var(--r-card);
+  overflow: hidden;
+  background: var(--lm-surface);
+  cursor: pointer;
+  font: inherit;
+  color: var(--lm-ink);
+  padding: 0;
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+.ac:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.45);
+}
+
+.ac__art {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1 / 1.05;
+  display: block;
+}
+.ac__art--solid {
+  background-color: var(--rar, #2a2730);
+  background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.12) 0%, rgba(0, 0, 0, 0.12) 100%);
+}
+.ac__img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  z-index: 1;
+}
+.ac__placeholder {
+  position: absolute;
+  inset: 24%;
+  z-index: 1;
+  border-radius: 16px;
+  background: linear-gradient(155deg, rgba(255, 255, 255, 0.45) 0%, rgba(255, 255, 255, 0.08) 100%);
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.18);
+}
+
+.ac__tag {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 2;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.5);
+  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
+  padding: 3px 8px;
+  border-radius: 6px;
+}
+
+.ac__body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 13px 13px;
+  background: var(--lm-surface);
+}
+
+.ac__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.ac__name {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--lm-ink);
+  min-width: 0;
+}
+.ac__price {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--lm-ink);
+}
+.ac__manamark { color: var(--lm-ink); flex: 0 0 auto; }
+.ac__manamark--ethereum { color: var(--brand); }
+.ac__coinmark { flex: 0 0 auto; }
+.ac__notforsale {
+  flex: 0 0 auto;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--lm-ink-3);
+}
+
+.ac__meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.ac__collection {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--lm-ink-3);
+  min-width: 0;
+}
+.ac__network {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--lm-ink-3);
+  min-width: 0;
+}
+.ac__rarity {
+  flex: 0 0 auto;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  color: var(--rar-ink, #161518);
+  background: var(--rar, var(--rar-common));
+  padding: 2px 9px;
+  border-radius: var(--r-pill);
+  white-space: nowrap;
+}
+.ac__count {
+  flex: 0 0 auto;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: var(--lm-ink-2);
+  background: var(--lm-field-bg);
+  border: 1px solid var(--lm-line);
+  padding: 2px 9px;
+  border-radius: var(--r-pill);
+  white-space: nowrap;
+}

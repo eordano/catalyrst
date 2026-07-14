@@ -7,29 +7,37 @@ use tokio::sync::Mutex;
 use crate::cache::ResponseCache;
 
 pub struct SubgraphUrls {
-    pub eth_collections: &'static str,
-    pub matic_collections: &'static str,
-    pub third_party_registry: &'static str,
-    pub land: &'static str,
+    pub eth_collections: String,
+    pub matic_collections: String,
+    pub third_party_registry: String,
+    pub land: String,
 }
 
-pub fn subgraph_urls(eth_network: &str) -> SubgraphUrls {
-    match eth_network {
-        "sepolia" => SubgraphUrls {
-            eth_collections:
-                "https://api.studio.thegraph.com/query/49472/collections-ethereum-sepolia/version/latest",
-            matic_collections: "https://subgraph.decentraland.org/collections-matic-amoy",
-            third_party_registry: "https://subgraph.decentraland.org/tpr-matic-amoy",
-            land: "https://subgraph.decentraland.org/land-manager-sepolia",
-        },
+/// Subgraph indexers are per-deployment infrastructure, so every one is named
+/// by an env var with no fallback: the previous hardcoded values were all
+/// production Decentraland indexers, and reaching for them on an unconfigured
+/// node was exactly the silent-production-call defect.
+fn subgraph_env(key: &str) -> Result<String, String> {
+    std::env::var(key)
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| {
+            format!(
+                "{key} is unset \u{2014} this node has no subgraph indexer configured for that \
+                 role. There is deliberately no default: the historical default was a \
+                 production Decentraland subgraph."
+            )
+        })
+}
 
-        _ => SubgraphUrls {
-            eth_collections: "https://subgraph.decentraland.org/collections-ethereum-mainnet",
-            matic_collections: "https://subgraph.decentraland.org/collections-matic-mainnet",
-            third_party_registry: "https://subgraph.decentraland.org/tpr-matic-mainnet",
-            land: "https://subgraph.decentraland.org/land-manager",
-        },
-    }
+pub fn subgraph_urls(_eth_network: &str) -> Result<SubgraphUrls, String> {
+    Ok(SubgraphUrls {
+        eth_collections: subgraph_env("ETH_COLLECTIONS_SUBGRAPH_URL")?,
+        matic_collections: subgraph_env("MATIC_COLLECTIONS_SUBGRAPH_URL")?,
+        third_party_registry: subgraph_env("THIRD_PARTY_REGISTRY_L2_SUBGRAPH_URL")?,
+        land: subgraph_env("LAND_SUBGRAPH_URL")?,
+    })
 }
 
 pub struct LandContracts {
@@ -52,9 +60,11 @@ pub fn land_contracts(eth_network: &str) -> LandContracts {
 
 pub const THE_GRAPH_PAGE_SIZE: i64 = 1000;
 
-fn nft_worker_base_url() -> String {
+fn nft_worker_base_url() -> Option<String> {
     std::env::var("NFT_WORKER_BASE_URL")
-        .unwrap_or_else(|_| "https://nfts.decentraland.org".to_string())
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
 }
 
 pub fn client() -> &'static reqwest::Client {
@@ -138,9 +148,21 @@ pub async fn third_party_providers(eth_network: &str) -> Vec<ThirdPartyProvider>
         }
     }
 
-    let url = subgraph_urls(eth_network).third_party_registry;
-    let providers = match graph_query(url, TP_QUERY, json!({})).await {
-        Ok(data) => parse_providers(&data),
+    let providers = match subgraph_urls(eth_network)
+        .map(|u| u.third_party_registry)
+        .map_err(|e| {
+            tracing::warn!(error = %e, "third-party registry lookup skipped");
+            e
+        }) {
+        Ok(url) => match graph_query(&url, TP_QUERY, json!({})).await {
+            Ok(data) => parse_providers(&data),
+            Err(_) => {
+                if let Some((p, _)) = guard.as_ref() {
+                    return p.clone();
+                }
+                Vec::new()
+            }
+        },
         Err(_) => {
             if let Some((p, _)) = guard.as_ref() {
                 return p.clone();
@@ -199,12 +221,14 @@ async fn owned_nfts_for_network(owner: &str, network: &str, contracts: &[String]
     if !SUPPORTED_NETWORKS.contains(&network) {
         return Vec::new();
     }
-    let url = format!(
-        "{}/wallets/{}/networks/{}/nfts",
-        nft_worker_base_url(),
-        owner,
-        network
-    );
+    let Some(base) = nft_worker_base_url() else {
+        tracing::warn!(
+            "NFT_WORKER_BASE_URL is unset \u{2014} reporting no owned NFTs for {network}; \
+             set it to an NFT ownership indexer for this deployment"
+        );
+        return Vec::new();
+    };
+    let url = format!("{base}/wallets/{owner}/networks/{network}/nfts");
     let resp = match client()
         .post(&url)
         .header("Content-Type", "application/json")
@@ -433,8 +457,8 @@ pub async fn parcel_operators(
     let eth_network_owned = eth_network.to_string();
     parcel_cache()
         .get_or_fetch(key, move || async move {
-            let url = subgraph_urls(&eth_network_owned).land;
-            let data = graph_query(url, QUERY_OPERATORS_PARCEL, json!({ "x": x, "y": y })).await?;
+            let url = subgraph_urls(&eth_network_owned)?.land;
+            let data = graph_query(&url, QUERY_OPERATORS_PARCEL, json!({ "x": x, "y": y })).await?;
 
             let estates = data
                 .get("estates")
@@ -460,7 +484,7 @@ pub async fn parcel_operators(
             };
 
             let (update_managers, approved_for_all) =
-                update_managers_and_approved_for_all(url, &resolved.owner, token_address).await?;
+                update_managers_and_approved_for_all(&url, &resolved.owner, token_address).await?;
 
             Ok(Some(ParcelOperators {
                 owner: resolved.owner,
@@ -564,13 +588,13 @@ pub async fn parcels_by_update_operator(
     let operator = update_operator.to_string();
     parcels_by_operator_cache()
         .get_or_fetch(key, move || async move {
-            let url = subgraph_urls(&eth).land;
+            let url = subgraph_urls(&eth)?.land;
             let mut elements: Vec<Value> = Vec::new();
             let mut skip = 0i64;
 
             loop {
                 let data = graph_query(
-                    url,
+                    &url,
                     QUERY_PARCELS_BY_UPDATE_OPERATOR,
                     json!({
                         "updateOperator": operator,
@@ -624,7 +648,7 @@ pub async fn collections_from_squid(
     let rows: Vec<(String, Option<String>)> = sqlx::query_as(
         "SELECT urn, name FROM squid_marketplace.collection \
          WHERE network = $1 AND urn IS NOT NULL \
-         ORDER BY urn ASC LIMIT $2",
+         ORDER BY urn COLLATE \"C\" ASC LIMIT $2",
     )
     .bind(squid_network)
     .bind(COLLECTIONS_PAGE_SIZE)

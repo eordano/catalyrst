@@ -106,19 +106,11 @@ pub fn parse_wei_allow_zero(label: &str, raw: &str) -> Result<U256, ApiError> {
 }
 
 pub fn parse_token_id(raw: &str) -> Result<U256, ApiError> {
-    U256::from_str_radix(raw.trim(), 10).map_err(|e| {
-        ApiError::InvalidTransaction(format!(
-            "invalid tokenId {raw:?}: not a decimal integer ({e})"
-        ))
-    })
+    parse_wei_allow_zero("tokenId", raw)
 }
 
 pub fn parse_item_id(raw: &str) -> Result<U256, ApiError> {
-    U256::from_str_radix(raw.trim(), 10).map_err(|e| {
-        ApiError::InvalidTransaction(format!(
-            "invalid itemId {raw:?}: not a decimal integer ({e})"
-        ))
-    })
+    parse_wei_allow_zero("itemId", raw)
 }
 
 pub fn encode_buyer_data(buyer: Address) -> Bytes {
@@ -531,7 +523,7 @@ mod tests {
         assert!(validate_name("a").is_err());
         assert!(validate_name("sixteencharslong").is_err());
         assert!(validate_name("has space").is_err());
-        assert!(validate_name("émoji").is_err());
+        assert!(validate_name("\u{E9}moji").is_err());
         assert!(validate_name("dash-ed").is_err());
         assert!(validate_name(" pad").is_err());
         assert!(validate_name("").is_err());

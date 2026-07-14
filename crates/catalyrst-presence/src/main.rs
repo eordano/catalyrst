@@ -14,10 +14,10 @@ use catalyrst_presence::{api_router, build_collector, build_state, handlers};
 const ENV_HELP: &str = "environment variables:
   HTTP_SERVER_HOST                              bind address (default 127.0.0.1)
   HTTP_SERVER_PORT                              listen port (default 5152)
-  PRESENCE_PG_COMPONENT_PSQL_CONNECTION_STRING  required — presence Postgres connection string
+  PRESENCE_PG_COMPONENT_PSQL_CONNECTION_STRING  required -- presence Postgres connection string
   ARCHIPELAGO_URL                               archipelago base URL (default http://127.0.0.1:5139)
   COMMS_URL                                     comms base URL (default http://127.0.0.1:5138)
-  WORLDS_SERVER_URL                             worlds content server (default https://worlds-content-server.decentraland.org)
+  WORLDS_SERVER_URL                             worlds content server (default http://127.0.0.1:5142)
   PRESENCE_GENESIS_REALM                        genesis realm name (default main)
   PRESENCE_SNAPSHOT_INTERVAL_SECS               snapshot interval in seconds for `run` (default 300)
   RUST_LOG                                      tracing filter (default catalyrst_presence=info,tower_http=info)";
@@ -50,13 +50,7 @@ enum Command {
 async fn main() -> Result<()> {
     let cli = Cli::parse();
 
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "catalyrst_presence=info,tower_http=info".into()),
-        )
-        .with_target(false)
-        .init();
+    catalyrst_envcfg::init_tracing("catalyrst_presence=info,tower_http=info");
 
     let cfg = Config::from_env()?;
 

@@ -1,0 +1,85 @@
+{
+  "_source": "https://raw.githubusercontent.com/decentraland/social-service-ea/main/src/controllers/handlers/http/create-community-handler.ts (createCommunityHandler multipart field set: formData.files.thumbnail + formData.fields {name, description, placeIds, privacy, visibility}) + https://raw.githubusercontent.com/decentraland/social-service-ea/main/src/logic/community/fields-validator.ts (name<=30 non-empty, description<=500 non-empty, thumbnail image 1KB..500KB, privacy CommunityPrivacyEnum, visibility CommunityVisibilityEnum) + https://raw.githubusercontent.com/decentraland/social-service-ea/main/src/logic/community/types.ts (CommunityPrivacyEnum public|private, CommunityVisibilityEnum all|unlisted). NAME-gate from catalyst:/lambdas/profiles/{address} avatars[].name + hasClaimedName. Cross-checked against the local crate catalyrst/crates/catalyrst-communities: src/fed/messages.rs (CommunityCreate { name, description, private, unlisted, flags }), src/handlers/writes.rs create_community (require_owned_name gate \u2014 owner must hold a claimed DCL name, else NotAuthorized).",
+  "_notes": "catalyrst-communities EXISTS in the workspace (writes::create_community) but the route is NOT proxied on the public edge: GET https://catalyst.example.com/social/v1/communities and /v1/communities both 404 (probed 2026-06-23). POST /v1/communities additionally requires a DCL auth-chain signature AND a held DCL NAME (require_owned_name), so an anonymous in-client overlay session is fail-closed. This is the bevy-overlay (in-client HUD) variant of community creation: the CreateOrEditCommunityPanel modal renders over the dimmed Communities directory. Flow / states / field validation / telemetry are REAL; the final create_community POST is SIMULATED (deterministic stand-in id mirroring community_id_hex). The discoverability toggle maps to upstream `visibility` (on -> all/listed, off -> unlisted). Membership maps to upstream `privacy` (public/private). The GetNamePanel gate mirrors CommunityCreate.jsx + the server require_owned_name gate; it is SKIPPED when the session already owns a NAME (see `name`).",
+  "panel": "communities",
+  "name": {
+    "hasName": false,
+    "ownedNames": [],
+    "upstream": "catalyst:/lambdas/profiles/{address} -> avatars[0].name + hasClaimedName; require_owned_name in writes.rs. Empty here (anonymous overlay session): the NAME gate is shown. Override with ?owned=1 to simulate a session that already holds a NAME (gate skipped).",
+    "gate": {
+      "title": "Get a NAME to Unlock Community Creation",
+      "body": "NAMEs are unique Decentraland usernames that come with a World, and unlock community creation.",
+      "primaryCta": "Get a NAME",
+      "secondaryCta": "Maybe later"
+    }
+  },
+  "thumbnail": {
+    "label": "Profile picture",
+    "hint": "PNG or JPG | 512x512 px | 500KB max",
+    "dimensions": "512x512",
+    "minBytes": 1024,
+    "maxBytes": 512000,
+    "accept": "image/png,image/jpeg",
+    "upstream": "formData.files.thumbnail; fields-validator: image/* mime, 1KB..500KB. The real multipart upload is simulated (anonymous session cannot post)."
+  },
+  "membershipOptions": [
+    {
+      "value": "public",
+      "label": "Public",
+      "note": "Anyone can become a member, view Community details, and join your Voice Streams"
+    },
+    {
+      "value": "private",
+      "label": "Private",
+      "note": "Members must be approved by an owner or moderator before they can join"
+    }
+  ],
+  "discoverabilityOptions": [
+    {
+      "value": "all",
+      "label": "Listed",
+      "note": "Visible in the public Communities directory"
+    },
+    {
+      "value": "unlisted",
+      "label": "Unlisted",
+      "note": "Hidden from the directory; reachable only by direct link/invite"
+    }
+  ],
+  "policy": {
+    "text": "Please ensure Community content follows Decentraland's Content Policy.",
+    "ackLabel": "I acknowledge this community must follow the Content Policy.",
+    "upstream": "CommunityCreate.jsx footer note + community compliance check (CommunityNotCompliantError / AIComplianceError in create-community-handler.ts)."
+  },
+  "sampleDraft": {
+    "name": "Crystal Pavilion",
+    "description": "A community for builders, collectors, and explorers who love the Crystal Pavilion district. We host weekly voice hangouts and showcase member-built scenes.",
+    "privacy": "public",
+    "visibility": "all",
+    "hasThumbnail": true,
+    "policyAck": true
+  },
+  "createRequest": {
+    "_shape": "POST /v1/communities (multipart) -> Signed<CommunityCreate> body (catalyrst-communities fed/messages.rs)",
+    "name": "Crystal Pavilion",
+    "description": "A community for builders, collectors, and explorers who love the Crystal Pavilion district.",
+    "private": false,
+    "unlisted": false,
+    "flags": []
+  },
+  "createResponse": {
+    "_shape": "POST /v1/communities -> 201 { message, data: AggregatedCommunity }",
+    "message": "Community created successfully",
+    "data": {
+      "id": "00000000-0000-0000-0000-000000000000",
+      "name": "Crystal Pavilion",
+      "description": "A community for builders, collectors, and explorers who love the Crystal Pavilion district.",
+      "ownerAddress": "0x0000000000000000000000000000000000000000",
+      "ownerName": "your-name",
+      "privacy": "public",
+      "visibility": "all",
+      "active": true,
+      "thumbnails": {}
+    }
+  }
+}

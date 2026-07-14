@@ -1,0 +1,35 @@
+(dcl-one-sdk golden v1 custom-entry production)
+TOOLCHAIN sdk=7.26.0 ecs=7.26.0 bundler=rolldown-1.2.4 blob=sha256:bfba3692f31514bd
+SCENE_COMPILED_JS_SIZE_PROD=483.4k bytes
+  ARTIFACT bin/index.js               8412 sha256=b840f24417b922a6
+  ARTIFACT bin/scene.js                384 sha256=dfb79cecd045b151
+  ARTIFACT bin/sdk-runtime.js       474613 sha256=33bab9f0f499ea4a
+LOADER sdk=bin/sdk-runtime.js smart=- scene=bin/scene.js max_composite_entity=0
+ENTRYPOINT .dcl-one/entrypoint.ts main=custom-entry composites=0 script-utils=-
+  ;"use strict";export * from "<SCENE>/src/index.ts"
+  REQUIRE(scene): @dcl/sdk
+  REQUIRE(scene): @dcl/sdk/ecs
+  REQUIRE(scene): @dcl/sdk/math
+MAIN_CRDT none (no composite)
+DEPLOY entity=bafkreifeyed2o67bvps5cwnmye6qhxzbulddvyomrlep6ziklk5uozx7tq files=4 total=483.6k bytes
+  bafkreia4himidyowso3qby3obwuctihv3do6stzzw66cqholyd4crqnqce scene.json 169 bytes
+  bafybeiagimmlavww7momge3jfpkxtniibletbghzk6eybyv4jov777wvl4 bin/sdk-runtime.js 474613 bytes
+  bafkreig7w6oozucfwfirut6usylphfhtkbpzekfmr4gee57o5uxbelstne bin/scene.js 384 bytes
+  bafkreifyidzeif5zektj4omp43xyhnjo6vdfd6gqagznzzndnyae3yd6i4 bin/index.js 8412 bytes
+EVAL bin/index.js
+  READFILE: bin/sdk-runtime.js
+  READFILE: bin/scene.js
+  REQUIRE: ~system/Runtime
+  REQUIRE: ~system/EngineApi
+  REQUIRE: ~system/CommunicationsController
+  REQUIRE: ~system/UserIdentity
+  REQUIRE: ~system/EthereumController
+CALL onStart()
+CALL onUpdate(0)
+  Scene: PUT_COMPONENT e=0x200 c=1 t=1 data={"position":{"x":1,"y":1,"z":1},"rotation":{"x":0,"y":0,"z":0,"w":1},"scale":{"x":1,"y":1,"z":1},"parent":0}
+  Scene: PUT_COMPONENT e=0x200 c=1018 t=1 data={"mesh":{"$case":"cylinder","cylinder":{"radiusTop":0.5,"radiusBottom":0.5}}}
+CALL onUpdate(0.1)
+CALL onUpdate(0.1)
+CALL onUpdate(0.1)
+HOSTCALLS readFile=2 crdtGetState=1 crdtSendToRenderer=4 sendBatch=4
+CRDT_TRAFFIC messages=2 bytes=104

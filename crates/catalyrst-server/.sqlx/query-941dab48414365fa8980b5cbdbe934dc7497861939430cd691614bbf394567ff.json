@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM failed_deployments WHERE failure_time < NOW() - ($1 || ' days')::interval",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "941dab48414365fa8980b5cbdbe934dc7497861939430cd691614bbf394567ff"
+}

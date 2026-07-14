@@ -1,0 +1,4171 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "catalyrst-worlds",
+    "description": "Rust port of decentraland/worlds-content-server -- World realm /about, /permissions, LiveKit world/scene comms, content reads, wallet presence. Port 5141.",
+    "license": {
+      "name": ""
+    },
+    "version": "0.20.0"
+  },
+  "paths": {
+    "/admin/access-log": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "operationId": "access_log",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/blocked": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "operationId": "list_blocked",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/blocked/{wallet}": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "operationId": "block_wallet",
+        "parameters": [
+          {
+            "name": "wallet",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "admin"
+        ],
+        "operationId": "unblock_wallet",
+        "parameters": [
+          {
+            "name": "wallet",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/federation/worlds/refresh": {
+      "post": {
+        "tags": [
+          "federation"
+        ],
+        "summary": "`POST /admin/federation/worlds/refresh` -- **admin**.",
+        "description": "This handler can make this server contact every admitted peer, so it authenticates\nits own caller *as its first statement*, before reading config and before touching\nany peer. A route that holds privileged outbound reach and does not authenticate its\ncaller is a confused deputy; the federated version of that mistake crosses a trust\nboundary and is worse.",
+        "operationId": "refresh_federation_mirror",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FederationRefreshResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/federation/worlds/{peer_id}/{world_name}/hidden": {
+      "put": {
+        "tags": [
+          "federation"
+        ],
+        "summary": "`PUT /admin/federation/worlds/{peer_id}/{world_name}/hidden` -- **admin**.",
+        "description": "A **local** veto over our own publication. It sends nothing to the peer, makes no\nclaim about the peer, and is not reversible by a subsequent poll: the poller's\n`DELETE` spares vetoed rows and its `UPDATE` arm does not name `hidden_since`, so a\npeer cannot un-hide itself by re-listing.\n\nAnswers 403 to any caller without admin credentials **before** the request body is\nlooked at, so the shape of the body is never a signal to an anonymous caller.",
+        "operationId": "set_mirror_world_hidden",
+        "parameters": [
+          {
+            "name": "peer_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "world_name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetMirrorHiddenRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetMirrorHiddenResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/gc": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "operationId": "garbage_collect",
+        "parameters": [
+          {
+            "name": "dry_run",
+            "in": "query",
+            "description": "Report what would be collected without deleting anything",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "min_age_secs",
+            "in": "query",
+            "description": "Raise the minimum age an unreferenced file must reach; values below the server floor are ignored",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "allow_empty_active_set",
+            "in": "query",
+            "description": "Collect even when the database names no active content at all",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GcResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/worlds": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "operationId": "list_worlds",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/worlds/{world_name}": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "operationId": "world_detail",
+        "parameters": [
+          {
+            "name": "world_name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/worlds/{world_name}/ban-status": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "operationId": "world_ban_status",
+        "parameters": [
+          {
+            "name": "world_name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "address",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/worlds/{world_name}/disable": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "operationId": "disable_world",
+        "parameters": [
+          {
+            "name": "world_name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/worlds/{world_name}/enable": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "operationId": "enable_world",
+        "parameters": [
+          {
+            "name": "world_name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/available-content": {
+      "get": {
+        "tags": [
+          "contents"
+        ],
+        "operationId": "available_content",
+        "parameters": [
+          {
+            "name": "cid",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AvailableContentEntry"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/contents/{hash}": {
+      "get": {
+        "tags": [
+          "contents"
+        ],
+        "operationId": "get_content",
+        "parameters": [
+          {
+            "name": "hash",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/octet-stream": {}
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "head": {
+        "tags": [
+          "contents"
+        ],
+        "operationId": "head_content",
+        "parameters": [
+          {
+            "name": "hash",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/entities": {
+      "post": {
+        "tags": [
+          "entities"
+        ],
+        "operationId": "deploy_entity",
+        "requestBody": {
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "format": "int32",
+                  "minimum": 0
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeploySuccess"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeployErrors"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeployErrors"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeployErrors"
+                }
+              }
+            }
+          },
+          "408": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeployRejection"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeployErrors"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeployErrors"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeployRejection"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/entities/active": {
+      "post": {
+        "tags": [
+          "entities"
+        ],
+        "operationId": "active_entities",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {}
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {}
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/entities/{world_name}": {
+      "delete": {
+        "tags": [
+          "entities"
+        ],
+        "operationId": "undeploy_world",
+        "parameters": [
+          {
+            "name": "world_name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/federation/worlds/mirror": {
+      "get": {
+        "tags": [
+          "federation"
+        ],
+        "summary": "`GET /federation/worlds/mirror` -- public.",
+        "description": "Serves what peers already publish on their own public `/worlds`, qualified by the\npeer that said it. Vetoed rows (`hidden_since IS NOT NULL`) are excluded.",
+        "operationId": "get_federation_mirror",
+        "parameters": [
+          {
+            "name": "peer",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "limit",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FederationMirrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/federation/worlds/peers": {
+      "get": {
+        "tags": [
+          "federation"
+        ],
+        "summary": "`GET /federation/worlds/peers` -- public.",
+        "description": "The allowlist is public by construction: every entry cites a DAO proposal.",
+        "operationId": "get_federation_peers",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FederationPeersResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/gc": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "operationId": "garbage_collect_root",
+        "parameters": [
+          {
+            "name": "dry_run",
+            "in": "query",
+            "description": "Report what would be collected without deleting anything",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "min_age_secs",
+            "in": "query",
+            "description": "Raise the minimum age an unreferenced file must reach; values below the server floor are ignored",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "allow_empty_active_set",
+            "in": "query",
+            "description": "Collect even when the database names no active content at all",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GcResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/get-comms-adapter/{room_id}": {
+      "post": {
+        "tags": [
+          "comms"
+        ],
+        "operationId": "get_comms_adapter",
+        "parameters": [
+          {
+            "name": "room_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommsAdapterResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/index": {
+      "get": {
+        "tags": [
+          "worlds"
+        ],
+        "operationId": "get_index",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IndexResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ipfs/{hash}": {
+      "get": {
+        "tags": [
+          "contents"
+        ],
+        "operationId": "get_ipfs",
+        "parameters": [
+          {
+            "name": "hash",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/octet-stream": {}
+            }
+          },
+          "400": {
+            "description": ""
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "head": {
+        "tags": [
+          "contents"
+        ],
+        "operationId": "head_ipfs",
+        "parameters": [
+          {
+            "name": "hash",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          },
+          "400": {
+            "description": ""
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/live-data": {
+      "get": {
+        "tags": [
+          "status"
+        ],
+        "operationId": "live_data",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LiveDataResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/livekit-webhook": {
+      "post": {
+        "tags": [
+          "comms"
+        ],
+        "operationId": "livekit_webhook",
+        "requestBody": {
+          "content": {
+            "text/plain": {
+              "schema": {
+                "type": "string"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/status": {
+      "get": {
+        "tags": [
+          "status"
+        ],
+        "operationId": "status",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatusResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/wallet/{wallet}/connected-world": {
+      "get": {
+        "tags": [
+          "wallet"
+        ],
+        "operationId": "connected_world",
+        "parameters": [
+          {
+            "name": "wallet",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/world/{world_name}/about": {
+      "get": {
+        "tags": [
+          "worlds"
+        ],
+        "operationId": "get_about",
+        "parameters": [
+          {
+            "name": "world_name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AboutResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/world/{world_name}/manifest": {
+      "get": {
+        "tags": [
+          "worlds"
+        ],
+        "operationId": "get_world_manifest",
+        "parameters": [
+          {
+            "name": "world_name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/world/{world_name}/permissions": {
+      "get": {
+        "tags": [
+          "permissions"
+        ],
+        "operationId": "get_permissions",
+        "parameters": [
+          {
+            "name": "world_name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PermissionsResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/world/{world_name}/permissions/access/communities/{communityId}": {
+      "put": {
+        "tags": [
+          "permissions"
+        ],
+        "operationId": "put_permissions_access_community",
+        "parameters": [
+          {
+            "name": "world_name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "communityId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "permissions"
+        ],
+        "operationId": "delete_permissions_access_community",
+        "parameters": [
+          {
+            "name": "world_name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "communityId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/world/{world_name}/permissions/{permission_name}": {
+      "post": {
+        "tags": [
+          "permissions"
+        ],
+        "operationId": "post_permissions",
+        "parameters": [
+          {
+            "name": "world_name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "permission_name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {}
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/world/{world_name}/permissions/{permission_name}/address/{address}/parcels": {
+      "get": {
+        "tags": [
+          "permissions"
+        ],
+        "operationId": "get_allowed_parcels_for_permission",
+        "parameters": [
+          {
+            "name": "world_name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "permission_name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "address",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "permissions"
+        ],
+        "operationId": "post_permission_parcels",
+        "parameters": [
+          {
+            "name": "world_name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "permission_name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "address",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {}
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "permissions"
+        ],
+        "operationId": "delete_permission_parcels",
+        "parameters": [
+          {
+            "name": "world_name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "permission_name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "address",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {}
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/world/{world_name}/permissions/{permission_name}/parcels": {
+      "post": {
+        "tags": [
+          "permissions"
+        ],
+        "operationId": "get_addresses_for_parcel_permission",
+        "parameters": [
+          {
+            "name": "world_name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "permission_name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {}
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/world/{world_name}/permissions/{permission_name}/{address}": {
+      "put": {
+        "tags": [
+          "permissions"
+        ],
+        "operationId": "put_permissions_address",
+        "parameters": [
+          {
+            "name": "world_name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "permission_name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "address",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "permissions"
+        ],
+        "operationId": "delete_permissions_address",
+        "parameters": [
+          {
+            "name": "world_name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "permission_name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "address",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/world/{world_name}/preview-wearables": {
+      "get": {
+        "tags": [
+          "worlds"
+        ],
+        "summary": "`GET /world/{world_name}/preview-wearables` -- the smart wearables this realm\nis previewing.",
+        "description": "The stock client fetches this on entry, takes `data[0]`, resolves the\n`scene.json` inside its first representation and runs it as a live scene\n(`LoadSmartWearablePreviewSceneSystem`). That makes the answer executable, so\nit is never inferred: it is exactly the URNs an operator selected for this\nworld, or node-wide via `PREVIEW_WEARABLE_URNS`. A normally deployed world\nselects none and correctly answers with an empty list -- the client treats\nthat as \"not previewing anything\" and moves on.",
+        "operationId": "get_preview_wearables",
+        "parameters": [
+          {
+            "name": "world_name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/world/{world_name}/scenes": {
+      "get": {
+        "tags": [
+          "scenes"
+        ],
+        "operationId": "list_scenes",
+        "parameters": [
+          {
+            "name": "world_name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SceneListResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/world/{world_name}/scenes/{scene_coord}": {
+      "delete": {
+        "tags": [
+          "scenes"
+        ],
+        "operationId": "delete_scene",
+        "parameters": [
+          {
+            "name": "world_name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "scene_coord",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/world/{world_name}/settings": {
+      "get": {
+        "tags": [
+          "worlds"
+        ],
+        "operationId": "get_world_settings",
+        "parameters": [
+          {
+            "name": "world_name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "worlds"
+        ],
+        "operationId": "update_world_settings",
+        "parameters": [
+          {
+            "name": "world_name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {}
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "408": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/worlds": {
+      "get": {
+        "tags": [
+          "worlds"
+        ],
+        "operationId": "get_worlds",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/worlds/{world_name}/comms": {
+      "post": {
+        "tags": [
+          "comms"
+        ],
+        "operationId": "world_comms",
+        "parameters": [
+          {
+            "name": "world_name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommsAdapterResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/worlds/{world_name}/scenes/{scene_id}/comms": {
+      "post": {
+        "tags": [
+          "comms"
+        ],
+        "operationId": "world_scene_comms",
+        "parameters": [
+          {
+            "name": "world_name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "scene_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommsAdapterResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AboutComms": {
+        "type": "object",
+        "required": [
+          "healthy",
+          "protocol",
+          "adapter"
+        ],
+        "properties": {
+          "adapter": {
+            "type": "string"
+          },
+          "healthy": {
+            "type": "boolean"
+          },
+          "protocol": {
+            "type": "string"
+          }
+        }
+      },
+      "AboutConfigurations": {
+        "type": "object",
+        "required": [
+          "networkId",
+          "globalScenesUrn",
+          "scenesUrn",
+          "minimap",
+          "skybox",
+          "realmName",
+          "map"
+        ],
+        "properties": {
+          "globalScenesUrn": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "map": {
+            "$ref": "#/components/schemas/AboutMap"
+          },
+          "minimap": {
+            "$ref": "#/components/schemas/MinimapConfig"
+          },
+          "networkId": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "realmName": {
+            "type": "string"
+          },
+          "scenesUrn": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "skybox": {
+            "$ref": "#/components/schemas/SkyboxConfig"
+          }
+        }
+      },
+      "AboutContentStatus": {
+        "type": "object",
+        "required": [
+          "synchronizationStatus",
+          "healthy",
+          "publicUrl"
+        ],
+        "properties": {
+          "healthy": {
+            "type": "boolean"
+          },
+          "publicUrl": {
+            "type": "string"
+          },
+          "synchronizationStatus": {
+            "type": "string"
+          }
+        }
+      },
+      "AboutMap": {
+        "type": "object",
+        "required": [
+          "minimapEnabled",
+          "sizes"
+        ],
+        "properties": {
+          "minimapEnabled": {
+            "type": "boolean"
+          },
+          "sizes": {
+            "type": "array",
+            "items": {}
+          }
+        }
+      },
+      "AboutResponse": {
+        "type": "object",
+        "required": [
+          "healthy",
+          "acceptingUsers",
+          "configurations",
+          "content",
+          "lambdas",
+          "comms",
+          "catalyrst"
+        ],
+        "properties": {
+          "acceptingUsers": {
+            "type": "boolean"
+          },
+          "catalyrst": {},
+          "comms": {
+            "$ref": "#/components/schemas/AboutComms"
+          },
+          "configurations": {
+            "$ref": "#/components/schemas/AboutConfigurations"
+          },
+          "content": {
+            "$ref": "#/components/schemas/AboutContentStatus"
+          },
+          "healthy": {
+            "type": "boolean"
+          },
+          "lambdas": {
+            "$ref": "#/components/schemas/AboutServiceStatus"
+          },
+          "spawnCoordinates": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "AboutServiceStatus": {
+        "type": "object",
+        "required": [
+          "healthy",
+          "publicUrl"
+        ],
+        "properties": {
+          "healthy": {
+            "type": "boolean"
+          },
+          "publicUrl": {
+            "type": "string"
+          }
+        }
+      },
+      "AllowListPermission": {
+        "type": "object",
+        "required": [
+          "type",
+          "wallets"
+        ],
+        "properties": {
+          "type": {
+            "type": "string"
+          },
+          "wallets": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "ApiErrorBody": {
+        "type": "object",
+        "required": [
+          "ok",
+          "error",
+          "message"
+        ],
+        "properties": {
+          "error": {
+            "type": "string"
+          },
+          "federation_adr": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "ok": {
+            "type": "boolean"
+          }
+        }
+      },
+      "AvailableContentEntry": {
+        "type": "object",
+        "required": [
+          "cid",
+          "available"
+        ],
+        "properties": {
+          "available": {
+            "type": "boolean"
+          },
+          "cid": {
+            "type": "string"
+          }
+        }
+      },
+      "CommsAdapterResponse": {
+        "type": "object",
+        "required": [
+          "fixedAdapter"
+        ],
+        "properties": {
+          "fixedAdapter": {
+            "type": "string"
+          }
+        }
+      },
+      "CommsStatus": {
+        "type": "object",
+        "required": [
+          "adapterType",
+          "statusUrl",
+          "rooms",
+          "users",
+          "timestamp"
+        ],
+        "properties": {
+          "adapterType": {
+            "type": "string"
+          },
+          "rooms": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "statusUrl": {
+            "type": "string"
+          },
+          "timestamp": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "users": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "ContentStatus": {
+        "type": "object",
+        "required": [
+          "commitHash",
+          "worldsCount"
+        ],
+        "properties": {
+          "commitHash": {
+            "type": "string"
+          },
+          "worldsCount": {
+            "$ref": "#/components/schemas/WorldsCount"
+          }
+        }
+      },
+      "DeployErrors": {
+        "type": "object",
+        "required": [
+          "errors"
+        ],
+        "properties": {
+          "errors": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "DeployRejection": {
+        "type": "object",
+        "required": [
+          "error",
+          "message"
+        ],
+        "properties": {
+          "error": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "DeploySuccess": {
+        "type": "object",
+        "required": [
+          "creationTimestamp",
+          "message"
+        ],
+        "properties": {
+          "creationTimestamp": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "FederationMirrorResponse": {
+        "type": "object",
+        "required": [
+          "worlds",
+          "total",
+          "peers"
+        ],
+        "properties": {
+          "peers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FederationPeerStatusLine"
+            },
+            "description": "Health of every admitted peer, returned **with the listing**, so a consumer\ncannot read `worlds: []` without also being told whether anybody answered. An\nempty list next to `hasEverSucceeded: false` is an absence of knowledge; an\nempty list next to a fresh `lastSuccessAt` is knowledge of an absence."
+          },
+          "total": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "worlds": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RemoteWorldView"
+            }
+          }
+        }
+      },
+      "FederationPeerOmissionView": {
+        "type": "object",
+        "description": "A peer in the file that is not a worlds peer.",
+        "required": [
+          "peerId",
+          "reason",
+          "detail"
+        ],
+        "properties": {
+          "detail": {
+            "type": "string"
+          },
+          "peerId": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          }
+        }
+      },
+      "FederationPeerStatusLine": {
+        "type": "object",
+        "required": [
+          "peerId",
+          "status"
+        ],
+        "properties": {
+          "peerId": {
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/FederationPeerStatusView"
+          }
+        }
+      },
+      "FederationPeerStatusView": {
+        "type": "object",
+        "description": "Health of one peer's mirror.\n\n`lastSuccessAt` is the field that keeps an unreachable peer honest. A peer whose\n`lastAttemptAt` is recent and whose `lastSuccessAt` is old (or null) is a peer whose\nmirrored rows are **stale or absent for lack of contact** -- which is a different\nstatement from \"this peer holds no worlds\", and the two must never render the same.",
+        "required": [
+          "worldsObserved",
+          "entriesSkipped",
+          "truncated",
+          "hasEverSucceeded"
+        ],
+        "properties": {
+          "entriesSkipped": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "hasEverSucceeded": {
+            "type": "boolean",
+            "description": "`false` until the peer has answered successfully at least once. A consumer that\nsees `hasEverSucceeded: false` is looking at no knowledge, not at an empty peer."
+          },
+          "lastAttemptAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "lastError": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The last failure, or `null` after a clean success.\n\nThis route is public, so the text is verbatim for anything the **peer** did -- an\nHTTP status, a content type, a message about their body -- and a bounded constant\nfor a fault in **our** database, whose reason is in this server's logs. Either\nway the failure itself is reported; only its wording is withheld.\n\nIt can be non-null *beside* a fresh `lastSuccessAt`, and that pairing is\ndeliberate: a poll whose fetch and write succeeded but whose local-name collision\nprobe could not run records\n[`crate::fed::poll::COLLISION_PROBE_UNAVAILABLE_PREFIX`] here. \"Current rows, one\nunchecked thing about them\" is a state the two fields express together and\nneither expresses alone."
+          },
+          "lastSuccessAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "truncated": {
+            "type": "boolean"
+          },
+          "worldsObserved": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "FederationPeerView": {
+        "type": "object",
+        "description": "One admitted peer.\n\nDeliberately not fields of this type: `mtlsRootPem` and `gossipPubkey`. They are not\nomitted at serialisation time -- they do not exist here, so no future edit to a\nserialiser can start printing them.",
+        "required": [
+          "peerId",
+          "worldsUrl",
+          "daoProposal",
+          "addedAt",
+          "insecureLoopback",
+          "status"
+        ],
+        "properties": {
+          "addedAt": {
+            "type": "string"
+          },
+          "daoProposal": {
+            "type": "string"
+          },
+          "insecureLoopback": {
+            "type": "boolean",
+            "description": "True when this peer was admitted through `WORLDS_FED_ALLOW_INSECURE_LOOPBACK_PEERS`\nand is therefore spoken to in **cleartext, authenticated by nothing**. Surfaced so\na two-node test rig is never mistaken for a federation deployment."
+          },
+          "peerId": {
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/FederationPeerStatusView"
+          },
+          "worldsUrl": {
+            "type": "string"
+          }
+        }
+      },
+      "FederationPeersResponse": {
+        "type": "object",
+        "required": [
+          "configured",
+          "peersFile",
+          "peers",
+          "omitted"
+        ],
+        "properties": {
+          "configured": {
+            "type": "boolean",
+            "description": "Always `true` on a 200. The unconfigured case is a 503, not `configured: false`\nwith an empty list, so a client cannot fall through into treating \"federation is\noff\" as \"federation is on and nobody is there\"."
+          },
+          "omitted": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FederationPeerOmissionView"
+            }
+          },
+          "peers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FederationPeerView"
+            }
+          },
+          "peersFile": {
+            "type": "string",
+            "description": "Absolute path of the peer file that was adjudicated."
+          }
+        }
+      },
+      "FederationRefreshPeerResult": {
+        "type": "object",
+        "required": [
+          "peerId",
+          "ok",
+          "worldsObserved",
+          "entriesSkipped",
+          "truncated"
+        ],
+        "properties": {
+          "entriesSkipped": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "localNameCollisions": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "description": "Local world names this peer also publishes. The local record wins everywhere;\nthis is the report, not a resolution.\n\n`null` -- never `[]` -- when the probe did not run, either because this poll\nfailed before there was anything to probe with or because the probe itself\nerrored. `[]` means we asked and nothing collided. The two are different facts\nand a consumer that reads `.length` off the second must not silently get `0` for\nthe first."
+          },
+          "localNameCollisionsError": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why `localNameCollisions` is `null`. Non-null exactly when it is -- the same\npairing `lastError` has with a missing `lastSuccessAt`."
+          },
+          "ok": {
+            "type": "boolean"
+          },
+          "peerId": {
+            "type": "string"
+          },
+          "truncated": {
+            "type": "boolean"
+          },
+          "worldsObserved": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "FederationRefreshResponse": {
+        "type": "object",
+        "required": [
+          "polled"
+        ],
+        "properties": {
+          "polled": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FederationRefreshPeerResult"
+            }
+          }
+        }
+      },
+      "GcResponse": {
+        "type": "object",
+        "required": [
+          "message",
+          "dryRun",
+          "removed",
+          "failed",
+          "candidates",
+          "scanned",
+          "activeKeys",
+          "minAgeSeconds"
+        ],
+        "properties": {
+          "activeKeys": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "candidates": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "dryRun": {
+            "type": "boolean"
+          },
+          "failed": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "message": {
+            "type": "string"
+          },
+          "minAgeSeconds": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "removed": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "scanned": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "IndexResponse": {
+        "type": "object",
+        "required": [
+          "data",
+          "lastUpdated"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WorldIndexEntry"
+            }
+          },
+          "lastUpdated": {
+            "type": "string"
+          }
+        }
+      },
+      "IndexSceneSummary": {
+        "type": "object",
+        "required": [
+          "id",
+          "pointers"
+        ],
+        "properties": {
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "pointers": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "runtimeVersion": {},
+          "thumbnail": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "timestamp": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "LiveDataPayload": {
+        "type": "object",
+        "description": "The payload of `/live-data`.\n\nBoth fields are required and neither is defaulted. A consumer that cannot\nobtain this must see the request fail rather than receive a zero: a\nfabricated `totalUsers: 0` is indistinguishable from an empty world, which\nis the defect `sites/scripts/check-schema-honesty.mts` gates against on the\nTypeScript side. Keeping the Rust type non-optional is what lets the\ngenerated schema stay honest.",
+        "required": [
+          "totalUsers",
+          "perWorld"
+        ],
+        "properties": {
+          "perWorld": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WorldOccupancy"
+            }
+          },
+          "totalUsers": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "LiveDataResponse": {
+        "type": "object",
+        "description": "`GET /live-data`.",
+        "required": [
+          "data",
+          "lastUpdated"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/LiveDataPayload"
+          },
+          "lastUpdated": {
+            "type": "string",
+            "description": "RFC3339 with millisecond precision, matching the upstream server."
+          }
+        }
+      },
+      "MinimapConfig": {
+        "type": "object",
+        "required": [
+          "enabled"
+        ],
+        "properties": {
+          "dataImage": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "estateImage": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "PermissionSummaryEntry": {
+        "type": "object",
+        "required": [
+          "permission",
+          "world_wide"
+        ],
+        "properties": {
+          "parcel_count": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "permission": {
+            "type": "string"
+          },
+          "world_wide": {
+            "type": "boolean"
+          }
+        }
+      },
+      "PermissionsResponse": {
+        "type": "object",
+        "required": [
+          "permissions",
+          "summary"
+        ],
+        "properties": {
+          "owner": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "permissions": {
+            "$ref": "#/components/schemas/WorldPermissionsBlock"
+          },
+          "summary": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "array",
+              "items": {
+                "$ref": "#/components/schemas/PermissionSummaryEntry"
+              }
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "RemoteWorldView": {
+        "type": "object",
+        "description": "One mirrored world, as published.\n\n**There is no `owner` key, and no field it could be renamed from.** There is no\n`access`, no `permissions`, no `blockedSince`, no `deployer`. `peerId` is\nmandatory: a mirrored world without the peer that reported it would be a claim\nabout a world, which is exactly what this slice refuses to make.",
+        "required": [
+          "peerId",
+          "name",
+          "categories",
+          "deployedScenes",
+          "observedAt"
+        ],
+        "properties": {
+          "categories": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "contentRating": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "deployedScenes": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "lastDeployedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "As reported by the peer. Read by no branch here."
+          },
+          "name": {
+            "type": "string",
+            "description": "The name **as the peer reported it**, after shape admission. Not a name we have\nresolved, and not a name this server answers for."
+          },
+          "observedAt": {
+            "type": "string",
+            "description": "**Our** clock, at the poll that produced this row. This is the staleness signal\non a per-row basis."
+          },
+          "peerId": {
+            "type": "string"
+          },
+          "thumbnailHash": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "A label the peer printed. We hold no bytes for it; `/contents/{hash}` on this\nserver will not serve it."
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "SceneListResponse": {
+        "type": "object",
+        "required": [
+          "scenes",
+          "total"
+        ],
+        "properties": {
+          "scenes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WorldSceneEntry"
+            }
+          },
+          "total": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "SetMirrorHiddenRequest": {
+        "type": "object",
+        "required": [
+          "hidden"
+        ],
+        "properties": {
+          "hidden": {
+            "type": "boolean"
+          }
+        }
+      },
+      "SetMirrorHiddenResponse": {
+        "type": "object",
+        "required": [
+          "peerId",
+          "worldName",
+          "hidden"
+        ],
+        "properties": {
+          "hidden": {
+            "type": "boolean"
+          },
+          "peerId": {
+            "type": "string"
+          },
+          "worldName": {
+            "type": "string"
+          }
+        }
+      },
+      "SkyboxConfig": {
+        "type": "object",
+        "required": [
+          "textures"
+        ],
+        "properties": {
+          "fixedHour": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "textures": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "StatusResponse": {
+        "type": "object",
+        "required": [
+          "content",
+          "comms"
+        ],
+        "properties": {
+          "comms": {
+            "$ref": "#/components/schemas/CommsStatus"
+          },
+          "content": {
+            "$ref": "#/components/schemas/ContentStatus"
+          }
+        }
+      },
+      "WorldIndexEntry": {
+        "type": "object",
+        "required": [
+          "name",
+          "scenes"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "scenes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/IndexSceneSummary"
+            }
+          }
+        }
+      },
+      "WorldOccupancy": {
+        "type": "object",
+        "description": "One world's instantaneous occupancy.\n\n`worldName` is camelCase on the wire because this endpoint is\nwire-compatible with Decentraland's worlds-content-server `/live-data`, and\na client written against that shape must keep working when pointed here.",
+        "required": [
+          "worldName",
+          "users"
+        ],
+        "properties": {
+          "users": {
+            "type": "integer",
+            "format": "int64",
+            "description": "`i64` on the wire, `number` in TS. The value is a room population, so\nthe range TS cannot represent is unreachable here."
+          },
+          "worldName": {
+            "type": "string"
+          }
+        }
+      },
+      "WorldPermissionsBlock": {
+        "type": "object",
+        "required": [
+          "deployment",
+          "streaming",
+          "access"
+        ],
+        "properties": {
+          "access": {},
+          "deployment": {
+            "$ref": "#/components/schemas/AllowListPermission"
+          },
+          "streaming": {
+            "$ref": "#/components/schemas/AllowListPermission"
+          }
+        }
+      },
+      "WorldSceneEntry": {
+        "type": "object",
+        "required": [
+          "worldName",
+          "deployer",
+          "deploymentAuthChain",
+          "entity",
+          "entityId",
+          "parcels",
+          "size",
+          "status",
+          "createdAt",
+          "updatedAt"
+        ],
+        "properties": {
+          "createdAt": {
+            "type": "string"
+          },
+          "deployer": {
+            "type": "string"
+          },
+          "deploymentAuthChain": {},
+          "entity": {},
+          "entityId": {
+            "type": "string"
+          },
+          "parcels": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "size": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
+          },
+          "worldName": {
+            "type": "string"
+          }
+        }
+      },
+      "WorldsCount": {
+        "type": "object",
+        "required": [
+          "ens",
+          "dcl"
+        ],
+        "properties": {
+          "dcl": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "ens": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      }
+    }
+  }
+}

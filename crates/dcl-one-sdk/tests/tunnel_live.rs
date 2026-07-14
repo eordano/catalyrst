@@ -14,11 +14,9 @@ fn ws_base(http_base: &str) -> String {
 }
 
 #[tokio::test]
+#[ignore = "needs DCL1_TUNNEL_PUBLIC_URL: a tunnel origin that is actually deployed; see docs/testing.md"]
 async fn drive_a_live_tunnel_origin() {
-    let Ok(public) = std::env::var("DCL1_TUNNEL_PUBLIC_URL") else {
-        eprintln!(
-            "skipping: DCL1_TUNNEL_PUBLIC_URL not set (this test drives a live start --tunnel)"
-        );
+    let Some(public) = catalyrst_testgate::require_env("DCL1_TUNNEL_PUBLIC_URL") else {
         return;
     };
     let local = std::env::var("DCL1_TUNNEL_LOCAL_URL").ok();

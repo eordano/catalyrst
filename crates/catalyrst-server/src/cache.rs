@@ -157,7 +157,8 @@ where
         }
     }
 
-    #[cfg(test)]
+    /// Drops every cached entry so the next read refetches. Used by writers
+    /// whose side effects change what cached reads must return.
     pub fn clear(&self) {
         self.map.clear();
     }

@@ -165,7 +165,7 @@ mod tests {
         );
         assert!(
             verified > 0,
-            "All auth chains were skipped — no ECDSA chains found"
+            "All auth chains were skipped -- no ECDSA chains found"
         );
     }
 

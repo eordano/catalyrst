@@ -5,10 +5,26 @@ use axum::Json;
 use serde_json::{json, Value};
 
 use crate::cache;
+use crate::nft::{NftAttribute, NftMetadata};
 use crate::AppState;
 
-const IMAGE_BASE_URL: &str = "https://api.decentraland.org/v1";
-const EXTERNAL_BASE_URL: &str = "https://market.decentraland.org";
+fn image_base_url() -> String {
+    std::env::var("MAP_IMAGE_BASE_URL")
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "http://127.0.0.1:5162/v1".to_string())
+}
+
+/// Marketplace web page for a token. No production fallback: this stack does
+/// not host a marketplace UI, so an unset value yields no external link
+/// rather than one pointing at production.
+fn external_base_url() -> Option<String> {
+    std::env::var("MAP_EXTERNAL_BASE_URL")
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+}
 
 fn finalize(mut resp: Response, last: i64) -> Response {
     cache::apply(&mut resp, last, cache::DEFAULT_MAX_AGE, cache::DEFAULT_SWR);
@@ -31,6 +47,14 @@ fn internal_error(e: &sqlx::Error) -> Response {
     (
         StatusCode::INTERNAL_SERVER_ERROR,
         Json(json!({ "ok": false, "error": e.to_string() })),
+    )
+        .into_response()
+}
+
+fn ok_nft(nft: NftMetadata) -> Response {
+    (
+        StatusCode::OK,
+        Json(serde_json::to_value(nft).unwrap_or(Value::Null)),
     )
         .into_response()
 }
@@ -81,22 +105,67 @@ async fn get_parcel_inner(state: &AppState, x: String, y: String) -> Response {
         return not_found();
     };
 
-    let mut attributes: Vec<Value> = vec![
-        json!({ "trait_type": "X", "value": xi, "display_type": "number" }),
-        json!({ "trait_type": "Y", "value": yi, "display_type": "number" }),
+    ok_nft(parcel_nft(state, xi, yi, token_id, name, description))
+}
+
+/// The LAND-token metadata query: one statement that resolves coords AND
+/// name/description from `token_id`, folding what used to be two sequential
+/// round trips (token_id -> x,y, then x,y -> token_id,name,description).
+fn land_token_sql(schema: &str) -> String {
+    format!(
+        r#"
+        SELECT p.token_id::text, p.x::int4, p.y::int4, d.name, d.description
+        FROM {schema}.parcel p
+        LEFT JOIN {schema}.data d ON d.id = p.data_id
+        WHERE p.token_id = $1::numeric
+        LIMIT 1
+        "#
+    )
+}
+
+/// Shared by the direct `/v2/parcels/{x}/{y}` route and the LAND-token route so both
+/// produce byte-identical bodies.
+fn parcel_nft(
+    state: &AppState,
+    xi: i32,
+    yi: i32,
+    token_id: String,
+    name: Option<String>,
+    description: Option<String>,
+) -> NftMetadata {
+    let mut attributes: Vec<NftAttribute> = vec![
+        NftAttribute {
+            trait_type: "X".into(),
+            value: xi as i64,
+            display_type: "number".into(),
+        },
+        NftAttribute {
+            trait_type: "Y".into(),
+            value: yi as i64,
+            display_type: "number".into(),
+        },
     ];
     crate::proximity::append_attributes(&mut attributes, &[(xi, yi)]);
 
-    let nft = json!({
-        "id": token_id,
-        "name": name.unwrap_or_else(|| format!("Parcel {},{}", xi, yi)),
-        "description": description.unwrap_or_default(),
-        "image": format!("{IMAGE_BASE_URL}/parcels/{xi}/{yi}/map.png?size=24&width=1024&height=1024"),
-        "external_url": format!("{EXTERNAL_BASE_URL}/contracts/{}/tokens/{}", state.map.land_contract(), token_id),
-        "background_color": "000000",
-        "attributes": attributes,
+    let external_url = external_base_url().map(|b| {
+        format!(
+            "{b}/contracts/{}/tokens/{}",
+            state.map.land_contract(),
+            token_id
+        )
     });
-    (StatusCode::OK, Json(nft)).into_response()
+    NftMetadata {
+        id: token_id,
+        name: name.unwrap_or_else(|| format!("Parcel {},{}", xi, yi)),
+        description: description.unwrap_or_default(),
+        image: format!(
+            "{}/parcels/{xi}/{yi}/map.png?size=24&width=1024&height=1024",
+            image_base_url()
+        ),
+        external_url,
+        background_color: "000000".into(),
+        attributes,
+    }
 }
 
 pub async fn get_estate(
@@ -121,9 +190,9 @@ async fn get_estate_inner(state: &AppState, id: String) -> Response {
     }
 
     match build_estate_nft(state, &id).await {
-        Ok(Some(nft)) => (StatusCode::OK, Json(nft)).into_response(),
+        Ok(Some(nft)) => ok_nft(nft),
         Ok(None) => match build_dissolved_estate(state, &id).await {
-            Ok(Some(nft)) => (StatusCode::OK, Json(nft)).into_response(),
+            Ok(Some(nft)) => ok_nft(nft),
             Ok(None) => not_found(),
             Err(e) => internal_error(&e),
         },
@@ -131,7 +200,7 @@ async fn get_estate_inner(state: &AppState, id: String) -> Response {
     }
 }
 
-async fn build_estate_nft(state: &AppState, id: &str) -> Result<Option<Value>, sqlx::Error> {
+async fn build_estate_nft(state: &AppState, id: &str) -> Result<Option<NftMetadata>, sqlx::Error> {
     let schema = &state.map_schema;
     let full_id = format!("estate-{}-{}", state.map.estate_contract(), id);
     let sql = format!(
@@ -159,22 +228,37 @@ async fn build_estate_nft(state: &AppState, id: &str) -> Result<Option<Value>, s
         .fetch_all(&state.pool)
         .await?;
 
-    let mut attributes: Vec<Value> =
-        vec![json!({ "trait_type": "Size", "value": size.unwrap_or(0), "display_type": "number" })];
+    let mut attributes: Vec<NftAttribute> = vec![NftAttribute {
+        trait_type: "Size".into(),
+        value: size.unwrap_or(0) as i64,
+        display_type: "number".into(),
+    }];
     crate::proximity::append_attributes(&mut attributes, &coords);
 
-    Ok(Some(json!({
-        "id": id,
-        "name": name.unwrap_or_default(),
-        "description": description.unwrap_or_default(),
-        "image": format!("{IMAGE_BASE_URL}/estates/{id}/map.png?size=24&width=1024&height=1024"),
-        "external_url": format!("{EXTERNAL_BASE_URL}/contracts/{}/tokens/{}", state.map.estate_contract(), id),
-        "background_color": "000000",
-        "attributes": attributes,
-    })))
+    Ok(Some(NftMetadata {
+        id: id.to_string(),
+        name: name.unwrap_or_default(),
+        description: description.unwrap_or_default(),
+        image: format!(
+            "{}/estates/{id}/map.png?size=24&width=1024&height=1024",
+            image_base_url()
+        ),
+        external_url: external_base_url().map(|b| {
+            format!(
+                "{b}/contracts/{}/tokens/{}",
+                state.map.estate_contract(),
+                id
+            )
+        }),
+        background_color: "000000".into(),
+        attributes,
+    }))
 }
 
-async fn build_dissolved_estate(state: &AppState, id: &str) -> Result<Option<Value>, sqlx::Error> {
+async fn build_dissolved_estate(
+    state: &AppState,
+    id: &str,
+) -> Result<Option<NftMetadata>, sqlx::Error> {
     if id.is_empty() || !id.bytes().all(|b| b.is_ascii_digit()) {
         return Ok(None);
     }
@@ -211,18 +295,24 @@ fn dissolved_estate_nft(
     name: String,
     description: String,
     estate_contract: &str,
-) -> Value {
-    json!({
-        "id": id,
-        "name": name,
-        "description": description,
-        "image": format!("{IMAGE_BASE_URL}/estates/{id}/map.png?size=24&width=1024&height=1024"),
-        "external_url": format!("{EXTERNAL_BASE_URL}/contracts/{estate_contract}/tokens/{id}"),
-        "background_color": "000000",
-        "attributes": [
-            { "trait_type": "Size", "value": 0, "display_type": "number" },
-        ],
-    })
+) -> NftMetadata {
+    NftMetadata {
+        id: id.to_string(),
+        name,
+        description,
+        image: format!(
+            "{}/estates/{id}/map.png?size=24&width=1024&height=1024",
+            image_base_url()
+        ),
+        external_url: external_base_url()
+            .map(|b| format!("{b}/contracts/{estate_contract}/tokens/{id}")),
+        background_color: "000000".into(),
+        attributes: vec![NftAttribute {
+            trait_type: "Size".into(),
+            value: 0,
+            display_type: "number".into(),
+        }],
+    }
 }
 
 pub async fn get_token(
@@ -244,17 +334,16 @@ pub async fn get_token(
     }
 }
 
+type LandTokenRow = (String, i32, i32, Option<String>, Option<String>);
+
 async fn get_token_inner(state: &AppState, address: String, id: String) -> (Response, bool) {
     if !state.map.is_ready() {
         return (not_ready(), false);
     }
     let addr = address.to_lowercase();
     if addr == state.map.land_contract().to_lowercase() {
-        let schema = &state.map_schema;
-        let sql = format!(
-            "SELECT x::int4, y::int4 FROM {schema}.parcel WHERE token_id = $1::numeric LIMIT 1"
-        );
-        let row: Option<(i32, i32)> = match sqlx::query_as(sqlx::AssertSqlSafe(sql))
+        let sql = land_token_sql(&state.map_schema);
+        let row: Option<LandTokenRow> = match sqlx::query_as(sqlx::AssertSqlSafe(sql))
             .bind(&id)
             .fetch_optional(&state.pool)
             .await
@@ -262,9 +351,9 @@ async fn get_token_inner(state: &AppState, address: String, id: String) -> (Resp
             Ok(r) => r,
             Err(e) => return (internal_error(&e), false),
         };
-        if let Some((x, y)) = row {
+        if let Some((token_id, x, y, name, description)) = row {
             return (
-                get_parcel_inner(state, x.to_string(), y.to_string()).await,
+                ok_nft(parcel_nft(state, x, y, token_id, name, description)),
                 true,
             );
         }
@@ -273,12 +362,12 @@ async fn get_token_inner(state: &AppState, address: String, id: String) -> (Resp
     if addr == state.map.estate_contract().to_lowercase() {
         if id.parse::<i64>().is_ok() {
             match build_estate_nft(state, &id).await {
-                Ok(Some(nft)) => return ((StatusCode::OK, Json(nft)).into_response(), false),
+                Ok(Some(nft)) => return (ok_nft(nft), false),
                 Ok(None) => {}
                 Err(e) => return (internal_error(&e), false),
             }
             match build_dissolved_estate(state, &id).await {
-                Ok(Some(nft)) => return ((StatusCode::OK, Json(nft)).into_response(), false),
+                Ok(Some(nft)) => return (ok_nft(nft), false),
                 Ok(None) => {}
                 Err(e) => return (internal_error(&e), false),
             }
@@ -335,19 +424,54 @@ mod tests {
     use super::*;
 
     #[test]
+    fn land_token_metadata_is_one_query() {
+        let sql = land_token_sql("squid_marketplace");
+        let selects = sql.to_ascii_uppercase().matches("SELECT").count();
+        assert_eq!(
+            selects, 1,
+            "LAND token metadata must be a single SELECT round trip"
+        );
+        assert!(
+            sql.contains("LEFT JOIN"),
+            "must join data in the same query"
+        );
+        assert!(
+            sql.contains("d.name"),
+            "must fetch name in the folded query"
+        );
+        assert!(
+            sql.contains("d.description"),
+            "must fetch description in the folded query"
+        );
+        assert!(sql.contains("p.token_id"), "must key on token_id");
+        assert!(
+            sql.contains("squid_marketplace.parcel"),
+            "schema must be interpolated"
+        );
+    }
+
+    #[test]
     fn dissolved_estate_fallback_shape() {
-        let v = dissolved_estate_nft("42", "Old Estate".into(), "gone".into(), "0xestate");
+        let v = serde_json::to_value(dissolved_estate_nft(
+            "42",
+            "Old Estate".into(),
+            "gone".into(),
+            "0xestate",
+        ))
+        .unwrap();
         assert_eq!(v["id"], "42");
         assert_eq!(v["name"], "Old Estate");
         assert_eq!(v["description"], "gone");
         assert_eq!(v["background_color"], "000000");
-        assert_eq!(
-            v["external_url"],
-            "https://market.decentraland.org/contracts/0xestate/tokens/42"
+        assert!(
+            v["external_url"].is_null(),
+            "with MAP_EXTERNAL_BASE_URL unset there must be no marketplace link, \
+             never a production one: {}",
+            v["external_url"]
         );
         assert_eq!(
             v["image"],
-            "https://api.decentraland.org/v1/estates/42/map.png?size=24&width=1024&height=1024"
+            "http://127.0.0.1:5162/v1/estates/42/map.png?size=24&width=1024&height=1024"
         );
         let attrs = v["attributes"].as_array().unwrap();
         assert_eq!(attrs.len(), 1);
@@ -359,32 +483,39 @@ mod tests {
 
     #[test]
     fn proximity_attributes_appended_for_known_coord() {
-        let mut attrs: Vec<Value> = vec![
-            json!({ "trait_type": "X", "value": 102, "display_type": "number" }),
-            json!({ "trait_type": "Y", "value": -33, "display_type": "number" }),
+        let mut attrs: Vec<NftAttribute> = vec![
+            NftAttribute {
+                trait_type: "X".into(),
+                value: 102,
+                display_type: "number".into(),
+            },
+            NftAttribute {
+                trait_type: "Y".into(),
+                value: -33,
+                display_type: "number".into(),
+            },
         ];
 
         crate::proximity::append_attributes(&mut attrs, &[(102, -33)]);
         assert!(attrs.len() > 2, "expected proximity traits appended");
         for a in &attrs[2..] {
-            let tt = a["trait_type"].as_str().unwrap();
             assert!(
-                tt.starts_with("Distance to "),
-                "unexpected trait_type: {tt}"
+                a.trait_type.starts_with("Distance to "),
+                "unexpected trait_type: {}",
+                a.trait_type
             );
-            assert_eq!(a["display_type"], "number");
-            assert!(a["value"].is_i64(), "proximity value must be an integer");
+            assert_eq!(a.display_type, "number");
         }
-        assert!(attrs.contains(&json!({
-            "trait_type": "Distance to Road", "value": 4, "display_type": "number"
-        })));
+        assert!(attrs
+            .iter()
+            .any(|a| a.trait_type == "Distance to Road" && a.value == 4));
 
-        assert_eq!(attrs[2]["trait_type"], "Distance to Road");
+        assert_eq!(attrs[2].trait_type, "Distance to Road");
     }
 
     #[test]
     fn proximity_noop_for_unknown_coord() {
-        let mut attrs: Vec<Value> = vec![];
+        let mut attrs: Vec<NftAttribute> = vec![];
         crate::proximity::append_attributes(&mut attrs, &[(99999, 99999)]);
         assert!(attrs.is_empty());
     }

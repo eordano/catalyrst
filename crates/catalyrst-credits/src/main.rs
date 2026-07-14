@@ -1,7 +1,6 @@
 use anyhow::Result;
 use axum::routing::get;
 use axum::Router;
-use std::net::SocketAddr;
 use tower_http::trace::TraceLayer;
 
 use catalyrst_credits::config::Config;
@@ -16,24 +15,24 @@ const ENV_DOCS: &[(&str, &str)] = &[
     ("HTTP_SERVER_PORT", "listen port (default 5150)"),
     (
         "CREDITS_PG_CONNECTION_STRING",
-        "required — credits Postgres connection string",
+        "required \u{2014} credits Postgres connection string",
     ),
     (
         "CATALYRST_CREDITS_ADMIN_TOKEN",
-        "optional — bearer token guarding the admin money endpoints",
+        "optional \u{2014} bearer token guarding the admin money endpoints",
     ),
-    ("CREDITS_CAPTCHA_SECRET", "optional — hcaptcha secret"),
+    ("CREDITS_CAPTCHA_SECRET", "optional \u{2014} hcaptcha secret"),
     (
         "CREDITS_CAPTCHA_VERIFY_URL",
         "captcha verify endpoint (default https://hcaptcha.com/siteverify)",
     ),
     (
         "STRIPE_SECRET_KEY",
-        "optional — enables the Stripe client",
+        "optional \u{2014} enables the Stripe client",
     ),
     (
         "STRIPE_WEBHOOK_SECRET",
-        "optional — Stripe webhook signature secret",
+        "optional \u{2014} Stripe webhook signature secret",
     ),
     (
         "STRIPE_API_BASE",
@@ -54,7 +53,7 @@ const ENV_DOCS: &[(&str, &str)] = &[
     ),
     (
         "CATALYRST_ECONOMY_ADMIN_TOKEN",
-        "optional — bearer token for economy admin calls",
+        "optional \u{2014} bearer token for economy admin calls",
     ),
     (
         "MARKETPLACE_MARKUP_BPS",
@@ -70,11 +69,11 @@ const ENV_DOCS: &[(&str, &str)] = &[
     ),
     (
         "CREDITS_REQUIRE_PURCHASE_INTENT",
-        "bool — require a purchase intent before checkout (default true)",
+        "bool \u{2014} require a purchase intent before checkout (default true)",
     ),
     (
         "LANDILER_ESCROW_ADDRESS",
-        "optional — LandilerEscrow contract address",
+        "optional \u{2014} LandilerEscrow contract address",
     ),
     (
         "CHECKOUT_WORKER_INTERVAL_SECS",
@@ -86,11 +85,7 @@ const ENV_DOCS: &[(&str, &str)] = &[
     ),
     (
         "USAGE_GRANTS_PG_CONNECTION_STRING",
-        "optional — usage-grants Postgres connection string",
-    ),
-    (
-        "PROGRESS_PRESENCE_PG_CONNECTION_STRING",
-        "optional — progress/presence Postgres connection string",
+        "optional \u{2014} usage-grants Postgres connection string",
     ),
     (
         "ESCROW_LOCK_DAYS",
@@ -98,11 +93,27 @@ const ENV_DOCS: &[(&str, &str)] = &[
     ),
     (
         "CREDITS_MOCK_FULFILLMENT",
-        "bool — mock fulfillment (default false)",
+        "bool \u{2014} mock fulfillment (default false)",
     ),
     (
         "CREDITS_MOCK_CARD",
-        "bool — mock card payments (default false)",
+        "bool \u{2014} mock card payments (default false)",
+    ),
+    (
+        "CREDITS_CHECKOUT_SUCCESS_URL",
+        "checkout success redirect URL (default empty)",
+    ),
+    (
+        "CREDITS_CHECKOUT_CANCEL_URL",
+        "checkout cancel redirect URL (default empty)",
+    ),
+    (
+        "CREDITS_MANAGER_CONTRACT",
+        "credits manager contract address; unset disables on-chain fulfillment",
+    ),
+    (
+        "CREDITS_SIGNER_PRIVATE_KEY",
+        "SECRET \u{2014} credits signer private key; unset disables signing",
     ),
     (
         "RUST_LOG",
@@ -114,13 +125,7 @@ const ENV_DOCS: &[(&str, &str)] = &[
 async fn main() -> Result<()> {
     catalyrst_envcfg::handle_standard_args("catalyrst-credits", ENV_DOCS);
 
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "catalyrst_credits=info,tower_http=info".into()),
-        )
-        .with_target(false)
-        .init();
+    catalyrst_envcfg::init_tracing("catalyrst_credits=info,tower_http=info");
 
     let cfg = Config::from_env()?;
     let host = cfg.http_host.clone();
@@ -136,9 +141,5 @@ async fn main() -> Result<()> {
         .layer(TraceLayer::new_for_http())
         .with_state(state);
 
-    let addr: SocketAddr = format!("{}:{}", host, port).parse()?;
-    tracing::info!(%addr, "catalyrst-credits listening");
-    let listener = tokio::net::TcpListener::bind(addr).await?;
-    axum::serve(listener, app).await?;
-    Ok(())
+    catalyrst_envcfg::run_service("catalyrst-credits", host, port, app).await
 }

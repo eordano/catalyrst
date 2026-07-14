@@ -6,20 +6,35 @@ use std::time::Instant;
 use async_trait::async_trait;
 use axum::body::Body;
 use bytes::Bytes;
+use catalyrst_storage::StorageError;
 use dashmap::DashMap;
 use serde_json::Value;
 
+use crate::sync::SnapshotMetadata;
+use crate::wire_types::{
+    ControllerDeployment, DeploymentsFilters, PointerChangeDelta, PointerChangesFilters,
+};
+
+/// Read surface over the content store: `Ok(None)` means provably absent, `Err` a storage fault -- a fault reported as absence makes a broken node advertise itself as empty to peers.
 #[async_trait]
 pub trait ContentStorage: Send + Sync {
-    async fn retrieve(&self, hash: &str) -> Option<Bytes>;
+    async fn retrieve(&self, hash: &str) -> Result<Option<Bytes>, StorageError>;
 
-    async fn retrieve_stream(&self, hash: &str) -> Option<(Body, u64)>;
+    async fn retrieve_stream(&self, hash: &str) -> Result<Option<(Body, u64)>, StorageError>;
 
-    async fn retrieve_range(&self, hash: &str, start: u64, end: u64) -> Option<Bytes>;
+    async fn retrieve_range(
+        &self,
+        hash: &str,
+        start: u64,
+        end: u64,
+    ) -> Result<Option<Bytes>, StorageError>;
 
-    async fn file_info(&self, hash: &str) -> Option<FileInfo>;
+    async fn file_info(&self, hash: &str) -> Result<Option<FileInfo>, StorageError>;
 
-    async fn exist_multiple(&self, hashes: &[String]) -> HashMap<String, bool>;
+    async fn exist_multiple(
+        &self,
+        hashes: &[String],
+    ) -> Result<HashMap<String, bool>, StorageError>;
 }
 
 #[derive(Debug, Clone)]
@@ -108,8 +123,8 @@ pub struct DeploymentQueryOptions {
 
 #[derive(Debug, Clone)]
 pub struct DeploymentQueryResult {
-    pub deployments: Vec<Value>,
-    pub filters: Value,
+    pub deployments: Vec<ControllerDeployment>,
+    pub filters: DeploymentsFilters,
     pub pagination: PaginationResult,
 }
 
@@ -128,8 +143,8 @@ pub struct PointerChangesQueryOptions {
 
 #[derive(Debug, Clone)]
 pub struct PointerChangesQueryResult {
-    pub deltas: Vec<Value>,
-    pub filters: Value,
+    pub deltas: Vec<PointerChangeDelta>,
+    pub filters: PointerChangesFilters,
     pub pagination: PaginationResult,
 }
 
@@ -152,6 +167,28 @@ pub enum DatabaseError {
     Unsupported(String),
 }
 
+#[derive(Debug, Clone)]
+pub enum DeployFailure {
+    Rejected(Vec<String>),
+    /// This node could not decide, so the deposit is neither accepted nor at fault; answer 503 so
+    /// the caller retries instead of being told their content does not exist.
+    Unavailable(Vec<String>),
+}
+
+impl DeployFailure {
+    pub fn errors(&self) -> &[String] {
+        match self {
+            DeployFailure::Rejected(errors) | DeployFailure::Unavailable(errors) => errors,
+        }
+    }
+}
+
+impl From<Vec<String>> for DeployFailure {
+    fn from(errors: Vec<String>) -> Self {
+        DeployFailure::Rejected(errors)
+    }
+}
+
 #[async_trait]
 pub trait Deployer: Send + Sync {
     async fn deploy_entity(
@@ -160,7 +197,7 @@ pub trait Deployer: Send + Sync {
         entity_id: &str,
         auth_chain: Value,
         context: &str,
-    ) -> Result<i64, Vec<String>>;
+    ) -> Result<i64, DeployFailure>;
 
     async fn retry_failed_deployment(&self, _entity_id: &str) -> Result<String, Vec<String>> {
         Err(vec![
@@ -183,6 +220,19 @@ pub trait Denylist: Send + Sync {
     fn list(&self) -> Vec<String> {
         Vec::new()
     }
+}
+
+/// Fail closed: an entity carrying no string `id` cannot be checked against the
+/// denylist, so it is dropped rather than served. Retaining it would let a
+/// malformed or id-less entity walk past a list whose whole job is to withhold
+/// specific ids.
+pub fn retain_non_denylisted(entities: &mut Vec<Value>, denylist: &dyn Denylist) {
+    entities.retain(|entity| {
+        entity
+            .get("id")
+            .and_then(|id| id.as_str())
+            .is_some_and(|id| !denylist.is_denylisted(id))
+    });
 }
 
 pub trait ChallengeSupervisor: Send + Sync {
@@ -236,7 +286,7 @@ pub trait SynchronizationState: Send + Sync {
 }
 
 pub trait SnapshotGenerator: Send + Sync {
-    fn get_current_snapshots(&self) -> Option<Value>;
+    fn get_current_snapshots(&self) -> Option<Vec<SnapshotMetadata>>;
 
     fn trigger_regeneration(&self) -> Result<String, String> {
         Err("snapshot regeneration not supported by this backend".to_string())
@@ -295,6 +345,8 @@ pub struct AppState {
     pub read_only: AtomicBool,
 
     pub audit_pool: Option<sqlx::PgPool>,
+
+    pub content_pool: Option<sqlx::PgPool>,
 
     pub entities_cache_control_max_age: u64,
 

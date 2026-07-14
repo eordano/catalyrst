@@ -1,13 +1,19 @@
 use std::collections::HashMap;
+use std::num::NonZeroUsize;
 use std::sync::Arc;
 
 use parking_lot::RwLock;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 
 use crate::rentals::{RentalsClient, TileRentalListing};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "map/", rename_all = "lowercase")
+)]
 #[serde(rename_all = "lowercase")]
 pub enum TileType {
     Owned,
@@ -30,12 +36,15 @@ impl TileType {
     }
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "map/"))]
 pub struct Tile {
     pub id: String,
     pub x: i32,
     pub y: i32,
-    #[serde(skip_serializing_if = "Option::is_none", rename = "nftId")]
+    #[serde(rename = "nftId")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
     pub nft_id: Option<String>,
     #[serde(rename = "type")]
     pub tile_type: TileType,
@@ -44,21 +53,68 @@ pub struct Tile {
     #[serde(rename = "topLeft")]
     pub top_left: bool,
     #[serde(rename = "updatedAt")]
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub updated_at: i64,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
     pub name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
     pub owner: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", rename = "estateId")]
+    #[serde(rename = "estateId")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
     pub estate_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", rename = "tokenId")]
+    #[serde(rename = "tokenId")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
     pub token_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
     pub price: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none", rename = "expiresAt")]
+    #[serde(rename = "expiresAt")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional, type = "number"))]
     pub expires_at: Option<i64>,
-    #[serde(skip_serializing_if = "Option::is_none", rename = "rentalListing")]
+    #[serde(rename = "rentalListing")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
     pub rental_listing: Option<TileRentalListing>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "map/"))]
+pub struct LegacyTile {
+    #[serde(rename = "type")]
+    pub tile_type: i32,
+    pub x: i32,
+    pub y: i32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub top: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub left: Option<u8>,
+    #[serde(rename = "topLeft")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub top_left: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub owner: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub estate_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub price: Option<f64>,
+    #[serde(rename = "rentalPricePerDay")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub rental_price_per_day: Option<String>,
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]
@@ -79,12 +135,26 @@ const SPECIAL_TILES_JSON: &str = include_str!("../data/specialTiles.json");
 pub struct MapData {
     pub tiles: HashMap<String, Tile>,
     pub last_updated_at: i64,
+    /// estate_id -> coords of its OWNED parcels (drives estate map.png selection).
+    pub estates_owned: HashMap<String, Vec<(i32, i32)>>,
+    /// estate_id -> coords of ALL parcels carrying it (fallback selection).
+    pub estates_all: HashMap<String, Vec<(i32, i32)>>,
 }
 
-#[derive(Default)]
+/// Per-epoch response cache, wholesale-cleared whenever the map build yields a new `keyed_at`.
+/// The LRU cap bounds growth between builds, which the plain HashMap did not.
 struct GenCache {
     keyed_at: i64,
-    entries: HashMap<String, Arc<Vec<u8>>>,
+    entries: lru::LruCache<String, Arc<Vec<u8>>>,
+}
+
+impl GenCache {
+    fn new(cap: NonZeroUsize) -> Self {
+        Self {
+            keyed_at: 0,
+            entries: lru::LruCache::new(cap),
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -111,9 +181,13 @@ impl MapComponent {
         schema: String,
         land_contract: String,
         estate_contract: String,
+        tiles_cache_entries: usize,
+        png_cache_entries: usize,
     ) -> Self {
         let special: HashMap<String, SpecialTile> =
             serde_json::from_str(SPECIAL_TILES_JSON).expect("specialTiles.json must parse");
+        let tiles_cap = NonZeroUsize::new(tiles_cache_entries.max(1)).unwrap();
+        let png_cap = NonZeroUsize::new(png_cache_entries.max(1)).unwrap();
         Self {
             pool,
             schema,
@@ -122,20 +196,21 @@ impl MapComponent {
             special_tiles: Arc::new(special),
             rentals: RentalsClient::from_env(),
             data: Arc::new(RwLock::new(None)),
-            tiles_cache: Arc::new(RwLock::new(GenCache::default())),
-            png_cache: Arc::new(RwLock::new(GenCache::default())),
+            tiles_cache: Arc::new(RwLock::new(GenCache::new(tiles_cap))),
+            png_cache: Arc::new(RwLock::new(GenCache::new(png_cap))),
         }
     }
 
-    pub fn rentals_enabled(&self) -> bool {
-        self.rentals.is_some()
+    #[cfg(test)]
+    pub fn tiles_cache_len(&self) -> usize {
+        self.tiles_cache.read().entries.len()
     }
 
     pub fn cached_tiles_response(&self, key: &str) -> Option<Arc<Vec<u8>>> {
         let last = self.last_updated_at();
         let cache = self.tiles_cache.read();
         if cache.keyed_at == last {
-            cache.entries.get(key).cloned()
+            cache.entries.peek(key).cloned()
         } else {
             None
         }
@@ -148,14 +223,14 @@ impl MapComponent {
             cache.keyed_at = last;
             cache.entries.clear();
         }
-        cache.entries.insert(key, body);
+        cache.entries.put(key, body);
     }
 
     pub fn cached_png(&self, key: &str) -> Option<Arc<Vec<u8>>> {
         let last = self.last_updated_at();
         let cache = self.png_cache.read();
         if cache.keyed_at == last {
-            cache.entries.get(key).cloned()
+            cache.entries.peek(key).cloned()
         } else {
             None
         }
@@ -168,7 +243,7 @@ impl MapComponent {
             cache.keyed_at = last;
             cache.entries.clear();
         }
-        cache.entries.insert(key, body);
+        cache.entries.put(key, body);
     }
 
     pub fn is_ready(&self) -> bool {
@@ -382,9 +457,25 @@ impl MapComponent {
             );
         }
 
+        let mut estates_owned: HashMap<String, Vec<(i32, i32)>> = HashMap::new();
+        let mut estates_all: HashMap<String, Vec<(i32, i32)>> = HashMap::new();
+        for t in tiles.values() {
+            if let Some(eid) = &t.estate_id {
+                estates_all.entry(eid.clone()).or_default().push((t.x, t.y));
+                if t.tile_type == TileType::Owned {
+                    estates_owned
+                        .entry(eid.clone())
+                        .or_default()
+                        .push((t.x, t.y));
+                }
+            }
+        }
+
         Ok(MapData {
             tiles,
             last_updated_at,
+            estates_owned,
+            estates_all,
         })
     }
 }
@@ -439,4 +530,39 @@ struct ParcelRow {
     estate_updated_at: Option<i64>,
     estate_order_price: Option<String>,
     estate_order_expires_at: Option<i64>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn lazy_component(tiles_cap: usize, png_cap: usize) -> MapComponent {
+        // connect_lazy performs no I/O and the cache paths never touch the pool.
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .connect_lazy("postgres://u:p@127.0.0.1:5999/db")
+            .unwrap();
+        MapComponent::new(
+            pool,
+            "s".into(),
+            "0xland".into(),
+            "0xestate".into(),
+            tiles_cap,
+            png_cap,
+        )
+    }
+
+    #[tokio::test]
+    async fn gen_cache_bounded_within_epoch() {
+        let mc = lazy_component(8, 8);
+        // No MapData installed, so last_updated_at() == 0 == keyed_at: all 100 inserts share
+        // one epoch and never trigger the wholesale clear.
+        for i in 0..100u32 {
+            mc.store_tiles_response(format!("k{i}"), Arc::new(vec![i as u8]));
+        }
+        assert_eq!(
+            mc.tiles_cache_len(),
+            8,
+            "cache must be bounded to cap, not grow to N"
+        );
+    }
 }

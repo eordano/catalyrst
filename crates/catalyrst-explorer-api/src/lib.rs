@@ -19,6 +19,8 @@ pub async fn build_state(cfg: &Config) -> Result<AppState> {
         .build()
         .context("failed to build reqwest client")?;
 
+    let denylist = Arc::new(modules::blocklist::read_denylist(&cfg.blocklist_path).await);
+
     Ok(Arc::new(AppStateInner {
         cfg: cfg.clone(),
         http,
@@ -26,6 +28,9 @@ pub async fn build_state(cfg: &Config) -> Result<AppState> {
         feature_flags: Default::default(),
         runtime_config: Default::default(),
         onboarding: Default::default(),
+        denylist: parking_lot::RwLock::new(denylist),
+        catalyst_status_cache: parking_lot::RwLock::new(None),
+        hot_scenes_cache: parking_lot::RwLock::new(None),
     }))
 }
 

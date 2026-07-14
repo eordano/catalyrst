@@ -6,6 +6,7 @@ use serde_json::{json, Value};
 use crate::auth::auth_address_verified;
 use crate::auth_chain::AUTH_METADATA_HEADER;
 use crate::http::errors::ApiError;
+use crate::ports::places::ReportUploadOutcome;
 use crate::s3::{
     presign_put_object, PresignPutObject, ReportUploadMode, REPORT_LOCAL_FALLBACK_ENV,
 };
@@ -69,9 +70,22 @@ fn report_filename(address: &str, now_seconds: i64) -> String {
         chars[start..].iter().collect::<String>().to_lowercase()
     };
     let time_hash = format!("{:x}", now_seconds);
-    format!("{}{}.json", user_hash, time_hash)
+    let unguessable_hash = format!("{:032x}", rand::random::<u128>());
+    format!("{}{}{}.json", user_hash, time_hash, unguessable_hash)
 }
 
+#[utoipa::path(
+    post,
+    path = "/report",
+    tag = "reports",
+    request_body = serde_json::Value,
+    responses(
+        (status = 200, body = serde_json::Value),
+        (status = 400, body = catalyrst_types::ApiErrorBody),
+        (status = 401, body = catalyrst_types::ApiErrorBody),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn post_report(
     State(state): State<AppState>,
     method: Method,
@@ -82,7 +96,7 @@ pub async fn post_report(
     if is_federation_envelope(&body) {
         return crate::handlers::federation::fed_post_report(&state, &headers, &body).await;
     }
-    let user = auth_address_verified(&headers, method.as_str(), uri.path())?;
+    let user = auth_address_verified(&headers, method.as_str(), uri.path()).await?;
     let payload = body.map(|Json(v)| v).unwrap_or_else(|| json!({}));
     let entity_id = payload
         .get("entity_id")
@@ -91,11 +105,11 @@ pub async fn post_report(
         .map(|s| s.to_string());
 
     let now = chrono::Utc::now();
-    let filename = report_filename(&user, now.timestamp());
+    let filename = report_filename(user.as_str(), now.timestamp());
 
     let signed_url = match ReportUploadMode::from_env() {
         ReportUploadMode::S3(cfg) => {
-            let metadata = report_metadata(&headers, &user);
+            let metadata = report_metadata(&headers, user.as_str());
             presign_put_object(
                 &cfg,
                 &PresignPutObject {
@@ -113,7 +127,7 @@ pub async fn post_report(
             tracing::warn!(
                 target: "catalyrst_places::report",
                 "DEV-ONLY: AWS_ACCESS_KEY/AWS_ACCESS_SECRET/AWS_BUCKET_NAME unset and \
-                 {flag}=true — /api/report is serving a same-origin local-upload URL \
+                 {flag}=true -- /api/report is serving a same-origin local-upload URL \
                  instead of the upstream S3 presigned PUT. DO NOT run this in production; \
                  configure AWS_* for upstream parity.",
                 flag = REPORT_LOCAL_FALLBACK_ENV,
@@ -143,7 +157,7 @@ pub async fn post_report(
         .places
         .record_report(
             entity_id.as_deref(),
-            &user,
+            user.as_str(),
             &signed_url,
             &filename,
             &payload,
@@ -155,17 +169,42 @@ pub async fn post_report(
     ))
 }
 
+#[utoipa::path(
+    put,
+    path = "/report/upload/{filename}",
+    tag = "reports",
+    params(("filename" = String, Path)),
+    request_body = Vec<u8>,
+    responses(
+        (status = 200, body = serde_json::Value),
+        (status = 400, body = catalyrst_types::ApiErrorBody),
+        (status = 401, body = catalyrst_types::ApiErrorBody),
+        (status = 404, body = catalyrst_types::ApiErrorBody),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn put_report_upload(
     State(state): State<AppState>,
+    method: Method,
+    OriginalUri(uri): OriginalUri,
+    headers: HeaderMap,
     Path(filename): Path<String>,
     body: Option<Json<Value>>,
 ) -> Result<Json<Value>, ApiError> {
+    let reporter = auth_address_verified(&headers, method.as_str(), uri.path()).await?;
     let payload = body.map(|Json(v)| v).unwrap_or_else(|| json!({}));
-    state
+    match state
         .places
-        .record_report_upload(&filename, &payload)
-        .await?;
-    Ok(Json(json!({ "ok": true })))
+        .record_report_upload(&filename, reporter.as_str(), &payload)
+        .await?
+    {
+        ReportUploadOutcome::Stored | ReportUploadOutcome::PersistenceDisabled => {
+            Ok(Json(json!({ "ok": true })))
+        }
+        ReportUploadOutcome::NoReportOwnedByReporter => {
+            Err(ApiError::not_found("report not found"))
+        }
+    }
 }
 
 #[cfg(test)]
@@ -174,12 +213,27 @@ mod tests {
     use axum::response::IntoResponse;
 
     #[test]
-    fn filename_matches_upstream() {
+    fn filename_keeps_upstream_prefix() {
         let addr = "0x1234567890ABCDEF1234567890abcdef12345678";
 
         let now_seconds = 0x6500_0000_i64;
         let f = report_filename(addr, now_seconds);
-        assert_eq!(f, "1234567865000000.json");
+        assert!(f.starts_with("1234567865000000"), "{f}");
+        assert!(f.ends_with(".json"), "{f}");
+    }
+
+    #[test]
+    fn filename_is_not_derivable_from_a_public_address_and_second() {
+        let addr = "0x1234567890ABCDEF1234567890abcdef12345678";
+        let now_seconds = 0x6500_0000_i64;
+
+        let first = report_filename(addr, now_seconds);
+        let second = report_filename(addr, now_seconds);
+        assert_ne!(
+            first, second,
+            "same reporter and second must not mint the same report key"
+        );
+        assert!(first.len() >= "1234567865000000".len() + 32 + ".json".len());
     }
 
     #[test]

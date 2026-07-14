@@ -110,7 +110,7 @@ pub async fn get_content(
     let file_info = state
         .storage
         .file_info(&hash_id)
-        .await
+        .await?
         .ok_or_else(|| NotFoundError::new(format!("No content found with hash {}", hash_id)))?;
 
     let range_header = headers.get("range").and_then(|v| v.to_str().ok());
@@ -134,7 +134,7 @@ pub async fn get_content(
             let content = state
                 .storage
                 .retrieve_range(&hash_id, start, end)
-                .await
+                .await?
                 .ok_or_else(|| {
                     NotFoundError::new(format!("No content found with hash {}", hash_id))
                 })?;
@@ -193,7 +193,7 @@ pub async fn get_content(
 
     if let Some(accel) = x_accel_base().and_then(|b| x_accel_redirect_path(Some(&b), &hash_id)) {
         if query.include_mime_type.is_some() {
-            if let Some(head) = state.storage.retrieve_range(&hash_id, 0, 31).await {
+            if let Some(head) = state.storage.retrieve_range(&hash_id, 0, 31).await? {
                 let detected = detect_content_type(&head);
                 for (name, value) in &mut base_headers {
                     if *name == "Content-Type" {
@@ -221,7 +221,7 @@ pub async fn get_content(
         return Ok(response);
     }
 
-    if let Some((body, on_disk_size)) = state.storage.retrieve_stream(&hash_id).await {
+    if let Some((body, on_disk_size)) = state.storage.retrieve_stream(&hash_id).await? {
         if query.include_mime_type.is_some() {
         } else {
             for (name, value) in &mut base_headers {
@@ -248,7 +248,7 @@ pub async fn get_content(
     let content = state
         .storage
         .retrieve(&hash_id)
-        .await
+        .await?
         .ok_or_else(|| NotFoundError::new(format!("No content found with hash {}", hash_id)))?;
 
     if query.include_mime_type.is_some() {
@@ -328,5 +328,44 @@ mod tests {
             detect_content_type(b"plain bytes"),
             "application/octet-stream"
         );
+    }
+
+    const TEST_CID: &str = "bafkreie4eisvkzyjuqrcendydk6vikqs2vco5lmib4nlzsxtjzofiqy2pa";
+
+    async fn get(state: Arc<crate::state::AppState>) -> AppResult<Response> {
+        get_content(
+            State(state),
+            Path(TEST_CID.to_string()),
+            Query(ContentQuery {
+                include_mime_type: None,
+            }),
+            Method::GET,
+            HeaderMap::new(),
+        )
+        .await
+    }
+
+    #[tokio::test]
+    async fn storage_fault_answers_500_not_404() {
+        let state = crate::test_support::app_state_with_storage(Arc::new(
+            crate::test_support::FaultyStorage,
+        ));
+        let err = get(state)
+            .await
+            .expect_err("a storage fault must error, not resolve");
+        assert_eq!(
+            err.into_response().status(),
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "a broken node must error (and get retried), not advertise the content as absent"
+        );
+    }
+
+    #[tokio::test]
+    async fn missing_content_still_answers_404() {
+        let state = crate::test_support::app_state_with_storage(Arc::new(
+            crate::test_support::EmptyStorage,
+        ));
+        let err = get(state).await.expect_err("missing content is a 404");
+        assert_eq!(err.into_response().status(), StatusCode::NOT_FOUND);
     }
 }

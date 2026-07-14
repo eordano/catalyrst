@@ -2,10 +2,10 @@ mod component;
 mod query;
 mod rows;
 
-pub use component::PlacesComponent;
+pub use component::{PlacesComponent, ReportUploadOutcome};
 pub use rows::{
     CategoryTarget, PlaceListFilters, PlaceOrderBy, PlaceRow, PlaceStatusRow, PoiRow, ReportRow,
-    UserInteraction,
+    UserInteraction, WorldRow,
 };
 
 #[cfg(test)]
@@ -38,17 +38,20 @@ mod wire_tests {
             likes: 0,
             dislikes: 0,
             categories: vec![],
-            tags: vec![],
             highlighted: false,
             highlighted_image: None,
             ranking: None,
             sdk: None,
             creator_address: None,
             world_id: None,
+            deployment_id: None,
             deployed_at: None,
             world: false,
             world_name: None,
             is_private: false,
+            show_in_places: true,
+            single_player: false,
+            skybox_time: None,
             user_favorite: false,
             user_like: false,
             user_dislike: false,
@@ -87,10 +90,8 @@ mod wire_tests {
         let v = serde_json::to_value(sample()).unwrap();
         let obj = v.as_object().unwrap();
         for key in [
-            "is_private",
             "highlighted_image",
             "sdk",
-            "tags",
             "highlighted",
             "user_favorite",
             "user_like",
@@ -103,12 +104,25 @@ mod wire_tests {
             "world_name",
             "base_position",
             "positions",
+            "deployment_id",
         ] {
             assert!(obj.contains_key(key), "{key} must be present on base Place");
         }
 
-        assert!(obj["is_private"].is_boolean());
-        assert!(obj["tags"].is_array());
+        for absent in [
+            "is_private",
+            "tags",
+            "show_in_places",
+            "single_player",
+            "skybox_time",
+        ] {
+            assert!(
+                !obj.contains_key(absent),
+                "{absent} must not be serialized on base Place"
+            );
+        }
+
+        assert!(obj["deployment_id"].is_null());
     }
 
     #[test]
@@ -167,7 +181,7 @@ mod filter_tests {
             ..Default::default()
         };
         let (where_clause, binds) = build_where(&f);
-        assert!(where_clause.contains("lower(raw->>'world_name') = ANY"));
+        assert!(where_clause.contains("lower(world_name) = ANY"));
         match binds.last().unwrap() {
             Bind::TextArray(v) => assert_eq!(v, &vec!["foo.dcl.eth".to_string()]),
             _ => panic!("expected names text array bind"),
@@ -287,7 +301,7 @@ mod most_active_order_tests {
         };
         let (prefix, binds) = build_live_user_count_order(&f, 1);
         assert!(
-            prefix.contains("lower(raw->>'world_name')"),
+            prefix.contains("lower(world_name)"),
             "worlds must be matched on lower(world_name): {prefix}"
         );
         assert!(
@@ -360,11 +374,11 @@ mod most_active_order_tests {
             "place branch must start at start_idx: {prefix}"
         );
         assert!(
-            prefix.contains("CASE lower(raw->>'world_name') WHEN $7 THEN $8"),
+            prefix.contains("CASE lower(world_name) WHEN $7 THEN $8"),
             "world branch must continue after place branch: {prefix}"
         );
         assert!(
-            prefix.contains("CASE WHEN COALESCE((raw->>'world')::bool, false) THEN"),
+            prefix.contains("CASE WHEN world THEN"),
             "row is routed to world vs place arm by the world flag: {prefix}"
         );
         assert_eq!(binds.len(), 4);
@@ -421,7 +435,7 @@ mod destinations_order_tests {
     }
 
     #[test]
-    fn order_by_puts_destinations_prefix_before_live_rank_and_column() {
+    fn order_by_puts_live_before_destinations_prefix_rank_and_column() {
         let dest = destinations_order_prefix(&PlaceListFilters {
             destinations_mode: true,
             ..Default::default()
@@ -429,21 +443,33 @@ mod destinations_order_tests {
         let live = "(CASE WHEN true THEN 1 ELSE 0 END)::int DESC, ";
         let rank = "ts_rank_cd(x, y, 32) DESC, ";
         let clause = build_order_by(
-            dest,
             live,
+            dest,
             rank,
             "NULLIF(raw->>'like_score','')::float8",
             "DESC",
         );
-        let p_hi = clause.find("highlighted DESC").expect("highlighted");
         let p_live = clause.find("::int DESC").expect("live");
+        let p_hi = clause.find("highlighted DESC").expect("highlighted");
+        let p_rk = clause.find("ranking").expect("ranking");
         let p_rank = clause.find("ts_rank_cd").expect("rank");
         let p_col = clause.find("like_score").expect("order column");
         assert!(
-            p_hi < p_live,
-            "destinations prefix must precede live: {clause}"
+            p_live < p_hi,
+            "live must precede the destinations prefix: {clause}"
         );
-        assert!(p_live < p_rank, "live must precede search rank: {clause}");
+        assert!(
+            p_live < p_rk,
+            "live must precede the curation ranking: {clause}"
+        );
+        assert!(
+            p_hi < p_rk,
+            "highlighted stays above ranking as tie-breaker: {clause}"
+        );
+        assert!(
+            p_rk < p_rank,
+            "destinations prefix must precede search rank: {clause}"
+        );
         assert!(
             p_rank < p_col,
             "search rank must precede order column: {clause}"
@@ -451,6 +477,31 @@ mod destinations_order_tests {
         assert!(
             clause.trim_end().ends_with("deployed_at DESC"),
             "deployed_at is the final tiebreaker: {clause}"
+        );
+    }
+
+    #[test]
+    fn order_by_without_live_keeps_curation_at_the_top() {
+        let dest = destinations_order_prefix(&PlaceListFilters {
+            destinations_mode: true,
+            ..Default::default()
+        });
+        let clause = build_order_by(
+            "",
+            dest,
+            "",
+            "NULLIF(raw->>'like_score','')::float8",
+            "DESC",
+        );
+        assert!(
+            !clause.contains("::int DESC"),
+            "no live term without realtime counts: {clause}"
+        );
+        assert!(
+            clause.starts_with(
+                "highlighted DESC, NULLIF(raw->>'ranking','')::float8 DESC NULLS LAST, "
+            ),
+            "curation must lead when live is absent: {clause}"
         );
     }
 

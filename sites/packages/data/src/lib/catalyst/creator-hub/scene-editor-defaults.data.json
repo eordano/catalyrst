@@ -1,0 +1,1263 @@
+{
+  "_source": "Live seed from catalyst:https://catalyst.example.com/content/entities/active (POST {\"pointers\":[\"0,0\"]} -> deployed scene entity: id/type/pointers/content[]/metadata.display; verified 2026-06-23 HTTP 200, content has 1088 mappings). Entity/CRDT component model derived from decentraland/js-sdk-toolchain@main packages/@dcl/ecs (the @dcl/inspector source is not in the repo tree on main -- it consumes these @dcl/ecs core components): Transform (src/components/manual/Transform.ts, COMPONENT_ID=1, TransformType{position,rotation(quaternion),scale,parent}, identity = pos 0,0,0 / rot 0,0,0,1 / scale 1,1,1), Name (src/components/manual/Name.ts, 'core-schema::Name', {value:string}), and the LWW component registry in src/components/index.ts (Material, MeshRenderer, MeshCollider, GltfContainer, VisibilityComponent, TextShape, AudioSource, PointerEvents, Animator, Tween, LightSource, ...). Entity envelope shape from decentraland/schemas@main src/platform/entity.ts (Entity{version,id,type,pointers,timestamp,content[],metadata}). scene.json metadata shape from decentraland/sdk7-scene-template@main scene.json. The inspector composite is a CRDT 'main.composite' authored alongside scene.json (engine entities + LWW components). Editor EDITS (place item / set transform / add component / save composite) are SIMULATED in the XState wizard -- the catalyst content server is read-only over the public nginx (deployment requires a signed AuthChain POST to /content/entities which is auth-gated).",
+  "_fetchedAt": "2026-06-23",
+  "_upstreamRefs": [
+    "https://catalyst.example.com/content/entities/active",
+    "https://raw.githubusercontent.com/decentraland/schemas/main/src/platform/entity.ts",
+    "https://raw.githubusercontent.com/decentraland/js-sdk-toolchain/main/packages/@dcl/ecs/src/components/manual/Transform.ts",
+    "https://raw.githubusercontent.com/decentraland/js-sdk-toolchain/main/packages/@dcl/ecs/src/components/manual/Name.ts",
+    "https://raw.githubusercontent.com/decentraland/js-sdk-toolchain/main/packages/@dcl/ecs/src/components/index.ts",
+    "https://raw.githubusercontent.com/decentraland/sdk7-scene-template/main/scene.json"
+  ],
+  "scene": {
+    "pointer": "0,0",
+    "title": "SDK7 Scene Template",
+    "base": "0,0",
+    "parcels": [
+      "0,0"
+    ],
+    "sdkVersion": "7",
+    "main": "bin/index.js",
+    "composite": "main.composite",
+    "_note": "Editor seeds a working scene from a live deployed entity (catalyst /content/entities/active) or this fixture. The authored entity forest below is the inspector composite (LWW CRDT)."
+  },
+  "transformIdentity": {
+    "position": {
+      "x": 0,
+      "y": 0,
+      "z": 0
+    },
+    "rotation": {
+      "x": 0,
+      "y": 0,
+      "z": 0,
+      "w": 1
+    },
+    "scale": {
+      "x": 1,
+      "y": 1,
+      "z": 1
+    }
+  },
+  "hierarchy": [
+    {
+      "entity": 512,
+      "name": "Ground",
+      "parent": 0,
+      "selected": false,
+      "components": [
+        "Transform",
+        "GltfContainer",
+        "MeshCollider"
+      ]
+    },
+    {
+      "entity": 513,
+      "name": "Kiosk",
+      "parent": 0,
+      "selected": false,
+      "components": [
+        "Transform",
+        "GltfContainer"
+      ]
+    },
+    {
+      "entity": 514,
+      "name": "Sign",
+      "parent": 513,
+      "selected": false,
+      "components": [
+        "Transform",
+        "TextShape"
+      ]
+    },
+    {
+      "entity": 520,
+      "name": "Display Cube",
+      "parent": 0,
+      "selected": true,
+      "components": [
+        "Transform",
+        "MeshRenderer",
+        "Material",
+        "VisibilityComponent"
+      ]
+    },
+    {
+      "entity": 521,
+      "name": "Ambient Audio",
+      "parent": 0,
+      "selected": false,
+      "components": [
+        "Transform",
+        "AudioSource"
+      ]
+    }
+  ],
+  "selectedEntity": {
+    "entity": 520,
+    "name": "Display Cube",
+    "transform": {
+      "position": {
+        "x": 8,
+        "y": 1,
+        "z": 8
+      },
+      "rotation": {
+        "x": 0,
+        "y": 0,
+        "z": 0,
+        "w": 1
+      },
+      "scale": {
+        "x": 1,
+        "y": 1,
+        "z": 1
+      }
+    }
+  },
+  "assetCatalog": {
+    "categories": [
+      "Rewards",
+      "Seats",
+      "Text",
+      "buttons",
+      "chests",
+      "decorations",
+      "doors",
+      "empty land",
+      "furniture",
+      "ground",
+      "health",
+      "levers",
+      "lights",
+      "media",
+      "nature",
+      "party",
+      "platforms",
+      "primitives",
+      "social",
+      "sounds",
+      "structures",
+      "text",
+      "tiles",
+      "utils"
+    ],
+    "models": [
+      {
+        "id": "017c0c8b-724a-4aa2-b298-afb9a450906c",
+        "name": "Ad Rock",
+        "pack": "Fantasy",
+        "src": "/content/contents/bafkreif3lbg4adh5o5gl7t3excazjrbxobn3ziq5ij4i6fc4plpjii65n4",
+        "hue": 342,
+        "category": "nature"
+      },
+      {
+        "id": "52e9d902-fd6b-4d84-83cd-c08a6bf5aacb",
+        "name": "Alabastron",
+        "pack": "Fantasy",
+        "src": "/content/contents/bafkreihgwttlzskgyap24cji373lx35fyotxhmdkklbqsf5nrd5sj7rase",
+        "hue": 27,
+        "category": "decorations"
+      },
+      {
+        "id": "55843b02-cbbf-4348-823e-f24c6a347d42",
+        "name": "Alchemist Contraption",
+        "pack": "Fantasy",
+        "src": "/content/contents/bafkreib2cb5r63hmyybjbnbfxenyjfhkzg2a472doo6s3jr7zn5uz6r3fu",
+        "hue": 146,
+        "category": "structures"
+      },
+      {
+        "id": "35ab51b8-d68b-41b7-ab49-1c5f616bb3cb",
+        "name": "Alchemy Equipment",
+        "pack": "Fantasy",
+        "src": "/content/contents/bafkreickgf7ofosi2ofxoefrxj4aolnugvg26uit3c4q56atpdhwb6rysy",
+        "hue": 82,
+        "category": "decorations"
+      },
+      {
+        "id": "3feac9e9-62e0-4acd-8568-553ec3ed25da",
+        "name": "Amphora",
+        "pack": "Fantasy",
+        "src": "/content/contents/bafkreib5odqaom2o2yf5k5m7mg6mshkdr65avs5drdfjzf4usz7sk56s3i",
+        "hue": 31,
+        "category": "decorations"
+      },
+      {
+        "id": "442e490f-3708-415b-a0a5-a47af1088555",
+        "name": "Ancient Large Stone Path",
+        "pack": "Fantasy",
+        "src": "/content/contents/bafkreibvhmabzw6rv4gf2ucg2jt72m3jkcfcssdzaaorm45iz4tr3xtr6y",
+        "hue": 87,
+        "category": "tiles"
+      },
+      {
+        "id": "3738c0ed-0a67-48ad-a632-6d189a51f249",
+        "name": "Ancient Large Stone Stair",
+        "pack": "Fantasy",
+        "src": "/content/contents/bafkreidvf3bz6cia676kz4m3y52c7n2ueh4fn2qowk7h7b6yh4yyf5zyou",
+        "hue": 169,
+        "category": "structures"
+      },
+      {
+        "id": "332acea2-75cf-4dfd-88b4-40eede3ae849",
+        "name": "Ancient Medium Stone Path",
+        "pack": "Fantasy",
+        "src": "/content/contents/bafkreigi26n4tzztgut22janeztbpuzyk2daqmx6p5kxwbiwetlobmuwwy",
+        "hue": 33,
+        "category": "tiles"
+      },
+      {
+        "id": "bac8dba0-d241-4515-a42d-e7d819802857",
+        "name": "Ancient Medium Stone Stair",
+        "pack": "Fantasy",
+        "src": "/content/contents/bafkreigoubzlmtbhqwpqsrpczkbvomavw3rhrc7c3sdjacdutzuzpbv3pq",
+        "hue": 223,
+        "category": "structures"
+      },
+      {
+        "id": "ec904f7c-6277-4001-ae8e-ab39ffb14a35",
+        "name": "Ancient Small Stone Stair",
+        "pack": "Fantasy",
+        "src": "/content/contents/bafkreid5jiyt46az3i5k7av62b6su5gchuww6uvjdd7dwj7ymccf2uy3rq",
+        "hue": 183,
+        "category": "structures"
+      },
+      {
+        "id": "07f282ca-c7cf-457b-a4c1-b6ccd857568c",
+        "name": "Ancient Stone Path",
+        "pack": "Fantasy",
+        "src": "/content/contents/bafkreihxdtv32u6t25yp2blq6t42e4pqps2dq7xhtq6trmmtnpvzym7kuu",
+        "hue": 182,
+        "category": "tiles"
+      },
+      {
+        "id": "eb9ffc7f-203c-408b-8d0c-71a580b26c85",
+        "name": "Antique Mosaic Tile",
+        "pack": "Fantasy",
+        "src": "/content/contents/bafkreifjlwgtpnpstvrqn2hfwnlr4pgoek5fff35osg3vvborg36dbyama",
+        "hue": 344,
+        "category": "tiles"
+      },
+      {
+        "id": "5ddddf84-0091-4bba-91c4-d3b9fbfde322",
+        "name": "Anvil",
+        "pack": "Fantasy",
+        "src": "/content/contents/bafkreih575xj5dasvrbqcd3raf5itfncpkbxaggqcnx2zgq35ym5gjtcsy",
+        "hue": 358,
+        "category": "decorations"
+      },
+      {
+        "id": "e43e82be-20dd-4a69-af96-0420f825be0e",
+        "name": "Archway of Nightmares",
+        "pack": "Fantasy",
+        "src": "/content/contents/bafkreigsd5f4jkzpijdx5n3voqyaes63zlr476y4pvj73exav3orpnixci",
+        "hue": 260,
+        "category": "structures"
+      },
+      {
+        "id": "28fd15b6-edc4-41a4-854e-f296203eaa22",
+        "name": "Blacksmith Oven",
+        "pack": "Fantasy",
+        "src": "/content/contents/bafkreidhrmip2bjqxezj5zib24isahh52bmo3hhqegjp6bke5u2kdqkgqa",
+        "hue": 280,
+        "category": "decorations"
+      },
+      {
+        "id": "3f001c84-b186-499d-bcaf-490629e85d99",
+        "name": "Blooming Blue Acacia Tree",
+        "pack": "Fantasy",
+        "src": "/content/contents/bafkreidnrjz2xoo275ocs36gghi5amgut7hvwgefb3mn7lv4tvftrpb53e",
+        "hue": 309,
+        "category": "nature"
+      },
+      {
+        "id": "2dd72eee-1285-43e0-9787-8a60bf4cd46a",
+        "name": "Blooming Green Acacia Tree",
+        "pack": "Fantasy",
+        "src": "/content/contents/bafkreiaqojo2ycbo66rg7ryovex45fqykvqy2qz7ebqabksjbli6inenya",
+        "hue": 119,
+        "category": "nature"
+      },
+      {
+        "id": "84d1a6c5-7928-4a77-b8c4-b22952ee8b15",
+        "name": "Blooming Pink Acacia Tree",
+        "pack": "Fantasy",
+        "src": "/content/contents/bafkreih7urhlvnomdcxl77xjejjjjekiwvohxwaitesi4s4u7l4j43uptq",
+        "hue": 45,
+        "category": "nature"
+      },
+      {
+        "id": "af393f91-905e-4d1c-9c26-e11a5d84e4c9",
+        "name": "Blooming Turquoise Acacia Tree",
+        "pack": "Fantasy",
+        "src": "/content/contents/bafkreiadirkl3544hcycxgut33tirfuyjxe6apmujrbsuwwfzzf4ml5dy4",
+        "hue": 152,
+        "category": "nature"
+      },
+      {
+        "id": "dc30e878-f72c-41f2-af27-87b21d674aa3",
+        "name": "Checkers Mosaic Tile",
+        "pack": "Fantasy",
+        "src": "/content/contents/bafkreibws5ccdpcaobjycv7qfbzxv4in5ojfmsg5hydoy4zivflyphmhpm",
+        "hue": 102,
+        "category": "tiles"
+      },
+      {
+        "id": "7a5f2afc-ae67-4fe8-a3a1-0ef5b4ffdcd6",
+        "name": "Grey Flagstone",
+        "pack": "Fantasy",
+        "src": "/content/contents/bafkreibtyoffdx3dvh2zblwmntus4a7rgwu77ykma52w6msf267xmn3vhi",
+        "hue": 321,
+        "category": "ground"
+      },
+      {
+        "id": "9be6610f-cf2b-47fc-a5bd-c9aa62ea6f8e",
+        "name": "Keystone",
+        "pack": "Fantasy",
+        "src": "/content/contents/bafkreiev5uqre57udzbqtlnkw332jrs622qdyi2q67hvuuv6qej7xqqxve",
+        "hue": 116,
+        "category": "ground"
+      },
+      {
+        "id": "a8fe46c8-8e62-4acb-9660-fd2db7596e37",
+        "name": "Mossy Keystone",
+        "pack": "Fantasy",
+        "src": "/content/contents/bafkreicnnbb2lkemjgvgwbe627cieimmp4dwgcbyfbcl7lu5o3ocgf6yzy",
+        "hue": 174,
+        "category": "ground"
+      },
+      {
+        "id": "d32dcb91-b3a0-4d09-8044-75ac60d0ea4b",
+        "name": "Sandy Flagstone",
+        "pack": "Fantasy",
+        "src": "/content/contents/bafkreighiwsbyddfzih2kymmoz6kkpn4wpbo2j3dwk35hbuixbixq32lqq",
+        "hue": 326,
+        "category": "ground"
+      },
+      {
+        "id": "efe88bc5-618c-4294-a5b5-4c64e95fafa3",
+        "name": "Apple",
+        "pack": "Genesis City",
+        "src": "/content/contents/bafkreicuv4b6zpwtucgdkyhrdpqvnlhe63r2xcm35kreemtwaddoanuksm",
+        "hue": 166,
+        "category": "nature"
+      },
+      {
+        "id": "71806ca6-1a2b-4d8b-b919-ae96241f8c08",
+        "name": "Balsam Flower",
+        "pack": "Genesis City",
+        "src": "/content/contents/bafkreifh7kypxodgjfdkvjq4ryisl4dkrxaccco6rr7mb4fzx3lq5ybmzy",
+        "hue": 289,
+        "category": "nature"
+      },
+      {
+        "id": "16888533-8bdd-4dc3-8694-738018f29133",
+        "name": "Barbacue",
+        "pack": "Genesis City",
+        "src": "/content/contents/bafkreifd5ki7lw5jeonp7cezxpoiuycfn2zgzkh6jqyrsfdwgm3wtzdi4a",
+        "hue": 201,
+        "category": "decorations"
+      },
+      {
+        "id": "0be9abea-83ae-4a9c-b24d-8a5ce1b9580f",
+        "name": "Beach Umbrella",
+        "pack": "Genesis City",
+        "src": "/content/contents/bafkreibuehbtl3a6agjyajyty4pixupi5licc2xgz3r4rxmzaiurb2e4gm",
+        "hue": 13,
+        "category": "decorations"
+      },
+      {
+        "id": "c9b17021-765c-4d9a-9966-ce93a9c323d1",
+        "name": "Bermuda Grass",
+        "pack": "Genesis City",
+        "src": "/content/contents/bafkreibytthve4zjlvbcnadjec2wjex2etqxuqtluriefzwwl4qe2qynne",
+        "hue": 265,
+        "category": "ground"
+      },
+      {
+        "id": "1a66d011-0a1e-430e-bc04-0f389c241d06",
+        "name": "Bicycle Parking Rack",
+        "pack": "Genesis City",
+        "src": "/content/contents/bafkreiaa25gwrrc4zvp2k7yapxgah4wguskjtyzj672bimjiw2b26ye2qe",
+        "hue": 145,
+        "category": "furniture"
+      },
+      {
+        "id": "55b53f11-5bff-4176-8ac8-bbf078ff99f9",
+        "name": "Big Flat Rock",
+        "pack": "Genesis City",
+        "src": "/content/contents/bafkreicsng4vfokukua5lzk7gv52jqryw73hxec4pqsy5xkkrz4rbdwo2e",
+        "hue": 8,
+        "category": "nature"
+      },
+      {
+        "id": "7db063b0-ba2b-4211-8fd5-8f44b38d9a19",
+        "name": "Big Mossy Rock",
+        "pack": "Genesis City",
+        "src": "/content/contents/bafkreigywnaxxuygtt5ao732vbnw3kcp34hjbkgrg57z3bpi4ynfzsegmy",
+        "hue": 140,
+        "category": "nature"
+      },
+      {
+        "id": "13f3da80-42e0-4e3b-a8b0-567ca1e28d34",
+        "name": "Bird Fountain",
+        "pack": "Genesis City",
+        "src": "/content/contents/bafkreihzue73ilqgb6y72opqew4ox4b5et7da5tvjpphut2ybzep7zntva",
+        "hue": 196,
+        "category": "decorations"
+      },
+      {
+        "id": "6aeafe19-cc0d-42ec-b7da-51104af39778",
+        "name": "Bird\u2019s Nest Fern Container",
+        "pack": "Genesis City",
+        "src": "/content/contents/bafkreie7zfe6vyc54ojzhif2ps274drh5aqftig3grep2v6b2kncsz3hue",
+        "hue": 113,
+        "category": "decorations"
+      },
+      {
+        "id": "af8136bb-c528-4c8c-a986-c352b48241bf",
+        "name": "Blue Table",
+        "pack": "Genesis City",
+        "src": "/content/contents/bafkreiftuaftgf2at3dauaxnw7jd4ienpwtkbjxgsirtna3incpq7mlgx4",
+        "hue": 236,
+        "category": "furniture"
+      },
+      {
+        "id": "bfbfdb49-05cb-4b8d-9dbd-041cde22e5d1",
+        "name": "Bush - Empty Land 1",
+        "pack": "Genesis City",
+        "src": "/content/contents/bafybeif42vn5j7cw2q26wirrbe5lbgsv566yrjnuvf4gnn6f5wtv6zc62q",
+        "hue": 119,
+        "category": "empty land"
+      },
+      {
+        "id": "ec3dcd4f-64c6-489b-a921-0cc2c823a69a",
+        "name": "Bush - Empty Land 2",
+        "pack": "Genesis City",
+        "src": "/content/contents/bafybeiglwq7pipd2irqowprk7eiiptieavuiejsa5ptaxwdxowubt2d3ju",
+        "hue": 41,
+        "category": "empty land"
+      },
+      {
+        "id": "3826959a-85b8-41aa-9c95-a68a4830dbbc",
+        "name": "Camping table",
+        "pack": "Genesis City",
+        "src": "/content/contents/bafkreig5bxnio53qnyjboznxoizrzvbsjrxys6d7fqh7tlpdr4rhgexdyq",
+        "hue": 28,
+        "category": "furniture"
+      },
+      {
+        "id": "aca2a574-4495-4752-a414-4550ce7becc5",
+        "name": "Cat Statue",
+        "pack": "Genesis City",
+        "src": "/content/contents/bafkreibfjskwejrpmnywnkhhsvmfh2kaur6ocfmfpyv3zjvxrrgyxmby2q",
+        "hue": 256,
+        "category": "structures"
+      },
+      {
+        "id": "ea013d0a-8f70-44ca-be3d-706d46cb7ed2",
+        "name": "Centipede Grass",
+        "pack": "Genesis City",
+        "src": "/content/contents/bafkreice3qpeyeb4ni7fnlt6bijs57zrbuw7cwmbymzcndyllzho3hbgaa",
+        "hue": 273,
+        "category": "ground"
+      },
+      {
+        "id": "5fabab5a-62b8-4c39-8938-00d22395d057",
+        "name": "Classic Lamp post",
+        "pack": "Genesis City",
+        "src": "/content/contents/bafkreif7uxtzyxhszdsaipddf4bzr52tmhdnjmr5f7uwdj725udiummzy4",
+        "hue": 292,
+        "category": "structures"
+      },
+      {
+        "id": "2c66317c-4923-4094-ad90-8ad72db010b1",
+        "name": "Cobblestone",
+        "pack": "Genesis City",
+        "src": "/content/contents/bafkreierjhhzpk5b6jj4do7fntudqupq6m2t2bg5qt2l56xseizs2b2zxa",
+        "hue": 7,
+        "category": "ground"
+      },
+      {
+        "id": "a7c13819-d5eb-4134-acf5-4ec2958fa7f7",
+        "name": "Coin Gecko Statue",
+        "pack": "Genesis City",
+        "src": "/content/contents/bafkreifbtszhre43pqfceyxecolil74z5o2bfhbmkldynnudjrwsevr25e",
+        "hue": 322,
+        "category": "structures"
+      },
+      {
+        "id": "3bd7d322-f897-444e-99f1-e4e82fb2c035",
+        "name": "Concrete",
+        "pack": "Genesis City",
+        "src": "/content/contents/bafkreidfir2nfh3jgwi376tkg7fgsioswjmpzbxrhkusgiiwpzcin52wri",
+        "hue": 267,
+        "category": "ground"
+      },
+      {
+        "id": "7f2dbcb5-40f5-4e2f-9409-1886d26ce068",
+        "name": "Grass Tile",
+        "pack": "Genesis City",
+        "src": "/content/contents/bafkreico4udal5kgb2324jh4cyqwljwnku6rrhdw6z4kd5fkp5rkertobe",
+        "hue": 203,
+        "category": "tiles"
+      },
+      {
+        "id": "b3135387-254d-46f2-86f6-a8ebca590564",
+        "name": "Rock - Empty Land 1",
+        "pack": "Genesis City",
+        "src": "/content/contents/bafybeib6qtdlzenxu3ybnu46jertsgrd73evip3rsmdfrxvjdrly5qbqhu",
+        "hue": 133,
+        "category": "empty land"
+      },
+      {
+        "id": "5df296c5-f070-44dc-9ba2-8cafe7852037",
+        "name": "Rock Tile",
+        "pack": "Genesis City",
+        "src": "/content/contents/bafkreidwerq6rwxrdupazvu5m75is3vdft37e6yf2hm5vqkhuedwbgc2ji",
+        "hue": 108,
+        "category": "tiles"
+      },
+      {
+        "id": "1874152b-dd3d-4890-960a-4e7719346326",
+        "name": "Sand Tile",
+        "pack": "Genesis City",
+        "src": "/content/contents/bafkreicjjkqxl6hagt24lpa4t7c2ltcyk5q5gdafsackyu6jmlxxysblye",
+        "hue": 274,
+        "category": "tiles"
+      },
+      {
+        "id": "5596f018-2573-4a93-8701-eb8af1a4a6c9",
+        "name": "1M Curved Cable",
+        "pack": "Sci-fi",
+        "src": "/content/contents/bafkreie4d34rvh4m7cj3uy2wi6qqrh7ai6ojy4cg2lm5u3iu3tz3a5et2i",
+        "hue": 36,
+        "category": "decorations"
+      },
+      {
+        "id": "c67cf4bb-2be5-4db0-9d49-c1847a7c3f0e",
+        "name": "1M Kinked Cable",
+        "pack": "Sci-fi",
+        "src": "/content/contents/bafkreibcm6w3xrt3y6e7yznvyirfnvyhkrm5vwbrm3z4ccp4m6v72khytm",
+        "hue": 282,
+        "category": "decorations"
+      },
+      {
+        "id": "5dcc30f6-292c-4c61-82bc-8f86c5781f8c",
+        "name": "1M Orange Striped Cable",
+        "pack": "Sci-fi",
+        "src": "/content/contents/bafkreicbxrs4nzkpjoymanwza62vh4ivwhweewbqei2vfr2tbb4cpng5ei",
+        "hue": 49,
+        "category": "decorations"
+      },
+      {
+        "id": "83237c70-a21c-4c61-8828-6ee51f9c0105",
+        "name": "2M Curved Cable",
+        "pack": "Sci-fi",
+        "src": "/content/contents/bafkreibeeptpc5r26z2loshwdjtz3eqrtiqjqwooh3ax4p6quxpdxoolni",
+        "hue": 193,
+        "category": "decorations"
+      },
+      {
+        "id": "d7e55c98-e10b-4671-8845-1a8dfa9af715",
+        "name": "2M Long Curved Cable",
+        "pack": "Sci-fi",
+        "src": "/content/contents/bafkreicr4w73o7fxfpj3ctopglex33q4ghu3cllll3gomd44umgdeyge4a",
+        "hue": 328,
+        "category": "decorations"
+      },
+      {
+        "id": "9c1edfb1-40ca-4d04-8fcb-dbd8dcf2c2a4",
+        "name": "Ball Stone",
+        "pack": "Sci-fi",
+        "src": "/content/contents/bafkreibget2bph3mygstlb2k6t5ize6fer67jvuyd6xxmz4ckqqahh6ag4",
+        "hue": 82,
+        "category": "nature"
+      },
+      {
+        "id": "a0328983-456e-4229-a116-16391c69a35f",
+        "name": "Bent Tubing",
+        "pack": "Sci-fi",
+        "src": "/content/contents/bafkreieauxbypezzq55okwksrhlhzurjveobggziuflunxpmp5nkxkeip4",
+        "hue": 128,
+        "category": "structures"
+      },
+      {
+        "id": "dba7c6c8-4b41-409e-88b3-84178ec417ce",
+        "name": "Blue Light Block",
+        "pack": "Sci-fi",
+        "src": "/content/contents/bafkreibgskax2oh6hoqyslpljmfansipyg36tgke6dxyp2pj67h5o47moy",
+        "hue": 289,
+        "category": "structures"
+      },
+      {
+        "id": "0fbe386e-cc30-4ce9-8eb6-d78101ff090b",
+        "name": "Blue Light Corner",
+        "pack": "Sci-fi",
+        "src": "/content/contents/bafkreicrihhtoaapq7zwx5nwdxwyc2aobtgztvqnk5bzxibf5invjkiu7i",
+        "hue": 113,
+        "category": "structures"
+      },
+      {
+        "id": "e6f54515-1149-4c8d-af15-d59ffd7d27a5",
+        "name": "Blue Light Cross",
+        "pack": "Sci-fi",
+        "src": "/content/contents/bafkreiek6bldogefclornubpgcp76bp3ccxmph3xic3gvuscx65scpmwpm",
+        "hue": 259,
+        "category": "structures"
+      },
+      {
+        "id": "3b5a99ec-0ae0-4f61-ae20-2fc511acdd12",
+        "name": "Blue Light Cube",
+        "pack": "Sci-fi",
+        "src": "/content/contents/bafkreibvvr6n6nqz4cz3d4l42hw5md6uk4aokmduckdvyi3r4a3gw5ezcq",
+        "hue": 172,
+        "category": "structures"
+      },
+      {
+        "id": "77bb5e25-550d-467f-a162-90ff2751407c",
+        "name": "Burgundy Kale",
+        "pack": "Sci-fi",
+        "src": "/content/contents/bafkreidqxr3urbyw7y2v6xsrcdvmdx3md7tc2ho3j2lr7cwnnsnhvayz5u",
+        "hue": 85,
+        "category": "nature"
+      },
+      {
+        "id": "5f25759e-dd1b-4294-9bc7-d8e66c198e9f",
+        "name": "Cactus Wand",
+        "pack": "Sci-fi",
+        "src": "/content/contents/bafkreiczlw3gfwqkiars52jr762jsmxm4gq2xe465372gfcfr2zfr3olxm",
+        "hue": 150,
+        "category": "nature"
+      },
+      {
+        "id": "428db18d-258b-476d-bde2-638ad3ab244b",
+        "name": "Checkerboard Floor Panel",
+        "pack": "Sci-fi",
+        "src": "/content/contents/bafkreifrua3ibne2xhg5dcvsz4rnfqkp2nou3ko6prypd72obeoxqlakvm",
+        "hue": 61,
+        "category": "tiles"
+      },
+      {
+        "id": "c8836077-7170-47b1-bc1f-e590d89d117c",
+        "name": "Component Floor Panel",
+        "pack": "Sci-fi",
+        "src": "/content/contents/bafkreiccv252ooej5qwqnecs3jaku54ed27wi6a6sjzyf4nfz2iphgtn2m",
+        "hue": 8,
+        "category": "tiles"
+      },
+      {
+        "id": "64cd0981-48a6-4cd1-9c45-6ec8e8d7e4c7",
+        "name": "Cross Floor Panel",
+        "pack": "Sci-fi",
+        "src": "/content/contents/bafkreialqrdq4p7opvvhzbw6jnarcxsaxvtcowzvqjik5ujcjqflgsr65m",
+        "hue": 63,
+        "category": "tiles"
+      },
+      {
+        "id": "6c501b29-1e92-4ae9-8b6a-b4fc3c6d375d",
+        "name": "Dirt Clump",
+        "pack": "Sci-fi",
+        "src": "/content/contents/bafkreigj6lrziny6fwgiv3gphrlxdfdxyubsyxeh53ebd2lcokqkdld5pm",
+        "hue": 136,
+        "category": "nature"
+      },
+      {
+        "id": "82a8f521-ea30-4fba-b91f-840b2658779d",
+        "name": "Dirt Mound",
+        "pack": "Sci-fi",
+        "src": "/content/contents/bafkreihhcmgpi4bgqhp57hjz6qs4u5fn72bkwjkiglkftd67y63w3mxbwy",
+        "hue": 12,
+        "category": "nature"
+      },
+      {
+        "id": "06f65cfc-1013-4506-930f-ff759561185d",
+        "name": "Four Square Floor Panel",
+        "pack": "Sci-fi",
+        "src": "/content/contents/bafkreida6bqzg4gnsocggfewwbrhhw64qlw2lej5at7ns3mcwwystp7xse",
+        "hue": 111,
+        "category": "tiles"
+      },
+      {
+        "id": "13b9f9e1-7b20-40fc-a21b-ca2103026096",
+        "name": "Grey Floor Panel",
+        "pack": "Sci-fi",
+        "src": "/content/contents/bafkreidt3mhebxxvdx5uq4s3ooxymybbzjjc42c5cu6j7qujxnk5uhseqq",
+        "hue": 318,
+        "category": "tiles"
+      },
+      {
+        "id": "526270d4-b8b9-432a-9a86-1c2c94f860fd",
+        "name": "Martian Reddish",
+        "pack": "Sci-fi",
+        "src": "/content/contents/bafkreihbthbbnamf7egoyyzzsu5ufv4icp5orygpb5d7zpwoi46hqvwt5u",
+        "hue": 220,
+        "category": "ground"
+      },
+      {
+        "id": "e8c04948-0255-4036-86ec-caae122f370f",
+        "name": "Purple Dust",
+        "pack": "Sci-fi",
+        "src": "/content/contents/bafkreihc7zwtofaip4lnuwlfwhetl3qkfvyy5ng7txoyxkrgwu7tlh62bi",
+        "hue": 70,
+        "category": "ground"
+      },
+      {
+        "id": "5213245c-db38-4195-8296-b15485230fa0",
+        "name": "Red Giant",
+        "pack": "Sci-fi",
+        "src": "/content/contents/bafkreigavmojmkyc5ysf42uvarzru4rpcisumtvgny5caalzofr7gzm2ji",
+        "hue": 262,
+        "category": "ground"
+      },
+      {
+        "id": "c892f776-59cf-4abe-8662-65a172368b31",
+        "name": "Venus Orange",
+        "pack": "Sci-fi",
+        "src": "/content/contents/bafkreifum3dujr3ag3djda222ijvm5aaiehtoanzv7stt7toj5brzpnguy",
+        "hue": 55,
+        "category": "ground"
+      },
+      {
+        "id": "0c419cb9-bc21-4c51-977f-41a505a097f0",
+        "name": "Admin Tools",
+        "pack": "Smart Items",
+        "src": "/content/contents/bafkreievymbc6guxdj4xqbql6seyubssbqn3lctv7ps5jqpiknjak7ztcu",
+        "hue": 141,
+        "category": "utils"
+      },
+      {
+        "id": "ambient-music-ambient-1-001",
+        "name": "Ambient Music - Ambient 1",
+        "pack": "Smart Items",
+        "src": "/content/contents/bafkreig6nk5bnvqdz2szic2tyirmwksd2giji5nk4fo22yyu5wbm2cvrry",
+        "hue": 112,
+        "category": "sounds",
+        "smart": true
+      },
+      {
+        "id": "ambient-music-ambient-2-002",
+        "name": "Ambient Music - Ambient 2",
+        "pack": "Smart Items",
+        "src": "/content/contents/bafkreig6nk5bnvqdz2szic2tyirmwksd2giji5nk4fo22yyu5wbm2cvrry",
+        "hue": 0,
+        "category": "sounds",
+        "smart": true
+      },
+      {
+        "id": "ambient-music-ambient-3-003",
+        "name": "Ambient Music - Ambient 3",
+        "pack": "Smart Items",
+        "src": "/content/contents/bafkreig6nk5bnvqdz2szic2tyirmwksd2giji5nk4fo22yyu5wbm2cvrry",
+        "hue": 212,
+        "category": "sounds",
+        "smart": true
+      },
+      {
+        "id": "8a172b9e-b57d-4920-a804-55cb77f46816",
+        "name": "Arrow",
+        "pack": "Smart Items",
+        "src": "/content/contents/bafkreifqyef4eaerv6gwlwc5c35lkzjy3s4g7s2zuzvi6kjfb7vedvnl74",
+        "hue": 138,
+        "category": "utils",
+        "smart": true
+      },
+      {
+        "id": "d673f2a7-5f82-4db2-813d-ece721414aa8",
+        "name": "Arrow Blue",
+        "pack": "Smart Items",
+        "src": "/content/contents/bafkreihssw2lciat2ig2jhsrsxsv3bn54zhf4jbymbadzjl5jufz5fobru",
+        "hue": 314,
+        "category": "utils",
+        "smart": true
+      },
+      {
+        "id": "1b0ea1b1-9672-4853-8aa1-5405473747d9",
+        "name": "Audio Stream",
+        "pack": "Smart Items",
+        "src": "/content/contents/bafkreibivlqfdaoezxqnb4e2wjt7ijyzlkdslcbusy4mec6gijgun7hgoe",
+        "hue": 36,
+        "category": "media",
+        "smart": true
+      },
+      {
+        "id": "42895f40-6ec9-49c4-863c-d916aaf5ae69",
+        "name": "Balloons",
+        "pack": "Smart Items",
+        "src": "/content/contents/bafkreiag7ezcefvnmxumemc7clud3673dvc5oazk6xu5vbna473iwjwici",
+        "hue": 24,
+        "category": "party",
+        "smart": true
+      },
+      {
+        "id": "2e1c4446-c99a-4698-9e13-819d232ca849",
+        "name": "Black Button",
+        "pack": "Smart Items",
+        "src": "/content/contents/bafkreigpnyzf5pjk6ahg4ucd6kyvmkfp2r7wzk6rp2rerws5rvvzwme3qq",
+        "hue": 17,
+        "category": "buttons",
+        "smart": true
+      },
+      {
+        "id": "51c9fa4a-4317-4be5-a6e2-21643b793414",
+        "name": "Black Chair",
+        "pack": "Smart Items",
+        "src": "/content/contents/bafkreieao3hpfsgq7l2cl644itj7mswcqk42f65a45nvcz2tphwfldil2u",
+        "hue": 290,
+        "category": "Seats",
+        "smart": true
+      },
+      {
+        "id": "504cd7ac-2873-40d8-9172-13c9c24304b0",
+        "name": "Blue Button",
+        "pack": "Smart Items",
+        "src": "/content/contents/bafkreid3ztllijyhra775khstemtx53m3wt4rdemin4ynof2b7fwkvzuaq",
+        "hue": 59,
+        "category": "buttons",
+        "smart": true
+      },
+      {
+        "id": "51ff7609-407f-481d-991b-8449ef59b390",
+        "name": "Blue Light Button",
+        "pack": "Smart Items",
+        "src": "/content/contents/bafkreiefoeh2cj22jjma3fnbfkfvay2xxvzhgloeevk2yv2s7umfiyiwtm",
+        "hue": 100,
+        "category": "buttons",
+        "smart": true
+      },
+      {
+        "id": "2415fd3a-66fd-4014-956d-d3168231e0d8",
+        "name": "Bubble",
+        "pack": "Smart Items",
+        "src": "/content/contents/bafkreibvdwxvs4fmpykrsf2xoi7ejtqsomsn3gzbxf7yta544en2ayuqzu",
+        "hue": 109,
+        "category": "Text",
+        "smart": true
+      },
+      {
+        "id": "0b8f3b57-a7f3-48aa-a88a-41098f264566",
+        "name": "Button Chest",
+        "pack": "Smart Items",
+        "src": "/content/contents/bafkreidg6bteosaczthyl6oi4fjhqxxezcbp36rdq5xhfzfuykyiulg2pu",
+        "hue": 252,
+        "category": "chests",
+        "smart": true
+      },
+      {
+        "id": "dd9fb5a1-7530-4e07-ac3f-3e50572c239f",
+        "name": "Chest",
+        "pack": "Smart Items",
+        "src": "/content/contents/bafkreic2tq33dcrlcso7kbqfj4d62eavooxmlow7okdm25aoq32dexj4xi",
+        "hue": 203,
+        "category": "chests",
+        "smart": true
+      },
+      {
+        "id": "6dcca8b8-0cb2-4cc4-b369-c95ca5afa199",
+        "name": "Clap Meter",
+        "pack": "Smart Items",
+        "src": "/content/contents/bafkreiesp5vcehmun2tiab657lxbbbbs4b76xprnnkbcy2v5xfexjayare",
+        "hue": 144,
+        "category": "party",
+        "smart": true
+      },
+      {
+        "id": "675110d1-7cf3-4927-95ee-bb6e9ec7f7ae",
+        "name": "Clap Wearable Dispenser",
+        "pack": "Smart Items",
+        "src": "/content/contents/bafkreiefdzidj2m63w36m2dq4zfcn4ulx4jdqqxeogk4rotpb3havpuxpm",
+        "hue": 17,
+        "category": "Rewards"
+      },
+      {
+        "id": "94f8aa27-7e44-4660-a133-5f12bbe17fa2",
+        "name": "Classic Bench",
+        "pack": "Smart Items",
+        "src": "/content/contents/bafkreiagwp2qd7x3qpqb36ioqck57dk22hnfn53r7qk56ept6fpvbvh7je",
+        "hue": 63,
+        "category": "Seats",
+        "smart": true
+      },
+      {
+        "id": "433f289b-3e3b-4157-9023-ae0964f90207",
+        "name": "Classic Bench Armrests",
+        "pack": "Smart Items",
+        "src": "/content/contents/bafkreiadfaf4wab7466fk3etwd4jbj5mp6f66oqdusirdkaucbbfo5i4c4",
+        "hue": 27,
+        "category": "Seats",
+        "smart": true
+      },
+      {
+        "id": "39a19351-c101-4401-8a82-bbd809bc1299",
+        "name": "Confetti",
+        "pack": "Smart Items",
+        "src": "/content/contents/bafkreiai6z74qunkbiogamxuje53xqt37ul3s3pf2blszlkqzq6qa5wv4i",
+        "hue": 265,
+        "category": "party",
+        "smart": true
+      },
+      {
+        "id": "7cd4d0bc-54d4-4f64-8ab2-6f18f41f03a3",
+        "name": "Cyberpunk Door",
+        "pack": "Smart Items",
+        "src": "/content/contents/bafybeigfpoxxnetzrkqi2zn7iswsbrj4kewfwxffgqfyvolckwsdwizjpa",
+        "hue": 51,
+        "category": "doors",
+        "smart": true
+      },
+      {
+        "id": "f9a5913c-d3d6-450e-9710-371037e4f1ba",
+        "name": "Cylinder Short Video Screen",
+        "pack": "Smart Items",
+        "src": "/content/contents/bafkreifgh4gaqcxlpkskrmfn4faat45zisx4yvrvwabwvxzlr7z3ehj7ti",
+        "hue": 232,
+        "category": "media"
+      },
+      {
+        "id": "ba1cc208-fd8a-4b5d-849c-8c5f02430af3",
+        "name": "Discord Button",
+        "pack": "Smart Items",
+        "src": "/content/contents/bafkreieihlxu4k77u7gfqclbg7hqcglxv4yhb4z3czda2svkvcrdrynhpq",
+        "hue": 196,
+        "category": "social",
+        "smart": true
+      },
+      {
+        "id": "e11d2848-b79d-4ddc-bfea-5033cbdd8f9f",
+        "name": "Discord Link",
+        "pack": "Smart Items",
+        "src": "/content/contents/bafkreibwzyalygrl5kcty2h5o4ej3k6lpj25y5rgyglhtkfwhjm675c4be",
+        "hue": 194,
+        "category": "social",
+        "smart": true
+      },
+      {
+        "id": "134af1d4-e0f1-451b-8a3b-9d2eb42fbe2d",
+        "name": "Exploding Barrel",
+        "pack": "Smart Items",
+        "src": "/content/contents/bafybeig2gwwp6xbfwm7gkjl7ugco3ybiyqkrsirhwbexvrs6fduzxrmblu",
+        "hue": 184,
+        "category": "health",
+        "smart": true
+      },
+      {
+        "id": "ff9257ec-9d62-404f-97c7-cf19c4035761",
+        "name": "Fantasy Chest",
+        "pack": "Smart Items",
+        "src": "/content/contents/bafkreidagr2rnd664szknm4z3xwcfwmfrlcoc63kxjawgecd4yssk6u37q",
+        "hue": 65,
+        "category": "chests",
+        "smart": true
+      },
+      {
+        "id": "649d5d96-18be-4f89-b592-f2dfce64b7fe",
+        "name": "Fantasy Lever",
+        "pack": "Smart Items",
+        "src": "/content/contents/bafkreig2xm4gzxjnad2ym7l7bvsprkucqczcqv4nsiqcobgpjdkxewfucy",
+        "hue": 125,
+        "category": "levers",
+        "smart": true
+      },
+      {
+        "id": "b3158511-bda8-4459-a213-d90df94f1e5b",
+        "name": "First Aid",
+        "pack": "Smart Items",
+        "src": "/content/contents/bafybeig5yvni57zemcnz3ye65w4yzvva2ldcc3uait7pie2p4mf7jjwj4u",
+        "hue": 302,
+        "category": "health",
+        "smart": true
+      },
+      {
+        "id": "ad646149-6103-4c86-aa08-38f8b94cb41f",
+        "name": "Fixed View Camera",
+        "pack": "Smart Items",
+        "src": "/content/contents/bafkreigi3zsivs66fw64akgdqii3u5qj52fw3hxbhst4umprepkjjjxtlq",
+        "hue": 141,
+        "category": "media",
+        "smart": true
+      },
+      {
+        "id": "b2d25644-2f43-48c0-a845-6b2220593411",
+        "name": "Flying Car Black Horizontal Platform",
+        "pack": "Smart Items",
+        "src": "/content/contents/bafybeif44hal2u5cve3p56zxbboo6ao2pxiaovpphty4sdzilfblu7vuey",
+        "hue": 115,
+        "category": "platforms",
+        "smart": true
+      },
+      {
+        "id": "f2531b20-80d1-403d-b810-14cab58045a8",
+        "name": "Flying Car Blue Horizontal Platform",
+        "pack": "Smart Items",
+        "src": "/content/contents/bafybeicxyidlehmvn4jlb2rdw3fwzy3i3tkghtjqbagiznivpdq6h5nmfe",
+        "hue": 169,
+        "category": "platforms",
+        "smart": true
+      },
+      {
+        "id": "305e4602-6d02-4b60-b029-5356d1ab684c",
+        "name": "Game Over",
+        "pack": "Smart Items",
+        "src": "/content/contents/bafkreiglh62p7huivwqc7tdcilflrvzou73i6zylzllhtrudfz53kvujsy",
+        "hue": 277,
+        "category": "text",
+        "smart": true
+      },
+      {
+        "id": "fefa3ea5-40f3-46c6-a240-9ce70db8f677",
+        "name": "Hatch Trapdoor",
+        "pack": "Smart Items",
+        "src": "/content/contents/bafybeiaqp7vjwdrweurnlsi7bbgntm4jaedjhhg73hjbgb2g3ncmameg5a",
+        "hue": 212,
+        "category": "doors",
+        "smart": true
+      },
+      {
+        "id": "001538c8-af64-43fe-bf81-74464d9bdf07",
+        "name": "Healing Pad",
+        "pack": "Smart Items",
+        "src": "/content/contents/bafybeifaloxes7yyarwometvuhmrlrxw4idumx7kuogxebjygcxaivvudy",
+        "hue": 32,
+        "category": "health",
+        "smart": true
+      },
+      {
+        "id": "03099c99-49ff-4880-9e80-095273bb08f6",
+        "name": "Horizontal Circular SciFi Platform",
+        "pack": "Smart Items",
+        "src": "/content/contents/bafkreidp6elcw2wml53taavse6wbasgtkkrctss42utr6igcwkf7omifuq",
+        "hue": 112,
+        "category": "platforms",
+        "smart": true
+      },
+      {
+        "id": "b853061a-bf5a-4d76-b7f1-92ed9ea4a8bf",
+        "name": "Invisible Cylinder",
+        "pack": "Smart Items",
+        "src": "/content/contents/bafkreiehkmi7pgokaegv4bwig4j3qtouaqpj4fltwp4x6pyoicofm3ty4y",
+        "hue": 306,
+        "category": "primitives"
+      },
+      {
+        "id": "27de7a4b-c63b-4c88-b521-e60a321abbb7",
+        "name": "Invisible Dome",
+        "pack": "Smart Items",
+        "src": "/content/contents/bafkreicvc2so26eghkkrvjloqutshfrtdqjjqbdfytjumvsdsrgs3esnzy",
+        "hue": 282,
+        "category": "primitives"
+      },
+      {
+        "id": "a72de884-e275-490d-b1bb-7f7eaca4777f",
+        "name": "Invisible Ramp",
+        "pack": "Smart Items",
+        "src": "/content/contents/bafkreiacltyacmg6zz7so2necwoloqbawlg7hmgllss4ad2xpr7qg7ufqq",
+        "hue": 356,
+        "category": "primitives"
+      },
+      {
+        "id": "e915cdb6-03e6-43e2-81fb-58ad8603f68c",
+        "name": "Iron Fence Door",
+        "pack": "Smart Items",
+        "src": "/content/contents/bafkreic3eqcigndkj227o2gmri7qnvud747zj57ky6ioeoab7yr4dkezqi",
+        "hue": 233,
+        "category": "doors",
+        "smart": true
+      },
+      {
+        "id": "d2dbef38-375f-485d-b5a1-51f46f5b3df8",
+        "name": "Open/Closed Sign",
+        "pack": "Smart Items",
+        "src": "/content/contents/bafybeidyx53j3sjwl4uo5yeg5sv2cecjqn3ijefxidqjc7l6hp6pje5np4",
+        "hue": 212,
+        "category": "Text",
+        "smart": true
+      },
+      {
+        "id": "37e449e5-9298-41b6-8c9a-a6d12b45bdd2",
+        "name": "Pirate Lever",
+        "pack": "Smart Items",
+        "src": "/content/contents/bafkreifrb5vv6qt35lae2saxfsmv6ag3xjqspa6scf4nnicwar4k5mmmda",
+        "hue": 232,
+        "category": "levers",
+        "smart": true
+      },
+      {
+        "id": "c461e2b4-c549-4fc9-aec3-f6531f97cc54",
+        "name": "Point light",
+        "pack": "Smart Items",
+        "src": "/content/contents/bafkreigsq6siqx3yxwpjoxkzjoqeqgwbhphgktfi6dovtp3pjhxud4jxhm",
+        "hue": 137,
+        "category": "lights",
+        "smart": true
+      },
+      {
+        "id": "0764e129-9fff-4158-98f0-6db8665dcf7b",
+        "name": "SciFi Lever",
+        "pack": "Smart Items",
+        "src": "/content/contents/bafybeih77wluvhc66qe4vo4c7ntvy6rxajgnfjyq3vwusdayvzpfkzl7om",
+        "hue": 158,
+        "category": "levers",
+        "smart": true
+      },
+      {
+        "id": "a98f25d6-6997-421a-acd3-c144098a91f0",
+        "name": "Sign Neon Arrow",
+        "pack": "Smart Items",
+        "src": "/content/contents/bafkreigl2yupac6cf3y2f3lod3q7bgynzplzl3yrlzkzl5yqdpf72qyz7q",
+        "hue": 2,
+        "category": "Text"
+      },
+      {
+        "id": "87c829b3-8e8d-4fcb-9f43-85d3aa9084f6",
+        "name": "Spotlight",
+        "pack": "Smart Items",
+        "src": "/content/contents/bafkreih4vgqpmui6kjbeel2spsgxnjqew3a4tma5dvem73y3wkbkuic6oq",
+        "hue": 140,
+        "category": "lights",
+        "smart": true
+      },
+      {
+        "id": "938064c8-65e1-4098-a497-3742337c3382",
+        "name": "Wearable Dispenser",
+        "pack": "Smart Items",
+        "src": "/content/contents/bafybeiaxv2yhapyryxcrqcs244kzvmiwcbgaf5flnfzne766sayeskyeb4",
+        "hue": 99,
+        "category": "Rewards",
+        "smart": true
+      },
+      {
+        "id": "799078be-caf5-40bf-aa77-1c7c095dbd23",
+        "name": "Wearable dispenser 2",
+        "pack": "Smart Items",
+        "src": "/content/contents/bafkreibrse7ko7mp7epuxv42cjnexehtbhy7ddehjfbn3m7erl4rwfkymm",
+        "hue": 240,
+        "category": "Rewards"
+      },
+      {
+        "id": "df06cace-c363-4a08-acdb-72abd2138696",
+        "name": "You Win",
+        "pack": "Smart Items",
+        "src": "/content/contents/bafkreihahkikgftbhb55jgxmjnrlu3jesyxmr4j4k443ptkfxsl747vip4",
+        "hue": 294,
+        "category": "text",
+        "smart": true
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": 1,
+      "key": "Transform",
+      "label": "Transform",
+      "componentName": "core::Transform",
+      "fields": [
+        "position",
+        "rotation",
+        "scale",
+        "parent"
+      ],
+      "_note": "COMPONENT_ID=1; rotation is a quaternion. The inspector exposes rotation as euler degrees."
+    },
+    {
+      "id": 1041,
+      "key": "GltfContainer",
+      "label": "GLTF",
+      "componentName": "core::GltfContainer",
+      "fields": [
+        "src",
+        "visibleMeshesCollisionMask",
+        "invisibleMeshesCollisionMask"
+      ]
+    },
+    {
+      "id": 1018,
+      "key": "MeshRenderer",
+      "label": "Mesh Renderer",
+      "componentName": "core::MeshRenderer",
+      "fields": [
+        "mesh"
+      ]
+    },
+    {
+      "id": 1019,
+      "key": "MeshCollider",
+      "label": "Mesh Collider",
+      "componentName": "core::MeshCollider",
+      "fields": [
+        "mesh",
+        "collisionMask"
+      ]
+    },
+    {
+      "id": 1017,
+      "key": "Material",
+      "label": "Material",
+      "componentName": "core::Material",
+      "fields": [
+        "material"
+      ]
+    },
+    {
+      "id": 1081,
+      "key": "VisibilityComponent",
+      "label": "Visibility",
+      "componentName": "core::VisibilityComponent",
+      "fields": [
+        "visible"
+      ]
+    },
+    {
+      "id": 1030,
+      "key": "TextShape",
+      "label": "Text Shape",
+      "componentName": "core::TextShape",
+      "fields": [
+        "text",
+        "fontSize",
+        "textColor"
+      ]
+    },
+    {
+      "id": 1020,
+      "key": "AudioSource",
+      "label": "Audio Source",
+      "componentName": "core::AudioSource",
+      "fields": [
+        "audioClipUrl",
+        "playing",
+        "volume"
+      ]
+    },
+    {
+      "id": 1062,
+      "key": "PointerEvents",
+      "label": "On Pointer Event",
+      "componentName": "core::PointerEvents",
+      "fields": [
+        "pointerEvents"
+      ]
+    },
+    {
+      "id": 1042,
+      "key": "Animator",
+      "label": "Animator",
+      "componentName": "core::Animator",
+      "fields": [
+        "states"
+      ]
+    },
+    {
+      "id": 1102,
+      "key": "LightSource",
+      "label": "Light Source",
+      "componentName": "core::LightSource",
+      "fields": [
+        "type",
+        "color",
+        "intensity"
+      ]
+    }
+  ]
+}

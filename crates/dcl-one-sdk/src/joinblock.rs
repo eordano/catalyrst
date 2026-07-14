@@ -2,7 +2,7 @@ use crate::netinfo::{nat_vm_guest, share_ip, Iface, IfaceClass};
 use serde_json::Value;
 use std::net::Ipv4Addr;
 
-pub const DEFAULT_WEB_EXPLORER: &str = "https://decentraland.org/play";
+pub const DEFAULT_WEB_EXPLORER: &str = "https://decentraland.org/bevy-web";
 
 pub fn web_explorer_base() -> String {
     std::env::var("DCL_ONE_SDK_WEB_EXPLORER")
@@ -11,6 +11,14 @@ pub fn web_explorer_base() -> String {
         .unwrap_or_else(|| DEFAULT_WEB_EXPLORER.to_string())
         .trim_end_matches('/')
         .to_string()
+}
+
+pub fn world_name(scene_json: &Value) -> Option<String> {
+    scene_json
+        .get("worldConfiguration")
+        .and_then(|w| w.get("name"))
+        .and_then(|n| n.as_str())
+        .map(str::to_string)
 }
 
 pub fn base_coords(scene_json: &Value) -> (i64, i64) {
@@ -25,12 +33,7 @@ pub fn base_coords(scene_json: &Value) -> (i64, i64) {
                 .and_then(|arr| arr.first())
                 .and_then(|v| v.as_str())
         });
-    parse_coords(base.unwrap_or_default()).unwrap_or((0, 0))
-}
-
-fn parse_coords(s: &str) -> Option<(i64, i64)> {
-    let (x, y) = s.split_once(',')?;
-    Some((x.trim().parse().ok()?, y.trim().parse().ok()?))
+    catalyrst_types::pointer::parse_pointer(base.unwrap_or_default()).unwrap_or((0, 0))
 }
 
 pub fn scene_title(scene_json: &Value) -> String {
@@ -61,10 +64,195 @@ pub struct JoinBlock {
     pub tunnel_hint: bool,
     pub editor: bool,
     pub optimized_assets_url: Option<String>,
+    /// Pre-encoded `&key=value...`, appended verbatim to every desktop link.
+    pub deep_link_extra: String,
+    pub native_hud: bool,
+    /// Native bevy client binary found on this machine (see
+    /// [`detect_native_bin`]); None prints the generic `bevy-explorer` name.
+    pub native_bin: Option<String>,
+}
+
+/// The native bevy client installed on this machine, if any: an explicit
+/// `DCL_ONE_NATIVE_BIN` wins, else `decentra-bevy` (the upstream bevy-explorer
+/// binary name) is looked up on PATH. Upstream rejects unknown flags, so the
+/// printed command must also drop the fork-only `--hud` for it — native_cmd
+/// keys that on the binary name.
+pub fn detect_native_bin() -> Option<String> {
+    if let Ok(explicit) = std::env::var("DCL_ONE_NATIVE_BIN") {
+        if !explicit.is_empty() {
+            return Some(explicit);
+        }
+    }
+    let path = std::env::var_os("PATH")?;
+    std::env::split_paths(&path)
+        .map(|dir| dir.join("decentra-bevy"))
+        .find(|candidate| candidate.is_file())
+        .map(|_| "decentra-bevy".to_string())
 }
 
 fn form_encode(value: &str) -> String {
     url::form_urlencoded::byte_serialize(value.as_bytes()).collect()
+}
+
+/// Port of upstream `parsePassthroughParams`: CLI tokens after a standalone
+/// `--` become deep-link params; a repeated key overwrites, as URLSearchParams.
+pub fn parse_passthrough_params(tokens: &[String]) -> Vec<(String, String)> {
+    let mut params: Vec<(String, String)> = Vec::new();
+    let mut set = |key: String, value: String| match params.iter_mut().find(|(k, _)| *k == key) {
+        Some(entry) => entry.1 = value,
+        None => params.push((key, value)),
+    };
+    let mut i = 0;
+    while i < tokens.len() {
+        let token = &tokens[i];
+        i += 1;
+        if !token.starts_with('-') {
+            continue;
+        }
+        let stripped = token.trim_start_matches('-');
+        if stripped.is_empty() {
+            continue;
+        }
+        match stripped.find('=') {
+            Some(0) => {}
+            Some(eq) => set(stripped[..eq].to_string(), stripped[eq + 1..].to_string()),
+            None => {
+                if i < tokens.len() && !tokens[i].starts_with('-') {
+                    set(stripped.to_string(), tokens[i].clone());
+                    i += 1;
+                } else {
+                    set(stripped.to_string(), "true".to_string());
+                }
+            }
+        }
+    }
+    params
+}
+
+/// The port the Explorer's own MCP server picks when the deep link names none
+/// (`McpServerPlugin.DEFAULT_PORT`). Sending it explicitly costs nothing and
+/// means the preview polls the port the client actually opened, rather than
+/// both sides guessing the same constant independently.
+pub const DEFAULT_EXPLORER_MCP_PORT: u16 = 8123;
+
+/// Declared flags and core keys beat passthrough, as upstream's `params.has`
+/// merge; per-row keys (`multi-instance`) dedupe in `desktop_link_with`.
+///
+/// Both guards compare case-insensitively: the client reads the deep link with
+/// `HttpUtility.ParseQueryString`, whose keys are case-insensitive, so a
+/// passthrough `--REALM=…` would otherwise collide with our own `realm=` and be
+/// handed to the client as the comma-joined value of one key.
+pub fn deep_link_extra(
+    local_ab: bool,
+    mcp: bool,
+    mcp_port: Option<u16>,
+    passthrough: &[String],
+) -> String {
+    const CORE_KEYS: &[&str] = &[
+        "realm",
+        "position",
+        "local-scene",
+        "dclenv",
+        "optimized-assets-url",
+    ];
+    let mut params: Vec<(String, String)> = Vec::new();
+    if local_ab {
+        params.push(("local-ab".to_string(), "true".to_string()));
+    }
+    if mcp {
+        params.push(("mcp".to_string(), "true".to_string()));
+    }
+    if let Some(port) = mcp_port {
+        params.push(("mcp-port".to_string(), port.to_string()));
+    }
+    for (key, value) in parse_passthrough_params(passthrough) {
+        if CORE_KEYS.iter().any(|c| c.eq_ignore_ascii_case(&key))
+            || params.iter().any(|(k, _)| k.eq_ignore_ascii_case(&key))
+        {
+            continue;
+        }
+        params.push((key, value));
+    }
+    params
+        .into_iter()
+        .map(|(k, v)| format!("&{}={}", form_encode(&k), form_encode(&v)))
+        .collect()
+}
+
+/// The engine's default startup portable: its baked public world host is
+/// CORS-blocked from a foreign web-explorer origin, so `portables=` repoints
+/// it at the realm's own same-origin `/world/…` mirror.
+pub const CONTROLLER_WORLD: &str = "basiccontroller.dcl.eth";
+
+/// Percent-encodes everything a query value must not carry raw (`&`, `=`, `?`,
+/// `#`, `%`, space, …) while leaving `:` `/` `,` `-` `.` `_` `~` alone, so the
+/// printed URL stays copy-pasteable. `form_encode` would escape the `://` of
+/// every realm and make these rows unreadable.
+fn query_value_encode(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    for byte in value.bytes() {
+        match byte {
+            b'A'..=b'Z'
+            | b'a'..=b'z'
+            | b'0'..=b'9'
+            | b'-'
+            | b'.'
+            | b'_'
+            | b'~'
+            | b':'
+            | b'/'
+            | b',' => out.push(byte as char),
+            _ => out.push_str(&format!("%{byte:02X}")),
+        }
+    }
+    out
+}
+
+pub fn web_join_url(web_explorer: &str, realm: &str, position: (i64, i64)) -> String {
+    let encoded_realm = query_value_encode(realm);
+    let base = format!(
+        "{web_explorer}/?preview=true&realm={encoded_realm}&position={},{}",
+        position.0, position.1
+    );
+    match crate::start::world_base_configured() {
+        true => format!(
+            "{base}&portables={}",
+            form_encode(&format!("{realm}/world/{CONTROLLER_WORLD}"))
+        ),
+        false => base,
+    }
+}
+
+pub fn desktop_deep_link(
+    realm: &str,
+    position: (i64, i64),
+    optimized_assets_url: Option<&str>,
+    extra: &str,
+) -> String {
+    let ab = match optimized_assets_url {
+        Some(url) => format!("&optimized-assets-url={}", form_encode(url)),
+        None => String::new(),
+    };
+    format!(
+        "{}&local-scene=true&dclenv=org{ab}{extra}",
+        catalyrst_types::realm_deep_link(realm, position),
+    )
+}
+
+pub fn mobile_deep_link(realm: &str, position: (i64, i64)) -> String {
+    format!(
+        "decentraland://open?preview={realm}&position={},{}",
+        position.0, position.1
+    )
+}
+
+pub fn swap_url_host(url: &str, host: impl std::fmt::Display) -> String {
+    match url.rsplit_once(':') {
+        Some((_, port)) if port.chars().all(|c| c.is_ascii_digit()) => {
+            format!("http://{host}:{port}")
+        }
+        _ => url.to_string(),
+    }
 }
 
 impl JoinBlock {
@@ -85,6 +273,29 @@ impl JoinBlock {
         out
     }
 
+    pub fn compact_body(&self) -> String {
+        let mut out = String::new();
+        self.push_interface_rows(&mut out);
+        self.push_warnings(&mut out);
+        let realm = format!("http://127.0.0.1:{}", self.port);
+        out.push('\n');
+        if self.editor {
+            out.push_str(&format!("  editor:   {realm}/inspector/\n"));
+        }
+        out.push_str(&format!("  desktop:  {}\n", self.desktop_link(&realm)));
+        if self.native_bin.is_some() {
+            out.push_str(&format!("  native:   {}\n", self.native_cmd(&realm)));
+        }
+        if self.qr == QrMode::Print {
+            if let Some(ip) = share_ip(&self.ifaces) {
+                let lan_realm = self.realm(ip);
+                out.push_str("  mobile:   scan to open in the Decentraland mobile app:\n");
+                self.push_mobile_qr(&mut out, &lan_realm);
+            }
+        }
+        out
+    }
+
     pub fn render(&self) -> String {
         format!("{}\n{}", self.heading(), self.body())
     }
@@ -94,10 +305,7 @@ impl JoinBlock {
     }
 
     fn web_url(&self, realm: &str) -> String {
-        format!(
-            "{}/?realm={realm}&preview=true&position={},{}",
-            self.web_explorer, self.position.0, self.position.1
-        )
+        web_join_url(&self.web_explorer, realm, self.position)
     }
 
     fn desktop_link(&self, realm: &str) -> String {
@@ -105,28 +313,43 @@ impl JoinBlock {
     }
 
     fn desktop_link_with(&self, realm: &str, extra: &str) -> String {
-        let ab = match &self.optimized_assets_url {
-            Some(url) => format!("&optimized-assets-url={}", form_encode(url)),
-            None => String::new(),
-        };
-        format!(
-            "decentraland://\"realm={realm}&position={},{}&local-scene=true&dclenv=org{ab}{extra}\"",
-            self.position.0, self.position.1
+        let row_keys: Vec<&str> = extra
+            .split('&')
+            .filter(|kv| !kv.is_empty())
+            .filter_map(|kv| kv.split('=').next())
+            .collect();
+        let shared: String = self
+            .deep_link_extra
+            .split('&')
+            .filter(|kv| !kv.is_empty())
+            .filter(|kv| !row_keys.contains(&kv.split('=').next().unwrap_or("")))
+            .map(|kv| format!("&{kv}"))
+            .collect();
+        desktop_deep_link(
+            realm,
+            self.position,
+            self.optimized_assets_url.as_deref(),
+            &format!("{extra}{shared}"),
         )
     }
 
     fn native_cmd(&self, realm: &str) -> String {
+        let bin = self.native_bin.as_deref().unwrap_or("bevy-explorer");
+        // --hud is the fork's webkit-overlay flag; upstream decentra-bevy
+        // errors out on flags it does not know.
+        let hud = if self.native_hud && bin == "bevy-explorer" {
+            " --hud"
+        } else {
+            ""
+        };
         format!(
-            "bevy-explorer --server {realm} --location {},{} --preview",
+            "{bin} --server {realm} --location {},{} --preview{hud}",
             self.position.0, self.position.1
         )
     }
 
     fn mobile_link(&self, realm: &str) -> String {
-        format!(
-            "decentraland://open?preview={realm}&position={}%2C{}",
-            self.position.0, self.position.1
-        )
+        mobile_deep_link(realm, self.position)
     }
 
     fn rows(&self) -> Vec<(String, String, &'static str)> {
@@ -184,11 +407,16 @@ impl JoinBlock {
             out.push_str(&format!("  editor:   {realm}/inspector/\n"));
         }
         out.push_str(&format!("  web:      {}\n", self.web_url(&realm)));
+        self.push_local_network_access_note(out);
         out.push_str(&format!("  desktop:  {}\n", self.desktop_link(&realm)));
         out.push_str(&format!(
             "  desktop (2nd instance): {}\n",
             self.desktop_link_with(&realm, "&multi-instance=true")
         ));
+        out.push_str(&format!("  native:   {}\n", self.native_cmd(&realm)));
+        out.push_str(
+            "  note: an Explorer already running SWALLOWS the plain desktop link \u{2014} it comes\n        to the front still on its old realm. Quit it first, or use the 2nd-instance\n        link above.\n",
+        );
         out.push_str(
             "  note: a second player needs a second identity \u{2014} use another browser\n        profile (new guest) or another account; same address = kicked.\n",
         );
@@ -207,9 +435,26 @@ impl JoinBlock {
         if self.editor {
             out.push_str(&format!("  editor:   {realm}/inspector/\n"));
         }
-        out.push_str(&format!("  desktop:  {}\n", self.desktop_link(&realm)));
+        let lan_assets = self
+            .optimized_assets_url
+            .as_deref()
+            .map(|u| swap_url_host(u, ip));
+        out.push_str(&format!(
+            "  desktop:  {}\n",
+            desktop_deep_link(
+                &realm,
+                self.position,
+                lan_assets.as_deref(),
+                &self.deep_link_extra
+            )
+        ));
         out.push_str(&format!("  native:   {}\n", self.native_cmd(&realm)));
         out.push_str(&format!("  web:      {}\n", self.web_url(&realm)));
+        if web_origin(&self.web_explorer).is_some() {
+            out.push_str(
+                "  ! the Local Network Access \"Allow\" described above must be granted on\n    the JOINING device's Chrome/Edge \u{2014} that browser is the one blocked.\n",
+            );
+        }
         out.push_str(&format!(
             "  ! browsers other than Chrome/Edge block http:// realms from the https\n    explorer (mixed content). Workarounds: the mobile-app QR, a native\n    client, or on the joining PC run\n    ssh -L {port}:127.0.0.1:{port} <user>@<this-machine>\n    and join with realm=http://127.0.0.1:{port}\n"
         ));
@@ -238,6 +483,18 @@ impl JoinBlock {
             }
             None => out.push_str(&format!("            {link}\n")),
         }
+    }
+
+    /// Chrome/Edge gate a site's requests to local addresses behind the Local
+    /// Network Access permission, granted per web-explorer origin.
+    fn push_local_network_access_note(&self, out: &mut String) {
+        let Some(origin) = web_origin(&self.web_explorer) else {
+            return;
+        };
+        out.push_str(&format!(
+            "  ! Chrome/Edge require permission for websites to reach local addresses\n    (Local Network Access) \u{2014} when the browser asks to access apps on your\n    device, click \"Allow\". If the scene never loads and no prompt appears,\n    enable it manually and reload:\n    chrome://settings/content/siteDetails?site={}\n    \u{2192} \"Apps on device\" (Chrome 145+) or \"Local network access\" (Chrome 142-144) \u{2192} Allow\n",
+            form_encode(&origin)
+        ));
     }
 
     fn push_tunnel_hint(&self, out: &mut String) {
@@ -272,6 +529,12 @@ impl JoinBlock {
         }
         out
     }
+}
+
+fn web_origin(web_explorer: &str) -> Option<String> {
+    let (scheme, rest) = web_explorer.split_once("://")?;
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
+    (!authority.is_empty()).then(|| format!("{scheme}://{authority}"))
 }
 
 pub fn qr_unicode(data: &str) -> Option<String> {
@@ -312,12 +575,15 @@ mod tests {
             position: (52, -68),
             port: 5600,
             ifaces,
-            web_explorer: "https://decentraland.org/play".to_string(),
+            web_explorer: "https://decentraland.org/bevy-web".to_string(),
             qr,
             unreachable: Vec::new(),
             tunnel_hint: false,
             editor: false,
+            native_bin: None,
             optimized_assets_url: None,
+            deep_link_extra: String::new(),
+            native_hud: true,
         }
     }
 
@@ -361,33 +627,97 @@ mod tests {
     }
 
     #[test]
+    fn compact_body_is_addresses_and_one_deeplink() {
+        let out = block(full_ifaces(), QrMode::Hint).compact_body();
+        assert!(out.contains("  Local:    http://127.0.0.1:5600\n"));
+        assert!(out.contains("  Network:  http://10.1.2.20:5600"));
+        assert!(out.contains(
+            "desktop:  decentraland://realm=http%3A%2F%2F127.0.0.1%3A5600&position=52%2C-68&local-scene=true&dclenv=org"
+        ));
+        assert!(!out.contains("more:"));
+        assert!(!out.contains("every join option"));
+        assert!(!out.contains("--verbose"));
+        assert!(!out.contains("2nd instance"));
+        assert!(!out.contains("Join from another device"));
+        assert!(!out.contains("mixed content"));
+        assert!(!out.contains("Join from the internet"));
+    }
+
+    #[test]
+    fn compact_body_keeps_warnings_and_explicit_qr() {
+        let out = block(vec![iface("lo", "127.0.0.1")], QrMode::Hint).compact_body();
+        assert!(out.contains("! no LAN address found"));
+        let out = block(full_ifaces(), QrMode::Print).compact_body();
+        assert!(out.contains("scan to open in the Decentraland mobile app"));
+        assert!(out.contains('\u{2588}') || out.contains('\u{2580}') || out.contains('\u{2584}'));
+    }
+
+    #[test]
+    fn swap_url_host_keeps_the_port_and_tolerates_bad_urls() {
+        assert_eq!(
+            swap_url_host("http://127.0.0.1:5147", "10.1.2.20"),
+            "http://10.1.2.20:5147"
+        );
+        assert_eq!(swap_url_host("not-a-url", "10.1.2.20"), "not-a-url");
+    }
+
+    #[test]
+    fn lan_desktop_link_rehosts_the_optimized_assets_url() {
+        let mut b = block(full_ifaces(), QrMode::Hint);
+        b.optimized_assets_url = Some("http://127.0.0.1:5147".to_string());
+        let out = b.render();
+        assert!(out.contains(
+            "desktop:  decentraland://realm=http%3A%2F%2F10.1.2.20%3A5600&position=52%2C-68&local-scene=true&dclenv=org&optimized-assets-url=http%3A%2F%2F10.1.2.20%3A5147"
+        ));
+    }
+
+    #[test]
     fn desktop_link_carries_the_optimized_assets_url_when_set() {
         let mut b = block(vec![iface("lo", "127.0.0.1")], QrMode::Hint);
         b.optimized_assets_url = Some("http://127.0.0.1:5147".to_string());
         let out = b.render();
         assert!(out.contains(
-            "decentraland://\"realm=http://127.0.0.1:5600&position=52,-68&local-scene=true&dclenv=org&optimized-assets-url=http%3A%2F%2F127.0.0.1%3A5147\""
+            "decentraland://realm=http%3A%2F%2F127.0.0.1%3A5600&position=52%2C-68&local-scene=true&dclenv=org&optimized-assets-url=http%3A%2F%2F127.0.0.1%3A5147"
         ));
+    }
+
+    /// Pins the mirror's encoding for the configured case: flipping the real
+    /// worlds-host switch would race every other test in this binary.
+    #[test]
+    fn portables_pin_grammar() {
+        let realm = "http://10.1.2.20:5600";
+        let pinned = format!(
+            "&portables={}",
+            form_encode(&format!("{realm}/world/{CONTROLLER_WORLD}"))
+        );
+        assert_eq!(
+            pinned,
+            "&portables=http%3A%2F%2F10.1.2.20%3A5600%2Fworld%2Fbasiccontroller.dcl.eth"
+        );
     }
 
     #[test]
     fn deep_link_grammars_are_pinned() {
         let out = block(full_ifaces(), QrMode::Hint).render();
         assert!(out.contains(
-            "desktop:  decentraland://\"realm=http://127.0.0.1:5600&position=52,-68&local-scene=true&dclenv=org\""
+            "desktop:  decentraland://realm=http%3A%2F%2F127.0.0.1%3A5600&position=52%2C-68&local-scene=true&dclenv=org"
         ));
         assert!(out.contains(
-            "desktop:  decentraland://\"realm=http://10.1.2.20:5600&position=52,-68&local-scene=true&dclenv=org\""
+            "desktop:  decentraland://realm=http%3A%2F%2F10.1.2.20%3A5600&position=52%2C-68&local-scene=true&dclenv=org"
         ));
         assert!(out.contains(
-            "desktop (2nd instance): decentraland://\"realm=http://127.0.0.1:5600&position=52,-68&local-scene=true&dclenv=org&multi-instance=true\""
+            "desktop (2nd instance): decentraland://realm=http%3A%2F%2F127.0.0.1%3A5600&position=52%2C-68&local-scene=true&dclenv=org&multi-instance=true"
         ));
         assert!(out.contains(
-            "native:   bevy-explorer --server http://10.1.2.20:5600 --location 52,-68 --preview"
+            "native:   bevy-explorer --server http://10.1.2.20:5600 --location 52,-68 --preview --hud"
         ));
         assert!(out.contains(
-            "web:      https://decentraland.org/play/?realm=http://10.1.2.20:5600&preview=true&position=52,-68"
+            "web:      https://decentraland.org/bevy-web/?preview=true&realm=http://10.1.2.20:5600&position=52,-68"
         ));
+        assert!(
+            !out.contains("&portables="),
+            "unconfigured worlds host must not advertise the mirror: {out}"
+        );
         assert!(out.contains("same address = kicked"));
     }
 
@@ -412,7 +742,7 @@ mod tests {
         let out = block(full_ifaces(), QrMode::Print).render();
         assert!(out.contains("scan to open in the Decentraland mobile app"));
         assert!(out.contains(
-            "this QR opens decentraland://open?preview=http://10.1.2.20:5600&position=52%2C-68 on your phone"
+            "this QR opens decentraland://open?preview=http://10.1.2.20:5600&position=52,-68 on your phone"
         ));
         assert!(out.contains('\u{2588}') || out.contains('\u{2580}') || out.contains('\u{2584}'));
     }
@@ -502,16 +832,31 @@ mod tests {
         assert!(out.contains("Join from the INTERNET \u{2014} tunnel connected"));
         assert!(out.contains("  realm:    https://tunnel.example/t/abc123defg\n"));
         assert!(out.contains(
-            "web:      https://decentraland.org/play/?realm=https://tunnel.example/t/abc123defg&preview=true&position=52,-68"
+            "web:      https://decentraland.org/bevy-web/?preview=true&realm=https://tunnel.example/t/abc123defg&position=52,-68"
         ));
         assert!(out.contains(
-            "desktop:  decentraland://\"realm=https://tunnel.example/t/abc123defg&position=52,-68&local-scene=true&dclenv=org\""
+            "desktop:  decentraland://realm=https%3A%2F%2Ftunnel.example%2Ft%2Fabc123defg&position=52%2C-68&local-scene=true&dclenv=org"
         ));
         assert!(out.contains(
-            "native:   bevy-explorer --server https://tunnel.example/t/abc123defg --location 52,-68 --preview"
+            "native:   bevy-explorer --server https://tunnel.example/t/abc123defg --location 52,-68 --preview --hud"
         ));
         assert!(out.contains(
-            "mobile:   decentraland://open?preview=https://tunnel.example/t/abc123defg&position=52%2C-68"
+            "mobile:   decentraland://open?preview=https://tunnel.example/t/abc123defg&position=52,-68"
+        ));
+    }
+
+    #[test]
+    fn native_hud_flag_is_omitted_when_disabled() {
+        let mut b = block(full_ifaces(), QrMode::Hint);
+        b.native_hud = false;
+        let out = b.render();
+        assert!(out.contains(
+            "native:   bevy-explorer --server http://10.1.2.20:5600 --location 52,-68 --preview\n"
+        ));
+        assert!(!out.contains("--hud"));
+        let internet = b.internet_section("https://tunnel.example/t/abc123defg");
+        assert!(internet.contains(
+            "native:   bevy-explorer --server https://tunnel.example/t/abc123defg --location 52,-68 --preview\n"
         ));
     }
 
@@ -521,14 +866,167 @@ mod tests {
         let out = b.internet_section("https://tunnel.example/t/abc123defg");
         assert!(out.contains("scan to open in the Decentraland mobile app"));
         assert!(out.contains(
-            "this QR opens decentraland://open?preview=https://tunnel.example/t/abc123defg&position=52%2C-68 on your phone"
+            "this QR opens decentraland://open?preview=https://tunnel.example/t/abc123defg&position=52,-68 on your phone"
         ));
     }
 
     #[test]
+    fn passthrough_parser_matches_upstream_forms() {
+        let toks = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert_eq!(
+            parse_passthrough_params(&toks(&["--paramA", "--paramX", "valueX"])),
+            vec![
+                ("paramA".to_string(), "true".to_string()),
+                ("paramX".to_string(), "valueX".to_string()),
+            ]
+        );
+        assert_eq!(
+            parse_passthrough_params(&toks(&["--key=value", "stray", "-flag"])),
+            vec![
+                ("key".to_string(), "value".to_string()),
+                ("flag".to_string(), "true".to_string()),
+            ]
+        );
+        assert_eq!(
+            parse_passthrough_params(&toks(&["--=x", "--k", "one", "--k=two"])),
+            vec![("k".to_string(), "two".to_string())]
+        );
+    }
+
+    #[test]
+    fn deep_link_extra_orders_declared_flags_before_passthrough() {
+        let extra = deep_link_extra(
+            true,
+            true,
+            Some(8123),
+            &["--speed".to_string(), "2".to_string()],
+        );
+        assert_eq!(extra, "&local-ab=true&mcp=true&mcp-port=8123&speed=2");
+    }
+
+    #[test]
+    fn deep_link_extra_passthrough_cannot_override_declared_or_core_keys() {
+        let extra = deep_link_extra(
+            false,
+            true,
+            None,
+            &[
+                "--mcp=false".to_string(),
+                "--realm".to_string(),
+                "evil".to_string(),
+                "--position=9,9".to_string(),
+                "--custom".to_string(),
+                "a b".to_string(),
+            ],
+        );
+        assert_eq!(extra, "&mcp=true&custom=a+b");
+    }
+
+    /// The client parses the deep link with `HttpUtility.ParseQueryString`,
+    /// which is case-insensitive: a surviving `REALM=` would not sit beside our
+    /// `realm=`, it would merge into it as `ours,theirs`.
+    #[test]
+    fn deep_link_extra_case_does_not_bypass_the_core_or_declared_guards() {
+        let extra = deep_link_extra(
+            true,
+            true,
+            Some(8123),
+            &[
+                "--REALM=http://evil".to_string(),
+                "--Position=9,9".to_string(),
+                "--Local-Scene=false".to_string(),
+                "--DCLENV=zone".to_string(),
+                "--Optimized-Assets-Url=http://evil".to_string(),
+                "--MCP=false".to_string(),
+                "--MCP-PORT=1".to_string(),
+                "--Local-Ab=false".to_string(),
+                "--custom=ok".to_string(),
+                "--CUSTOM=twice".to_string(),
+            ],
+        );
+        assert_eq!(extra, "&local-ab=true&mcp=true&mcp-port=8123&custom=ok");
+    }
+
+    /// A realm reflected from a proxy header must not be able to open a second
+    /// query param in the web-explorer href.
+    #[test]
+    fn web_join_url_encodes_the_realm() {
+        let url = web_join_url(
+            "https://decentraland.org/bevy-web",
+            "https://evil.example/?realm=http://attacker&x=",
+            (52, -68),
+        );
+        assert_eq!(
+            url,
+            "https://decentraland.org/bevy-web/?preview=true&realm=https://evil.example/%3Frealm%3Dhttp://attacker%26x%3D&position=52,-68"
+        );
+        assert_eq!(url.matches("realm=").count(), 1);
+        assert_eq!(url.matches('&').count(), 2, "only preview/realm/position");
+        assert_eq!(
+            web_join_url(
+                "https://decentraland.org/bevy-web",
+                "http://10.1.2.20:5600",
+                (52, -68)
+            ),
+            "https://decentraland.org/bevy-web/?preview=true&realm=http://10.1.2.20:5600&position=52,-68"
+        );
+    }
+
+    #[test]
+    fn passthrough_multi_instance_reaches_the_plain_row_without_duplicating() {
+        let mut b = block(full_ifaces(), QrMode::Hint);
+        b.deep_link_extra = deep_link_extra(false, false, None, &["--multi-instance".to_string()]);
+        let out = b.render();
+        assert!(out.contains(
+            "desktop:  decentraland://realm=http%3A%2F%2F127.0.0.1%3A5600&position=52%2C-68&local-scene=true&dclenv=org&multi-instance=true"
+        ));
+        let second = out
+            .lines()
+            .find(|l| l.contains("2nd instance"))
+            .expect("second-instance row");
+        assert_eq!(second.matches("multi-instance=true").count(), 1);
+    }
+
+    #[test]
+    fn desktop_links_carry_the_deep_link_extra_on_every_row() {
+        let mut b = block(full_ifaces(), QrMode::Hint);
+        b.deep_link_extra = deep_link_extra(true, false, None, &[]);
+        let out = b.render();
+        assert!(out.contains(
+            "desktop:  decentraland://realm=http%3A%2F%2F127.0.0.1%3A5600&position=52%2C-68&local-scene=true&dclenv=org&local-ab=true"
+        ));
+        assert!(out.contains(
+            "desktop:  decentraland://realm=http%3A%2F%2F10.1.2.20%3A5600&position=52%2C-68&local-scene=true&dclenv=org&local-ab=true"
+        ));
+        assert!(out.contains(
+            "desktop (2nd instance): decentraland://realm=http%3A%2F%2F127.0.0.1%3A5600&position=52%2C-68&local-scene=true&dclenv=org&multi-instance=true&local-ab=true"
+        ));
+        assert!(b.compact_body().contains("&local-ab=true"));
+    }
+
+    #[test]
+    fn local_network_access_note_follows_the_web_explorer_origin() {
+        let out = block(full_ifaces(), QrMode::Hint).render();
+        assert!(out.contains("Local Network Access"));
+        assert!(out
+            .contains("chrome://settings/content/siteDetails?site=https%3A%2F%2Fdecentraland.org"));
+        assert!(out.contains("\"Apps on device\" (Chrome 145+)"));
+        assert!(out.contains("granted on\n    the JOINING device's Chrome/Edge"));
+        let mut b = block(full_ifaces(), QrMode::Hint);
+        b.web_explorer = "https://play.example.net/play".to_string();
+        assert!(b
+            .render()
+            .contains("chrome://settings/content/siteDetails?site=https%3A%2F%2Fplay.example.net"));
+        b.web_explorer = "not-a-url".to_string();
+        let out = b.render();
+        assert!(!out.contains("chrome://settings"));
+        assert!(!out.contains("JOINING device"));
+    }
+
+    #[test]
     fn web_explorer_base_trims_trailing_slash() {
-        assert_eq!(DEFAULT_WEB_EXPLORER, "https://decentraland.org/play");
+        assert_eq!(DEFAULT_WEB_EXPLORER, "https://decentraland.org/bevy-web");
         let b = block(full_ifaces(), QrMode::Hint);
-        assert!(!b.web_url("http://127.0.0.1:5600").contains("play//?"));
+        assert!(!b.web_url("http://127.0.0.1:5600").contains("web//?"));
     }
 }

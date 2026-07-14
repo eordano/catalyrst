@@ -1,8 +1,9 @@
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::Json;
+use catalyrst_types::ApiErrorBody;
 use serde::Serialize;
-use serde_json::{json, Value};
+use serde_json::json;
 use thiserror::Error;
 
 pub struct Ok2<T: Serialize>(pub StatusCode, pub T);
@@ -44,10 +45,6 @@ impl ApiError {
     pub fn not_found(msg: impl Into<String>) -> Self {
         Self::NotFound(msg.into())
     }
-
-    pub fn with_data(self, data: Value) -> ApiErrorWithData {
-        ApiErrorWithData { error: self, data }
-    }
 }
 
 impl ApiError {
@@ -76,20 +73,23 @@ impl ApiError {
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         let status = self.status();
-        let body = json!({ "ok": false, "message": self.message() });
-        (status, Json(body)).into_response()
+        (status, Json(ApiErrorBody::new(self.message()))).into_response()
     }
 }
 
-pub struct ApiErrorWithData {
-    error: ApiError,
-    data: Value,
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-impl IntoResponse for ApiErrorWithData {
-    fn into_response(self) -> Response {
-        let status = self.error.status();
-        let body = json!({ "ok": false, "message": self.error.message(), "data": self.data });
-        (status, Json(body)).into_response()
+    #[tokio::test]
+    async fn error_envelope_wire_shape() {
+        let resp = ApiError::not_found("Rental not found").into_response();
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+        let bytes = axum::body::to_bytes(resp.into_body(), 1024).await.unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(
+            v,
+            json!({ "ok": false, "error": "Rental not found", "message": "Rental not found" })
+        );
     }
 }

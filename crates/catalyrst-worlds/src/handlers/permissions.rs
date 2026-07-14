@@ -3,11 +3,12 @@ use std::collections::BTreeMap;
 use axum::extract::{OriginalUri, Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::Json;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use crate::access::AccessSetting;
 use crate::auth_chain::{require_verified, AuthChainError};
+use crate::fed::names::LocalWorldName;
 use crate::http::ApiError;
 use crate::AppState;
 
@@ -15,16 +16,62 @@ const MAX_WALLETS: usize = 1000;
 const MAX_COMMUNITIES: usize = 50;
 const DCL_ETH_SUFFIX: &str = ".dcl.eth";
 
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "worlds/"))]
+pub struct AllowListPermission {
+    #[serde(rename = "type")]
+    pub kind: String,
+    pub wallets: Vec<String>,
+}
+
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "worlds/"))]
+pub struct WorldPermissionsBlock {
+    pub deployment: AllowListPermission,
+    pub streaming: AllowListPermission,
+    #[cfg_attr(feature = "ts", ts(type = "unknown"))]
+    pub access: Value,
+}
+
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "worlds/"))]
+pub struct PermissionSummaryEntry {
+    pub permission: String,
+    pub world_wide: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(type = "number | null", optional))]
+    pub parcel_count: Option<i64>,
+}
+
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "worlds/"))]
+pub struct PermissionsResponse {
+    pub permissions: WorldPermissionsBlock,
+    pub owner: Option<String>,
+    pub summary: BTreeMap<String, Vec<PermissionSummaryEntry>>,
+}
+
+#[utoipa::path(
+    get,
+    path = "/world/{world_name}/permissions",
+    tag = "permissions",
+    params(("world_name" = String, Path)),
+    responses(
+        (status = 200, body = PermissionsResponse),
+        (status = 404, body = catalyrst_types::ApiErrorBody),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn get_permissions(
     State(state): State<AppState>,
     Path(world_name): Path<String>,
-) -> Result<Json<Value>, ApiError> {
+) -> Result<Json<PermissionsResponse>, ApiError> {
     let world = state.worlds.get_world(&world_name).await?;
     let access = world.as_ref().map(|w| w.access.clone()).unwrap_or_default();
 
     let owner = resolve_world_owner(
         &state,
-        &world_name,
+        &LocalWorldName::from_request_path(&world_name),
         world.as_ref().and_then(|w| w.owner.clone()),
     )
     .await;
@@ -36,7 +83,7 @@ pub async fn get_permissions(
 
     let mut deployment_wallets: Vec<String> = Vec::new();
     let mut streaming_wallets: Vec<String> = Vec::new();
-    let mut summary: BTreeMap<String, Vec<Value>> = BTreeMap::new();
+    let mut summary: BTreeMap<String, Vec<PermissionSummaryEntry>> = BTreeMap::new();
 
     for r in &records {
         match r.permission_type.as_str() {
@@ -44,46 +91,61 @@ pub async fn get_permissions(
             "streaming" => streaming_wallets.push(r.address.clone()),
             _ => {}
         }
-        let mut entry = serde_json::Map::new();
-        entry.insert("permission".into(), json!(r.permission_type));
-        entry.insert("world_wide".into(), json!(r.is_world_wide));
-        if !r.is_world_wide {
-            entry.insert("parcel_count".into(), json!(r.parcel_count));
-        }
         summary
             .entry(r.address.clone())
             .or_default()
-            .push(Value::Object(entry));
+            .push(PermissionSummaryEntry {
+                permission: r.permission_type.clone(),
+                world_wide: r.is_world_wide,
+                parcel_count: if r.is_world_wide {
+                    None
+                } else {
+                    Some(r.parcel_count)
+                },
+            });
     }
 
-    let body = json!({
-        "permissions": {
-            "deployment": { "type": "allow-list", "wallets": deployment_wallets },
-            "streaming": { "type": "allow-list", "wallets": streaming_wallets },
-            "access": access.to_public_json(),
+    Ok(Json(PermissionsResponse {
+        permissions: WorldPermissionsBlock {
+            deployment: AllowListPermission {
+                kind: "allow-list".to_string(),
+                wallets: deployment_wallets,
+            },
+            streaming: AllowListPermission {
+                kind: "allow-list".to_string(),
+                wallets: streaming_wallets,
+            },
+            access: access.to_public_json(),
         },
-        "owner": owner,
-        "summary": summary,
-    });
-
-    Ok(Json(body))
+        owner,
+        summary,
+    }))
 }
 
+/// Resolve who owns a world: the stored column first, then the live squid ENS answer.
+///
+/// **The one chokepoint for ownership in this crate, and the reason it takes a
+/// [`LocalWorldName`] rather than a `&str`.** A world name reported by a federated peer
+/// is a [`crate::fed::names::RemoteWorldName`], there is no conversion between the two
+/// types in either direction, and no constructor of `LocalWorldName` accepts one. So a
+/// peer-reported name cannot reach this function without somebody writing a line that
+/// names the lie -- and the grep gate in `fed::wire` fails the build if they do.
+///
+/// The precedence (`stored_owner` first) is unchanged by this branch, and it is exactly
+/// why the mirror path writes no column of `worlds`: a row written there would outrank
+/// the chain permanently.
 pub(crate) async fn resolve_world_owner(
     state: &AppState,
-    world_name: &str,
+    world_name: &LocalWorldName,
     stored_owner: Option<String>,
 ) -> Option<String> {
     if let Some(owner) = stored_owner {
         return Some(owner);
     }
     let pool = state.squid_pool.as_ref()?;
-    let label = world_name
-        .to_lowercase()
-        .strip_suffix(DCL_ETH_SUFFIX)
-        .map(|s| s.to_string())
-        .unwrap_or_else(|| world_name.to_lowercase());
-    match resolve_name_owner_id(pool, &label).await {
+    let lowered = world_name.as_str();
+    let label = lowered.strip_suffix(DCL_ETH_SUFFIX).unwrap_or(lowered);
+    match resolve_name_owner_id(pool, label).await {
         Ok(Some(owner_id)) => owner_id.split('-').next().map(|a| a.to_lowercase()),
         Ok(None) => None,
         Err(e) => {
@@ -93,12 +155,18 @@ pub(crate) async fn resolve_world_owner(
     }
 }
 
+// Ownership comes from the NFT entity, never from `ens.owner_id`: the squid's
+// ENS handler seeds the owner from the registrar *caller* and never updates it,
+// so a DCLControllerV2 registration records the controller contract rather than
+// the buyer. `nft.owner_id` is the ERC-721 owner and tracks later transfers.
 async fn resolve_name_owner_id(
     pool: &sqlx::PgPool,
     label: &str,
 ) -> Result<Option<String>, sqlx::Error> {
     sqlx::query_scalar(
-        "SELECT owner_id FROM squid_marketplace.ens WHERE lower(subdomain)=lower($1)",
+        "SELECT n.owner_id FROM squid_marketplace.nft n
+         JOIN squid_marketplace.ens e ON n.ens_id = e.id
+         WHERE n.category = 'ens' AND lower(e.subdomain) = lower($1)",
     )
     .bind(label)
     .fetch_optional(pool)
@@ -112,11 +180,18 @@ async fn verify_owner(
     method: &str,
     world_name: &str,
 ) -> Result<String, ApiError> {
-    let auth = require_verified(headers, method, path).map_err(map_auth_error)?;
-    let signer = auth.signer.to_lowercase();
+    let auth = require_verified(headers, method, path)
+        .await
+        .map_err(map_auth_error)?;
+    let signer = auth.signer.as_str().to_string();
 
     let world = state.worlds.get_world(world_name).await?;
-    let owner = resolve_world_owner(state, world_name, world.and_then(|w| w.owner)).await;
+    let owner = resolve_world_owner(
+        state,
+        &LocalWorldName::from_request_path(world_name),
+        world.and_then(|w| w.owner),
+    )
+    .await;
     let is_owner = owner
         .as_deref()
         .map(|o| o.eq_ignore_ascii_case(&signer))
@@ -146,17 +221,39 @@ fn is_permission_with_wallet_support(p: &str) -> bool {
     p == "deployment" || p == "streaming" || p == "access"
 }
 
+#[utoipa::path(
+    post,
+    path = "/world/{world_name}/permissions/{permission_name}",
+    tag = "permissions",
+    params(("world_name" = String, Path), ("permission_name" = String, Path)),
+    request_body = serde_json::Value,
+    responses(
+        (status = 204),
+        (status = 400, body = catalyrst_types::ApiErrorBody),
+        (status = 401, body = catalyrst_types::ApiErrorBody),
+        (status = 403, body = catalyrst_types::ApiErrorBody),
+        (status = 404, body = catalyrst_types::ApiErrorBody),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn post_permissions(
     State(state): State<AppState>,
     Path((world_name, permission_name)): Path<(String, String)>,
     OriginalUri(uri): OriginalUri,
     headers: HeaderMap,
 ) -> Result<StatusCode, ApiError> {
-    let auth = require_verified(&headers, "post", uri.path()).map_err(map_auth_error)?;
-    let signer = auth.signer.to_lowercase();
+    let auth = require_verified(&headers, "post", uri.path())
+        .await
+        .map_err(map_auth_error)?;
+    let signer = auth.signer.as_str().to_string();
 
     let world = state.worlds.get_world(&world_name).await?;
-    let owner = resolve_world_owner(&state, &world_name, world.and_then(|w| w.owner)).await;
+    let owner = resolve_world_owner(
+        &state,
+        &LocalWorldName::from_request_path(&world_name),
+        world.and_then(|w| w.owner),
+    )
+    .await;
     if !owner
         .as_deref()
         .map(|o| o.eq_ignore_ascii_case(&signer))
@@ -345,6 +442,20 @@ async fn set_access_from_metadata(
     Ok(())
 }
 
+#[utoipa::path(
+    put,
+    path = "/world/{world_name}/permissions/{permission_name}/{address}",
+    tag = "permissions",
+    params(("world_name" = String, Path), ("permission_name" = String, Path), ("address" = String, Path)),
+    responses(
+        (status = 204),
+        (status = 400, body = catalyrst_types::ApiErrorBody),
+        (status = 401, body = catalyrst_types::ApiErrorBody),
+        (status = 403, body = catalyrst_types::ApiErrorBody),
+        (status = 404, body = catalyrst_types::ApiErrorBody),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn put_permissions_address(
     State(state): State<AppState>,
     Path((world_name, permission_name, address)): Path<(String, String, String)>,
@@ -386,6 +497,20 @@ pub async fn put_permissions_address(
     Ok(StatusCode::NO_CONTENT)
 }
 
+#[utoipa::path(
+    delete,
+    path = "/world/{world_name}/permissions/{permission_name}/{address}",
+    tag = "permissions",
+    params(("world_name" = String, Path), ("permission_name" = String, Path), ("address" = String, Path)),
+    responses(
+        (status = 204),
+        (status = 400, body = catalyrst_types::ApiErrorBody),
+        (status = 401, body = catalyrst_types::ApiErrorBody),
+        (status = 403, body = catalyrst_types::ApiErrorBody),
+        (status = 404, body = catalyrst_types::ApiErrorBody),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn delete_permissions_address(
     State(state): State<AppState>,
     Path((world_name, permission_name, address)): Path<(String, String, String)>,
@@ -427,6 +552,21 @@ pub struct ParcelsInput {
     pub parcels: Vec<String>,
 }
 
+#[utoipa::path(
+    post,
+    path = "/world/{world_name}/permissions/{permission_name}/address/{address}/parcels",
+    tag = "permissions",
+    params(("world_name" = String, Path), ("permission_name" = String, Path), ("address" = String, Path)),
+    request_body = serde_json::Value,
+    responses(
+        (status = 204),
+        (status = 400, body = catalyrst_types::ApiErrorBody),
+        (status = 401, body = catalyrst_types::ApiErrorBody),
+        (status = 403, body = catalyrst_types::ApiErrorBody),
+        (status = 404, body = catalyrst_types::ApiErrorBody),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn post_permission_parcels(
     State(state): State<AppState>,
     Path((world_name, permission_name, address)): Path<(String, String, String)>,
@@ -443,6 +583,21 @@ pub async fn post_permission_parcels(
     Ok(StatusCode::NO_CONTENT)
 }
 
+#[utoipa::path(
+    delete,
+    path = "/world/{world_name}/permissions/{permission_name}/address/{address}/parcels",
+    tag = "permissions",
+    params(("world_name" = String, Path), ("permission_name" = String, Path), ("address" = String, Path)),
+    request_body = serde_json::Value,
+    responses(
+        (status = 204),
+        (status = 400, body = catalyrst_types::ApiErrorBody),
+        (status = 401, body = catalyrst_types::ApiErrorBody),
+        (status = 403, body = catalyrst_types::ApiErrorBody),
+        (status = 404, body = catalyrst_types::ApiErrorBody),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn delete_permission_parcels(
     State(state): State<AppState>,
     Path((world_name, permission_name, address)): Path<(String, String, String)>,
@@ -485,6 +640,17 @@ pub struct ParcelsQuery {
     pub y2: Option<i32>,
 }
 
+#[utoipa::path(
+    get,
+    path = "/world/{world_name}/permissions/{permission_name}/address/{address}/parcels",
+    tag = "permissions",
+    params(("world_name" = String, Path), ("permission_name" = String, Path), ("address" = String, Path), ("limit" = Option<i64>, Query), ("offset" = Option<i64>, Query)),
+    responses(
+        (status = 200, body = serde_json::Value),
+        (status = 404, body = catalyrst_types::ApiErrorBody),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn get_allowed_parcels_for_permission(
     State(state): State<AppState>,
     Path((world_name, permission_name, address)): Path<(String, String, String)>,
@@ -520,6 +686,19 @@ pub async fn get_allowed_parcels_for_permission(
     Ok(Json(json!({ "total": total, "parcels": parcels })))
 }
 
+#[utoipa::path(
+    post,
+    path = "/world/{world_name}/permissions/{permission_name}/parcels",
+    tag = "permissions",
+    params(("world_name" = String, Path), ("permission_name" = String, Path)),
+    request_body = serde_json::Value,
+    responses(
+        (status = 200, body = serde_json::Value),
+        (status = 400, body = catalyrst_types::ApiErrorBody),
+        (status = 404, body = catalyrst_types::ApiErrorBody),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn get_addresses_for_parcel_permission(
     State(state): State<AppState>,
     Path((world_name, permission_name)): Path<(String, String)>,
@@ -560,11 +739,26 @@ fn validate_address_and_allow_list(address: &str, permission_name: &str) -> Resu
 }
 
 fn clamp_pagination(limit: Option<i64>, offset: Option<i64>) -> (i64, i64) {
-    let limit = limit.unwrap_or(100).clamp(1, 1000);
-    let offset = offset.unwrap_or(0).max(0);
-    (limit, offset)
+    (
+        catalyrst_types::clamp_limit(limit, 100, 1000),
+        offset.unwrap_or(0).max(0),
+    )
 }
 
+#[utoipa::path(
+    put,
+    path = "/world/{world_name}/permissions/access/communities/{communityId}",
+    tag = "permissions",
+    params(("world_name" = String, Path), ("communityId" = String, Path)),
+    responses(
+        (status = 204),
+        (status = 400, body = catalyrst_types::ApiErrorBody),
+        (status = 401, body = catalyrst_types::ApiErrorBody),
+        (status = 403, body = catalyrst_types::ApiErrorBody),
+        (status = 404, body = catalyrst_types::ApiErrorBody),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn put_permissions_access_community(
     State(state): State<AppState>,
     Path((world_name, community_id)): Path<(String, String)>,
@@ -579,6 +773,20 @@ pub async fn put_permissions_access_community(
     Ok(StatusCode::NO_CONTENT)
 }
 
+#[utoipa::path(
+    delete,
+    path = "/world/{world_name}/permissions/access/communities/{communityId}",
+    tag = "permissions",
+    params(("world_name" = String, Path), ("communityId" = String, Path)),
+    responses(
+        (status = 204),
+        (status = 400, body = catalyrst_types::ApiErrorBody),
+        (status = 401, body = catalyrst_types::ApiErrorBody),
+        (status = 403, body = catalyrst_types::ApiErrorBody),
+        (status = 404, body = catalyrst_types::ApiErrorBody),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn delete_permissions_access_community(
     State(state): State<AppState>,
     Path((world_name, community_id)): Path<(String, String)>,

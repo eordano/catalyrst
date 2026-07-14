@@ -53,7 +53,10 @@ async fn read_only_gate(
     next.run(request).await
 }
 
-fn content_routes(state: &Arc<AppState>) -> Router<Arc<AppState>> {
+fn content_routes(
+    state: &Arc<AppState>,
+    post_entities_limiter: &Arc<crate::rate_limit::PostEntitiesRateLimiter>,
+) -> Router<Arc<AppState>> {
     Router::new()
         .route("/challenge", get(handlers::get_challenge::get_challenge))
         .route(
@@ -124,7 +127,19 @@ fn content_routes(state: &Arc<AppState>) -> Router<Arc<AppState>> {
                 .route_layer(axum::middleware::from_fn_with_state(
                     state.clone(),
                     read_only_gate,
+                ))
+                // Outermost on this route: a throttled client must be rejected before the
+                // multipart handler buffers its multi-MB upload into memory.
+                .route_layer(axum::middleware::from_fn_with_state(
+                    post_entities_limiter.clone(),
+                    crate::rate_limit::post_entities_rate_limit,
                 )),
+        )
+        .route(
+            "/scenes/{coord}",
+            axum::routing::delete(handlers::unpublish_scene::unpublish_scene).route_layer(
+                axum::middleware::from_fn_with_state(state.clone(), read_only_gate),
+            ),
         )
 }
 
@@ -141,6 +156,10 @@ fn lambdas_routes() -> Router<Arc<AppState>> {
         .route(
             "/lambdas/profile/{id}",
             get(handlers::lambdas::profile_alias),
+        )
+        .route(
+            "/lambdas/collections",
+            get(handlers::lambdas_catalog::nfts_collections),
         )
         .route(
             "/lambdas/collections/contents/{pointer}/thumbnail",
@@ -220,6 +239,10 @@ fn lambdas_routes() -> Router<Arc<AppState>> {
         .route(
             "/lambdas/users/{address}/parcels/{x}/{y}/permissions",
             get(handlers::lambdas_land::parcel_permissions),
+        )
+        .route(
+            "/lambdas/users/{address}/parcels/permissions",
+            post(handlers::lambdas_land::parcels_permissions_batch),
         )
         .route(
             "/lambdas/names/{name}/owner",
@@ -515,38 +538,6 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             "/admin/api/scene-state/reset",
             post(admin::api::scene_state_reset),
         )
-        .route(
-            "/admin/api/credits/seasons-list",
-            post(admin::api::credits_seasons_list),
-        )
-        .route(
-            "/admin/api/credits/season-create",
-            post(admin::api::credits_season_create),
-        )
-        .route(
-            "/admin/api/credits/season-update",
-            post(admin::api::credits_season_update),
-        )
-        .route(
-            "/admin/api/credits/season-delete",
-            post(admin::api::credits_season_delete),
-        )
-        .route(
-            "/admin/api/credits/goals-list",
-            post(admin::api::credits_goals_list),
-        )
-        .route(
-            "/admin/api/credits/goal-create",
-            post(admin::api::credits_goal_create),
-        )
-        .route(
-            "/admin/api/credits/goal-update",
-            post(admin::api::credits_goal_update),
-        )
-        .route(
-            "/admin/api/credits/goal-delete",
-            post(admin::api::credits_goal_delete),
-        )
         .route("/admin/api/credits/grant", post(admin::api::credits_grant))
         .route(
             "/admin/api/credits/revoke",
@@ -683,14 +674,21 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         )
         .route("/about", get(handlers::about::get_about));
 
+    // One limiter for both mounts: /entities and /content/entities are the same endpoint, so a
+    // client alternating paths must draw from a single budget.
+    let post_entities_limiter = Arc::new(crate::rate_limit::PostEntitiesRateLimiter::from_env());
+
     let mut app = top
-        .merge(content_routes(&state))
+        .merge(content_routes(&state, &post_entities_limiter))
         .merge(lambdas_routes())
-        .nest("/content", content_routes(&state))
+        .nest("/content", content_routes(&state, &post_entities_limiter))
         .fallback(not_found)
         .route("/metrics", get(crate::metrics::metrics_handler))
         .layer(axum::middleware::from_fn(crate::metrics::track_http))
         .layer(TraceLayer::new_for_http())
+        .layer(axum::middleware::from_fn(
+            crate::nul_guard::nul_guard_middleware,
+        ))
         .layer(axum::middleware::from_fn(crate::cors::cors_middleware));
 
     if let Some(timeout) = request_timeout() {
@@ -702,4 +700,98 @@ pub fn build_router(state: Arc<AppState>) -> Router {
     }
 
     app.with_state(state)
+}
+
+#[cfg(test)]
+mod admin_gating_tests {
+    use super::*;
+    use axum::body::Body;
+    use axum::http::{Method, Request, StatusCode};
+    use tower::ServiceExt;
+
+    fn detect_method(tail: &str) -> Option<Method> {
+        let window = tail.get(..200).unwrap_or(tail);
+        let p = window.find("post(");
+        let g = window.find("get(");
+        match (p, g) {
+            (Some(pi), Some(gi)) => {
+                if pi < gi {
+                    Some(Method::POST)
+                } else {
+                    Some(Method::GET)
+                }
+            }
+            (Some(_), None) => Some(Method::POST),
+            (None, Some(_)) => Some(Method::GET),
+            (None, None) => None,
+        }
+    }
+
+    fn substitute_params(path: &str) -> String {
+        let mut result = String::new();
+        let mut in_param = false;
+        for c in path.chars() {
+            match c {
+                '{' => {
+                    in_param = true;
+                    result.push('x');
+                }
+                '}' => in_param = false,
+                _ => {
+                    if !in_param {
+                        result.push(c);
+                    }
+                }
+            }
+        }
+        result
+    }
+
+    fn admin_api_routes() -> Vec<(Method, String)> {
+        let src = include_str!("routes.rs");
+        let quote = '"';
+        let needle = format!("{quote}/admin/api/");
+        let mut out = Vec::new();
+        for (idx, _) in src.match_indices(&needle) {
+            let after_quote = idx + 1;
+            let rest = &src[after_quote..];
+            let Some(end) = rest.find(quote) else {
+                continue;
+            };
+            let path = &rest[..end];
+            let tail = &src[after_quote + end..];
+            if let Some(method) = detect_method(tail) {
+                out.push((method, substitute_params(path)));
+            }
+        }
+        out
+    }
+
+    #[tokio::test]
+    async fn all_admin_api_routes_reject_without_session() {
+        let routes = admin_api_routes();
+        assert!(
+            routes.len() >= 100,
+            "extraction floor: expected >=100 admin api routes, found {}",
+            routes.len()
+        );
+        let state = crate::test_support::app_state_with_storage(std::sync::Arc::new(
+            crate::test_support::EmptyStorage,
+        ));
+        let app = build_router(state);
+        for (method, path) in routes {
+            let req = Request::builder()
+                .method(method.clone())
+                .uri(&path)
+                .header("content-type", "application/json")
+                .body(Body::from("{}"))
+                .unwrap();
+            let resp = app.clone().oneshot(req).await.unwrap();
+            assert_eq!(
+                resp.status(),
+                StatusCode::FORBIDDEN,
+                "route {method} {path} is not gated by AdminSession"
+            );
+        }
+    }
 }

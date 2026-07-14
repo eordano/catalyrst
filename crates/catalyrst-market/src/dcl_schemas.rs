@@ -28,13 +28,6 @@ pub enum Network {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "UPPERCASE")]
-pub enum SquidNetwork {
-    Ethereum,
-    Polygon,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(into = "u64", try_from = "u64")]
 pub enum ChainId {
     EthereumMainnet = 1,

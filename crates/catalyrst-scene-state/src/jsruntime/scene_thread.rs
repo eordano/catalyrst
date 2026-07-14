@@ -7,16 +7,24 @@ use parking_lot::Mutex;
 use tokio::sync::mpsc;
 
 use crate::crdt::{decode_batch, decode_client_batch, encode_batch, CrdtEngine};
-use crate::runtime::{RuntimeLimits, ServerTransportConfig};
+use crate::runtime::{
+    Authority, AuthorityGuard, ClientSlots, RuntimeLimits, ServerTransportConfig,
+};
 
 use super::fetch::{FetchJob, FetchResult, FetchWiring, StorageCtx};
-use super::fetch_ops::{deliver_fetch_results, op_signed_fetch};
+use super::fetch_ops::{deliver_fetch_results, op_get_headers, op_signed_fetch};
 use super::handle::{
     ensure_v8_initialized, finish, near_heap_limit_cb, watchdog_loop, Command, SharedState,
     Watchdog,
 };
 
 struct ClientChannel {
+    /// The entity range this client was given when it connected. Frozen here so
+    /// that neither the authority check nor the reclaim ever re-derives it from
+    /// a config `registerScene` can move mid-session.
+    start: u32,
+    size: u32,
+
     inbound: VecDeque<Vec<u8>>,
 
     outbound: VecDeque<Vec<u8>>,
@@ -28,8 +36,10 @@ struct ClientChannel {
 }
 
 impl ClientChannel {
-    fn new() -> Self {
+    fn new(start: u32, size: u32) -> Self {
         Self {
+            start,
+            size,
             inbound: VecDeque::new(),
             outbound: VecDeque::new(),
             open_delivered: false,
@@ -46,6 +56,11 @@ pub(super) struct HostState {
 
     config: Arc<Mutex<ServerTransportConfig>>,
 
+    slots: Arc<ClientSlots>,
+
+    /// True once the scene installed a callable observer. Reclaim does **not**
+    /// consult this: a scene that passes a non-function (or never calls
+    /// `registerScene`) still gets its departed clients' ranges freed.
     observer_registered: bool,
 
     clients: std::collections::BTreeMap<u32, ClientChannel>,
@@ -64,9 +79,6 @@ pub(super) struct HostState {
 
     pub(super) fetch_results: Option<std::sync::mpsc::Receiver<FetchResult>>,
 
-    // v8 globals: must be dropped before the isolate (host is created after the
-    // isolate below so drop order guarantees it; the explicit clears on every
-    // exit path keep resolvers from leaking pending promises).
     pub(super) pending_fetches: HashMap<u64, v8::Global<v8::PromiseResolver>>,
 
     pub(super) next_fetch_id: u64,
@@ -117,8 +129,6 @@ pub(super) fn run_scene_thread(
 ) {
     ensure_v8_initialized();
 
-    // The isolate is created before `host` so the v8 globals inside HostState
-    // drop while the isolate is still alive.
     let heap_max = limits.js_heap_limit_mb.saturating_mul(1024 * 1024);
     let isolate = &mut v8::Isolate::new(v8::CreateParams::default().heap_limits(0, heap_max));
 
@@ -130,6 +140,7 @@ pub(super) fn run_scene_thread(
         engine: Arc::clone(&shared.engine),
         snapshot: Arc::clone(&shared.snapshot),
         config: Arc::clone(&shared.config),
+        slots: Arc::clone(&shared.slots),
         observer_registered: false,
         clients: std::collections::BTreeMap::new(),
         realm_name,
@@ -231,16 +242,44 @@ pub(super) fn run_scene_thread(
                     shutdown = true;
                     break;
                 }
-                Ok(Command::ClientOpen { index }) => {
-                    host.borrow_mut()
-                        .clients
-                        .entry(index)
-                        .or_insert_with(ClientChannel::new);
+                Ok(Command::ClientOpen { index, start, size }) => {
+                    let mut h = host.borrow_mut();
+                    // A slot is only recycled after the previous holder's range
+                    // was reclaimed, but replace a spent channel defensively so
+                    // a reused index can never inherit the old one's queues or
+                    // its `closed` flag.
+                    match h.clients.get_mut(&index) {
+                        Some(existing) if existing.closed => {
+                            *existing = ClientChannel::new(start, size);
+                        }
+                        Some(_) => {}
+                        None => {
+                            h.clients.insert(index, ClientChannel::new(start, size));
+                        }
+                    }
                 }
                 Ok(Command::ClientCrdt { index, body }) => {
                     let mut h = host.borrow_mut();
                     let cap = h.client_inbound_max;
-                    let (start, size) = h.config.lock().range_for_client(index);
+                    let floor = h.config.lock().network_floor();
+
+                    // The window this client is judged against is the one it
+                    // was handed at open time, not one recomputed now.
+                    let Some((start, size)) = h.clients.get(&index).map(|c| (c.start, c.size))
+                    else {
+                        tracing::warn!(
+                            scene = %scene_hash, index,
+                            "crdt from a client with no open channel; dropped"
+                        );
+                        continue;
+                    };
+                    let foreign: Vec<(u32, u32)> = h
+                        .clients
+                        .iter()
+                        .filter(|(other, c)| **other != index && !c.closed)
+                        .map(|(_, c)| (c.start, c.size))
+                        .collect();
+
                     if let Some(c) = h.clients.get_mut(&index) {
                         if c.inbound.len() >= cap {
                             tracing::warn!(
@@ -249,7 +288,12 @@ pub(super) fn run_scene_thread(
                             );
                             c.closing = true;
                         } else {
-                            let msgs = decode_client_batch(&body, start, size);
+                            let guard = AuthorityGuard {
+                                authority: Authority::Client { start, size },
+                                floor,
+                                foreign_ranges: &foreign,
+                            };
+                            let msgs = guard.filter(decode_client_batch(&body, start, size));
                             if !msgs.is_empty() {
                                 c.inbound.push_back(encode_batch(&msgs));
                             }
@@ -280,8 +324,6 @@ pub(super) fn run_scene_thread(
             break;
         }
 
-        // Resolving fetch promises runs scene JS (their .then continuations), so
-        // it gets its own watchdog window like every other callback.
         watchdog.arm(budget_ms);
         deliver_fetch_results(scope);
         watchdog.disarm();
@@ -397,29 +439,65 @@ fn set_fn(
     obj.set(scope, k, f.into());
 }
 
+/// Everything the scene itself authors goes through here: the range check is
+/// on the **apply**, not on a queue somewhere upstream of it.
+///
+/// The scene is the authority for its own world, so it may write any network
+/// entity -- including relaying another client's. What it may not do is author
+/// the renderer-local block (`ServerTransportConfig::network_floor`), which is
+/// a *different* entity on every client.
+fn apply_as_server(scope: &mut v8::PinScope, bytes: &[u8]) -> ServerApply {
+    let (engine, snapshot, cfg) = HostState::shared_handles(scope);
+    let floor = cfg.lock().network_floor();
+
+    let decoded = decode_batch(bytes);
+    let total = decoded.len();
+    let guard = AuthorityGuard {
+        authority: Authority::Server,
+        floor,
+        foreign_ranges: &[],
+    };
+    let msgs = guard.filter(decoded);
+    let dropped = total - msgs.len();
+    if dropped > 0 {
+        let scene_hash = HostState::with(scope, |c| c.borrow().scene_hash.clone());
+        tracing::warn!(
+            scene = %scene_hash,
+            dropped,
+            floor,
+            "scene tried to author renderer-local entities; dropped"
+        );
+    }
+
+    let mut eng = engine.lock();
+    if !msgs.is_empty() {
+        eng.apply_batch(&msgs);
+    }
+    *snapshot.lock() = eng.snapshot();
+    ServerApply {
+        admitted: msgs,
+        dropped,
+    }
+}
+
+struct ServerApply {
+    admitted: Vec<crate::crdt::CrdtMessage>,
+    dropped: usize,
+}
+
 fn op_crdt_send_to_renderer(
     scope: &mut v8::PinScope,
     args: v8::FunctionCallbackArguments,
     mut rv: v8::ReturnValue,
 ) {
-    let (engine, snapshot, _cfg) = HostState::shared_handles(scope);
-
+    let mut payload: Option<Vec<u8>> = None;
     if let Ok(obj) = v8::Local::<v8::Object>::try_from(args.get(0)) {
         let key = str(scope, "data").into();
         if let Some(data_val) = obj.get(scope, key) {
-            if let Some(bytes) = read_uint8array(scope, data_val) {
-                if !bytes.is_empty() {
-                    let msgs = decode_batch(&bytes);
-                    engine.lock().apply_batch(&msgs);
-                }
-            }
+            payload = read_uint8array(scope, data_val);
         }
     }
-
-    {
-        let eng = engine.lock();
-        *snapshot.lock() = eng.snapshot();
-    }
+    let _ = apply_as_server(scope, payload.as_deref().unwrap_or(&[]));
 
     let result = v8::Object::new(scope);
     let empty = v8::Array::new(scope, 0);
@@ -528,6 +606,33 @@ fn op_empty_promise(
     rv.set(promise.into());
 }
 
+fn op_get_user_data(
+    scope: &mut v8::PinScope,
+    _args: v8::FunctionCallbackArguments,
+    mut rv: v8::ReturnValue,
+) {
+    let resolver = v8::PromiseResolver::new(scope).unwrap();
+    let promise = resolver.get_promise(scope);
+    let address = HostState::with(scope, |c| {
+        c.borrow()
+            .storage
+            .as_ref()
+            .and_then(|s| s.delegation.lock().clone())
+            .map(|d| d.ephemeral_address)
+    });
+    let result = v8::Object::new(scope);
+    if let Some(address) = address {
+        let data = v8::Object::new(scope);
+        let uid = str(scope, &address).into();
+        set_prop(scope, data, "userId", uid);
+        let web3 = v8::Boolean::new(scope, false);
+        set_prop(scope, data, "hasConnectedWeb3", web3.into());
+        set_prop(scope, result, "data", data.into());
+    }
+    resolver.resolve(scope, result.into());
+    rv.set(promise.into());
+}
+
 fn op_register_scene(
     scope: &mut v8::PinScope,
     args: v8::FunctionCallbackArguments,
@@ -550,15 +655,34 @@ fn op_register_scene(
                 (512, 512)
             }
         };
+        // The entity-range policy is frozen the moment a client is holding a
+        // range derived from it. `registerScene` is reachable from `onUpdate`,
+        // and a mid-session change re-partitions a space that live clients are
+        // already inside: two of them end up owning the same id, and a window
+        // can slide down over the reserved block (ROOT / PLAYER / CAMERA).
         HostState::with(scope, |c| {
             let h = c.borrow();
-            *h.config.lock() = ServerTransportConfig {
-                reserved_local_entities: reserved,
-                server_network_entities_limit: server_limit,
-                client_network_entities_limit: client_limit,
-            };
-            drop(h);
-            c.borrow_mut().observer_registered = true;
+            let live = h.clients.values().filter(|ch| !ch.closed).count();
+            if live > 0 {
+                let current = *h.config.lock();
+                if current.reserved_local_entities != reserved
+                    || current.server_network_entities_limit != server_limit
+                    || current.client_network_entities_limit != client_limit
+                {
+                    tracing::warn!(
+                        scene = %h.scene_hash,
+                        live,
+                        "registerScene changed the entity-range config while clients were \
+                         connected; the config is frozen and the change was ignored"
+                    );
+                }
+            } else {
+                *h.config.lock() = ServerTransportConfig {
+                    reserved_local_entities: reserved,
+                    server_network_entities_limit: server_limit,
+                    client_network_entities_limit: client_limit,
+                };
+            }
         });
     }
 
@@ -568,6 +692,13 @@ fn op_register_scene(
         let global = ctx.global(scope);
         let key = str(scope, "__observer").into();
         global.set(scope, key, observer);
+        HostState::with(scope, |c| c.borrow_mut().observer_registered = true);
+    } else if !observer.is_undefined() {
+        let scene_hash = HostState::with(scope, |c| c.borrow().scene_hash.clone());
+        tracing::warn!(
+            scene = %scene_hash,
+            "registerScene's second argument is not a function; no client observer installed"
+        );
     }
 }
 
@@ -679,13 +810,11 @@ fn build_system_module<'s>(
             set_fn(scope, obj, "readFile", op_read_file);
         }
         "UserIdentity" => {
-            set_fn(scope, obj, "getUserData", op_empty_promise);
+            set_fn(scope, obj, "getUserData", op_get_user_data);
         }
         "SignedFetch" => {
             set_fn(scope, obj, "signedFetch", op_signed_fetch);
-            // Deliberately inert: handing the delegation-signed headers to scene
-            // JS would let it exfiltrate a replayable authoritative credential.
-            set_fn(scope, obj, "getHeaders", op_empty_promise);
+            set_fn(scope, obj, "getHeaders", op_get_headers);
         }
 
         "RestrictedActions" => {
@@ -694,6 +823,7 @@ fn build_system_module<'s>(
                 "teleportTo",
                 "triggerEmote",
                 "triggerSceneEmote",
+                "stopEmote",
                 "openExternalUrl",
                 "openNftDialog",
                 "changeRealm",
@@ -736,11 +866,6 @@ fn install_globals(scope: &mut v8::PinScope, context: v8::Local<v8::Context>) {
     set_prop(scope, global, "global", g);
 }
 
-// CJS-style function wrapper, mirroring upstream rpc-scene-runtime: a top-level
-// `var` in the bundle must NOT become a globalThis property (upstream #39 — the
-// SDK's `var DEBUG_NETWORK_MESSAGES = () => ...` is clobbered by the scene's
-// `globalThis.DEBUG_NETWORK_MESSAGES = true` when evaluated at global scope).
-// The prologue stays on one line so the bundle's line numbers are preserved.
 fn eval_scene(scope: &mut v8::PinScope, source: &str) -> Result<(), String> {
     v8::tc_scope!(let tc, scope);
     let wrapped = format!(
@@ -810,9 +935,6 @@ fn call_export(
     Ok(())
 }
 
-// Swap-then-iterate: the fresh array replaces the global BEFORE any callback
-// runs, so callbacks enqueued during the drain land in the fresh array and run
-// on the NEXT drain instead of being discarded with the old one.
 fn drain_set_immediate(scope: &mut v8::PinScope, context: v8::Local<v8::Context>) {
     let global = context.global(scope);
     let key = str(scope, "__setImmediate").into();
@@ -839,67 +961,78 @@ fn drain_set_immediate(scope: &mut v8::PinScope, context: v8::Local<v8::Context>
     }
 }
 
+/// Fire the scene's client observer (if it installed a callable one) and -- in
+/// all cases -- reclaim the range of every client that has gone away.
+///
+/// Reclaim used to sit behind two guards: `observer_registered`, and the
+/// `__observer` lookup below. `registerScene(cfg, 42)` set the former without
+/// setting the latter, and a scene that never called `registerScene` set
+/// neither, so departed clients were never reclaimed and their entities leaked
+/// for the lifetime of the scene. Reclaim is a server invariant, not a
+/// courtesy the scene opts into: it runs regardless.
 fn deliver_client_events(scope: &mut v8::PinScope, context: v8::Local<v8::Context>) {
-    let (registered, to_open, to_close) = HostState::with(scope, |c| {
+    let (to_open, to_close) = HostState::with(scope, |c| {
         let h = c.borrow();
-        if !h.observer_registered {
-            return (false, Vec::new(), Vec::new());
-        }
         let mut to_open: Vec<u32> = Vec::new();
-        let mut to_close: Vec<u32> = Vec::new();
+        let mut to_close: Vec<(u32, u32, u32)> = Vec::new();
         for (index, ch) in h.clients.iter() {
             if !ch.open_delivered && !ch.closing && !ch.closed {
                 to_open.push(*index);
             }
             if ch.closing && !ch.closed {
-                to_close.push(*index);
+                // Reclaim the window this client was actually given, not one
+                // recomputed from the current config.
+                to_close.push((*index, ch.start, ch.size));
             }
         }
-        (true, to_open, to_close)
+        (to_open, to_close)
     });
-    if !registered {
+    if to_open.is_empty() && to_close.is_empty() {
         return;
     }
 
     let global = context.global(scope);
     let obs_key = str(scope, "__observer").into();
     let observer = match global.get(scope, obs_key) {
-        Some(v) if v.is_function() => v8::Local::<v8::Function>::try_from(v).unwrap(),
-        _ => return,
+        Some(v) if v.is_function() => Some(v8::Local::<v8::Function>::try_from(v).unwrap()),
+        _ => None,
     };
     let recv: v8::Local<v8::Value> = v8::undefined(scope).into();
 
-    for index in to_open {
-        HostState::with(scope, |c| {
-            if let Some(ch) = c.borrow_mut().clients.get_mut(&index) {
-                ch.open_delivered = true;
-            }
-        });
-        let client_obj = build_client_object(scope, index);
-        let event = v8::Object::new(scope);
-        let ty = str(scope, "open").into();
-        set_prop(scope, event, "type", ty);
-        let id = str(scope, &index.to_string()).into();
-        set_prop(scope, event, "clientId", id);
-        set_prop(scope, event, "client", client_obj.into());
+    if let Some(observer) = observer {
+        for index in to_open {
+            HostState::with(scope, |c| {
+                if let Some(ch) = c.borrow_mut().clients.get_mut(&index) {
+                    ch.open_delivered = true;
+                }
+            });
+            let client_obj = build_client_object(scope, index);
+            let event = v8::Object::new(scope);
+            let ty = str(scope, "open").into();
+            set_prop(scope, event, "type", ty);
+            let id = str(scope, &index.to_string()).into();
+            set_prop(scope, event, "clientId", id);
+            set_prop(scope, event, "client", client_obj.into());
 
-        v8::tc_scope!(let tc, scope);
-        let _ = observer.call(tc, recv, &[event.into()]);
+            v8::tc_scope!(let tc, scope);
+            let _ = observer.call(tc, recv, &[event.into()]);
+        }
     }
+    // With no observer, `open_delivered` stays false so a scene that installs
+    // one later still learns about the clients already connected.
 
-    for index in to_close {
-        let event = v8::Object::new(scope);
-        let ty = str(scope, "close").into();
-        set_prop(scope, event, "type", ty);
-        let id = str(scope, &index.to_string()).into();
-        set_prop(scope, event, "clientId", id);
-        {
+    for (index, start, size) in to_close {
+        if let Some(observer) = observer {
+            let event = v8::Object::new(scope);
+            let ty = str(scope, "close").into();
+            set_prop(scope, event, "type", ty);
+            let id = str(scope, &index.to_string()).into();
+            set_prop(scope, event, "clientId", id);
             v8::tc_scope!(let tc, scope);
             let _ = observer.call(tc, recv, &[event.into()]);
         }
 
-        let (engine, snapshot, config) = HostState::shared_handles(scope);
-        let (start, size) = config.lock().range_for_client(index);
+        let (engine, snapshot, _config) = HostState::shared_handles(scope);
         let deletes = engine.lock().reclaim_range(start, size);
         if !deletes.is_empty() {
             let body = crate::crdt::encode_batch(&deletes);
@@ -914,9 +1047,14 @@ fn deliver_client_events(scope: &mut v8::PinScope, context: v8::Local<v8::Contex
             });
         }
         HostState::with(scope, |c| {
-            if let Some(ch) = c.borrow_mut().clients.get_mut(&index) {
+            let mut h = c.borrow_mut();
+            if let Some(ch) = h.clients.get_mut(&index) {
                 ch.closed = true;
             }
+            // Only now is the slot safe to reissue: the range is empty, so a
+            // reconnect handed this index cannot have its entities eaten by a
+            // reclaim that was still pending.
+            h.slots.release(index);
         });
     }
 }
@@ -956,13 +1094,25 @@ fn op_client_send(
         return;
     }
 
-    let (engine, snapshot, _cfg) = HostState::shared_handles(scope);
-    {
-        let msgs = decode_batch(&bytes);
-        let mut eng = engine.lock();
-        eng.apply_batch(&msgs);
-        *snapshot.lock() = eng.snapshot();
+    // `client.sendCrdtMessage` is the scene relaying/authoring state, so it is
+    // checked under the same server authority as `crdtSendToRenderer`. It used
+    // to decode-and-apply the bytes with no check at all, which meant the only
+    // range enforcement in the JS runtime gated a *queue* rather than the apply.
+    let outcome = apply_as_server(scope, &bytes);
+
+    // Rejected records must not reach the wire either -- the client would apply
+    // a forged renderer-local write to its own engine. Pass the original bytes
+    // through untouched in the common case (nothing dropped) so records this
+    // server's decoder does not model are not silently lost in a re-encode.
+    let payload = if outcome.dropped == 0 {
+        bytes
+    } else {
+        encode_batch(&outcome.admitted)
+    };
+    if payload.is_empty() {
+        return;
     }
+
     HostState::with(scope, |c| {
         let mut h = c.borrow_mut();
         let cap = h.client_outbound_max;
@@ -971,7 +1121,7 @@ fn op_client_send(
                 ch.outbound.pop_front();
             }
 
-            ch.outbound.push_back(bytes);
+            ch.outbound.push_back(payload);
         }
     });
 }

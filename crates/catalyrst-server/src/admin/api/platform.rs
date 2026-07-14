@@ -22,7 +22,7 @@ pub async fn camera_reel_image_delete(
     }
     proxy_audited(
         &state,
-        &session.address,
+        session.address(),
         "camera-reel.image.delete",
         Some(&req.image_id),
         json!({ "image_id": req.image_id }),
@@ -48,7 +48,7 @@ pub async fn camera_reel_image_review(
     }
     proxy_audited(
         &state,
-        &session.address,
+        session.address(),
         "camera-reel.image.review",
         Some(&req.image_id),
         req.extra.clone(),
@@ -87,7 +87,7 @@ pub async fn builder_item_status(
     }
     proxy_audited(
         &state,
-        &session.address,
+        session.address(),
         "builder.item.status",
         Some(&req.item_id),
         req.extra.clone(),
@@ -123,7 +123,7 @@ pub async fn builder_items_status_bulk(
     }
     proxy_audited(
         &state,
-        &session.address,
+        session.address(),
         "builder.items.status",
         Some(&req.collection_id),
         req.extra.clone(),
@@ -149,7 +149,7 @@ pub async fn communities_list(
     let qs = query_from_obj(&body, &["status", "owner", "search", "limit", "offset"]);
     proxy_audited(
         &state,
-        &session.address,
+        session.address(),
         "communities.list",
         None,
         body.clone(),
@@ -183,7 +183,7 @@ pub async fn communities_suspend(
     let body = body_without(&req.extra, &[]);
     proxy_audited(
         &state,
-        &session.address,
+        session.address(),
         "communities.suspend",
         Some(&req.id),
         req.extra.clone(),
@@ -209,7 +209,7 @@ pub async fn communities_unsuspend(
     }
     proxy_audited(
         &state,
-        &session.address,
+        session.address(),
         "communities.unsuspend",
         Some(&req.id),
         json!({ "id": req.id }),
@@ -234,7 +234,7 @@ pub async fn notifications_broadcast(
     };
     proxy_audited(
         &state,
-        &session.address,
+        session.address(),
         "notifications.broadcast",
         None,
         body.clone(),
@@ -274,7 +274,7 @@ pub async fn badges_grant(
     let address = req.address.trim().to_lowercase();
     proxy_audited(
         &state,
-        &session.address,
+        session.address(),
         "badges.grant",
         Some(&req.badge_id),
         json!({ "address": address, "badge_id": req.badge_id, "body": req.extra }),
@@ -310,7 +310,7 @@ pub async fn badges_revoke(
     let address = req.address.trim().to_lowercase();
     proxy_audited(
         &state,
-        &session.address,
+        session.address(),
         "badges.revoke",
         Some(&req.badge_id),
         json!({ "address": address, "badge_id": req.badge_id }),

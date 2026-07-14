@@ -13,12 +13,15 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{anyhow, Context, Result};
-use axum::routing::{get, post};
+use axum::routing::get;
 use axum::Router;
 use catalyrst_db::database::{Database, DatabaseConfig};
 use catalyrst_fed::sig::Eip712Domain;
 use catalyrst_fed::RateLimiter;
 use sqlx::PgPool;
+use utoipa::OpenApi;
+use utoipa_axum::router::OpenApiRouter;
+use utoipa_axum::routes;
 
 use crate::config::Config;
 use crate::fed::market_domain;
@@ -32,6 +35,7 @@ use crate::ports::collections::CollectionsComponent;
 use crate::ports::contracts::ContractsComponent;
 use crate::ports::items::ItemsComponent;
 use crate::ports::lists::ListsComponent;
+use crate::ports::mana_rate::ManaUsdRateComponent;
 use crate::ports::nfts::NftsComponent;
 use crate::ports::orders::OrdersComponent;
 use crate::ports::owners::OwnersComponent;
@@ -60,6 +64,7 @@ pub struct AppStateInner {
     pub contracts: ContractsComponent,
     pub items: ItemsComponent,
     pub lists: ListsComponent,
+    pub mana_usd_rate: ManaUsdRateComponent,
     pub nfts: NftsComponent,
     pub orders: OrdersComponent,
     pub owners: OwnersComponent,
@@ -75,16 +80,59 @@ pub struct AppStateInner {
     pub usage_grants: UsageGrantsComponent,
     pub volume: VolumeComponent,
     pub pool: PgPool,
+    /// Serializes every `REFRESH MATERIALIZED VIEW CONCURRENTLY marketplace.mv_trades`
+    /// -- Postgres refuses two concurrent CONCURRENTLY refreshes of the same view -- so
+    /// the periodic ticker and the post-listing forced refresh can never collide.
+    pub mv_trades_refresh_lock: Arc<tokio::sync::Mutex<()>>,
     pub replay: Arc<Replay>,
     pub limiter: Arc<RateLimiter>,
     pub domain: Eip712Domain,
 
     pub admin_token: Option<String>,
+    pub trade_rpc: crate::ports::trades::RpcEndpoints,
+    pub http: reqwest::Client,
 }
 
 pub type AppState = Arc<AppStateInner>;
 
-pub fn api_router() -> Router<AppState> {
+#[derive(OpenApi)]
+#[openapi(info(title = "catalyrst-market"))]
+struct ApiDoc;
+
+pub fn api_router_with_spec() -> (Router<AppState>, utoipa::openapi::OpenApi) {
+    OpenApiRouter::with_openapi(ApiDoc::openapi())
+        .routes(routes!(handlers::lists::get_lists))
+        .routes(routes!(handlers::lists::get_list_picks))
+        .routes(routes!(handlers::activity::get_activity))
+        .routes(routes!(
+            handlers::picks::pick_unpick_in_bulk,
+            handlers::picks::unpick_everywhere
+        ))
+        .routes(routes!(handlers::federation::place_bid))
+        .routes(routes!(handlers::federation::cancel_bid))
+        .routes(routes!(handlers::federation::accept_bid))
+        .routes(routes!(handlers::federation::create_order))
+        .routes(routes!(handlers::federation::cancel_order))
+        .routes(routes!(handlers::federation::record_trade))
+        .routes(routes!(handlers::federation::list_bids))
+        .routes(routes!(handlers::federation::list_orders))
+        .routes(routes!(handlers::federation::list_trades))
+        .routes(routes!(handlers::federation::snapshot))
+        .routes(routes!(handlers::federation::changes))
+        .routes(routes!(handlers::admin::list_flags))
+        .routes(routes!(
+            handlers::admin::set_flag,
+            handlers::admin::clear_flag
+        ))
+        .routes(routes!(handlers::admin::list_disputes))
+        .routes(routes!(handlers::admin::open_dispute))
+        .routes(routes!(handlers::admin::resolve_dispute))
+        .routes(routes!(handlers::admin::force_cancel))
+        .routes(routes!(handlers::admin::list_audit))
+        .split_for_parts()
+}
+
+fn read_router() -> Router<AppState> {
     Router::new()
         .route("/v1/contracts", get(handlers::contracts::get_contracts))
         .route(
@@ -102,6 +150,23 @@ pub fn api_router() -> Router<AppState> {
         .route(
             "/v3/catalog/legacy",
             get(handlers::shop_catalog::get_legacy_catalog),
+        )
+        .route(
+            "/v3/catalog/unified",
+            get(handlers::shop_catalog::get_unified_catalog),
+        )
+        .route("/v3/catalog/items", get(handlers::items::get_catalog_items))
+        .route(
+            "/v3/catalog/related",
+            get(handlers::shop_catalog::get_related_catalog),
+        )
+        .route(
+            "/v3/catalog/trending",
+            get(handlers::shop_catalog::get_trending_catalog),
+        )
+        .route(
+            "/v3/catalog/creators",
+            get(handlers::shop_catalog::get_top_creators),
         )
         .route(
             "/v3/catalog/importable",
@@ -143,11 +208,6 @@ pub fn api_router() -> Router<AppState> {
         )
         .route("/v1/orders", get(handlers::orders::get_orders))
         .route("/v1/bids", get(handlers::bids::get_bids))
-        .route("/v1/lists", get(handlers::lists::get_lists))
-        .route(
-            "/v1/picks/{item_id}",
-            post(handlers::picks::pick_unpick_in_bulk).delete(handlers::picks::unpick_everywhere),
-        )
         .route("/v1/sales", get(handlers::sales::get_sales))
         .route("/v1/prices", get(handlers::prices::get_prices))
         .route("/v1/trendings", get(handlers::trendings::get_trendings))
@@ -160,73 +220,21 @@ pub fn api_router() -> Router<AppState> {
             get(handlers::stats::get_stats),
         )
         .route("/v1/volume/{timeframe}", get(handlers::volume::get_volume))
-        .route("/v1/activity", get(handlers::activity::get_activity))
-        .route("/v1/trades", get(handlers::trades::get_trades))
+        .route(
+            "/v1/trades",
+            get(handlers::trades::get_trades).post(handlers::trades::post_trade),
+        )
         .route("/v1/trades/{id}", get(handlers::trades::get_trade))
         .route(
             "/v1/trades/{hashed_signature}/accept",
             get(handlers::trades::get_trade_accepted_event),
         )
-        .route("/v1/federation/bid", post(handlers::federation::place_bid))
-        .route(
-            "/v1/federation/bid/cancel",
-            post(handlers::federation::cancel_bid),
-        )
-        .route(
-            "/v1/federation/bid/accept",
-            post(handlers::federation::accept_bid),
-        )
-        .route(
-            "/v1/federation/order",
-            post(handlers::federation::create_order),
-        )
-        .route(
-            "/v1/federation/order/cancel",
-            post(handlers::federation::cancel_order),
-        )
-        .route(
-            "/v1/federation/trade",
-            post(handlers::federation::record_trade),
-        )
-        .route("/v1/federation/bids", get(handlers::federation::list_bids))
-        .route(
-            "/v1/federation/orders",
-            get(handlers::federation::list_orders),
-        )
-        .route(
-            "/v1/federation/trades",
-            get(handlers::federation::list_trades),
-        )
-        .route(
-            "/federation/market/snapshot",
-            get(handlers::federation::snapshot),
-        )
-        .route(
-            "/federation/market/changes",
-            get(handlers::federation::changes),
-        )
-        .route(
-            "/v1/admin/moderation/flags",
-            get(handlers::admin::list_flags),
-        )
-        .route(
-            "/v1/admin/moderation/{kind}/{hash}/flag",
-            post(handlers::admin::set_flag).delete(handlers::admin::clear_flag),
-        )
-        .route("/v1/admin/disputes", get(handlers::admin::list_disputes))
-        .route(
-            "/v1/admin/disputes/{trade_hash}/open",
-            post(handlers::admin::open_dispute),
-        )
-        .route(
-            "/v1/admin/disputes/{trade_hash}/resolve",
-            post(handlers::admin::resolve_dispute),
-        )
-        .route(
-            "/v1/admin/listings/{kind}/{hash}/force-cancel",
-            post(handlers::admin::force_cancel),
-        )
-        .route("/v1/admin/audit", get(handlers::admin::list_audit))
+}
+
+pub fn api_router() -> Router<AppState> {
+    let (spec_router, _spec) = api_router_with_spec();
+    spec_router
+        .merge(read_router())
         .layer(tower_http::timeout::TimeoutLayer::with_status_code(
             axum::http::StatusCode::REQUEST_TIMEOUT,
             std::time::Duration::from_secs(30),
@@ -288,11 +296,6 @@ pub async fn build_state(cfg: &Config) -> Result<AppState> {
     let dapps_read_db = Database::connect(&db_config_from_url(&cfg.dapps_read_database_url, 20)?)
         .await
         .context("failed to connect dapps_read pool")?;
-    let favorites_db = Database::connect(&db_config_from_url(&cfg.favorites_database_url, 10)?)
-        .await
-        .context("failed to connect favorites pool")?;
-
-    let _ = (&dapps_db, &favorites_db);
 
     let dapps_read = dapps_read_db.pool().clone();
     let dapps_write = dapps_db.pool().clone();
@@ -317,7 +320,8 @@ pub async fn build_state(cfg: &Config) -> Result<AppState> {
         return Err(e.into());
     }
 
-    spawn_mv_trades_refresh(dapps_write.clone());
+    let mv_trades_refresh_lock = Arc::new(tokio::sync::Mutex::new(()));
+    spawn_mv_trades_refresh(dapps_write.clone(), mv_trades_refresh_lock.clone());
     match &cfg.trades_sync_upstream_url {
         Some(url) => trades_sync::spawn_trades_upstream_sync(
             dapps_write.clone(),
@@ -336,6 +340,18 @@ pub async fn build_state(cfg: &Config) -> Result<AppState> {
              sortBy=suggested ranks on whatever the table already holds"
         ),
     }
+
+    let mana_usd_rate = ManaUsdRateComponent::new(
+        cfg.price_base_url.clone(),
+        cfg.mana_usd_fallback_rate,
+        cfg.mana_oracle_max_staleness_secs,
+    );
+    mana_usd_rate
+        .start(
+            Duration::from_millis(cfg.mana_rate_startup_timeout_ms),
+            Duration::from_millis(cfg.mana_rate_refresh_interval_ms.max(1)),
+        )
+        .await;
 
     let replay = Replay::new(dapps_write.clone())
         .await
@@ -368,6 +384,7 @@ pub async fn build_state(cfg: &Config) -> Result<AppState> {
         contracts: ContractsComponent::new(pool.clone()),
         items: ItemsComponent::new(pool.clone()),
         lists: ListsComponent::new(pool.clone()).with_write(dapps_write.clone()),
+        mana_usd_rate,
         nfts: NftsComponent::new(pool.clone()),
         orders: OrdersComponent::new(pool.clone()),
         owners: OwnersComponent::new(pool.clone()),
@@ -382,46 +399,81 @@ pub async fn build_state(cfg: &Config) -> Result<AppState> {
         usage_grants: UsageGrantsComponent::new(Some(pool.clone())),
         volume: VolumeComponent::new(analytics_for_volume),
         pool: dapps_write.clone(),
+        mv_trades_refresh_lock,
         replay,
         limiter,
         domain: market_domain(),
         admin_token: cfg.admin_token.clone(),
+        trade_rpc: crate::ports::trades::RpcEndpoints::from_env(
+            std::env::var("TRADE_RPC_URLS").ok().as_deref(),
+        ),
+        http: reqwest::Client::new(),
     }))
 }
 
 const MV_TRADES_REFRESH_INTERVAL: Duration = Duration::from_secs(30);
 
-fn spawn_mv_trades_refresh(pool: PgPool) {
+/// One `REFRESH MATERIALIZED VIEW CONCURRENTLY`, retried plain if the concurrent
+/// form is refused (e.g. the view has never been populated), then a dirty notify
+/// so listeners re-read. The caller holds the refresh lock, so no two of these run
+/// at once.
+async fn run_mv_trades_refresh(pool: &PgPool) {
+    let concurrent = sqlx::query("REFRESH MATERIALIZED VIEW CONCURRENTLY marketplace.mv_trades")
+        .execute(pool)
+        .await;
+    let mut refreshed = concurrent.is_ok();
+    if let Err(e) = concurrent {
+        tracing::debug!(error = %e, "concurrent mv_trades refresh failed; retrying plain");
+        match sqlx::query("REFRESH MATERIALIZED VIEW marketplace.mv_trades")
+            .execute(pool)
+            .await
+        {
+            Ok(_) => refreshed = true,
+            Err(e) => tracing::warn!(error = %e, "mv_trades refresh failed"),
+        }
+    }
+    if refreshed {
+        if let Err(e) = sqlx::query("SELECT pg_notify('catalyrst_market_dirty', 'mv_trades')")
+            .execute(pool)
+            .await
+        {
+            tracing::debug!(error = %e, "mv_trades dirty notify failed");
+        }
+    }
+}
+
+fn spawn_mv_trades_refresh(pool: PgPool, refresh_lock: Arc<tokio::sync::Mutex<()>>) {
     tokio::spawn(async move {
         let mut ticker = tokio::time::interval(MV_TRADES_REFRESH_INTERVAL);
         ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         loop {
             ticker.tick().await;
-            let concurrent =
-                sqlx::query("REFRESH MATERIALIZED VIEW CONCURRENTLY marketplace.mv_trades")
-                    .execute(&pool)
-                    .await;
-            let mut refreshed = concurrent.is_ok();
-            if let Err(e) = concurrent {
-                tracing::debug!(error = %e, "concurrent mv_trades refresh failed; retrying plain");
-                match sqlx::query("REFRESH MATERIALIZED VIEW marketplace.mv_trades")
-                    .execute(&pool)
-                    .await
-                {
-                    Ok(_) => refreshed = true,
-                    Err(e) => tracing::warn!(error = %e, "mv_trades refresh failed"),
-                }
-            }
-            if refreshed {
-                if let Err(e) =
-                    sqlx::query("SELECT pg_notify('catalyrst_market_dirty', 'mv_trades')")
-                        .execute(&pool)
-                        .await
-                {
-                    tracing::debug!(error = %e, "mv_trades dirty notify failed");
-                }
-            }
+            let _guard = refresh_lock.lock().await;
+            run_mv_trades_refresh(&pool).await;
         }
+    });
+}
+
+/// Reflect a just-created listing in `mv_trades` NOW, rather than up to 30s from
+/// now: every price read (`/v1/items`, the catalog) goes through the view, and the
+/// signer's next request is one of those reads. Fire-and-forget -- the trade is
+/// already committed and a ~2s REFRESH must not be charged to the request that
+/// created it.
+///
+/// `try_lock` mirrors upstream's `FOR UPDATE SKIP LOCKED`: if a refresh already
+/// holds the lock this SKIPS rather than queuing a second refresh, and losing that
+/// race is harmless -- the periodic ticker unconditionally refreshes on its next
+/// tick, so this can only ever make staleness shorter, never longer.
+pub(crate) fn spawn_forced_mv_trades_refresh(
+    pool: PgPool,
+    refresh_lock: Arc<tokio::sync::Mutex<()>>,
+) {
+    tokio::spawn(async move {
+        let Ok(_guard) = refresh_lock.try_lock() else {
+            tracing::debug!("mv_trades forced refresh skipped: another refresh holds the lock");
+            return;
+        };
+        run_mv_trades_refresh(&pool).await;
     });
 }
 
@@ -429,10 +481,15 @@ const WEARABLE_LAST_SEEN_REFRESH_INTERVAL: Duration = Duration::from_secs(600);
 
 fn spawn_wearable_last_seen_refresh(dapps: PgPool, content_url: String) {
     tokio::spawn(async move {
-        let content = match sqlx::postgres::PgPoolOptions::new()
-            .max_connections(2)
-            .connect(&content_url)
-            .await
+        let content = match catalyrst_db::connect_pool(
+            &content_url,
+            &catalyrst_db::PoolSettings {
+                max_connections: 2,
+                idle_timeout_secs: 600,
+                ..catalyrst_db::PoolSettings::default()
+            },
+        )
+        .await
         {
             Ok(p) => p,
             Err(e) => {
@@ -487,4 +544,23 @@ async fn refresh_wearable_last_seen(content: &PgPool, dapps: &PgPool) -> Result<
         .await
         .ok();
     Ok(urns.len() as u64)
+}
+
+#[cfg(test)]
+mod openapi_export {
+    #[test]
+    fn export_bindings_openapi() {
+        let spec = super::api_router_with_spec().1;
+        let rendered = serde_json::to_string_pretty(&spec).expect("spec serialises");
+        catalyrst_contract_gate::assert_usable_spec(
+            "market",
+            &serde_json::from_str(&rendered).expect("spec round-trips through JSON"),
+        );
+        let Ok(dir) = std::env::var("TS_RS_EXPORT_DIR") else {
+            return;
+        };
+        let out = std::path::Path::new(&dir).join("openapi");
+        std::fs::create_dir_all(&out).unwrap();
+        std::fs::write(out.join("market.openapi.json"), rendered).unwrap();
+    }
 }

@@ -1,9 +1,10 @@
 use std::collections::BTreeMap;
 
 use crate::livekit::{
-    build_adapter_url, community_id_from_room_name, private_voice_chat_room_name, AccessToken,
-    VideoGrants, TRACK_SOURCE_MICROPHONE,
+    build_adapter_url, community_id_from_room_name, join_grants, private_voice_chat_room_name,
+    AccessToken, TRACK_SOURCE_MICROPHONE,
 };
+use crate::util::now_ms;
 use crate::voice_db::{DeleteRoomError, VoiceChatUserStatus};
 use crate::AppState;
 
@@ -90,7 +91,7 @@ pub async fn get_private_voice_chat_room_credentials(
 
     let mut out: BTreeMap<String, serde_json::Value> = BTreeMap::new();
     for addr in user_addresses {
-        let mut grants = VideoGrants::join(&room_name);
+        let mut grants = join_grants(&room_name);
         grants.can_publish = true;
         grants.can_subscribe = true;
         grants.can_update_own_metadata = false;
@@ -510,14 +511,6 @@ pub async fn expire_community_voice_chats(state: &AppState) -> Result<(), crate:
         publish_community_streaming_ended_event(state, room_name, participant_count).await;
     }
     Ok(())
-}
-
-fn now_ms() -> i64 {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or(0)
 }
 
 pub fn spawn_expiration_job(state: AppState) {

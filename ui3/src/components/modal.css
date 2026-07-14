@@ -1,0 +1,55 @@
+.modal__backdrop {
+  position: fixed; inset: 0; z-index: var(--z-modal);
+  background: var(--scrim);
+  display: flex;
+  padding: 20px; overflow: auto;
+  font-family: var(--font-sans);
+  animation: u-fade-in .3s linear;
+}
+.modal__card {
+  position: relative;
+  margin: auto;
+  max-height: calc(100dvh - 40px); overflow-y: auto;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  outline: none;
+  border-radius: var(--modal-radius, 16px); padding: 28px;
+  box-shadow: 0 24px 64px rgba(0,0,0,.45);
+  color: var(--text);
+  max-width: 100%;
+  animation: u-fade-in .3s linear;
+}
+/* `<Modal portal={false}>` -- the same card laid out in normal document flow instead of
+   over the whole viewport, so several dialogs can sit side by side on one page. */
+.modal__backdrop--inline {
+  position: relative; inset: auto; z-index: auto;
+  animation: none;
+}
+.modal__backdrop--inline > .modal__card {
+  max-height: none;
+  animation: none;
+}
+.modal__card:focus, .modal__card:focus-visible { outline: none; }
+.modal__close {
+  position: absolute; top: 14px; right: 14px;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 32px; height: 32px; padding: 0;
+  border: 0; border-radius: 50%;
+  background: var(--fill-3, rgba(255,255,255,.08));
+  color: var(--ink-7, rgba(255,255,255,.7));
+  cursor: pointer;
+  z-index: 1;
+}
+.modal__close:hover { background: var(--fill-5, rgba(255,255,255,.12)); color: var(--text); }
+.modal__close:focus-visible { outline: var(--focus-ring-width) solid var(--focus-ring-color); outline-offset: var(--focus-ring-offset); }
+@media (max-height: 540px) {
+  .modal__backdrop { padding: 8px; }
+  .modal__card { padding: 18px; border-radius: var(--modal-radius, 12px); max-height: calc(100dvh - 16px); }
+  .modal__card--plain { padding: 0; }
+}
+.modal__card--plain {
+  padding: 0;
+  border: 0;
+  background: none;
+  box-shadow: none;
+}

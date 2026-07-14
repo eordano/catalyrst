@@ -1,0 +1,86 @@
+.assetpreviewtile {
+  position: relative;
+  width: var(--apt-size, 240px);
+  height: var(--apt-size, 240px);
+  border-radius: var(--apt-radius, 16px);
+  overflow: hidden;
+  display: inline-block;
+  background: #1c1b20;
+}
+
+.assetpreviewtile__wash { position: absolute; inset: 0; }
+
+.assetpreviewtile__img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.assetpreviewtile__fig {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.assetpreviewtile__fig svg {
+  width: 130px;
+  height: 130px;
+  opacity: 0.92;
+  filter: drop-shadow(0 6px 14px rgba(0, 0, 0, .35));
+}
+
+.assetpreviewtile__plate {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 132px;
+  height: 132px;
+  border-radius: 18px;
+  background:
+    radial-gradient(60% 60% at 50% 40%, rgba(255, 255, 255, 0.4), rgba(255, 255, 255, 0.08) 70%, transparent),
+    rgba(0, 0, 0, 0.12);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.18);
+}
+
+.assetpreviewtile__inset {
+  position: absolute;
+  inset: 14%;
+  border-radius: 12px;
+  background:
+    radial-gradient(circle at 50% 40%, rgba(255, 255, 255, 0.22), transparent 62%),
+    color-mix(in srgb, var(--chip) 38%, transparent);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
+}
+
+.assetpreviewtile__rarity {
+  position: absolute;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--rar-ink, #161518);
+  padding: 4px 9px;
+  border-radius: var(--r-pill);
+  background: var(--chip, var(--rar-rare));
+}
+.assetpreviewtile__rarity--top { left: 10px; top: 10px; }
+.assetpreviewtile__rarity--bottom {
+  left: 12px;
+  bottom: 12px;
+  padding: 4px 10px;
+  text-transform: capitalize;
+  letter-spacing: 0.3px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+}
+
+@media (max-width: 768px) {
+  .assetpreviewtile:not([style*="--apt-size"]) {
+    width: 100%;
+    height: auto;
+    aspect-ratio: 1 / 1;
+  }
+}

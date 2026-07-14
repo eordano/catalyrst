@@ -3,6 +3,7 @@ use sqlx::PgPool;
 
 use crate::dcl_schemas::{get_db_networks, Network};
 use crate::http::response::ApiError;
+use crate::logic::sql_filters::{clamp_first, clamp_skip};
 use crate::MARKETPLACE_SQUID_SCHEMA;
 
 #[derive(Debug, Clone, Copy)]
@@ -53,11 +54,8 @@ impl AccountsComponent {
     ) -> Result<(Vec<Account>, i64), ApiError> {
         const MAX_LIMIT: i64 = 1000;
 
-        let limit = filters
-            .first
-            .map(|f| f.clamp(0, MAX_LIMIT))
-            .unwrap_or(MAX_LIMIT);
-        let offset = filters.skip.unwrap_or(0).max(0);
+        let limit = clamp_first(filters.first, MAX_LIMIT);
+        let offset = clamp_skip(filters.skip);
 
         let mut where_clauses: Vec<String> = Vec::new();
         let mut bind_idx: usize = 0;

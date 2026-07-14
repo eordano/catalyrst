@@ -1,10 +1,109 @@
 use axum::extract::{Query, State};
 use axum::Json;
-use serde_json::{json, Value};
+use chrono::{DateTime, Utc};
+use serde::Serialize;
+use serde_json::Value;
 
 use crate::http::errors::ApiError;
+use crate::http::response::ApiDataTotal;
 use crate::ports::places::{PlaceListFilters, PlaceOrderBy, PlaceRow};
 use crate::AppState;
+
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "places/"))]
+pub struct Destination {
+    pub id: String,
+    pub title: Option<String>,
+    pub description: Option<String>,
+    pub image: Option<String>,
+    pub owner: Option<String>,
+    pub positions: Vec<String>,
+    pub base_position: String,
+    pub contact_name: Option<String>,
+    pub contact_email: Option<String>,
+    pub content_rating: Option<String>,
+    pub disabled: bool,
+    #[cfg_attr(feature = "ts", ts(type = "string | null"))]
+    pub disabled_at: Option<DateTime<Utc>>,
+    #[cfg_attr(feature = "ts", ts(type = "string | null"))]
+    pub created_at: Option<DateTime<Utc>>,
+    #[cfg_attr(feature = "ts", ts(type = "string | null"))]
+    pub updated_at: Option<DateTime<Utc>>,
+    pub favorites: i32,
+    pub likes: i32,
+    pub dislikes: i32,
+    pub categories: Vec<String>,
+    pub highlighted: bool,
+    pub highlighted_image: Option<String>,
+    pub ranking: Option<f64>,
+    pub sdk: Option<String>,
+    pub creator_address: Option<String>,
+    #[cfg_attr(feature = "ts", ts(type = "string | null"))]
+    pub deployed_at: Option<DateTime<Utc>>,
+    pub world: bool,
+    pub world_name: Option<String>,
+    pub is_private: bool,
+    pub user_favorite: bool,
+    pub user_like: bool,
+    pub user_dislike: bool,
+    pub user_count: Option<i32>,
+    pub user_visits: i32,
+    pub like_rate: Option<f64>,
+    pub like_score: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub live: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub connected_addresses: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional, type = "Array<Record<string, unknown>>"))]
+    pub realms_detail: Option<Vec<serde_json::Value>>,
+}
+
+impl From<PlaceRow> for Destination {
+    fn from(p: PlaceRow) -> Self {
+        Self {
+            id: p.id,
+            title: p.title,
+            description: p.description,
+            image: p.image,
+            owner: p.owner,
+            positions: p.positions,
+            base_position: p.base_position,
+            contact_name: p.contact_name,
+            contact_email: p.contact_email,
+            content_rating: p.content_rating,
+            disabled: p.disabled,
+            disabled_at: p.disabled_at,
+            created_at: p.created_at,
+            updated_at: p.updated_at,
+            favorites: p.favorites,
+            likes: p.likes,
+            dislikes: p.dislikes,
+            categories: p.categories,
+            highlighted: p.highlighted,
+            highlighted_image: p.highlighted_image,
+            ranking: p.ranking,
+            sdk: p.sdk,
+            creator_address: p.creator_address,
+            deployed_at: p.deployed_at,
+            world: p.world,
+            world_name: p.world_name,
+            is_private: p.is_private,
+            user_favorite: p.user_favorite,
+            user_like: p.user_like,
+            user_dislike: p.user_dislike,
+            user_count: p.user_count,
+            user_visits: p.user_visits,
+            like_rate: p.like_rate,
+            like_score: p.like_score,
+            live: p.live,
+            connected_addresses: p.connected_addresses,
+            realms_detail: p.realms_detail,
+        }
+    }
+}
 
 struct DestinationFlags {
     with_realms_detail: bool,
@@ -71,14 +170,6 @@ async fn inject_live_user_counts(state: &AppState, filters: &mut PlaceListFilter
     filters.world_user_counts = counts.worlds;
 }
 
-fn to_destination(place: &PlaceRow) -> Value {
-    let mut v = serde_json::to_value(place).unwrap_or(Value::Null);
-    if let Some(obj) = v.as_object_mut() {
-        obj.remove("world_id");
-    }
-    v
-}
-
 async fn enrich(state: &AppState, data: &mut [PlaceRow], flags: &DestinationFlags) {
     if flags.with_connected_users && !data.is_empty() {
         for d in data.iter_mut() {
@@ -132,13 +223,23 @@ async fn enrich(state: &AppState, data: &mut [PlaceRow], flags: &DestinationFlag
     }
 }
 
+#[utoipa::path(
+    get,
+    path = "/destinations",
+    tag = "destinations",
+    params(("limit" = Option<i64>, Query), ("offset" = Option<i64>, Query)),
+    responses(
+        (status = 200, body = ApiDataTotal<Destination>),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn get_destinations_list(
     State(state): State<AppState>,
     Query(pairs): Query<Vec<(String, String)>>,
-) -> Result<Json<Value>, ApiError> {
+) -> Result<Json<ApiDataTotal<Destination>>, ApiError> {
     let (mut filters, only_favorites, flags) = parse_filters(&pairs);
     if only_favorites {
-        return Ok(Json(json!({ "ok": true, "data": [], "total": 0 })));
+        return Ok(Json(ApiDataTotal::ok(vec![], 0)));
     }
     if let Some(owner) = pairs.iter().find(|(k, _)| k == "owner").map(|(_, v)| v) {
         filters.operated_positions = state.places.operated_positions(owner).await?;
@@ -149,15 +250,26 @@ pub async fn get_destinations_list(
         state.places.count_list(&filters),
     )?;
     enrich(&state, &mut data, &flags).await;
-    let out: Vec<Value> = data.iter().map(to_destination).collect();
-    Ok(Json(json!({ "ok": true, "data": out, "total": total })))
+    let out: Vec<Destination> = data.into_iter().map(Destination::from).collect();
+    Ok(Json(ApiDataTotal::ok(out, total)))
 }
 
+#[utoipa::path(
+    post,
+    path = "/destinations",
+    tag = "destinations",
+    request_body = Vec<String>,
+    responses(
+        (status = 200, body = ApiDataTotal<Destination>),
+        (status = 400, body = catalyrst_types::ApiErrorBody),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn post_destinations_list_by_id(
     State(state): State<AppState>,
     Query(pairs): Query<Vec<(String, String)>>,
     Json(body): Json<Value>,
-) -> Result<Json<Value>, ApiError> {
+) -> Result<Json<ApiDataTotal<Destination>>, ApiError> {
     let ids = body
         .as_array()
         .ok_or_else(|| {
@@ -173,7 +285,7 @@ pub async fn post_destinations_list_by_id(
     }
     let (mut filters, only_favorites, flags) = parse_filters(&pairs);
     if only_favorites {
-        return Ok(Json(json!({ "ok": true, "data": [], "total": 0 })));
+        return Ok(Json(ApiDataTotal::ok(vec![], 0)));
     }
     filters.ids = ids;
     inject_live_user_counts(&state, &mut filters).await;
@@ -182,6 +294,6 @@ pub async fn post_destinations_list_by_id(
         state.places.count_list(&filters),
     )?;
     enrich(&state, &mut data, &flags).await;
-    let out: Vec<Value> = data.iter().map(to_destination).collect();
-    Ok(Json(json!({ "ok": true, "data": out, "total": total })))
+    let out: Vec<Destination> = data.into_iter().map(Destination::from).collect();
+    Ok(Json(ApiDataTotal::ok(out, total)))
 }

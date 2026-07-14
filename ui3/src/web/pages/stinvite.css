@@ -1,0 +1,392 @@
+.stinvite {
+  --sti-bg: var(--panel);
+  --sti-soft-black2: #242129;
+  --sti-text: rgba(240, 240, 240, 1);
+  --sti-text-2: rgba(240, 240, 240, 0.7);
+  --sti-flare: linear-gradient(261.51deg, var(--brand) 6.92%, #ffbc5b 83.3%);
+  --sti-overlay: linear-gradient(180deg, #410461 0%, #5d0089 100%);
+  --sti-faq-hover: linear-gradient(90deg, #43404a 0%, #691fa9 100%);
+  --sti-anim:
+    radial-gradient(90% 90% at 80% 30%, rgba(150, 30, 200, 0.35) 0%, rgba(150, 30, 200, 0) 60%),
+    #7d09b2;
+
+  background: var(--sti-bg);
+  color: var(--sti-text);
+  font-family: var(--font-sans);
+}
+
+.stinvite__hero {
+  position: relative;
+  width: 100%;
+  min-height: 100vh;
+  display: flex;
+  background: var(--sti-bg);
+  overflow: hidden;
+}
+.stinvite__hero--second .stinvite__rail {
+  z-index: 4;
+}
+.stinvite__hero-inner {
+  position: relative;
+  width: 100%;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 96px 0;
+}
+
+.stinvite__media {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  overflow: hidden;
+}
+.stinvite__anim-bg {
+  position: absolute;
+  inset: 0;
+  background: var(--sti-anim);
+  z-index: 0;
+}
+.stinvite__video {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 50%;
+  z-index: 2;
+  background:
+    radial-gradient(80% 80% at 50% 45%, rgba(255, 255, 255, 0.06) 0%, rgba(0, 0, 0, 0) 60%),
+    linear-gradient(180deg, rgba(0, 0, 0, 0.12) 0%, rgba(0, 0, 0, 0.32) 100%);
+}
+.stinvite__overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 60vw;
+  background: var(--sti-overlay);
+  z-index: 3;
+  clip-path: polygon(0 0, 100% 0, 85% 100%, 0 100%);
+}
+
+.stinvite__avatar-slot {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 50%;
+  z-index: 4;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding-bottom: 4%;
+}
+.stinvite__avatar-figure {
+  width: 220px;
+  height: 70%;
+  border-radius: 110px 110px 24px 24px;
+  background:
+    radial-gradient(60% 40% at 50% 18%, rgba(255, 255, 255, 0.22) 0%, rgba(255, 255, 255, 0) 60%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.14) 0%, rgba(255, 255, 255, 0.04) 100%);
+  border: 1px solid var(--fill-3);
+}
+.stinvite__avatar-skel {
+  width: 200px;
+  height: 60%;
+  border-radius: 18px;
+}
+
+.stinvite__rail {
+  position: relative;
+  z-index: 2;
+  max-width: 40vw;
+  margin-left: 200px;
+  text-align: left;
+}
+.stinvite__rail-text {
+  position: relative;
+  margin-bottom: 120px;
+}
+
+.stinvite__envelope {
+  position: relative;
+  width: 120px;
+  height: 120px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 32px;
+  z-index: 11;
+}
+.stinvite__envelope-glow {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 100px;
+  height: 100px;
+  border-radius: 50%;
+  z-index: 0;
+  background: radial-gradient(
+    circle,
+    rgba(255, 180, 216, 1) 0%,
+    rgba(255, 0, 200, 1) 50%,
+    rgba(145, 0, 255, 1) 80%,
+    transparent 100%
+  );
+  filter: blur(40px);
+}
+.stinvite__envelope-img {
+  position: relative;
+  z-index: 1;
+  width: 115px;
+  height: 115px;
+  object-fit: contain;
+}
+
+.stinvite__title {
+  margin: 0 0 48px;
+  font-weight: 600;
+  font-size: 60px;
+  line-height: 120%;
+  letter-spacing: -0.5px;
+  color: var(--sti-text);
+}
+.stinvite__grad {
+  background: var(--sti-flare);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+}
+.stinvite__subtitle {
+  margin: 0;
+  font-weight: 500;
+  font-size: 32px;
+  line-height: 124%;
+  letter-spacing: 0;
+  color: var(--sti-text);
+}
+
+.stinvite__actions {
+  display: flex;
+}
+.stinvite__cta-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18.5px 61px;
+  border-radius: 8px;
+  background: var(--brand-cta, #d80029);
+  color: #fff;
+  text-decoration: none;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  cursor: pointer;
+  transition: background 0.12s ease, transform 0.12s ease;
+}
+.stinvite__cta-btn:hover {
+  background: var(--brand);
+  transform: translateY(-1px);
+}
+
+.stinvite__faqs {
+  position: relative;
+  width: 100%;
+  margin: auto;
+  color: var(--sti-text);
+  padding: 200px 160px;
+}
+.stinvite__faqs-border {
+  background:
+    linear-gradient(to right, var(--sti-text) 4px, transparent 4px) 0 0,
+    linear-gradient(to right, var(--sti-text) 4px, transparent 4px) 0 100%,
+    linear-gradient(to left, var(--sti-text) 4px, transparent 4px) 100% 0,
+    linear-gradient(to left, var(--sti-text) 4px, transparent 4px) 100% 100%,
+    linear-gradient(to bottom, var(--sti-text) 4px, transparent 4px) 0 0,
+    linear-gradient(to bottom, var(--sti-text) 4px, transparent 4px) 100% 0,
+    linear-gradient(to top, var(--sti-text) 4px, transparent 4px) 0 100%,
+    linear-gradient(to top, var(--sti-text) 4px, transparent 4px) 100% 100%;
+  background-repeat: no-repeat;
+  background-size: 20px 20px;
+}
+.stinvite__faqs-inner {
+  margin: auto;
+  width: 100%;
+  max-width: 1000px;
+  padding: 72px 0 200px;
+  display: flex;
+  flex-direction: column;
+}
+.stinvite__faqs-eyebrow {
+  margin: 0;
+  text-align: center;
+  font-size: 14px;
+  line-height: 19px;
+  font-weight: 600;
+  color: var(--sti-text-2);
+  text-transform: uppercase;
+}
+.stinvite__faqs-title {
+  margin: 0;
+  text-align: center;
+  font-size: clamp(2.25rem, 15.789vw - 6.632rem, 6rem);
+  line-height: clamp(2.7rem, 21.474vw - 9.379rem, 7.8rem);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  padding-bottom: 0.5em;
+  white-space: pre-line;
+}
+
+.stinvite__faq {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  border-radius: 56px;
+  padding: 28px 40px 28px 112px;
+  overflow: hidden;
+  background: var(--sti-bg);
+  margin-bottom: 40px;
+  cursor: pointer;
+  outline: none;
+}
+.stinvite__faq::after {
+  content: " ";
+  position: absolute;
+  inset: 0;
+  background: var(--sti-faq-hover), var(--sti-soft-black2);
+  z-index: -1;
+  opacity: 0;
+  transition: opacity 1200ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.stinvite__faq:hover::after,
+.stinvite__faq:active::after,
+.stinvite__faq.is-open::after {
+  opacity: 1;
+}
+.stinvite__faq:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+.stinvite__faq-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 24px;
+}
+.stinvite__faq-q {
+  font-weight: 300;
+  font-size: 28px;
+  line-height: 28px;
+  letter-spacing: -0.011em;
+  color: var(--sti-text-2);
+}
+.stinvite__arrow {
+  width: 57px;
+  height: 57px;
+  min-width: 57px;
+  min-height: 57px;
+  transition: transform 350ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.stinvite__arrow.is-open {
+  transform: rotate(180deg);
+}
+
+.stinvite__faq-ans {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    grid-template-rows 350ms cubic-bezier(0.16, 1, 0.3, 1),
+    opacity 350ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.stinvite__faq-ans.is-open {
+  grid-template-rows: 1fr;
+  opacity: 1;
+  pointer-events: auto;
+}
+.stinvite__faq-a {
+  overflow: hidden;
+  margin: 0;
+  padding: 1em 0 2em;
+  font-weight: 400;
+  font-size: 16px;
+  line-height: 165%;
+  white-space: pre-line;
+  color: var(--sti-text);
+}
+
+.stinvite__faqs-cta {
+  margin-top: 40px;
+  width: fit-content;
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 64px;
+  border-radius: var(--r-control);
+  border: 1px solid var(--sti-text);
+  color: var(--sti-text);
+  text-decoration: none;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 200ms ease;
+}
+.stinvite__faqs-cta:hover {
+  background-color: var(--fill-3);
+}
+.stinvite__faqs-cta:active {
+  background-color: var(--fill-5);
+}
+.stinvite__faqs-cta:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+
+@media (max-width: 1200px) {
+  .stinvite__title { font-size: 48px; }
+  .stinvite__rail { margin-left: 192px; margin-right: 192px; }
+}
+@media (max-width: 900px) {
+  .stinvite__rail {
+    max-width: none;
+    width: calc(100% - 296px);
+    margin-left: 148px;
+    margin-right: 148px;
+    text-align: center;
+  }
+  .stinvite__rail-text { margin-bottom: 80px; }
+  .stinvite__envelope { margin-left: auto; margin-right: auto; }
+  .stinvite__actions { justify-content: center; }
+  .stinvite__video { left: 0; bottom: 50%; }
+  .stinvite__avatar-slot { left: 0; bottom: 50%; top: 0; }
+  .stinvite__faqs { padding: 48px 32px 320px; }
+  .stinvite__faqs-title { font-size: 36px; line-height: 36px; }
+}
+@media (max-width: 600px) {
+  .stinvite__hero-inner { padding: 96px 16px; }
+  .stinvite__rail {
+    margin-left: 48px;
+    margin-right: 48px;
+    width: calc(100% - 96px);
+  }
+  .stinvite__title { font-size: 32px; }
+  .stinvite__subtitle { font-size: 20px; }
+  .stinvite__cta-btn { width: 100%; }
+  .stinvite__faq {
+    padding: 40px 40px 40px 72px;
+    margin-bottom: 20px;
+    border-radius: 50px;
+  }
+  .stinvite__faq-q { font-size: 16px; }
+  .stinvite__arrow { width: 48px; height: 48px; min-width: 48px; min-height: 48px; }
+  .stinvite__faqs-cta { width: 100%; }
+}

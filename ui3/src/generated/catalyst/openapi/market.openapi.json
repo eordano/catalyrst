@@ -1,0 +1,1726 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "catalyrst-market",
+    "description": "Rust port of decentraland/marketplace-server REST API -- reads from squid_marketplace schema",
+    "license": {
+      "name": ""
+    },
+    "version": "0.20.0"
+  },
+  "paths": {
+    "/federation/market/changes": {
+      "get": {
+        "tags": [
+          "market-federation"
+        ],
+        "operationId": "changes",
+        "parameters": [
+          {
+            "name": "since",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/federation/market/snapshot": {
+      "get": {
+        "tags": [
+          "market-federation"
+        ],
+        "operationId": "snapshot",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/activity": {
+      "get": {
+        "tags": [
+          "market"
+        ],
+        "operationId": "get_activity",
+        "parameters": [
+          {
+            "name": "address",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/admin/audit": {
+      "get": {
+        "tags": [
+          "market-admin"
+        ],
+        "operationId": "list_audit",
+        "parameters": [
+          {
+            "name": "target_hash",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "action",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/admin/disputes": {
+      "get": {
+        "tags": [
+          "market-admin"
+        ],
+        "operationId": "list_disputes",
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/admin/disputes/{trade_hash}/open": {
+      "post": {
+        "tags": [
+          "market-admin"
+        ],
+        "operationId": "open_dispute",
+        "parameters": [
+          {
+            "name": "trade_hash",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {}
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/admin/disputes/{trade_hash}/resolve": {
+      "post": {
+        "tags": [
+          "market-admin"
+        ],
+        "operationId": "resolve_dispute",
+        "parameters": [
+          {
+            "name": "trade_hash",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {}
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/admin/listings/{kind}/{hash}/force-cancel": {
+      "post": {
+        "tags": [
+          "market-admin"
+        ],
+        "operationId": "force_cancel",
+        "parameters": [
+          {
+            "name": "kind",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "hash",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {}
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/admin/moderation/flags": {
+      "get": {
+        "tags": [
+          "market-admin"
+        ],
+        "operationId": "list_flags",
+        "parameters": [
+          {
+            "name": "kind",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "severity",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/admin/moderation/{kind}/{hash}/flag": {
+      "post": {
+        "tags": [
+          "market-admin"
+        ],
+        "operationId": "set_flag",
+        "parameters": [
+          {
+            "name": "kind",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "hash",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {}
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "market-admin"
+        ],
+        "operationId": "clear_flag",
+        "parameters": [
+          {
+            "name": "kind",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "hash",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/federation/bid": {
+      "post": {
+        "tags": [
+          "market-federation"
+        ],
+        "operationId": "place_bid",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {}
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FedAck"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/federation/bid/accept": {
+      "post": {
+        "tags": [
+          "market-federation"
+        ],
+        "operationId": "accept_bid",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {}
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FedAck"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/federation/bid/cancel": {
+      "post": {
+        "tags": [
+          "market-federation"
+        ],
+        "operationId": "cancel_bid",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {}
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FedAck"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/federation/bids": {
+      "get": {
+        "tags": [
+          "market-federation"
+        ],
+        "operationId": "list_bids",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/federation/order": {
+      "post": {
+        "tags": [
+          "market-federation"
+        ],
+        "operationId": "create_order",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {}
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FedAck"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/federation/order/cancel": {
+      "post": {
+        "tags": [
+          "market-federation"
+        ],
+        "operationId": "cancel_order",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {}
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FedAck"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/federation/orders": {
+      "get": {
+        "tags": [
+          "market-federation"
+        ],
+        "operationId": "list_orders",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/federation/trade": {
+      "post": {
+        "tags": [
+          "market-federation"
+        ],
+        "operationId": "record_trade",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {}
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FedAck"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/federation/trades": {
+      "get": {
+        "tags": [
+          "market-federation"
+        ],
+        "operationId": "list_trades",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/lists": {
+      "get": {
+        "tags": [
+          "market"
+        ],
+        "operationId": "get_lists",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListsEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/lists/{id}/picks": {
+      "get": {
+        "tags": [
+          "market"
+        ],
+        "operationId": "get_list_picks",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PicksEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/picks/{item_id}": {
+      "post": {
+        "tags": [
+          "market"
+        ],
+        "operationId": "pick_unpick_in_bulk",
+        "parameters": [
+          {
+            "name": "item_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PickUnpickInBulkBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PickUnpickEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Lists not found (data.listIds) or item not found (data.itemId)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PickUnpick404"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "market"
+        ],
+        "operationId": "unpick_everywhere",
+        "parameters": [
+          {
+            "name": "item_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PickUnpickEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "FavoriteList": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "userAddress",
+          "createdAt",
+          "isPrivate",
+          "isDefaultList",
+          "itemsCount",
+          "previewOfItemIds"
+        ],
+        "properties": {
+          "createdAt": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "isDefaultList": {
+            "type": "boolean",
+            "description": "True only for the globally shared default Wishlist (upstream's\n`is_default_list` projection; it also drives the sort-first contract)."
+          },
+          "isItemInList": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "isPrivate": {
+            "type": "boolean"
+          },
+          "itemsCount": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "name": {
+            "type": "string"
+          },
+          "permission": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "previewOfItemIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "updatedAt": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "userAddress": {
+            "type": "string"
+          }
+        }
+      },
+      "FedAck": {
+        "type": "object",
+        "required": [
+          "ok",
+          "signature_hash"
+        ],
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "signature_hash": {
+            "type": "string"
+          }
+        }
+      },
+      "ItemIdData": {
+        "type": "object",
+        "description": "`data` payload of the item-not-found 404: the missing item id.",
+        "required": [
+          "itemId"
+        ],
+        "properties": {
+          "itemId": {
+            "type": "string"
+          }
+        }
+      },
+      "ItemNotFoundBody": {
+        "type": "object",
+        "description": "404 body for upstream's `ItemNotFoundError`\n(`{ok:false, message:\"The item trying to get saved doesn't exist.\",\ndata:{itemId}}`).",
+        "required": [
+          "ok",
+          "message",
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/ItemIdData"
+          },
+          "message": {
+            "type": "string"
+          },
+          "ok": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ListIdsData": {
+        "type": "object",
+        "description": "`data` payload of the lists-not-found 404: the offending list ids.",
+        "required": [
+          "listIds"
+        ],
+        "properties": {
+          "listIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "ListPickItem": {
+        "type": "object",
+        "description": "One favorited item inside a list, as `GET /v1/lists/{id}/picks` reports it\n(upstream `fromDBGetPickByListIdToPickIdsWithCount`: item id + pick time).",
+        "required": [
+          "itemId",
+          "createdAt"
+        ],
+        "properties": {
+          "createdAt": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "itemId": {
+            "type": "string"
+          }
+        }
+      },
+      "ListsEnvelope": {
+        "type": "object",
+        "required": [
+          "ok",
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/ListsPage"
+          },
+          "ok": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ListsNotFoundBody": {
+        "type": "object",
+        "description": "404 body for upstream's `ListsNotFoundError`\n(`{ok:false, message:\"Some lists were not found.\", data:{listIds}}`).",
+        "required": [
+          "ok",
+          "message",
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/ListIdsData"
+          },
+          "message": {
+            "type": "string"
+          },
+          "ok": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ListsPage": {
+        "type": "object",
+        "required": [
+          "results",
+          "total",
+          "page",
+          "pages",
+          "limit"
+        ],
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "page": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "pages": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "results": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FavoriteList"
+            }
+          },
+          "total": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "MarketErrorBody": {
+        "type": "object",
+        "required": [
+          "ok",
+          "message"
+        ],
+        "properties": {
+          "message": {
+            "type": "string"
+          },
+          "ok": {
+            "type": "boolean"
+          }
+        }
+      },
+      "PickUnpick404": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/ListsNotFoundBody"
+          },
+          {
+            "$ref": "#/components/schemas/ItemNotFoundBody"
+          }
+        ],
+        "description": "The two documented 404 shapes of `POST /v1/picks/{item_id}`. Untagged, so\nit serializes exactly as the inner body while utoipa renders a `oneOf` --\nthe runtime response and the published contract share one definition and\ncannot drift."
+      },
+      "PickUnpickEnvelope": {
+        "type": "object",
+        "required": [
+          "ok",
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/PickUnpickResult"
+          },
+          "ok": {
+            "type": "boolean"
+          }
+        }
+      },
+      "PickUnpickInBulkBody": {
+        "type": "object",
+        "properties": {
+          "pickedFor": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "unpickedFrom": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "PickUnpickResult": {
+        "type": "object",
+        "required": [
+          "pickedByUser"
+        ],
+        "properties": {
+          "pickedByUser": {
+            "type": "boolean"
+          }
+        }
+      },
+      "PicksEnvelope": {
+        "type": "object",
+        "required": [
+          "ok",
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/PicksPage"
+          },
+          "ok": {
+            "type": "boolean"
+          }
+        }
+      },
+      "PicksPage": {
+        "type": "object",
+        "required": [
+          "results",
+          "total",
+          "page",
+          "pages",
+          "limit"
+        ],
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "page": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "pages": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "results": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ListPickItem"
+            }
+          },
+          "total": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      }
+    }
+  }
+}

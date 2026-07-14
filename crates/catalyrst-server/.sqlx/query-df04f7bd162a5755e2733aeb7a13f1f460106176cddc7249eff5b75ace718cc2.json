@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO processed_snapshots (hash, process_time) VALUES ($1, now()) ON CONFLICT DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "df04f7bd162a5755e2733aeb7a13f1f460106176cddc7249eff5b75ace718cc2"
+}

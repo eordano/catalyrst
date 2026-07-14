@@ -1,5 +1,5 @@
 {
-  "description": "Origin-less request must NOT receive CORS headers (lamb2 parity — tower_http::CorsLayer would emit them; catalyrst's hand-rolled middleware omits them).",
+  "description": "Origin-less request must NOT receive CORS headers (lamb2 parity \u2014 tower_http::CorsLayer would emit them; catalyrst's hand-rolled middleware omits them).",
   "request": {
     "method": "GET",
     "path": "/content/status",

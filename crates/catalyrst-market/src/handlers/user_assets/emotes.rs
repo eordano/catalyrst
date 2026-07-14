@@ -13,12 +13,13 @@ pub async fn get_user_emotes(
 ) -> Result<Json<AssetsHttpResponse<ProfileEmote>>, ApiError> {
     let filters = parse_user_assets_params(&pairs);
     let owner = address.to_lowercase();
-    let (data_with_prov, total, total_items) = state
-        .user_assets
-        .get_emotes_by_owner(&owner, filters.first, filters.skip)
-        .await?;
-
-    let grants = state.usage_grants.get_active_grants_for(&owner).await;
+    let (assets_res, grants) = tokio::join!(
+        state
+            .user_assets
+            .get_emotes_by_owner(&owner, filters.first, filters.skip),
+        state.usage_grants.get_active_grants_for(&owner)
+    );
+    let (data_with_prov, total, total_items) = assets_res?;
     let unlock_by_urn = super::wearables::build_unlock_by_urn(&grants);
     let data = super::apply_leases(data_with_prov, &unlock_by_urn);
 
@@ -58,12 +59,13 @@ pub async fn get_user_grouped_emotes(
 ) -> Result<Json<AssetsHttpResponse<GroupedEmote>>, ApiError> {
     let filters = parse_user_assets_params(&pairs);
     let owner = address.to_lowercase();
-    let (data_with_prov, total) = state
-        .user_assets
-        .get_grouped_emotes_by_owner(&owner, &filters)
-        .await?;
-
-    let grants = state.usage_grants.get_active_grants_for(&owner).await;
+    let (assets_res, grants) = tokio::join!(
+        state
+            .user_assets
+            .get_grouped_emotes_by_owner(&owner, &filters),
+        state.usage_grants.get_active_grants_for(&owner)
+    );
+    let (data_with_prov, total) = assets_res?;
     let unlock_by_urn = super::wearables::build_unlock_by_urn(&grants);
     let data = super::apply_leases(data_with_prov, &unlock_by_urn);
 

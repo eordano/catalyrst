@@ -1,12 +1,15 @@
 use std::collections::HashMap;
+use std::sync::Arc;
 
+use crate::batch::{BatchSubject, SeqEncoding};
 use crate::decentraland::pulse::{
     server_message, EmoteStarted, EmoteStopReason, EmoteStopped, PlayerJoined, PlayerLeft,
-    PlayerProfileVersionsAnnounced, PlayerState, PlayerStateDeltaTier0, PlayerStateFull,
-    ServerMessage, TeleportPerformed,
+    PlayerProfileVersionsAnnounced, PlayerState, PlayerStateDeltaBatch, PlayerStateDeltaTier0,
+    PlayerStateFull, ServerMessage, TeleportPerformed,
 };
 use crate::interest::{
-    InterestCollector, InterestEntry, PeerViewSimulationTier, SpatialAreaOfInterest,
+    InterestCollector, InterestEntry, PeerViewSimulationTier, SceneListenerState,
+    SpatialAreaOfInterest, SpatialGrid,
 };
 use crate::snapshot::{EmoteState, IdentityBoard, PeerSnapshot, ProfileBoard, SnapshotBoard};
 
@@ -44,6 +47,10 @@ pub struct PeerState {
 
     pub ip: Option<String>,
 
+    pub features: u32,
+
+    pub scene_listener: Option<SceneListenerState>,
+
     pub resync_requests: Option<HashMap<u32, u32>>,
 }
 
@@ -56,8 +63,14 @@ impl PeerState {
             disconnection_time: 0,
             handshake_attempts: 0,
             ip: None,
+            features: 0,
+            scene_listener: None,
             resync_requests: None,
         }
+    }
+
+    pub fn is_listener(&self) -> bool {
+        self.scene_listener.is_some()
     }
 
     pub fn request_resync(&mut self, subject: u32, known_seq: u32) {
@@ -79,26 +92,14 @@ pub struct PeerToPeerView {
     pub last_sent_wallet_id: Option<String>,
 }
 
-const TOLERANCE: f32 = 0.001;
-
-fn float_equals(a: f32, b: f32) -> bool {
-    (a - b).abs() < TOLERANCE
-}
-
-fn opt_float_equals(a: Option<f32>, b: Option<f32>) -> bool {
-    match (a, b) {
-        (None, None) => true,
-        (Some(a), Some(b)) => (a - b).abs() < TOLERANCE,
-        _ => false,
-    }
-}
-
 pub fn create_delta_message(
     subject_id: u32,
     from: &PeerSnapshot,
     to: &PeerSnapshot,
     tier: PeerViewSimulationTier,
 ) -> PlayerStateDeltaTier0 {
+    #[cfg(test)]
+    ENCODE_CALLS.with(|c| c.set(c.get() + 1));
     let mut delta = PlayerStateDeltaTier0 {
         subject_id,
         baseline_seq: from.seq,
@@ -108,17 +109,17 @@ pub fn create_delta_message(
     };
 
     if tier == PeerViewSimulationTier::TIER_0 {
-        if !float_equals(from.slide_blend, to.slide_blend) {
-            delta.set_slide_blend_f(to.slide_blend);
+        if from.slide_blend != to.slide_blend {
+            delta.slide_blend = Some(to.slide_blend);
         }
-        if !opt_float_equals(from.head_yaw, to.head_yaw) {
+        if from.head_yaw != to.head_yaw {
             if let Some(v) = to.head_yaw {
-                delta.set_head_yaw_f(v);
+                delta.head_yaw = Some(v);
             }
         }
-        if !opt_float_equals(from.head_pitch, to.head_pitch) {
+        if from.head_pitch != to.head_pitch {
             if let Some(v) = to.head_pitch {
-                delta.set_head_pitch_f(v);
+                delta.head_pitch = Some(v);
             }
         }
     }
@@ -135,49 +136,52 @@ pub fn create_delta_message(
         delta.parcel_index = Some(to.parcel);
     }
 
-    if !float_equals(from.local_position.x, to.local_position.x) {
-        delta.set_position_x_f(to.local_position.x);
+    if from.position_x != to.position_x {
+        delta.position_x = Some(to.position_x);
     }
-    if !float_equals(from.local_position.y, to.local_position.y) {
-        delta.set_position_y_f(to.local_position.y);
+    if from.position_y != to.position_y {
+        delta.position_y = Some(to.position_y);
     }
-    if !float_equals(from.local_position.z, to.local_position.z) {
-        delta.set_position_z_f(to.local_position.z);
+    if from.position_z != to.position_z {
+        delta.position_z = Some(to.position_z);
     }
 
-    if !float_equals(from.rotation_y, to.rotation_y) {
-        delta.set_rotation_y_f(to.rotation_y);
+    if from.rotation_y != to.rotation_y {
+        delta.rotation_y = Some(to.rotation_y);
     }
 
     if from.jump_count != to.jump_count {
         delta.jump_count = Some(to.jump_count);
     }
 
-    if let Some(to_pa) = to.point_at {
-        let from_pa = from.point_at;
-        if from_pa.is_none() || !float_equals(from_pa.unwrap().x, to_pa.x) {
-            delta.set_point_at_x_f(to_pa.x);
+    if let Some(v) = to.point_at_x {
+        if from.point_at_x != Some(v) {
+            delta.point_at_x = Some(v);
         }
-        if from_pa.is_none() || !float_equals(from_pa.unwrap().y, to_pa.y) {
-            delta.set_point_at_y_f(to_pa.y);
+    }
+    if let Some(v) = to.point_at_y {
+        if from.point_at_y != Some(v) {
+            delta.point_at_y = Some(v);
         }
-        if from_pa.is_none() || !float_equals(from_pa.unwrap().z, to_pa.z) {
-            delta.set_point_at_z_f(to_pa.z);
+    }
+    if let Some(v) = to.point_at_z {
+        if from.point_at_z != Some(v) {
+            delta.point_at_z = Some(v);
         }
     }
 
     if tier == PeerViewSimulationTier::TIER_0 || tier == PeerViewSimulationTier::TIER_1 {
-        if !float_equals(from.velocity.x, to.velocity.x) {
-            delta.set_velocity_x_f(to.velocity.x);
+        if from.velocity_x != to.velocity_x {
+            delta.velocity_x = Some(to.velocity_x);
         }
-        if !float_equals(from.velocity.y, to.velocity.y) {
-            delta.set_velocity_y_f(to.velocity.y);
+        if from.velocity_y != to.velocity_y {
+            delta.velocity_y = Some(to.velocity_y);
         }
-        if !float_equals(from.velocity.z, to.velocity.z) {
-            delta.set_velocity_z_f(to.velocity.z);
+        if from.velocity_z != to.velocity_z {
+            delta.velocity_z = Some(to.velocity_z);
         }
-        if !float_equals(from.movement_blend, to.movement_blend) {
-            delta.set_movement_blend_f(to.movement_blend);
+        if from.movement_blend != to.movement_blend {
+            delta.movement_blend = Some(to.movement_blend);
         }
     }
 
@@ -187,8 +191,12 @@ pub fn create_delta_message(
 fn create_player_state(snapshot: &PeerSnapshot) -> PlayerState {
     PlayerState {
         parcel_index: snapshot.parcel,
-        position: Some(snapshot.local_position),
-        velocity: Some(snapshot.velocity),
+        position_x: snapshot.position_x,
+        position_y: snapshot.position_y,
+        position_z: snapshot.position_z,
+        velocity_x: snapshot.velocity_x,
+        velocity_y: snapshot.velocity_y,
+        velocity_z: snapshot.velocity_z,
         rotation_y: snapshot.rotation_y,
         movement_blend: snapshot.movement_blend,
         slide_blend: snapshot.slide_blend,
@@ -197,7 +205,9 @@ fn create_player_state(snapshot: &PeerSnapshot) -> PlayerState {
         jump_count: 0,
         head_yaw: snapshot.head_yaw,
         head_pitch: snapshot.head_pitch,
-        point_at: snapshot.point_at,
+        point_at_x: snapshot.point_at_x,
+        point_at_y: snapshot.point_at_y,
+        point_at_z: snapshot.point_at_z,
     }
 }
 
@@ -232,6 +242,7 @@ pub struct PeerSimulation {
     self_mirror_enabled: bool,
     self_mirror_tier: PeerViewSimulationTier,
     resync_with_delta: bool,
+    seq_encoding: SeqEncoding,
     pub base_tick_ms: u32,
 
     pending_auth_clean_timeout_ms: u32,
@@ -242,6 +253,14 @@ pub struct PeerSimulation {
 
     pub expired: Vec<ExpiredPeer>,
     collector: InterestCollector,
+
+    observer_features: u32,
+    delta_batch_buffer: Vec<BatchSubject>,
+
+    // The board is immutable for the duration of simulate_tick, so observers sharing a
+    // subject+baseline+tier produce identical output. Cleared at the top of every tick.
+    tick_scan_cache: HashMap<(u32, u32), Arc<IntermediateScan>>,
+    tick_delta_cache: HashMap<(u32, u32, u8), Arc<PlayerStateDeltaTier0>>,
 }
 
 pub const DEFAULT_PENDING_AUTH_CLEAN_TIMEOUT_MS: u32 = 30_000;
@@ -257,13 +276,22 @@ impl PeerSimulation {
             self_mirror_enabled: false,
             self_mirror_tier: PeerViewSimulationTier::TIER_0,
             resync_with_delta,
+            seq_encoding: SeqEncoding::Absolute,
             base_tick_ms,
             pending_auth_clean_timeout_ms: DEFAULT_PENDING_AUTH_CLEAN_TIMEOUT_MS,
             disconnection_clean_timeout_ms: DEFAULT_DISCONNECTION_CLEAN_TIMEOUT_MS,
             outbox: Vec::new(),
             expired: Vec::new(),
             collector: InterestCollector::default(),
+            observer_features: 0,
+            delta_batch_buffer: Vec::new(),
+            tick_scan_cache: HashMap::new(),
+            tick_delta_cache: HashMap::new(),
         }
+    }
+
+    pub fn set_seq_encoding(&mut self, mode: SeqEncoding) {
+        self.seq_encoding = mode;
     }
 
     fn send(&mut self, target: u32, message: ServerMessage, mode: PacketMode) {
@@ -274,14 +302,11 @@ impl PeerSimulation {
         });
     }
 
-    pub fn remove_observer(&mut self, observer_id: u32) {
-        self.observer_views.remove(&observer_id);
-    }
-
     pub fn simulate_tick(
         &mut self,
         peers: &mut HashMap<u32, PeerState>,
         board: &SnapshotBoard,
+        grid: &SpatialGrid,
         aoi: &SpatialAreaOfInterest,
         identity: &IdentityBoard,
         profiles: &ProfileBoard,
@@ -289,6 +314,8 @@ impl PeerSimulation {
         now_ms: u32,
     ) {
         self.expired.clear();
+        self.tick_scan_cache.clear();
+        self.tick_delta_cache.clear();
 
         let observer_ids: Vec<u32> = peers.keys().copied().collect();
 
@@ -322,9 +349,20 @@ impl PeerSimulation {
                 continue;
             }
 
-            let Some(observer_snapshot) = board.try_read(observer_id).cloned() else {
-                continue;
+            let listener = peers
+                .get(&observer_id)
+                .and_then(|s| s.scene_listener.clone());
+            let observer_snapshot = if listener.is_some() {
+                None
+            } else {
+                match board.try_read(observer_id).cloned() {
+                    Some(s) => Some(s),
+                    None => continue,
+                }
             };
+
+            self.observer_features = peers.get(&observer_id).map(|s| s.features).unwrap_or(0);
+            self.delta_batch_buffer.clear();
 
             let mut resync = peers
                 .get_mut(&observer_id)
@@ -335,16 +373,24 @@ impl PeerSimulation {
             self.collector.clear();
 
             let mut collector = std::mem::take(&mut self.collector);
-            aoi.get_visible_subjects(
-                board,
-                observer_id,
-                observer_snapshot.realm.as_deref(),
-                observer_snapshot.global_position,
-                &mut collector,
-            );
-            if self.self_mirror_enabled {
-                collector.add(observer_id, self.self_mirror_tier);
-            }
+            let positional_only = if let Some(listener) = &listener {
+                collect_scene_listener_subjects(board, listener, observer_id, &mut collector);
+                true
+            } else {
+                let snap = observer_snapshot.as_ref().unwrap();
+                aoi.get_visible_subjects(
+                    board,
+                    grid,
+                    observer_id,
+                    snap.realm.as_deref(),
+                    snap.global_position,
+                    &mut collector,
+                );
+                if self.self_mirror_enabled {
+                    collector.add(observer_id, self.self_mirror_tier);
+                }
+                false
+            };
 
             self.process_visible_subjects(
                 observer_id,
@@ -354,9 +400,15 @@ impl PeerSimulation {
                 &collector,
                 resync.as_mut(),
                 tick_counter,
+                positional_only,
             );
 
+            if positional_only {
+                crate::metrics::scene_listener_visible_subjects(collector.count());
+            }
             self.collector = collector;
+
+            self.flush_delta_batch(observer_id, now_ms);
 
             if let Some(state) = peers.get_mut(&observer_id) {
                 state.resync_requests = None;
@@ -369,6 +421,7 @@ impl PeerSimulation {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn process_visible_subjects(
         &mut self,
         observer_id: u32,
@@ -378,9 +431,9 @@ impl PeerSimulation {
         collector: &InterestCollector,
         mut resync: Option<&mut HashMap<u32, u32>>,
         tick_counter: u32,
+        positional_only: bool,
     ) {
-        let entries: Vec<InterestEntry> = collector.entries.clone();
-        for entry in entries {
+        for &entry in &collector.entries {
             let is_self_mirror = entry.subject == observer_id;
             if is_self_mirror && !self.self_mirror_enabled {
                 continue;
@@ -440,6 +493,7 @@ impl PeerSimulation {
                     identity,
                     profiles,
                     resync.as_deref_mut(),
+                    positional_only,
                 );
                 let mut view = view;
                 view.last_seen_tick = tick_counter;
@@ -450,7 +504,9 @@ impl PeerSimulation {
                 continue;
             }
 
-            self.try_announce_profile(observer_id, entry.subject, profiles);
+            if !positional_only {
+                self.try_announce_profile(observer_id, entry.subject, profiles);
+            }
 
             let mut view = self.observer_views[&observer_id][&entry.subject].clone();
             let last_sent_state = self.process_existing_subject(
@@ -460,6 +516,7 @@ impl PeerSimulation {
                 board,
                 &latest,
                 resync.as_deref_mut(),
+                positional_only,
             );
             view.last_sent_snapshot = last_sent_state;
             view.last_seen_tick = tick_counter;
@@ -477,19 +534,19 @@ impl PeerSimulation {
         is_self_mirror: bool,
         identity: &IdentityBoard,
     ) -> bool {
-        let current_wallet = if is_self_mirror {
-            Some(SELF_MIRROR_WALLET_ID.to_string())
+        let current_wallet: Option<&str> = if is_self_mirror {
+            Some(SELF_MIRROR_WALLET_ID)
         } else {
-            identity.wallet_by_peer(subject_id).map(|s| s.to_string())
+            identity.wallet_by_peer(subject_id)
         };
 
         let last_sent = self
             .observer_views
             .get(&observer_id)
             .and_then(|m| m.get(&subject_id))
-            .and_then(|v| v.last_sent_wallet_id.clone());
+            .and_then(|v| v.last_sent_wallet_id.as_deref());
 
-        let same = match (&last_sent, &current_wallet) {
+        let same = match (last_sent, current_wallet) {
             (Some(a), Some(b)) => a.eq_ignore_ascii_case(b),
             (None, None) => true,
             _ => false,
@@ -523,6 +580,7 @@ impl PeerSimulation {
         identity: &IdentityBoard,
         profiles: &ProfileBoard,
         resync: Option<&mut HashMap<u32, u32>>,
+        positional_only: bool,
     ) -> PeerToPeerView {
         if let Some(r) = resync {
             r.remove(&subject_id);
@@ -545,6 +603,7 @@ impl PeerSimulation {
                     user_id: user_id.clone(),
                     profile_version,
                     state: Some(create_full_state(subject_id, latest)),
+                    realm: latest.realm.as_deref().unwrap_or_default().to_string(),
                 })),
             },
             PacketMode::Reliable,
@@ -561,11 +620,14 @@ impl PeerSimulation {
             last_seen_tick: 0,
         };
 
-        if let Some(active) = latest.emote.clone().filter(|e| e.emote_id.is_some()) {
-            self.send_emote_started(observer_id, &mut view, subject_id, latest, &active);
-            view.last_sent_emote = Some(active);
-        } else {
-            view.last_sent_seq = latest.seq;
+        match latest.emote.clone().filter(|e| e.emote_id.is_some()) {
+            Some(active) if !positional_only => {
+                self.send_emote_started(observer_id, &mut view, subject_id, latest, &active);
+                view.last_sent_emote = Some(active);
+            }
+            _ => {
+                view.last_sent_seq = latest.seq;
+            }
         }
 
         view
@@ -579,12 +641,28 @@ impl PeerSimulation {
         board: &SnapshotBoard,
         latest: &PeerSnapshot,
         mut resync: Option<&mut HashMap<u32, u32>>,
+        positional_only: bool,
     ) -> PeerSnapshot {
         let mut last_sent_state = view.last_sent_snapshot.clone();
         let mut discrete_event_sent = false;
 
-        let scan =
-            scan_intermediate_events(board, entry.subject, view.last_sent_snapshot.seq, latest);
+        let from_seq = view.last_sent_snapshot.seq;
+        let scan = self
+            .tick_scan_cache
+            .entry((entry.subject, from_seq))
+            .or_insert_with(|| {
+                Arc::new(scan_intermediate_events(
+                    board,
+                    entry.subject,
+                    from_seq,
+                    latest,
+                ))
+            })
+            .clone();
+        debug_assert_eq!(
+            scan.target_seq, latest.seq,
+            "cached scan built for a different subject snapshot"
+        );
 
         if let Some(tp) = &scan.last_teleport {
             if view.last_sent_teleport_seq.unwrap_or(0) < tp.last_teleport_seq {
@@ -603,7 +681,7 @@ impl PeerSimulation {
             _ => false,
         };
 
-        if emote_start_is_effective {
+        if emote_start_is_effective && !positional_only {
             let es = scan.last_emote_start.as_ref().unwrap();
             if let Some(emote) = es.emote.clone().filter(|e| e.emote_id.is_some()) {
                 let dup = view
@@ -754,6 +832,7 @@ impl PeerSimulation {
                     sequence: snapshot.seq,
                     server_tick: snapshot.server_tick,
                     state: Some(create_player_state(snapshot)),
+                    realm: snapshot.realm.as_deref().unwrap_or_default().to_string(),
                 })),
             },
             PacketMode::Reliable,
@@ -776,7 +855,7 @@ impl PeerSimulation {
                     subject_id,
                     sequence: snapshot.seq,
                     server_tick: emote.start_tick,
-                    emote_id: emote.emote_id.clone().unwrap_or_default(),
+                    emote_id: emote.emote_id.as_deref().unwrap_or_default().to_string(),
                     player_state: Some(create_player_state(snapshot)),
                     mask: None,
                 })),
@@ -822,15 +901,62 @@ impl PeerSimulation {
         if baseline.seq == target.seq {
             return;
         }
-        let delta = create_delta_message(subject_id, baseline, target, tier);
+        let delta = self
+            .tick_delta_cache
+            .entry((subject_id, baseline.seq, tier.value()))
+            .or_insert_with(|| Arc::new(create_delta_message(subject_id, baseline, target, tier)))
+            .clone();
+        debug_assert_eq!(
+            delta.new_seq, target.seq,
+            "cached delta built for a different target snapshot"
+        );
         view.last_sent_seq = target.seq;
+
+        if mode == PacketMode::UnreliableSequenced
+            && (self.observer_features & crate::server::FEATURE_DELTA_BATCH) != 0
+        {
+            self.delta_batch_buffer.push(BatchSubject::from_delta(
+                &delta,
+                target.animation_flags as u32,
+            ));
+            return;
+        }
+
         self.send(
             observer_id,
             ServerMessage {
-                message: Some(server_message::Message::PlayerStateDelta(delta)),
+                message: Some(server_message::Message::PlayerStateDelta(*delta)),
             },
             mode,
         );
+    }
+
+    fn flush_delta_batch(&mut self, observer_id: u32, server_tick: u32) {
+        if self.delta_batch_buffer.is_empty() {
+            return;
+        }
+        let batches = crate::batch::encode_batches(
+            server_tick,
+            &self.delta_batch_buffer,
+            crate::batch::MAX_BATCH_BYTES,
+            self.seq_encoding,
+        );
+        for b in batches {
+            self.send(
+                observer_id,
+                ServerMessage {
+                    message: Some(server_message::Message::PlayerStateDeltaBatch(
+                        PlayerStateDeltaBatch {
+                            server_tick: b.server_tick,
+                            subject_count: b.subject_count,
+                            payload: b.payload,
+                        },
+                    )),
+                },
+                PacketMode::UnreliableSequenced,
+            );
+        }
+        self.delta_batch_buffer.clear();
     }
 
     fn try_announce_profile(&mut self, observer_id: u32, subject_id: u32, profiles: &ProfileBoard) {
@@ -897,10 +1023,75 @@ impl PeerSimulation {
     }
 }
 
+// Thread-local so parallel test threads do not cross-count.
+#[cfg(test)]
+thread_local! {
+    pub static SCENE_LISTENER_EXAMINED: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+fn collect_scene_listener_subjects(
+    board: &SnapshotBoard,
+    listener: &SceneListenerState,
+    observer_id: u32,
+    collector: &mut InterestCollector,
+) {
+    for &parcel in &listener.parcels {
+        for &subject in board.peers_in_parcel(parcel) {
+            #[cfg(test)]
+            SCENE_LISTENER_EXAMINED.with(|c| c.set(c.get() + 1));
+
+            if subject == observer_id {
+                continue;
+            }
+            let Some(s) = board.try_read(subject) else {
+                continue;
+            };
+            if s.realm.as_deref() != Some(listener.realm.as_str()) {
+                continue;
+            }
+            collector.add(subject, PeerViewSimulationTier::TIER_0);
+        }
+    }
+}
+
+/// Pre-optimization full scan, kept as the parity oracle.
+#[cfg(test)]
+fn collect_scene_listener_subjects_linear(
+    board: &SnapshotBoard,
+    listener: &SceneListenerState,
+    observer_id: u32,
+    collector: &mut InterestCollector,
+) {
+    for &subject in board.active_peers() {
+        if subject == observer_id {
+            continue;
+        }
+        let Some(s) = board.try_read(subject) else {
+            continue;
+        };
+        if s.realm.as_deref() != Some(listener.realm.as_str()) {
+            continue;
+        }
+        if !listener.parcels.contains(&s.parcel) {
+            continue;
+        }
+        collector.add(subject, PeerViewSimulationTier::TIER_0);
+    }
+}
+
 struct IntermediateScan {
     last_emote_start: Option<PeerSnapshot>,
     last_emote_stop: Option<PeerSnapshot>,
     last_teleport: Option<PeerSnapshot>,
+    /// Guards the tick cache against returning a scan built for a different `latest`.
+    target_seq: u32,
+}
+
+// Thread-local so parallel test threads do not cross-count.
+#[cfg(test)]
+thread_local! {
+    pub static SCAN_CALLS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    pub static ENCODE_CALLS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
 fn scan_intermediate_events(
@@ -909,6 +1100,8 @@ fn scan_intermediate_events(
     from_seq: u32,
     latest: &PeerSnapshot,
 ) -> IntermediateScan {
+    #[cfg(test)]
+    SCAN_CALLS.with(|c| c.set(c.get() + 1));
     let mut last_emote_start = None;
     let mut last_emote_stop = None;
     let mut last_teleport = None;
@@ -963,6 +1156,7 @@ fn scan_intermediate_events(
         last_emote_start,
         last_emote_stop,
         last_teleport,
+        target_seq: latest.seq,
     }
 }
 

@@ -5,6 +5,20 @@ use sqlx::{PgPool, Row};
 use std::str::FromStr;
 use std::time::Duration;
 
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "governance/")
+)]
+pub enum ArchiveStatus {
+    Ok,
+    ArchiveUnavailable,
+    NotLinked,
+    NotIndexed,
+}
+
 #[derive(Debug, Serialize)]
 #[cfg_attr(
     feature = "ts",
@@ -19,6 +33,7 @@ pub struct ProposalVotesPayload {
     pub votes_count: i64,
     pub votes: Vec<ProposalVoteItem>,
     pub series: Option<VpSeriesPayload>,
+    pub archive_status: ArchiveStatus,
 }
 
 #[derive(Debug, Serialize)]
@@ -59,6 +74,7 @@ pub struct CommentsPayload {
     #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub total: i64,
     pub comments: Vec<CommentItem>,
+    pub archive_status: ArchiveStatus,
 }
 
 #[derive(Debug, Serialize)]
@@ -178,7 +194,7 @@ const MAX_VOTES_PER_PROPOSAL: i64 = 20_000;
 const RATIONALE_VOTES_CAP: usize = 400;
 const SERIES_TICKS: usize = 24;
 
-pub fn empty_votes_payload() -> ProposalVotesPayload {
+pub fn empty_votes_payload(status: ArchiveStatus) -> ProposalVotesPayload {
     ProposalVotesPayload {
         choices: Vec::new(),
         scores: Vec::new(),
@@ -186,6 +202,7 @@ pub fn empty_votes_payload() -> ProposalVotesPayload {
         votes_count: 0,
         votes: Vec::new(),
         series: None,
+        archive_status: status,
     }
 }
 
@@ -201,7 +218,7 @@ pub async fn proposal_votes(pool: &PgPool, snapshot_id: &str) -> Result<Proposal
     .context("snapshot proposal head")?;
 
     let Some(head) = head else {
-        return Ok(empty_votes_payload());
+        return Ok(empty_votes_payload(ArchiveStatus::NotIndexed));
     };
     let choices: Vec<String> = head
         .try_get::<Option<serde_json::Value>, _>("choices")?
@@ -263,6 +280,7 @@ pub async fn proposal_votes(pool: &PgPool, snapshot_id: &str) -> Result<Proposal
         votes_count,
         votes: all,
         series,
+        archive_status: ArchiveStatus::Ok,
     })
 }
 
@@ -359,7 +377,11 @@ pub async fn comments_by_topic(
         })
         .collect();
 
-    Ok(CommentsPayload { total, comments })
+    Ok(CommentsPayload {
+        total,
+        comments,
+        archive_status: ArchiveStatus::Ok,
+    })
 }
 
 pub async fn engagement(pool: &PgPool, days: i64, limit: i64) -> Result<EngagementPayload> {

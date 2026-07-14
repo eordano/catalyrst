@@ -9,3 +9,4 @@ pub mod relayer;
 pub mod signer;
 pub mod trade;
 pub mod transaction;
+pub mod upstream;

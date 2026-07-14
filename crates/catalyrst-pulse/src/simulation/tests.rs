@@ -1,9 +1,10 @@
 use super::*;
 use crate::decentraland::common::Vector3;
 use crate::interest::{
-    ParcelEncoder, ParcelEncoderOptions, SpatialAreaOfInterest, SpatialAreaOfInterestOptions,
-    SpatialGrid,
+    ParcelEncoder, ParcelEncoderOptions, SceneListenerState, SpatialAreaOfInterest,
+    SpatialAreaOfInterestOptions, SpatialGrid,
 };
+use crate::messages::spec;
 use crate::snapshot::{EmoteState, PeerSnapshotPublisher};
 
 fn v3(x: f32, z: f32) -> Vector3 {
@@ -22,13 +23,17 @@ struct World {
 
 impl World {
     fn new() -> Self {
+        Self::sized(16)
+    }
+
+    fn sized(cap: usize) -> Self {
         World {
-            board: SnapshotBoard::new(16, 16),
+            board: SnapshotBoard::new(cap, 16),
             grid: SpatialGrid::new(16.0),
             encoder: ParcelEncoder::new(ParcelEncoderOptions::default()),
             aoi: SpatialAreaOfInterest::new(SpatialAreaOfInterestOptions::default()),
-            identity: IdentityBoard::new(16),
-            profiles: ProfileBoard::new(16),
+            identity: IdentityBoard::new(cap),
+            profiles: ProfileBoard::new(cap),
             peers: HashMap::new(),
         }
     }
@@ -41,6 +46,17 @@ impl World {
         self.peers.insert(id, st);
     }
 
+    fn connect_listener(&mut self, id: u32, wallet: &str, realm: &str, parcels: &[i32]) {
+        self.identity.set(id, wallet.into());
+        let mut st = PeerState::new(PeerConnectionState::Authenticated, 0);
+        st.wallet_id = Some(wallet.into());
+        st.scene_listener = Some(SceneListenerState {
+            realm: realm.into(),
+            parcels: parcels.iter().copied().collect(),
+        });
+        self.peers.insert(id, st);
+    }
+
     fn teleport(&mut self, id: u32, parcel: i32, local: Vector3, realm: &str) {
         PeerSnapshotPublisher::publish_teleport(
             &mut self.board,
@@ -49,7 +65,9 @@ impl World {
             id,
             10,
             parcel,
-            local,
+            spec::POSITION_X.encode(local.x),
+            spec::POSITION_Y.encode(local.y),
+            spec::POSITION_Z.encode(local.z),
             realm.into(),
         );
     }
@@ -57,7 +75,9 @@ impl World {
     fn input(&mut self, id: u32, parcel: i32, local: Vector3) {
         let state = PlayerState {
             parcel_index: parcel,
-            position: Some(local),
+            position_x: spec::POSITION_X.encode(local.x),
+            position_y: spec::POSITION_Y.encode(local.y),
+            position_z: spec::POSITION_Z.encode(local.z),
             ..Default::default()
         };
         PeerSnapshotPublisher::publish_from_player_state(
@@ -78,6 +98,7 @@ fn tick(sim: &mut PeerSimulation, w: &mut World, tick_counter: u32) -> Vec<Outgo
     sim.simulate_tick(
         &mut w.peers,
         &w.board,
+        &w.grid,
         &w.aoi,
         &w.identity,
         &w.profiles,
@@ -117,6 +138,7 @@ fn full_state_on_join_then_delta_after() {
     match &joined[0].message.message {
         Some(server_message::Message::PlayerJoined(pj)) => {
             assert_eq!(pj.user_id, "0xsubject");
+            assert_eq!(pj.realm, "realm-a", "PlayerJoined carries subject realm");
             let full = pj.state.as_ref().unwrap();
             assert_eq!(full.subject_id, 1);
 
@@ -280,6 +302,58 @@ fn teleport_is_broadcast_to_observer() {
     let tp = tp.expect("teleport broadcast expected");
     assert_eq!(tp.subject_id, 1);
     assert_eq!(tp.sequence, w.board.last_seq(1));
+    assert_eq!(tp.realm, "realm-a", "TeleportPerformed carries peer realm");
+}
+
+#[test]
+fn teleport_performed_carries_new_realm() {
+    let mut w = World::new();
+    w.connect(0, "0xobserver");
+    w.connect(1, "0xsubject");
+    w.teleport(0, 0, v3(8.0, 8.0), "realm-a");
+    w.teleport(1, 0, v3(9.0, 8.0), "realm-a");
+
+    let mut sim = PeerSimulation::new(&[50, 100, 200], false);
+    let _ = tick(&mut sim, &mut w, 1);
+
+    w.teleport(0, 0, v3(8.0, 8.0), "realm-b");
+    w.teleport(1, 0, v3(12.0, 8.0), "realm-b");
+    let out = tick(&mut sim, &mut w, 2);
+
+    let tp = out
+        .iter()
+        .find_map(|m| match &m.message.message {
+            Some(server_message::Message::Teleported(t)) if m.target == 0 => Some(t),
+            _ => None,
+        })
+        .expect("teleport broadcast expected");
+    assert_eq!(tp.realm, "realm-b", "re-stamped with the destination realm");
+}
+
+#[test]
+fn teleport_state_relays_raw_position_codes() {
+    let mut w = World::new();
+    w.connect(0, "0xobserver");
+    w.connect(1, "0xsubject");
+    w.teleport(0, 0, v3(8.0, 8.0), "realm-a");
+    w.teleport(1, 0, v3(9.0, 8.0), "realm-a");
+
+    let mut sim = PeerSimulation::new(&[50, 100, 200], false);
+    let _ = tick(&mut sim, &mut w, 1);
+
+    w.teleport(1, 0, v3(12.0, 8.0), "realm-a");
+    let out = tick(&mut sim, &mut w, 2);
+
+    let tp = out
+        .iter()
+        .find_map(|m| match &m.message.message {
+            Some(server_message::Message::Teleported(t)) if m.target == 0 => Some(t),
+            _ => None,
+        })
+        .expect("teleport broadcast expected");
+    let state = tp.state.as_ref().unwrap();
+    assert_eq!(state.position_x, spec::POSITION_X.encode(12.0));
+    assert_eq!(state.position_z, spec::POSITION_Z.encode(8.0));
 }
 
 #[test]
@@ -296,13 +370,36 @@ fn delta_baseline_seq_detects_gap() {
     };
     let to = PeerSnapshot {
         seq: 7,
-        local_position: v3(1.0, 0.0),
+        position_x: spec::POSITION_X.encode(1.0),
         ..Default::default()
     };
     let d = create_delta_message(1, &from, &to, PeerViewSimulationTier::TIER_0);
     assert_eq!(d.baseline_seq, 3);
     assert_eq!(d.new_seq, 7);
-    assert!(d.position_x.is_some(), "changed field is present");
+    assert_eq!(
+        d.position_x,
+        Some(to.position_x),
+        "changed field carries the raw code"
+    );
+}
+
+#[test]
+fn delta_included_only_when_code_changes() {
+    let from = PeerSnapshot {
+        seq: 0,
+        position_x: 100,
+        rotation_y: 64,
+        ..Default::default()
+    };
+    let to = PeerSnapshot {
+        seq: 1,
+        position_x: 100,
+        rotation_y: 65,
+        ..Default::default()
+    };
+    let d = create_delta_message(1, &from, &to, PeerViewSimulationTier::TIER_0);
+    assert!(d.position_x.is_none(), "unchanged code omitted");
+    assert_eq!(d.rotation_y, Some(65), "changed code included verbatim");
 }
 
 #[test]
@@ -313,9 +410,9 @@ fn tier2_omits_velocity_and_blend() {
     };
     let to = PeerSnapshot {
         seq: 1,
-        velocity: v3(5.0, 0.0),
-        movement_blend: 2.0,
-        local_position: v3(1.0, 0.0),
+        velocity_x: spec::VELOCITY_X.encode(5.0),
+        movement_blend: spec::MOVEMENT_BLEND.encode(2.0),
+        position_x: spec::POSITION_X.encode(1.0),
         ..Default::default()
     };
     let d2 = create_delta_message(1, &from, &to, PeerViewSimulationTier::TIER_2);
@@ -344,7 +441,8 @@ fn emote_start_then_stop_broadcast() {
 
     let state = PlayerState {
         parcel_index: 0,
-        position: Some(v3(9.0, 8.0)),
+        position_x: spec::POSITION_X.encode(9.0),
+        position_z: spec::POSITION_Z.encode(8.0),
         ..Default::default()
     };
     PeerSnapshotPublisher::publish_from_player_state(
@@ -416,6 +514,74 @@ fn profile_version_change_is_announced() {
 }
 
 #[test]
+fn v1_observer_gets_bit_packed_batch_v0_keeps_legacy_delta() {
+    let mut w = World::new();
+    w.connect(0, "0xv1obs");
+    w.connect(1, "0xv0obs");
+    w.connect(2, "0xsubject");
+    w.peers.get_mut(&0).unwrap().features = crate::server::FEATURE_DELTA_BATCH;
+
+    w.teleport(0, 0, v3(8.0, 8.0), "realm-a");
+    w.teleport(1, 0, v3(8.0, 8.0), "realm-a");
+    w.teleport(2, 0, v3(9.0, 8.0), "realm-a");
+
+    let mut sim = PeerSimulation::new(&[50, 100, 200], false);
+    let _ = tick(&mut sim, &mut w, 1);
+
+    w.input(2, 0, v3(10.0, 8.0));
+    let out = tick(&mut sim, &mut w, 2);
+
+    let batch_msg = out
+        .iter()
+        .find(|m| {
+            m.target == 0
+                && matches!(
+                    &m.message.message,
+                    Some(server_message::Message::PlayerStateDeltaBatch(_))
+                )
+        })
+        .expect("v1 observer receives a bit-packed batch");
+    assert_eq!(batch_msg.mode, PacketMode::UnreliableSequenced);
+    assert!(
+        !out.iter().any(|m| m.target == 0
+            && matches!(
+                &m.message.message,
+                Some(server_message::Message::PlayerStateDelta(_))
+            )),
+        "v1 observer gets no legacy per-message delta"
+    );
+    let Some(server_message::Message::PlayerStateDeltaBatch(batch)) = &batch_msg.message.message
+    else {
+        unreachable!()
+    };
+    assert_eq!(batch.subject_count, 1);
+    let decoded = crate::batch::decode_batch(batch.subject_count, &batch.payload, |_| 0).unwrap();
+    assert_eq!(decoded[0].subject_id, 2);
+    assert_eq!(decoded[0].new_seq, w.board.last_seq(2));
+    assert!(
+        decoded[0].fields[1].is_some(),
+        "position_x changed and is packed into the batch"
+    );
+
+    assert!(
+        out.iter().any(|m| m.target == 1
+            && matches!(
+                &m.message.message,
+                Some(server_message::Message::PlayerStateDelta(d)) if d.subject_id == 2
+            )),
+        "v0 observer keeps the legacy delta"
+    );
+    assert!(
+        !out.iter().any(|m| m.target == 1
+            && matches!(
+                &m.message.message,
+                Some(server_message::Message::PlayerStateDeltaBatch(_))
+            )),
+        "v0 observer never receives a batch"
+    );
+}
+
+#[test]
 fn pending_auth_peer_times_out() {
     let mut w = World::new();
 
@@ -427,6 +593,7 @@ fn pending_auth_peer_times_out() {
     sim.simulate_tick(
         &mut w.peers,
         &w.board,
+        &w.grid,
         &w.aoi,
         &w.identity,
         &w.profiles,
@@ -441,6 +608,7 @@ fn pending_auth_peer_times_out() {
     sim.simulate_tick(
         &mut w.peers,
         &w.board,
+        &w.grid,
         &w.aoi,
         &w.identity,
         &w.profiles,
@@ -468,6 +636,7 @@ fn disconnecting_peer_cleaned_after_grace() {
     sim.simulate_tick(
         &mut w.peers,
         &w.board,
+        &w.grid,
         &w.aoi,
         &w.identity,
         &w.profiles,
@@ -479,6 +648,7 @@ fn disconnecting_peer_cleaned_after_grace() {
     sim.simulate_tick(
         &mut w.peers,
         &w.board,
+        &w.grid,
         &w.aoi,
         &w.identity,
         &w.profiles,
@@ -491,5 +661,465 @@ fn disconnecting_peer_cleaned_after_grace() {
             peer: 4,
             reason: ExpiredReason::DisconnectCleanTimeout
         }]
+    );
+}
+
+const P_IN: i32 = 100;
+const P_IN2: i32 = 101;
+const P_OUT: i32 = 500;
+
+fn joined_for(out: &[OutgoingMessage], target: u32, uid: &str) -> bool {
+    out.iter().any(|m| {
+        m.target == target
+            && matches!(&m.message.message,
+                Some(server_message::Message::PlayerJoined(pj)) if pj.user_id == uid)
+    })
+}
+
+#[test]
+fn scene_listener_sees_subject_in_parcel() {
+    let mut w = World::new();
+    w.connect_listener(0, "0xlistener", "realm-a", &[P_IN]);
+    w.connect(1, "0xsubject");
+    w.teleport(1, P_IN, v3(8.0, 8.0), "realm-a");
+
+    let mut sim = PeerSimulation::new(&[50, 100, 200], false);
+    let out = tick(&mut sim, &mut w, 1);
+    assert!(
+        joined_for(&out, 0, "0xsubject"),
+        "subject inside a parcel joins"
+    );
+}
+
+#[test]
+fn scene_listener_ignores_subject_outside_parcel_set() {
+    let mut w = World::new();
+    w.connect_listener(0, "0xlistener", "realm-a", &[P_IN]);
+    w.connect(1, "0xsubject");
+    w.teleport(1, P_OUT, v3(8.0, 8.0), "realm-a");
+
+    let mut sim = PeerSimulation::new(&[50, 100, 200], false);
+    let out = tick(&mut sim, &mut w, 1);
+    assert!(
+        !joined_for(&out, 0, "0xsubject"),
+        "parcel-exact, not cell-approximate"
+    );
+}
+
+#[test]
+fn scene_listener_ignores_cross_realm_subject() {
+    let mut w = World::new();
+    w.connect_listener(0, "0xlistener", "realm-a", &[P_IN]);
+    w.connect(1, "0xsubject");
+    w.teleport(1, P_IN, v3(8.0, 8.0), "realm-b");
+
+    let mut sim = PeerSimulation::new(&[50, 100, 200], false);
+    let out = tick(&mut sim, &mut w, 1);
+    assert!(
+        !joined_for(&out, 0, "0xsubject"),
+        "cross-realm subject is invisible"
+    );
+}
+
+#[test]
+fn scene_listener_v1_gets_batch_v0_gets_legacy_delta() {
+    for (features, expect_batch) in [(crate::server::FEATURE_DELTA_BATCH, true), (0, false)] {
+        let mut w = World::new();
+        w.connect_listener(0, "0xlistener", "realm-a", &[P_IN]);
+        w.peers.get_mut(&0).unwrap().features = features;
+        w.connect(1, "0xsubject");
+        w.teleport(1, P_IN, v3(8.0, 8.0), "realm-a");
+
+        let mut sim = PeerSimulation::new(&[50, 100, 200], false);
+        let _ = tick(&mut sim, &mut w, 1);
+        w.input(1, P_IN, v3(10.0, 8.0));
+        let out = tick(&mut sim, &mut w, 2);
+
+        let batch = out.iter().find(|m| {
+            m.target == 0
+                && matches!(
+                    &m.message.message,
+                    Some(server_message::Message::PlayerStateDeltaBatch(_))
+                )
+        });
+        let delta = out.iter().find(|m| {
+            m.target == 0
+                && matches!(&m.message.message,
+                    Some(server_message::Message::PlayerStateDelta(d)) if d.subject_id == 1)
+        });
+        if expect_batch {
+            assert!(
+                batch.is_some() && delta.is_none(),
+                "v1 listener gets a bit-packed batch"
+            );
+            assert_eq!(batch.unwrap().mode, PacketMode::UnreliableSequenced);
+        } else {
+            assert!(
+                delta.is_some() && batch.is_none(),
+                "v0 listener gets a legacy delta"
+            );
+            assert_eq!(delta.unwrap().mode, PacketMode::UnreliableSequenced);
+        }
+    }
+}
+
+#[test]
+fn scene_listener_suppresses_emote_but_position_flows() {
+    let mut w = World::new();
+    w.connect_listener(0, "0xlistener", "realm-a", &[P_IN]);
+    w.connect(1, "0xsubject");
+    w.teleport(1, P_IN, v3(8.0, 8.0), "realm-a");
+
+    let mut sim = PeerSimulation::new(&[50, 100, 200], false);
+    let _ = tick(&mut sim, &mut w, 1);
+
+    let state = PlayerState {
+        parcel_index: P_IN,
+        position_x: spec::POSITION_X.encode(10.0),
+        position_z: spec::POSITION_Z.encode(8.0),
+        ..Default::default()
+    };
+    PeerSnapshotPublisher::publish_from_player_state(
+        &mut w.board,
+        &mut w.grid,
+        &w.encoder,
+        1,
+        30,
+        &state,
+        Some(crate::snapshot::EmoteInput {
+            emote_id: "wave".into(),
+            duration_ms: None,
+            start_tick: None,
+        }),
+    );
+    let out = tick(&mut sim, &mut w, 2);
+
+    assert!(
+        !out.iter().any(|m| m.target == 0
+            && matches!(
+                &m.message.message,
+                Some(server_message::Message::EmoteStarted(_))
+            )),
+        "listener never receives EmoteStarted"
+    );
+    assert!(
+        out.iter().any(|m| m.target == 0
+            && matches!(&m.message.message,
+                Some(server_message::Message::PlayerStateDelta(d)) if d.subject_id == 1)),
+        "the emote snapshot's position still flows as a delta"
+    );
+}
+
+#[test]
+fn scene_listener_mid_emote_join_has_no_emote_started() {
+    let mut w = World::new();
+    w.connect_listener(0, "0xlistener", "realm-a", &[P_IN]);
+    w.connect(1, "0xsubject");
+    w.teleport(1, P_IN, v3(8.0, 8.0), "realm-a");
+    let state = PlayerState {
+        parcel_index: P_IN,
+        position_x: spec::POSITION_X.encode(8.0),
+        position_z: spec::POSITION_Z.encode(8.0),
+        ..Default::default()
+    };
+    PeerSnapshotPublisher::publish_from_player_state(
+        &mut w.board,
+        &mut w.grid,
+        &w.encoder,
+        1,
+        20,
+        &state,
+        Some(crate::snapshot::EmoteInput {
+            emote_id: "wave".into(),
+            duration_ms: None,
+            start_tick: None,
+        }),
+    );
+
+    let mut sim = PeerSimulation::new(&[50, 100, 200], false);
+    let out = tick(&mut sim, &mut w, 1);
+    assert!(
+        joined_for(&out, 0, "0xsubject"),
+        "mid-emote subject still joins"
+    );
+    assert!(
+        !out.iter().any(|m| m.target == 0
+            && matches!(
+                &m.message.message,
+                Some(server_message::Message::EmoteStarted(_))
+            )),
+        "no companion EmoteStarted for a listener"
+    );
+}
+
+#[test]
+fn scene_listener_suppresses_profile_announcement() {
+    let mut w = World::new();
+    w.connect_listener(0, "0xlistener", "realm-a", &[P_IN]);
+    w.connect(1, "0xsubject");
+    w.teleport(1, P_IN, v3(8.0, 8.0), "realm-a");
+
+    let mut sim = PeerSimulation::new(&[50, 100, 200], false);
+    let _ = tick(&mut sim, &mut w, 1);
+    w.profiles.set(1, 5);
+    w.input(1, P_IN, v3(10.0, 8.0));
+    let out = tick(&mut sim, &mut w, 2);
+    assert!(
+        !out.iter().any(|m| m.target == 0
+            && matches!(
+                &m.message.message,
+                Some(server_message::Message::PlayerProfileVersionAnnounced(_))
+            )),
+        "profile version is never announced to a listener"
+    );
+}
+
+#[test]
+fn scene_listener_receives_teleport() {
+    let mut w = World::new();
+    w.connect_listener(0, "0xlistener", "realm-a", &[P_IN, P_IN2]);
+    w.connect(1, "0xsubject");
+    w.teleport(1, P_IN, v3(8.0, 8.0), "realm-a");
+
+    let mut sim = PeerSimulation::new(&[50, 100, 200], false);
+    let _ = tick(&mut sim, &mut w, 1);
+    w.teleport(1, P_IN2, v3(8.0, 8.0), "realm-a");
+    let out = tick(&mut sim, &mut w, 2);
+    assert!(
+        out.iter().any(|m| m.target == 0
+            && matches!(&m.message.message,
+                Some(server_message::Message::Teleported(t)) if t.subject_id == 1)),
+        "teleport within the parcel set is relayed"
+    );
+}
+
+#[test]
+fn scene_listener_subject_leaving_parcels_is_swept() {
+    let mut w = World::new();
+    w.connect_listener(0, "0xlistener", "realm-a", &[P_IN]);
+    w.connect(1, "0xsubject");
+    w.teleport(1, P_IN, v3(8.0, 8.0), "realm-a");
+
+    let mut sim = PeerSimulation::new(&[50, 100, 200], false);
+    let _ = tick(&mut sim, &mut w, 1);
+    w.input(1, P_OUT, v3(8.0, 8.0));
+
+    let mut swept = false;
+    for t in 2..=250 {
+        let out = tick(&mut sim, &mut w, t);
+        if out.iter().any(|m| {
+            m.target == 0
+                && matches!(&m.message.message,
+                Some(server_message::Message::PlayerLeft(l)) if l.subject_id == 1)
+        }) {
+            swept = true;
+            break;
+        }
+    }
+    assert!(
+        swept,
+        "a subject that left the parcels is swept with PlayerLeft"
+    );
+}
+
+#[test]
+fn scene_listener_resync_served_reliably() {
+    let mut w = World::new();
+    w.connect_listener(0, "0xlistener", "realm-a", &[P_IN]);
+    w.connect(1, "0xsubject");
+    w.teleport(1, P_IN, v3(8.0, 8.0), "realm-a");
+
+    let mut sim = PeerSimulation::new(&[50, 100, 200], false);
+    let _ = tick(&mut sim, &mut w, 1);
+    w.input(1, P_IN, v3(10.0, 8.0));
+    w.peers.get_mut(&0).unwrap().request_resync(1, 0);
+    let out = tick(&mut sim, &mut w, 2);
+
+    let served = out
+        .iter()
+        .find(|m| {
+            m.target == 0
+                && matches!(&m.message.message,
+                    Some(server_message::Message::PlayerStateFull(f)) if f.subject_id == 1)
+        })
+        .expect("resync served with PlayerStateFull");
+    assert_eq!(
+        served.mode,
+        PacketMode::Reliable,
+        "resync response is reliable"
+    );
+}
+
+#[test]
+fn scene_listener_is_invisible_to_players() {
+    let mut w = World::new();
+    w.connect_listener(0, "0xlistener", "realm-a", &[P_IN]);
+    w.connect(1, "0xplayer");
+    w.teleport(1, P_IN, v3(8.0, 8.0), "realm-a");
+
+    let mut sim = PeerSimulation::new(&[50, 100, 200], false);
+    let out = tick(&mut sim, &mut w, 1);
+    assert!(
+        !out.iter().any(|m| m.target == 1),
+        "a player receives nothing about the listener (never a subject)"
+    );
+    assert!(
+        joined_for(&out, 0, "0xplayer"),
+        "the listener does see the player"
+    );
+}
+
+fn seed_teleport(
+    board: &mut SnapshotBoard,
+    grid: &mut SpatialGrid,
+    encoder: &ParcelEncoder,
+    id: u32,
+    parcel: i32,
+    realm: &str,
+) {
+    board.set_active(id);
+    PeerSnapshotPublisher::publish_teleport(
+        board,
+        grid,
+        encoder,
+        id,
+        0,
+        parcel,
+        spec::POSITION_X.encode(1.0),
+        spec::POSITION_Y.encode(0.0),
+        spec::POSITION_Z.encode(1.0),
+        realm.into(),
+    );
+}
+
+// Watched-parcel occupancy is held fixed at 9 while N grows 500 -> 2000, so a linear scan
+// examines N and the parcel index examines 9.
+#[test]
+fn scene_listener_iterations_independent_of_total_peers() {
+    fn examined_for(n: u32) -> usize {
+        let mut board = SnapshotBoard::new((n + 1) as usize, 16);
+        let mut grid = SpatialGrid::new(16.0);
+        let encoder = ParcelEncoder::new(ParcelEncoderOptions::default());
+        let mut id = 0u32;
+        for parcel in 0..3i32 {
+            for _ in 0..3 {
+                seed_teleport(&mut board, &mut grid, &encoder, id, parcel, "r");
+                id += 1;
+            }
+        }
+        while id < n {
+            let parcel = 100 + (id % 300) as i32;
+            seed_teleport(&mut board, &mut grid, &encoder, id, parcel, "r");
+            id += 1;
+        }
+
+        let listener = SceneListenerState {
+            realm: "r".into(),
+            parcels: [0i32, 1, 2].into_iter().collect(),
+        };
+        SCENE_LISTENER_EXAMINED.with(|c| c.set(0));
+        let mut c = InterestCollector::default();
+        collect_scene_listener_subjects(&board, &listener, u32::MAX, &mut c);
+        assert_eq!(c.count(), 9, "all 9 watched-parcel occupants collected");
+        SCENE_LISTENER_EXAMINED.with(|c| c.get())
+    }
+
+    let e500 = examined_for(500);
+    let e2000 = examined_for(2000);
+    assert_eq!(
+        e500, e2000,
+        "examined must be independent of total peers ({e500} vs {e2000})"
+    );
+    assert!(
+        e500 <= 3 * 10,
+        "only ~watched-parcel occupants examined, got {e500}"
+    );
+}
+
+#[test]
+fn scene_listener_index_matches_linear() {
+    let n = 400u32;
+    let mut board = SnapshotBoard::new((n + 1) as usize, 16);
+    let mut grid = SpatialGrid::new(16.0);
+    let encoder = ParcelEncoder::new(ParcelEncoderOptions::default());
+    let mut seed: u64 = 0xdead_beef_0000_0001;
+    let mut rng = || {
+        seed = seed
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
+        (seed >> 33) as u32
+    };
+    for id in 0..n {
+        let parcel = (rng() % 50) as i32;
+        let realm = if rng() % 2 == 0 { "realm-a" } else { "realm-b" };
+        seed_teleport(&mut board, &mut grid, &encoder, id, parcel, realm);
+    }
+    for &(realm, ref parcels) in &[
+        ("realm-a", vec![0i32, 5, 9, 33]),
+        ("realm-b", vec![1i32, 2, 7, 40, 49]),
+    ] {
+        let listener = SceneListenerState {
+            realm: realm.into(),
+            parcels: parcels.iter().copied().collect(),
+        };
+        let mut idx_c = InterestCollector::default();
+        collect_scene_listener_subjects(&board, &listener, u32::MAX, &mut idx_c);
+        let mut lin_c = InterestCollector::default();
+        collect_scene_listener_subjects_linear(&board, &listener, u32::MAX, &mut lin_c);
+        let mut a: Vec<u32> = idx_c.entries.iter().map(|e| e.subject).collect();
+        let mut b: Vec<u32> = lin_c.entries.iter().map(|e| e.subject).collect();
+        a.sort();
+        b.sort();
+        assert_eq!(a, b, "parcel-index and linear outputs must be set-equal");
+    }
+}
+
+// Scene listeners are invisible to each other, so the counters isolate work on the one subject
+// that all M of them share a baseline for.
+#[test]
+fn shared_baseline_encodes_once() {
+    const M: u32 = 50;
+
+    let mut w = World::sized((M + 2) as usize);
+    w.connect(0, "0xsubject");
+    w.teleport(0, P_IN, v3(8.0, 8.0), "r");
+    for id in 1..=M {
+        w.connect_listener(id, &format!("0xlistener{id}"), "r", &[P_IN]);
+    }
+
+    let mut sim = PeerSimulation::new(&[50, 100, 200], false);
+
+    let _ = tick(&mut sim, &mut w, 1);
+    w.input(0, P_IN, v3(9.0, 8.0));
+
+    SCAN_CALLS.with(|c| c.set(0));
+    ENCODE_CALLS.with(|c| c.set(0));
+    let out = tick(&mut sim, &mut w, 2);
+
+    assert_eq!(
+        SCAN_CALLS.with(|c| c.get()),
+        1,
+        "scan_intermediate_events must be memoized to one call for the shared subject/baseline"
+    );
+    assert_eq!(
+        ENCODE_CALLS.with(|c| c.get()),
+        1,
+        "create_delta_message must be memoized to one encode for the shared subject/baseline/tier"
+    );
+
+    let recipients = (1..=M)
+        .filter(|&obs| {
+            out.iter().any(|m| {
+                m.target == obs
+                    && matches!(
+                        &m.message.message,
+                        Some(server_message::Message::PlayerStateDelta(d)) if d.subject_id == 0
+                    )
+            })
+        })
+        .count();
+    assert_eq!(
+        recipients as u32, M,
+        "all M observers must still receive their own delta for the subject"
     );
 }

@@ -1,0 +1,25 @@
+.fpsmeter {
+  position: fixed; top: 8px; right: 8px;
+  z-index: var(--z-fps);
+  display: flex; align-items: baseline; gap: 8px;
+  padding: 4px 9px; border-radius: 8px;
+  background: rgba(0, 0, 0, .72);
+  border: 1px solid var(--fill-5);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs); line-height: 1;
+  font-variant-numeric: tabular-nums;
+  /* a perf readout that swallowed a click would be worse than no readout */
+  pointer-events: none;
+  user-select: none;
+}
+
+.fpsmeter__fps { font-size: var(--fs-md); font-weight: 700; }
+.fpsmeter__fps.is-good { color: var(--success); }
+.fpsmeter__fps.is-warn { color: var(--gold); }
+.fpsmeter__fps.is-bad { color: var(--error); }
+
+.fpsmeter__unit {
+  font-size: var(--fs-2xs); font-weight: 600; opacity: .7; margin-left: 2px;
+}
+.fpsmeter__dim { color: var(--ink-6); }
+.fpsmeter__engine { color: var(--info); font-weight: 700; }

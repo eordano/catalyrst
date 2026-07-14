@@ -1,0 +1,3890 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "catalyrst-events",
+    "description": "Rust port of decentraland/events (REST API for events.decentraland.org), HTTP-snapshot federation per docs/federation/events.md",
+    "license": {
+      "name": ""
+    },
+    "version": "0.20.0"
+  },
+  "paths": {
+    "/api/events": {
+      "get": {
+        "tags": [
+          "events"
+        ],
+        "operationId": "get_event_list",
+        "parameters": [
+          {
+            "name": "list",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "order",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "highlighted",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "creator",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "owner",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "only_attendee",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "world",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "world_names",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "name": "position",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "positions",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "name": "estate_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "community_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "places_ids",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "schedule",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "with_connected_users",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "approved",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "rejected",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiOk_EventListData"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "events"
+        ],
+        "operationId": "create_event",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateEventBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiOk_EventRecord"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/events/attending": {
+      "get": {
+        "tags": [
+          "events"
+        ],
+        "operationId": "get_attending_event_list",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiOk_Vec_EventRecord"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/events/categories": {
+      "get": {
+        "tags": [
+          "events"
+        ],
+        "operationId": "get_event_category_list",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiOk_Vec_EventCategoryRecord"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/events/moderation": {
+      "get": {
+        "tags": [
+          "events"
+        ],
+        "operationId": "get_moderation_list",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiOk_Vec_EventRecord"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/events/search": {
+      "post": {
+        "tags": [
+          "events"
+        ],
+        "operationId": "post_event_search",
+        "parameters": [
+          {
+            "name": "list",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "only_attendee",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "owner",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "with_connected_users",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EventSearchBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiOk_EventListData"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/events/{event_id}": {
+      "get": {
+        "tags": [
+          "events"
+        ],
+        "operationId": "get_event",
+        "parameters": [
+          {
+            "name": "event_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiOk_EventRecord"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "events"
+        ],
+        "operationId": "delete_event",
+        "parameters": [
+          {
+            "name": "event_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeleteEventBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiOk_EventRecord"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "events"
+        ],
+        "operationId": "patch_event",
+        "parameters": [
+          {
+            "name": "event_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateEventBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiOk_EventRecord"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/events/{event_id}/attendees": {
+      "get": {
+        "tags": [
+          "events"
+        ],
+        "operationId": "get_event_attendees",
+        "parameters": [
+          {
+            "name": "event_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiOk_Vec_EventAttendeeRecord"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "events"
+        ],
+        "operationId": "create_event_attendee",
+        "parameters": [
+          {
+            "name": "event_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiOk_Vec_EventAttendeeRecord"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "events"
+        ],
+        "operationId": "delete_event_attendee",
+        "parameters": [
+          {
+            "name": "event_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiOk_Vec_EventAttendeeRecord"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/poster": {
+      "post": {
+        "tags": [
+          "posters"
+        ],
+        "operationId": "upload_poster",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "format": "int32",
+                  "minimum": 0
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/poster-vertical": {
+      "post": {
+        "tags": [
+          "posters"
+        ],
+        "operationId": "upload_poster_vertical",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "format": "int32",
+                  "minimum": 0
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/profiles/me/settings": {
+      "get": {
+        "tags": [
+          "profiles"
+        ],
+        "operationId": "get_auth_profile_settings",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "profiles"
+        ],
+        "operationId": "update_my_profile_settings",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {}
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/profiles/settings": {
+      "get": {
+        "tags": [
+          "profiles"
+        ],
+        "operationId": "list_profile_settings",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/profiles/subscriptions": {
+      "get": {
+        "tags": [
+          "profiles"
+        ],
+        "operationId": "get_profile_subscription",
+        "responses": {
+          "410": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "profiles"
+        ],
+        "operationId": "create_profile_subscription",
+        "responses": {
+          "410": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "profiles"
+        ],
+        "operationId": "delete_profile_subscription",
+        "responses": {
+          "410": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/profiles/{profile_id}/settings": {
+      "get": {
+        "tags": [
+          "profiles"
+        ],
+        "operationId": "get_profile_settings",
+        "parameters": [
+          {
+            "name": "profile_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "profiles"
+        ],
+        "operationId": "update_profile_settings",
+        "parameters": [
+          {
+            "name": "profile_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {}
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/schedules": {
+      "get": {
+        "tags": [
+          "schedules"
+        ],
+        "operationId": "get_schedule_list",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiOk_Vec_ScheduleRecord"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "schedules"
+        ],
+        "operationId": "create_schedule",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScheduleUpsertEnvelope"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiOk_ScheduleRecord"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/schedules/{schedule_id}": {
+      "get": {
+        "tags": [
+          "schedules"
+        ],
+        "operationId": "get_schedule_by_id",
+        "parameters": [
+          {
+            "name": "schedule_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiOk_ScheduleRecord"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "schedules"
+        ],
+        "operationId": "patch_schedule",
+        "parameters": [
+          {
+            "name": "schedule_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScheduleUpsertEnvelope"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiOk_ScheduleRecord"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/events/sitemap.events.xml": {
+      "get": {
+        "tags": [
+          "sitemaps"
+        ],
+        "operationId": "sitemap_events",
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/xml": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/events/sitemap.schedules.xml": {
+      "get": {
+        "tags": [
+          "sitemaps"
+        ],
+        "operationId": "sitemap_schedules",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/xml": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/events/sitemap.static.xml": {
+      "get": {
+        "tags": [
+          "sitemaps"
+        ],
+        "operationId": "sitemap_static",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/xml": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/events/sitemap.xml": {
+      "get": {
+        "tags": [
+          "sitemaps"
+        ],
+        "operationId": "sitemap_index",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/xml": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/federation/v1/events/feed": {
+      "get": {
+        "tags": [
+          "federation"
+        ],
+        "operationId": "get_feed",
+        "parameters": [
+          {
+            "name": "since",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/federation/v1/events/{event_id}/attendance": {
+      "get": {
+        "tags": [
+          "federation"
+        ],
+        "operationId": "get_attendance",
+        "parameters": [
+          {
+            "name": "event_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "since",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/poster-vertical/{filename}": {
+      "get": {
+        "tags": [
+          "posters"
+        ],
+        "operationId": "get_poster_vertical",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "image/png": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "integer",
+                    "format": "int32",
+                    "minimum": 0
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/poster/{filename}": {
+      "get": {
+        "tags": [
+          "posters"
+        ],
+        "operationId": "get_poster",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "image/png": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "integer",
+                    "format": "int32",
+                    "minimum": 0
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "ApiErrorBody": {
+        "type": "object",
+        "required": [
+          "ok",
+          "error",
+          "message"
+        ],
+        "properties": {
+          "error": {
+            "type": "string"
+          },
+          "federation_adr": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "ok": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ApiOk_EventListData": {
+        "type": "object",
+        "required": [
+          "ok",
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/EventListWithTotal"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/EventRecord"
+                }
+              }
+            ]
+          },
+          "ok": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ApiOk_EventRecord": {
+        "type": "object",
+        "required": [
+          "ok",
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "id",
+              "name",
+              "all_day",
+              "x",
+              "y",
+              "approved",
+              "rejected",
+              "highlighted",
+              "trending",
+              "world",
+              "recurrent",
+              "recurrent_weekday_mask",
+              "recurrent_month_mask",
+              "recurrent_interval",
+              "recurrent_dates",
+              "categories",
+              "schedules",
+              "total_attendees",
+              "latest_attendees",
+              "coordinates",
+              "position",
+              "live",
+              "attending",
+              "deleted_by_user",
+              "deleted_by_admin"
+            ],
+            "properties": {
+              "all_day": {
+                "type": "boolean"
+              },
+              "approved": {
+                "type": "boolean"
+              },
+              "approved_by": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "attending": {
+                "type": "boolean"
+              },
+              "categories": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "community_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "connected_addresses": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                }
+              },
+              "coordinates": {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "format": "int32"
+                }
+              },
+              "created_at": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "deleted_at": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "deleted_by": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "deleted_by_admin": {
+                "type": "boolean"
+              },
+              "deleted_by_user": {
+                "type": "boolean"
+              },
+              "deleted_reason": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "description": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "duration": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int64"
+              },
+              "estate_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "estate_name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "finish_at": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "highlighted": {
+                "type": "boolean"
+              },
+              "id": {
+                "type": "string"
+              },
+              "image": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "image_vertical": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "latest_attendees": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "live": {
+                "type": "boolean"
+              },
+              "name": {
+                "type": "string"
+              },
+              "next_finish_at": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "next_start_at": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "place_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "position": {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "format": "int32"
+                }
+              },
+              "previous_place_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "recurrent": {
+                "type": "boolean"
+              },
+              "recurrent_count": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int64"
+              },
+              "recurrent_dates": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              },
+              "recurrent_frequency": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "recurrent_interval": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "recurrent_month_mask": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "recurrent_monthday": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int64"
+              },
+              "recurrent_setpos": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int64"
+              },
+              "recurrent_until": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "recurrent_weekday_mask": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "rejected": {
+                "type": "boolean"
+              },
+              "rejected_by": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "rejection_reason": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "scene_name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "schedules": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "server": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "start_at": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "total_attendees": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "trending": {
+                "type": "boolean"
+              },
+              "updated_at": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "url": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "user": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "user_name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "world": {
+                "type": "boolean"
+              },
+              "x": {
+                "type": "integer",
+                "format": "int32"
+              },
+              "y": {
+                "type": "integer",
+                "format": "int32"
+              }
+            }
+          },
+          "ok": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ApiOk_ScheduleRecord": {
+        "type": "object",
+        "required": [
+          "ok",
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "id",
+              "name",
+              "background",
+              "active"
+            ],
+            "properties": {
+              "active": {
+                "type": "boolean"
+              },
+              "active_since": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "active_until": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "background": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "created_at": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "description": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "id": {
+                "type": "string"
+              },
+              "image": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "name": {
+                "type": "string"
+              },
+              "theme": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "updated_at": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              }
+            }
+          },
+          "ok": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ApiOk_Vec_EventAttendeeRecord": {
+        "type": "object",
+        "required": [
+          "ok",
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "event_id",
+                "user",
+                "created_at"
+              ],
+              "properties": {
+                "created_at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "event_id": {
+                  "type": "string"
+                },
+                "user": {
+                  "type": "string"
+                },
+                "user_name": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              }
+            }
+          },
+          "ok": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ApiOk_Vec_EventCategoryRecord": {
+        "type": "object",
+        "required": [
+          "ok",
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "name",
+                "active",
+                "created_at",
+                "updated_at",
+                "i18n"
+              ],
+              "properties": {
+                "active": {
+                  "type": "boolean"
+                },
+                "created_at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "i18n": {
+                  "type": "object"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "updated_at": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              }
+            }
+          },
+          "ok": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ApiOk_Vec_EventRecord": {
+        "type": "object",
+        "required": [
+          "ok",
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "id",
+                "name",
+                "all_day",
+                "x",
+                "y",
+                "approved",
+                "rejected",
+                "highlighted",
+                "trending",
+                "world",
+                "recurrent",
+                "recurrent_weekday_mask",
+                "recurrent_month_mask",
+                "recurrent_interval",
+                "recurrent_dates",
+                "categories",
+                "schedules",
+                "total_attendees",
+                "latest_attendees",
+                "coordinates",
+                "position",
+                "live",
+                "attending",
+                "deleted_by_user",
+                "deleted_by_admin"
+              ],
+              "properties": {
+                "all_day": {
+                  "type": "boolean"
+                },
+                "approved": {
+                  "type": "boolean"
+                },
+                "approved_by": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "attending": {
+                  "type": "boolean"
+                },
+                "categories": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "community_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "connected_addresses": {
+                  "type": [
+                    "array",
+                    "null"
+                  ],
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "coordinates": {
+                  "type": "array",
+                  "items": {
+                    "type": "integer",
+                    "format": "int32"
+                  }
+                },
+                "created_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "deleted_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "deleted_by": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "deleted_by_admin": {
+                  "type": "boolean"
+                },
+                "deleted_by_user": {
+                  "type": "boolean"
+                },
+                "deleted_reason": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "description": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "duration": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "format": "int64"
+                },
+                "estate_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "estate_name": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "finish_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "highlighted": {
+                  "type": "boolean"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "image": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "image_vertical": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "latest_attendees": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "live": {
+                  "type": "boolean"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "next_finish_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "next_start_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "place_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "position": {
+                  "type": "array",
+                  "items": {
+                    "type": "integer",
+                    "format": "int32"
+                  }
+                },
+                "previous_place_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "recurrent": {
+                  "type": "boolean"
+                },
+                "recurrent_count": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "format": "int64"
+                },
+                "recurrent_dates": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "format": "date-time"
+                  }
+                },
+                "recurrent_frequency": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "recurrent_interval": {
+                  "type": "integer",
+                  "format": "int64"
+                },
+                "recurrent_month_mask": {
+                  "type": "integer",
+                  "format": "int64"
+                },
+                "recurrent_monthday": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "format": "int64"
+                },
+                "recurrent_setpos": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "format": "int64"
+                },
+                "recurrent_until": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "recurrent_weekday_mask": {
+                  "type": "integer",
+                  "format": "int64"
+                },
+                "rejected": {
+                  "type": "boolean"
+                },
+                "rejected_by": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "rejection_reason": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "scene_name": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "schedules": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "server": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "start_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "total_attendees": {
+                  "type": "integer",
+                  "format": "int64"
+                },
+                "trending": {
+                  "type": "boolean"
+                },
+                "updated_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "url": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "user": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "user_name": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "world": {
+                  "type": "boolean"
+                },
+                "x": {
+                  "type": "integer",
+                  "format": "int32"
+                },
+                "y": {
+                  "type": "integer",
+                  "format": "int32"
+                }
+              }
+            }
+          },
+          "ok": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ApiOk_Vec_ScheduleRecord": {
+        "type": "object",
+        "required": [
+          "ok",
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "id",
+                "name",
+                "background",
+                "active"
+              ],
+              "properties": {
+                "active": {
+                  "type": "boolean"
+                },
+                "active_since": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "active_until": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "background": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "created_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "description": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "id": {
+                  "type": "string"
+                },
+                "image": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "name": {
+                  "type": "string"
+                },
+                "theme": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "updated_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                }
+              }
+            }
+          },
+          "ok": {
+            "type": "boolean"
+          }
+        }
+      },
+      "CreateEventBody": {
+        "type": "object",
+        "required": [
+          "name",
+          "start_at",
+          "duration",
+          "x",
+          "y"
+        ],
+        "properties": {
+          "all_day": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "categories": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "community_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "contact": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "details": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "duration": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "image": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "image_vertical": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "recurrent": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "recurrent_count": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "recurrent_frequency": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "recurrent_interval": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "recurrent_month_mask": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "recurrent_monthday": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "recurrent_setpos": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "recurrent_until": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "recurrent_weekday_mask": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "schedules": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "server": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "start_at": {
+            "type": "string"
+          },
+          "url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "world": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "x": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "y": {
+            "type": "integer",
+            "format": "int32"
+          }
+        },
+        "additionalProperties": false
+      },
+      "DeleteEventBody": {
+        "type": "object",
+        "properties": {
+          "actor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "EventAttendeeRecord": {
+        "type": "object",
+        "required": [
+          "event_id",
+          "user",
+          "created_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "event_id": {
+            "type": "string"
+          },
+          "user": {
+            "type": "string"
+          },
+          "user_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "EventCategoryRecord": {
+        "type": "object",
+        "required": [
+          "name",
+          "active",
+          "created_at",
+          "updated_at",
+          "i18n"
+        ],
+        "properties": {
+          "active": {
+            "type": "boolean"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "i18n": {
+            "type": "object"
+          },
+          "name": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "EventListData": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/EventListWithTotal"
+          },
+          {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EventRecord"
+            }
+          }
+        ]
+      },
+      "EventListWithTotal": {
+        "type": "object",
+        "required": [
+          "events",
+          "total"
+        ],
+        "properties": {
+          "events": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EventRecord"
+            }
+          },
+          "total": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "EventRecord": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "all_day",
+          "x",
+          "y",
+          "approved",
+          "rejected",
+          "highlighted",
+          "trending",
+          "world",
+          "recurrent",
+          "recurrent_weekday_mask",
+          "recurrent_month_mask",
+          "recurrent_interval",
+          "recurrent_dates",
+          "categories",
+          "schedules",
+          "total_attendees",
+          "latest_attendees",
+          "coordinates",
+          "position",
+          "live",
+          "attending",
+          "deleted_by_user",
+          "deleted_by_admin"
+        ],
+        "properties": {
+          "all_day": {
+            "type": "boolean"
+          },
+          "approved": {
+            "type": "boolean"
+          },
+          "approved_by": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "attending": {
+            "type": "boolean"
+          },
+          "categories": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "community_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "connected_addresses": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "coordinates": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int32"
+            }
+          },
+          "created_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "deleted_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "deleted_by": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "deleted_by_admin": {
+            "type": "boolean"
+          },
+          "deleted_by_user": {
+            "type": "boolean"
+          },
+          "deleted_reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "duration": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "estate_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "estate_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "finish_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "highlighted": {
+            "type": "boolean"
+          },
+          "id": {
+            "type": "string"
+          },
+          "image": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "image_vertical": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "latest_attendees": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "live": {
+            "type": "boolean"
+          },
+          "name": {
+            "type": "string"
+          },
+          "next_finish_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "next_start_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "place_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "position": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int32"
+            }
+          },
+          "previous_place_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "recurrent": {
+            "type": "boolean"
+          },
+          "recurrent_count": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "recurrent_dates": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          "recurrent_frequency": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "recurrent_interval": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "recurrent_month_mask": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "recurrent_monthday": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "recurrent_setpos": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "recurrent_until": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "recurrent_weekday_mask": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "rejected": {
+            "type": "boolean"
+          },
+          "rejected_by": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "rejection_reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "scene_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "schedules": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "server": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "start_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "total_attendees": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "trending": {
+            "type": "boolean"
+          },
+          "updated_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "user": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "user_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "world": {
+            "type": "boolean"
+          },
+          "x": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "y": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "EventSearchBody": {
+        "type": "object",
+        "properties": {
+          "communityId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "placeIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "ScheduleRecord": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "background",
+          "active"
+        ],
+        "properties": {
+          "active": {
+            "type": "boolean"
+          },
+          "active_since": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "active_until": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "background": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "created_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "image": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "theme": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "updated_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          }
+        }
+      },
+      "ScheduleUpsertEnvelope": {
+        "type": "object",
+        "required": [
+          "domain",
+          "message",
+          "nonce",
+          "signed_at",
+          "signature"
+        ],
+        "properties": {
+          "domain": {
+            "type": "object"
+          },
+          "message": {
+            "$ref": "#/components/schemas/ScheduleUpsertMessage"
+          },
+          "nonce": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          "signature": {
+            "type": "string"
+          },
+          "signed_at": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "ScheduleUpsertMessage": {
+        "type": "object",
+        "required": [
+          "name",
+          "active_since",
+          "active_until",
+          "active",
+          "signed_at"
+        ],
+        "properties": {
+          "active": {
+            "type": "boolean"
+          },
+          "active_since": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "active_until": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "background": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "image": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "schedule_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "signed_at": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "theme": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "UpdateEventBody": {
+        "type": "object",
+        "properties": {
+          "all_day": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "approved": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "categories": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "community_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "contact": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "details": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "duration": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "highlighted": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "image": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "image_vertical": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "recurrent": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "recurrent_count": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "recurrent_frequency": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "recurrent_interval": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "recurrent_month_mask": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "recurrent_monthday": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "recurrent_setpos": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "recurrent_until": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "recurrent_weekday_mask": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "rejected": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "rejection_reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "schedules": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "server": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "start_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "trending": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "world": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "x": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "y": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  }
+}

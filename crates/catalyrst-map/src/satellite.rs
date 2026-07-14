@@ -22,6 +22,12 @@ const THUMB_ZOOM_MAX: i32 = 4;
 
 const MAX_SAMPLES: i32 = 3;
 
+// Thread-local so parallel test threads do not cross-count.
+#[cfg(test)]
+thread_local! {
+    pub(crate) static OVERLAP_SCAN_ITERS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 struct Region {
     w: u32,
     h: u32,
@@ -159,6 +165,13 @@ impl SatelliteState {
         }
     }
 
+    #[cfg(test)]
+    fn test_seed(&self, coords: &[(i32, i32)], generation: u64) {
+        let mut idx = self.index.lock();
+        idx.tiles = coords.iter().map(|&c| (c, 0i64)).collect();
+        idx.generation = generation;
+    }
+
     pub fn tile_png(&self, z: i32, x: i32, y: i32) -> Option<Arc<Vec<u8>>> {
         if !(0..=MAX_ZOOM).contains(&z) {
             return None;
@@ -169,6 +182,15 @@ impl SatelliteState {
         }
         let key = TileKey { z, x, y };
 
+        // Cache first: generation alone validates a hit, so the region-overlap scan below is
+        // computed only on a miss rather than discarded on every hit.
+        let generation = self.index.lock().generation;
+        if let Some(hit) = self.output.lock().get(&key) {
+            if hit.generation == generation {
+                return Some(hit.bytes.clone());
+            }
+        }
+
         let (generation, overlap) = {
             let idx = self.index.lock();
             let gen = idx.generation;
@@ -178,6 +200,8 @@ impl SatelliteState {
                 .keys()
                 .copied()
                 .filter(|&(cx, cy)| {
+                    #[cfg(test)]
+                    OVERLAP_SCAN_ITERS.with(|c| c.set(c.get() + 1));
                     let rx0 = (cx - REGION_HALF) as f64;
                     let rx1 = (cx + REGION_HALF + 1) as f64;
                     let ry0 = (cy - REGION_HALF) as f64;
@@ -187,12 +211,6 @@ impl SatelliteState {
                 .collect();
             (gen, overlap)
         };
-
-        if let Some(hit) = self.output.lock().get(&key) {
-            if hit.generation == generation {
-                return Some(hit.bytes.clone());
-            }
-        }
 
         let bytes = if overlap.is_empty() {
             self.empty_png.clone()
@@ -342,4 +360,34 @@ fn tile_world_bounds(z: i32, x: i32, y: i32) -> (f64, f64, f64, f64) {
     let y1 = WORLD_MAX - y as f64 * span;
     let y0 = y1 - span;
     (x0, x1, y0, y1)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn warm_hit_skips_overlap_scan() {
+        let st = SatelliteState::new(
+            std::path::PathBuf::from("/nonexistent-satellite"),
+            1 << 20,
+            64,
+        );
+        // Regions placed far from the requested tile: the filter visits every key but yields
+        // no overlap, so no render I/O.
+        let coords: Vec<(i32, i32)> = (0..50).map(|i| (10_000 + i, 10_000)).collect();
+        st.test_seed(&coords, 1);
+
+        OVERLAP_SCAN_ITERS.with(|c| c.set(0));
+        let first = st.tile_png(9, 0, 0);
+        let miss_iters = OVERLAP_SCAN_ITERS.with(|c| c.get());
+        assert_eq!(miss_iters, 50, "cold miss must scan every seeded region");
+
+        OVERLAP_SCAN_ITERS.with(|c| c.set(0));
+        let second = st.tile_png(9, 0, 0);
+        let hit_iters = OVERLAP_SCAN_ITERS.with(|c| c.get());
+        assert_eq!(hit_iters, 0, "warm hit must not run the overlap scan");
+
+        assert!(Arc::ptr_eq(&first.unwrap(), &second.unwrap()));
+    }
 }

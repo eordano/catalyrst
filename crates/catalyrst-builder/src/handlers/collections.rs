@@ -1,47 +1,63 @@
 use axum::extract::{Path, Query, State};
 use axum::http::HeaderMap;
 use axum::Json;
-use serde::Deserialize;
-use serde_json::{json, Value};
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::auth_chain::require_signer;
 use crate::http::errors::ApiError;
 use crate::http::response::ApiData;
-use crate::ports::items::ItemQuery;
+use crate::ports::items::{CollectionMetaOut, FullItemOut, ItemQuery};
 use crate::AppState;
 
 const CURATION_STATUSES: [&str; 3] = ["pending", "approved", "rejected"];
+
+const DEFAULT_LIMIT: i64 = 100_000;
+
+#[derive(Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "builder/"))]
+pub struct PaginatedFullItemsOut {
+    pub total: i64,
+    pub limit: i64,
+    pub pages: i64,
+    pub page: i64,
+    pub results: Vec<FullItemOut>,
+}
+
+#[derive(Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "builder/"))]
+#[serde(untagged)]
+pub enum CollectionItemsOut {
+    Plain(Vec<FullItemOut>),
+    Paginated(PaginatedFullItemsOut),
+}
+
+fn should_paginate(page: Option<i64>, limit: Option<i64>) -> bool {
+    matches!((page, limit), (Some(p), Some(l)) if p != 0 && l != 0 && l < DEFAULT_LIMIT)
+}
 
 pub async fn get_collection(
     State(state): State<AppState>,
     Path(id): Path<String>,
     headers: HeaderMap,
-) -> Result<Json<ApiData<Value>>, ApiError> {
+) -> Result<Json<ApiData<CollectionMetaOut>>, ApiError> {
     let path = format!("/v1/collections/{}", id);
-    let signer = require_signer(&headers, "get", &path)?.to_ascii_lowercase();
+    let signer = require_signer(&headers, "get", &path).await?;
 
-    let collection_id = Uuid::parse_str(id.trim()).map_err(|_| {
-        ApiError::not_found_with("Not found", json!({ "id": id, "eth_address": signer }))
-    })?;
+    let collection_id = Uuid::parse_str(id.trim()).map_err(|_| ApiError::not_found("Not found"))?;
 
     let meta = state
         .items
         .collection_by_id(&collection_id)
         .await?
-        .ok_or_else(|| {
-            ApiError::not_found_with("Not found", json!({ "id": id, "eth_address": signer }))
-        })?;
+        .ok_or_else(|| ApiError::not_found("Not found"))?;
 
     let is_admin = state.admin_addresses.iter().any(|a| a == &signer);
     if signer != meta.eth_address.to_ascii_lowercase() && !is_admin {
-        return Err(ApiError::unauthorized_with(
-            "Unauthorized",
-            json!({ "eth_address": signer }),
-        ));
+        return Err(ApiError::unauthorized("Unauthorized"));
     }
 
-    Ok(Json(ApiData::ok(meta.to_meta_json())))
+    Ok(Json(ApiData::ok(CollectionMetaOut::from(&meta))))
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -60,40 +76,30 @@ pub async fn get_collection_items(
     Path(id): Path<String>,
     Query(params): Query<CollectionItemsParams>,
     headers: HeaderMap,
-) -> Result<Json<ApiData<Value>>, ApiError> {
+) -> Result<Json<ApiData<CollectionItemsOut>>, ApiError> {
     let path = format!("/v1/collections/{}/items", id);
-    let signer = require_signer(&headers, "get", &path)?.to_ascii_lowercase();
+    let signer = require_signer(&headers, "get", &path).await?;
 
     if let Some(status) = &params.status {
         if !CURATION_STATUSES.contains(&status.as_str()) {
-            return Err(ApiError::bad_request_with(
-                "Invalid Status provided",
-                json!({ "id": id, "status": status }),
-            ));
+            return Err(ApiError::bad_request("Invalid Status provided"));
         }
     }
 
-    let collection_id = Uuid::parse_str(id.trim()).map_err(|_| {
-        ApiError::not_found_with("Not found", json!({ "id": id, "eth_address": signer }))
-    })?;
+    let collection_id = Uuid::parse_str(id.trim()).map_err(|_| ApiError::not_found("Not found"))?;
 
     let owner = state
         .items
         .collection_owner(&collection_id)
         .await?
-        .ok_or_else(|| {
-            ApiError::not_found_with("Not found", json!({ "id": id, "eth_address": signer }))
-        })?;
+        .ok_or_else(|| ApiError::not_found("Not found"))?;
 
     let is_admin = state.admin_addresses.iter().any(|a| a == &signer);
     if signer != owner && !is_admin {
-        return Err(ApiError::unauthorized_with(
-            "Unauthorized",
-            json!({ "eth_address": signer }),
-        ));
+        return Err(ApiError::unauthorized("Unauthorized"));
     }
 
-    let paginate = params.page.is_some() && params.limit.is_some();
+    let paginate = should_paginate(params.page, params.limit);
 
     let q = ItemQuery {
         status: params.status,
@@ -105,7 +111,7 @@ pub async fn get_collection_items(
     };
 
     let (items, total) = state.items.items_for_collection(&collection_id, &q).await?;
-    let results: Vec<Value> = items.iter().map(|i| i.to_full_item()).collect();
+    let results: Vec<FullItemOut> = items.iter().map(|i| i.to_out()).collect();
 
     let data = if paginate {
         let limit = params.limit.unwrap_or(0);
@@ -115,16 +121,59 @@ pub async fn get_collection_items(
         } else {
             0
         };
-        json!({
-            "total": total,
-            "limit": limit,
-            "pages": pages,
-            "page": page,
-            "results": results,
+        CollectionItemsOut::Paginated(PaginatedFullItemsOut {
+            total,
+            limit,
+            pages,
+            page,
+            results,
         })
     } else {
-        Value::Array(results)
+        CollectionItemsOut::Plain(results)
     };
 
     Ok(Json(ApiData::ok(data)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn pagination_truthiness_matches_upstream_js() {
+        assert!(should_paginate(Some(1), Some(10)));
+        assert!(should_paginate(Some(1), Some(99_999)));
+        assert!(!should_paginate(None, Some(10)));
+        assert!(!should_paginate(Some(1), None));
+        assert!(!should_paginate(None, None));
+        assert!(!should_paginate(Some(0), Some(10)));
+        assert!(!should_paginate(Some(1), Some(0)));
+        assert!(!should_paginate(Some(1), Some(100_000)));
+        assert!(!should_paginate(Some(1), Some(100_001)));
+    }
+
+    #[test]
+    fn collection_items_union_arms_serialize_correctly() {
+        let plain = ApiData::ok(CollectionItemsOut::Plain(vec![]));
+        assert_eq!(
+            serde_json::to_value(&plain).unwrap(),
+            json!({ "ok": true, "data": [] }),
+        );
+
+        let paginated = ApiData::ok(CollectionItemsOut::Paginated(PaginatedFullItemsOut {
+            total: 5,
+            limit: 2,
+            pages: 3,
+            page: 1,
+            results: vec![],
+        }));
+        assert_eq!(
+            serde_json::to_value(&paginated).unwrap(),
+            json!({
+                "ok": true,
+                "data": { "total": 5, "limit": 2, "pages": 3, "page": 1, "results": [] },
+            }),
+        );
+    }
 }

@@ -30,7 +30,7 @@ pub async fn scene_reload(session: AdminSession, Json(req): Json<SceneReloadReq>
     };
     let body = json!({ "secret": secret, "name": name });
     proxy_audited_global(
-        &session.address,
+        session.address(),
         "scene.reload",
         Some(&name),
         json!({ "name": name }),
@@ -63,7 +63,7 @@ pub async fn scene_state_crdt(
     }
     proxy_audited(
         &state,
-        &session.address,
+        session.address(),
         "scene-state.crdt",
         Some(&req.scene),
         json!({ "scene": req.scene }),
@@ -89,7 +89,7 @@ pub async fn scene_state_kick_all(
     }
     proxy_audited(
         &state,
-        &session.address,
+        session.address(),
         "scene-state.kick-all",
         Some(&req.scene),
         json!({ "scene": req.scene }),
@@ -115,7 +115,7 @@ pub async fn scene_state_reset(
     }
     proxy_audited(
         &state,
-        &session.address,
+        session.address(),
         "scene-state.reset",
         Some(&req.scene),
         json!({ "scene": req.scene }),

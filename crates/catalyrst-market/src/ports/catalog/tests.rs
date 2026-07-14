@@ -52,11 +52,105 @@ fn wire_id_is_always_contract_dash_blockchain_id() {
         listings_count: None,
         owners_count: None,
         min_price: None,
-        max_price: None,
     };
     let item = from_db_row_to_catalog_item(row, None);
     assert_eq!(item.id, "0xe1ecb4e5130f493551c7d6df96ad19e5b431a0a9-3");
     assert_eq!(item.item_id, "3");
+}
+
+/// A catalog row whose price comes from an open v3 trade, per upstream's
+/// `catalog-utils.spec.ts` fixture (marketplace-server #387).
+fn trade_priced_row() -> DbRow {
+    DbRow {
+        id: "0xcollection-0".into(),
+        blockchain_id: "0".into(),
+        image: String::new(),
+        collection_id: "0xcollection".into(),
+        rarity: "legendary".into(),
+        item_type: "wearable_v2".into(),
+        price: "1000000000000000000000".into(),
+        available: "43".into(),
+        search_is_store_minter: false,
+        search_is_marketplace_v3_minter: true,
+        creator: "0xcreator".into(),
+        beneficiary: Some("0xcreator".into()),
+        created_at: "1".into(),
+        updated_at: "1".into(),
+        reviewed_at: "1".into(),
+        sold_at: "1".into(),
+        first_listed_at: Some("1".into()),
+        urn: "urn:decentraland:matic:collections-v2:0xcollection:0".into(),
+        network: "POLYGON".into(),
+        metadata: None,
+        min_listing_price: None,
+        max_listing_price: None,
+        open_item_trade_id: Some("trade-1".into()),
+        open_item_trade_price: Some("20100000000000000000".into()),
+        listings_count: None,
+        owners_count: None,
+        min_price: None,
+    }
+}
+
+#[test]
+fn catalog_carries_trade_id_only_when_the_price_came_from_a_trade() {
+    // Priced by the open trade: the id travels so the caller can read the unit
+    // (a v3 trade can be USD-pegged MANA), and price is the trade's amount.
+    let item = from_db_row_to_catalog_item(trade_priced_row(), None);
+    assert_eq!(item.trade_id.as_deref(), Some("trade-1"));
+    assert_eq!(item.price, "20100000000000000000");
+    assert!(item.is_on_sale);
+
+    // Store minter set the price (MANA) even though an open trade exists -- the id
+    // is withheld so a correct MANA figure is not mislabelled as dollars.
+    let store = DbRow {
+        search_is_marketplace_v3_minter: false,
+        search_is_store_minter: true,
+        ..trade_priced_row()
+    };
+    let item = from_db_row_to_catalog_item(store, None);
+    assert!(item.trade_id.is_none());
+    assert_eq!(item.price, "1000000000000000000000");
+
+    let sold_out = DbRow {
+        available: "0".into(),
+        ..trade_priced_row()
+    };
+    let item = from_db_row_to_catalog_item(sold_out, None);
+    assert!(item.trade_id.is_none());
+    assert_eq!(item.price, "0");
+    assert!(!item.is_on_sale);
+
+    // No open trade: nothing to attach even when the store sets the price.
+    let no_trade = DbRow {
+        open_item_trade_id: None,
+        open_item_trade_price: None,
+        search_is_store_minter: true,
+        ..trade_priced_row()
+    };
+    let item = from_db_row_to_catalog_item(no_trade, None);
+    assert!(item.trade_id.is_none());
+    assert_eq!(item.price, "1000000000000000000000");
+}
+
+/// `tradeId` is omitted from the JSON entirely (not `null`) when absent, and
+/// present as the id when the price is trade-sourced.
+#[test]
+fn catalog_trade_id_is_skipped_when_none() {
+    let present =
+        serde_json::to_value(from_db_row_to_catalog_item(trade_priced_row(), None)).unwrap();
+    assert_eq!(present["tradeId"], serde_json::json!("trade-1"));
+
+    let store = DbRow {
+        search_is_marketplace_v3_minter: false,
+        search_is_store_minter: true,
+        ..trade_priced_row()
+    };
+    let absent = serde_json::to_value(from_db_row_to_catalog_item(store, None)).unwrap();
+    assert!(
+        absent.get("tradeId").is_none(),
+        "tradeId must be omitted, not null: {absent}"
+    );
 }
 
 #[test]

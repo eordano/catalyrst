@@ -1,7 +1,7 @@
 # catalyrst-economy routes
 
 Rust port of `decentraland/transactions-server` (transactions-api.decentraland.org). Listens on the
-deployment's assigned port (`5155`; see `umbrella/env/catalyrst-economy.env`). All routes are
+deployment's assigned port (`5155`; see the deployment's `catalyrst-economy` env file). All routes are
 unauthenticated at the HTTP layer - authn/authz lives in the EIP-712 calldata, verified on-chain.
 
 | Method | Path | Status | Notes |
@@ -27,17 +27,17 @@ Marketplace v3 trades priced as `USD_PEGGED_MANA` (assetType 2) carry a **USD am
 Chainlink MANA/USD aggregator when the accept mines (`value * 1e18 / rate`, floor). The
 broker executes these with three guards:
 
-- **Pinned USD amount** — for assetType 2, the body's `priceWei` pins the trade's signed
+- **Pinned USD amount** -- for assetType 2, the body's `priceWei` pins the trade's signed
   USD-wei amount (for assetType 1 it pins the exact MANA amount, unchanged).
-- **Staleness bound** — the broker reads the same aggregator (`latestRoundData`) over the
+- **Staleness bound** -- the broker reads the same aggregator (`latestRoundData`) over the
   relayer RPC just before broadcast and refuses if the round is older than
   `USD_PEGGED_ORACLE_MAX_AGE_SECS` (409).
-- **Slippage bound** — the optional body field `quoteManaWei` carries the listing-time MANA
+- **Slippage bound** -- the optional body field `quoteManaWei` carries the listing-time MANA
   quote; when present, the broker refuses (409) if the execution-time conversion drifted
   more than `USD_PEGGED_SLIPPAGE_BPS` from it. When absent, no slippage bound applies.
 
 **Charge-basis policy:** the ledger is charged the USD amount converted at the
-**execution-time** rate — `broker_purchases.price_wei` records that MANA figure (with
+**execution-time** rate -- `broker_purchases.price_wei` records that MANA figure (with
 `usd_amount_wei` + `mana_usd_rate_wei` kept for audit), and the response reports it as
 `chargeBasisWei` plus a `usdPegged` block (`usdAmountWei`, `manaUsdRateWei`,
 `rateUpdatedAt`). The signed trade goes on-chain untouched (assetType 2, USD value); the
@@ -47,7 +47,7 @@ contract's own 27s aggregator tolerance.
 
 Note: an idempotent replay of a USD-pegged buy re-reads the oracle and re-applies both
 bounds before resuming; if the rate has since moved beyond them the replay is refused
-(409) — retry with a re-quoted `quoteManaWei` to resume (the background reconciler keeps
+(409) -- retry with a re-quoted `quoteManaWei` to resume (the background reconciler keeps
 advancing the on-chain receipt states meanwhile; funds safety does not depend on the
 replay).
 

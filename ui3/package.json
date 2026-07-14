@@ -1,0 +1,87 @@
+{
+  "name": "dcl-react-ui",
+  "version": "0.20.0",
+  "type": "module",
+  "description": "React (react-dom only) re-implementation of the Decentraland client UI, aiming for near-pixel-perfect parity. Vite SPA.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/eordano/dcl-react-ui.git"
+  },
+  "homepage": "https://github.com/eordano/dcl-react-ui#readme",
+  "sideEffects": [
+    "*.css"
+  ],
+  "files": [
+    "dist"
+  ],
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./dist/*": "./dist/*",
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "dev": "vite --config vite.app.config.js",
+    "build:app": "vite build --config vite.app.config.js",
+    "build:lib": "rm -rf dist && tsc -p tsconfig.lib.json && rsync -rlpt --prune-empty-dirs --exclude='/app/' --exclude='/docs/' --exclude='/test/' --exclude='/tours/' --include='*/' --include='*.css' --include='*.png' --include='*.jpg' --include='*.webp' --include='*.svg' --include='*.glb' --exclude='*' src/ dist/",
+    "build:overlay": "npm run typecheck && vite build --config vite.overlay.config.js",
+    "overlay:dev": "vite --config vite.overlay.config.js",
+    "storybook": "storybook dev -p 5006",
+    "build-storybook": "storybook build -o .storybook-build && rsync -a --delete .storybook-build/ storybook-static/",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:browser": "vitest run --config vitest.browser.config.ts",
+    "test:all": "npm test && npm run test:browser",
+    "gen:schema-stubs": "node scripts/gen-schema-stubs.mts",
+    "gen:schema-stubs:check": "node scripts/gen-schema-stubs.mts --check",
+    "check:perf-strip": "node scripts/check-perf-strip.mts",
+    "check:perf-parity": "node scripts/check-perf-parity.mts",
+    "build:overlay:perf": "DCL_PERF=1 npm run build:overlay"
+  },
+  "dependencies": {
+    "@tanstack/react-query": "5.101.4",
+    "livekit-client": "2.22.0",
+    "qrcode-generator": "2.0.4",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "react-router": "8.3.0",
+    "three": "0.185.1",
+    "viem": "2.55.17",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@storybook/addon-a11y": "10.5.8",
+    "@storybook/addon-docs": "10.5.8",
+    "@storybook/addon-links": "10.5.8",
+    "@storybook/addon-vitest": "10.5.8",
+    "@storybook/react-vite": "10.5.8",
+    "@testing-library/dom": "10.4.1",
+    "@testing-library/jest-dom": "7.0.1",
+    "@testing-library/react": "16.3.2",
+    "@testing-library/user-event": "14.6.4",
+    "@types/react": "19.2.18",
+    "@types/react-dom": "19.2.4",
+    "@vitejs/plugin-react": "6.0.5",
+    "@vitest/browser-playwright": "4.1.10",
+    "@vitest/coverage-v8": "4.1.10",
+    "jsdom": "30.0.1",
+    "msw": "2.15.0",
+    "msw-storybook-addon": "3.0.0",
+    "playwright": "1.62.1",
+    "storybook": "10.5.8",
+    "typescript": "7.0.2",
+    "vite": "8.2.1",
+    "vitest": "4.1.10"
+  },
+  "msw": {
+    "workerDirectory": [
+      "public"
+    ]
+  }
+}

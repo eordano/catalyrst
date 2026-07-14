@@ -4,7 +4,7 @@ fn main() -> Result<()> {
     println!("cargo:rerun-if-changed=proto");
 
     let mut config = prost_build::Config::new();
-    config.service_generator(Box::new(dcl_rpc::codegen::RPCServiceGenerator::new()));
+    config.service_generator(Box::new(catalyrst_drpc::codegen::RPCServiceGenerator::new()));
     config
         .type_attribute(".", "#[derive(serde::Serialize, serde::Deserialize)]")
         .type_attribute(".", "#[serde(rename_all = \"camelCase\")]")

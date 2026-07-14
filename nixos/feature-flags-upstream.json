@@ -1,0 +1,334 @@
+{
+  "flags": {
+    "explorer-ab-new-cdn": true,
+    "explorer-ab_caching": true,
+    "explorer-alfa-ab-deps-digest-cache-key": true,
+    "explorer-alfa-asset-bundle-fallback": true,
+    "explorer-alfa-audience-loading-screen-tips": true,
+    "explorer-alfa-avatar-context-menu": true,
+    "explorer-alfa-avatar-ghosts": true,
+    "explorer-alfa-avatar-highlight": true,
+    "explorer-alfa-banned-users-from-scene": true,
+    "explorer-alfa-camera-reel": true,
+    "explorer-alfa-chat-history-local-storage": true,
+    "explorer-alfa-chat-message-buffer-config": true,
+    "explorer-alfa-chat-message-rate-limit": true,
+    "explorer-alfa-chat-reactions": true,
+    "explorer-alfa-chat-translation": true,
+    "explorer-alfa-communities": true,
+    "explorer-alfa-communities-announcements": true,
+    "explorer-alfa-communities-members-counter": true,
+    "explorer-alfa-credits-topup": true,
+    "explorer-alfa-credits-wearable-purchase": true,
+    "explorer-alfa-discover": true,
+    "explorer-alfa-donations": true,
+    "explorer-alfa-double-jump": true,
+    "explorer-alfa-email-otp-auth": true,
+    "explorer-alfa-force-backface-culling": true,
+    "explorer-alfa-friends": true,
+    "explorer-alfa-friends-online-status": true,
+    "explorer-alfa-friends-user-blocking": true,
+    "explorer-alfa-genesis-spawn-parcel": true,
+    "explorer-alfa-gifting": true,
+    "explorer-alfa-gliding": true,
+    "explorer-alfa-global-portable-experiences": true,
+    "explorer-alfa-gpui": true,
+    "explorer-alfa-hardware-fingerprint": true,
+    "explorer-alfa-head-sync": true,
+    "explorer-alfa-loading-screen-tips": true,
+    "explorer-alfa-minimum-requirements": true,
+    "explorer-alfa-name-color-change": true,
+    "explorer-alfa-nearby-voice-chat": true,
+    "explorer-alfa-nearby-voice-chat-tip": true,
+    "explorer-alfa-new-lods": true,
+    "explorer-alfa-official-wallets": true,
+    "explorer-alfa-outfits": true,
+    "explorer-alfa-outfits-deploy-window": true,
+    "explorer-alfa-point-at": true,
+    "explorer-alfa-portable-experiences-chat-commands": true,
+    "explorer-alfa-profile-name-editor": true,
+    "explorer-alfa-recommended-donation-amount": true,
+    "explorer-alfa-report-user": true,
+    "explorer-alfa-skybox-settings": true,
+    "explorer-alfa-use-scene-memory-limit": true,
+    "explorer-alfa-user-credits": true,
+    "explorer-alfa-video-prioritization": true,
+    "explorer-alfa-voice-chat": true,
+    "explorer-alpha-camera-reel": true,
+    "explorer-asset_bundles": true,
+    "explorer-avatar_outliner": true,
+    "explorer-backpack_editor_v2": true,
+    "explorer-banned_users": true,
+    "explorer-camera_reel": true,
+    "explorer-chat_mentions_enabled": true,
+    "explorer-content_moderation": true,
+    "explorer-decoupled_loading_screen": true,
+    "explorer-deeplink-whitelisted-worlds": true,
+    "explorer-disabled-catalyst": true,
+    "explorer-discover-alpha": true,
+    "explorer-ecs7": true,
+    "explorer-favourite_places": true,
+    "explorer-friend_request_anti_spam_config": true,
+    "explorer-gltfast": true,
+    "explorer-hands": true,
+    "explorer-ktx2-conversion": true,
+    "explorer-main_realm": true,
+    "explorer-map_focus_home_or_user": true,
+    "explorer-max_joined_channels": true,
+    "explorer-max_visible_peers": true,
+    "explorer-my_account": true,
+    "explorer-navmap-satellite-view": true,
+    "explorer-navmap_header": true,
+    "explorer-nerf_sbc": true,
+    "explorer-new-lods": true,
+    "explorer-new_avatar_flow": true,
+    "explorer-new_friend_requests": true,
+    "explorer-new_terms_of_service_and_email_subscription": true,
+    "explorer-new_tutorial_variant": true,
+    "explorer-number-validation": true,
+    "explorer-outfits": true,
+    "explorer-parcel-denylist": true,
+    "explorer-pick_realm_algorithm_config": true,
+    "explorer-ping_enabled": true,
+    "explorer-procedural_skybox": true,
+    "explorer-pulse": true,
+    "explorer-px_confirm_enabled": true,
+    "explorer-realms_blockers_in_worlds": true,
+    "explorer-realms_modifier_plugin": true,
+    "explorer-rollout-explorer-version": true,
+    "explorer-rollout-unity-renderer-version": true,
+    "explorer-rollout_desktop": true,
+    "explorer-search_in_places": true,
+    "explorer-smr_update_offscreen": true,
+    "explorer-test_realm_algorithm_config": true,
+    "explorer-tex_compression": true,
+    "explorer-third_party_collections": true,
+    "explorer-tutorial": true,
+    "explorer-use-centralized-profiles": true,
+    "explorer-use-gateway": true,
+    "explorer-use_avpro_player": true,
+    "explorer-use_material_transition_controller": true,
+    "explorer-users_allowed_to_create_channels": true,
+    "explorer-voice_chat": true,
+    "explorer-voice_chat_joined_on_start": true,
+    "explorer-vrm_export": true,
+    "explorer-wallet": true,
+    "explorer-wearable_asset_bundles": true,
+    "explorer-with-collections": true,
+    "explorer-worlds_subsection": true
+  },
+  "variants": {
+    "explorer-alfa-audience-loading-screen-tips": {
+      "enabled": true,
+      "name": "tips",
+      "payload": {
+        "type": "json",
+        "value": "{\n    \"newUsers\": {\n        \"displayed\": [\"say_hi\", \"live_now\", \"add_friends\", \"make_move\"]\n    },\n    \"returningUsers\": {\n        \"displayed\": [\"take_shot\", \"hang_out\", \"your_people\", \"earn_badges\", \"live_now\"]\n    }\n}"
+      }
+    },
+    "explorer-alfa-chat-message-buffer-config": {
+      "enabled": true,
+      "name": "config",
+      "payload": {
+        "type": "json",
+        "value": "{\n  \"milliseconds_between_releases\": 50,\n  \"max_messages_per_burst\": 1,\n  \"max_buffer_size\": 1000\n}"
+      }
+    },
+    "explorer-alfa-chat-message-rate-limit": {
+      "enabled": true,
+      "name": "config",
+      "payload": {
+        "type": "json",
+        "value": "{\n\"messages_per_second\" : 12\n}"
+      }
+    },
+    "explorer-alfa-communities": {
+      "enabled": true,
+      "name": "wallets"
+    },
+    "explorer-alfa-genesis-spawn-parcel": {
+      "enabled": true,
+      "name": "string-variant",
+      "payload": {
+        "type": "string",
+        "value": "0,0"
+      }
+    },
+    "explorer-alfa-global-portable-experiences": {
+      "enabled": true,
+      "name": "csv-variant",
+      "payload": {
+        "type": "csv",
+        "value": "globalpx.dcl.eth"
+      }
+    },
+    "explorer-alfa-loading-screen-tips": {
+      "enabled": true,
+      "name": "tips",
+      "payload": {
+        "type": "json",
+        "value": "{\n    \"displayed\": [\n        \"Take a Shot\",\n        \"Show Up\",\n        \"Build Something\",\n        \"Your Presence\",\n        \"Say Hi!\",\n        \"Your Look\",\n        \"Your People\",\n        \"What's On\",\n        \"Your Space\",\n        \"Hang Out\"\n    ]\n}"
+      }
+    },
+    "explorer-alfa-minimum-requirements": {
+      "enabled": true,
+      "name": "minimum_requirements",
+      "payload": {
+        "type": "json",
+        "value": "{\n             \"windows_supported_versions\": [\n               \"Windows 10\",\n               \"Windows 11\"\n             ],\n             \"mac_supported_versions\": [\n               \"Mac OS X\",\n               \"macOS\"\n             ],\n             \"integrated_gpu_supported_versions\": [\n               \"intel(r) hd graphics\",\n               \"intel(r) uhd graphics\",\n               \"intel iris\",\n               \"iris(r) xe graphics\",\n               \"amd radeon(tm) graphics\",\n               \"amd radeon graphics\",\n               \"amd radeon vega\",\n               \"amd radeon r5\",\n               \"amd radeon r6\",\n               \"amd radeon r7\"\n             ],\n             \"always_accepted_cpus\": [\n               \"threadripper\"\n             ],\n             \"minimum_macos_major_version\": 11,\n             \"macos_supported_version_regex\": \"(\\\\d+)\\\\.\\\\d+\",\n             \"ryzen_supported_cpu_regex\": \"ryzen.*?(\\\\d+)\",\n             \"ryzen_supported_minimum_series\": 5,\n             \"intel_supported_minimum_series\": 5,\n             \"intel_supported_minimum_generation\": 7,\n             \"intel_ultra_supported_minimum_generation\": 5,\n             \"intel_cpu_supported_version_regex\": \"i([3579])-?(\\\\d{4,5})\",\n             \"intel_ultra_cpu_supported_version_regex\": \"ultra\\\\s+([579])\",\n             \"rtx_gpu_supported_version_regex\": \"rtx\\\\s*(\\\\d{4})\",\n             \"rx_gpu_supported_version_regex\": \"rx\\\\s*(\\\\d{4})\",\n             \"arc_gpu_supported_version_regex\": \"a(\\\\d{3})\",\n             \"minimum_rtx_supported_version\": 2000,\n             \"minimum_rx_supported_version\": 5000,\n             \"minimum_arc_supported_version\": 500,\n             \"apple_silicon_supported_regex\": \"apple\\\\s+m\\\\d\"\n           }"
+      }
+    },
+    "explorer-alfa-nearby-voice-chat-tip": {
+      "enabled": true,
+      "name": "config",
+      "payload": {
+        "type": "json",
+        "value": "{\n    \"showEverySessions\": 5,\n    \"maxTimesShown\": 2\n}"
+      }
+    },
+    "explorer-alfa-official-wallets": {
+      "enabled": true,
+      "name": "wallets",
+      "payload": {
+        "type": "csv",
+        "value": ""
+      }
+    },
+    "explorer-alfa-outfits-deploy-window": {
+      "enabled": true,
+      "name": "deploy_window_in_seconds",
+      "payload": {
+        "type": "json",
+        "value": "{\"deploy_window_in_seconds\":4}"
+      }
+    },
+    "explorer-alfa-recommended-donation-amount": {
+      "enabled": true,
+      "name": "main",
+      "payload": {
+        "type": "csv",
+        "value": "166,333,500"
+      }
+    },
+    "explorer-alfa-skybox-settings": {
+      "enabled": true,
+      "name": "settings",
+      "payload": {
+        "type": "json",
+        "value": "{\"time\": 81410,\"speed\":0,\"dayCycleDurationInSeconds\":7200}"
+      }
+    },
+    "explorer-banned_users": {
+      "enabled": true,
+      "name": "bannedUsers",
+      "payload": {
+        "type": "json",
+        "value": "{}"
+      }
+    },
+    "explorer-deeplink-whitelisted-worlds": {
+      "enabled": true,
+      "name": "string-variant",
+      "payload": {
+        "type": "string",
+        "value": "dclexperience.dcl.eth, sdk7testscenes.dcl.eth, supportteam.dcl.eth"
+      }
+    },
+    "explorer-disabled-catalyst": {
+      "enabled": true,
+      "name": "disabled-catalysts",
+      "payload": {
+        "type": "json",
+        "value": "[\"https://peer.kyllian.me\", \"https://peer.decentral.io\", \"https://peer-wc1.decentraland.org\", \"https://peer.melonwave.com\"]"
+      }
+    },
+    "explorer-friend_request_anti_spam_config": {
+      "enabled": true,
+      "name": "antiSpamConfig",
+      "payload": {
+        "type": "json",
+        "value": "{ \"maxNumberRequest\": 5, \"cooldownTimeMs\": 10000 } "
+      }
+    },
+    "explorer-max_joined_channels": {
+      "enabled": true,
+      "name": "maxNumber",
+      "payload": {
+        "type": "string",
+        "value": "10"
+      }
+    },
+    "explorer-max_visible_peers": {
+      "enabled": true,
+      "name": "max_visible_peers",
+      "payload": {
+        "type": "string",
+        "value": "100"
+      }
+    },
+    "explorer-new_tutorial_variant": {
+      "enabled": true,
+      "name": "enabled",
+      "payload": {
+        "type": "string",
+        "value": "dclonboarding.dcl.eth"
+      }
+    },
+    "explorer-parcel-denylist": {
+      "enabled": true,
+      "name": "all",
+      "payload": {
+        "type": "string",
+        "value": "-27,-47"
+      }
+    },
+    "explorer-pick_realm_algorithm_config": {
+      "enabled": true,
+      "name": "default",
+      "payload": {
+        "type": "json",
+        "value": "[\n  {\n    \"type\": \"OVERLOADED_CATALYST\"\n  },\n  {\n    \"type\": \"LARGE_LATENCY\"\n  },\n  {\n    \"type\": \"CLOSE_PEERS_SCORE\"\n  },\n  {\n    \"type\": \"ALL_PEERS_SCORE\"\n  },\n  {\n    \"type\": \"LOAD_BALANCING\"\n  }\n]"
+      }
+    },
+    "explorer-pulse": {
+      "enabled": true,
+      "name": "allowlist",
+      "payload": {
+        "type": "json",
+        "value": "{\"worlds\": [\"azul.dcl.eth\", \"cyaiox.dcl.eth\", \"kuruk.dcl.eth\", \"sdk7testscenes.dcl.eth\", \"pixelpixie.dcl.eth\", \"dafu.dcl.eth\", \"dafulinda.dcl.eth\", \"ryumi.dcl.eth\"], \"parcels\": []}"
+      }
+    },
+    "explorer-rollout-explorer-version": {
+      "enabled": true,
+      "name": "1.0.73952-20230125122546.commit-2029f5d",
+      "payload": {
+        "type": "json",
+        "value": "{\"resolved\": \"https://cdn.decentraland.org/@dcl/explorer/1.0.73952-20230125122546.commit-2029f5d\", \"version\": \"1.0.73952-20230125122546.commit-2029f5d\" }"
+      }
+    },
+    "explorer-rollout-unity-renderer-version": {
+      "enabled": true,
+      "name": "1.0.7792",
+      "payload": {
+        "type": "json",
+        "value": "{\"resolved\": \"https://cdn.decentraland.org/@dcl/unity-renderer/1.0.7792\", \"version\": \"1.0.7792\" }"
+      }
+    },
+    "explorer-test_realm_algorithm_config": {
+      "enabled": true,
+      "name": "default",
+      "payload": {
+        "type": "json",
+        "value": "[\n  {\n    \"type\": \"VERSION_CATALYST\",\n    \"config\": {\n      \"content\": \"1.0.0\",\n      \"lambdas\": \"1.0.0\",\n      \"comms\": \"v1\",\n      \"bff\": \"1.0.0\"\n    }\n  },\n  {\n    \"type\": \"OVERLOADED_CATALYST\"\n  },\n  {\n    \"type\": \"LARGE_LATENCY\"\n  },\n  {\n    \"type\": \"CLOSE_PEERS_SCORE\"\n  },\n  {\n    \"type\": \"ALL_PEERS_SCORE\"\n  }\n]"
+      }
+    },
+    "explorer-users_allowed_to_create_channels": {
+      "enabled": true,
+      "name": "allowedUsers",
+      "payload": {
+        "type": "json",
+        "value": "{\"mode\": 0, \"allowList\": []}"
+      }
+    }
+  }
+}

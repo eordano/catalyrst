@@ -12,7 +12,7 @@ const ENV_DOCS: &[(&str, &str)] = &[
     ("HTTP_SERVER_PORT", "listen port (default 5157)"),
     (
         "MEDIA_PG_CONNECTION_STRING",
-        "required — media Postgres connection string",
+        "required -- media Postgres connection string",
     ),
     (
         "TRANSLATE_BACKEND",
@@ -24,7 +24,7 @@ const ENV_DOCS: &[(&str, &str)] = &[
     ),
     (
         "TRANSLATE_BACKEND_API_KEY",
-        "optional — API key sent to the translation backend",
+        "optional -- API key sent to the translation backend",
     ),
     (
         "RUST_LOG",
@@ -36,13 +36,7 @@ const ENV_DOCS: &[(&str, &str)] = &[
 async fn main() -> Result<()> {
     catalyrst_envcfg::handle_standard_args("catalyrst-media", ENV_DOCS);
 
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "catalyrst_media=info,tower_http=info".into()),
-        )
-        .with_target(false)
-        .init();
+    catalyrst_envcfg::init_tracing("catalyrst_media=info,tower_http=info");
 
     let cfg = Config::from_env()?;
     let state = build_state(&cfg).await?;

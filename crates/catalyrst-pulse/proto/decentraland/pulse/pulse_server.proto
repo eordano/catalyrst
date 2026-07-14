@@ -8,6 +8,8 @@ import "decentraland/pulse/pulse_shared.proto";
 message HandshakeResponse {
   bool success = 1;
   optional string error = 2;
+  // The capability bitmask this server supports, advertised on every response so a client learns which features were negotiated.
+  uint32 protocol_features = 3;
 }
 
 message PlayerProfileVersionsAnnounced {
@@ -30,15 +32,17 @@ message PlayerStateDeltaTier0 {
 
   optional uint32 position_z = 8 [(decentraland.common.quantized) = { min:  0,  max:   16, bits: 8 }];
 
-  optional uint32 velocity_x = 9 [(decentraland.common.quantized) = { min:  -50,  max:   50, bits: 8 }];
-  optional uint32 velocity_y = 10 [(decentraland.common.quantized) = { min:  -50,  max:   50, bits: 8 }];
-  optional uint32 velocity_z = 11 [(decentraland.common.quantized) = { min:  -50,  max:   50, bits: 8 }];
+  // Power-law quantized: sign bit + 7-bit magnitude curve over [-50, 50]. Zero is exactly
+  // representable and pow=2 concentrates resolution at low speeds.
+  optional uint32 velocity_x = 9 [(decentraland.common.quantized_power) = { max: 50, pow: 2, bits: 8 }];
+  optional uint32 velocity_y = 10 [(decentraland.common.quantized_power) = { max: 50, pow: 2, bits: 8 }];
+  optional uint32 velocity_z = 11 [(decentraland.common.quantized_power) = { max: 50, pow: 2, bits: 8 }];
 
   optional uint32 rotation_y = 12 [(decentraland.common.quantized) = { min:  0,  max:   360.0, bits: 7 }];
   optional uint32 movement_blend = 13 [(decentraland.common.quantized) = { min:  0,  max:   3, bits: 5 }];
   optional uint32 slide_blend = 14 [(decentraland.common.quantized) = { min:  0,  max:   1, bits: 4 }];
   optional uint32 head_yaw = 15 [(decentraland.common.quantized) = { min:  0,  max:   360.0, bits: 7 }];
-  optional uint32 head_pitch = 16 [(decentraland.common.quantized) = { min:  0,  max:   180.0, bits: 6 }];
+  optional uint32 head_pitch = 16 [(decentraland.common.quantized) = { min:  0,  max:   360.0, bits: 7 }];
 
   optional uint32 state_flags = 17;
   optional GlideState glide_state = 18;
@@ -57,10 +61,21 @@ message PlayerStateFull {
   PlayerState state = 4;
 }
 
+// Protocol-version-1 (scheme C) batched egress: one message carries every due per-observer delta
+// for a tick. Still a valid protobuf message; only `payload`'s internal bit-layout is out-of-band
+// (MSB-first bit-packing, see `crate::batch`). `subject_count` is authoritative for the decode loop
+// (a trailing pad byte is ambiguous with a zero-valued element).
+message PlayerStateDeltaBatch {
+  uint32 server_tick = 1;
+  uint32 subject_count = 2;
+  bytes payload = 3;
+}
+
 message PlayerJoined {
   string user_id = 1;
   int32 profile_version = 2;
   PlayerStateFull state = 3;
+  string realm = 4;
 }
 
 message PlayerLeft {
@@ -94,6 +109,7 @@ message TeleportPerformed {
   uint32 sequence = 2;
   uint32 server_tick = 3;
   PlayerState state = 4;
+  string realm = 5;
 }
 
 message ServerMessage {
@@ -107,5 +123,9 @@ message ServerMessage {
       EmoteStarted emote_started = 7;
       EmoteStopped emote_stopped = 8;
       TeleportPerformed teleported = 9;
+      // Batched deltas. Sent only to peers that negotiated the FEATURE_DELTA_BATCH capability bit;
+      // peers without it keep receiving per-message player_state_delta (arm 3). Arm 10 does not
+      // collide with bevy PR 919, whose ServerMessage oneof uses arms 1 through 9 only.
+      PlayerStateDeltaBatch player_state_delta_batch = 10;
   }
 }
