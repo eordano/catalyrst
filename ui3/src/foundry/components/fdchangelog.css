@@ -1,0 +1,66 @@
+.fd-changelog {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.fd-changelog__item {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: start;
+  gap: var(--s-3);
+  padding: var(--s-3) var(--s-4);
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  background: var(--panel);
+}
+
+.fd-changelog__at {
+  color: var(--ink-45);
+  white-space: nowrap;
+  padding-top: 2px;
+}
+
+.fd-changelog__pair {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+  min-width: 0;
+}
+
+.fd-changelog__ask,
+.fd-changelog__change {
+  display: flex;
+  gap: var(--s-2);
+  margin: 0;
+  font-size: var(--fs-13);
+  line-height: 1.55;
+}
+
+.fd-changelog__ask {
+  color: var(--ink-6);
+}
+
+.fd-changelog__change {
+  color: var(--ink-85);
+}
+
+.fd-changelog__lead {
+  flex: 0 0 auto;
+  width: 82px;
+  font-size: var(--fs-11);
+  font-weight: var(--fw-bold);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-45);
+  padding-top: 3px;
+}
+
+@media (max-width: 620px) {
+  .fd-changelog__item {
+    grid-template-columns: 1fr;
+  }
+}

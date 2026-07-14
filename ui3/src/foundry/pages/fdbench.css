@@ -1,0 +1,105 @@
+.fd-bench__list {
+  display: grid;
+  gap: var(--s-3);
+}
+
+.fd-benchcard {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  padding: var(--s-4);
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  background: var(--panel);
+}
+
+.fd-benchcard__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--s-3);
+}
+
+.fd-benchcard__slug {
+  margin: 0;
+  font-size: var(--fs-15);
+  font-weight: var(--fw-bold);
+}
+
+.fd-benchcard__slug a {
+  color: var(--text);
+  text-decoration: none;
+}
+
+.fd-benchcard__slug a:hover {
+  color: var(--brand-ink);
+}
+
+.fd-benchcard__at {
+  margin: 2px 0 0;
+  color: var(--ink-45);
+}
+
+.fd-benchcard__checks {
+  margin: 0;
+  font-size: var(--fs-13);
+  color: var(--text);
+}
+
+.fd-benchcard__scope {
+  margin: 0;
+  padding: var(--s-2) var(--s-3);
+  border-left: 2px solid var(--ink-25, var(--ink-45));
+  background: var(--surface-2, transparent);
+  font-size: var(--fs-12);
+  color: var(--ink-60, var(--ink-45));
+}
+
+.fd-benchcard__facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2) var(--s-5);
+  margin: 0;
+}
+
+.fd-benchcard__facts dt {
+  font-size: var(--fs-11);
+  font-weight: var(--fw-bold);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--ink-45);
+}
+
+.fd-benchcard__facts dd {
+  margin: 2px 0 0;
+  font-size: var(--fs-13);
+  font-variant-numeric: tabular-nums;
+}
+
+.fd-benchcard__tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-1-5);
+  margin: 0;
+}
+
+.fd-benchcard__evidence {
+  margin: 0;
+  color: var(--ink-45);
+  word-break: break-all;
+}
+
+.fd-benchcard__links {
+  margin: 0;
+}
+
+.fd-benchcard__link {
+  font-size: var(--fs-13);
+  font-weight: var(--fw-semibold);
+  color: var(--brand-ink);
+  text-decoration: none;
+}
+
+.fd-benchcard__link:hover {
+  text-decoration: underline;
+}

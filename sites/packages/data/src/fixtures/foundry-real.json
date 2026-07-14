@@ -1,0 +1,121 @@
+{
+  "generatedFrom": {
+    "source": "worlds mirror — database `worlds` on 127.0.0.1:5434, table `world_scenes`",
+    "readAt": "2026-08-15",
+    "query": "SELECT world_name, entity_id, entity->'metadata'->'display'->>'title' AS title, entity->>'timestamp' AS deployed_ms, size, jsonb_array_length(entity->'pointers') AS parcels FROM world_scenes WHERE world_name IN ('slaythesteps.dcl.eth','cleantheclub.dcl.eth','fortunes.dcl.eth','fastlane.dcl.eth','skychaser.dcl.eth','alienscrapyard.dcl.eth','flagtag.dcl.eth')",
+    "notes": [
+      "deployedAt is the deployment entity's own `timestamp` (ms since epoch) — when the creator deployed the scene, not when our mirror first saw it.",
+      "parcels is jsonb_array_length(entity->'pointers'). The mirror's flat `parcels` column stores each parcel's x and y as separate elements, so it reads exactly twice this number; the pointer count is the parcel count.",
+      "sizeBytes is the mirror's `size` column for that deployment.",
+      "`deployer` is empty on every one of these mirror rows, so no deployer, studio or team is recorded here and none is displayed.",
+      "titles are the deployment entity's own display title, including the one that is a template leftover (Circus_Fortune_Teller) — it is not tidied up.",
+      "repoPath and botManifest are provenance links, not sources: they point at the local harness copies of the same games (~/one/rig/play, ~/projects/dcl-scene-bots)."
+    ]
+  },
+  "scenes": [
+    {
+      "id": "slaythesteps",
+      "title": "Slay The Steps!",
+      "worldName": "slaythesteps.dcl.eth",
+      "entityId": "bafkreiher2zuatobwrdzanekpbmzzhnwjsn67o3wfggstygssgnrzz6ate",
+      "deployedAt": "2026-04-22T18:22:34.920Z",
+      "sizeBytes": 37195523,
+      "parcels": 4,
+      "repoPath": "~/one/rig/play/slaythesteps",
+      "botManifest": "~/projects/dcl-scene-bots/games/slaythesteps.json",
+      "source": "worlds-mirror",
+      "sourceNote": "worlds mirror row for slaythesteps.dcl.eth, entity bafkreiher2zuatobwrdzanekpbmzzhnwjsn67o3wfggstygssgnrzz6ate"
+    },
+    {
+      "id": "cleantheclub",
+      "title": "Clean The Club",
+      "worldName": "cleantheclub.dcl.eth",
+      "entityId": "bafkreicpl6vdpfynuqdu27hyuuo6l2rfz6zgopkkpm5izhprgspmfzbt7a",
+      "deployedAt": "2026-06-12T10:14:01.041Z",
+      "sizeBytes": 43301512,
+      "parcels": 4,
+      "repoPath": "~/one/rig/play/cleantheclub",
+      "botManifest": "~/projects/dcl-scene-bots/games/cleantheclub.json",
+      "source": "worlds-mirror",
+      "sourceNote": "worlds mirror row for cleantheclub.dcl.eth, entity bafkreicpl6vdpfynuqdu27hyuuo6l2rfz6zgopkkpm5izhprgspmfzbt7a"
+    },
+    {
+      "id": "fortunes",
+      "title": "Circus_Fortune_Teller",
+      "worldName": "fortunes.dcl.eth",
+      "entityId": "bafkreic2l2jeljzuovxvh2w7dsyimwtqw6qmyu7uiucfvfqy3s4qjjchyi",
+      "deployedAt": "2026-06-15T18:47:22.636Z",
+      "sizeBytes": 46454043,
+      "parcels": 1,
+      "repoPath": "~/one/rig/play/fortunes",
+      "botManifest": "~/projects/dcl-scene-bots/games/fortunes.json",
+      "source": "worlds-mirror",
+      "sourceNote": "worlds mirror row for fortunes.dcl.eth, entity bafkreic2l2jeljzuovxvh2w7dsyimwtqw6qmyu7uiucfvfqy3s4qjjchyi"
+    },
+    {
+      "id": "fastlane",
+      "title": "Fastlane Bowling",
+      "worldName": "fastlane.dcl.eth",
+      "entityId": "bafkreiarbcbm6zj6wo2c4irwcbflgla5o7daer2v3i2j5ee3rwzocsyuke",
+      "deployedAt": "2026-06-17T11:35:49.831Z",
+      "sizeBytes": 59405832,
+      "parcels": 35,
+      "repoPath": "~/one/rig/play/fastlane",
+      "botManifest": "~/projects/dcl-scene-bots/games/fastlane.json",
+      "source": "worlds-mirror",
+      "sourceNote": "worlds mirror row for fastlane.dcl.eth, entity bafkreiarbcbm6zj6wo2c4irwcbflgla5o7daer2v3i2j5ee3rwzocsyuke"
+    },
+    {
+      "id": "skychaser",
+      "title": "Sky Chaser",
+      "worldName": "skychaser.dcl.eth",
+      "entityId": "bafkreiaonubq277zfe45xb7toibxt47strmmrwpdfla7ybu4dndj7fesi4",
+      "deployedAt": "2026-07-03T14:14:03.632Z",
+      "sizeBytes": 52593299,
+      "parcels": 1024,
+      "repoPath": "~/one/rig/play/skychaser",
+      "botManifest": "~/projects/dcl-scene-bots/games/skychaser.json",
+      "source": "worlds-mirror",
+      "sourceNote": "worlds mirror row for skychaser.dcl.eth, entity bafkreiaonubq277zfe45xb7toibxt47strmmrwpdfla7ybu4dndj7fesi4"
+    },
+    {
+      "id": "alienscrapyard",
+      "title": "Alienscrapyard",
+      "worldName": "alienscrapyard.dcl.eth",
+      "entityId": "bafkreidyc4klx36s5kouh5jgb74kkx7za62m7c24z46thl3ggjduiiwuba",
+      "deployedAt": "2026-07-05T13:48:34.630Z",
+      "sizeBytes": 7263450,
+      "parcels": 4,
+      "repoPath": "~/one/rig/play/alienscrapyard",
+      "botManifest": "~/projects/dcl-scene-bots/games/alienscrapyard.json",
+      "source": "worlds-mirror",
+      "sourceNote": "worlds mirror row for alienscrapyard.dcl.eth, entity bafkreidyc4klx36s5kouh5jgb74kkx7za62m7c24z46thl3ggjduiiwuba"
+    },
+    {
+      "id": "flagtag",
+      "title": "Flag Tag",
+      "worldName": "flagtag.dcl.eth",
+      "entityId": "bafkreia7terlbe23i2jnf3vezjtun27qw33tcahy4rpu5kfmxt77b5tb4e",
+      "deployedAt": "2026-07-05T19:52:10.768Z",
+      "sizeBytes": 102394774,
+      "parcels": 1024,
+      "repoPath": "~/one/rig/play/flagtag",
+      "botManifest": "~/projects/dcl-scene-bots/games/flagtag.json",
+      "source": "worlds-mirror",
+      "sourceNote": "worlds mirror row for flagtag.dcl.eth, entity bafkreia7terlbe23i2jnf3vezjtun27qw33tcahy4rpu5kfmxt77b5tb4e"
+    },
+    {
+      "id": "template-game",
+      "title": "Template game (SDK7 starter)",
+      "worldName": null,
+      "entityId": null,
+      "deployedAt": null,
+      "sizeBytes": null,
+      "parcels": null,
+      "repoPath": "catalyrst/sites/template-games",
+      "botManifest": null,
+      "source": "repo",
+      "sourceNote": "SDK7 starter scene living in this repository at catalyrst/sites/template-games; it has never been deployed to a World, so it has no deployment date, size or parcel count"
+    }
+  ]
+}

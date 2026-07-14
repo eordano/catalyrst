@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT 1 AS x FROM deployments WHERE entity_id = ANY($1::text[]) AND deleter_deployment IS NULL LIMIT 0",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "x",
+        "type_info": "Int4",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "b388bc99af071528afdca9a5e2cacb08d304f7a207794584a42f1c5e47e7836b"
+}

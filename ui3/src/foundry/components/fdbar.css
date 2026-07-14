@@ -1,0 +1,90 @@
+.fd-bar {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1-5);
+  min-width: 0;
+}
+
+.fd-bar__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s-2);
+  font-size: var(--fs-12);
+}
+
+.fd-bar__label {
+  color: var(--ink-7);
+}
+
+.fd-bar__total {
+  font-weight: var(--fw-semibold);
+  font-variant-numeric: tabular-nums;
+}
+
+.fd-bar__track {
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+  width: 100%;
+  height: 10px;
+  border-radius: var(--r-pill);
+  background: var(--fill-1);
+  overflow: hidden;
+}
+
+.fd-bar__seg {
+  display: block;
+  height: 100%;
+  border-radius: var(--r-pill);
+  min-width: 2px;
+}
+
+.fd-bar__seg--grant {
+  background: transparent;
+  border: 1px solid var(--ink-45);
+}
+
+.fd-bar__seg--sim {
+  background: transparent;
+  border: 1px solid var(--purple);
+}
+
+.fd-bar__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-1) var(--s-3);
+  margin: 2px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--fs-11);
+  color: var(--ink-6);
+}
+
+.fd-bar__legenditem {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1-5);
+}
+
+.fd-bar__swatch {
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  flex: 0 0 auto;
+}
+
+.fd-bar__swatch--grant {
+  background: transparent;
+  border: 1px solid var(--ink-45);
+}
+
+.fd-bar__swatch--sim {
+  background: transparent;
+  border: 1px solid var(--purple);
+}
+
+.fd-bar__legendvalue {
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-45);
+}

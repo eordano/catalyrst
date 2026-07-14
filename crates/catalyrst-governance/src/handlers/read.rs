@@ -155,6 +155,22 @@ fn typed_rows<T: DeserializeOwned>(endpoint: &'static str, rows: &[Value]) -> Op
     }
 }
 
+/// The typed-DTO-with-raw-fallback pattern shared by `proposals`/`projects`/`budgets`: try to
+/// decode every row as `T` and hand it to `wrap`, or fall back to the untyped envelope when a
+/// row no longer conforms.
+fn typed_or_raw<T: DeserializeOwned>(
+    endpoint: &'static str,
+    rows: Vec<Value>,
+    limit: i64,
+    offset: i64,
+    wrap: impl FnOnce(Vec<T>, i64, i64) -> Response,
+) -> Response {
+    match typed_rows::<T>(endpoint, &rows) {
+        Some(data) => wrap(data, limit, offset),
+        None => page_body(rows, limit, offset),
+    }
+}
+
 pub async fn proposals(State(state): State<AppState>, Query(page): Query<Page>) -> Response {
     let (limit, offset) = page.normalized();
     match state
@@ -169,15 +185,16 @@ pub async fn proposals(State(state): State<AppState>, Query(page): Query<Page>) 
         )
         .await
     {
-        Ok(rows) => match typed_rows::<ProposalRow>("/proposals", &rows) {
-            Some(data) => Json(ProposalsEnvelope {
-                data,
-                limit,
-                offset,
+        Ok(rows) => {
+            typed_or_raw::<ProposalRow>("/proposals", rows, limit, offset, |data, limit, offset| {
+                Json(ProposalsEnvelope {
+                    data,
+                    limit,
+                    offset,
+                })
+                .into_response()
             })
-            .into_response(),
-            None => page_body(rows, limit, offset),
-        },
+        }
         Err(e) => internal(e),
     }
 }
@@ -185,15 +202,16 @@ pub async fn proposals(State(state): State<AppState>, Query(page): Query<Page>) 
 pub async fn projects(State(state): State<AppState>, Query(page): Query<Page>) -> Response {
     let (limit, offset) = page.normalized();
     match state.store.list_projects(limit, offset).await {
-        Ok(rows) => match typed_rows::<ProjectRow>("/projects", &rows) {
-            Some(data) => Json(ProjectsEnvelope {
-                data,
-                limit,
-                offset,
+        Ok(rows) => {
+            typed_or_raw::<ProjectRow>("/projects", rows, limit, offset, |data, limit, offset| {
+                Json(ProjectsEnvelope {
+                    data,
+                    limit,
+                    offset,
+                })
+                .into_response()
             })
-            .into_response(),
-            None => page_body(rows, limit, offset),
-        },
+        }
         Err(e) => internal(e),
     }
 }
@@ -220,15 +238,16 @@ pub async fn project_by_id(State(state): State<AppState>, Path(id): Path<String>
 pub async fn budgets(State(state): State<AppState>, Query(page): Query<Page>) -> Response {
     let (limit, offset) = page.normalized();
     match state.store.list_budgets(limit, offset).await {
-        Ok(rows) => match typed_rows::<BudgetRow>("/budgets", &rows) {
-            Some(data) => Json(BudgetsEnvelope {
-                data,
-                limit,
-                offset,
+        Ok(rows) => {
+            typed_or_raw::<BudgetRow>("/budgets", rows, limit, offset, |data, limit, offset| {
+                Json(BudgetsEnvelope {
+                    data,
+                    limit,
+                    offset,
+                })
+                .into_response()
             })
-            .into_response(),
-            None => page_body(rows, limit, offset),
-        },
+        }
         Err(e) => internal(e),
     }
 }

@@ -1,0 +1,63 @@
+.fd-exchange__form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+  padding: var(--s-4);
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  background: var(--panel);
+}
+
+.fd-exchange__formtitle {
+  margin: 0 0 var(--s-2);
+  font-size: var(--fs-14);
+  font-weight: var(--fw-semibold);
+}
+
+.fd-exchange__label {
+  margin-top: var(--s-2);
+  font-size: var(--fs-12);
+  font-weight: var(--fw-semibold);
+  color: var(--ink-7);
+}
+
+.fd-exchange__input {
+  appearance: none;
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: var(--r-control);
+  background: var(--fill-1);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--fs-13);
+  padding: var(--s-2) var(--s-3);
+}
+
+.fd-exchange__input:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring-color);
+  outline-offset: var(--focus-ring-offset);
+}
+
+.fd-exchange__textarea {
+  resize: vertical;
+  line-height: 1.55;
+}
+
+.fd-exchange__formactions {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  flex-wrap: wrap;
+  margin-top: var(--s-3);
+}
+
+.fd-exchange__formactions .fd-note {
+  margin: 0;
+  max-width: 46ch;
+}
+
+.fd-exchange__board {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: var(--s-3);
+}

@@ -2,7 +2,7 @@
 
 Rust port of `badges.decentraland.org` (key=`badges`). Read-only profile badge state over a dedicated
 `badges` postgres DB on a shared PostgreSQL cluster. Port: the deployment's assigned port (`5145`; see
-`umbrella/env/catalyrst-badges.env`). Success envelope: bare `{"data": ...}` (NOT `{ok, data}`).
+the deployment's `catalyrst-badges` env file). Success envelope: bare `{"data": ...}` (NOT `{ok, data}`).
 All routes are `auth:none`. `{address}` is lowercased before lookup.
 
 | Method | Path | Status | Response shape | Unity client |

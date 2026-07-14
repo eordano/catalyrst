@@ -1,0 +1,75 @@
+/* The shared table idiom for every foundry surface. */
+
+.fd-scroll {
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  background: var(--panel);
+}
+
+.fd-scroll:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring-color);
+  outline-offset: var(--focus-ring-offset);
+}
+
+.fd-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--fs-13);
+  text-align: left;
+}
+
+.fd-table th,
+.fd-table td {
+  padding: var(--s-3) var(--s-4);
+  border-top: 1px solid var(--line);
+  vertical-align: top;
+  font-weight: var(--fw-regular);
+}
+
+.fd-table thead th {
+  border-top: 0;
+  font-size: var(--fs-11);
+  font-weight: var(--fw-bold);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--ink-45);
+  white-space: nowrap;
+}
+
+.fd-table tbody th[scope="row"] {
+  font-weight: var(--fw-semibold);
+  color: var(--text);
+}
+
+.fd-table__num {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.fd-table__mono {
+  font-family: var(--font-mono);
+  font-size: var(--fs-12);
+  white-space: nowrap;
+  color: var(--ink-7);
+}
+
+.fd-table__sub {
+  display: block;
+  margin-top: 2px;
+  font-size: var(--fs-11);
+  color: var(--ink-45);
+}
+
+.fd-table tr.is-muted th[scope="row"],
+.fd-table tr.is-muted td {
+  color: var(--ink-45);
+}
+
+.fd-table tr.is-mine {
+  background: var(--fill-1);
+}
+
+.fd-table__strike {
+  text-decoration: line-through;
+}

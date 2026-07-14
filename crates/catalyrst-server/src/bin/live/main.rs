@@ -37,10 +37,7 @@ use storage::*;
 const ENV_DOCS: &[(&str, &str)] = &[
     ("HTTP_SERVER_HOST", "bind address (default 127.0.0.1)"),
     ("HTTP_SERVER_PORT", "listen port (default 5141)"),
-    (
-        "PUBLIC_URL",
-        "public base URL (default http://HOST:PORT)",
-    ),
+    ("PUBLIC_URL", "public base URL (default http://HOST:PORT)"),
     (
         "CONTENT_SERVER_ADDRESS",
         "advertised content server address (default PUBLIC_URL/content)",
@@ -55,7 +52,7 @@ const ENV_DOCS: &[(&str, &str)] = &[
     ),
     (
         "CONTENT_VERSION",
-        "reported content server version (default 7.6.1+rust)",
+        "reported content server version (default 8.0.3+rust)",
     ),
     (
         "LAMBDAS_VERSION",
@@ -64,6 +61,22 @@ const ENV_DOCS: &[(&str, &str)] = &[
     ("COMMIT_HASH", "reported commit hash (default unknown)"),
     ("ETH_NETWORK", "ethereum network (default mainnet)"),
     ("REALM_NAME", "optional — realm name"),
+    (
+        "MAP_SATELLITE_BASE_URL",
+        "minimap satellite tiles base URL (default http://127.0.0.1:5162/satellite)",
+    ),
+    (
+        "MAP_SATELLITE_SUFFIX",
+        "minimap satellite tile suffix (default .jpg)",
+    ),
+    (
+        "MAP_PARCEL_VIEW_URL",
+        "minimap parcel view image URL (default http://127.0.0.1:5162/v1/minimap.png)",
+    ),
+    (
+        "LAND_IMAGE_BASE_URL",
+        "public origin lands[].image is rewritten onto (default http://127.0.0.1:5162 — loopback, no client can fetch it)",
+    ),
     (
         "POSTGRES_HOST",
         "postgres host or unix socket dir (default /run/postgresql)",
@@ -78,7 +91,10 @@ const ENV_DOCS: &[(&str, &str)] = &[
         "required — content DB password (env var or /etc/catalyrst/content.env)",
     ),
     ("POSTGRES_CONTENT_DB", "content DB name (default content)"),
-    ("PG_POOL_SIZE", "main postgres pool max connections (default 50)"),
+    (
+        "PG_POOL_SIZE",
+        "main postgres pool max connections (default 50)",
+    ),
     (
         "SQUID_PG_POOL_SIZE",
         "squid postgres pool max connections (default 10)",
@@ -132,17 +148,14 @@ const ENV_DOCS: &[(&str, &str)] = &[
     ),
     ("SQUID_DB_USER", "squid DB user (default squid_ro)"),
     ("SQUID_DB_PASSWORD", "optional — squid DB password"),
-    (
-        "SQUID_DB_NAME",
-        "squid DB name (default marketplace_squid)",
-    ),
+    ("SQUID_DB_NAME", "squid DB name (default marketplace_squid)"),
     (
         "THIRD_PARTY_REGISTRY_L2_SUBGRAPH_URL",
-        "TPR subgraph URL (mainnet default https://subgraph.decentraland.org/tpr-matic-mainnet)",
+        "TPR subgraph URL (unset disables third-party lookups; no default)",
     ),
     (
         "BLOCKS_L2_SUBGRAPH_URL",
-        "blocks subgraph URL (mainnet default https://subgraph.decentraland.org/blocks-matic-mainnet)",
+        "blocks subgraph URL (unset disables third-party lookups; no default)",
     ),
     (
         "THIRD_PARTY_REFRESH_HOURS",
@@ -158,11 +171,19 @@ const ENV_DOCS: &[(&str, &str)] = &[
     ),
     (
         "ETH_RPC_URL",
-        "https RPC endpoint for write validation (default https://rpc.decentraland.org/mainnet)",
+        "https RPC endpoint for write validation (REQUIRED when ENABLE_DEPLOYMENTS=true)",
     ),
     (
         "ADDITIONAL_DECENTRALAND_ADDRESS",
         "optional — extra address accepted as decentraland for write validation",
+    ),
+    (
+        "RPC_ENDPOINT_ETH",
+        "https RPC endpoint for the ethereum DAO reads behind /lambdas/contracts/{servers,denylisted-names} — unset serves []",
+    ),
+    (
+        "RPC_ENDPOINT_POLYGON",
+        "https RPC endpoint for the polygon DAO reads behind /lambdas/contracts/pois — unset serves []",
     ),
     (
         "THIRD_PARTY_ROOT_SOURCE",
@@ -198,7 +219,7 @@ async fn main() -> anyhow::Result<()> {
         .parse()
         .context("HTTP_SERVER_PORT must be a valid port number")?;
     let host = env_or("HTTP_SERVER_HOST", "127.0.0.1");
-    let content_version = env_or("CONTENT_VERSION", "7.6.1+rust");
+    let content_version = env_or("CONTENT_VERSION", "8.0.3+rust");
     let lambdas_version = env_or("LAMBDAS_VERSION", "4.12.0+rust");
     let commit_hash = env_or("COMMIT_HASH", "unknown");
     let eth_network = env_or("ETH_NETWORK", "mainnet");
@@ -276,40 +297,59 @@ async fn main() -> anyhow::Result<()> {
         .context("database connectivity check (SELECT 1) failed")?;
     tracing::info!("Database connection verified");
 
+    catalyrst_server::schema_migrations::apply_content_migrations(&pool)
+        .await
+        .context("content schema migrations failed")?;
+
     tracing::info!("Pre-warming prepared statement cache");
-    let _ = sqlx::query("SELECT 1 FROM deployments WHERE entity_type = $1 LIMIT 0")
-        .bind("profile")
-        .execute(&pool)
-        .await;
-    let _ = sqlx::query("SELECT 1 FROM content_files WHERE deployment = ANY($1::int[]) LIMIT 0")
-        .bind(&[0i32][..])
-        .execute(&pool)
-        .await;
-    let _ = sqlx::query("SELECT 1 FROM active_pointers WHERE pointer = ANY($1::text[]) LIMIT 0")
-        .bind(&[""][..])
-        .execute(&pool)
-        .await;
-    let _ = sqlx::query(
-        "SELECT 1 FROM deployments WHERE entity_id = ANY($1::text[]) AND deleter_deployment IS NULL LIMIT 0"
+    let _ = sqlx::query!(
+        "SELECT 1 AS x FROM deployments WHERE entity_type = $1 LIMIT 0",
+        "profile"
     )
-        .bind(&[""][..])
-        .execute(&pool)
-        .await;
-    let _ = sqlx::query("SELECT 1 FROM deployments WHERE entity_id = $1 LIMIT 0")
-        .bind("")
-        .execute(&pool)
-        .await;
-    let _ = sqlx::query("SELECT 1 FROM failed_deployments LIMIT 0")
-        .execute(&pool)
+    .fetch_all(&pool)
+    .await;
+    let _ = sqlx::query!(
+        "SELECT 1 AS x FROM content_files WHERE deployment = ANY($1::int[]) LIMIT 0",
+        &[0i32][..]
+    )
+    .fetch_all(&pool)
+    .await;
+    let _ = sqlx::query!(
+        "SELECT 1 AS x FROM active_pointers WHERE pointer = ANY($1::text[]) LIMIT 0",
+        &[String::new()][..]
+    )
+    .fetch_all(&pool)
+    .await;
+    let _ = sqlx::query!(
+        "SELECT 1 AS x FROM deployments WHERE entity_id = ANY($1::text[]) AND deleter_deployment IS NULL LIMIT 0",
+        &[String::new()][..]
+    )
+    .fetch_all(&pool)
+    .await;
+    let _ = sqlx::query!(
+        "SELECT 1 AS x FROM deployments WHERE entity_id = $1 LIMIT 0",
+        ""
+    )
+    .fetch_all(&pool)
+    .await;
+    let _ = sqlx::query!("SELECT 1 AS x FROM failed_deployments LIMIT 0")
+        .fetch_all(&pool)
         .await;
     tracing::info!("Prepared statement cache warmed");
 
     let storage_root = env_or("STORAGE_ROOT_FOLDER", "/var/lib/catalyrst/content");
     tracing::info!(root = %storage_root, "Initializing content storage");
 
-    let content_storage = catalyrst_storage::ContentStorage::new(&storage_root)
-        .await
-        .expect("Failed to initialize content storage");
+    // ONE instance per root, shared by every consumer below (HTTP reads, the write deployer, the
+    // snapshot generator). `ContentStorage` remembers which shard directories it has created or
+    // observed, and that record is what tells a destroyed shard from one that never existed;
+    // separate instances over the same root hold separate records, so the same damage came back as
+    // a fault on the path that had written and as a plain 404 on the read-heavy path that had not.
+    let content_storage = Arc::new(
+        catalyrst_storage::ContentStorage::new(&storage_root)
+            .await
+            .expect("Failed to initialize content storage"),
+    );
 
     let entity_cache = Arc::new(RwLock::new(EntityCache::new()));
     let profile_lru = Arc::new(Mutex::new(ProfileLru::new(10_000)));
@@ -353,12 +393,9 @@ async fn main() -> anyhow::Result<()> {
     let lambdas_public_url = env_or("LAMBDAS_URL", &format!("{}/lambdas/", public_url));
     let realm_name = std::env::var("REALM_NAME").ok();
 
-    let profile_cdn_base_url = env_or(
-        "PROFILE_CDN_BASE_URL",
-        "https://profile-images.decentraland.org",
-    );
+    let profile_cdn_base_url = env_or("PROFILE_CDN_BASE_URL", "");
 
-    let land_image_base_url = env_or("LAND_IMAGE_BASE_URL", "https://api.decentraland.org");
+    let land_image_base_url = env_or("LAND_IMAGE_BASE_URL", "http://127.0.0.1:5162");
     if ["127.0.0.1", "localhost", "[::1]", "0.0.0.0"]
         .iter()
         .any(|lo| land_image_base_url.contains(lo))
@@ -392,7 +429,7 @@ async fn main() -> anyhow::Result<()> {
             None => squid_opts,
         };
 
-        let squid_pool_size: u32 = env_or("SQUID_PG_POOL_SIZE", "10").parse().unwrap_or(10);
+        let squid_pool_size: u32 = env_or("SQUID_PG_POOL_SIZE", "20").parse().unwrap_or(20);
         match sqlx::postgres::PgPoolOptions::new()
             .max_connections(squid_pool_size)
             .min_connections(1)
@@ -414,7 +451,7 @@ async fn main() -> anyhow::Result<()> {
         }
     };
 
-    let sync_gauges = catalyrst_server::sync_backends::SyncGauges::default();
+    let sync_gauges = catalyrst_server::sync::SyncGauges::default();
     let sync_orchestrator = if sync_enabled {
         let sync_source = env_or("SYNC_SOURCE", "http://127.0.0.1:5140");
         tracing::info!(source = %sync_source, "Preparing sync orchestrator");
@@ -449,12 +486,24 @@ async fn main() -> anyhow::Result<()> {
         }
 
         let sync_storage_root = env_or("SYNC_STORAGE_ROOT", "/var/lib/catalyrst/content_rust");
-        let sync_storage =
-            std::sync::Arc::new(catalyrst_server::sync_backends::LiveSyncStorage::new(
+        // Both roots are env-overridable, so "these are different stores" is a configuration claim,
+        // not a fact. Pointing SYNC_STORAGE_ROOT at STORAGE_ROOT_FOLDER would otherwise put two
+        // instances on one tree again, each with its own record of observed shards — the exact
+        // divergence the single shared instance above exists to remove.
+        let sync_storage = if same_storage_root(&storage_root, &sync_storage_root) {
+            tracing::warn!(
+                root = %storage_root,
+                "SYNC_STORAGE_ROOT resolves to the same tree as STORAGE_ROOT_FOLDER; \
+                 sharing one content storage instance for both"
+            );
+            content_storage.clone()
+        } else {
+            std::sync::Arc::new(
                 catalyrst_storage::ContentStorage::new(&sync_storage_root)
                     .await
                     .expect("Failed to create sync content storage"),
-            ));
+            )
+        };
 
         let sync_db_name = env_or("SYNC_DB_NAME", "content_rust");
         let sync_pg_user = env_or("POSTGRES_CONTENT_USER", "");
@@ -488,35 +537,29 @@ async fn main() -> anyhow::Result<()> {
             .expect("Failed to connect to sync database");
         tracing::info!("Sync database connected");
 
-        let sync_deployer: std::sync::Arc<dyn catalyrst_sync::Deployer> = std::sync::Arc::new(
-            catalyrst_server::sync_backends::LiveSyncDeployer::new(sync_pool.clone()),
+        let sync_deployer = std::sync::Arc::new(catalyrst_server::sync::LiveSyncDeployer::new(
+            sync_pool.clone(),
+        ));
+        let sync_deploy_repo = std::sync::Arc::new(
+            catalyrst_server::sync::LiveDeploymentRepository::with_gauges(
+                sync_pool.clone(),
+                sync_gauges.clone(),
+            ),
         );
-        let sync_deploy_repo: std::sync::Arc<dyn catalyrst_sync::DeploymentRepository> =
-            std::sync::Arc::new(
-                catalyrst_server::sync_backends::LiveDeploymentRepository::with_gauges(
-                    sync_pool.clone(),
-                    sync_gauges.clone(),
-                ),
-            );
-        let sync_failed: std::sync::Arc<dyn catalyrst_sync::FailedDeploymentsStore> =
-            std::sync::Arc::new(
-                catalyrst_server::sync_backends::LiveFailedDeploymentsStore::new(sync_pool.clone()),
-            );
-        let sync_processed: std::sync::Arc<dyn catalyrst_sync::ProcessedSnapshotStore> =
-            std::sync::Arc::new(
-                catalyrst_server::sync_backends::LiveProcessedSnapshotStore::new(sync_pool.clone()),
-            );
+        let sync_failed = std::sync::Arc::new(
+            catalyrst_server::sync::LiveFailedDeploymentsStore::new(sync_pool.clone()),
+        );
+        let sync_processed = std::sync::Arc::new(
+            catalyrst_server::sync::LiveProcessedSnapshotStore::new(sync_pool.clone()),
+        );
 
         let snapshot_storage_path = format!("{}/snapshots", sync_storage_root);
         tokio::fs::create_dir_all(&snapshot_storage_path).await.ok();
-        let sync_snapshot_check: std::sync::Arc<dyn catalyrst_sync::SnapshotStorageCheck> =
-            std::sync::Arc::new(
-                catalyrst_server::sync_backends::LiveSnapshotStorageCheck::new(
-                    catalyrst_storage::SnapshotStorage::new(&snapshot_storage_path)
-                        .await
-                        .expect("Failed to create snapshot storage"),
-                ),
-            );
+        let sync_snapshot_check = std::sync::Arc::new(
+            catalyrst_storage::SnapshotStorage::new(&snapshot_storage_path)
+                .await
+                .expect("Failed to create snapshot storage"),
+        );
 
         let content_download_concurrency: usize = env_or("CONCURRENT_SYNC_DOWNLOADS", "200")
             .parse()
@@ -535,11 +578,9 @@ async fn main() -> anyhow::Result<()> {
             .build()
             .expect("Failed to create HTTP client");
 
-        let sync_deploy_repo_live =
-            catalyrst_server::sync_backends::LiveDeploymentRepository::new(sync_pool.clone());
-        let mut bloom = catalyrst_sync::BloomFilter::new();
+        let mut bloom = catalyrst_server::sync::BloomFilter::new();
         tracing::info!("Loading entity IDs into bloom filter...");
-        match sync_deploy_repo_live.load_all_entity_ids().await {
+        match sync_deploy_repo.load_all_entity_ids().await {
             Ok(ids) => {
                 let count = ids.len();
                 for id in &ids {
@@ -552,9 +593,9 @@ async fn main() -> anyhow::Result<()> {
             }
         }
 
-        let batch_deployer =
-            std::sync::Arc::new(catalyrst_sync::batch_deployer::BatchDeployer::with_bloom(
-                catalyrst_sync::batch_deployer::BatchDeployerConfig {
+        let batch_deployer = std::sync::Arc::new(
+            catalyrst_server::sync::batch_deployer::BatchDeployer::with_bloom(
+                catalyrst_server::sync::batch_deployer::BatchDeployerConfig {
                     content_download_concurrency,
                     ..Default::default()
                 },
@@ -564,15 +605,16 @@ async fn main() -> anyhow::Result<()> {
                 sync_deploy_repo.clone(),
                 sync_failed.clone(),
                 bloom,
-            ));
+            ),
+        );
 
         let retry_peers: Vec<String> = sync_source
             .split(',')
             .map(|s| s.trim().trim_end_matches('/').to_string())
             .filter(|s| !s.is_empty())
             .collect();
-        let retry_worker = catalyrst_sync::retry_failed::RetryFailedDeployments::new(
-            catalyrst_sync::retry_failed::RetryFailedConfig::default(),
+        let retry_worker = catalyrst_server::sync::retry_failed::RetryFailedDeployments::new(
+            catalyrst_server::sync::retry_failed::RetryFailedConfig::default(),
             http_client.clone(),
             sync_storage.clone(),
             sync_deployer.clone(),
@@ -583,8 +625,8 @@ async fn main() -> anyhow::Result<()> {
 
         let phased_sync = env_bool("PHASED_SYNC", true);
 
-        let orchestrator = catalyrst_sync::sync_orchestrator::SyncOrchestrator::new(
-            catalyrst_sync::sync_orchestrator::SyncOrchestratorConfig {
+        let orchestrator = catalyrst_server::sync::sync_orchestrator::SyncOrchestrator::new(
+            catalyrst_server::sync::sync_orchestrator::SyncOrchestratorConfig {
                 from_timestamp: 0,
                 request_max_retries: 10,
                 request_retry_wait_ms: 5000,
@@ -632,15 +674,9 @@ async fn main() -> anyhow::Result<()> {
     let snapshot_storage_path = format!("{}/snapshots", storage_root);
     tokio::fs::create_dir_all(&snapshot_storage_path).await.ok();
 
-    let is_mainnet = eth_network == "mainnet";
-    let tpr_subgraph_url = std::env::var("THIRD_PARTY_REGISTRY_L2_SUBGRAPH_URL")
-        .ok()
-        .or_else(|| {
-            is_mainnet.then(|| "https://subgraph.decentraland.org/tpr-matic-mainnet".to_string())
-        });
-    let blocks_l2_subgraph_url = std::env::var("BLOCKS_L2_SUBGRAPH_URL").ok().or_else(|| {
-        is_mainnet.then(|| "https://subgraph.decentraland.org/blocks-matic-mainnet".to_string())
-    });
+    let tpr_subgraph_url =
+        catalyrst_envcfg::optional_endpoint("THIRD_PARTY_REGISTRY_L2_SUBGRAPH_URL");
+    let blocks_l2_subgraph_url = catalyrst_envcfg::optional_endpoint("BLOCKS_L2_SUBGRAPH_URL");
 
     if let (Some(hours), Some(sp), Some(tpr)) = (
         std::env::var("THIRD_PARTY_REFRESH_HOURS")
@@ -665,7 +701,8 @@ async fn main() -> anyhow::Result<()> {
     let enable_deployments = env_or("ENABLE_DEPLOYMENTS", "false") == "true";
     let deployer: Arc<dyn Deployer> = if enable_deployments {
         let ignore_blockchain_access = env_or("IGNORE_BLOCKCHAIN_ACCESS_CHECKS", "false") == "true";
-        let eth_rpc_url = env_or("ETH_RPC_URL", "https://rpc.decentraland.org/mainnet");
+        let eth_rpc_url = catalyrst_envcfg::required_endpoint("ETH_RPC_URL")
+            .expect("ENABLE_DEPLOYMENTS=true requires ETH_RPC_URL");
         if eth_rpc_url.starts_with("http://") {
             panic!(
                 "ENABLE_DEPLOYMENTS=true but ETH_RPC_URL is plaintext http:// \
@@ -677,16 +714,17 @@ async fn main() -> anyhow::Result<()> {
         let third_party_root_via_squid = env_or("THIRD_PARTY_ROOT_SOURCE", "subgraph") == "squid";
         match squid_pool.clone() {
             Some(sp) => {
-                let write_storage = catalyrst_storage::ContentStorage::new(&storage_root)
-                    .await
-                    .expect("failed to init content storage for write deployer");
                 tracing::warn!(
                     ignore_blockchain_access,
                     "ENABLE_DEPLOYMENTS=true — serving authoritative writes on POST /entities"
                 );
+                let land_resolver =
+                    catalyrst_server::land_operators::resolver_for(&sp, &eth_network).await;
                 Arc::new(catalyrst_server::write_deployer::WriteDeployer::new(
                     pool.clone(),
-                    Arc::new(write_storage),
+                    // Same instance the HTTP read path uses: a shard this creates is one those
+                    // reads then know about.
+                    content_storage.clone(),
                     sp,
                     eth_rpc_url,
                     ignore_blockchain_access,
@@ -694,6 +732,7 @@ async fn main() -> anyhow::Result<()> {
                     tpr_subgraph_url,
                     blocks_l2_subgraph_url,
                     third_party_root_via_squid,
+                    Some(land_resolver),
                 )) as Arc<dyn Deployer>
             }
             None => {
@@ -710,7 +749,7 @@ async fn main() -> anyhow::Result<()> {
 
     let state = Arc::new(AppState {
         storage: Arc::new(LiveContentStorage {
-            inner: content_storage,
+            inner: content_storage.clone(),
         }),
         database: Arc::new(LiveDatabase {
             pool: pool.clone(),
@@ -734,6 +773,7 @@ async fn main() -> anyhow::Result<()> {
         read_only: std::sync::atomic::AtomicBool::new(env_bool("READ_ONLY", false)),
 
         audit_pool: Some(pool.clone()),
+        content_pool: Some(pool.clone()),
         entities_cache_control_max_age: env_or("ENTITIES_CACHE_CONTROL_MAX_AGE", "10")
             .parse()
             .unwrap_or(10),
@@ -781,10 +821,12 @@ async fn main() -> anyhow::Result<()> {
             let day = std::time::Duration::from_secs(86400);
             tokio::time::sleep(std::time::Duration::from_secs(300)).await;
             loop {
-                match sqlx::query("DELETE FROM failed_deployments WHERE failure_time < NOW() - ($1 || ' days')::interval")
-                    .bind(prune_ttl_days.to_string())
-                    .execute(&retry_pool)
-                    .await
+                match sqlx::query!(
+                    "DELETE FROM failed_deployments WHERE failure_time < NOW() - ($1 || ' days')::interval",
+                    prune_ttl_days.to_string()
+                )
+                .execute(&retry_pool)
+                .await
                 {
                     Ok(r) if r.rows_affected() > 0 => {
                         tracing::info!(pruned = r.rows_affected(), ttl_days = prune_ttl_days, "Pruned old failed_deployments");
@@ -803,19 +845,10 @@ async fn main() -> anyhow::Result<()> {
         let pool = pool.clone();
         let sync_state = sync_state.clone();
         let snapshot_handle = snapshot_handle.clone();
-        let storage_root_snap = storage_root.clone();
+        // The shared instance, not a second one over the same root.
+        let content_storage = content_storage.clone();
         let interval = std::time::Duration::from_secs(snapshot_generation_interval_hours * 3600);
         tokio::spawn(async move {
-            let content_storage = match catalyrst_storage::ContentStorage::new(&storage_root_snap)
-                .await
-            {
-                Ok(s) => s,
-                Err(e) => {
-                    tracing::error!(error = %e, "Failed to initialize content storage for snapshot generation");
-                    return;
-                }
-            };
-
             loop {
                 let state_str = sync_state.get_state();
                 if state_str == "Syncing" {
@@ -877,9 +910,11 @@ mod sync_status_tests {
 
     #[test]
     fn gauges_surface_only_after_first_write() {
-        let gauges = catalyrst_server::sync_backends::SyncGauges::default();
+        let gauges = catalyrst_server::sync::SyncGauges::default();
         let state = LiveSynchronizationState::with_sync_state(
-            Arc::new(tokio::sync::RwLock::new(catalyrst_sync::SyncState::Syncing)),
+            Arc::new(tokio::sync::RwLock::new(
+                catalyrst_server::sync::SyncState::Syncing,
+            )),
             None,
             gauges.clone(),
         );

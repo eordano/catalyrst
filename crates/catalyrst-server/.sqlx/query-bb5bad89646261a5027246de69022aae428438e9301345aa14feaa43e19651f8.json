@@ -1,0 +1,71 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT hash,\n                   (EXTRACT(EPOCH FROM init_timestamp) * 1000)::float8 AS \"init_ts_ms!\",\n                   (EXTRACT(EPOCH FROM end_timestamp) * 1000)::float8 AS \"end_ts_ms!\",\n                   number_of_entities,\n                   replaced_hashes,\n                   (EXTRACT(EPOCH FROM generation_time) * 1000)::float8 AS \"gen_ts_ms!\"\n            FROM snapshots\n            ORDER BY end_timestamp DESC\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "hash",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "snapshots",
+            "name": "hash"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "init_ts_ms!",
+        "type_info": "Float8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 2,
+        "name": "end_ts_ms!",
+        "type_info": "Float8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 3,
+        "name": "number_of_entities",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "snapshots",
+            "name": "number_of_entities"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "replaced_hashes",
+        "type_info": "TextArray",
+        "origin": {
+          "Table": {
+            "table": "snapshots",
+            "name": "replaced_hashes"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "gen_ts_ms!",
+        "type_info": "Float8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      true,
+      null,
+      null,
+      false,
+      false,
+      null
+    ]
+  },
+  "hash": "bb5bad89646261a5027246de69022aae428438e9301345aa14feaa43e19651f8"
+}

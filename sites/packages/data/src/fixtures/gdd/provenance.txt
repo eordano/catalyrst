@@ -1,0 +1,26 @@
+# Vendored design documents
+
+Three shortGDDs written in the Creator Success pre-production format and posted to
+`#creator-success-team` (C0BDDMXGLU8) on 2026-08-12. Each `.md` here is the document body
+verbatim, prefixed with a frontmatter block recording where it came from; nothing in the
+body was rewritten, reformatted or summarised.
+
+| file | document | Slack permalink |
+|---|---|---|
+| `pixelwars-shortgdd-v1.md` | Pixelwars shortGDD, full-AFK adaptation of Luke Escobar's brief | `p1786561616202039` |
+| `pixelwars-shortgdd-v2-reviewpass.md` | the review-pass merge, every merged line tagged `[review-pass]` | `p1786569035319029` |
+| `alien-human-zoo-shortgdd.md` | Nico Earnshaw's stage-1 draft, Solidify route | `p1786568416552999` |
+
+`pixelwars-hypotheses/` is the experiment tree that shipped inside the Pixelwars design zip:
+twelve `H<stage>-<nn>-<slug>_<status>.md` files across two stage folders. The status of each
+hypothesis is its filename suffix and nothing else — that is the state machine the skill
+maintains, and `foundry:import-gdd` reads it rather than the prose. Both Pixelwars versions
+point at this one directory because the v2 zip shipped a byte-identical tree.
+
+The Alien Human Zoo draft shipped without an experiment tree, so it imports with an empty
+hypothesis log. Its Appendix A is prose that the skill had not yet generated files for, and
+we do not manufacture rows out of it.
+
+Import with:
+
+    npm run foundry:import-gdd -- packages/data/src/fixtures/gdd/*.md --db "$FOUNDRY_DATABASE_URL"

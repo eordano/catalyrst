@@ -1,0 +1,55 @@
+.fd-replay__back {
+  color: var(--ink-7);
+  font-size: var(--fs-13);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.fd-replay__back:hover {
+  color: var(--text);
+}
+
+.fd-replay__facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--s-3) var(--s-5);
+  margin: 0;
+  padding: var(--s-3) var(--s-4);
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  background: var(--panel);
+}
+
+.fd-replay__facts dt {
+  font-size: var(--fs-11);
+  font-weight: var(--fw-bold);
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--ink-45);
+}
+
+.fd-replay__facts dd {
+  margin: 2px 0 0;
+  font-size: var(--fs-13);
+  color: var(--ink-85);
+  overflow-wrap: anywhere;
+}
+
+.fd-replay__facts a {
+  color: var(--text);
+}
+
+.fd-replay__mono {
+  font-family: var(--font-mono);
+  font-size: var(--fs-12);
+}
+
+.fd-replay__ledger {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  background: var(--panel);
+}

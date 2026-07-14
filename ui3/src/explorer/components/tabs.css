@@ -1,0 +1,25 @@
+.tabs { display: flex; align-items: center; gap: 4px; max-width: 100%; overflow-x: auto; scrollbar-width: none; }
+.tabs::-webkit-scrollbar { display: none; }
+.tabs__tab {
+  flex: 0 0 auto;
+  background: none; border: none; cursor: pointer; position: relative;
+  color: var(--ink-6); font-family: inherit; font-size: var(--fs-md); font-weight: 600;
+  padding: 10px 16px; border-radius: var(--ctl-radius, 10px); white-space: nowrap;
+  transition: color .083s linear, background .083s linear;
+}
+.tabs__tab:hover { color: #fff; background: rgba(255,255,255,.102); }
+.tabs__tab.is-active,
+.tabs__tab.is-active:hover { color: #fff; background: var(--brand-cta); }
+
+.tabs--underline .tabs__tab {
+  border-radius: 0; padding: 10px 16px;
+  text-transform: uppercase; letter-spacing: .06em; font-size: var(--fs-xs); font-weight: 700;
+}
+.tabs--underline .tabs__tab,
+.tabs--underline .tabs__tab:hover { background: none; }
+.tabs--underline .tabs__tab.is-active,
+.tabs--underline .tabs__tab.is-active:hover { color: #fff; background: none; }
+.tabs--underline .tabs__tab.is-active::after {
+  content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 3px;
+  border-radius: 3px; background: var(--brand);
+}

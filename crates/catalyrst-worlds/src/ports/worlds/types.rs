@@ -237,21 +237,7 @@ pub(super) fn scene_settings_from_entity(entity: &Value) -> DerivedSceneSettings
 }
 
 pub fn canonicalize_parcel(s: &str) -> String {
-    let parse = |part: &str| -> Option<i64> {
-        let t = part.trim();
-        let digits = t.strip_prefix('-').unwrap_or(t);
-        if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
-            return None;
-        }
-        t.parse::<i64>().ok()
-    };
-    match s.split_once(',') {
-        Some((a, b)) => match (parse(a), parse(b)) {
-            (Some(x), Some(y)) => format!("{x},{y}"),
-            _ => s.to_string(),
-        },
-        None => s.to_string(),
-    }
+    catalyrst_types::pointer::canonicalize_pointer(s)
 }
 
 pub(super) fn canonicalize_parcels(parcels: &[String]) -> Vec<String> {

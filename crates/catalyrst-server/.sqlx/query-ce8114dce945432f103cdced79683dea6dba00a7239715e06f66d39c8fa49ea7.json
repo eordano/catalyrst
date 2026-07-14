@@ -1,0 +1,61 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT le.signer, le.origin,\n               date_part('epoch', le.published_at) * 1000 AS \"published_at!\",\n               date_part('epoch', le.tombstoned_at) * 1000 AS tombstoned_at,\n               COALESCE(d.deleter_deployment IS NOT NULL, false) AS \"superseded!\"\n        FROM local_entities le\n        LEFT JOIN deployments d ON d.entity_id = le.entity_id\n        WHERE le.entity_id = $1\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "signer",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "local_entities",
+            "name": "signer"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "origin",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "local_entities",
+            "name": "origin"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "published_at!",
+        "type_info": "Float8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 3,
+        "name": "tombstoned_at",
+        "type_info": "Float8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 4,
+        "name": "superseded!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "ce8114dce945432f103cdced79683dea6dba00a7239715e06f66d39c8fa49ea7"
+}

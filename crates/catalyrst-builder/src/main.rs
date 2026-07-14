@@ -1,7 +1,6 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use axum::routing::get;
 use axum::Router;
-use std::net::SocketAddr;
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 
@@ -21,7 +20,7 @@ const ENV_DOCS: &[(&str, &str)] = &[
     ),
     (
         "BUILDER_CONTENT_BUCKET_URL",
-        "item content bucket base URL (default https://builder-items.decentraland.org)",
+        "item content bucket base URL (REQUIRED; no default)",
     ),
     (
         "BUILDER_ADMIN_ADDRESSES",
@@ -51,15 +50,20 @@ const ENV_DOCS: &[(&str, &str)] = &[
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    let args: Vec<String> = std::env::args().collect();
+    if args.get(1).map(String::as_str) == Some("catalog") {
+        let packs = args
+            .get(2)
+            .context("usage: catalyrst-builder catalog <packs-dir> <out-dir>")?;
+        let out = args
+            .get(3)
+            .context("usage: catalyrst-builder catalog <packs-dir> <out-dir>")?;
+        return catalyrst_builder::catalog_build::run(packs, out);
+    }
+
     catalyrst_envcfg::handle_standard_args("catalyrst-builder", ENV_DOCS);
 
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "catalyrst_builder=info,tower_http=info".into()),
-        )
-        .with_target(false)
-        .init();
+    catalyrst_envcfg::init_tracing("catalyrst_builder=info,tower_http=info");
 
     let cfg = Config::from_env()?;
     let state = build_state(&cfg).await?;
@@ -71,9 +75,5 @@ async fn main() -> Result<()> {
         .layer(TraceLayer::new_for_http())
         .with_state(state);
 
-    let addr: SocketAddr = format!("{}:{}", cfg.http_host, cfg.http_port).parse()?;
-    tracing::info!(%addr, "catalyrst-builder listening");
-    let listener = tokio::net::TcpListener::bind(addr).await?;
-    axum::serve(listener, app).await?;
-    Ok(())
+    catalyrst_envcfg::run_service("catalyrst-builder", cfg.http_host, cfg.http_port, app).await
 }

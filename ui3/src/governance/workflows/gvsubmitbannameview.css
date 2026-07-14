@@ -1,0 +1,121 @@
+.submit-ban-name-wizard {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 8px 24px 48px;
+}
+
+.submit-ban-name-wizard__steps {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  flex-wrap: wrap;
+  list-style: none;
+  margin: 0 0 28px;
+  padding: 16px 0 0;
+}
+.submit-ban-name-wizard__step {
+  font: 600 12px/1 "Inter", system-ui, sans-serif;
+  letter-spacing: 0.02em;
+  text-transform: capitalize;
+  padding: 6px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--gv-line, rgba(255, 255, 255, 0.1));
+  background: var(--gv-surface, #161518);
+  color: var(--gv-muted, #b9b6c0);
+}
+.submit-ban-name-wizard__step[data-active="true"] {
+  background: var(--brand, #ff2d55);
+  border-color: var(--brand, #ff2d55);
+  color: #fff;
+}
+
+.submit-ban-name-wizard__review {
+  max-width: 640px;
+  margin: 0 auto;
+}
+.submit-ban-name-wizard__status {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 40px 0;
+  text-align: center;
+}
+
+.submit-ban-name-wizard__h2 {
+  font: 700 24px/1.25 "Inter", system-ui, sans-serif;
+  color: var(--gv-ink, #fcfcfc);
+  margin: 0 0 16px;
+}
+.submit-ban-name-wizard__status .submit-ban-name-wizard__h2 { text-align: center; }
+.submit-ban-name-wizard__status--ok .submit-ban-name-wizard__h2 { color: #3fd07a; }
+.submit-ban-name-wizard__status--error .submit-ban-name-wizard__h2 { color: #ff6b6b; }
+
+.submit-ban-name-wizard__summary {
+  display: grid;
+  grid-template-columns: 160px 1fr;
+  gap: 10px 16px;
+  margin: 0;
+  padding: 18px 20px;
+  background: var(--gv-surface, #161518);
+  border: 1px solid var(--gv-line, rgba(255, 255, 255, 0.1));
+  border-radius: 12px;
+  font-size: 14px;
+}
+.submit-ban-name-wizard__summary dt {
+  color: var(--gv-muted, #b9b6c0);
+  font-weight: 600;
+}
+.submit-ban-name-wizard__summary dd {
+  margin: 0;
+  color: var(--gv-ink, #fcfcfc);
+  word-break: break-word;
+}
+
+.submit-ban-name-wizard__controls {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-top: 24px;
+}
+.submit-ban-name-wizard__btn {
+  appearance: none;
+  cursor: pointer;
+  font: 600 14px/1 "Inter", system-ui, sans-serif;
+  color: var(--gv-ink, #fcfcfc);
+  background: var(--gv-surface, #161518);
+  border: 1px solid var(--gv-line, rgba(255, 255, 255, 0.16));
+  border-radius: 10px;
+  padding: 12px 22px;
+  transition: border-color 0.12s ease, background 0.12s ease;
+}
+.submit-ban-name-wizard__btn:hover {
+  border-color: var(--gv-faint, rgba(255, 255, 255, 0.32));
+}
+.submit-ban-name-wizard__btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.submit-ban-name-wizard__btn--primary {
+  color: #fff;
+  background: var(--brand, #ff2d55);
+  border-color: var(--brand, #ff2d55);
+}
+.submit-ban-name-wizard__btn--primary:hover {
+  background: var(--brand-hover, #ff4d70);
+  border-color: var(--brand-hover, #ff4d70);
+}
+
+.submit-ban-name-wizard__note {
+  color: var(--gv-muted, #b9b6c0);
+  font: 400 13px/1.5 "Inter", system-ui, sans-serif;
+  margin: 14px 0 0;
+}
+.submit-ban-name-wizard__note--stub {
+  display: inline-block;
+  margin-top: 16px;
+  padding: 10px 16px;
+  border-radius: 10px;
+  background: var(--gv-surface, #161518);
+  border: 1px solid var(--gv-line, rgba(255, 255, 255, 0.1));
+  color: var(--gv-faint, rgba(255, 255, 255, 0.55));
+}

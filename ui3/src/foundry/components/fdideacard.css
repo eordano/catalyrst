@@ -1,0 +1,76 @@
+.fd-idea {
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  background: var(--panel);
+  overflow: hidden;
+}
+
+.fd-idea.is-expanded {
+  background: var(--panel-2);
+}
+
+.fd-idea__head {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2-5);
+  width: 100%;
+  padding: var(--s-3) var(--s-4);
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: var(--fs-14);
+  font-weight: var(--fw-semibold);
+  text-align: left;
+  cursor: pointer;
+}
+
+.fd-idea__head:hover {
+  background: var(--fill-1);
+}
+
+.fd-idea__head:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring-color);
+  outline-offset: calc(var(--focus-ring-offset) * -1);
+}
+
+.fd-idea__num {
+  font-family: var(--font-mono);
+  font-size: var(--fs-12);
+  font-weight: var(--fw-regular);
+  color: var(--ink-45);
+}
+
+.fd-idea__name {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.fd-idea__caret {
+  flex: 0 0 auto;
+  width: 18px;
+  text-align: center;
+  font-size: var(--fs-16);
+  color: var(--ink-45);
+}
+
+.fd-idea__body {
+  padding: 0 var(--s-4) var(--s-4);
+}
+
+.fd-idea__line {
+  margin: 0;
+  max-width: 62ch;
+  font-size: var(--fs-13);
+  line-height: 1.6;
+  color: var(--ink-7);
+}
+
+.fd-idea__link {
+  display: inline-block;
+  margin-top: var(--s-2);
+  font-size: var(--fs-12);
+  font-weight: var(--fw-semibold);
+  color: var(--brand-ink);
+}

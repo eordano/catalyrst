@@ -1,0 +1,14 @@
+.fd-costs__stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: var(--s-3);
+}
+
+.fd-costs__dim {
+  color: var(--ink-45);
+  font-style: italic;
+}
+
+.fd-costs .fd-table td {
+  vertical-align: top;
+}

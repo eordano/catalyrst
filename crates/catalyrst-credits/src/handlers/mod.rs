@@ -14,6 +14,10 @@ use crate::auth_chain::require_signer;
 use crate::http::ApiError;
 use axum::http::HeaderMap;
 
-pub fn signer_from(headers: &HeaderMap, method: &str, path: &str) -> Result<String, ApiError> {
+pub fn signer_from(
+    headers: &HeaderMap,
+    method: &str,
+    path: &str,
+) -> Result<catalyrst_crypto::Signer, ApiError> {
     require_signer(headers, method, path).map_err(ApiError::from)
 }

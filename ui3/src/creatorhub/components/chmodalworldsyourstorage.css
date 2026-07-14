@@ -1,0 +1,137 @@
+.chmodalworldsyourstorage--panel {
+  position: relative;
+  box-sizing: border-box;
+  width: 720px;
+  max-width: 100%;
+  margin: 24px auto;
+  padding: 28px;
+  display: block;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r-card, 16px);
+  color: #fff;
+}
+.chmodalworldsyourstorage__close {
+  position: absolute; top: 14px; right: 14px;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 32px; height: 32px; padding: 0;
+  border: 0; border-radius: 50%;
+  background: var(--fill-3, rgba(255, 255, 255, 0.08));
+  color: var(--ink-7, rgba(255, 255, 255, 0.7));
+  cursor: pointer;
+  z-index: 1;
+}
+.chmodalworldsyourstorage__close:hover { background: var(--fill-5, rgba(255, 255, 255, 0.12)); color: #fff; }
+.chmodalworldsyourstorage__close:focus-visible { outline: 2px solid var(--brand, #ff2d55); outline-offset: 2px; }
+
+.chmodalworldsyourstorage__title {
+  margin: 0;
+  padding: 0 40px;
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1.3;
+  text-align: center;
+  color: var(--text);
+}
+
+.chmodalworldsyourstorage__content {
+  padding-top: 20px;
+}
+
+.chmodalworldsyourstorage__total-storage {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  text-align: center;
+}
+
+.chmodalworldsyourstorage__mbs {
+  font-size: 28px;
+  font-weight: 700;
+}
+
+.chmodalworldsyourstorage__asset {
+  margin: 48px 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+}
+
+.chmodalworldsyourstorage__texts {
+  display: flex;
+  flex-direction: column;
+}
+
+.chmodalworldsyourstorage__name {
+  font-weight: 700;
+}
+
+.chmodalworldsyourstorage__subtitle {
+  color: var(--ink-6);
+}
+
+.chmodalworldsyourstorage__amount {
+  margin-top: 16px;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.chmodalworldsyourstorage__check-icon {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  color: var(--success);
+}
+
+.chmodalworldsyourstorage__btn {
+  flex: 0 0 auto;
+  min-width: 144px;
+  text-decoration: none;
+}
+.chmodalworldsyourstorage__btn svg {
+  color: var(--on-brand);
+  fill: var(--on-brand);
+}
+
+.chmodalworldsyourstorage__separator {
+  margin: 0;
+  border: none;
+  border-top: 1px solid var(--line);
+}
+
+.chmodalworldsyourstorage__proposal {
+  margin: 48px 0 0;
+  text-align: center;
+  font-size: 16px;
+  line-height: 1.5;
+  color: var(--text);
+}
+
+.chmodalworldsyourstorage__info-icon {
+  width: 18px;
+  height: 18px;
+  position: relative;
+  top: 4px;
+  margin-right: 4px;
+  color: var(--ink-45);
+}
+
+.chmodalworldsyourstorage__learn-more {
+  padding: 0 6px;
+  border: none;
+  background: none;
+  color: var(--brand);
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: 0.02857em;
+  text-transform: uppercase;
+  text-decoration: none;
+  cursor: pointer;
+}
+.chmodalworldsyourstorage__learn-more:hover {
+  background-color: color-mix(in srgb, var(--brand) 8%, transparent);
+  border-radius: var(--ctl-radius, var(--r-control));
+}

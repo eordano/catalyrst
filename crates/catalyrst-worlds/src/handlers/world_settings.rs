@@ -1,14 +1,17 @@
 use std::collections::HashMap;
+use std::time::Duration;
 
 use axum::extract::{Multipart, OriginalUri, Path, State};
 use axum::http::HeaderMap;
 use axum::Json;
+use bytes::BytesMut;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 
 use crate::auth_chain::{require_verified, AuthChainError};
 use crate::http::ApiError;
 use crate::ports::worlds::{WorldSettingsRow, WorldSettingsUpdate};
+use crate::upload_limits;
 use crate::AppState;
 
 const MIN_PARCEL_COORDINATE: i32 = -150;
@@ -16,6 +19,24 @@ const MAX_PARCEL_COORDINATE: i32 = 150;
 const MAX_THUMBNAIL_BYTES: usize = 1024 * 1024;
 const VALID_RATINGS: [&str; 5] = ["RP", "E", "T", "A", "R"];
 
+const MAX_SETTINGS_UPLOAD_BYTES: usize = 2 * 1024 * 1024;
+
+/// Wire-size cap for the whole multipart body; also this route's axum body limit so our 400 fires instead of axum's 413.
+pub const MAX_SETTINGS_UPLOAD_WIRE_BYTES: usize = MAX_SETTINGS_UPLOAD_BYTES + 10 * 1024 * 1024;
+
+const _: () = assert!(MAX_SETTINGS_UPLOAD_WIRE_BYTES >= MAX_SETTINGS_UPLOAD_BYTES);
+
+#[utoipa::path(
+    get,
+    path = "/world/{world_name}/settings",
+    tag = "worlds",
+    params(("world_name" = String, Path)),
+    responses(
+        (status = 200, body = serde_json::Value),
+        (status = 404, body = catalyrst_types::ApiErrorBody),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn get_world_settings(
     State(state): State<AppState>,
     Path(world_name): Path<String>,
@@ -42,6 +63,23 @@ fn settings_json(s: &WorldSettingsRow) -> Value {
     })
 }
 
+#[utoipa::path(
+    put,
+    path = "/world/{world_name}/settings",
+    tag = "worlds",
+    params(("world_name" = String, Path)),
+    request_body = serde_json::Value,
+    responses(
+        (status = 200, body = serde_json::Value),
+        (status = 400, body = catalyrst_types::ApiErrorBody),
+        (status = 401, body = catalyrst_types::ApiErrorBody),
+        (status = 403, body = catalyrst_types::ApiErrorBody),
+        (status = 404, body = catalyrst_types::ApiErrorBody),
+        (status = 408, body = serde_json::Value),
+        (status = 500, body = catalyrst_types::ApiErrorBody),
+        (status = 503, body = serde_json::Value)
+    )
+)]
 pub async fn update_world_settings(
     State(state): State<AppState>,
     Path(world_name): Path<String>,
@@ -50,68 +88,126 @@ pub async fn update_world_settings(
     multipart: Multipart,
 ) -> Result<Json<Value>, ApiError> {
     let auth = require_verified(&headers, "put", uri.path()).map_err(map_auth_error)?;
-    let signer = auth.signer.to_lowercase();
+    let signer = auth.signer.as_str().to_string();
 
-    let world = state.worlds.get_world(&world_name).await?;
-    let owner = crate::handlers::permissions::resolve_world_owner(
-        &state,
-        &world_name,
-        world.and_then(|w| w.owner),
-    )
-    .await;
-    let is_owner = owner
-        .as_deref()
-        .map(|o| o.eq_ignore_ascii_case(&signer))
-        .unwrap_or(false);
-    let is_world_wide_deployer = if is_owner {
-        false
-    } else {
-        state
-            .worlds
-            .has_world_wide_permission(&world_name, "deployment", &signer)
-            .await?
-    };
-    if !is_owner && !is_world_wide_deployer {
-        return Err(ApiError::forbidden(
-            "You are not authorized to update the settings of this world.",
-        ));
-    }
-
-    let input = parse_multipart(multipart, &state).await?;
-
-    if let Some(spawn) = input.spawn_coordinates.clone() {
-        let (x, y) = parse_coordinate(&spawn).ok_or_else(|| {
-            ApiError::bad_request(format!("Invalid spawnCoordinates format: \"{spawn}\"."))
-        })?;
-        match state
-            .worlds
-            .get_world_bounding_rectangle(&world_name)
-            .await?
+    match upload_limits::declared_content_length(&headers) {
+        upload_limits::DeclaredContentLength::Invalid => {
+            return Err(ApiError::bad_request(
+                upload_limits::INVALID_CONTENT_LENGTH_MESSAGE,
+            ));
+        }
+        upload_limits::DeclaredContentLength::Bytes(len)
+            if len > MAX_SETTINGS_UPLOAD_WIRE_BYTES as u64 =>
         {
-            None => {
-                return Err(ApiError::bad_request(format!(
-                    "Invalid spawnCoordinates \"{spawn}\". The world has no deployed scenes."
-                )))
-            }
-            Some((min_x, max_x, min_y, max_y)) => {
-                if !(min_x..=max_x).contains(&x) || !(min_y..=max_y).contains(&y) {
+            return Err(ApiError::bad_request(
+                upload_limits::PAYLOAD_TOO_LARGE_MESSAGE,
+            ));
+        }
+        _ => {}
+    }
+    let _slot = upload_limits::try_acquire_upload_slot(state.cfg.max_concurrent_uploads)
+        .ok_or_else(|| {
+            tracing::warn!(
+                active = upload_limits::active_uploads(),
+                max = state.cfg.max_concurrent_uploads,
+                "PUT /world/:world_name/settings shed: concurrent-upload cap exceeded"
+            );
+            ApiError::UploadShed(upload_limits::CONCURRENCY_SHED_MESSAGE.to_string())
+        })?;
+    let mut bytes_lease = upload_limits::reserve_in_flight();
+    let mut files_lease = upload_limits::reserve_in_flight_files();
+
+    let input = tokio::time::timeout(
+        Duration::from_millis(state.cfg.multipart_upload_timeout_ms),
+        parse_multipart(
+            multipart,
+            &state.cfg.contents_dir,
+            state.cfg.max_in_flight_upload_bytes,
+            state.cfg.max_in_flight_upload_files,
+            &mut bytes_lease,
+            &mut files_lease,
+        ),
+    )
+    .await
+    .map_err(|_| {
+        tracing::warn!(
+            timeout_ms = state.cfg.multipart_upload_timeout_ms,
+            "PUT /world/:world_name/settings: multipart upload timed out"
+        );
+        ApiError::RequestTimeout(upload_limits::MULTIPART_TIMEOUT_MESSAGE.to_string())
+    })??;
+
+    let timeout_ms = state.cfg.deployment_processing_timeout_ms;
+    tokio::time::timeout(Duration::from_millis(timeout_ms), async {
+        let world = state.worlds.get_world(&world_name).await?;
+        let owner = crate::handlers::permissions::resolve_world_owner(
+            &state,
+            &crate::fed::names::LocalWorldName::from_request_path(&world_name),
+            world.and_then(|w| w.owner),
+        )
+        .await;
+        let is_owner = owner
+            .as_deref()
+            .map(|o| o.eq_ignore_ascii_case(&signer))
+            .unwrap_or(false);
+        let is_world_wide_deployer = if is_owner {
+            false
+        } else {
+            state
+                .worlds
+                .has_world_wide_permission(&world_name, "deployment", &signer)
+                .await?
+        };
+        if !is_owner && !is_world_wide_deployer {
+            return Err(ApiError::forbidden(
+                "You are not authorized to update the settings of this world.",
+            ));
+        }
+
+        if let Some(spawn) = input.spawn_coordinates.clone() {
+            let (x, y) = parse_coordinate(&spawn).ok_or_else(|| {
+                ApiError::bad_request(format!("Invalid spawnCoordinates format: \"{spawn}\"."))
+            })?;
+            match state
+                .worlds
+                .get_world_bounding_rectangle(&world_name)
+                .await?
+            {
+                None => {
                     return Err(ApiError::bad_request(format!(
-                        "Invalid spawnCoordinates \"{spawn}\". It must be within the world shape rectangle: ({min_x},{min_y}) to ({max_x},{max_y})."
-                    )));
+                        "Invalid spawnCoordinates \"{spawn}\". The world has no deployed scenes."
+                    )))
+                }
+                Some((min_x, max_x, min_y, max_y)) => {
+                    if !(min_x..=max_x).contains(&x) || !(min_y..=max_y).contains(&y) {
+                        return Err(ApiError::bad_request(format!(
+                            "Invalid spawnCoordinates \"{spawn}\". It must be within the world shape rectangle: ({min_x},{min_y}) to ({max_x},{max_y})."
+                        )));
+                    }
                 }
             }
         }
-    }
 
-    let (settings, _old_spawn) = state
-        .worlds
-        .update_world_settings(&world_name, &signer, &input)
-        .await?;
+        let (settings, _old_spawn) = state
+            .worlds
+            .update_world_settings(&world_name, &signer, &input)
+            .await?;
 
-    Ok(Json(json!({
-        "message": "World settings updated successfully",
-        "settings": settings_json(&settings),
-    })))
+        Ok(Json(json!({
+            "message": "World settings updated successfully",
+            "settings": settings_json(&settings),
+        })))
+    })
+    .await
+    .map_err(|_| {
+        tracing::warn!(
+            timeout_ms,
+            "PUT /world/:world_name/settings: settings processing timed out"
+        );
+        ApiError::RequestTimeout(format!(
+            "Deployment processing exceeded the {timeout_ms}ms deadline."
+        ))
+    })?
 }
 
 fn map_auth_error(e: AuthChainError) -> ApiError {
@@ -123,15 +219,54 @@ fn map_auth_error(e: AuthChainError) -> ApiError {
     }
 }
 
+fn account_settings_bytes(
+    total_bytes: &mut usize,
+    added: usize,
+    bytes_lease: &mut upload_limits::InFlightBytesGuard,
+    max_in_flight_bytes: u64,
+) -> Result<(), ApiError> {
+    match upload_limits::account_payload_bytes(
+        total_bytes,
+        added,
+        MAX_SETTINGS_UPLOAD_BYTES,
+        bytes_lease,
+        max_in_flight_bytes,
+    ) {
+        Ok(()) => Ok(()),
+        Err(upload_limits::PayloadAccountError::PayloadTooLarge) => Err(ApiError::bad_request(
+            upload_limits::PAYLOAD_TOO_LARGE_MESSAGE,
+        )),
+        Err(upload_limits::PayloadAccountError::BudgetExhausted) => {
+            tracing::warn!(
+                total_bytes,
+                in_flight = upload_limits::in_flight_upload_bytes(),
+                max = max_in_flight_bytes,
+                "PUT /world/:world_name/settings shed: aggregate in-flight upload budget exceeded"
+            );
+            Err(ApiError::UploadShed(
+                upload_limits::BYTES_SHED_MESSAGE.to_string(),
+            ))
+        }
+    }
+}
+
 async fn parse_multipart(
     mut multipart: Multipart,
-    state: &AppState,
+    contents_dir: &std::path::Path,
+    max_in_flight_bytes: u64,
+    max_in_flight_files: u64,
+    bytes_lease: &mut upload_limits::InFlightBytesGuard,
+    files_lease: &mut upload_limits::InFlightFilesGuard,
 ) -> Result<WorldSettingsUpdate, ApiError> {
     let mut fields: HashMap<String, Vec<String>> = HashMap::new();
     let mut thumbnail: Option<Vec<u8>> = None;
+    let mut total_bytes: usize = 0;
+    let mut total_files: u64 = 0;
+    let mut part_count: usize = 0;
+    let mut field_count: usize = 0;
 
     loop {
-        let field = match multipart.next_field().await {
+        let mut field = match multipart.next_field().await {
             Ok(Some(f)) => f,
             Ok(None) => break,
             Err(e) => {
@@ -143,11 +278,50 @@ async fn parse_multipart(
         let name = field.name().unwrap_or("").to_string();
         let is_file = field.file_name().is_some();
 
+        part_count += 1;
+        if part_count > upload_limits::MAX_MULTIPART_PARTS {
+            return Err(ApiError::bad_request(upload_limits::TOO_MANY_PARTS_MESSAGE));
+        }
+
         if is_file {
-            let data = field
-                .bytes()
-                .await
-                .map_err(|e| ApiError::bad_request(format!("Failed to read file data: {e}")))?;
+            if !files_lease.try_resize(total_files + 1, max_in_flight_files) {
+                tracing::warn!(
+                    request_files = total_files + 1,
+                    in_flight = upload_limits::in_flight_upload_files(),
+                    max = max_in_flight_files,
+                    "PUT /world/:world_name/settings shed: aggregate in-flight upload-file budget exceeded"
+                );
+                return Err(ApiError::UploadShed(
+                    upload_limits::FILES_SHED_MESSAGE.to_string(),
+                ));
+            }
+            total_files += 1;
+            let mut buf = BytesMut::new();
+            loop {
+                match field.chunk().await {
+                    Ok(Some(chunk)) => {
+                        if buf.len().saturating_add(chunk.len()) > MAX_SETTINGS_UPLOAD_BYTES {
+                            return Err(ApiError::bad_request(
+                                "An uploaded file exceeds the maximum allowed size.",
+                            ));
+                        }
+                        account_settings_bytes(
+                            &mut total_bytes,
+                            chunk.len(),
+                            bytes_lease,
+                            max_in_flight_bytes,
+                        )?;
+                        buf.extend_from_slice(&chunk);
+                    }
+                    Ok(None) => break,
+                    Err(e) => {
+                        return Err(ApiError::bad_request(format!(
+                            "Failed to read file data: {e}"
+                        )))
+                    }
+                }
+            }
+            let data = buf.freeze();
             if name == "thumbnail" {
                 if data.len() > MAX_THUMBNAIL_BYTES {
                     return Err(ApiError::bad_request(format!(
@@ -158,10 +332,38 @@ async fn parse_multipart(
                 thumbnail = Some(data.to_vec());
             }
         } else {
-            let value = field
-                .text()
-                .await
-                .map_err(|e| ApiError::bad_request(format!("Invalid form field: {e}")))?;
+            field_count += 1;
+            if field_count > upload_limits::MAX_MULTIPART_FIELDS {
+                return Err(ApiError::bad_request(
+                    upload_limits::TOO_MANY_FIELDS_MESSAGE,
+                ));
+            }
+            let mut buf = BytesMut::new();
+            loop {
+                match field.chunk().await {
+                    Ok(Some(chunk)) => {
+                        if buf.len().saturating_add(chunk.len())
+                            > upload_limits::MAX_MULTIPART_FIELD_VALUE_BYTES
+                        {
+                            return Err(ApiError::bad_request(
+                                upload_limits::PAYLOAD_TOO_LARGE_MESSAGE,
+                            ));
+                        }
+                        account_settings_bytes(
+                            &mut total_bytes,
+                            chunk.len(),
+                            bytes_lease,
+                            max_in_flight_bytes,
+                        )?;
+                        buf.extend_from_slice(&chunk);
+                    }
+                    Ok(None) => break,
+                    Err(e) => {
+                        return Err(ApiError::bad_request(format!("Invalid form field: {e}")))
+                    }
+                }
+            }
+            let value = String::from_utf8_lossy(&buf).into_owned();
             fields.entry(name).or_default().push(value);
         }
     }
@@ -249,7 +451,7 @@ async fn parse_multipart(
             ));
         }
         let hash = hex::encode(Sha256::digest(&bytes));
-        store_thumbnail(&state.cfg.contents_dir, &hash, &bytes)
+        store_thumbnail(contents_dir, &hash, &bytes)
             .await
             .map_err(|e| ApiError::internal(format!("failed to store thumbnail: {e}")))?;
         input.thumbnail_hash = Some(hash);
@@ -267,17 +469,9 @@ fn first_nonempty(fields: &HashMap<String, Vec<String>>, key: &str) -> Option<St
 }
 
 fn parse_coordinate(s: &str) -> Option<(i32, i32)> {
-    let (a, b) = s.split_once(',')?;
-    let parse = |p: &str| -> Option<i32> {
-        let t = p.trim();
-        let digits = t.strip_prefix('-').unwrap_or(t);
-        if digits.is_empty() || !digits.bytes().all(|c| c.is_ascii_digit()) {
-            return None;
-        }
-        t.parse::<i32>().ok()
-    };
-    let x = parse(a)?;
-    let y = parse(b)?;
+    let (x, y) = catalyrst_types::pointer::parse_pointer(s)?;
+    let x = i32::try_from(x).ok()?;
+    let y = i32::try_from(y).ok()?;
     if !(MIN_PARCEL_COORDINATE..=MAX_PARCEL_COORDINATE).contains(&x)
         || !(MIN_PARCEL_COORDINATE..=MAX_PARCEL_COORDINATE).contains(&y)
     {
@@ -352,5 +546,140 @@ mod tests {
         webp.extend_from_slice(b"WEBP");
         assert_eq!(detect_image_format(&webp), Some("webp"));
         assert!(detect_image_format(b"<svg xmlns=").is_none());
+    }
+
+    async fn multipart_from(parts: &[(&str, Option<&str>, &str)]) -> Multipart {
+        use axum::extract::FromRequest;
+        let boundary = "xyzsettings";
+        let mut body = String::new();
+        for (name, filename, value) in parts {
+            body.push_str(&format!("--{boundary}\r\n"));
+            match filename {
+                Some(f) => body.push_str(&format!(
+                    "Content-Disposition: form-data; name=\"{name}\"; filename=\"{f}\"\r\nContent-Type: application/octet-stream\r\n\r\n"
+                )),
+                None => {
+                    body.push_str(&format!("Content-Disposition: form-data; name=\"{name}\"\r\n\r\n"))
+                }
+            }
+            body.push_str(value);
+            body.push_str("\r\n");
+        }
+        body.push_str(&format!("--{boundary}--\r\n"));
+        let req = axum::http::Request::builder()
+            .header(
+                "content-type",
+                format!("multipart/form-data; boundary={boundary}"),
+            )
+            .body(axum::body::Body::from(body))
+            .unwrap();
+        Multipart::from_request(req, &()).await.unwrap()
+    }
+
+    fn bad_request_message(err: ApiError) -> String {
+        match err {
+            ApiError::BadRequest(m) => m,
+            other => panic!("expected BadRequest, got {other:?}"),
+        }
+    }
+
+    fn unused_dir() -> &'static std::path::Path {
+        std::path::Path::new("/nonexistent-unused")
+    }
+
+    #[tokio::test]
+    async fn parse_multipart_streams_fields_and_accounts_payload() {
+        let multipart = multipart_from(&[
+            ("title", None, "Gate World"),
+            ("other", Some("a.bin"), "abc"),
+        ])
+        .await;
+        let mut bytes_lease = upload_limits::reserve_in_flight();
+        let mut files_lease = upload_limits::reserve_in_flight_files();
+        let input = parse_multipart(
+            multipart,
+            unused_dir(),
+            u64::MAX,
+            u64::MAX,
+            &mut bytes_lease,
+            &mut files_lease,
+        )
+        .await
+        .expect("form parses");
+        assert_eq!(input.title.as_deref(), Some("Gate World"));
+        assert_eq!(bytes_lease.reserved(), 10 + 3);
+        assert_eq!(files_lease.reserved(), 1);
+    }
+
+    #[tokio::test]
+    async fn parse_multipart_caps_each_field_value_at_one_megabyte() {
+        let big = "a".repeat(upload_limits::MAX_MULTIPART_FIELD_VALUE_BYTES + 1);
+        let multipart = multipart_from(&[("description", None, big.as_str())]).await;
+        let mut bytes_lease = upload_limits::reserve_in_flight();
+        let mut files_lease = upload_limits::reserve_in_flight_files();
+        let err = parse_multipart(
+            multipart,
+            unused_dir(),
+            u64::MAX,
+            u64::MAX,
+            &mut bytes_lease,
+            &mut files_lease,
+        )
+        .await
+        .expect_err("oversized field must be rejected");
+        assert_eq!(
+            bad_request_message(err),
+            upload_limits::PAYLOAD_TOO_LARGE_MESSAGE
+        );
+        assert!(bytes_lease.reserved() <= upload_limits::MAX_MULTIPART_FIELD_VALUE_BYTES as u64);
+    }
+
+    #[tokio::test]
+    async fn parse_multipart_rejects_more_than_one_hundred_fields() {
+        let names: Vec<String> = (0..=upload_limits::MAX_MULTIPART_FIELDS)
+            .map(|i| format!("f{i}"))
+            .collect();
+        let parts: Vec<(&str, Option<&str>, &str)> =
+            names.iter().map(|n| (n.as_str(), None, "v")).collect();
+        let multipart = multipart_from(&parts).await;
+        let mut bytes_lease = upload_limits::reserve_in_flight();
+        let mut files_lease = upload_limits::reserve_in_flight_files();
+        let err = parse_multipart(
+            multipart,
+            unused_dir(),
+            u64::MAX,
+            u64::MAX,
+            &mut bytes_lease,
+            &mut files_lease,
+        )
+        .await
+        .expect_err("101st field must be rejected");
+        assert_eq!(
+            bad_request_message(err),
+            upload_limits::TOO_MANY_FIELDS_MESSAGE
+        );
+    }
+
+    #[tokio::test]
+    async fn parse_multipart_rejects_more_than_the_parts_limit() {
+        let parts: Vec<(&str, Option<&str>, &str)> =
+            vec![("f", Some("a.bin"), ""); upload_limits::MAX_MULTIPART_PARTS + 1];
+        let multipart = multipart_from(&parts).await;
+        let mut bytes_lease = upload_limits::reserve_in_flight();
+        let mut files_lease = upload_limits::reserve_in_flight_files();
+        let err = parse_multipart(
+            multipart,
+            unused_dir(),
+            u64::MAX,
+            u64::MAX,
+            &mut bytes_lease,
+            &mut files_lease,
+        )
+        .await
+        .expect_err("part 10101 must be rejected");
+        assert_eq!(
+            bad_request_message(err),
+            upload_limits::TOO_MANY_PARTS_MESSAGE
+        );
     }
 }

@@ -1,0 +1,32 @@
+.fd-prov {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 9px;
+  border-radius: var(--r-pill);
+  font-size: var(--fs-11);
+  font-weight: var(--fw-semibold);
+  letter-spacing: 0.02em;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+
+/* Read out of a source we do not own. */
+.fd-prov--imported {
+  background: var(--fill-2);
+  border: 1px solid var(--line);
+  color: var(--ink-85);
+}
+
+/* Produced by an execution we ran. */
+.fd-prov--recorded {
+  background: transparent;
+  border: 1px solid var(--info);
+  color: var(--info);
+}
+
+/* Somebody on this site did it. */
+.fd-prov--visitor {
+  background: transparent;
+  border: 1px dashed var(--line-strong, var(--line));
+  color: var(--ink-45);
+}

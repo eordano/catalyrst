@@ -45,8 +45,6 @@ pub struct Config {
 
     pub usage_grants_database_url: Option<String>,
 
-    pub progress_presence_database_url: Option<String>,
-
     pub escrow_lock_days: i32,
 
     pub mock_fulfillment: bool,
@@ -123,9 +121,6 @@ impl Config {
             )?,
             checkout_max_attempts: get_i32("CHECKOUT_MAX_ATTEMPTS", DEFAULT_CHECKOUT_MAX_ATTEMPTS)?,
             usage_grants_database_url: env::var("USAGE_GRANTS_PG_CONNECTION_STRING")
-                .ok()
-                .filter(|s| !s.is_empty()),
-            progress_presence_database_url: env::var("PROGRESS_PRESENCE_PG_CONNECTION_STRING")
                 .ok()
                 .filter(|s| !s.is_empty()),
             escrow_lock_days: get_i32("ESCROW_LOCK_DAYS", DEFAULT_ESCROW_LOCK_DAYS)?,

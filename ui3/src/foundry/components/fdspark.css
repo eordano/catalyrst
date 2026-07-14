@@ -1,0 +1,16 @@
+.fd-spark {
+  display: block;
+  flex: 0 0 auto;
+  overflow: visible;
+}
+
+.fd-spark__line {
+  stroke: var(--ink-6);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.fd-spark__last {
+  fill: var(--brand);
+}

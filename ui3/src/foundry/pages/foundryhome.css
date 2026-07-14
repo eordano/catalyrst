@@ -1,0 +1,88 @@
+.fd-home .fd-pagehead {
+  margin-bottom: var(--s-3);
+}
+
+.fd-home .fd-pagehead__title {
+  max-width: 20ch;
+  font-size: var(--fs-34);
+}
+
+.fd-home .fd-pagehead__intro {
+  font-size: var(--fs-16);
+  color: var(--text);
+}
+
+.fd-home__lede {
+  margin: 0;
+  max-width: 78ch;
+  font-size: var(--fs-14);
+  line-height: 1.75;
+  color: var(--ink-6);
+}
+
+.fd-home__enter {
+  margin: 0;
+  max-width: 64ch;
+  font-size: var(--fs-15);
+  font-weight: var(--fw-semibold);
+  line-height: 1.6;
+  color: var(--text);
+}
+
+.fd-home__ctas {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2-5);
+  flex-wrap: wrap;
+}
+
+.fd-home__cta {
+  display: inline-flex;
+  align-items: center;
+  padding: var(--s-2-5) var(--s-5);
+  border: 1px solid transparent;
+  border-radius: var(--r-control);
+  font-size: var(--fs-14);
+  font-weight: var(--fw-semibold);
+  line-height: 1.2;
+}
+
+.fd-home__cta:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring-color);
+  outline-offset: var(--focus-ring-offset);
+}
+
+.fd-home__cta--primary {
+  background: var(--brand-cta);
+  color: var(--on-brand);
+}
+
+.fd-home__cta--primary:hover {
+  background: var(--brand-hover);
+}
+
+.fd-home__cta--secondary {
+  background: var(--fill-4);
+  color: var(--text);
+}
+
+.fd-home__cta--secondary:hover {
+  background: var(--fill-5);
+}
+
+.fd-home__cta--ghost {
+  border-color: var(--ink-6);
+  color: var(--ink-85);
+}
+
+.fd-home__cta--ghost:hover {
+  border-color: var(--text);
+  background: var(--fill-2);
+  color: var(--text);
+}
+
+.fd-home__ideas {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: var(--s-2);
+}

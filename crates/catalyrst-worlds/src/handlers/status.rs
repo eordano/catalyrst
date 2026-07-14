@@ -11,6 +11,12 @@ pub async fn ping(OriginalUri(uri): OriginalUri) -> impl IntoResponse {
     uri.path().to_string()
 }
 
+#[utoipa::path(
+    get,
+    path = "/status",
+    tag = "status",
+    responses((status = 200, body = serde_json::Value))
+)]
 pub async fn status() -> Json<Value> {
     Json(json!({
         "ok": true,

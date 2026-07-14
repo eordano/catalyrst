@@ -1,0 +1,61 @@
+.fd-scrub {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  padding: var(--s-3) var(--s-4);
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  background: var(--panel);
+}
+
+.fd-scrub__controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+  align-items: center;
+}
+
+.fd-scrub__btn {
+  appearance: none;
+  padding: var(--s-1-5) var(--s-3);
+  border: 1px solid var(--line);
+  border-radius: var(--r-control);
+  background: var(--fill-1);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--fs-12);
+  font-weight: var(--fw-semibold);
+  cursor: pointer;
+}
+
+.fd-scrub__btn:hover:not(:disabled) {
+  background: var(--fill-3);
+}
+
+.fd-scrub__btn:disabled {
+  color: var(--ink-45);
+  cursor: not-allowed;
+}
+
+.fd-scrub__btn:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring-color);
+  outline-offset: var(--focus-ring-offset);
+}
+
+.fd-scrub__pos {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: var(--fs-12);
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-6);
+}
+
+.fd-scrub__pos strong {
+  color: var(--text);
+}
+
+.fd-scrub__note {
+  margin: 0;
+  font-size: var(--fs-11);
+  color: var(--ink-45);
+}

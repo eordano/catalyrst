@@ -1,0 +1,11 @@
+{
+  "name": "@sites/routes",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "sitesBoundary": {
+    "alias": "@routes",
+    "root": "app",
+    "mayImport": ["@sites/core","@sites/data","@sites/features"]
+  }
+}

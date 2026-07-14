@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT 1 AS x FROM active_pointers WHERE pointer = ANY($1::text[]) LIMIT 0",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "x",
+        "type_info": "Int4",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "5b7628f3841f66c5956fd76c0cc2c17ebe99df59ff3a564e9e20f7be233ab13a"
+}

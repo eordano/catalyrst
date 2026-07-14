@@ -1,6 +1,6 @@
 [package]
 name = "catalyrst-db"
-version = "0.9.10"
+version = "0.16.8"
 edition = "2021"
 
 [dependencies]
@@ -10,10 +10,6 @@ serde_json = { workspace = true }
 chrono = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
-tokio = { workspace = true }
-futures = { workspace = true }
-reqwest = { workspace = true }
 bytes = { workspace = true }
-flate2 = "1"
 catalyrst-hashing = { workspace = true }
 catalyrst-storage = { workspace = true }

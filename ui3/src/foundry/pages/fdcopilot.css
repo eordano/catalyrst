@@ -1,0 +1,102 @@
+.fd-copilot__pill {
+  display: inline-flex;
+  align-items: center;
+  max-width: 42ch;
+  padding: 4px 12px;
+  border-radius: var(--r-pill);
+  font-size: var(--fs-12);
+  font-weight: var(--fw-semibold);
+  line-height: 1.45;
+}
+
+.fd-copilot__pill.is-online {
+  background: var(--fill-2);
+  border: 1px solid var(--info);
+  color: var(--info);
+}
+
+.fd-copilot__pill.is-offline {
+  background: transparent;
+  border: 1px dashed var(--line);
+  color: var(--ink-45);
+}
+
+.fd-copilot__cta {
+  margin: 0 0 var(--s-2);
+}
+
+.fd-copilot__open {
+  display: inline-flex;
+  align-items: center;
+  padding: 10px 18px;
+  border-radius: var(--r-card);
+  background: var(--brand);
+  color: var(--on-brand);
+  font-size: var(--fs-14);
+  font-weight: var(--fw-bold);
+  text-decoration: none;
+}
+
+.fd-copilot__open:hover {
+  filter: brightness(1.08);
+}
+
+.fd-copilot__open.is-disabled {
+  background: var(--surface-2, var(--panel));
+  color: var(--ink-45);
+  border: 1px solid var(--line);
+  cursor: not-allowed;
+  filter: none;
+}
+
+.fd-copilot__stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: var(--s-3);
+}
+
+.fd-copilot__more {
+  margin: var(--s-2) 0 0;
+  font-size: var(--fs-13);
+}
+
+.fd-copilot__more a {
+  color: var(--brand-ink);
+  font-weight: var(--fw-semibold);
+  text-decoration: none;
+}
+
+.fd-copilot__more a:hover {
+  text-decoration: underline;
+}
+
+.fd-copilot__pipeline {
+  margin: 0;
+  padding: var(--s-3) var(--s-4);
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  background: var(--panel);
+  font-family: var(--font-mono, monospace);
+  font-size: var(--fs-13);
+  line-height: 1.7;
+}
+
+.fd-copilot__skill {
+  color: var(--brand-ink);
+  text-decoration: none;
+}
+
+.fd-copilot__skill:hover {
+  text-decoration: underline;
+}
+
+.fd-copilot__skill.is-disabled {
+  color: var(--ink-45);
+  text-decoration: none;
+}
+
+.fd-copilot__desc {
+  min-width: 34ch;
+  max-width: 70ch;
+  color: var(--ink-85);
+}

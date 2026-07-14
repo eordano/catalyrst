@@ -1,0 +1,130 @@
+/* All three doors are styled identically on purpose: no accent per role, no
+   ordering weight, no "recommended" card. The only thing that differs is the
+   words. */
+.fd-role {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--s-2);
+  padding: var(--s-5);
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  background: var(--panel);
+  transition:
+    border-color var(--dur-fast) var(--ease-out),
+    background var(--dur-fast) var(--ease-out);
+}
+
+.fd-role:hover {
+  border-color: var(--ink-45);
+  background: var(--panel-2);
+}
+
+/* The CTA is the real link; the card is its hit area. Focus lands on the link,
+   so the ring is drawn on the card the reader is actually about to open. */
+.fd-role:has(.fd-role__cta:focus-visible) {
+  outline: var(--focus-ring-width) solid var(--focus-ring-color);
+  outline-offset: var(--focus-ring-offset);
+}
+
+.fd-role__role {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-2);
+  flex-wrap: wrap;
+  margin: 0;
+}
+
+.fd-role__name {
+  font-size: var(--fs-11);
+  font-weight: var(--fw-bold);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--brand-ink);
+}
+
+.fd-role__who {
+  font-size: var(--fs-11);
+  letter-spacing: 0.04em;
+  color: var(--ink-45);
+}
+
+.fd-role__title {
+  margin: 0;
+  max-width: 18ch;
+  font-size: var(--fs-24);
+  font-weight: var(--fw-bold);
+  line-height: 1.15;
+  letter-spacing: -0.015em;
+}
+
+.fd-role__body {
+  margin: 0;
+  max-width: 42ch;
+  font-size: var(--fs-14);
+  line-height: 1.65;
+  color: var(--ink-7);
+}
+
+.fd-role__blur {
+  margin: var(--s-1) 0 0;
+  padding-left: var(--s-3);
+  max-width: 42ch;
+  border-left: 2px solid var(--brand);
+  font-size: var(--fs-13);
+  line-height: 1.6;
+  color: var(--ink-6);
+}
+
+.fd-role__dest {
+  margin: auto 0 0;
+  padding-top: var(--s-3);
+  font-size: var(--fs-12);
+  line-height: 1.6;
+  color: var(--ink-45);
+}
+
+.fd-role__same {
+  display: block;
+  margin-top: 2px;
+  color: var(--ink-6);
+}
+
+.fd-role__cta {
+  display: inline-flex;
+  align-items: center;
+  margin-top: var(--s-2);
+  padding: var(--s-2-5) var(--s-5);
+  border-radius: var(--r-control);
+  background: var(--brand-cta);
+  color: var(--on-brand);
+  font-size: var(--fs-14);
+  font-weight: var(--fw-semibold);
+  line-height: 1.2;
+}
+
+.fd-role:hover .fd-role__cta {
+  background: var(--brand-hover);
+}
+
+.fd-role__cta::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: var(--r-card);
+}
+
+.fd-role__cta:focus-visible {
+  outline: none;
+}
+
+@media (max-width: 900px) {
+  .fd-role {
+    padding: var(--s-4);
+  }
+
+  .fd-role__title {
+    font-size: var(--fs-20);
+  }
+}

@@ -1,0 +1,111 @@
+.bpe__cta {
+  appearance: none;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  background: rgba(255, 255, 255, 0.06);
+  color: #fff;
+  font: inherit;
+  font-weight: 600;
+  padding: 0.55rem 0.95rem;
+  border-radius: 0.55rem;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.bpe__cta:hover {
+  background: rgba(255, 255, 255, 0.14);
+  border-color: rgba(255, 255, 255, 0.45);
+}
+.bpe__cta--primary {
+  background: linear-gradient(180deg, #ff5fb0, #e2347c);
+  border-color: transparent;
+}
+.bpe__cta--primary:hover {
+  background: linear-gradient(180deg, #ff74bb, #ec3f86);
+}
+
+.bpe__detailbtns {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: auto;
+  padding-top: 0.75rem;
+}
+.bpe__detailbtns .bpe__cta {
+  flex: 1;
+}
+
+.bpe__detailname {
+  margin: 0 0 0.25rem;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: #fff;
+}
+.bpe__detailmeta {
+  margin: 0 0 0.5rem;
+  font-size: 0.8rem;
+  text-transform: capitalize;
+  color: rgba(255, 255, 255, 0.7);
+}
+.bpe__detaildesc {
+  margin: 0 0 0.75rem;
+  font-size: 0.85rem;
+  line-height: 1.4;
+  color: rgba(255, 255, 255, 0.82);
+}
+
+.bpe__note {
+  margin: 0.35rem 0;
+  font-size: 0.78rem;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.bpe__cell {
+  appearance: none;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 0.35rem;
+  cursor: pointer;
+}
+.bpe__cell.is-active {
+  outline: 2px solid #ff5fb0;
+  outline-offset: -2px;
+}
+.bpe__cellname {
+  font-size: 0.72rem;
+  color: rgba(255, 255, 255, 0.9);
+  text-align: center;
+}
+
+.bpe__loadout {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+.bpe__loadoutrow {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 0.85rem;
+  color: rgba(255, 255, 255, 0.9);
+  padding: 0.3rem 0.5rem;
+  border-radius: 0.45rem;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.bpe__grid--center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  text-align: center;
+  min-height: 220px;
+}
+.bpe__progress {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: #fff;
+}

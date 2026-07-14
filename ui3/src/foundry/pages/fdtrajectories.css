@@ -1,0 +1,14 @@
+.fd-traj-page .fd-table code {
+  font-family: var(--font-mono);
+  font-size: var(--fs-12);
+  color: var(--ink-85);
+}
+
+.fd-traj-page .fd-note code {
+  padding: 1px 5px;
+  border-radius: var(--r-control);
+  background: var(--fill-1);
+  font-family: var(--font-mono);
+  font-size: var(--fs-12);
+  color: var(--ink-85);
+}

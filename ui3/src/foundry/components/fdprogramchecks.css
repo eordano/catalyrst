@@ -1,0 +1,15 @@
+.fd-checks th[scope="row"] {
+  min-width: 220px;
+}
+
+.fd-checks__value {
+  font-size: var(--fs-16);
+  font-weight: var(--fw-semibold);
+  color: var(--text);
+}
+
+.fd-checks__source {
+  max-width: 62ch;
+  color: var(--ink-6);
+  line-height: 1.6;
+}

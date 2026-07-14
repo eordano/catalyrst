@@ -1,29 +1,79 @@
 {
   "nodes": {
-    "archipelago": {
-      "flake": false,
+    "abgen": {
+      "inputs": {
+        "crane": "crane",
+        "nixpkgs": "nixpkgs"
+      },
       "locked": {
-        "lastModified": 1778673508,
-        "narHash": "sha256-X/SHFkYVYCrFDghDTsRV2TNvOMcRGOOrMKju+JxLnvk=",
+        "lastModified": 1786692638,
+        "narHash": "sha256-hDRAMjPDoM/31K02Ju6+WqoC1GnliZWjLza0ts1XN0w=",
         "owner": "decentraland",
-        "repo": "archipelago-workers",
-        "rev": "537def15e2609cf0ecc8ba5bd7ad400702e455c8",
+        "repo": "abgen",
+        "rev": "c218a5e248c3261b2a506dea80c5135327002375",
         "type": "github"
       },
       "original": {
         "owner": "decentraland",
-        "repo": "archipelago-workers",
-        "rev": "537def15e2609cf0ecc8ba5bd7ad400702e455c8",
+        "repo": "abgen",
+        "type": "github"
+      }
+    },
+    "crane": {
+      "locked": {
+        "lastModified": 1779041105,
+        "narHash": "sha256-nnGD2f8OlAZT2i5OfwikJsw+ifWfiA4d6A8BWlgOXV0=",
+        "owner": "ipetkov",
+        "repo": "crane",
+        "rev": "10e6e3cb966f7cfcc789fe5eee7a85f3188ce08b",
+        "type": "github"
+      },
+      "original": {
+        "owner": "ipetkov",
+        "ref": "v0.23.4",
+        "repo": "crane",
+        "type": "github"
+      }
+    },
+    "crane_2": {
+      "locked": {
+        "lastModified": 1752946753,
+        "narHash": "sha256-g5uP3jIj+STUcfTJDKYopxnSijs2agRg13H0SGL5iE4=",
+        "owner": "ipetkov",
+        "repo": "crane",
+        "rev": "544d09fecc8c2338542c57f3f742f1a0c8c71e13",
+        "type": "github"
+      },
+      "original": {
+        "owner": "ipetkov",
+        "ref": "v0.21.0",
+        "repo": "crane",
         "type": "github"
       }
     },
     "nixpkgs": {
       "locked": {
-        "lastModified": 1783389287,
-        "narHash": "sha256-0xIy4dVLqq47rA+mRy0hXDfjhQd4E5PoIns/RmB7nR4=",
+        "lastModified": 1786599213,
+        "narHash": "sha256-yNJd40f11EzXBjSByCB7IPpeFFAdeoSKKM67dGkfFoU=",
         "owner": "NixOS",
         "repo": "nixpkgs",
-        "rev": "0ad6f47ea4fe188f4bc8f0380f93ae8523337c6c",
+        "rev": "0e251e24a4f24e036a084b6b4b2d2491af4167f4",
+        "type": "github"
+      },
+      "original": {
+        "owner": "NixOS",
+        "ref": "nixos-unstable",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
+    "nixpkgs_2": {
+      "locked": {
+        "lastModified": 1785599192,
+        "narHash": "sha256-dg4RTtDxnXY13UkJNdhmgTUTl0n/IJBlCigfO7nutZw=",
+        "owner": "NixOS",
+        "repo": "nixpkgs",
+        "rev": "6d65bfc1bcef2ef39a239d38e577e92a89fb0f07",
         "type": "github"
       },
       "original": {
@@ -35,10 +85,10 @@
     },
     "root": {
       "inputs": {
-        "archipelago": "archipelago",
-        "nixpkgs": "nixpkgs",
-        "rust-overlay": "rust-overlay",
-        "uws-node24": "uws-node24"
+        "abgen": "abgen",
+        "crane": "crane_2",
+        "nixpkgs": "nixpkgs_2",
+        "rust-overlay": "rust-overlay"
       }
     },
     "rust-overlay": {
@@ -48,33 +98,16 @@
         ]
       },
       "locked": {
-        "lastModified": 1783614422,
-        "narHash": "sha256-zSX553aXiIKJHWzUF6nrDKgeNRlfNK/SdyNYSbs2nkM=",
+        "lastModified": 1785648791,
+        "narHash": "sha256-4wZa7NDOxbcm9pTNNcg88nvvPb9uVcWsJ+Ncil8eB1I=",
         "owner": "oxalica",
         "repo": "rust-overlay",
-        "rev": "e8e9d70b96113fd49ccde6c3e08fb260b6ef5dd6",
+        "rev": "32346a8154e65fa10bac36f7b476a5294cb8b150",
         "type": "github"
       },
       "original": {
         "owner": "oxalica",
         "repo": "rust-overlay",
-        "type": "github"
-      }
-    },
-    "uws-node24": {
-      "flake": false,
-      "locked": {
-        "lastModified": 1778129597,
-        "narHash": "sha256-4kCJB59ePD09g0YmpTk4EDSlKndH2cwvzc5/ZZT5xyU=",
-        "owner": "uNetworking",
-        "repo": "uWebSockets.js",
-        "rev": "e0f56ebb4b349017f006e14d1cd29052f2a7121d",
-        "type": "github"
-      },
-      "original": {
-        "owner": "uNetworking",
-        "ref": "v20.67.0",
-        "repo": "uWebSockets.js",
         "type": "github"
       }
     }

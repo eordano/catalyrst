@@ -1,0 +1,242 @@
+/* The foundry page shell. Every page imports FdSection, so the container,
+   heading and standing-note rules live here rather than in ten page files. */
+
+.fd-page {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: var(--s-5) var(--s-5) var(--s-7);
+  color: var(--text);
+}
+
+.fd-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-6);
+}
+
+.fd-pagehead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--s-4);
+  flex-wrap: wrap;
+  margin-bottom: var(--s-5);
+}
+
+.fd-pagehead__eyebrow {
+  margin: 0 0 var(--s-2);
+  font-size: var(--fs-11);
+  font-weight: var(--fw-bold);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--brand-ink);
+}
+
+.fd-pagehead__title {
+  margin: 0;
+  font-size: var(--fs-28);
+  font-weight: var(--fw-bold);
+  line-height: 1.15;
+  letter-spacing: -0.015em;
+}
+
+.fd-pagehead__intro {
+  margin: var(--s-2) 0 0;
+  max-width: 68ch;
+  font-size: var(--fs-14);
+  line-height: 1.65;
+  color: var(--ink-6);
+}
+
+.fd-pagehead__aside {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  flex-wrap: wrap;
+}
+
+.fd-section__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-3);
+  flex-wrap: wrap;
+  margin-bottom: var(--s-3);
+}
+
+.fd-section__title {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2-5);
+  margin: 0;
+  font-size: var(--fs-12);
+  font-weight: var(--fw-bold);
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--ink-45);
+}
+
+.fd-section__aside {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  flex-wrap: wrap;
+}
+
+.fd-section__sub {
+  margin: calc(var(--s-1) * -1) 0 var(--s-3);
+  max-width: 72ch;
+  font-size: var(--fs-13);
+  line-height: 1.6;
+  color: var(--ink-6);
+}
+
+.fd-panel {
+  padding: var(--s-4);
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  background: var(--panel);
+}
+
+/* A panel whose loader half failed keeps its frame and says so in words. */
+.fd-panel--failed {
+  border-left: 3px solid var(--error);
+}
+
+.fd-panelnote {
+  margin: var(--s-2) 0 0;
+  font-size: var(--fs-13);
+  line-height: 1.6;
+  color: var(--ink-6);
+}
+
+.fd-alert {
+  margin: var(--s-2) 0 0;
+  font-size: var(--fs-12);
+  line-height: 1.5;
+  color: var(--error);
+}
+
+.fd-note {
+  margin: var(--s-2) 0 0;
+  max-width: 72ch;
+  font-size: var(--fs-12);
+  line-height: 1.6;
+  color: var(--ink-45);
+}
+
+.fd-mono {
+  font-family: var(--font-mono);
+  font-size: var(--fs-12);
+}
+
+.fd-num {
+  font-variant-numeric: tabular-nums;
+}
+
+.fd-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 9px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-pill);
+  background: var(--fill-2);
+  color: var(--ink-7);
+  font-size: var(--fs-11);
+  font-weight: var(--fw-semibold);
+  line-height: 1.5;
+  white-space: nowrap;
+}
+
+.fd-chip--mono {
+  font-family: var(--font-mono);
+  font-weight: var(--fw-regular);
+}
+
+.fd-datanote {
+  margin: var(--s-6) 0 0;
+  padding: var(--s-3) var(--s-4);
+  max-width: 92ch;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--brand);
+  border-radius: var(--r-control);
+  background: var(--fill-1);
+  font-size: var(--fs-12);
+  line-height: 1.7;
+  color: var(--ink-7);
+}
+
+.fd-datanote__lead {
+  margin: 0 0 var(--s-2);
+  font-weight: 600;
+  color: var(--ink-9);
+}
+
+.fd-datanote__facts {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+}
+
+.fd-datanote__fact {
+  padding-left: var(--s-4);
+  position: relative;
+}
+
+.fd-datanote__fact::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.62em;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--brand);
+}
+
+.fd-datanote__fact--empty {
+  color: var(--ink-5);
+}
+
+.fd-datanote__fact--empty::before {
+  background: var(--line);
+}
+
+.fd-datanote__foot {
+  margin: var(--s-2) 0 0;
+  color: var(--ink-6);
+}
+
+.fd-skel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  width: 100%;
+}
+
+.fd-skel__line {
+  width: 100%;
+  height: 34px;
+  border-radius: var(--r-control);
+}
+
+.fd-pending {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+}
+
+.fd-tour-glow {
+  outline: 2px solid var(--brand);
+  outline-offset: 4px;
+  border-radius: var(--r-card);
+}
+
+@media (max-width: 600px) {
+  .fd-page {
+    padding: var(--s-4) var(--s-4) var(--s-6);
+  }
+}

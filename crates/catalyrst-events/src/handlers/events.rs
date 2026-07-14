@@ -6,12 +6,12 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use crate::auth_chain::try_extract_signer;
-use crate::http::response::{ApiError, ApiOk};
+use crate::http::response::{ApiError, ApiErrorBody, ApiOk};
 use crate::ports::events::{EventListFilters, EventListType, SortOrder};
 use crate::schemas::EventRecord;
 use crate::AppState;
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "events/"))]
 pub struct EventListWithTotal {
     pub events: Vec<EventRecord>,
@@ -19,7 +19,7 @@ pub struct EventListWithTotal {
     pub total: i64,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 #[serde(untagged)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "events/"))]
 pub enum EventListData {
@@ -27,11 +27,12 @@ pub enum EventListData {
     Events(Vec<EventRecord>),
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "events/"))]
 pub struct EventUpsertResult {
     pub id: String,
     #[cfg_attr(feature = "ts", ts(type = "Record<string, unknown>"))]
+    #[schema(value_type = Object)]
     pub local: Value,
 }
 
@@ -296,7 +297,7 @@ async fn attach_connected_users(state: &AppState, events: &mut [EventRecord]) {
 }
 
 fn optional_user(headers: &HeaderMap, method: &str, path: &str) -> Option<String> {
-    try_extract_signer(headers, method, path).map(|s| s.to_lowercase())
+    try_extract_signer(headers, method, path).map(|s| s.as_str().to_string())
 }
 
 fn with_connected(q: &EventListQuery) -> bool {
@@ -306,6 +307,41 @@ fn with_connected(q: &EventListQuery) -> bool {
         .unwrap_or(false)
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/events",
+    tag = "events",
+    params(
+        ("list" = Option<String>, Query),
+        ("search" = Option<String>, Query),
+        ("limit" = Option<i64>, Query),
+        ("offset" = Option<i64>, Query),
+        ("order" = Option<String>, Query),
+        ("highlighted" = Option<String>, Query),
+        ("creator" = Option<String>, Query),
+        ("owner" = Option<String>, Query),
+        ("only_attendee" = Option<String>, Query),
+        ("world" = Option<String>, Query),
+        ("world_names" = Option<Vec<String>>, Query),
+        ("position" = Option<String>, Query),
+        ("positions" = Option<Vec<String>>, Query),
+        ("estate_id" = Option<String>, Query),
+        ("community_id" = Option<String>, Query),
+        ("places_ids" = Option<Vec<String>>, Query),
+        ("from" = Option<String>, Query),
+        ("to" = Option<String>, Query),
+        ("schedule" = Option<String>, Query),
+        ("with_connected_users" = Option<String>, Query),
+        ("approved" = Option<String>, Query),
+        ("rejected" = Option<String>, Query)
+    ),
+    responses(
+        (status = 200, body = ApiOk<EventListData>),
+        (status = 400, body = ApiErrorBody),
+        (status = 401, body = ApiErrorBody),
+        (status = 500, body = ApiErrorBody)
+    )
+)]
 pub async fn get_event_list(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -337,7 +373,7 @@ pub async fn get_event_list(
     Ok(Json(ApiOk::new(data)))
 }
 
-#[derive(Debug, Deserialize, Default)]
+#[derive(Debug, Deserialize, Default, utoipa::ToSchema)]
 pub struct EventSearchBody {
     #[serde(default, rename = "placeIds")]
     pub place_ids: Vec<String>,
@@ -345,6 +381,27 @@ pub struct EventSearchBody {
     pub community_id: Option<String>,
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/events/search",
+    tag = "events",
+    request_body = EventSearchBody,
+    params(
+        ("list" = Option<String>, Query),
+        ("search" = Option<String>, Query),
+        ("limit" = Option<i64>, Query),
+        ("offset" = Option<i64>, Query),
+        ("only_attendee" = Option<String>, Query),
+        ("owner" = Option<String>, Query),
+        ("with_connected_users" = Option<String>, Query)
+    ),
+    responses(
+        (status = 200, body = ApiOk<EventListData>),
+        (status = 400, body = ApiErrorBody),
+        (status = 401, body = ApiErrorBody),
+        (status = 500, body = ApiErrorBody)
+    )
+)]
 pub async fn post_event_search(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -377,6 +434,17 @@ pub async fn post_event_search(
     Ok(Json(ApiOk::new(data)))
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/events/{event_id}",
+    tag = "events",
+    params(("event_id" = String, Path)),
+    responses(
+        (status = 200, body = ApiOk<EventRecord>),
+        (status = 404, body = ApiErrorBody),
+        (status = 500, body = ApiErrorBody)
+    )
+)]
 pub async fn get_event(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -400,6 +468,16 @@ pub async fn get_event(
     Ok(Json(ApiOk::new(evt)))
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/events/attending",
+    tag = "events",
+    responses(
+        (status = 200, body = ApiOk<Vec<EventRecord>>),
+        (status = 401, body = ApiErrorBody),
+        (status = 500, body = ApiErrorBody)
+    )
+)]
 pub async fn get_attending_event_list(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -415,12 +493,22 @@ pub struct ModerationListQuery {
     pub limit: Option<String>,
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/events/moderation",
+    tag = "events",
+    params(("limit" = Option<i64>, Query)),
+    responses(
+        (status = 200, body = ApiOk<Vec<EventRecord>>),
+        (status = 403, body = ApiErrorBody),
+        (status = 500, body = ApiErrorBody)
+    )
+)]
 pub async fn get_moderation_list(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    _admin: crate::admin::RequireAdmin,
     Query(pairs): Query<Vec<(String, String)>>,
 ) -> Result<Json<ApiOk<Vec<EventRecord>>>, ApiError> {
-    crate::admin::authorize_admin(&state, &headers)?;
     let q = ModerationListQuery {
         limit: pairs
             .iter()
@@ -437,7 +525,7 @@ pub async fn get_moderation_list(
     Ok(Json(ApiOk::new(events)))
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct CreateEventBody {
     pub name: String,
     #[serde(default)]
@@ -455,6 +543,16 @@ pub struct CreateEventBody {
     pub id: Option<String>,
 }
 
+fn sanitize_local_description(local: &mut Value) {
+    if let Some(d) = local
+        .get("description")
+        .and_then(Value::as_str)
+        .map(crate::sanitize::sanitize_event_description)
+    {
+        local["description"] = json!(d);
+    }
+}
+
 fn derive_event_id(name: &str) -> String {
     use std::collections::hash_map::DefaultHasher;
     use std::hash::{Hash, Hasher};
@@ -467,13 +565,23 @@ fn derive_event_id(name: &str) -> String {
     format!("local-{:016x}", h.finish())
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/events",
+    tag = "events",
+    request_body = CreateEventBody,
+    responses(
+        (status = 200, body = ApiOk<EventUpsertResult>),
+        (status = 400, body = ApiErrorBody),
+        (status = 401, body = ApiErrorBody),
+        (status = 500, body = ApiErrorBody)
+    )
+)]
 pub async fn create_event(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    _admin: crate::admin::RequireAdmin,
     Json(body): Json<CreateEventBody>,
 ) -> Result<Json<ApiOk<EventUpsertResult>>, ApiError> {
-    crate::admin::authorize_admin(&state, &headers)?;
-
     let name = body.name.trim();
     if name.is_empty() {
         return Err(ApiError::bad_request("name is required"));
@@ -496,14 +604,15 @@ pub async fn create_event(
         "moderated_at": Utc::now().to_rfc3339(),
     });
 
-    let merged = state.events.upsert_local(&event_id, "admin", doc).await?;
+    let mut merged = state.events.upsert_local(&event_id, "admin", doc).await?;
+    sanitize_local_description(&mut merged);
     Ok(Json(ApiOk::new(EventUpsertResult {
         id: event_id,
         local: merged,
     })))
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct PatchEventBody {
     #[serde(default)]
     pub action: Option<String>,
@@ -522,14 +631,26 @@ pub struct PatchEventBody {
     pub description: Option<String>,
 }
 
+#[utoipa::path(
+    patch,
+    path = "/api/events/{event_id}",
+    tag = "events",
+    params(("event_id" = String, Path)),
+    request_body = PatchEventBody,
+    responses(
+        (status = 200, body = ApiOk<EventUpsertResult>),
+        (status = 400, body = ApiErrorBody),
+        (status = 401, body = ApiErrorBody),
+        (status = 404, body = ApiErrorBody),
+        (status = 500, body = ApiErrorBody)
+    )
+)]
 pub async fn patch_event(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    _admin: crate::admin::RequireAdmin,
     Path(event_id): Path<String>,
     Json(body): Json<PatchEventBody>,
 ) -> Result<Json<ApiOk<EventUpsertResult>>, ApiError> {
-    crate::admin::authorize_admin(&state, &headers)?;
-
     let known =
         state.events.exists(&event_id).await? || state.events.get_local(&event_id).await?.is_some();
     if !known {
@@ -591,16 +712,24 @@ pub async fn patch_event(
     }
     doc.insert("moderated_at".into(), json!(Utc::now().to_rfc3339()));
 
-    let merged = state
+    let mut merged = state
         .events
         .upsert_local(&event_id, "admin", Value::Object(doc))
         .await?;
+    sanitize_local_description(&mut merged);
     Ok(Json(ApiOk::new(EventUpsertResult {
         id: event_id,
         local: merged,
     })))
 }
 
+#[utoipa::path(
+    delete,
+    path = "/api/events/{event_id}",
+    tag = "events",
+    params(("event_id" = String, Path)),
+    responses((status = 501, body = ApiErrorBody))
+)]
 pub async fn delete_event(Path(_event_id): Path<String>) -> Result<Json<Value>, ApiError> {
     Err(ApiError::not_implemented(
         "event deletion is handled via the federation write path",
@@ -777,6 +906,25 @@ mod tests {
     }
 
     #[test]
+    fn upsert_echo_scrubs_description_but_preserves_null_and_absent() {
+        let mut merged = json!({
+            "action": "create",
+            "name": "Party",
+            "description": "x <link=\"file:///etc/passwd\">y</link>",
+        });
+        sanitize_local_description(&mut merged);
+        assert_eq!(merged["description"], json!("x y"));
+
+        let mut null_desc = json!({ "description": null, "name": "n" });
+        sanitize_local_description(&mut null_desc);
+        assert_eq!(null_desc["description"], json!(null));
+
+        let mut absent = json!({ "name": "n" });
+        sanitize_local_description(&mut absent);
+        assert!(absent.get("description").is_none());
+    }
+
+    #[test]
     fn wire_identity_event_upsert_result() {
         let merged = json!({
             "action": "create",
@@ -800,5 +948,73 @@ mod tests {
             new["data"]["local"]["some_future_key"]["nested"][2],
             json!(null)
         );
+    }
+
+    mod admin_gate_precedence {
+        use crate::clients::CommsGatekeeper;
+        use crate::content_store::{ContentStore, MAX_POSTER_BYTES};
+        use crate::handlers::events::create_event;
+        use crate::ports::attendees::AttendeesComponent;
+        use crate::ports::categories::CategoriesComponent;
+        use crate::ports::events::EventsComponent;
+        use crate::ports::schedules::SchedulesComponent;
+        use crate::{AppState, AppStateInner};
+        use axum::body::Body;
+        use axum::http::{Request, StatusCode};
+        use axum::routing::post;
+        use axum::Router;
+        use std::sync::Arc;
+        use tower::ServiceExt;
+
+        fn state_with_admin_token(admin_token: Option<&str>) -> AppState {
+            let pool = sqlx::postgres::PgPoolOptions::new()
+                .connect_lazy("postgres://unused@127.0.0.1:1/unused")
+                .expect("lazy pool builds without connecting");
+            Arc::new(AppStateInner {
+                events: EventsComponent::new(pool.clone(), None),
+                attendees: AttendeesComponent::new(pool.clone()),
+                categories: CategoriesComponent::new(pool.clone()),
+                schedules: SchedulesComponent::new(pool.clone()),
+                admin_token: admin_token.map(str::to_string),
+                pool,
+                gossip: Arc::new(catalyrst_fed::NoopPublisher),
+                domain: catalyrst_fed::sig::domains::events(),
+                content_store: Arc::new(ContentStore::new(std::env::temp_dir(), MAX_POSTER_BYTES)),
+                comms: CommsGatekeeper::new(String::new()),
+            })
+        }
+
+        async fn create_event_status(authorization: Option<&str>) -> StatusCode {
+            let app = Router::new()
+                .route("/events", post(create_event))
+                .with_state(state_with_admin_token(Some("topsecret")));
+            let mut builder = Request::builder()
+                .method("POST")
+                .uri("/events")
+                .header("content-type", "application/json");
+            if let Some(value) = authorization {
+                builder = builder.header("authorization", value);
+            }
+            let request = builder.body(Body::from("{")).expect("request builds");
+            app.oneshot(request)
+                .await
+                .expect("router responds")
+                .status()
+        }
+
+        #[tokio::test]
+        async fn unauthenticated_malformed_body_is_403_not_a_deserialization_error() {
+            for presented in [None, Some("Bearer wrong")] {
+                assert_eq!(create_event_status(presented).await, StatusCode::FORBIDDEN);
+            }
+        }
+
+        #[tokio::test]
+        async fn established_admin_still_gets_400_for_a_malformed_body() {
+            assert_eq!(
+                create_event_status(Some("Bearer topsecret")).await,
+                StatusCode::BAD_REQUEST
+            );
+        }
     }
 }

@@ -1,4 +1,5 @@
 use crate::modules::admin_auth::require_admin;
+use crate::modules::json_response;
 use crate::AppState;
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode};
@@ -10,11 +11,12 @@ use parking_lot::RwLock;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::path::Path as StdPath;
+use std::sync::Arc;
 
 const EMBEDDED_FLAGS: &str = include_str!("../../assets/feature-flags.explorer.json");
 
 pub struct FeatureFlagsState {
-    inner: RwLock<Value>,
+    inner: RwLock<Arc<Value>>,
 }
 
 impl Default for FeatureFlagsState {
@@ -22,7 +24,7 @@ impl Default for FeatureFlagsState {
         match std::env::var("FEATURE_FLAGS_CONFIG_PATH") {
             Ok(p) if !p.is_empty() && StdPath::new(&p).exists() => Self::load_from_path(p),
             _ => Self {
-                inner: RwLock::new(default_payload()),
+                inner: RwLock::new(Arc::new(default_payload())),
             },
         }
     }
@@ -43,26 +45,28 @@ impl FeatureFlagsState {
             }
         };
         Self {
-            inner: RwLock::new(value),
+            inner: RwLock::new(Arc::new(value)),
         }
     }
 
-    pub fn snapshot(&self) -> Value {
-        self.inner.read().clone()
+    pub fn snapshot(&self) -> Arc<Value> {
+        Arc::clone(&*self.inner.read())
     }
 
     pub fn set_flag(&self, name: &str, value: Value) -> Value {
         let mut guard = self.inner.write();
-        if let Some(flags) = guard.get_mut("flags").and_then(Value::as_object_mut) {
+        let mut next = (**guard).clone();
+        if let Some(flags) = next.get_mut("flags").and_then(Value::as_object_mut) {
             flags.insert(name.to_string(), value.clone());
         }
+        *guard = Arc::new(next);
         value
     }
 
     pub fn reload_from_path<P: AsRef<StdPath>>(&self, path: P) -> Result<(), String> {
         let bytes = std::fs::read(path.as_ref()).map_err(|e| e.to_string())?;
         let parsed: Value = serde_json::from_slice(&bytes).map_err(|e| e.to_string())?;
-        *self.inner.write() = normalize_payload(parsed);
+        *self.inner.write() = Arc::new(normalize_payload(parsed));
         Ok(())
     }
 }
@@ -122,18 +126,16 @@ async fn admin_flag_toggle(
         return resp;
     }
     if body.name.trim().is_empty() {
-        return (
+        return json_response(
             StatusCode::BAD_REQUEST,
-            Json(json!({ "error": "name is required" })),
-        )
-            .into_response();
+            json!({ "error": "name is required" }),
+        );
     }
     let new_value = state.feature_flags.set_flag(&body.name, body.value);
-    (
+    json_response(
         StatusCode::OK,
-        Json(json!({ "ok": true, "name": body.name, "value": new_value })),
+        json!({ "ok": true, "name": body.name, "value": new_value }),
     )
-        .into_response()
 }
 
 async fn admin_flags_reload(State(state): State<AppState>, headers: HeaderMap) -> Response {
@@ -142,12 +144,11 @@ async fn admin_flags_reload(State(state): State<AppState>, headers: HeaderMap) -
     }
     let path = state.cfg.feature_flags_config_path.clone();
     match state.feature_flags.reload_from_path(&path) {
-        Ok(()) => (StatusCode::OK, Json(json!({ "ok": true, "path": path }))).into_response(),
-        Err(err) => (
+        Ok(()) => json_response(StatusCode::OK, json!({ "ok": true, "path": path })),
+        Err(err) => json_response(
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "ok": false, "path": path, "error": err })),
-        )
-            .into_response(),
+            json!({ "ok": false, "path": path, "error": err }),
+        ),
     }
 }
 
@@ -166,9 +167,8 @@ async fn get_flag(State(state): State<AppState>, Path(name): Path<String>) -> im
     if let Some(flag) = snap.get("flags").and_then(|v| v.get(&name)) {
         return (StatusCode::OK, Json(flag.clone())).into_response();
     }
-    (
+    json_response(
         StatusCode::NOT_FOUND,
-        Json(json!({ "error": "flag_not_found", "name": name })),
+        json!({ "error": "flag_not_found", "name": name }),
     )
-        .into_response()
 }

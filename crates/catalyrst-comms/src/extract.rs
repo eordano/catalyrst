@@ -1,6 +1,5 @@
 use axum::http::HeaderMap;
 use serde::de::DeserializeOwned;
-use serde_json::json;
 
 use crate::http::ApiError;
 
@@ -48,22 +47,15 @@ where
     T: DeserializeOwned + SchemaValidate,
 {
     if !is_json_content_type(content_type) {
-        return Err(ApiError::schema(
-            415,
-            json!({ "ok": false, "message": "Content-Type must be application/json" }),
-        ));
+        return Err(ApiError::http(415, "Content-Type must be application/json"));
     }
 
-    let value: serde_json::Value = serde_json::from_slice(bytes)
-        .map_err(|e| ApiError::schema(400, json!({ "ok": false, "message": e.to_string() })))?;
+    let value: serde_json::Value =
+        serde_json::from_slice(bytes).map_err(|e| ApiError::http(400, e.to_string()))?;
 
     if let Err(detail) = T::schema_validate(&value) {
-        return Err(ApiError::schema(
-            400,
-            json!({ "ok": false, "message": "Invalid JSON body", "data": detail }),
-        ));
+        return Err(ApiError::http(400, format!("Invalid JSON body: {detail}")));
     }
 
-    serde_json::from_value(value)
-        .map_err(|e| ApiError::schema(400, json!({ "ok": false, "message": e.to_string() })))
+    serde_json::from_value(value).map_err(|e| ApiError::http(400, e.to_string()))
 }
