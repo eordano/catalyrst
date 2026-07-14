@@ -125,17 +125,34 @@ module.exports = __dclOneRegistry
     )
 }
 
-pub fn loader_stub(sdk_chunk_rel: &str, scene_chunk_rel: &str) -> String {
+pub fn loader_stub(
+    sdk_chunk_rel: &str,
+    scene_chunk_rel: &str,
+    max_composite_entity: u32,
+) -> String {
     LOADER_TEMPLATE
         .replace("__DCL_ONE_SDK_CHUNK__", sdk_chunk_rel)
         .replace("__DCL_ONE_SCENE_CHUNK__", scene_chunk_rel)
+        .replace(
+            "__DCL_ONE_MAX_COMPOSITE_ENTITY__",
+            &max_composite_entity.to_string(),
+        )
 }
 
-pub fn write_loader_stub(outfile: &Path, sdk_chunk_rel: &str, scene_chunk_rel: &str) -> Result<()> {
+pub fn write_loader_stub(
+    outfile: &Path,
+    sdk_chunk_rel: &str,
+    scene_chunk_rel: &str,
+    max_composite_entity: u32,
+) -> Result<()> {
     if let Some(dir) = outfile.parent() {
         let _ = std::fs::create_dir_all(dir);
     }
-    std::fs::write(outfile, loader_stub(sdk_chunk_rel, scene_chunk_rel)).map_err(|e| {
+    std::fs::write(
+        outfile,
+        loader_stub(sdk_chunk_rel, scene_chunk_rel, max_composite_entity),
+    )
+    .map_err(|e| {
         crate::ux::UserError::new(
             format!(
                 "cannot write the split loader stub to {}",
@@ -180,11 +197,13 @@ mod tests {
 
     #[test]
     fn loader_stub_substitutes_chunk_paths() {
-        let s = loader_stub("bin/sdk-runtime.js", "bin/scene.js");
+        let s = loader_stub("bin/sdk-runtime.js", "bin/scene.js", 517);
         assert!(s.contains("'bin/sdk-runtime.js'"));
         assert!(s.contains("'bin/scene.js'"));
+        assert!(s.contains("globalThis.DCL_MAX_COMPOSITE_ENTITY = 517"));
         assert!(!s.contains("__DCL_ONE_SDK_CHUNK__"));
         assert!(!s.contains("__DCL_ONE_SCENE_CHUNK__"));
+        assert!(!s.contains("__DCL_ONE_MAX_COMPOSITE_ENTITY__"));
     }
 
     #[test]
@@ -209,7 +228,7 @@ mod tests {
         assert!(!detect_split_build(&root, "bin/index.js"));
         std::fs::write(
             root.join("bin/index.js"),
-            loader_stub("bin/sdk-runtime.js", "bin/scene.js"),
+            loader_stub("bin/sdk-runtime.js", "bin/scene.js", 0),
         )
         .unwrap();
         assert!(detect_split_build(&root, "bin/index.js"));

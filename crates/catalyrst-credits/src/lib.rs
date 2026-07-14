@@ -4,6 +4,7 @@ pub mod config;
 pub mod dto;
 pub mod handlers;
 pub mod http;
+pub mod money;
 pub mod ports;
 pub mod provider;
 pub mod purchase_intent;
@@ -206,31 +207,6 @@ pub async fn build_state(cfg: &Config) -> Result<AppState> {
         usage_grants_pool: usage_grants_pool.clone(),
     }
     .spawn(cfg.checkout_worker_interval_secs);
-
-    let progress_presence_pool = match &cfg.progress_presence_database_url {
-        Some(url) => match PgPoolOptions::new()
-            .max_connections(2)
-            .acquire_timeout(Duration::from_secs(10))
-            .idle_timeout(Some(Duration::from_secs(60)))
-            .connect(url)
-            .await
-        {
-            Ok(p) => Some(p),
-            Err(e) => {
-                tracing::error!(
-                    error = %e,
-                    "failed to connect presence pool; explorer goal tracking disabled"
-                );
-                None
-            }
-        },
-        None => None,
-    };
-    ports::progress::spawn_progress_worker(
-        credits.clone(),
-        progress_presence_pool,
-        cfg.checkout_worker_interval_secs,
-    );
 
     Ok(Arc::new(AppStateInner {
         credits,

@@ -4,6 +4,7 @@ pub mod handlers;
 pub mod parse;
 pub mod ports;
 pub mod rows;
+pub mod snapshot;
 pub mod sync;
 
 use std::str::FromStr;
@@ -11,13 +12,14 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
-use axum::routing::get;
+use axum::routing::{get, post};
 use axum::Router;
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 
 use crate::client::GovernanceClient;
 use crate::config::Config;
 use crate::ports::store::Store;
+use crate::snapshot::SnapshotGate;
 
 pub struct AppStateInner {
     pub store: Store,
@@ -41,6 +43,18 @@ pub fn api_router() -> Router<AppState> {
         .route("/budgets", get(handlers::read::budgets))
         .route("/vestings", get(handlers::read::vestings))
         .route("/members", get(handlers::read::members))
+}
+
+pub fn write_router(gate: Arc<SnapshotGate>) -> Router {
+    Router::new()
+        .route("/proposals/{kind}", post(handlers::write::submit_proposal))
+        .with_state(gate)
+}
+
+pub fn build_snapshot_gate(cfg: &Config) -> Arc<SnapshotGate> {
+    let gate = SnapshotGate::build(cfg.snapshot.clone());
+    gate.startup_log();
+    Arc::new(gate)
 }
 
 pub async fn build_state(cfg: &Config) -> Result<AppState> {

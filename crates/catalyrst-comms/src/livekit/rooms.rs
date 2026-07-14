@@ -49,10 +49,7 @@ pub fn build_adapter_url(host: &str, token: &str) -> String {
 pub fn address_from_identity(identity: &str) -> Option<String> {
     let lower = identity.to_lowercase();
     let candidate: String = lower.chars().take(42).collect();
-    if candidate.len() == 42
-        && candidate.starts_with("0x")
-        && candidate[2..].chars().all(|c| c.is_ascii_hexdigit())
-    {
+    if catalyrst_types::is_eth_address(&candidate) {
         Some(candidate)
     } else {
         None

@@ -2,7 +2,7 @@ mod component;
 mod query;
 mod rows;
 
-pub use component::PlacesComponent;
+pub use component::{PlacesComponent, ReportUploadOutcome};
 pub use rows::{
     CategoryTarget, PlaceListFilters, PlaceOrderBy, PlaceRow, PlaceStatusRow, PoiRow, ReportRow,
     UserInteraction,
@@ -167,7 +167,7 @@ mod filter_tests {
             ..Default::default()
         };
         let (where_clause, binds) = build_where(&f);
-        assert!(where_clause.contains("lower(raw->>'world_name') = ANY"));
+        assert!(where_clause.contains("lower(world_name) = ANY"));
         match binds.last().unwrap() {
             Bind::TextArray(v) => assert_eq!(v, &vec!["foo.dcl.eth".to_string()]),
             _ => panic!("expected names text array bind"),
@@ -287,7 +287,7 @@ mod most_active_order_tests {
         };
         let (prefix, binds) = build_live_user_count_order(&f, 1);
         assert!(
-            prefix.contains("lower(raw->>'world_name')"),
+            prefix.contains("lower(world_name)"),
             "worlds must be matched on lower(world_name): {prefix}"
         );
         assert!(
@@ -360,11 +360,11 @@ mod most_active_order_tests {
             "place branch must start at start_idx: {prefix}"
         );
         assert!(
-            prefix.contains("CASE lower(raw->>'world_name') WHEN $7 THEN $8"),
+            prefix.contains("CASE lower(world_name) WHEN $7 THEN $8"),
             "world branch must continue after place branch: {prefix}"
         );
         assert!(
-            prefix.contains("CASE WHEN COALESCE((raw->>'world')::bool, false) THEN"),
+            prefix.contains("CASE WHEN world THEN"),
             "row is routed to world vs place arm by the world flag: {prefix}"
         );
         assert_eq!(binds.len(), 4);

@@ -41,7 +41,11 @@ impl VideoGrants {
             can_publish: true,
             can_subscribe: true,
             can_publish_data: true,
-            can_update_own_metadata: true,
+            // Participant metadata is where the gatekeeper attests `isGuest`, and clients read
+            // that bit to decide whether a peer is verified. A participant that can rewrite its
+            // own metadata can present as verified, so this must stay false — matching the
+            // scene-adapter grant in catalyrst-comms.
+            can_update_own_metadata: false,
         }
     }
 }
@@ -135,6 +139,14 @@ mod tests {
             .to_jwt()
             .unwrap();
         assert_eq!(tok.split('.').count(), 3);
+    }
+
+    #[test]
+    fn join_grant_refuses_self_metadata_writes() {
+        assert!(
+            !VideoGrants::join("world-foo.eth").can_update_own_metadata,
+            "a participant that can rewrite its own metadata can forge the attested isGuest bit"
+        );
     }
 
     #[test]

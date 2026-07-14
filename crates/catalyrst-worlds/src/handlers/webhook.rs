@@ -14,6 +14,18 @@ use crate::AppState;
 
 type HmacSha256 = Hmac<Sha256>;
 
+#[utoipa::path(
+    post,
+    path = "/livekit-webhook",
+    tag = "comms",
+    request_body = String,
+    responses(
+        (status = 200, body = serde_json::Value),
+        (status = 400, body = catalyrst_types::ApiErrorBody),
+        (status = 401, body = catalyrst_types::ApiErrorBody),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn livekit_webhook(
     State(state): State<AppState>,
     headers: HeaderMap,

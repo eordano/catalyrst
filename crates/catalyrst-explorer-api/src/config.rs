@@ -1,5 +1,5 @@
 use anyhow::Result;
-use catalyrst_envcfg::{get_port, get_u64};
+use catalyrst_envcfg::{get_port, get_u64, local_endpoint};
 use std::env;
 
 #[derive(Clone, Debug)]
@@ -41,12 +41,9 @@ impl Config {
             lambdas_url: env::var("LAMBDAS_URL").unwrap_or_else(|_| "http://127.0.0.1:5142".into()),
             comms_url: env::var("COMMS_URL")
                 .unwrap_or_else(|_| "http://127.0.0.1:5137/comms".into()),
-            upstream_marketplace_url: env::var("UPSTREAM_MARKETPLACE_URL")
-                .unwrap_or_else(|_| "https://marketplace-api.decentraland.org".into()),
-            upstream_builder_url: env::var("UPSTREAM_BUILDER_URL")
-                .unwrap_or_else(|_| "https://builder-api.decentraland.org".into()),
-            upstream_worlds_url: env::var("UPSTREAM_WORLDS_URL")
-                .unwrap_or_else(|_| "https://worlds-content-server.decentraland.org".into()),
+            upstream_marketplace_url: local_endpoint("UPSTREAM_MARKETPLACE_URL", 5133),
+            upstream_builder_url: local_endpoint("UPSTREAM_BUILDER_URL", 5144),
+            upstream_worlds_url: local_endpoint("UPSTREAM_WORLDS_URL", 5142),
             upstream_worlds_content_url: env::var("UPSTREAM_WORLDS_CONTENT_URL")
                 .or_else(|_| env::var("WORLDS_URL"))
                 .unwrap_or_else(|_| "http://127.0.0.1:5142".into()),
@@ -63,7 +60,7 @@ impl Config {
             blocklist_path: env::var("BLOCKLIST_PATH")
                 .unwrap_or_else(|_| "./config/denylist.json".into()),
             hot_scenes_url: env::var("HOT_SCENES_URL")
-                .unwrap_or_else(|_| "http://127.0.0.1:5143/hot-scenes".into()),
+                .unwrap_or_else(|_| "http://127.0.0.1:5139/hot-scenes".into()),
             onboarding_api_key: env::var("ONBOARDING_API_KEY")
                 .ok()
                 .filter(|s| !s.is_empty()),

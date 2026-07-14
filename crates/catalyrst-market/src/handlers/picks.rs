@@ -4,6 +4,8 @@ use axum::Json;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 
+use catalyrst_crypto::signed_fetch::signed_fetch_path;
+
 use crate::auth_chain::{
     self, build_payload, AuthChainError, AUTH_METADATA_HEADER, AUTH_TIMESTAMP_HEADER, FIVE_MINUTES,
 };
@@ -17,13 +19,6 @@ fn auth_chain_error_to_api(e: AuthChainError) -> ApiError {
             ApiError::Http(catalyrst_types::HttpError::new(501, e.message()))
         }
         _ => ApiError::Http(catalyrst_types::HttpError::new(401, e.message())),
-    }
-}
-
-fn signed_fetch_path<'a>(headers: &HeaderMap, fallback: &'a str) -> std::borrow::Cow<'a, str> {
-    match headers.get("x-original-path").and_then(|v| v.to_str().ok()) {
-        Some(raw) => std::borrow::Cow::Owned(raw.split('?').next().unwrap_or(raw).to_string()),
-        None => std::borrow::Cow::Borrowed(fallback),
     }
 }
 
@@ -49,10 +44,10 @@ fn authenticate(
     let now = Utc::now().timestamp();
     let recovered = auth_chain::validate_signature(&chain, &payload, timestamp, FIVE_MINUTES, now)
         .map_err(auth_chain_error_to_api)?;
-    Ok(recovered.to_lowercase())
+    Ok(recovered.as_str().to_string())
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Default, Deserialize, utoipa::ToSchema)]
 pub struct PickUnpickInBulkBody {
     #[serde(default, rename = "pickedFor")]
     pub picked_for: Option<Vec<String>>,
@@ -60,7 +55,7 @@ pub struct PickUnpickInBulkBody {
     pub unpicked_from: Option<Vec<String>>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "market/"))]
 pub struct PickUnpickResult {
     #[serde(rename = "pickedByUser")]
@@ -68,7 +63,7 @@ pub struct PickUnpickResult {
     pub picked_by_user: bool,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "market/"))]
 pub struct PickUnpickEnvelope {
     pub ok: bool,
@@ -82,6 +77,20 @@ fn validate_list_ids(ids: &[String]) -> Result<(), ApiError> {
     Ok(())
 }
 
+#[utoipa::path(
+    post,
+    path = "/v1/picks/{item_id}",
+    tag = "market",
+    params(("item_id" = String, Path)),
+    request_body = PickUnpickInBulkBody,
+    responses(
+        (status = 200, body = PickUnpickEnvelope),
+        (status = 400, body = crate::http::response::MarketErrorBody),
+        (status = 401, body = crate::http::response::MarketErrorBody),
+        (status = 404, body = crate::http::response::MarketErrorBody),
+        (status = 500, body = crate::http::response::MarketErrorBody)
+    )
+)]
 pub async fn pick_unpick_in_bulk(
     State(state): State<AppState>,
     Path(item_id): Path<String>,
@@ -146,6 +155,17 @@ pub async fn pick_unpick_in_bulk(
     }))
 }
 
+#[utoipa::path(
+    delete,
+    path = "/v1/picks/{item_id}",
+    tag = "market",
+    params(("item_id" = String, Path)),
+    responses(
+        (status = 200, body = PickUnpickEnvelope),
+        (status = 401, body = crate::http::response::MarketErrorBody),
+        (status = 500, body = crate::http::response::MarketErrorBody)
+    )
+)]
 pub async fn unpick_everywhere(
     State(state): State<AppState>,
     Path(item_id): Path<String>,

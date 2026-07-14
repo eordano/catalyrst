@@ -1,6 +1,7 @@
 use axum::extract::{Path, State};
 use axum::http::HeaderMap;
 use axum::Json;
+use catalyrst_types::is_eth_address;
 use serde::Deserialize;
 
 use crate::auth_chain::verify_signed_fetch;
@@ -8,6 +9,7 @@ use crate::extract::{device_identifier, get_request_ip};
 use crate::http::{service_unavailable, unauthorized, ApiError};
 use crate::livekit::{build_adapter_url, community_voice_chat_room_name, AccessToken, VideoGrants};
 use crate::ports::player_connection::UpsertPlayerConnection;
+use crate::util::now_ms;
 use crate::AppState;
 
 fn require_livekit(state: &AppState) -> Result<(), ApiError> {
@@ -18,10 +20,6 @@ fn require_livekit(state: &AppState) -> Result<(), ApiError> {
             "LiveKit is not configured (LIVEKIT_API_KEY / LIVEKIT_API_SECRET unset)",
         ))
     }
-}
-
-fn is_eth_address(addr: &str) -> bool {
-    addr.len() == 42 && addr.starts_with("0x") && addr[2..].chars().all(|c| c.is_ascii_hexdigit())
 }
 
 #[derive(Debug, Deserialize)]
@@ -42,7 +40,7 @@ pub async fn private_messages_token(
         &["dcl:explorer"],
     )
     .map_err(|e| ApiError::http(e.status, e.message))?;
-    let identity = sf.signer.to_lowercase();
+    let identity = sf.signer.as_str().to_string();
 
     if identity.is_empty() {
         return Err(unauthorized("Access denied, invalid identity"));
@@ -324,14 +322,6 @@ async fn community_status(
         .count() as i64;
     let active = active_moderators > 0;
     Ok((active, active_participants, active_moderators))
-}
-
-fn now_ms() -> i64 {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or(0)
 }
 
 pub async fn community_voice_chat_status(

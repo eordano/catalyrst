@@ -11,6 +11,7 @@ pub mod moderator;
 pub mod ports;
 pub mod room_metadata_sync;
 pub mod scene_perms;
+pub mod util;
 pub mod voice_db;
 pub mod voice_logic;
 
@@ -36,6 +37,7 @@ fn connect_opts(url: &str) -> Result<PgConnectOptions> {
 }
 use crate::ports::names::NamesComponent;
 use crate::ports::player_connection::PlayerConnectionComponent;
+use crate::ports::player_reports::PlayerReportsComponent;
 use crate::ports::scene_admin::SceneAdminComponent;
 use crate::ports::scene_bans::SceneBansComponent;
 use crate::ports::user_bans::UserBansComponent;
@@ -47,6 +49,7 @@ pub struct AppStateInner {
     pub scene_bans: SceneBansComponent,
     pub user_bans: UserBansComponent,
     pub player_connection: PlayerConnectionComponent,
+    pub player_reports: PlayerReportsComponent,
     pub names: NamesComponent,
 
     pub voice_db: VoiceDb,
@@ -159,6 +162,12 @@ pub async fn build_state(cfg: &Config) -> Result<AppState> {
         );
     }
 
+    if cfg.gatekeeper_auth_token.is_none() {
+        tracing::error!(
+            "COMMS_GATEKEEPER_AUTH_TOKEN unset; every bearer-gated route (/community-voice-chat*, /private-voice-chat*, /users/:address/*-voice-chat-status, /users/:address/private-messages-privacy) plus the world ban-status route will answer 503 until the token is configured"
+        );
+    }
+
     let http = reqwest::Client::builder()
         .timeout(Duration::from_secs(10))
         .build()
@@ -169,6 +178,7 @@ pub async fn build_state(cfg: &Config) -> Result<AppState> {
         scene_bans: SceneBansComponent::new(pool.clone()),
         user_bans: UserBansComponent::new(pool.clone()),
         player_connection: PlayerConnectionComponent::new(pool.clone()),
+        player_reports: PlayerReportsComponent::new(pool.clone()),
         names: NamesComponent::new(dapps_pool.clone(), cfg.dapps_schema.clone()),
         voice_db: VoiceDb::new(pool.clone(), crate::voice_db::VoiceDbConfig::from_env()),
         places_pool,
@@ -208,13 +218,8 @@ pub async fn voice_auth_layer(
 ) -> axum::response::Response {
     use axum::response::IntoResponse;
     if is_bearer_gated_path(req.uri().path()) {
-        if let Some(expected) = state.gatekeeper_auth_token.as_deref() {
-            let ok = crate::moderator::bearer_token(req.headers())
-                .map(|t| crate::moderator::timing_safe_eq(&t, expected))
-                .unwrap_or(false);
-            if !ok {
-                return crate::http::unauthorized("Authentication required").into_response();
-            }
+        if let Err(e) = crate::moderator::require_service_token(&state, req.headers()) {
+            return e.into_response();
         }
     }
     next.run(req).await
@@ -266,6 +271,27 @@ pub fn api_router(state: AppState) -> Router<AppState> {
                 .post(handlers::user_bans::post_user_warning),
         )
         .route("/bans", get(handlers::user_bans::list_all_bans))
+        .route(
+            handlers::reports::PRESIGN_PATH,
+            post(handlers::reports::presign_evidence),
+        )
+        .route(
+            "/reports/players/{report_id}/evidence/{key}",
+            axum::routing::put(handlers::reports::upload_evidence)
+                .get(handlers::reports::download_evidence)
+                .layer(axum::extract::DefaultBodyLimit::max(
+                    ports::player_reports::MAX_EVIDENCE_BYTES as usize + 4096,
+                )),
+        )
+        .route(
+            handlers::reports::CREATE_PATH,
+            post(handlers::reports::create_report),
+        )
+        .route(
+            handlers::reports::LIST_PATH,
+            get(handlers::reports::list_reports),
+        )
+        .route("/reports/{report_id}", get(handlers::reports::get_report))
         .route("/livekit-webhook", post(handlers::webhook::livekit_webhook))
         .route(
             "/private-messages/token",

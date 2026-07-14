@@ -52,7 +52,7 @@ const ENV_DOCS: &[(&str, &str)] = &[
     ),
     (
         "DISSOLVED_ESTATE_URL",
-        "redirect target for dissolved estates (default https://ui.decentraland.org/dissolved_estate.png)",
+        "redirect target for dissolved estates (unset serves 404; no default)",
     ),
     (
         "SIGNATURES_SERVER_URL",
@@ -61,6 +61,14 @@ const ENV_DOCS: &[(&str, &str)] = &[
     (
         "RENTALS_SIGNATURES_SERVER_URL",
         "fallback name for SIGNATURES_SERVER_URL",
+    ),
+    (
+        "MAP_IMAGE_BASE_URL",
+        "base URL for generated tile/map images (default http://127.0.0.1:5162/v1)",
+    ),
+    (
+        "MAP_EXTERNAL_BASE_URL",
+        "optional — marketplace page base URL for external_url; unset yields no link rather than a production one",
     ),
     (
         "RUST_LOG",

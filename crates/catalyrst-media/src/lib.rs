@@ -16,10 +16,8 @@ use axum::Router;
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use sqlx::PgPool;
 
-use crate::backend::http::HttpBackend;
-use crate::backend::mock::MockBackend;
 use crate::backend::TranslationBackend;
-use crate::config::{BackendKind, Config};
+use crate::config::Config;
 
 pub struct CachedConvert {
     pub at: Instant,
@@ -118,15 +116,7 @@ pub async fn build_state(cfg: &Config) -> Result<AppState> {
         .await
         .context("failed to run migrations")?;
 
-    let backend: Arc<dyn TranslationBackend> = match cfg.backend_kind {
-        BackendKind::Mock => Arc::new(MockBackend),
-        BackendKind::Http => Arc::new(HttpBackend::new(
-            cfg.backend_url
-                .clone()
-                .expect("backend url checked in config"),
-            cfg.backend_api_key.clone(),
-        )),
-    };
+    let backend: Arc<dyn TranslationBackend> = backend::build_backend(cfg);
 
     let fetch_client = reqwest::Client::builder()
         .connect_timeout(Duration::from_secs(10))

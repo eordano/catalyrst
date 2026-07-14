@@ -16,51 +16,51 @@ const ENV_DOCS: &[(&str, &str)] = &[
     ),
     (
         "RPC_UPSTREAM_MAINNET",
-        "upstream for mainnet (default https://rpc.decentraland.org/mainnet)",
+        "upstream for mainnet (unset leaves the network unsupported; no default)",
     ),
     (
         "RPC_UPSTREAM_ETHEREUM",
-        "upstream for ethereum (default https://rpc.decentraland.org/mainnet)",
+        "upstream for ethereum (unset leaves the network unsupported; no default)",
     ),
     (
         "RPC_UPSTREAM_SEPOLIA",
-        "upstream for sepolia (default https://rpc.decentraland.org/sepolia)",
+        "upstream for sepolia (unset leaves the network unsupported; no default)",
     ),
     (
         "RPC_UPSTREAM_POLYGON",
-        "upstream for polygon (default https://rpc.decentraland.org/polygon)",
+        "upstream for polygon (unset leaves the network unsupported; no default)",
     ),
     (
         "RPC_UPSTREAM_MATIC",
-        "upstream for matic (default https://rpc.decentraland.org/polygon)",
+        "upstream for matic (unset leaves the network unsupported; no default)",
     ),
     (
         "RPC_UPSTREAM_AMOY",
-        "upstream for amoy (default https://rpc.decentraland.org/amoy)",
+        "upstream for amoy (unset leaves the network unsupported; no default)",
     ),
     (
         "RPC_UPSTREAM_MUMBAI",
-        "upstream for mumbai (default https://rpc.decentraland.org/mumbai)",
+        "upstream for mumbai (unset leaves the network unsupported; no default)",
     ),
     (
         "RPC_UPSTREAM_ARBITRUM",
-        "upstream for arbitrum (default https://rpc.decentraland.org/arbitrum)",
+        "upstream for arbitrum (unset leaves the network unsupported; no default)",
     ),
     (
         "RPC_UPSTREAM_OPTIMISM",
-        "upstream for optimism (default https://rpc.decentraland.org/optimism)",
+        "upstream for optimism (unset leaves the network unsupported; no default)",
     ),
     (
         "RPC_UPSTREAM_AVALANCHE",
-        "upstream for avalanche (default https://rpc.decentraland.org/avalanche)",
+        "upstream for avalanche (unset leaves the network unsupported; no default)",
     ),
     (
         "RPC_UPSTREAM_BINANCE",
-        "upstream for binance (default https://rpc.decentraland.org/binance)",
+        "upstream for binance (unset leaves the network unsupported; no default)",
     ),
     (
         "RPC_UPSTREAM_FANTOM",
-        "upstream for fantom (default https://rpc.decentraland.org/fantom)",
+        "upstream for fantom (unset leaves the network unsupported; no default)",
     ),
     (
         "RUST_LOG",

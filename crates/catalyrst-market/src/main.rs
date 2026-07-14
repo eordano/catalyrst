@@ -31,14 +31,6 @@ const ENV_DOCS: &[(&str, &str)] = &[
         "dapps read-replica schema (default marketplace)",
     ),
     (
-        "FAVORITES_PG_COMPONENT_PSQL_CONNECTION_STRING",
-        "required — favorites Postgres connection string",
-    ),
-    (
-        "FAVORITES_PG_COMPONENT_PSQL_SCHEMA",
-        "favorites schema (default favorites)",
-    ),
-    (
         "CONTENT_PG_COMPONENT_PSQL_CONNECTION_STRING",
         "optional — catalyst content DB connection string",
     ),
@@ -52,7 +44,7 @@ const ENV_DOCS: &[(&str, &str)] = &[
     ),
     (
         "TRADES_SYNC_UPSTREAM_URL",
-        "trades sync upstream (default https://marketplace-api.decentraland.org/v1/trades; empty disables sync)",
+        "trades sync upstream (unset/empty disables sync; no default)",
     ),
     (
         "TRADES_SYNC_INTERVAL_SECS",
@@ -61,6 +53,26 @@ const ENV_DOCS: &[(&str, &str)] = &[
     (
         "CATALYRST_MARKET_HTTP_CACHE_TTL_SECS",
         "response cache TTL in seconds (default 30; 0 disables)",
+    ),
+    (
+        "PRICE_BASE_URL",
+        "MANA/USD oracle: catalyrst-price base URL (default http://127.0.0.1:5156; same feed the credits checkout settles at)",
+    ),
+    (
+        "MANA_RATE_REFRESH_INTERVAL_MS",
+        "MANA/USD rate cache refresh interval in ms (default 90000)",
+    ),
+    (
+        "MANA_USD_FALLBACK_RATE",
+        "USD per MANA served before the first successful oracle fetch (default 0.02)",
+    ),
+    (
+        "MANA_ORACLE_MAX_STALENESS_SECONDS",
+        "max age of an oracle quote before it is refused (default 86400)",
+    ),
+    (
+        "MANA_RATE_STARTUP_TIMEOUT_MS",
+        "max time the initial rate fetch may delay startup (default 5000)",
     ),
     (
         "RUST_LOG",

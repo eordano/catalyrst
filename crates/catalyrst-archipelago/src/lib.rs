@@ -39,6 +39,13 @@ pub async fn build_state(cfg: &Config) -> Result<AppState> {
     let livekit = Arc::new(LivekitMinter::new(cfg.livekit.clone()));
     let ban_checker = BanChecker::new(cfg.livekit.comms_gatekeeper_url.clone(), http.clone());
     let deny_list = DenyList::new(cfg.auth.deny_list_url.clone(), http.clone());
+    if !deny_list.is_armed() {
+        tracing::warn!(
+            "DENY_LIST_URL is unset — the wallet denylist is DISARMED and no address \
+             will be blocked. This used to fall back to Decentraland's production \
+             denylist; set DENY_LIST_URL to a list this deployment controls to re-arm it."
+        );
+    }
     let cluster = Cluster::new(
         cfg.cluster.clone(),
         Arc::clone(&livekit),

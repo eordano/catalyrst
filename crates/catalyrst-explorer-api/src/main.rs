@@ -25,15 +25,15 @@ const ENV_DOCS: &[(&str, &str)] = &[
     ),
     (
         "UPSTREAM_MARKETPLACE_URL",
-        "upstream marketplace API (default https://marketplace-api.decentraland.org)",
+        "upstream marketplace API (default http://127.0.0.1:5133)",
     ),
     (
         "UPSTREAM_BUILDER_URL",
-        "upstream builder API (default https://builder-api.decentraland.org)",
+        "upstream builder API (default http://127.0.0.1:5144)",
     ),
     (
         "UPSTREAM_WORLDS_URL",
-        "upstream worlds-content-server (default https://worlds-content-server.decentraland.org)",
+        "upstream worlds-content-server (default http://127.0.0.1:5142)",
     ),
     (
         "UPSTREAM_WORLDS_CONTENT_URL",
@@ -70,11 +70,11 @@ const ENV_DOCS: &[(&str, &str)] = &[
     ),
     (
         "MAP_SATELLITE_BASE_URL",
-        "minimap satellite tiles base URL (default https://genesis.city/map/latest)",
+        "minimap satellite tiles base URL (default http://127.0.0.1:5162/satellite)",
     ),
     (
         "MAP_PARCEL_VIEW_URL",
-        "minimap parcel view image URL (default https://api.decentraland.org/v1/minimap.png)",
+        "minimap parcel view image URL (default http://127.0.0.1:5162/v1/minimap.png)",
     ),
     (
         "RUST_LOG",

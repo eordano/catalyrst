@@ -15,6 +15,17 @@ const MAX_WALLETS: usize = 1000;
 const MAX_COMMUNITIES: usize = 50;
 const DCL_ETH_SUFFIX: &str = ".dcl.eth";
 
+#[utoipa::path(
+    get,
+    path = "/world/{world_name}/permissions",
+    tag = "permissions",
+    params(("world_name" = String, Path)),
+    responses(
+        (status = 200, body = serde_json::Value),
+        (status = 404, body = catalyrst_types::ApiErrorBody),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn get_permissions(
     State(state): State<AppState>,
     Path(world_name): Path<String>,
@@ -113,7 +124,7 @@ async fn verify_owner(
     world_name: &str,
 ) -> Result<String, ApiError> {
     let auth = require_verified(headers, method, path).map_err(map_auth_error)?;
-    let signer = auth.signer.to_lowercase();
+    let signer = auth.signer.as_str().to_string();
 
     let world = state.worlds.get_world(world_name).await?;
     let owner = resolve_world_owner(state, world_name, world.and_then(|w| w.owner)).await;
@@ -146,6 +157,21 @@ fn is_permission_with_wallet_support(p: &str) -> bool {
     p == "deployment" || p == "streaming" || p == "access"
 }
 
+#[utoipa::path(
+    post,
+    path = "/world/{world_name}/permissions/{permission_name}",
+    tag = "permissions",
+    params(("world_name" = String, Path), ("permission_name" = String, Path)),
+    request_body = serde_json::Value,
+    responses(
+        (status = 204),
+        (status = 400, body = catalyrst_types::ApiErrorBody),
+        (status = 401, body = catalyrst_types::ApiErrorBody),
+        (status = 403, body = catalyrst_types::ApiErrorBody),
+        (status = 404, body = catalyrst_types::ApiErrorBody),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn post_permissions(
     State(state): State<AppState>,
     Path((world_name, permission_name)): Path<(String, String)>,
@@ -153,7 +179,7 @@ pub async fn post_permissions(
     headers: HeaderMap,
 ) -> Result<StatusCode, ApiError> {
     let auth = require_verified(&headers, "post", uri.path()).map_err(map_auth_error)?;
-    let signer = auth.signer.to_lowercase();
+    let signer = auth.signer.as_str().to_string();
 
     let world = state.worlds.get_world(&world_name).await?;
     let owner = resolve_world_owner(&state, &world_name, world.and_then(|w| w.owner)).await;
@@ -345,6 +371,20 @@ async fn set_access_from_metadata(
     Ok(())
 }
 
+#[utoipa::path(
+    put,
+    path = "/world/{world_name}/permissions/{permission_name}/{address}",
+    tag = "permissions",
+    params(("world_name" = String, Path), ("permission_name" = String, Path), ("address" = String, Path)),
+    responses(
+        (status = 204),
+        (status = 400, body = catalyrst_types::ApiErrorBody),
+        (status = 401, body = catalyrst_types::ApiErrorBody),
+        (status = 403, body = catalyrst_types::ApiErrorBody),
+        (status = 404, body = catalyrst_types::ApiErrorBody),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn put_permissions_address(
     State(state): State<AppState>,
     Path((world_name, permission_name, address)): Path<(String, String, String)>,
@@ -386,6 +426,20 @@ pub async fn put_permissions_address(
     Ok(StatusCode::NO_CONTENT)
 }
 
+#[utoipa::path(
+    delete,
+    path = "/world/{world_name}/permissions/{permission_name}/{address}",
+    tag = "permissions",
+    params(("world_name" = String, Path), ("permission_name" = String, Path), ("address" = String, Path)),
+    responses(
+        (status = 204),
+        (status = 400, body = catalyrst_types::ApiErrorBody),
+        (status = 401, body = catalyrst_types::ApiErrorBody),
+        (status = 403, body = catalyrst_types::ApiErrorBody),
+        (status = 404, body = catalyrst_types::ApiErrorBody),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn delete_permissions_address(
     State(state): State<AppState>,
     Path((world_name, permission_name, address)): Path<(String, String, String)>,
@@ -427,6 +481,21 @@ pub struct ParcelsInput {
     pub parcels: Vec<String>,
 }
 
+#[utoipa::path(
+    post,
+    path = "/world/{world_name}/permissions/{permission_name}/address/{address}/parcels",
+    tag = "permissions",
+    params(("world_name" = String, Path), ("permission_name" = String, Path), ("address" = String, Path)),
+    request_body = serde_json::Value,
+    responses(
+        (status = 204),
+        (status = 400, body = catalyrst_types::ApiErrorBody),
+        (status = 401, body = catalyrst_types::ApiErrorBody),
+        (status = 403, body = catalyrst_types::ApiErrorBody),
+        (status = 404, body = catalyrst_types::ApiErrorBody),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn post_permission_parcels(
     State(state): State<AppState>,
     Path((world_name, permission_name, address)): Path<(String, String, String)>,
@@ -443,6 +512,21 @@ pub async fn post_permission_parcels(
     Ok(StatusCode::NO_CONTENT)
 }
 
+#[utoipa::path(
+    delete,
+    path = "/world/{world_name}/permissions/{permission_name}/address/{address}/parcels",
+    tag = "permissions",
+    params(("world_name" = String, Path), ("permission_name" = String, Path), ("address" = String, Path)),
+    request_body = serde_json::Value,
+    responses(
+        (status = 204),
+        (status = 400, body = catalyrst_types::ApiErrorBody),
+        (status = 401, body = catalyrst_types::ApiErrorBody),
+        (status = 403, body = catalyrst_types::ApiErrorBody),
+        (status = 404, body = catalyrst_types::ApiErrorBody),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn delete_permission_parcels(
     State(state): State<AppState>,
     Path((world_name, permission_name, address)): Path<(String, String, String)>,
@@ -485,6 +569,17 @@ pub struct ParcelsQuery {
     pub y2: Option<i32>,
 }
 
+#[utoipa::path(
+    get,
+    path = "/world/{world_name}/permissions/{permission_name}/address/{address}/parcels",
+    tag = "permissions",
+    params(("world_name" = String, Path), ("permission_name" = String, Path), ("address" = String, Path), ("limit" = Option<i64>, Query), ("offset" = Option<i64>, Query)),
+    responses(
+        (status = 200, body = serde_json::Value),
+        (status = 404, body = catalyrst_types::ApiErrorBody),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn get_allowed_parcels_for_permission(
     State(state): State<AppState>,
     Path((world_name, permission_name, address)): Path<(String, String, String)>,
@@ -520,6 +615,19 @@ pub async fn get_allowed_parcels_for_permission(
     Ok(Json(json!({ "total": total, "parcels": parcels })))
 }
 
+#[utoipa::path(
+    post,
+    path = "/world/{world_name}/permissions/{permission_name}/parcels",
+    tag = "permissions",
+    params(("world_name" = String, Path), ("permission_name" = String, Path)),
+    request_body = serde_json::Value,
+    responses(
+        (status = 200, body = serde_json::Value),
+        (status = 400, body = catalyrst_types::ApiErrorBody),
+        (status = 404, body = catalyrst_types::ApiErrorBody),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn get_addresses_for_parcel_permission(
     State(state): State<AppState>,
     Path((world_name, permission_name)): Path<(String, String)>,
@@ -565,6 +673,20 @@ fn clamp_pagination(limit: Option<i64>, offset: Option<i64>) -> (i64, i64) {
     (limit, offset)
 }
 
+#[utoipa::path(
+    put,
+    path = "/world/{world_name}/permissions/access/communities/{communityId}",
+    tag = "permissions",
+    params(("world_name" = String, Path), ("communityId" = String, Path)),
+    responses(
+        (status = 204),
+        (status = 400, body = catalyrst_types::ApiErrorBody),
+        (status = 401, body = catalyrst_types::ApiErrorBody),
+        (status = 403, body = catalyrst_types::ApiErrorBody),
+        (status = 404, body = catalyrst_types::ApiErrorBody),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn put_permissions_access_community(
     State(state): State<AppState>,
     Path((world_name, community_id)): Path<(String, String)>,
@@ -579,6 +701,20 @@ pub async fn put_permissions_access_community(
     Ok(StatusCode::NO_CONTENT)
 }
 
+#[utoipa::path(
+    delete,
+    path = "/world/{world_name}/permissions/access/communities/{communityId}",
+    tag = "permissions",
+    params(("world_name" = String, Path), ("communityId" = String, Path)),
+    responses(
+        (status = 204),
+        (status = 400, body = catalyrst_types::ApiErrorBody),
+        (status = 401, body = catalyrst_types::ApiErrorBody),
+        (status = 403, body = catalyrst_types::ApiErrorBody),
+        (status = 404, body = catalyrst_types::ApiErrorBody),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn delete_permissions_access_community(
     State(state): State<AppState>,
     Path((world_name, community_id)): Path<(String, String)>,

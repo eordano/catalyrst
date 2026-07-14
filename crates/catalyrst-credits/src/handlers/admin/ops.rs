@@ -351,26 +351,20 @@ pub(super) async fn refund_checkout(
         ));
     }
 
-    let idem = format!("admin:refund:{}", id);
-    let tx_ref = format!("checkout:{}", id);
     tracing::info!(
         action = "checkout.refund",
         checkout_id = id,
         "admin manual refund"
     );
-    let outcome = state
+    let (outcome, closed) = state
         .credits
-        .refund(
-            &checkout.address,
-            &checkout.total_credits,
-            &tx_ref,
-            Some(&idem),
-        )
+        .refund_checkout_manual(id, &checkout.address, &checkout.total_credits)
         .await?;
 
     let detail = json!({
         "checkoutId": id, "address": checkout.address,
-        "amount": checkout.total_credits, "replayed": outcome.replayed, "reason": reason,
+        "requested": checkout.total_credits, "applied": outcome.applied,
+        "replayed": outcome.replayed, "closed": closed, "reason": reason,
     });
     state
         .credits
@@ -387,7 +381,7 @@ pub(super) async fn refund_checkout(
     Ok(Json(json!({
         "checkoutId": id,
         "address": checkout.address,
-        "refunded": checkout.total_credits,
+        "refunded": outcome.applied,
         "available": outcome.available,
         "replayed": outcome.replayed,
     })))
@@ -488,29 +482,31 @@ pub(super) async fn reclaim_grant(
         .find_confirmed_line_by_ref(&escrow_ref)
         .await?
     {
-        Some((address, amount)) => {
-            let tx_ref = format!("reclaim:{}", escrow_ref);
-            state
+        Some((checkout_id, address, amount)) => {
+            let tx_ref = format!("checkout:{}", checkout_id);
+            let outcome = state
                 .credits
                 .refund(&address, &amount, &tx_ref, Some(&idem))
                 .await?;
-            Some((address, amount))
+            Some((address, amount, outcome.applied))
         }
         None => None,
     };
 
     let detail = json!({
         "escrowRef": escrow_ref, "grantee": grant.grantee_address, "urn": grant.urn,
-        "txHash": tx_hash, "refunded": refunded.as_ref().map(|(_, a)| a.clone()),
+        "txHash": tx_hash,
+        "refundRequested": refunded.as_ref().map(|(_, req, _)| req.clone()),
+        "refunded": refunded.as_ref().map(|(_, _, app)| app.clone()),
         "reason": reason,
     });
     state
         .credits
         .admin_audit_op(
             "grant.reclaim",
-            refunded.as_ref().map(|(a, _)| a.as_str()),
+            refunded.as_ref().map(|(a, _, _)| a.as_str()),
             None,
-            refunded.as_ref().map(|(_, a)| a.as_str()),
+            refunded.as_ref().map(|(_, _, app)| app.as_str()),
             actor.as_deref(),
             &detail,
         )
@@ -519,7 +515,8 @@ pub(super) async fn reclaim_grant(
     Ok(Json(json!({
         "escrowRef": escrow_ref,
         "txHash": tx_hash,
-        "refunded": refunded.map(|(addr, amt)| json!({ "address": addr, "amount": amt })),
+        "refunded": refunded
+            .map(|(addr, _, app)| json!({ "address": addr, "amount": app })),
     })))
 }
 

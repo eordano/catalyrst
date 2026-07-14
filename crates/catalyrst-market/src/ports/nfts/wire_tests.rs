@@ -192,6 +192,138 @@ fn outer_filters_move_the_limit_past_the_filter() {
     assert!(!outer.contains("LIMIT"), "{outer}");
 }
 
+const BROKEN_ESTATE_EXCLUSION: &str = "AND NOT (trades.type = 'public_nft_order'";
+
+fn nfts_sql(filters: &NftFilters) -> String {
+    build_nfts_query(filters, false).0
+}
+
+#[test]
+fn broken_estate_trades_drop_out_of_the_public_browse_feed_only() {
+    let public = NftFilters {
+        category: Some(crate::dcl_schemas::NftCategory::Estate),
+        is_on_sale: Some(true),
+        ..Default::default()
+    };
+    let sql = nfts_sql(&public);
+    assert!(sql.contains(BROKEN_ESTATE_EXCLUSION), "{sql}");
+    assert!(sql.contains("trades.sent_nft_category = 'estate'"), "{sql}");
+    assert!(
+        sql.contains("trades.created_at < TO_TIMESTAMP(1779284232)"),
+        "{sql}"
+    );
+    assert!(
+        sql.contains("COALESCE(nft.search_estate_size, 0) > 18"),
+        "a not-yet-indexed estate size must read as small and keep the listing, \
+         not turn the whole NOT (...) into NULL and drop the trade match: {sql}"
+    );
+    let (_, outer) = sql
+        .split_once("FROM filtered_nft nft")
+        .expect("query shape");
+    let (joins, outer_where) = outer.split_once(" WHERE ").expect("outer where");
+    assert!(
+        joins.contains(BROKEN_ESTATE_EXCLUSION),
+        "exclusion must null out the trade match in the LEFT JOIN, not drop the nft row: {outer}"
+    );
+    assert!(
+        !outer_where.contains(BROKEN_ESTATE_EXCLUSION),
+        "{outer_where}"
+    );
+
+    let owner_scoped = NftFilters {
+        category: Some(crate::dcl_schemas::NftCategory::Estate),
+        is_on_sale: Some(true),
+        owner: Some("0xowner".to_string()),
+        ..Default::default()
+    };
+    assert!(
+        !nfts_sql(&owner_scoped).contains(BROKEN_ESTATE_EXCLUSION),
+        "My Assets keeps the broken listing visible so the owner can re-list it"
+    );
+}
+
+#[test]
+fn broken_estate_exclusion_only_reaches_the_land_routed_query_shapes() {
+    use crate::dcl_schemas::NftCategory;
+
+    let land_routed = [
+        NftFilters {
+            category: Some(NftCategory::Estate),
+            ..Default::default()
+        },
+        NftFilters {
+            category: Some(NftCategory::Parcel),
+            ..Default::default()
+        },
+        NftFilters {
+            is_land: true,
+            ..Default::default()
+        },
+        NftFilters {
+            is_land: true,
+            sort_by: Some(NftSortBy::RecentlyListed),
+            ..Default::default()
+        },
+    ];
+    for filters in &land_routed {
+        assert!(
+            nfts_sql(filters).contains(BROKEN_ESTATE_EXCLUSION),
+            "land-routed shape must hide broken estate listings: {filters:?}"
+        );
+    }
+
+    let generic = [
+        NftFilters {
+            is_on_sale: Some(true),
+            first: Some(20),
+            ..Default::default()
+        },
+        NftFilters {
+            is_on_sale: Some(false),
+            ..Default::default()
+        },
+        NftFilters {
+            category: Some(NftCategory::Wearable),
+            ..Default::default()
+        },
+        NftFilters {
+            category: Some(NftCategory::Ens),
+            ..Default::default()
+        },
+        NftFilters {
+            sort_by: Some(NftSortBy::RecentlyListed),
+            ..Default::default()
+        },
+    ];
+    for filters in &generic {
+        assert!(
+            !nfts_sql(filters).contains(BROKEN_ESTATE_EXCLUSION),
+            "non-land shapes carry no exclusion, so isOnSale=false must not \
+             reclassify a broken listing as unlisted: {filters:?}"
+        );
+    }
+}
+
+#[test]
+fn nft_owner_is_lowercased_so_checksummed_addresses_still_match() {
+    let checksummed = "0xAbC0000000000000000000000000000000000DeF";
+    let lowercased = checksummed.to_lowercase();
+
+    let pairs = vec![("owner".to_string(), checksummed.to_string())];
+    let filters = parse_filters(&pairs).expect("owner filter");
+    assert_eq!(filters.owner.as_deref(), Some(lowercased.as_str()));
+
+    let (sql, binds) = build_nfts_query(&filters, false);
+    assert!(sql.contains(" owner_address = $1 "), "{sql}");
+    match binds.first() {
+        Some(Bind::Text(bound)) => assert_eq!(
+            bound, &lowercased,
+            "squid stores owner_address lowercased, so a checksummed owner would page empty"
+        ),
+        _ => panic!("owner must bind as the first text parameter"),
+    }
+}
+
 #[test]
 fn nft_result_without_order_or_rental_is_null() {
     let nft = from_db_nft_to_nft(&sample_db_nft());

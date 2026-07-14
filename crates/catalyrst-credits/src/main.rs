@@ -89,10 +89,6 @@ const ENV_DOCS: &[(&str, &str)] = &[
         "optional — usage-grants Postgres connection string",
     ),
     (
-        "PROGRESS_PRESENCE_PG_CONNECTION_STRING",
-        "optional — progress/presence Postgres connection string",
-    ),
-    (
         "ESCROW_LOCK_DAYS",
         "escrow lock duration in days (default 15)",
     ),

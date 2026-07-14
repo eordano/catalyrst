@@ -1,9 +1,12 @@
+#![allow(clippy::result_large_err)]
+
 pub mod abgen_embed;
 pub mod asset_bundles;
 pub mod build;
 pub mod comms;
 pub mod composite_norm;
 pub mod context_files;
+pub mod crdt_gen;
 pub mod data_layer;
 pub mod deploy;
 pub mod entrypoint;

@@ -24,7 +24,7 @@ pub(super) async fn mobile_preview(State(st): State<Arc<AppState>>) -> Response 
             .into_response();
     };
     let url = format!(
-        "decentraland://open?preview=http://{ip}:{}&position={}%2C{}",
+        "decentraland://open?preview=http://{ip}:{}&position={},{}",
         st.port, st.base.0, st.base.1
     );
     match joinblock::qr_svg_data_url(&url) {

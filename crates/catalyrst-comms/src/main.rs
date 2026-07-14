@@ -52,12 +52,9 @@ const ENV_DOCS: &[(&str, &str)] = &[
     ),
     (
         "WORLD_CONTENT_URL",
-        "worlds content server base URL (default https://worlds-content-server.decentraland.org)",
+        "worlds content server base URL (default http://127.0.0.1:5142)",
     ),
-    (
-        "LAMBDAS_URL",
-        "lambdas base URL (default https://peer.decentraland.org/lambdas)",
-    ),
+    ("LAMBDAS_URL", "lambdas base URL (REQUIRED; no default)"),
     (
         "DAPPS_PG_COMPONENT_PSQL_CONNECTION_STRING",
         "optional — dapps Postgres connection string",

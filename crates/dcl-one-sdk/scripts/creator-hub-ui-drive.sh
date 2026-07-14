@@ -44,7 +44,7 @@ for i in $(seq 1 30); do
   sleep 1
 done
 
-node "$SCRIPT_DIR/creator-hub-ui-drive.mjs" "$SCENE" "$PORT" "$CDP" "$EVIDENCE"
+node "$SCRIPT_DIR/creator-hub-ui-drive.mts" "$SCENE" "$PORT" "$CDP" "$EVIDENCE"
 RC=$?
 grep -E "main.crdt|SCENE_UPDATE|warning" "$EVIDENCE/start.log" | tail -20 > "$EVIDENCE/server-highlights.log" || true
 exit $RC

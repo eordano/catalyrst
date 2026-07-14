@@ -3,12 +3,20 @@ use sqlx::{postgres::PgPool, Row};
 use crate::http::errors::ApiError;
 
 use super::query::{
-    bind_param, build_live_user_count_order, build_order_by, build_where, destinations_order_prefix,
+    bind_param, build_live_user_count_order, build_order_by, build_where, description_plain_sql,
+    destinations_order_prefix,
 };
 use super::rows::{
     row_to_place, row_to_poi, row_to_report, CategoryTarget, PlaceListFilters, PlaceRow,
     PlaceStatusRow, PoiRow, ReportRow, UserInteraction, PLACE_COLUMNS,
 };
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReportUploadOutcome {
+    Stored,
+    NoReportOwnedByReporter,
+    PersistenceDisabled,
+}
 
 pub struct PlacesComponent {
     pool: PgPool,
@@ -36,10 +44,6 @@ impl PlacesComponent {
     pub fn with_writer(mut self, writer: PgPool) -> Self {
         self.writer = Some(writer);
         self
-    }
-
-    pub fn has_writer(&self) -> bool {
-        self.writer.is_some()
     }
 
     pub fn writer_pool(&self) -> Option<&PgPool> {
@@ -521,17 +525,26 @@ impl PlacesComponent {
     pub async fn record_report_upload(
         &self,
         filename: &str,
+        reporter: &str,
         payload: &serde_json::Value,
-    ) -> Result<(), ApiError> {
+    ) -> Result<ReportUploadOutcome, ApiError> {
         let Some(writer) = self.writer.as_ref() else {
-            return Ok(());
+            return Ok(ReportUploadOutcome::PersistenceDisabled);
         };
-        sqlx::query(r#"UPDATE place_reports_local SET payload = $2 WHERE filename = $1"#)
-            .bind(filename)
-            .bind(payload)
-            .execute(writer)
-            .await?;
-        Ok(())
+        let updated = sqlx::query(
+            r#"UPDATE place_reports_local SET payload = $3
+               WHERE filename = $1 AND lower(reporter) = $2"#,
+        )
+        .bind(filename)
+        .bind(reporter.to_lowercase())
+        .bind(payload)
+        .execute(writer)
+        .await?
+        .rows_affected();
+        if updated == 0 {
+            return Ok(ReportUploadOutcome::NoReportOwnedByReporter);
+        }
+        Ok(ReportUploadOutcome::Stored)
     }
 
     pub async fn set_highlighted(
@@ -635,25 +648,6 @@ impl PlacesComponent {
         .fetch_one(writer)
         .await?;
         Ok(row.get::<i64, _>("total"))
-    }
-
-    pub async fn get_report(&self, id: i64) -> Result<Option<ReportRow>, ApiError> {
-        let writer = self
-            .writer
-            .as_ref()
-            .ok_or_else(|| ApiError::service_unavailable("report persistence not configured"))?;
-        let row = sqlx::query(
-            r#"
-            SELECT id, entity_id, reporter, signed_url, filename, payload,
-                   status, resolution, moderator_notes, resolved_by,
-                   resolved_at, created_at
-            FROM place_reports_local WHERE id = $1
-            "#,
-        )
-        .bind(id)
-        .fetch_optional(writer)
-        .await?;
-        Ok(row.map(row_to_report))
     }
 
     pub async fn update_report_status(
@@ -843,7 +837,7 @@ impl PlacesComponent {
     }
 
     pub async fn find_by_id(&self, place_id: &str) -> Result<Option<PlaceRow>, ApiError> {
-        let sql = format!("SELECT {PLACE_COLUMNS} FROM place WHERE id = $1");
+        let sql = format!("SELECT {PLACE_COLUMNS} FROM place_indexed WHERE id = $1");
         let row_opt = sqlx::query(sqlx::AssertSqlSafe(sql))
             .bind(place_id)
             .fetch_optional(&self.pool)
@@ -855,7 +849,7 @@ impl PlacesComponent {
         if ids.is_empty() {
             return Ok(vec![]);
         }
-        let sql = format!("SELECT {PLACE_COLUMNS} FROM place WHERE id = ANY($1)");
+        let sql = format!("SELECT {PLACE_COLUMNS} FROM place_indexed WHERE id = ANY($1)");
         let rows = sqlx::query(sqlx::AssertSqlSafe(sql))
             .bind(ids)
             .fetch_all(&self.pool)
@@ -872,10 +866,8 @@ impl PlacesComponent {
         }
         let rows = sqlx::query(
             r#"
-            SELECT id, disabled, base_position,
-                   COALESCE((raw->>'world')::bool, false) AS world,
-                   raw->>'world_name' AS world_name
-            FROM place
+            SELECT id, disabled, base_position, world, world_name
+            FROM place_indexed
             WHERE id = ANY($1)
             "#,
         )
@@ -899,10 +891,11 @@ impl PlacesComponent {
         if ids.is_empty() {
             return Ok(0);
         }
-        let row = sqlx::query("SELECT count(*)::bigint AS total FROM place WHERE id = ANY($1)")
-            .bind(ids)
-            .fetch_one(&self.pool)
-            .await?;
+        let row =
+            sqlx::query("SELECT count(*)::bigint AS total FROM place_indexed WHERE id = ANY($1)")
+                .bind(ids)
+                .fetch_one(&self.pool)
+                .await?;
         Ok(row.get::<i64, _>("total"))
     }
 
@@ -914,9 +907,12 @@ impl PlacesComponent {
         let order = f.order_by.column();
         let dir = if f.order_desc { "DESC" } else { "ASC" };
         let rank_prefix = if f.search.is_some() {
-            "ts_rank_cd(to_tsvector('english', coalesce(title,'') || ' ' || coalesce(description,'')), \
-             plainto_tsquery('english', $rank), 32) DESC, "
-                .replace("$rank", &format!("${}", binds.len() + 1))
+            format!(
+                "ts_rank_cd(to_tsvector('english', coalesce(title,'') || ' ' || ({plain})), \
+                 plainto_tsquery('english', ${rank}), 32) DESC, ",
+                plain = description_plain_sql(),
+                rank = binds.len() + 1,
+            )
         } else {
             String::new()
         };
@@ -928,7 +924,7 @@ impl PlacesComponent {
         let sql = format!(
             r#"
             SELECT {cols}
-            FROM place
+            FROM place_indexed
             WHERE {where_clause}
             ORDER BY {order_clause}
             LIMIT {limit} OFFSET {offset}
@@ -956,7 +952,8 @@ impl PlacesComponent {
             return Ok(0);
         }
         let (where_clause, binds) = build_where(f);
-        let sql = format!("SELECT count(*)::bigint AS total FROM place WHERE {where_clause}");
+        let sql =
+            format!("SELECT count(*)::bigint AS total FROM place_indexed WHERE {where_clause}");
         let mut q = sqlx::query(sqlx::AssertSqlSafe(sql));
         for b in &binds {
             q = bind_param(q, b);
@@ -970,14 +967,14 @@ impl PlacesComponent {
         target: CategoryTarget,
     ) -> Result<Vec<(String, i64)>, ApiError> {
         let world_filter = match target {
-            CategoryTarget::Worlds => "AND COALESCE((raw->>'world')::bool, false) IS TRUE",
-            CategoryTarget::Places => "AND COALESCE((raw->>'world')::bool, false) IS FALSE",
+            CategoryTarget::Worlds => "AND p.world IS TRUE",
+            CategoryTarget::Places => "AND p.world IS FALSE",
             CategoryTarget::All => "",
         };
         let sql = format!(
             r#"
             SELECT cat AS name, count(*)::bigint AS count
-            FROM place p, unnest(p.categories) AS cat
+            FROM place_indexed p, unnest(p.categories) AS cat
             WHERE p.disabled IS FALSE {world_filter}
             GROUP BY cat
             ORDER BY count DESC, name ASC
@@ -993,7 +990,7 @@ impl PlacesComponent {
     }
 
     pub async fn categories_for_place(&self, place_id: &str) -> Result<Vec<String>, ApiError> {
-        let row = sqlx::query("SELECT categories FROM place WHERE id = $1")
+        let row = sqlx::query("SELECT categories FROM place_indexed WHERE id = $1")
             .bind(place_id)
             .fetch_optional(&self.pool)
             .await?;
@@ -1007,9 +1004,9 @@ impl PlacesComponent {
 
     pub async fn find_world_by_id(&self, world_id: &str) -> Result<Option<PlaceRow>, ApiError> {
         let sql = format!(
-            "SELECT {PLACE_COLUMNS} FROM place \
-             WHERE COALESCE((raw->>'world')::bool,false) IS TRUE \
-             AND (id = $1 OR lower(raw->>'world_name') = lower($1))"
+            "SELECT {PLACE_COLUMNS} FROM place_indexed \
+             WHERE world IS TRUE \
+             AND (id = $1 OR lower(world_name) = lower($1))"
         );
         let row_opt = sqlx::query(sqlx::AssertSqlSafe(sql))
             .bind(world_id)
@@ -1020,9 +1017,8 @@ impl PlacesComponent {
 
     pub async fn world_names(&self) -> Result<Vec<String>, ApiError> {
         let rows = sqlx::query(
-            "SELECT DISTINCT raw->>'world_name' AS world_name FROM place \
-             WHERE COALESCE((raw->>'world')::bool,false) IS TRUE \
-             AND raw->>'world_name' IS NOT NULL ORDER BY 1",
+            "SELECT DISTINCT world_name FROM place_indexed \
+             WHERE world IS TRUE AND world_name IS NOT NULL ORDER BY 1",
         )
         .fetch_all(&self.pool)
         .await?;

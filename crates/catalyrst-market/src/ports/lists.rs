@@ -28,6 +28,30 @@ pub struct FavoriteList {
     pub items_count: i64,
     #[serde(rename = "previewOfItemIds")]
     pub preview_of_item_ids: Vec<String>,
+    #[serde(rename = "isItemInList", skip_serializing_if = "Option::is_none")]
+    pub is_item_in_list: Option<bool>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ListSortBy {
+    CreatedAt,
+    Name,
+    UpdatedAt,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ListSortDirection {
+    Asc,
+    Desc,
+}
+
+pub struct GetListsOptions<'a> {
+    pub limit: i64,
+    pub offset: i64,
+    pub sort_by: ListSortBy,
+    pub sort_direction: ListSortDirection,
+    pub item_id: Option<&'a str>,
+    pub q: Option<&'a str>,
 }
 
 pub struct ListsComponent {
@@ -237,19 +261,40 @@ impl ListsComponent {
 
     pub async fn get_lists(
         &self,
-        user_address: Option<&str>,
-        limit: i64,
-        offset: i64,
+        user_address: &str,
+        opts: &GetListsOptions<'_>,
     ) -> Result<(Vec<FavoriteList>, i64), ApiError> {
-        let where_clause = if user_address.is_some() {
-            "WHERE l.user_address = $1"
-        } else {
-            ""
+        let mut next_param = 2;
+        let mut take = || {
+            let i = next_param;
+            next_param += 1;
+            i
         };
-        let (limit_p, offset_p) = if user_address.is_some() {
-            ("$2", "$3")
-        } else {
-            ("$1", "$2")
+        let q_idx = opts.q.map(|_| take());
+        let item_idx = opts.item_id.map(|_| take());
+        let limit_idx = take();
+        let offset_idx = take();
+
+        let q_clause = q_idx
+            .map(|i| format!("AND l.name ILIKE '%' || ${i} || '%'"))
+            .unwrap_or_default();
+        let item_select = item_idx
+            .map(|i| {
+                format!(
+                    ",\n  EXISTS(SELECT 1 FROM favorites.picks ip \
+                     WHERE ip.list_id = l.id AND ip.item_id = ${i}) AS is_item_in_list"
+                )
+            })
+            .unwrap_or_default();
+
+        let dir = match opts.sort_direction {
+            ListSortDirection::Asc => "ASC",
+            ListSortDirection::Desc => "DESC",
+        };
+        let order = match opts.sort_by {
+            ListSortBy::CreatedAt => format!("l.created_at {dir}"),
+            ListSortBy::UpdatedAt => format!("l.updated_at {dir} NULLS LAST"),
+            ListSortBy::Name => format!("l.name {dir}"),
         };
 
         let sql = format!(
@@ -264,7 +309,7 @@ SELECT
   l.is_private                                 AS is_private,
   l.permission                                 AS permission,
   COALESCE(pc.cnt, 0)::int8                    AS items_count,
-  COALESCE(pp.preview, ARRAY[]::text[])        AS preview
+  COALESCE(pp.preview, ARRAY[]::text[])        AS preview{item_select}
 FROM favorites.lists l
 LEFT JOIN (
   SELECT list_id, COUNT(*) AS cnt FROM favorites.picks GROUP BY list_id
@@ -279,17 +324,21 @@ LEFT JOIN (
   WHERE rn <= 4
   GROUP BY list_id
 ) pp ON pp.list_id = l.id
-{where_clause}
-ORDER BY l.created_at DESC, l.id ASC
-LIMIT {limit_p} OFFSET {offset_p}
+WHERE l.user_address = $1 {q_clause}
+ORDER BY {order}, l.id ASC
+LIMIT ${limit_idx} OFFSET ${offset_idx}
 "#,
         );
 
         let mut q = sqlx::query(sqlx::AssertSqlSafe(sql));
-        if let Some(addr) = user_address {
-            q = q.bind(addr.to_lowercase());
+        q = q.bind(user_address.to_lowercase());
+        if let Some(needle) = opts.q {
+            q = q.bind(needle.to_string());
         }
-        q = q.bind(limit).bind(offset);
+        if let Some(item) = opts.item_id {
+            q = q.bind(item.to_string());
+        }
+        q = q.bind(opts.limit).bind(opts.offset);
 
         let rows = match q.fetch_all(&self.pool).await {
             Ok(rows) => rows,
@@ -312,14 +361,22 @@ LIMIT {limit_p} OFFSET {offset_p}
                 permission: r.try_get::<Option<String>, _>("permission").unwrap_or(None),
                 items_count: r.try_get::<i64, _>("items_count").unwrap_or(0),
                 preview_of_item_ids: r.try_get::<Vec<String>, _>("preview").unwrap_or_default(),
+                is_item_in_list: if item_idx.is_some() {
+                    r.try_get::<bool, _>("is_item_in_list").ok()
+                } else {
+                    None
+                },
             })
             .collect();
 
-        let count_sql =
-            format!("SELECT COUNT(*)::int8 AS total FROM favorites.lists l {where_clause}");
+        let count_sql = format!(
+            "SELECT COUNT(*)::int8 AS total FROM favorites.lists l \
+             WHERE l.user_address = $1 {q_clause}"
+        );
         let mut cq = sqlx::query(sqlx::AssertSqlSafe(count_sql));
-        if let Some(addr) = user_address {
-            cq = cq.bind(addr.to_lowercase());
+        cq = cq.bind(user_address.to_lowercase());
+        if let Some(needle) = opts.q {
+            cq = cq.bind(needle.to_string());
         }
         let total = match cq.fetch_one(&self.pool).await {
             Ok(row) => row.try_get::<i64, _>("total").unwrap_or(0),

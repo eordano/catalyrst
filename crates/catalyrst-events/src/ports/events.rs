@@ -3,6 +3,7 @@ use serde_json::Value;
 use sqlx::PgPool;
 
 use crate::http::response::ApiError;
+use crate::sanitize::sanitize_event_description;
 use crate::schemas::EventRecord;
 
 pub struct EventsComponent {
@@ -649,11 +650,14 @@ fn event_row_to_record(
         name: r.name,
         image,
         image_vertical,
-        description: r.description.or_else(|| {
-            raw.get("description")
-                .and_then(|v| v.as_str())
-                .map(String::from)
-        }),
+        description: r
+            .description
+            .or_else(|| {
+                raw.get("description")
+                    .and_then(|v| v.as_str())
+                    .map(String::from)
+            })
+            .map(|d| sanitize_event_description(&d)),
         start_at: r.start_at,
         finish_at: r.finish_at,
         next_start_at,
@@ -995,6 +999,27 @@ mod tests {
             sql.contains(" AND FALSE"),
             "owner-without-user must match nothing: {sql}"
         );
+    }
+
+    #[test]
+    fn record_sanitizes_description_from_column() {
+        let mut row = row_with(json!({}), None, None);
+        row.description =
+            Some("Join <link=\"file:///etc/passwd\">here</link> or <link=\"https://decentraland.org\">our site</link>".into());
+        let rec = event_row_to_record(row, None, &[]);
+        assert_eq!(
+            rec.description.as_deref(),
+            Some("Join here or <link=\"https://decentraland.org\">our site</link>")
+        );
+    }
+
+    #[test]
+    fn record_sanitizes_description_from_raw_fallback() {
+        let raw = json!({
+            "description": "<a href=\"smb://attacker/share\">x</a> <link=\"http://169.254.169.254/\">y</link>"
+        });
+        let rec = event_row_to_record(row_with(raw, None, None), None, &[]);
+        assert_eq!(rec.description.as_deref(), Some("x y"));
     }
 
     #[test]

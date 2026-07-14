@@ -32,6 +32,9 @@ pub enum FedError {
     #[error("transport error: {0}")]
     Transport(String),
 
+    #[error("gossip misconfigured: {0}")]
+    GossipMisconfigured(String),
+
     #[error("crypto: {0}")]
     Crypto(#[from] catalyrst_crypto::AuthError),
 }
