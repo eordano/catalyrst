@@ -53,7 +53,10 @@ async fn read_only_gate(
     next.run(request).await
 }
 
-fn content_routes(state: &Arc<AppState>) -> Router<Arc<AppState>> {
+fn content_routes(
+    state: &Arc<AppState>,
+    post_entities_limiter: &Arc<crate::rate_limit::PostEntitiesRateLimiter>,
+) -> Router<Arc<AppState>> {
     Router::new()
         .route("/challenge", get(handlers::get_challenge::get_challenge))
         .route(
@@ -124,7 +127,19 @@ fn content_routes(state: &Arc<AppState>) -> Router<Arc<AppState>> {
                 .route_layer(axum::middleware::from_fn_with_state(
                     state.clone(),
                     read_only_gate,
+                ))
+                // Outermost on this route: a throttled client must be rejected before the
+                // multipart handler buffers its multi-MB upload into memory.
+                .route_layer(axum::middleware::from_fn_with_state(
+                    post_entities_limiter.clone(),
+                    crate::rate_limit::post_entities_rate_limit,
                 )),
+        )
+        .route(
+            "/scenes/{coord}",
+            axum::routing::delete(handlers::unpublish_scene::unpublish_scene).route_layer(
+                axum::middleware::from_fn_with_state(state.clone(), read_only_gate),
+            ),
         )
 }
 
@@ -141,6 +156,10 @@ fn lambdas_routes() -> Router<Arc<AppState>> {
         .route(
             "/lambdas/profile/{id}",
             get(handlers::lambdas::profile_alias),
+        )
+        .route(
+            "/lambdas/collections",
+            get(handlers::lambdas_catalog::nfts_collections),
         )
         .route(
             "/lambdas/collections/contents/{pointer}/thumbnail",
@@ -515,38 +534,6 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             "/admin/api/scene-state/reset",
             post(admin::api::scene_state_reset),
         )
-        .route(
-            "/admin/api/credits/seasons-list",
-            post(admin::api::credits_seasons_list),
-        )
-        .route(
-            "/admin/api/credits/season-create",
-            post(admin::api::credits_season_create),
-        )
-        .route(
-            "/admin/api/credits/season-update",
-            post(admin::api::credits_season_update),
-        )
-        .route(
-            "/admin/api/credits/season-delete",
-            post(admin::api::credits_season_delete),
-        )
-        .route(
-            "/admin/api/credits/goals-list",
-            post(admin::api::credits_goals_list),
-        )
-        .route(
-            "/admin/api/credits/goal-create",
-            post(admin::api::credits_goal_create),
-        )
-        .route(
-            "/admin/api/credits/goal-update",
-            post(admin::api::credits_goal_update),
-        )
-        .route(
-            "/admin/api/credits/goal-delete",
-            post(admin::api::credits_goal_delete),
-        )
         .route("/admin/api/credits/grant", post(admin::api::credits_grant))
         .route(
             "/admin/api/credits/revoke",
@@ -683,14 +670,21 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         )
         .route("/about", get(handlers::about::get_about));
 
+    // One limiter for both mounts: /entities and /content/entities are the same endpoint, so a
+    // client alternating paths must draw from a single budget.
+    let post_entities_limiter = Arc::new(crate::rate_limit::PostEntitiesRateLimiter::from_env());
+
     let mut app = top
-        .merge(content_routes(&state))
+        .merge(content_routes(&state, &post_entities_limiter))
         .merge(lambdas_routes())
-        .nest("/content", content_routes(&state))
+        .nest("/content", content_routes(&state, &post_entities_limiter))
         .fallback(not_found)
         .route("/metrics", get(crate::metrics::metrics_handler))
         .layer(axum::middleware::from_fn(crate::metrics::track_http))
         .layer(TraceLayer::new_for_http())
+        .layer(axum::middleware::from_fn(
+            crate::nul_guard::nul_guard_middleware,
+        ))
         .layer(axum::middleware::from_fn(crate::cors::cors_middleware));
 
     if let Some(timeout) = request_timeout() {

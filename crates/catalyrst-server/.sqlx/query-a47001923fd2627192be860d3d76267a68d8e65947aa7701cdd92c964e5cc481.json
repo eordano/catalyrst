@@ -1,0 +1,21 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT EXISTS (\n               SELECT 1 FROM information_schema.columns\n               WHERE table_schema = current_schema()\n                 AND table_name = 'active_pointers'\n                 AND column_name = 'entity_type') AS \"has_type_col!\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "has_type_col!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "a47001923fd2627192be860d3d76267a68d8e65947aa7701cdd92c964e5cc481"
+}

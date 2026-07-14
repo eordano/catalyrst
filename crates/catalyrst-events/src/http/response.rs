@@ -2,12 +2,11 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 use serde::Serialize;
-use serde_json::json;
 use thiserror::Error;
 
-pub use catalyrst_types::{HttpError, InvalidParameterError};
+pub use catalyrst_types::{ApiErrorBody, HttpError, InvalidParameterError};
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "events/"))]
 pub struct ApiOk<T> {
     pub ok: bool,
@@ -23,59 +22,62 @@ impl<T> ApiOk<T> {
 #[derive(Debug, Error)]
 pub enum ApiError {
     #[error(transparent)]
-    Http(#[from] HttpError),
+    Common(#[from] catalyrst_types::ApiError),
 
     #[error(transparent)]
     InvalidParameter(#[from] InvalidParameterError),
-
-    #[error("database error: {0}")]
-    Database(#[from] sqlx::Error),
-
-    #[error("{0}")]
-    Internal(String),
 }
 
 impl ApiError {
+    pub fn http(status: u16, msg: impl Into<String>) -> Self {
+        ApiError::Common(catalyrst_types::ApiError::http(status, msg))
+    }
     pub fn bad_request(msg: impl Into<String>) -> Self {
-        ApiError::Http(HttpError::new(400, msg))
+        Self::http(400, msg)
     }
     pub fn not_found(msg: impl Into<String>) -> Self {
-        ApiError::Http(HttpError::new(404, msg))
+        Self::http(404, msg)
     }
     pub fn unauthorized(msg: impl Into<String>) -> Self {
-        ApiError::Http(HttpError::new(401, msg))
+        Self::http(401, msg)
     }
     pub fn forbidden(msg: impl Into<String>) -> Self {
-        ApiError::Http(HttpError::new(403, msg))
+        Self::http(403, msg)
     }
     pub fn not_implemented(msg: impl Into<String>) -> Self {
-        ApiError::Http(HttpError::new(501, msg))
+        Self::http(501, msg)
     }
     pub fn gone(msg: impl Into<String>) -> Self {
-        ApiError::Http(HttpError::new(410, msg))
+        Self::http(410, msg)
+    }
+    pub fn internal(msg: impl Into<String>) -> Self {
+        ApiError::Common(catalyrst_types::ApiError::internal(msg))
+    }
+}
+
+impl From<sqlx::Error> for ApiError {
+    fn from(e: sqlx::Error) -> Self {
+        Self::Common(e.into())
     }
 }
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
-        let (code, message) = match &self {
-            ApiError::Http(HttpError { code, message }) => (*code, message.clone()),
-            ApiError::InvalidParameter(e) => (400u16, e.to_string()),
-            ApiError::Database(e) => {
-                tracing::error!(error = %e, "sqlx error");
-                (500, "database error".to_string())
-            }
-            ApiError::Internal(s) => (500, s.clone()),
-        };
-        let status = StatusCode::from_u16(code).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
-        let body = json!({ "ok": false, "error": message });
-        (status, Json(body)).into_response()
+        match self {
+            ApiError::Common(e) => e.into_response(),
+            ApiError::InvalidParameter(e) => (
+                StatusCode::BAD_REQUEST,
+                Json(ApiErrorBody::new(e.to_string())),
+            )
+                .into_response(),
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     #[test]
     fn wire_identity_api_ok_envelope() {

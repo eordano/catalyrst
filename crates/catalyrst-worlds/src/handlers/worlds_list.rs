@@ -10,6 +10,8 @@ use crate::ports::worlds::{
 use crate::AppState;
 
 const MAX_SEARCH_TERM_LENGTH: usize = 64;
+const DEFAULT_LIMIT: i64 = 100;
+const MAX_LIMIT: i64 = 1000;
 
 #[derive(Debug, Deserialize)]
 pub struct WorldsQuery {
@@ -29,11 +31,22 @@ pub struct WorldsQuery {
     pub order: Option<String>,
 }
 
+#[utoipa::path(
+    get,
+    path = "/worlds",
+    tag = "worlds",
+    params(("limit" = Option<i64>, Query), ("offset" = Option<i64>, Query)),
+    responses(
+        (status = 200, body = serde_json::Value),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn get_worlds(
     State(state): State<AppState>,
     Query(q): Query<WorldsQuery>,
 ) -> Result<Json<Value>, ApiError> {
-    let (limit, offset) = clamp_pagination(q.limit, q.offset);
+    let limit = catalyrst_types::clamp_limit(q.limit, DEFAULT_LIMIT, MAX_LIMIT);
+    let offset = q.offset.unwrap_or(0).max(0);
 
     let deployer = match q.authorized_deployer.as_deref() {
         Some(d) if !d.is_empty() => {
@@ -120,10 +133,4 @@ fn world_info_json(w: &WorldInfoRow) -> Value {
         "blocked_since": w.blocked_since.map(|t| t.to_rfc3339()),
         "deployed_scenes": w.deployed_scenes,
     })
-}
-
-fn clamp_pagination(limit: Option<i64>, offset: Option<i64>) -> (i64, i64) {
-    let limit = limit.unwrap_or(100).clamp(1, 1000);
-    let offset = offset.unwrap_or(0).max(0);
-    (limit, offset)
 }

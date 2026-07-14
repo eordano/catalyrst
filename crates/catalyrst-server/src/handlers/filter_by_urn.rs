@@ -6,16 +6,8 @@ use axum::Json;
 use serde_json::json;
 
 use crate::errors::{AppError, AppResult, InvalidRequestError};
-use crate::query_params::{parse_pagination, parse_query_string};
-use crate::state::AppState;
-
-fn is_hex_address(s: &str) -> bool {
-    let rest = match s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")) {
-        Some(r) => r,
-        None => return false,
-    };
-    rest.len() == 40 && rest.bytes().all(|b| b.is_ascii_hexdigit())
-}
+use crate::query_params::{is_valid_eth_address, parse_pagination, parse_query_string};
+use crate::state::{retain_non_denylisted, AppState};
 
 fn invalid_collection_urn_message(urn: &str) -> String {
     format!("Invalid URN format: {urn}")
@@ -33,7 +25,7 @@ fn is_valid_collection_urn(urn: &str) -> bool {
 
     match p[3] {
         "collections-v1" => !p[4].is_empty(),
-        "collections-v2" => is_hex_address(p[4]),
+        "collections-v2" => is_valid_eth_address(p[4]),
 
         "collections-thirdparty" => p.len() == 5 && !p[4].is_empty(),
         _ => false,
@@ -61,16 +53,8 @@ pub async fn get_entities_by_collection(
         .await
         .map_err(|e| AppError::Internal(e.to_string()))?;
 
-    let entities: Vec<_> = result
-        .entities
-        .into_iter()
-        .filter(|e| {
-            e.get("id")
-                .and_then(|id| id.as_str())
-                .map(|id| !state.denylist.is_denylisted(id))
-                .unwrap_or(true)
-        })
-        .collect();
+    let mut entities = result.entities;
+    retain_non_denylisted(&mut entities, state.denylist.as_ref());
 
     Ok(Json(json!({
         "total": result.total,
@@ -98,7 +82,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn invalid_collection_urn_response_is_400_with_upstream_body() {
+    async fn invalid_collection_urn_response_is_400_with_envelope_body() {
         let err: AppError =
             InvalidRequestError::new(invalid_collection_urn_message("not-a-real-urn")).into();
         let resp = err.into_response();
@@ -109,7 +93,11 @@ mod tests {
         let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(
             body,
-            json!({ "error": "Invalid URN format: not-a-real-urn" })
+            json!({
+                "ok": false,
+                "error": "Invalid URN format: not-a-real-urn",
+                "message": "Invalid URN format: not-a-real-urn"
+            })
         );
     }
 }

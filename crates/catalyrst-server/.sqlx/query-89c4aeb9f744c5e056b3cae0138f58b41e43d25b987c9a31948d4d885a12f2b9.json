@@ -1,0 +1,21 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT to_regclass('land_authz.token_right') IS NOT NULL AS \"present!\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "present!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "89c4aeb9f744c5e056b3cae0138f58b41e43d25b987c9a31948d4d885a12f2b9"
+}

@@ -29,3 +29,4 @@ pub mod lease_overlay;
 pub mod pointer_changes;
 pub mod profile_processing;
 pub mod status;
+pub mod unpublish_scene;

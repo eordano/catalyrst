@@ -6,6 +6,7 @@ use std::{
     time::SystemTime,
 };
 
+use alloy::signers::{local::PrivateKeySigner, Signer};
 use anyhow::{bail, Context, Result};
 use axum::{
     extract::State,
@@ -17,20 +18,19 @@ use axum::{
 use base64::Engine as _;
 use catalyrst_hashing::hash_bytes_v1;
 use clap::Parser;
-use ethers_signers::{LocalWallet, Signer};
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-fn load_or_create_key(path: &std::path::Path) -> Result<LocalWallet> {
+fn load_or_create_key(path: &std::path::Path) -> Result<PrivateKeySigner> {
     if path.exists() {
         let raw = std::fs::read_to_string(path)
             .with_context(|| format!("reading key {}", path.display()))?;
         let hexs = raw.trim().trim_start_matches("0x");
-        let wallet: LocalWallet = hexs.parse().context("parsing private key hex")?;
+        let wallet: PrivateKeySigner = hexs.parse().context("parsing private key hex")?;
         Ok(wallet)
     } else {
-        let wallet = LocalWallet::new(&mut ethers_core::rand::thread_rng());
-        let hexs = format!("0x{}", hex::encode(wallet.signer().to_bytes()));
+        let wallet = PrivateKeySigner::random();
+        let hexs = format!("0x{}", hex::encode(wallet.to_bytes()));
         std::fs::write(path, format!("{hexs}\n"))
             .with_context(|| format!("writing key {}", path.display()))?;
         #[cfg(unix)]
@@ -47,16 +47,31 @@ fn load_or_create_key(path: &std::path::Path) -> Result<LocalWallet> {
     }
 }
 
-fn addr_str(w: &LocalWallet) -> String {
+fn addr_str(w: &PrivateKeySigner) -> String {
     format!("{:#x}", w.address())
 }
 
-async fn eip191_sign(w: &LocalWallet, msg: &str) -> Result<String> {
+async fn eip191_sign(w: &PrivateKeySigner, msg: &str) -> Result<String> {
     let sig = w
         .sign_message(msg.as_bytes())
         .await
         .context("EIP-191 sign")?;
-    Ok(format!("0x{sig}"))
+    Ok(sig.to_string())
+}
+
+/// The tail shared by `deploy` and `do_grant`: both post a request and then either surface a
+/// success message or bail with the response body attached to a caller-supplied context.
+fn ok_or_bail(
+    status: reqwest::StatusCode,
+    body: &str,
+    ok_msg: impl FnOnce() -> String,
+    reject_ctx: &str,
+) -> Result<String> {
+    if status.is_success() {
+        Ok(ok_msg())
+    } else {
+        bail!("{reject_ctx} (HTTP {}): {}", status.as_u16(), body)
+    }
 }
 
 fn read_world(args: &Args) -> Result<String> {
@@ -78,7 +93,7 @@ fn read_world(args: &Args) -> Result<String> {
 struct Args {
     #[arg(long, default_value = ".")]
     scene_dir: PathBuf,
-    #[arg(long, default_value = "https://worlds-content-server.decentraland.org")]
+    #[arg(long)]
     content_server: String,
     #[arg(long, default_value = "0.0.0.0")]
     bind: String,
@@ -375,27 +390,24 @@ async fn deploy(
         .context("posting to content server")?;
     let status = resp.status();
     let body = resp.text().await.unwrap_or_default();
-    if status.is_success() {
-        Ok(format!(
-            "Deployed to {} \u{2713} (HTTP {}). Live at https://decentraland.org/play/?realm={} — server: {}",
-            p.world, status.as_u16(), p.world, body
-        ))
-    } else {
-        bail!(
-            "content server rejected the deployment (HTTP {}): {}",
-            status.as_u16(),
-            body
-        )
-    }
+    ok_or_bail(
+        status,
+        &body,
+        || {
+            format!(
+                "Deployed to {} \u{2713} (HTTP {}). Live at https://decentraland.org/play/?realm={} — server: {}",
+                p.world, status.as_u16(), p.world, body
+            )
+        },
+        "content server rejected the deployment",
+    )
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
-        )
-        .init();
+    // Clap owns the CLI surface here, so only the tracing half of the
+    // standard envcfg bootstrap applies.
+    catalyrst_envcfg::init_tracing("info");
 
     let args = Args::parse();
     let content_server = args.content_server.trim_end_matches('/').to_string();
@@ -556,28 +568,27 @@ async fn do_grant(st: &GrantState, req: &GrantReq) -> Result<String> {
         .context("PUT permission to content server")?;
     let status = resp.status();
     let body = resp.text().await.unwrap_or_default();
-    if status.is_success() {
-        Ok(format!(
-            "Granted '{}' on {} to {} \u{2713} (HTTP {}). Future deploys are unattended.",
-            st.permission,
-            st.world,
-            st.deploy_address,
-            status.as_u16()
-        ))
-    } else {
-        bail!(
-            "permission server rejected the grant (HTTP {}): {}",
-            status.as_u16(),
-            body
-        )
-    }
+    ok_or_bail(
+        status,
+        &body,
+        || {
+            format!(
+                "Granted '{}' on {} to {} \u{2713} (HTTP {}). Future deploys are unattended.",
+                st.permission,
+                st.world,
+                st.deploy_address,
+                status.as_u16()
+            )
+        },
+        "permission server rejected the grant",
+    )
 }
 
 async fn run_grant(
     args: &Args,
     content_server: &str,
     world: &str,
-    wallet: &LocalWallet,
+    wallet: &PrivateKeySigner,
 ) -> Result<()> {
     let deploy_address = addr_str(wallet);
     let permission = args.permission.to_lowercase();
@@ -629,8 +640,6 @@ async fn run_grant(
 
 const STORAGE_DELEGATION_PREFIX: &str = "Decentraland Authoritative Storage Delegation";
 
-// Mirror of catalyrst-world-storage::is_valid_parcel — the parcel goes verbatim
-// into the signed claim the verifier matches against.
 fn is_valid_parcel(parcel: &str) -> bool {
     fn is_coord(s: &str) -> bool {
         let digits = s.strip_prefix('-').unwrap_or(s);
@@ -660,16 +669,14 @@ fn validate_delegation_req(
     Ok((world, scene_id.to_string(), parcel.to_string()))
 }
 
-// The envelope carries a throwaway ephemeral PRIVATE key: never log it, and only
-// hand it out on loopback or behind the bearer token.
 async fn mint_delegation_envelope(
-    authoritative: &LocalWallet,
+    authoritative: &PrivateKeySigner,
     world: &str,
     scene_id: &str,
     parcel: &str,
     ttl: std::time::Duration,
 ) -> Result<String> {
-    let ephemeral = LocalWallet::new(&mut ethers_core::rand::thread_rng());
+    let ephemeral = PrivateKeySigner::random();
     let expiration = chrono::Utc::now() + chrono::Duration::seconds(ttl.as_secs() as i64);
     let payload = format!(
         "{STORAGE_DELEGATION_PREFIX}\nEphemeral: {}\nWorld: {}\nSceneId: {}\nParcel: {}\nExpiration: {}",
@@ -683,10 +690,10 @@ async fn mint_delegation_envelope(
     let envelope = json!({
         "v": 1,
         "ephemeral": {
-            "privateKey": format!("0x{}", hex::encode(ephemeral.signer().to_bytes())),
+            "privateKey": format!("0x{}", hex::encode(ephemeral.to_bytes())),
             "publicKey": format!(
                 "0x{}",
-                hex::encode(ephemeral.signer().verifying_key().to_encoded_point(false).as_bytes())
+                hex::encode(ephemeral.credential().verifying_key().to_encoded_point(false).as_bytes())
             ),
             "address": addr_str(&ephemeral),
         },
@@ -697,7 +704,7 @@ async fn mint_delegation_envelope(
 
 #[derive(Clone)]
 struct MinterState {
-    wallet: Arc<LocalWallet>,
+    wallet: Arc<PrivateKeySigner>,
     ttl: std::time::Duration,
     token: Option<String>,
 }
@@ -752,19 +759,12 @@ async fn mint_delegation(
     }
 }
 
-// An empty --delegation-token is treated as ABSENT: otherwise it would both open
-// the public --bind below AND authorize anyone presenting an empty `Bearer `. An
-// unset shell var expanding to "" is the realistic trigger, so fail safe to
-// loopback-only + no-token rather than a publicly-exposed, trivially-bypassable
-// authoritative minter.
 fn effective_delegation_token(raw: &Option<String>) -> Option<String> {
     raw.clone().filter(|s| !s.is_empty())
 }
 
-async fn run_delegation_minter(args: &Args, wallet: LocalWallet) -> Result<()> {
+async fn run_delegation_minter(args: &Args, wallet: PrivateKeySigner) -> Result<()> {
     let token = effective_delegation_token(&args.delegation_token);
-    // Without a token the response (which contains an ephemeral private key) must
-    // never leave the machine: force loopback regardless of --bind.
     let bind = if token.is_some() {
         args.bind.clone()
     } else {
@@ -958,7 +958,7 @@ mod delegation_tests {
 
     const KEY: &str = "0x4c0883a69102937d6231471b5dbb6204fe5129617082792ae468d01a3f362318";
 
-    fn authoritative() -> LocalWallet {
+    fn authoritative() -> PrivateKeySigner {
         KEY.trim_start_matches("0x").parse().unwrap()
     }
 
@@ -969,9 +969,6 @@ mod delegation_tests {
         serde_json::from_slice(&bytes).expect("envelope must be JSON")
     }
 
-    // Mirror of the verifier's exact-field claim parse
-    // (catalyrst-world-storage/src/delegation.rs::parse_claim) so minter/verifier
-    // format drift fails this test.
     fn strict_parse_claim(payload: &str) -> Option<[String; 5]> {
         const FIELDS: [&str; 5] = ["Ephemeral:", "World:", "SceneId:", "Parcel:", "Expiration:"];
         let mut lines = payload.split('\n');
@@ -1048,16 +1045,15 @@ mod delegation_tests {
         .unwrap();
         let v = decode(&envelope);
         let payload = v["scope"]["payload"].as_str().unwrap().to_string();
-        let sig: ethers_core::types::Signature = v["scope"]["signature"]
+        let sig: alloy::primitives::Signature = v["scope"]["signature"]
             .as_str()
             .unwrap()
             .trim_start_matches("0x")
             .parse()
             .unwrap();
-        let recovered = sig.recover(payload).unwrap();
+        let recovered = sig.recover_address_from_msg(payload).unwrap();
         assert_eq!(format!("{recovered:#x}"), addr_str(&wallet));
 
-        // The ephemeral key must be fresh per envelope and distinct from the signer.
         let eph = v["ephemeral"]["address"].as_str().unwrap();
         assert_ne!(eph, addr_str(&wallet));
         let envelope2 = mint_delegation_envelope(
@@ -1085,9 +1081,6 @@ mod delegation_tests {
 
     #[test]
     fn empty_delegation_token_is_treated_as_absent() {
-        // Exploit guard: `--delegation-token ""` (e.g. an unset shell var) must NOT
-        // count as a configured token — that would open the public --bind and let
-        // an empty `Bearer ` authorize minting of authoritative delegations.
         assert_eq!(effective_delegation_token(&Some(String::new())), None);
         assert_eq!(effective_delegation_token(&None), None);
         assert_eq!(

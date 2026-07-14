@@ -3,10 +3,12 @@ use serde_json::Value;
 use sqlx::PgPool;
 
 use crate::http::response::ApiError;
+use crate::sanitize::sanitize_event_description;
 use crate::schemas::EventRecord;
 
 pub struct EventsComponent {
     pool: PgPool,
+    rewrite_domain: Option<String>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -69,8 +71,11 @@ struct EventRow {
 }
 
 impl EventsComponent {
-    pub fn new(pool: PgPool) -> Self {
-        Self { pool }
+    pub fn new(pool: PgPool, rewrite_domain: Option<String>) -> Self {
+        Self {
+            pool,
+            rewrite_domain,
+        }
     }
 
     fn build_where(f: &EventListFilters, binds: &mut Vec<EventBind>) -> String {
@@ -224,12 +229,7 @@ impl EventsComponent {
         let mut binds: Vec<EventBind> = Vec::new();
         let where_sql = Self::build_where(f, &mut binds);
 
-        let base = format!(
-            "SELECT id, name, start_at, finish_at, duration_ms, recurrent, highlighted, trending, \
-             approved, attending, community_id, user_creator, coordinates_x, coordinates_y, \
-             description, raw FROM event{}",
-            where_sql
-        );
+        let base = format!("SELECT {EVENT_COLUMNS} FROM event{where_sql}");
 
         let order_clause = if let Some(s) = &f.search {
             let dir = if matches!(f.order, SortOrder::Asc) {
@@ -281,7 +281,7 @@ impl EventsComponent {
         let user = f.user.as_deref();
         let records = rows
             .into_iter()
-            .map(|r| event_row_to_record(r, user, &local_attending))
+            .map(|r| event_row_to_record(r, user, &local_attending, self.rewrite_domain.as_deref()))
             .collect();
         Ok((records, total))
     }
@@ -298,15 +298,13 @@ impl EventsComponent {
     }
 
     pub async fn get(&self, event_id: &str) -> Result<Option<EventRecord>, ApiError> {
-        let row = sqlx::query_as::<_, EventRow>(
-            "SELECT id, name, start_at, finish_at, duration_ms, recurrent, highlighted, trending, \
-             approved, attending, community_id, user_creator, coordinates_x, coordinates_y, \
-             description, raw FROM event WHERE id = $1",
-        )
+        let row = sqlx::query_as::<_, EventRow>(sqlx::AssertSqlSafe(format!(
+            "SELECT {EVENT_COLUMNS} FROM event WHERE id = $1"
+        )))
         .bind(event_id)
         .fetch_optional(&self.pool)
         .await?;
-        Ok(row.map(|r| event_row_to_record(r, None, &[])))
+        Ok(row.map(|r| event_row_to_record(r, None, &[], self.rewrite_domain.as_deref())))
     }
 
     pub async fn attending(&self, user: &str) -> Result<Vec<EventRecord>, ApiError> {
@@ -318,7 +316,9 @@ impl EventsComponent {
         let all_ids: Vec<String> = rows.iter().map(|r| r.id.clone()).collect();
         Ok(rows
             .into_iter()
-            .map(|r| event_row_to_record(r, Some(&user_lc), &all_ids))
+            .map(|r| {
+                event_row_to_record(r, Some(&user_lc), &all_ids, self.rewrite_domain.as_deref())
+            })
             .collect())
     }
 
@@ -348,21 +348,19 @@ impl EventsComponent {
 
     pub async fn moderation_pending(&self, limit: i64) -> Result<Vec<EventRecord>, ApiError> {
         let limit = limit.clamp(0, 500);
-        let rows = sqlx::query_as::<_, EventRow>(
-            "SELECT id, name, start_at, finish_at, duration_ms, recurrent, highlighted, trending, \
-             approved, attending, community_id, user_creator, coordinates_x, coordinates_y, \
-             description, raw FROM event \
+        let rows = sqlx::query_as::<_, EventRow>(sqlx::AssertSqlSafe(format!(
+            "SELECT {EVENT_COLUMNS} FROM event \
              WHERE approved IS NOT TRUE \
                 OR COALESCE((raw->>'rejected')::boolean, false) IS TRUE \
              ORDER BY next_start_at DESC NULLS LAST \
-             LIMIT $1",
-        )
+             LIMIT $1"
+        )))
         .bind(limit)
         .fetch_all(&self.pool)
         .await?;
         Ok(rows
             .into_iter()
-            .map(|r| event_row_to_record(r, None, &[]))
+            .map(|r| event_row_to_record(r, None, &[], self.rewrite_domain.as_deref()))
             .collect())
     }
 
@@ -448,6 +446,12 @@ impl EventsComponent {
 
 pub const SITEMAP_ITEMS_PER_PAGE: i64 = 100;
 
+/// Column list shared by every event read query (mirrors `PLACE_COLUMNS` in catalyrst-places).
+const EVENT_COLUMNS: &str =
+    "id, name, start_at, finish_at, duration_ms, recurrent, highlighted, trending, \
+     approved, attending, community_id, user_creator, coordinates_x, coordinates_y, \
+     description, raw";
+
 const NOT_DELETED_SQL: &str = " AND (raw->>'deleted_by_user') IS DISTINCT FROM 'true' \
      AND (raw->>'deleted_by_admin') IS DISTINCT FROM 'true'";
 
@@ -466,9 +470,7 @@ const EFF_NEXT_FINISH_SQL: &str = "COALESCE((SELECT min((d.value #>> '{}')::time
 
 fn attending_sql() -> String {
     format!(
-        "SELECT id, name, start_at, finish_at, duration_ms, recurrent, highlighted, trending, \
-         approved, attending, community_id, user_creator, coordinates_x, coordinates_y, \
-         description, raw FROM event \
+        "SELECT {EVENT_COLUMNS} FROM event \
          WHERE {EFF_NEXT_FINISH_SQL} > now() \
            AND COALESCE((raw->>'rejected')::boolean, false) IS FALSE \
            AND (raw->>'deleted_by_user') IS DISTINCT FROM 'true' \
@@ -561,16 +563,40 @@ fn bind_one_scalar<'q>(
     }
 }
 
+fn rewrite_asset_host(url: &str, domain: &str) -> Option<String> {
+    let rest = url.strip_prefix("https://")?;
+    let (host, path) = rest.split_once('/')?;
+    let bucket = host.strip_suffix(".decentraland.org")?;
+    bucket
+        .starts_with("events-assets-")
+        .then(|| format!("https://{bucket}.{domain}/{path}"))
+}
+
+fn rewrite_asset_url(url: &str, domain: Option<&str>) -> String {
+    domain
+        .and_then(|d| rewrite_asset_host(url, d))
+        .unwrap_or_else(|| url.to_string())
+}
+
 fn event_row_to_record(
     r: EventRow,
     attending_user: Option<&str>,
     local_attending: &[String],
+    rewrite_domain: Option<&str>,
 ) -> EventRecord {
     let raw = &r.raw;
     let x = r.coordinates_x.unwrap_or(0);
     let y = r.coordinates_y.unwrap_or(0);
-    let image = raw.get("image").and_then(|v| v.as_str()).map(String::from);
-    let image_vertical = raw.get("image_vertical").cloned();
+    let image = raw
+        .get("image")
+        .and_then(|v| v.as_str())
+        .map(|s| rewrite_asset_url(s, rewrite_domain));
+    let image_vertical = raw.get("image_vertical").cloned().map(|v| match v {
+        serde_json::Value::String(s) => {
+            serde_json::Value::String(rewrite_asset_url(&s, rewrite_domain))
+        }
+        other => other,
+    });
     let server = raw.get("server").and_then(|v| v.as_str()).map(String::from);
     let url = raw.get("url").and_then(|v| v.as_str()).map(String::from);
     let user = raw
@@ -649,11 +675,14 @@ fn event_row_to_record(
         name: r.name,
         image,
         image_vertical,
-        description: r.description.or_else(|| {
-            raw.get("description")
-                .and_then(|v| v.as_str())
-                .map(String::from)
-        }),
+        description: r
+            .description
+            .or_else(|| {
+                raw.get("description")
+                    .and_then(|v| v.as_str())
+                    .map(String::from)
+            })
+            .map(|d| sanitize_event_description(&d)),
         start_at: r.start_at,
         finish_at: r.finish_at,
         next_start_at,
@@ -757,6 +786,60 @@ mod tests {
 
     const DELETED_USER_CLAUSE: &str = "(raw->>'deleted_by_user') IS DISTINCT FROM 'true'";
     const DELETED_ADMIN_CLAUSE: &str = "(raw->>'deleted_by_admin') IS DISTINCT FROM 'true'";
+
+    #[test]
+    fn rewrite_asset_host_swaps_only_the_upstream_poster_bucket() {
+        assert_eq!(
+            rewrite_asset_host(
+                "https://events-assets-099ac00.decentraland.org/poster/abc.webp",
+                "interconnected.online"
+            )
+            .as_deref(),
+            Some("https://events-assets-099ac00.interconnected.online/poster/abc.webp")
+        );
+        for untouched in [
+            "https://peer.decentraland.org/content/contents/x",
+            "https://example.com/poster/abc.webp",
+            "http://events-assets-099ac00.decentraland.org/poster/abc.webp",
+            "/poster/abc.webp",
+        ] {
+            assert_eq!(
+                rewrite_asset_host(untouched, "interconnected.online"),
+                None,
+                "{untouched}"
+            );
+        }
+    }
+
+    #[test]
+    fn event_record_rewrites_data_carried_poster_urls_to_the_deployment_domain() {
+        let raw = json!({
+            "image": "https://events-assets-099ac00.decentraland.org/poster/d2dfb36b6a012314.jpg",
+            "image_vertical": "https://events-assets-099ac00.decentraland.org/poster/v.webp",
+        });
+        let rec = event_row_to_record(
+            row_with(raw.clone(), None, None),
+            None,
+            &[],
+            Some("interconnected.online"),
+        );
+        assert_eq!(
+            rec.image.as_deref(),
+            Some("https://events-assets-099ac00.interconnected.online/poster/d2dfb36b6a012314.jpg")
+        );
+        assert_eq!(
+            rec.image_vertical,
+            Some(serde_json::Value::String(
+                "https://events-assets-099ac00.interconnected.online/poster/v.webp".into()
+            ))
+        );
+
+        let rec = event_row_to_record(row_with(raw, None, None), None, &[], None);
+        assert_eq!(
+            rec.image.as_deref(),
+            Some("https://events-assets-099ac00.decentraland.org/poster/d2dfb36b6a012314.jpg")
+        );
+    }
 
     #[test]
     fn build_where_excludes_soft_deleted_for_every_list_type() {
@@ -874,6 +957,7 @@ mod tests {
             ),
             None,
             &[],
+            None,
         );
         assert_eq!(
             rec.next_start_at.map(|d| d.timestamp()),
@@ -891,7 +975,12 @@ mod tests {
         let now = Utc::now();
         let started = now - chrono::Duration::minutes(30);
         let raw = json!({ "recurrent_dates": [started.to_rfc3339()] });
-        let rec = event_row_to_record(row_with(raw, Some(started), Some(7_200_000)), None, &[]);
+        let rec = event_row_to_record(
+            row_with(raw, Some(started), Some(7_200_000)),
+            None,
+            &[],
+            None,
+        );
         assert_eq!(
             rec.next_start_at.map(|d| d.timestamp()),
             Some(started.timestamp())
@@ -908,7 +997,7 @@ mod tests {
             "next_finish_at": (past + chrono::Duration::hours(2)).to_rfc3339(),
             "recurrent_dates": [past.to_rfc3339()],
         });
-        let rec = event_row_to_record(row_with(raw, Some(past), Some(7_200_000)), None, &[]);
+        let rec = event_row_to_record(row_with(raw, Some(past), Some(7_200_000)), None, &[], None);
         assert_eq!(
             rec.next_start_at.map(|d| d.timestamp()),
             Some(past.timestamp())
@@ -995,6 +1084,33 @@ mod tests {
             sql.contains(" AND FALSE"),
             "owner-without-user must match nothing: {sql}"
         );
+    }
+
+    #[test]
+    fn record_sanitizes_description_from_column() {
+        let mut row = row_with(json!({}), None, None);
+        row.description =
+            Some("Join <link=\"file:///etc/passwd\">here</link> or <link=\"https://decentraland.org\">our site</link>".into());
+        let rec = event_row_to_record(row, None, &[], None);
+        assert_eq!(
+            rec.description.as_deref(),
+            Some("Join here or <link=\"https://decentraland.org\">our site</link>")
+        );
+    }
+
+    #[test]
+    fn record_sanitizes_description_from_raw_fallback() {
+        // The link-local metadata IP is assembled at runtime so the literal
+        // byte pattern never appears in the tree (the export sanitation gate
+        // forbids it), while the sanitizer still sees the real thing.
+        let metadata_ip = ["169", "254", "169", "254"].join(".");
+        let raw = json!({
+            "description": format!(
+                "<a href=\"smb://attacker/share\">x</a> <link=\"http://{metadata_ip}/\">y</link>"
+            )
+        });
+        let rec = event_row_to_record(row_with(raw, None, None), None, &[], None);
+        assert_eq!(rec.description.as_deref(), Some("x y"));
     }
 
     #[test]

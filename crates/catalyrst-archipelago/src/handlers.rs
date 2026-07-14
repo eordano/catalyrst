@@ -452,7 +452,33 @@ async fn livekit_token(State(s): State<AppState>, body: Bytes) -> impl IntoRespo
         )
             .into_response();
     }
-    let grant: LivekitGrant = s.livekit.mint(&req.address, &req.room);
+    if s.deny_list.is_denied(&req.address).await {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({"error": "deny-listed"})),
+        )
+            .into_response();
+    }
+    // Do not trust the client-chosen room: resolve the caller's authorized
+    // island server-side and mint against that. `req.room` is enumerable via
+    // the public GET /islands, so honoring it lets any client join/publish to
+    // any island.
+    let addr = req.address.to_ascii_lowercase();
+    let Some((island_id, _)) = s.cluster.island_of(&addr) else {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({"error": "no authorized island"})),
+        )
+            .into_response();
+    };
+    if !req.room.is_empty() && req.room != island_id {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({"error": "room not authorized"})),
+        )
+            .into_response();
+    }
+    let grant: LivekitGrant = s.livekit.mint(&addr, &island_id);
     Json(grant).into_response()
 }
 

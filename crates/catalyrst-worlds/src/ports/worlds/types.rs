@@ -2,6 +2,10 @@ use chrono::{DateTime, Utc};
 use serde_json::Value;
 
 use crate::access::AccessSetting;
+use crate::settings_policy::{
+    js_truthy, storable_skybox_time, text_len, DESCRIPTION_MAX_LENGTH, DESCRIPTION_MIN_LENGTH,
+    MAX_CATEGORIES, TITLE_MAX_LENGTH, TITLE_MIN_LENGTH, VALID_RATINGS,
+};
 
 #[derive(Debug, Clone)]
 pub struct WorldRecord {
@@ -85,8 +89,8 @@ pub struct WorldInfoRow {
     pub spawn_coordinates: Option<String>,
     pub skybox_time: Option<i32>,
     pub categories: Option<Vec<String>>,
-    pub single_player: Option<bool>,
-    pub show_in_places: Option<bool>,
+    pub single_player: bool,
+    pub show_in_places: bool,
     pub thumbnail_hash: Option<String>,
     pub last_deployed_at: Option<DateTime<Utc>>,
     pub min_x: Option<i32>,
@@ -108,6 +112,8 @@ pub struct WorldSettingsRow {
     pub single_player: Option<bool>,
     pub show_in_places: Option<bool>,
     pub thumbnail_hash: Option<String>,
+    pub access_type: Option<String>,
+    pub settings_version: i64,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -153,6 +159,10 @@ pub(super) struct DerivedSceneSettings {
     pub(super) thumbnail_hash: Option<String>,
 }
 
+// Scene metadata is deployer-controlled and unconstrained, so every deploy-derived
+// value is held to the same allow-list PUT /settings enforces; a value the policy
+// rejects resolves to None ("not expressed") rather than being stored or corrupted,
+// and None lets the deploy path preserve whatever the owner already configured.
 pub(super) fn scene_settings_from_entity(entity: &Value) -> DerivedSceneSettings {
     let meta = entity.get("metadata");
     let display = meta.and_then(|m| m.get("display"));
@@ -162,40 +172,41 @@ pub(super) fn scene_settings_from_entity(entity: &Value) -> DerivedSceneSettings
     let title = display
         .and_then(|d| d.get("title"))
         .and_then(|v| v.as_str())
+        .filter(|t| (TITLE_MIN_LENGTH..=TITLE_MAX_LENGTH).contains(&text_len(t)))
         .map(str::to_string);
     let description = display
         .and_then(|d| d.get("description"))
         .and_then(|v| v.as_str())
+        .filter(|d| (DESCRIPTION_MIN_LENGTH..=DESCRIPTION_MAX_LENGTH).contains(&text_len(d)))
         .map(str::to_string);
     let content_rating = meta
         .and_then(|m| m.get("rating"))
         .and_then(|v| v.as_str())
+        .filter(|r| VALID_RATINGS.contains(r))
         .map(str::to_string);
     let skybox_time = wc
         .and_then(|c| c.get("skyboxConfig"))
         .and_then(|s| s.get("fixedTime"))
-        .and_then(|v| v.as_i64())
-        .map(|n| n as i32);
+        .and_then(|v| v.as_f64())
+        .and_then(storable_skybox_time);
     let categories = meta
         .and_then(|m| m.get("tags"))
         .and_then(|t| t.as_array())
-        .map(|arr| {
+        .filter(|arr| !arr.is_empty() && arr.len() <= MAX_CATEGORIES)
+        .and_then(|arr| {
             arr.iter()
-                .filter_map(|t| t.as_str().map(str::to_string))
-                .collect::<Vec<_>>()
-        })
-        .filter(|v| !v.is_empty());
-    let single_player = Some(
-        wc.and_then(|c| c.get("fixedAdapter"))
-            .and_then(|v| v.as_str())
-            == Some("offline:offline"),
-    );
-    let opt_out = wc
+                .map(|t| t.as_str().map(str::to_string))
+                .collect::<Option<Vec<_>>>()
+        });
+    // None when the scene says nothing, so "not declared" stays distinguishable
+    // from "declared false" and a redeploy cannot silently revert owner settings.
+    let single_player = wc
+        .and_then(|c| c.get("fixedAdapter"))
+        .map(|v| v.as_str() == Some("offline:offline"));
+    let show_in_places = wc
         .and_then(|c| c.get("placesConfig"))
         .and_then(|p| p.get("optOut"))
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
-    let show_in_places = Some(!opt_out);
+        .map(|v| !js_truthy(v));
     let spawn_coordinates = scene
         .and_then(|s| s.get("base"))
         .and_then(|v| v.as_str())
@@ -237,23 +248,65 @@ pub(super) fn scene_settings_from_entity(entity: &Value) -> DerivedSceneSettings
 }
 
 pub fn canonicalize_parcel(s: &str) -> String {
-    let parse = |part: &str| -> Option<i64> {
-        let t = part.trim();
-        let digits = t.strip_prefix('-').unwrap_or(t);
-        if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
-            return None;
-        }
-        t.parse::<i64>().ok()
-    };
-    match s.split_once(',') {
-        Some((a, b)) => match (parse(a), parse(b)) {
-            (Some(x), Some(y)) => format!("{x},{y}"),
-            _ => s.to_string(),
-        },
-        None => s.to_string(),
-    }
+    catalyrst_types::pointer::canonicalize_pointer(s)
 }
 
 pub(super) fn canonicalize_parcels(parcels: &[String]) -> Vec<String> {
     parcels.iter().map(|p| canonicalize_parcel(p)).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn entity_with_wc(wc: Value) -> Value {
+        json!({ "metadata": { "worldConfiguration": wc } })
+    }
+
+    #[test]
+    fn opt_out_uses_js_truthiness() {
+        let opt_out = |v: Value| {
+            scene_settings_from_entity(&entity_with_wc(json!({ "placesConfig": { "optOut": v } })))
+                .show_in_places
+        };
+        assert_eq!(opt_out(json!(true)), Some(false));
+        assert_eq!(opt_out(json!(1)), Some(false));
+        assert_eq!(opt_out(json!("false")), Some(false));
+        assert_eq!(opt_out(json!({})), Some(false));
+        assert_eq!(opt_out(json!(false)), Some(true));
+        assert_eq!(opt_out(json!(0)), Some(true));
+        assert_eq!(opt_out(json!(null)), Some(true));
+        let undeclared = scene_settings_from_entity(&entity_with_wc(json!({ "placesConfig": {} })));
+        assert_eq!(undeclared.show_in_places, None);
+    }
+
+    #[test]
+    fn text_bounds_are_utf16_code_units() {
+        let entity = json!({ "metadata": { "display": {
+            "title": "日本",
+            "description": "デ".repeat(400),
+        } } });
+        let s = scene_settings_from_entity(&entity);
+        assert_eq!(s.title, None, "2 UTF-16 units is under the 3-unit minimum");
+        assert_eq!(
+            s.description.as_deref().map(text_len),
+            Some(400),
+            "400 UTF-16 units is within the 1000-unit maximum despite 1200 bytes"
+        );
+    }
+
+    #[test]
+    fn skybox_time_shares_the_settings_policy_coercion() {
+        let skybox = |v: Value| {
+            scene_settings_from_entity(&entity_with_wc(
+                json!({ "skyboxConfig": { "fixedTime": v } }),
+            ))
+            .skybox_time
+        };
+        assert_eq!(skybox(json!(36000)), Some(36000));
+        assert_eq!(skybox(json!(36000.0)), Some(36000));
+        assert_eq!(skybox(json!(1.5)), None);
+        assert_eq!(skybox(json!(99999999999i64)), None);
+    }
 }

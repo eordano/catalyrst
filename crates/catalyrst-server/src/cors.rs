@@ -4,10 +4,25 @@ use axum::http::{header, HeaderValue, Method, StatusCode};
 use axum::middleware::Next;
 use axum::response::Response;
 
-const ALLOW_METHODS: &str = "GET,HEAD,POST,PUT,DELETE,PATCH,OPTIONS";
+// Advertise only verbs that route somewhere: PUT and PATCH have no handler, so
+// a preflight promising them is a lie a browser would cache. DELETE stays — it
+// serves scene unpublish (/scenes/{coord}), which upstream's content-server has
+// no equivalent of, so our list is theirs (GET,HEAD,POST,OPTIONS) plus DELETE.
+const ALLOW_METHODS: &str = "GET,HEAD,POST,DELETE,OPTIONS";
 
+// Fallback for preflights that carry no Access-Control-Request-Headers.
+// When the request names its headers we REFLECT them instead (like the nginx
+// _cors.inc this replaces at the transparent-front cutover): auth chains are
+// open-ended — X-Identity-Auth-Chain-N grows with delegation depth and
+// smart-wallet (EIP-1654) links, so any enumerated list is a ceiling that
+// breaks signed login for someone. Upstream verification reads the headers by
+// prefix, unbounded; upstream's own CORS list omits X-Identity-* entirely,
+// which we already deliberately diverge from (see conformance cors fixtures).
 const ALLOW_HEADERS: &str = "Cache-Control,Content-Type,Origin,Accept,User-Agent,X-Upload-Origin,Range,If-None-Match,If-Modified-Since,X-Identity-Timestamp,X-Identity-Metadata,X-Identity-Auth-Chain-0,X-Identity-Auth-Chain-1,X-Identity-Auth-Chain-2,X-Identity-Auth-Chain-3";
-const MAX_AGE: &str = "86400";
+// 10 minutes, not a day: a wrong preflight verdict cannot linger in a browser
+// cache long enough to outlast a fix. Raise once the ADR-44 header reflection
+// above has settled.
+const MAX_AGE: &str = "600";
 
 fn append_vary_origin(resp: &mut Response) {
     let headers = resp.headers_mut();
@@ -31,6 +46,10 @@ pub async fn cors_middleware(req: Request, next: Next) -> Response {
         .and_then(|v| v.to_str().ok())
         .map(str::to_owned);
     let is_preflight = req.method() == Method::OPTIONS;
+    let requested_headers = req
+        .headers()
+        .get(header::ACCESS_CONTROL_REQUEST_HEADERS)
+        .cloned();
 
     if is_preflight {
         let mut resp = Response::builder()
@@ -44,16 +63,25 @@ pub async fn cors_middleware(req: Request, next: Next) -> Response {
         );
         h.insert(
             header::ACCESS_CONTROL_ALLOW_HEADERS,
-            HeaderValue::from_static(ALLOW_HEADERS),
+            requested_headers.unwrap_or(HeaderValue::from_static(ALLOW_HEADERS)),
         );
         h.insert(
             header::ACCESS_CONTROL_MAX_AGE,
             HeaderValue::from_static(MAX_AGE),
         );
+        // Allow-Headers is reflected from Access-Control-Request-Headers, so a
+        // shared cache must key the preflight on it — vary regardless of origin.
+        h.insert(
+            header::VARY,
+            HeaderValue::from_static(if origin.is_some() {
+                "Origin, Access-Control-Request-Headers"
+            } else {
+                "Access-Control-Request-Headers"
+            }),
+        );
         if let Some(origin) = origin {
             if let Ok(ov) = HeaderValue::from_str(&origin) {
                 h.insert(header::ACCESS_CONTROL_ALLOW_ORIGIN, ov);
-                append_vary_origin(&mut resp);
             }
         }
         add_security_headers(&mut resp);
@@ -66,6 +94,16 @@ pub async fn cors_middleware(req: Request, next: Next) -> Response {
         if let Ok(ov) = HeaderValue::from_str(&origin) {
             let h = resp.headers_mut();
             h.insert(header::ACCESS_CONTROL_ALLOW_ORIGIN, ov);
+            // Without this a browser reads only the six CORS-safelisted response headers, hiding
+            // ETag and Retry-After from JS. The wildcard is safe because this API authenticates by
+            // signature, never cookies; it never sets Allow-Credentials, under which * is ignored.
+            // Handlers that set their own list (file serving) keep it.
+            if !h.contains_key(header::ACCESS_CONTROL_EXPOSE_HEADERS) {
+                h.insert(
+                    header::ACCESS_CONTROL_EXPOSE_HEADERS,
+                    HeaderValue::from_static("*"),
+                );
+            }
             append_vary_origin(&mut resp);
         }
     }
@@ -124,31 +162,59 @@ mod tests {
             "https://catalyst.example.com"
         );
         assert!(h.get(header::ACCESS_CONTROL_ALLOW_CREDENTIALS).is_none());
+        assert_eq!(h.get(header::ACCESS_CONTROL_EXPOSE_HEADERS).unwrap(), "*");
         assert_eq!(h.get(header::VARY).unwrap(), "Origin");
     }
 
     #[tokio::test]
-    async fn preflight_is_204_with_full_allowlist() {
+    async fn handler_chosen_expose_headers_survive() {
+        let app = Router::new()
+            .route(
+                "/x",
+                get(|| async { ([(header::ACCESS_CONTROL_EXPOSE_HEADERS, "ETag")], "ok") }),
+            )
+            .layer(axum::middleware::from_fn(cors_middleware));
+        let resp = app
+            .oneshot(req(Method::GET, Some("https://catalyst.example.com")))
+            .await
+            .unwrap();
+        assert_eq!(
+            resp.headers()
+                .get(header::ACCESS_CONTROL_EXPOSE_HEADERS)
+                .unwrap(),
+            "ETag"
+        );
+    }
+
+    #[tokio::test]
+    async fn preflight_is_204_and_advertises_only_routed_methods() {
         let resp = app()
             .oneshot(req(Method::OPTIONS, Some("https://catalyst.example.com")))
             .await
             .unwrap();
         assert_eq!(resp.status(), StatusCode::NO_CONTENT);
         let h = resp.headers();
-        assert_eq!(
-            h.get(header::ACCESS_CONTROL_ALLOW_METHODS).unwrap(),
-            ALLOW_METHODS
-        );
+        let methods = h.get(header::ACCESS_CONTROL_ALLOW_METHODS).unwrap();
+        assert_eq!(methods, "GET,HEAD,POST,DELETE,OPTIONS");
+        // PUT and PATCH have no route, so a preflight must not promise them; DELETE does.
+        assert!(!methods.to_str().unwrap().contains("PUT"));
+        assert!(!methods.to_str().unwrap().contains("PATCH"));
+        assert!(methods.to_str().unwrap().contains("DELETE"));
         assert_eq!(
             h.get(header::ACCESS_CONTROL_ALLOW_HEADERS).unwrap(),
             ALLOW_HEADERS
         );
-        assert_eq!(h.get(header::ACCESS_CONTROL_MAX_AGE).unwrap(), MAX_AGE);
+        assert_eq!(h.get(header::ACCESS_CONTROL_MAX_AGE).unwrap(), "600");
         assert_eq!(
             h.get(header::ACCESS_CONTROL_ALLOW_ORIGIN).unwrap(),
             "https://catalyst.example.com"
         );
         assert!(h.get(header::ACCESS_CONTROL_ALLOW_CREDENTIALS).is_none());
+        // Allow-Headers is reflected from the request, so a shared cache must key on it.
+        assert_eq!(
+            h.get(header::VARY).unwrap(),
+            "Origin, Access-Control-Request-Headers"
+        );
     }
 
     #[tokio::test]
@@ -159,5 +225,9 @@ mod tests {
             .headers()
             .get(header::ACCESS_CONTROL_ALLOW_ORIGIN)
             .is_none());
+        assert_eq!(
+            resp.headers().get(header::VARY).unwrap(),
+            "Access-Control-Request-Headers"
+        );
     }
 }

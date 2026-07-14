@@ -10,7 +10,6 @@ pub async fn health(State(state): State<AppState>) -> (StatusCode, Json<Value>) 
         .fetch_one(&state.pool)
         .await
         .is_ok();
-    let relayer = state.config.has_relayer();
     let status = if db_ok {
         StatusCode::OK
     } else {
@@ -19,7 +18,9 @@ pub async fn health(State(state): State<AppState>) -> (StatusCode, Json<Value>) 
     let body = json!({
         "status": if db_ok { "ok" } else { "degraded" },
         "database": db_ok,
-        "relayer": relayer,
+        "relayer": state.config.can_relay(),
+        "relayer_mode": state.config.relay_mode(),
+        "usd_pegged_stale_refusals": crate::ports::oracle::stale_refusal_count(),
     });
     (status, Json(body))
 }

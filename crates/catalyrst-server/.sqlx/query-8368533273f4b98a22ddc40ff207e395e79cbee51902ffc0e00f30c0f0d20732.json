@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT d.entity_metadata\n            FROM active_pointers ap\n            JOIN deployments d ON d.entity_id = ap.entity_id\n            WHERE ap.pointer = $1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "entity_metadata",
+        "type_info": "Json",
+        "origin": {
+          "Table": {
+            "table": "deployments",
+            "name": "entity_metadata"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "8368533273f4b98a22ddc40ff207e395e79cbee51902ffc0e00f30c0f0d20732"
+}

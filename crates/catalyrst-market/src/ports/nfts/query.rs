@@ -13,6 +13,37 @@ pub enum Bind {
     Float(f64),
 }
 
+/// Unix second at which off-chain Estate trades started being validated against
+/// `EstateRegistry.getFingerprintV2`. Anything signed earlier carries a legacy v1
+/// (XOR) fingerprint that the upgraded registry rejects for large estates, so
+/// buying such a listing reverts on-chain.
+const ESTATE_V2_FINGERPRINT_VALIDATION_CUTOFF: i64 = 1_779_284_232;
+
+/// Largest Estate (in LANDs) whose v1 fingerprint `verifyFingerprint` still honors
+/// through its fallback. Once the on-chain fallback deadline (2026-11-26 15:00 UTC)
+/// passes, smaller estates break too and this size guard must be dropped.
+const ESTATE_LR_XOR_SAFE_MAX_SIZE: i64 = 18;
+
+/// An estate whose `search_estate_size` has not been indexed yet must stay listed, so
+/// the size test is coalesced: leaving it to three-valued logic would make the whole
+/// `NOT (...)` NULL and silently drop the trade match.
+fn broken_estate_trades_exclusion() -> String {
+    format!(
+        " AND NOT (trades.type = 'public_nft_order' \
+           AND trades.sent_nft_category = 'estate' \
+           AND trades.created_at < TO_TIMESTAMP({cutoff}) \
+           AND COALESCE(nft.search_estate_size, 0) > {max_size}) ",
+        cutoff = ESTATE_V2_FINGERPRINT_VALIDATION_CUTOFF,
+        max_size = ESTATE_LR_XOR_SAFE_MAX_SIZE,
+    )
+}
+
+fn is_land_routed(filters: &NftFilters) -> bool {
+    filters.is_land
+        || filters.category == Some(NftCategory::Parcel)
+        || filters.category == Some(NftCategory::Estate)
+}
+
 pub fn build_nfts_query(filters: &NftFilters, for_count: bool) -> (String, Vec<Bind>) {
     let mut binds: Vec<Bind> = Vec::new();
     let mut next_idx = 1usize;
@@ -110,10 +141,7 @@ pub fn build_nfts_query(filters: &NftFilters, for_count: bool) -> (String, Vec<B
         let p = emit(Bind::Text(mx.clone()), &mut binds, &mut next_idx);
         inner_wheres.push(format!(" search_order_price <= {}::numeric ", p));
     }
-    if filters.is_land
-        || filters.category == Some(NftCategory::Parcel)
-        || filters.category == Some(NftCategory::Estate)
-    {
+    if is_land_routed(filters) {
         inner_wheres.push(" search_estate_size > 0 ".to_string());
     }
 
@@ -284,6 +312,15 @@ pub fn build_nfts_query(filters: &NftFilters, for_count: bool) -> (String, Vec<B
 
     let main_sort = if for_count { "" } else { main_sort };
 
+    // Only the LAND-routed browse feed hides the now-unexecutable estate listing; every
+    // other query shape, and owner-scoped requests (My Assets), keep it visible so the
+    // owner still sees it and knows to re-create it.
+    let broken_estate_exclusion = if is_land_routed(filters) && filters.owner.is_none() {
+        broken_estate_trades_exclusion()
+    } else {
+        String::new()
+    };
+
     let outer_limit_offset = if apply_inner_limit || for_count {
         String::new()
     } else {
@@ -352,12 +389,11 @@ pub fn build_nfts_query(filters: &NftFilters, for_count: bool) -> (String, Vec<B
             parcel.parcel_estate_name,
             parcel.estate_id AS parcel_estate_id,
             COALESCE(wearable.description, emote.description, land_data.description) AS description,
-            -- Sort key for sortBy=recently_listed. search_order_created_at is a
-            -- NUMERIC unix-epoch on the nft row (NULL when not listed); upstream
-            -- coalesces it with the trade created_at. The unified_trades CTE is
-            -- the empty stub here, so trades.created_at is always NULL -- kept for
-            -- parity. Without this projection the ORDER BY references a column that
-            -- does not exist (column order_created_at does not exist) -> 500.
+            -- Sort key for sortBy=recently_listed, projected so the outer ORDER BY
+            -- can reference order_created_at (missing column -> 500).
+            -- search_order_created_at (NUMERIC unix-epoch, NULL when unlisted) is the
+            -- legacy on-chain order listing time; trades.created_at from the
+            -- unified_trades/mv_trades CTE supplies the real off-chain trade listing time.
             COALESCE(TO_TIMESTAMP(nft.search_order_created_at), trades.created_at) AS order_created_at,
             -- Numeric listing price, projected so the outer ORDER BY for
             -- sortBy=cheapest_parcel sorts numerically (NULL when unlisted).
@@ -375,6 +411,7 @@ pub fn build_nfts_query(filters: &NftFilters, for_count: bool) -> (String, Vec<B
          LEFT JOIN unified_trades trades ON trades.sent_contract_address = nft.contract_address
             AND trades.sent_token_id::numeric = nft.token_id
             AND trades.status = 'open' AND trades.signer = account.address
+            {broken_estate_exclusion}
          {outer_where}
          {main_sort}
          {outer_limit_offset}",
@@ -385,6 +422,7 @@ pub fn build_nfts_query(filters: &NftFilters, for_count: bool) -> (String, Vec<B
         inner_where = inner_where,
         inner_sort = inner_sort,
         inner_limit_offset = inner_limit_offset,
+        broken_estate_exclusion = broken_estate_exclusion,
         outer_where = outer_where,
         main_sort = main_sort,
         outer_limit_offset = outer_limit_offset,
