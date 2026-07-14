@@ -144,7 +144,7 @@ async fn main_about(State(state): State<AppState>, Query(q): Query<AboutQuery>) 
                     "baseUrl": std::env::var("MAP_SATELLITE_BASE_URL")
                         .ok()
                         .filter(|s| !s.is_empty())
-                        .unwrap_or_else(|| "https://genesis.city/map/latest".to_string()),
+                        .unwrap_or_else(|| "http://127.0.0.1:5162/satellite".to_string()),
                     "suffixUrl": ".jpg",
                     "topLeftOffset": { "x": -2, "y": -6 },
                 },
@@ -153,7 +153,7 @@ async fn main_about(State(state): State<AppState>, Query(q): Query<AboutQuery>) 
                     "imageUrl": std::env::var("MAP_PARCEL_VIEW_URL")
                         .ok()
                         .filter(|s| !s.is_empty())
-                        .unwrap_or_else(|| "https://api.decentraland.org/v1/minimap.png".to_string()),
+                        .unwrap_or_else(|| "http://127.0.0.1:5162/v1/minimap.png".to_string()),
                 },
             },
             "localSceneParcels": [],

@@ -97,7 +97,10 @@ pub fn is_relevant(root: &Path, path: &Path) -> bool {
         return false;
     };
     let first = rel.components().next().and_then(|c| c.as_os_str().to_str());
-    if matches!(first, Some(".dcl-one" | "node_modules" | "bin" | ".git")) {
+    // Dot-dirs cover .dcl-one, .git and — load-bearing — .dcl-optimized-assets:
+    // abgen revalidates (writes) in there on every manifest request, so watching
+    // it would re-trigger SCENE_UPDATE and reload the scene forever.
+    if first.is_some_and(|f| f.starts_with('.') || matches!(f, "node_modules" | "bin")) {
         return false;
     }
     if is_model(path) {
@@ -134,6 +137,17 @@ pub struct WatchSession {
     ignore_composite: bool,
     custom_entry_point: bool,
     split: SplitState,
+    /// `Some` when the toolchain ships prebuilt chunks: the SDK chunk is copied
+    /// rather than bundled, and the smart-item chunk is a separate file.
+    prebuilt: Option<crate::prebuilt::Prebuilt>,
+    outfile: PathBuf,
+    sdk_rel: String,
+    smart_rel: String,
+    smart_installed: bool,
+    scene_rel: String,
+    max_composite_entity: u32,
+    typecheck: crate::build::BackgroundCheck,
+    type_checking: bool,
 }
 
 impl WatchSession {
@@ -146,6 +160,7 @@ impl WatchSession {
         let main = project.main_output()?;
         let outfile = project.root.join(&main);
         let (sdk_rel, scene_rel) = split::chunk_rel_paths(&main);
+        let smart_rel = split::smart_chunk_rel_path(&main);
         let generated = entrypoint::generate(
             &project,
             opts.ignore_composite,
@@ -154,7 +169,13 @@ impl WatchSession {
         )?;
         split::write_generated(&project, &generated.dir)?;
         split::write_marker(&generated.dir)?;
-        split::write_loader_stub(&outfile, &sdk_rel, &scene_rel)?;
+        split::write_loader_stub(
+            &outfile,
+            &sdk_rel,
+            None,
+            &scene_rel,
+            generated.max_composite_entity,
+        )?;
         tracing::info!("loader stub saved {}", outfile.display());
         if initial_build {
             steps.done(format!(
@@ -162,40 +183,36 @@ impl WatchSession {
                 ux::rel_to(&project.root, &outfile)
             ));
         }
-        let mut sdk_aliases = esbuild::resolve_aliases(&project)?;
-        sdk_aliases.push((
-            "~sdk/all-composites".to_string(),
-            generated.dir.join("composite-slot.js"),
-        ));
-        sdk_aliases.push((
-            "~sdk/script-utils".to_string(),
-            generated.dir.join("script-utils.js"),
-        ));
-        let sdk_opts = EsbuildOptions {
-            production: opts.production,
-            entrypoint: generated.dir.join("sdk-runtime-entry.js"),
-            outfile: project.root.join(&sdk_rel),
-            tsconfig: project.tsconfig()?,
-            aliases: sdk_aliases,
-            externals: vec![],
-        };
+        let tsconfig = project.tsconfig()?;
+        let prebuilt = crate::prebuilt::locate(&project);
+        let sdk_opts =
+            crate::build::sdk_chunk_options(&project, &generated, &sdk_rel, &tsconfig, opts)?;
         let scene_opts = EsbuildOptions {
             production: opts.production,
             entrypoint: generated.entrypoint,
             outfile: project.root.join(&scene_rel),
-            tsconfig: project.tsconfig()?,
+            tsconfig,
             aliases: vec![],
             externals: split::scene_externals(&project),
         };
+        let mut smart_installed = false;
         if initial_build {
             let started = Instant::now();
-            esbuild::bundle(&project, &sdk_opts).await?;
-            tracing::info!("sdk chunk saved {}", sdk_opts.outfile.display());
-            steps.done(format!(
-                "SDK chunk saved {} ({})",
-                ux::rel_to(&project.root, &sdk_opts.outfile),
-                ux::fmt_elapsed(started.elapsed())
-            ));
+            match &prebuilt {
+                Some(chunks) => {
+                    crate::prebuilt::install(&chunks.core, &project.root.join(&sdk_rel))?;
+                    steps.done(format!("SDK chunk installed {sdk_rel} (prebuilt)"));
+                }
+                None => {
+                    esbuild::bundle(&project, &sdk_opts).await?;
+                    tracing::info!("sdk chunk saved {}", sdk_opts.outfile.display());
+                    steps.done(format!(
+                        "SDK chunk saved {} ({})",
+                        ux::rel_to(&project.root, &sdk_opts.outfile),
+                        ux::fmt_elapsed(started.elapsed())
+                    ));
+                }
+            }
             let started = Instant::now();
             esbuild::bundle(&project, &scene_opts).await?;
             tracing::info!("scene chunk saved {}", scene_opts.outfile.display());
@@ -204,9 +221,24 @@ impl WatchSession {
                 ux::rel_to(&project.root, &scene_opts.outfile),
                 ux::fmt_elapsed(started.elapsed())
             ));
+            smart_installed = crate::build::install_smart_chunk(
+                &project,
+                prebuilt.as_ref(),
+                &scene_rel,
+                &smart_rel,
+            )?;
+            if smart_installed {
+                split::write_loader_stub(
+                    &outfile,
+                    &sdk_rel,
+                    Some(smart_rel.as_str()),
+                    &scene_rel,
+                    generated.max_composite_entity,
+                )?;
+            }
         }
         let registry = split::registry_keys(&project);
-        Ok(Self {
+        let mut session = Self {
             project,
             es_opts: scene_opts,
             ignore_composite: opts.ignore_composite,
@@ -216,11 +248,36 @@ impl WatchSession {
                 registry,
                 generated_dir: generated.dir,
             },
-        })
+            prebuilt,
+            outfile,
+            sdk_rel,
+            smart_rel,
+            smart_installed,
+            scene_rel,
+            max_composite_entity: generated.max_composite_entity,
+            typecheck: crate::build::BackgroundCheck::default(),
+            type_checking: !opts.skip_type_check,
+        };
+        if session.type_checking && initial_build {
+            session.typecheck.restart(session.project.clone());
+        }
+        Ok(session)
     }
 
     pub fn project(&self) -> &Project {
         &self.project
+    }
+
+    fn rewrite_loader_stub(&self) {
+        if let Err(e) = split::write_loader_stub(
+            &self.outfile,
+            &self.sdk_rel,
+            self.smart_installed.then_some(self.smart_rel.as_str()),
+            &self.scene_rel,
+            self.max_composite_entity,
+        ) {
+            ux::report_watch(&e);
+        }
     }
 
     pub async fn run(mut self, mut fs: FsWatcher, notify: impl Fn(ReloadEvent)) -> Result<()> {
@@ -237,7 +294,7 @@ impl WatchSession {
                 continue;
             }
             let started = Instant::now();
-            if let Err(e) = regenerate_composites(
+            match regenerate_composites(
                 &self.project,
                 self.ignore_composite,
                 self.custom_entry_point,
@@ -245,26 +302,56 @@ impl WatchSession {
             )
             .await
             {
-                ux::report_watch(&watch_regen_error(
-                    e,
-                    "composite rebuild failed \u{2014} watching continues",
-                ));
-                continue;
+                Err(e) => {
+                    ux::report_watch(&watch_regen_error(
+                        e,
+                        "composite rebuild failed \u{2014} watching continues",
+                    ));
+                    continue;
+                }
+                Ok(Some(new_max)) if new_max != self.max_composite_entity => {
+                    self.max_composite_entity = new_max;
+                    self.rewrite_loader_stub();
+                }
+                Ok(_) => {}
             }
-            refresh_sdk_chunk_cli(&self.project, &mut self.split).await;
+            // Nothing to refresh on the prebuilt path: the chunk is shipped, so
+            // its registry cannot change while the scene is being edited.
+            if self.prebuilt.is_none() {
+                refresh_sdk_chunk_cli(&self.project, &mut self.split).await;
+            }
             match esbuild::bundle(&self.project, &self.es_opts).await {
                 Ok(()) => {
                     tracing::info!(
-                        "rebuilt {} in {:.0?}",
+                        "rebuilt {} in {}",
                         self.es_opts.outfile.display(),
-                        started.elapsed()
+                        ux::fmt_elapsed(started.elapsed())
                     );
+                    // Adding or removing the first smart item flips which
+                    // chunks the scene needs, so re-run the decision on every
+                    // successful scene rebuild rather than only at startup.
+                    match crate::build::install_smart_chunk(
+                        &self.project,
+                        self.prebuilt.as_ref(),
+                        &self.scene_rel,
+                        &self.smart_rel,
+                    ) {
+                        Ok(now) if now != self.smart_installed => {
+                            self.smart_installed = now;
+                            self.rewrite_loader_stub();
+                        }
+                        Ok(_) => {}
+                        Err(e) => ux::report_watch(&e),
+                    }
                     ux::note(format!(
                         "\u{21bb} rebuilt {} ({})",
                         ux::rel_to(&self.project.root, &self.es_opts.outfile),
                         ux::fmt_elapsed(started.elapsed())
                     ));
                     notify(ReloadEvent::Scene);
+                    if self.type_checking {
+                        self.typecheck.restart(self.project.clone());
+                    }
                 }
                 Err(e) => ux::report_watch(&e),
             }
@@ -293,19 +380,19 @@ async fn regenerate_composites(
     ignore_composite: bool,
     custom_entry_point: bool,
     paths: &[PathBuf],
-) -> Result<()> {
+) -> Result<Option<u32>> {
     let touched = paths
         .iter()
         .any(|p| p.extension().and_then(|e| e.to_str()) == Some("composite"));
     if !touched {
-        return Ok(());
+        return Ok(None);
     }
-    entrypoint::generate(project, ignore_composite, custom_entry_point, true)?;
+    let generated = entrypoint::generate(project, ignore_composite, custom_entry_point, true)?;
     tracing::info!("composites changed, regenerated all-composites.js");
     if let Err(e) = crate::data_layer::regenerate_main_crdt(&project.root, ignore_composite).await {
         ux::report_watch(&e);
     }
-    Ok(())
+    Ok(Some(generated.max_composite_entity))
 }
 
 async fn refresh_sdk_chunk_cli(project: &Project, sp: &mut SplitState) {
@@ -353,6 +440,12 @@ mod tests {
         assert!(!under_root("node_modules/foo/bar.js"));
         assert!(!under_root(".dcl-one/all-composites.js"));
         assert!(!under_root(".git/hooks/pre-commit.ts"));
+        // abgen writes into .dcl-optimized-assets on every manifest request;
+        // watching it would loop hot reload forever.
+        assert!(!under_root(".dcl-optimized-assets/out/b64-x/mac/model.glb"));
+        assert!(!under_root(
+            ".dcl-optimized-assets/cache/content/deadbeef.gltf"
+        ));
     }
 
     #[test]

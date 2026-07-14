@@ -9,8 +9,11 @@ pub struct QueriesComponent {
 }
 
 #[derive(Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "presence/"))]
 pub struct CurrentSnapshot {
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub snapshot_id: i64,
+    #[cfg_attr(feature = "ts", ts(type = "string"))]
     pub taken_at: DateTime<Utc>,
     pub peers_count: i32,
     pub islands_count: i32,
@@ -24,7 +27,9 @@ pub struct CurrentSnapshot {
 }
 
 #[derive(Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "presence/"))]
 pub struct SceneOccupancyRow {
+    #[cfg_attr(feature = "ts", ts(type = "string"))]
     pub taken_at: DateTime<Utc>,
     pub pointer: String,
     pub scene_name: Option<String>,
@@ -33,7 +38,9 @@ pub struct SceneOccupancyRow {
 }
 
 #[derive(Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "presence/"))]
 pub struct WorldHeadcountRow {
+    #[cfg_attr(feature = "ts", ts(type = "string"))]
     pub taken_at: DateTime<Utc>,
     pub world_name: String,
     pub count: i32,

@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use axum::extract::{Multipart, State};
+use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use axum::Json;
@@ -9,7 +9,8 @@ use bytes::{Bytes, BytesMut};
 use serde_json::{json, Value};
 
 use crate::errors::{AppError, InvalidRequestError};
-use crate::state::AppState;
+use crate::extractors::MultipartBody;
+use crate::state::{AppState, DeployFailure};
 
 const MAX_DEPLOY_FILES: usize = 1000;
 
@@ -107,7 +108,7 @@ pub(crate) fn extract_auth_chain_from_fields(
 pub async fn create_entity_multipart(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
-    mut multipart: Multipart,
+    MultipartBody(mut multipart): MultipartBody,
 ) -> Result<impl IntoResponse, AppError> {
     let sync_state = state.synchronization_state.get_state();
     if sync_state == "Bootstrapping" {
@@ -224,18 +225,19 @@ pub async fn create_entity_multipart(
                 entity_id = %entity_id,
                 "POST /entities - Deployment successful"
             );
+            state.deployments_cache.clear();
             Ok((
                 StatusCode::OK,
                 Json(json!({ "creationTimestamp": creation_timestamp })),
             ))
         }
-        Err(errors) => {
+        Err(failure) => {
             tracing::error!(
                 entity_id = %entity_id,
-                errors = ?errors,
+                errors = ?failure.errors(),
                 "POST /entities - Deployment failed"
             );
-            Ok((StatusCode::BAD_REQUEST, Json(json!({ "errors": errors }))))
+            Ok(deployment_failure_response(failure))
         }
     }
 }
@@ -305,20 +307,29 @@ pub async fn create_entity(
                 entity_id = %body.entity_id,
                 "POST /entities - Deployment successful"
             );
+            state.deployments_cache.clear();
             Ok((
                 StatusCode::OK,
                 Json(json!({ "creationTimestamp": creation_timestamp })),
             ))
         }
-        Err(errors) => {
+        Err(failure) => {
             tracing::error!(
                 entity_id = %body.entity_id,
-                errors = ?errors,
+                errors = ?failure.errors(),
                 "POST /entities - Deployment failed"
             );
-            Ok((StatusCode::BAD_REQUEST, Json(json!({ "errors": errors }))))
+            Ok(deployment_failure_response(failure))
         }
     }
+}
+
+fn deployment_failure_response(failure: DeployFailure) -> (StatusCode, Json<Value>) {
+    let (status, errors) = match failure {
+        DeployFailure::Rejected(errors) => (StatusCode::BAD_REQUEST, errors),
+        DeployFailure::Unavailable(errors) => (StatusCode::SERVICE_UNAVAILABLE, errors),
+    };
+    (status, Json(json!({ "errors": errors })))
 }
 
 #[cfg(test)]

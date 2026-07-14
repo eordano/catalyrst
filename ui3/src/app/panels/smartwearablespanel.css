@@ -1,0 +1,18 @@
+.swpanel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 18px;
+  max-width: 340px;
+  color: #fff;
+}
+.swpanel__title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.85);
+}
+.swpanel__empty { margin: 0; font-size: 14px; font-weight: 600; }
+.swpanel__hint { margin: 0; font-size: 12.5px; line-height: 1.5; color: rgba(255, 255, 255, 0.6); }

@@ -4,20 +4,20 @@ pub mod handlers;
 pub mod parse;
 pub mod ports;
 pub mod rows;
+pub mod snapshot;
 pub mod sync;
 
-use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
-use axum::routing::get;
+use axum::routing::{get, post};
 use axum::Router;
-use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 
 use crate::client::GovernanceClient;
 use crate::config::Config;
 use crate::ports::store::Store;
+use crate::snapshot::SnapshotGate;
 
 pub struct AppStateInner {
     pub store: Store,
@@ -43,6 +43,18 @@ pub fn api_router() -> Router<AppState> {
         .route("/members", get(handlers::read::members))
 }
 
+pub fn write_router(gate: Arc<SnapshotGate>) -> Router {
+    Router::new()
+        .route("/proposals/{kind}", post(handlers::write::submit_proposal))
+        .with_state(gate)
+}
+
+pub fn build_snapshot_gate(cfg: &Config) -> Arc<SnapshotGate> {
+    let gate = SnapshotGate::build(cfg.snapshot.clone());
+    gate.startup_log();
+    Arc::new(gate)
+}
+
 pub async fn build_state(cfg: &Config) -> Result<AppState> {
     let pool = build_pool(cfg).await?;
     let archives = crate::ports::archives::Archives::from_env().await;
@@ -53,18 +65,15 @@ pub async fn build_state(cfg: &Config) -> Result<AppState> {
 }
 
 async fn build_pool(cfg: &Config) -> Result<sqlx::PgPool> {
-    let opts = PgConnectOptions::from_str(&cfg.database_url)
-        .context("invalid GOVERNANCE_PG_COMPONENT_PSQL_CONNECTION_STRING")?
-        .options([
-            ("statement_timeout", "60000"),
-            ("idle_in_transaction_session_timeout", "30000"),
-        ]);
-    let pool = PgPoolOptions::new()
-        .max_connections(5)
-        .idle_timeout(Duration::from_secs(30))
-        .connect_with(opts)
-        .await
-        .context("failed to connect governance pool")?;
+    let pool = catalyrst_db::connect_pool(
+        &cfg.database_url,
+        &catalyrst_db::PoolSettings {
+            max_connections: 5,
+            ..catalyrst_db::PoolSettings::default()
+        },
+    )
+    .await
+    .context("failed to connect governance pool")?;
 
     sqlx::migrate!("./migrations")
         .run(&pool)

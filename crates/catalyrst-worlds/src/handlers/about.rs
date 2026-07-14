@@ -6,6 +6,17 @@ use crate::http::ApiError;
 use crate::ports::worlds::WorldScene;
 use crate::AppState;
 
+#[utoipa::path(
+    get,
+    path = "/world/{world_name}/about",
+    tag = "worlds",
+    params(("world_name" = String, Path)),
+    responses(
+        (status = 200, body = serde_json::Value),
+        (status = 404, body = catalyrst_types::ApiErrorBody),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn get_about(
     State(state): State<AppState>,
     Path(world_name): Path<String>,
@@ -94,7 +105,7 @@ pub async fn get_about(
         let data_default = std::env::var("MAP_PARCEL_VIEW_URL")
             .ok()
             .filter(|s| !s.is_empty())
-            .unwrap_or_else(|| "https://api.decentraland.org/v1/minimap.png".to_string());
+            .unwrap_or_else(|| "http://127.0.0.1:5162/v1/minimap.png".to_string());
         minimap.insert(
             "dataImage".into(),
             json!(url_for_file(&rt.minimap_data_image, &data_default)),
@@ -104,7 +115,7 @@ pub async fn get_about(
         let estate_default = std::env::var("MAP_ESTATE_VIEW_URL")
             .ok()
             .filter(|s| !s.is_empty())
-            .unwrap_or_else(|| "https://api.decentraland.org/v1/estatemap.png".to_string());
+            .unwrap_or_else(|| "http://127.0.0.1:5162/v1/estatemap.png".to_string());
         minimap.insert(
             "estateImage".into(),
             json!(url_for_file(&rt.minimap_estate_image, &estate_default)),
@@ -155,9 +166,47 @@ pub async fn get_about(
             "protocol": "v3",
             "adapter": adapter,
         },
+        "catalyrst": catalyrst_extensions(base_url),
     });
 
     Ok(Json(body))
+}
+
+/// Every route this node serves that a stock catalyst does not.
+///
+/// `/about` is the only thing a client fetches before it can do anything else,
+/// so anything not named here has to be hardcoded by every client — and a
+/// hardcoded path silently points at whichever node the constant was written
+/// for. That is not hypothetical: a client shipped an absolute
+/// `/comms/get-scene-adapter` URL pinned to one specific deployment, so on any
+/// other node it minted scene rooms against a different federation entirely,
+/// joined a LiveKit the authoritative server was not in, and every scene showed
+/// "Server Disconnected" while looking healthy from the outside.
+///
+/// Shape follows the catalyst service blocks above (`healthy` + `publicUrl`),
+/// under one additive key: a stock client ignores what it does not know, and a
+/// catalyrst-aware one discovers the whole surface from a single fetch.
+fn catalyrst_extensions(base_url: &str) -> serde_json::Value {
+    let at = |path: &str| json!({ "healthy": true, "publicUrl": format!("{base_url}{path}") });
+
+    json!({
+        "healthy": true,
+        // Per-scene LiveKit rooms. `sceneAdapter` is the client mint (ADR-44
+        // signed fetch); `serverSceneAdapter` is the authoritative scene runner
+        // mint, which answers only to the configured server identity.
+        "sceneAdapter": at("/get-scene-adapter"),
+        "serverSceneAdapter": at("/get-server-scene-adapter"),
+        "worldStorage": at("/world-storage"),
+        "sceneState": at("/scene-state"),
+        "places": at("/places"),
+        "events": at("/events"),
+        "marketplace": at("/marketplace"),
+        "communities": at("/social/communities"),
+        "socialRpc": at("/social-rpc"),
+        "badges": at("/badges"),
+        "telemetry": at("/telemetry"),
+        "federation": at("/federation/communities"),
+    })
 }
 
 fn resolve_fixed_adapter(world_name: &str, fixed_adapter: Option<&str>, base_url: &str) -> String {
@@ -275,6 +324,35 @@ mod tests {
         assert_eq!(
             resolve_fixed_adapter("Foo", None, "https://worlds.example"),
             "fixed-adapter:signed-login:https://worlds.example/worlds/foo/comms"
+        );
+    }
+
+    #[test]
+    fn extensions_are_absolute_urls_on_this_node() {
+        let ext = super::catalyrst_extensions("https://worlds.example");
+
+        // The whole point is that a client never has to compose one of these
+        // itself, so every entry must be a complete url on the node that
+        // answered — a bare path would leave the caller guessing the origin,
+        // which is the bug this advert exists to retire.
+        let entries = ext.as_object().expect("extensions is an object");
+        assert!(entries.len() > 1, "advert is empty");
+        for (name, block) in entries {
+            if name == "healthy" {
+                continue;
+            }
+            let url = block["publicUrl"]
+                .as_str()
+                .unwrap_or_else(|| panic!("{name} has no publicUrl"));
+            assert!(
+                url.starts_with("https://worlds.example/"),
+                "{name} must be absolute on this node, got {url}"
+            );
+        }
+
+        assert_eq!(
+            ext["sceneAdapter"]["publicUrl"],
+            "https://worlds.example/get-scene-adapter"
         );
     }
 }

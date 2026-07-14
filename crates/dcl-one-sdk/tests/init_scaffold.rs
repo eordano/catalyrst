@@ -202,10 +202,7 @@ fn init_creates_a_missing_target_directory() {
 
 #[test]
 fn init_scene_is_immediately_buildable_with_provisioned_node_modules() {
-    let Some(src) = std::env::var_os("DCL_ONE_SDK_TEST_SCENE") else {
-        eprintln!(
-            "skipped: set DCL_ONE_SDK_TEST_SCENE to a scene checkout with node_modules installed"
-        );
+    let Some(src) = catalyrst_testgate::require_env("DCL_ONE_SDK_TEST_SCENE") else {
         return;
     };
     let src = PathBuf::from(src);
@@ -217,6 +214,11 @@ fn init_scene_is_immediately_buildable_with_provisioned_node_modules() {
     let dir = f.dir_arg();
     let out = run(&["init", "--dir", &dir]);
     assert!(out.status.success(), "stderr: {}", stderr_of(&out));
+    // `init` provisions its own node_modules from the vendored blob, so the
+    // symlink below lands on an existing directory and fails with EEXIST unless
+    // that one is cleared first. The point of this test is to build against the
+    // EXTERNAL tree in DCL_ONE_SDK_TEST_SCENE, so the provisioned one goes.
+    std::fs::remove_dir_all(f.path().join("node_modules")).unwrap();
     std::os::unix::fs::symlink(src.join("node_modules"), f.path().join("node_modules")).unwrap();
     let out = run(&["build", "--dir", &dir]);
     let stdout = stdout_of(&out);
@@ -225,12 +227,24 @@ fn init_scene_is_immediately_buildable_with_provisioned_node_modules() {
         "build failed\nstdout: {stdout}\nstderr: {}",
         stderr_of(&out)
     );
-    assert!(stdout.contains("Bundle saved"), "{stdout}");
+    // The prebuilt-chunk split replaced the single "Bundle saved" bundle with
+    // three artifacts, and this test kept asserting on the old wording and the
+    // old size. It only runs when DCL_ONE_SDK_TEST_SCENE is set, which is why it
+    // went unnoticed: bin/index.js is now a ~6 KB loader stub, so the >10_000
+    // check below used to be what actually caught the drift.
+    assert!(stdout.contains("SDK chunk installed"), "{stdout}");
+    assert!(stdout.contains("Scene chunk saved"), "{stdout}");
     assert!(stdout.contains("Type check passed"), "{stdout}");
-    let bundle = std::fs::read(f.path().join("bin/index.js")).unwrap();
-    assert!(
-        bundle.len() > 10_000,
-        "bundle suspiciously small: {}",
-        bundle.len()
-    );
+    for (rel, min) in [
+        ("bin/sdk-runtime.js", 100_000usize), // the prebuilt SDK runtime
+        ("bin/index.js", 1_000),              // loader stub
+        ("bin/scene.js", 100),                // the scene's own code
+    ] {
+        let bytes = std::fs::read(f.path().join(rel)).unwrap();
+        assert!(
+            bytes.len() > min,
+            "{rel} suspiciously small: {} bytes",
+            bytes.len()
+        );
+    }
 }

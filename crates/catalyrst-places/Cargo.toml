@@ -1,8 +1,13 @@
 [package]
 name = "catalyrst-places"
-version = "0.9.10"
+version = "0.15.4"
 edition = "2021"
 description = "Rust port of decentraland/places (REST API for places.decentraland.org), federation-aware via catalyrst-fed"
+
+[package.metadata.generated]
+gate = "sites/scripts/gen-ts-check.sh"
+ts-bindings = "ui3/src/generated/catalyst/places"
+openapi = "ui3/src/generated/catalyst/openapi/places.openapi.json"
 
 [[bin]]
 name = "catalyrst-places"
@@ -14,9 +19,12 @@ nats = ["catalyrst-fed/nats"]
 ts = ["dep:ts-rs"]
 
 [dependencies]
+catalyrst-db = { workspace = true }
 catalyrst-fed = { workspace = true }
 catalyrst-crypto = { workspace = true }
-catalyrst-types = { workspace = true }
+catalyrst-types = { workspace = true, features = ["openapi"] }
+utoipa = { workspace = true }
+utoipa-axum = { workspace = true }
 tokio = { workspace = true }
 axum = { workspace = true }
 tower-http = { workspace = true }
@@ -25,10 +33,12 @@ reqwest = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 chrono = { workspace = true }
+uuid = { workspace = true }
 sha1 = "0.11"
 sha2 = { workspace = true }
 hmac = { workspace = true }
 base64 = { workspace = true }
+rand = "0.10"
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 thiserror = { workspace = true }
@@ -40,5 +50,5 @@ ts-rs = { workspace = true, optional = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 tower = { workspace = true }
 sqlx = { workspace = true }
-rand = "0.10"
 hex = "0.4"
+catalyrst-contract-gate = { workspace = true }

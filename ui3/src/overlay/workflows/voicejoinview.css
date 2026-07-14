@@ -1,0 +1,150 @@
+.vj {
+  position: relative;
+  width: 100%;
+  min-height: 100vh;
+}
+
+.vj__session {
+  position: fixed;
+  left: 64px;
+  bottom: 168px;
+  z-index: 40;
+  width: 300px;
+  padding: 14px 16px 16px;
+  border-radius: 14px;
+  background: rgba(20, 16, 27, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+  color: #fff;
+  font:
+    13px/1.4 system-ui,
+    sans-serif;
+  backdrop-filter: blur(6px);
+}
+
+.vj__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.vj__title {
+  flex: 1 1 auto;
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: 0.02em;
+}
+.vj__stub {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  padding: 2px 6px;
+  border-radius: 999px;
+  color: #ffd27a;
+  background: rgba(255, 196, 90, 0.14);
+}
+
+.vj__dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex: none;
+  background: rgba(255, 255, 255, 0.4);
+}
+.vj__dot--resting {
+  background: #7a7486;
+}
+.vj__dot--requesting,
+.vj__dot--connecting {
+  background: #f5a623;
+  animation: vj-pulse 1s ease-in-out infinite;
+}
+.vj__dot--talking {
+  background: #4caf50;
+}
+.vj__dot--left {
+  background: #5a8ad6;
+}
+.vj__dot--failed {
+  background: var(--brand, #ff2d55);
+}
+
+@keyframes vj-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+.vj__body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.vj__hint {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.82);
+}
+.vj__hint b {
+  color: #fff;
+}
+.vj__room {
+  margin: 0;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.55);
+}
+.vj__room code,
+.vj__hint code {
+  font-size: 11px;
+  color: #d6c8ff;
+}
+
+.vj__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.vj__btn {
+  flex: 1 1 auto;
+  min-width: 110px;
+  padding: 9px 12px;
+  border-radius: 9px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  font-weight: 600;
+  font-size: 12px;
+  cursor: pointer;
+}
+.vj__btn:hover {
+  background: rgba(255, 255, 255, 0.16);
+}
+.vj__btn--primary {
+  background: var(--brand, #ff2d55);
+  border-color: transparent;
+}
+.vj__btn--primary:hover {
+  filter: brightness(1.08);
+}
+.vj__btn--danger {
+  background: rgba(255, 45, 85, 0.14);
+  border-color: rgba(255, 45, 85, 0.4);
+  color: #ff9bb0;
+}
+.vj__btn--danger:hover {
+  background: rgba(255, 45, 85, 0.24);
+}
+
+.vj__check {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: #4caf50;
+  color: #fff;
+  font-weight: 800;
+}

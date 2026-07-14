@@ -6,6 +6,7 @@ use std::env;
 pub enum BackendKind {
     Mock,
     Http,
+    Llm,
 }
 
 impl BackendKind {
@@ -13,9 +14,12 @@ impl BackendKind {
         match self {
             BackendKind::Mock => "mock",
             BackendKind::Http => "http",
+            BackendKind::Llm => "llm",
         }
     }
 }
+
+pub const DEFAULT_LLM_MODEL: &str = "gpt-4o-mini";
 
 pub struct Config {
     pub http_host: String,
@@ -24,6 +28,9 @@ pub struct Config {
     pub backend_kind: BackendKind,
     pub backend_url: Option<String>,
     pub backend_api_key: Option<String>,
+    pub llm_base_url: Option<String>,
+    pub llm_api_key: Option<String>,
+    pub llm_model: String,
 }
 
 impl Config {
@@ -31,15 +38,26 @@ impl Config {
         let backend_url = env::var("TRANSLATE_BACKEND_URL")
             .ok()
             .filter(|s| !s.is_empty());
+        let llm_base_url = env::var("TRANSLATE_LLM_BASE_URL")
+            .ok()
+            .filter(|s| !s.is_empty());
+        // Selection is fail-closed: with TRANSLATE_BACKEND unset we stay on the mock and
+        // never emit a real LLM/upstream call. `llm` and `http` demand their own explicit URL.
         let backend_kind = match env::var("TRANSLATE_BACKEND").ok().as_deref() {
             Some("mock") => BackendKind::Mock,
             Some("http") => BackendKind::Http,
+            Some("llm") => BackendKind::Llm,
             _ if backend_url.is_some() => BackendKind::Http,
             _ => BackendKind::Mock,
         };
         if backend_kind == BackendKind::Http && backend_url.is_none() {
             return Err(anyhow!(
                 "TRANSLATE_BACKEND=http requires TRANSLATE_BACKEND_URL"
+            ));
+        }
+        if backend_kind == BackendKind::Llm && llm_base_url.is_none() {
+            return Err(anyhow!(
+                "TRANSLATE_BACKEND=llm requires TRANSLATE_LLM_BASE_URL (e.g. https://llm.decent.dev)"
             ));
         }
         Ok(Self {
@@ -51,6 +69,14 @@ impl Config {
             backend_api_key: env::var("TRANSLATE_BACKEND_API_KEY")
                 .ok()
                 .filter(|s| !s.is_empty()),
+            llm_base_url,
+            llm_api_key: env::var("TRANSLATE_LLM_API_KEY")
+                .ok()
+                .filter(|s| !s.is_empty()),
+            llm_model: env::var("TRANSLATE_LLM_MODEL")
+                .ok()
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| DEFAULT_LLM_MODEL.to_string()),
         })
     }
 }

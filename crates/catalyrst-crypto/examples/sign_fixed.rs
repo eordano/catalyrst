@@ -1,5 +1,5 @@
+use alloy::signers::{local::PrivateKeySigner, Signer};
 use chrono::{Duration, Utc};
-use ethers_signers::{LocalWallet, Signer};
 use std::str::FromStr;
 
 #[tokio::main]
@@ -12,8 +12,10 @@ async fn main() {
     let root_priv = std::env::var("ROOT_PRIV").expect("ROOT_PRIV env (hex32) required");
     let eph_priv = std::env::var("EPH_PRIV").expect("EPH_PRIV env (hex32) required");
 
-    let root = LocalWallet::from_str(root_priv.trim_start_matches("0x")).expect("bad ROOT_PRIV");
-    let ephemeral = LocalWallet::from_str(eph_priv.trim_start_matches("0x")).expect("bad EPH_PRIV");
+    let root =
+        PrivateKeySigner::from_str(root_priv.trim_start_matches("0x")).expect("bad ROOT_PRIV");
+    let ephemeral =
+        PrivateKeySigner::from_str(eph_priv.trim_start_matches("0x")).expect("bad EPH_PRIV");
 
     let root_address = format!("{:#x}", root.address());
     let ephemeral_address = format!("{:#x}", ephemeral.address());
@@ -39,12 +41,12 @@ async fn main() {
         serde_json::json!({
             "type": "ECDSA_EPHEMERAL",
             "payload": ephemeral_payload,
-            "signature": format!("0x{ephemeral_sig}"),
+            "signature": ephemeral_sig.to_string(),
         }),
         serde_json::json!({
             "type": "ECDSA_SIGNED_ENTITY",
             "payload": signed_fetch_payload,
-            "signature": format!("0x{entity_sig}"),
+            "signature": entity_sig.to_string(),
         }),
     ];
 

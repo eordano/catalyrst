@@ -275,7 +275,10 @@ mod tests {
         let err = b
             .verify(b"{\"x\":2}", &ts.to_string(), &sig, "nodeA")
             .unwrap_err();
-        matches!(err, GossipError::BadSig);
+        assert!(
+            matches!(err, GossipError::BadSig),
+            "expected BadSig, got {err:?}"
+        );
     }
 
     #[test]
@@ -284,7 +287,10 @@ mod tests {
         let ts = Utc::now().timestamp();
         let sig = a.sign(b"{}", ts).unwrap();
         let err = a.verify(b"{}", &ts.to_string(), &sig, "nodeA").unwrap_err();
-        matches!(err, GossipError::SelfLoop);
+        assert!(
+            matches!(err, GossipError::SelfLoop),
+            "expected SelfLoop, got {err:?}"
+        );
     }
 
     #[test]
@@ -300,6 +306,9 @@ mod tests {
         let ts = Utc::now().timestamp() - 1_000_000;
         let sig = a.sign(b"{}", ts).unwrap();
         let err = b.verify(b"{}", &ts.to_string(), &sig, "nodeA").unwrap_err();
-        matches!(err, GossipError::Skew(_));
+        assert!(
+            matches!(err, GossipError::Skew(_)),
+            "expected Skew, got {err:?}"
+        );
     }
 }

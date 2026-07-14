@@ -4,82 +4,6 @@ use crate::error::{PermissionResult, ValidationResponse};
 use crate::types::*;
 
 #[async_trait]
-pub trait L1Checker: Send + Sync {
-    async fn check_land(
-        &self,
-        eth_address: &str,
-        parcels: &[(i32, i32)],
-        block: u64,
-    ) -> Result<Vec<bool>, crate::error::ValidatorError>;
-
-    async fn check_names(
-        &self,
-        eth_address: &str,
-        names: &[String],
-        block: u64,
-    ) -> Result<Vec<bool>, crate::error::ValidatorError>;
-}
-
-#[async_trait]
-pub trait L2Checker: Send + Sync {
-    async fn validate_wearables(
-        &self,
-        eth_address: &str,
-        contract_address: &str,
-        asset_id: &str,
-        hashes: &[String],
-        block: u64,
-    ) -> Result<bool, crate::error::ValidatorError>;
-
-    async fn validate_third_party(
-        &self,
-        tp_id: &str,
-        root: &[u8],
-        block: u64,
-    ) -> Result<bool, crate::error::ValidatorError>;
-}
-
-#[async_trait]
-pub trait ItemChecker: Send + Sync {
-    async fn check_items(
-        &self,
-        eth_address: &str,
-        items: &[String],
-        block: u64,
-    ) -> Result<Vec<bool>, crate::error::ValidatorError>;
-}
-
-#[async_trait]
-pub trait ThirdPartyItemChecker: Send + Sync {
-    async fn check_third_party_items(
-        &self,
-        eth_address: &str,
-        item_urns: &[String],
-        block: u64,
-    ) -> Result<Vec<bool>, crate::error::ValidatorError>;
-}
-
-#[async_trait]
-pub trait NamesOwnership: Send + Sync {
-    async fn owns_names_at_timestamp(
-        &self,
-        eth_address: &str,
-        names: &[String],
-        timestamp: Timestamp,
-    ) -> Result<PermissionResult, crate::error::ValidatorError>;
-}
-
-#[async_trait]
-pub trait ItemsOwnership: Send + Sync {
-    async fn owns_items_at_timestamp(
-        &self,
-        eth_address: &str,
-        urns: &[String],
-        timestamp: Timestamp,
-    ) -> Result<PermissionResult, crate::error::ValidatorError>;
-}
-
-#[async_trait]
 pub trait BlockchainChecker: Send + Sync {
     async fn find_blocks_for_timestamp(
         &self,
@@ -627,7 +551,7 @@ fn is_old_emote(s: &str) -> bool {
 }
 
 fn is_valid_eth_address(s: &str) -> bool {
-    s.len() == 42 && s.starts_with("0x") && s[2..].chars().all(|c| c.is_ascii_hexdigit())
+    catalyrst_types::is_eth_address(s)
 }
 
 fn extract_claimed_names(metadata: &serde_json::Value) -> Vec<String> {

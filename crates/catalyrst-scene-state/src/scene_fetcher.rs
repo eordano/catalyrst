@@ -15,8 +15,6 @@ pub struct WorldScene {
 
     pub static_crdt: Vec<u8>,
 
-    // metadata.scene.base of the deployed entity — what world-storage derives as
-    // the scene's parcel, so it is what storage delegations get scoped to.
     pub base_parcel: String,
 }
 
@@ -134,7 +132,6 @@ pub async fn from_world(
     let code_bytes = get_capped(client, format!("{base_url}{}", entry.hash), max_body_bytes)
         .await
         .context("fetch scene code")?;
-    // leading BOM stripped for parity with the reqwest .text() decode this replaced
     let code = String::from_utf8_lossy(
         code_bytes
             .strip_prefix(b"\xef\xbb\xbf".as_slice())

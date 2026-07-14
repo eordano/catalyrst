@@ -126,6 +126,12 @@ fn content_routes(state: &Arc<AppState>) -> Router<Arc<AppState>> {
                     read_only_gate,
                 )),
         )
+        .route(
+            "/scenes/{coord}",
+            axum::routing::delete(handlers::unpublish_scene::unpublish_scene).route_layer(
+                axum::middleware::from_fn_with_state(state.clone(), read_only_gate),
+            ),
+        )
 }
 
 fn lambdas_routes() -> Router<Arc<AppState>> {
@@ -141,6 +147,10 @@ fn lambdas_routes() -> Router<Arc<AppState>> {
         .route(
             "/lambdas/profile/{id}",
             get(handlers::lambdas::profile_alias),
+        )
+        .route(
+            "/lambdas/collections",
+            get(handlers::lambdas_catalog::nfts_collections),
         )
         .route(
             "/lambdas/collections/contents/{pointer}/thumbnail",
@@ -515,38 +525,6 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             "/admin/api/scene-state/reset",
             post(admin::api::scene_state_reset),
         )
-        .route(
-            "/admin/api/credits/seasons-list",
-            post(admin::api::credits_seasons_list),
-        )
-        .route(
-            "/admin/api/credits/season-create",
-            post(admin::api::credits_season_create),
-        )
-        .route(
-            "/admin/api/credits/season-update",
-            post(admin::api::credits_season_update),
-        )
-        .route(
-            "/admin/api/credits/season-delete",
-            post(admin::api::credits_season_delete),
-        )
-        .route(
-            "/admin/api/credits/goals-list",
-            post(admin::api::credits_goals_list),
-        )
-        .route(
-            "/admin/api/credits/goal-create",
-            post(admin::api::credits_goal_create),
-        )
-        .route(
-            "/admin/api/credits/goal-update",
-            post(admin::api::credits_goal_update),
-        )
-        .route(
-            "/admin/api/credits/goal-delete",
-            post(admin::api::credits_goal_delete),
-        )
         .route("/admin/api/credits/grant", post(admin::api::credits_grant))
         .route(
             "/admin/api/credits/revoke",
@@ -691,6 +669,9 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/metrics", get(crate::metrics::metrics_handler))
         .layer(axum::middleware::from_fn(crate::metrics::track_http))
         .layer(TraceLayer::new_for_http())
+        .layer(axum::middleware::from_fn(
+            crate::nul_guard::nul_guard_middleware,
+        ))
         .layer(axum::middleware::from_fn(crate::cors::cors_middleware));
 
     if let Some(timeout) = request_timeout() {

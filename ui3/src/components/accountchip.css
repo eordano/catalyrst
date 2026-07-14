@@ -1,0 +1,23 @@
+.u-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--chip-line, var(--line));
+  cursor: pointer;
+  background: var(--chip-bg, var(--fill-3));
+  color: var(--chip-ink, #fff);
+  border-radius: var(--r-pill);
+  padding: 4px 12px 4px 4px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+}
+.u-chip:hover { background: var(--chip-bg-hover, var(--fill-4)); }
+.u-chip__avatar { border: 2px solid var(--chip-avatar-ring, var(--ink-85)); flex: 0 0 auto; }
+.u-chip__addr { white-space: nowrap; }
+.u-chip__caret { color: var(--chip-caret, var(--ink-6)); flex: 0 0 auto; }
+
+@media (max-width: 860px) {
+  .u-chip__addr { display: none; }
+  .u-chip { padding: 4px; }
+}

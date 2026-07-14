@@ -3,6 +3,7 @@ use std::time::Duration;
 use sqlx::Row;
 
 use crate::http::ApiError;
+use crate::ports::admin::GrantOutcome;
 use crate::ports::credits::CreditsComponent;
 use crate::ports::pricing::PricingClient;
 
@@ -178,17 +179,6 @@ impl CreditsComponent {
         })
     }
 
-    pub async fn clear_cart(&self, address: &str) -> Result<(), ApiError> {
-        sqlx::query(
-            "DELETE FROM cart_items ci USING carts c \
-             WHERE ci.cart_id = c.id AND c.address = $1",
-        )
-        .bind(address)
-        .execute(&self.pool)
-        .await?;
-        Ok(())
-    }
-
     pub async fn get_checkout(&self, id: i64) -> Result<Option<CheckoutRow>, ApiError> {
         let row = sqlx::query(
             "SELECT id, address, total_credits::text AS total_credits, status \
@@ -203,6 +193,31 @@ impl CreditsComponent {
             total_credits: r.get("total_credits"),
             status: r.get("status"),
         }))
+    }
+
+    pub async fn refund_checkout_manual(
+        &self,
+        id: i64,
+        address: &str,
+        amount: &str,
+    ) -> Result<(GrantOutcome, bool), ApiError> {
+        let tx_ref = format!("checkout:{}", id);
+        let idem = format!("admin:refund:{}", id);
+        let mut tx = self.pool.begin().await?;
+        let outcome = self
+            .refund_in_tx(&mut tx, address, amount, &tx_ref, Some(&idem))
+            .await?;
+        let closed = sqlx::query(
+            "UPDATE checkouts SET status = 'failed', updated_at = now() \
+             WHERE id = $1 AND status = 'fulfilling'",
+        )
+        .bind(id)
+        .execute(&mut *tx)
+        .await?
+        .rows_affected()
+            > 0;
+        tx.commit().await?;
+        Ok((outcome, closed))
     }
 
     pub async fn find_checkout_by_idempotency_key(
@@ -303,15 +318,21 @@ impl CreditsComponent {
         let qtys: Vec<i32> = repriced.iter().map(|l| l.qty).collect();
         let modes: Vec<String> = repriced.iter().map(|l| l.mode.clone()).collect();
 
-        let total: String = sqlx::query(
-            "SELECT COALESCE(SUM(p::numeric * q), 0)::text AS total \
+        // `total` can legitimately be 0 — an all-free cart. `total_is_zero` is
+        // decided by PostgreSQL in NUMERIC because the text form may render as
+        // "0.00", and it is needed below: a wallet with no `user_credits` row
+        // can still afford a zero total.
+        let total_row = sqlx::query(
+            "SELECT COALESCE(SUM(p::numeric * q), 0)::text AS total, \
+                    (COALESCE(SUM(p::numeric * q), 0) = 0) AS is_zero \
              FROM unnest($1::text[], $2::int[]) AS t(p, q)",
         )
         .bind(&prices)
         .bind(&qtys)
         .fetch_one(&mut *tx)
-        .await?
-        .get("total");
+        .await?;
+        let total: String = total_row.get("total");
+        let total_is_zero: bool = total_row.get("is_zero");
 
         sqlx::query(
             "UPDATE checkouts SET total_credits = $2::numeric, updated_at = now() WHERE id = $1",
@@ -329,7 +350,12 @@ impl CreditsComponent {
         .bind(&total)
         .fetch_optional(&mut *tx)
         .await?;
-        let sufficient = bal.map(|r| r.get::<bool, _>("sufficient")).unwrap_or(false);
+        // No wallet row means a zero balance, which is sufficient for a zero
+        // total and nothing else. Returning `false` unconditionally used to
+        // 402 a brand-new wallet checking out an all-free cart.
+        let sufficient = bal
+            .map(|r| r.get::<bool, _>("sufficient"))
+            .unwrap_or(total_is_zero);
         if !sufficient {
             sqlx::query("UPDATE checkouts SET status = 'failed', updated_at = now() WHERE id = $1")
                 .bind(checkout_id)
@@ -1011,16 +1037,7 @@ fn fresh_price_exceeds_charge(charged_credits: &str, fresh_credits: &str) -> boo
 }
 
 fn parse_nonneg_decimal(s: &str) -> Option<(String, String)> {
-    let s = s.trim();
-    let (int_part, frac_part) = s.split_once('.').unwrap_or((s, ""));
-    if int_part.is_empty() && frac_part.is_empty() {
-        return None;
-    }
-    if !int_part.bytes().all(|b| b.is_ascii_digit())
-        || !frac_part.bytes().all(|b| b.is_ascii_digit())
-    {
-        return None;
-    }
+    let (int_part, frac_part) = crate::ports::pricing::split_validated_decimal(s)?;
     Some((
         int_part.trim_start_matches('0').to_string(),
         frac_part.trim_end_matches('0').to_string(),
@@ -1179,5 +1196,53 @@ mod tests {
         assert!(refuses("0.00", "1"), "charged 0.00, pays >0 → refuse");
         assert!(!refuses("3", "10000000000000000"), "charged >0 → proceed");
         assert!(!refuses("0", "0"), "free mint: pays 0 → proceed");
+    }
+}
+
+/// Characterizes `parse_nonneg_decimal` on the shared edge-input set used
+/// across all decimal-string validators in this crate (see the sibling
+/// `characterization_*` tests in money.rs, ports/pricing.rs, handlers/packs.rs,
+/// and purchase_intent.rs). This grammar — trim, split on the first `.`,
+/// require both spans all-ASCII-digit and not both empty — is byte-identical
+/// to `charge_is_positive`'s prefix (that shared prefix is what
+/// `split_validated_decimal` now extracts), which is why the None/Some split
+/// below matches `charge_is_positive`'s reject/accept split on every input:
+/// scientific notation and a stray extra `.` are rejected, but there is no
+/// magnitude bound (a huge digit string parses fine) and, unlike
+/// `CreditAmount`, surrounding whitespace is tolerated because of the
+/// leading `.trim()`.
+#[cfg(test)]
+mod characterization_parse_nonneg_decimal {
+    use super::parse_nonneg_decimal;
+
+    #[test]
+    fn current_accept_reject_on_edge_inputs() {
+        assert_eq!(parse_nonneg_decimal("1e18"), None);
+        assert_eq!(parse_nonneg_decimal("1E18"), None);
+        assert_eq!(
+            parse_nonneg_decimal(" 1.5 "),
+            Some(("1".to_string(), "5".to_string()))
+        );
+        assert_eq!(
+            parse_nonneg_decimal(".5"),
+            Some(("".to_string(), "5".to_string()))
+        );
+        assert_eq!(
+            parse_nonneg_decimal("5."),
+            Some(("5".to_string(), "".to_string()))
+        );
+        assert_eq!(
+            parse_nonneg_decimal("01.50"),
+            Some(("1".to_string(), "5".to_string()))
+        );
+        assert_eq!(parse_nonneg_decimal(""), None);
+        assert_eq!(parse_nonneg_decimal("-1"), None);
+        assert_eq!(parse_nonneg_decimal("1.2.3"), None);
+        let huge = "9".repeat(50);
+        assert_eq!(
+            parse_nonneg_decimal(&huge),
+            Some((huge.clone(), "".to_string())),
+            "no magnitude bound here, unlike CreditAmount"
+        );
     }
 }

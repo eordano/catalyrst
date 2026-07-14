@@ -242,7 +242,8 @@ impl Default for SubscriptionDetails {
 pub struct Subscription {
     pub address: String,
     pub email: Option<String>,
-    #[serde(rename = "unconfirmedEmail", skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "unconfirmedEmail")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub unconfirmed_email: Option<String>,
     #[cfg_attr(feature = "ts", ts(type = "Record<string, unknown>"))]

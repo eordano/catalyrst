@@ -3,12 +3,13 @@ use std::sync::Arc;
 use bytes::Bytes;
 use tokio::sync::Barrier;
 
+use catalyrst_hashing::hash_bytes_v1;
 use catalyrst_storage::ContentStorage;
 
 use crate::{fail, pass};
 
 pub(crate) async fn test_content_storage_concurrent_writes() {
-    println!("\n[6] Content storage concurrent writes");
+    println!("\n[2] Content storage concurrent writes");
 
     let tmp = std::env::temp_dir().join(format!("catalyrst-fuzz-storage-{}", std::process::id()));
     let storage = Arc::new(
@@ -24,8 +25,8 @@ pub(crate) async fn test_content_storage_concurrent_writes() {
         let storage = storage.clone();
         let barrier = barrier.clone();
         handles.push(tokio::spawn(async move {
-            let hash = format!("bafkreifuzztest{:040}", i);
             let data = Bytes::from(vec![(i & 0xff) as u8; 4096]);
+            let hash = hash_bytes_v1(&data);
             barrier.wait().await;
             storage.store(&hash, data).await
         }));
@@ -58,8 +59,8 @@ pub(crate) async fn test_content_storage_concurrent_writes() {
 
     let mut read_wrong = 0;
     for i in 0..20u32 {
-        let hash = format!("bafkreifuzztest{:040}", i);
         let expected = Bytes::from(vec![(i & 0xff) as u8; 4096]);
+        let hash = hash_bytes_v1(&expected);
         match storage.retrieve(&hash).await {
             Ok(Some(retrieved)) if retrieved == expected => {}
             Ok(Some(_)) => {
@@ -83,10 +84,10 @@ pub(crate) async fn test_content_storage_concurrent_writes() {
         pass("20 concurrent writes (distinct hashes) + reads: all correct");
     }
 
-    let single_hash = "bafkreisinglehashstresstest0000000000000000000000000000";
     let single_data = Bytes::from(vec![0xABu8; 8192]);
+    let single_hash = hash_bytes_v1(&single_data);
     storage
-        .store(single_hash, single_data.clone())
+        .store(&single_hash, single_data.clone())
         .await
         .expect("failed to store single hash");
 

@@ -1,0 +1,125 @@
+.pd__scrim {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-dialog);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--modal-scrim);
+  backdrop-filter: blur(2px);
+  padding: 24px;
+}
+.pd {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 18px;
+  width: min(460px, 100%);
+  padding: 32px 36px 26px;
+  border-radius: var(--r-panel);
+  color: #fff;
+  background: var(--modal-bg);
+  box-shadow: var(--shadow-modal);
+  transform: scale(var(--ui-scale));
+}
+.pd__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+}
+.pd__prompt {
+  font-size: var(--fs-lg);
+  font-weight: 600;
+  color: #fff;
+  line-height: 1.4;
+}
+.pd__scene {
+  font-weight: 800;
+}
+.pd__additional {
+  font-size: var(--fs-sm);
+  color: rgba(252, 252, 252, 0.62);
+  line-height: 1.4;
+}
+.pd__options {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  margin: 2px 0;
+}
+.pd__option {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: var(--r-control);
+  cursor: pointer;
+  font-size: var(--fs-sm);
+  color: #fff;
+  text-align: left;
+  transition: background var(--dur-fast) var(--ease-out);
+}
+.pd__option:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+.pd__radio {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.4);
+  display: grid;
+  place-items: center;
+  transition: border-color var(--dur-fast) var(--ease-out);
+}
+.pd__option:hover .pd__radio {
+  border-color: rgba(255, 255, 255, 0.7);
+}
+.pd__radio--on {
+  border-color: var(--brand);
+}
+.pd__radio-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--brand);
+}
+/* keep the native radio for a11y/keyboard, hidden behind the custom control */
+.pd__input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+.pd__actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 4px;
+}
+/* Deny: ghost outline tuned for the violet card (the atom's ghost is greyed for dark panels). */
+.pd__deny {
+  border-color: rgba(255, 255, 255, 0.35);
+  color: #fff;
+}
+.pd__deny:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.6);
+  color: #fff;
+}
+
+@media (max-width: 480px) {
+  .pd {
+    border-radius: var(--r-card);
+    padding: 24px 20px 20px;
+  }
+  .pd__actions {
+    flex-direction: column-reverse;
+  }
+}

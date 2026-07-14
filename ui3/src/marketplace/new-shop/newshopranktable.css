@@ -1,0 +1,93 @@
+.nsrank {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.nsrank__title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--lm-ink);
+}
+.nsrank__table {
+  border: 1px solid var(--lm-line);
+  border-radius: var(--r-card);
+  overflow: hidden;
+  background: var(--lm-surface);
+}
+.nsrank__head,
+.nsrank__rowbtn {
+  display: grid;
+  grid-template-columns: 48px 1fr 160px 160px;
+  align-items: center;
+  gap: 12px;
+  padding: 0 18px;
+}
+.nsrank__table--novol .nsrank__head,
+.nsrank__table--novol .nsrank__rowbtn {
+  grid-template-columns: 48px 1fr 160px;
+}
+.nsrank__head {
+  height: 44px;
+  border-bottom: 1px solid var(--lm-line);
+}
+.nsrank__head .nsrank__c {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: var(--lm-ink-3);
+}
+.nsrank__cellwrap { display: block; }
+.nsrank__rowbtn {
+  width: 100%;
+  height: 60px;
+  appearance: none;
+  border: 0;
+  border-top: 1px solid var(--lm-line);
+  background: transparent;
+  color: var(--lm-ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+.nsrank__head + .nsrank__row .nsrank__rowbtn { border-top: 0; }
+.nsrank__rowbtn:hover { background: var(--fill-2); }
+
+.nsrank__c { min-width: 0; }
+.nsrank__c--rank {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--lm-ink-2);
+}
+.nsrank__c--item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.nsrank__thumb {
+  flex: 0 0 auto;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  overflow: hidden;
+  background: linear-gradient(155deg, #3a2b5c 0%, #241640 100%);
+}
+.nsrank__thumb img { width: 100%; height: 100%; object-fit: cover; }
+.nsrank__name { font-size: 14px; font-weight: 600; min-width: 0; }
+.nsrank__verified { flex: 0 0 auto; width: 16px; height: 16px; }
+.nsrank__c--num {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--lm-ink);
+}
+
+@media (max-width: 640px) {
+  .nsrank__head, .nsrank__rowbtn { grid-template-columns: 36px 1fr 96px; }
+  .nsrank__head .nsrank__c--num:last-child,
+  .nsrank__row .nsrank__c--num:last-child { display: none; }
+}

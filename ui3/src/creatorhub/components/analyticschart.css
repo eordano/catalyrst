@@ -1,0 +1,106 @@
+.AnalyticsChart {
+  width: 100%;
+}
+
+.AnalyticsChart .chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-bottom: 8px;
+}
+
+.AnalyticsChart .legend-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink-6);
+  font-family: var(--font-family);
+  font-size: 12px;
+}
+
+.AnalyticsChart .legend-swatch {
+  width: 10px;
+  height: 3px;
+  border-radius: 2px;
+}
+
+.AnalyticsChart svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+
+.AnalyticsChart svg:focus {
+  outline: none;
+}
+
+.AnalyticsChart svg:focus-visible {
+  outline: 1px solid var(--focus-ring-color);
+  outline-offset: 2px;
+}
+
+.AnalyticsChart .grid-line {
+  stroke: var(--line);
+  stroke-width: 1;
+}
+
+/* A hole in the line where the collector produced no sample at all. Hatched,
+   not shaded, so it never reads as a plotted value of zero. */
+.AnalyticsChart .gap-hatch {
+  stroke: var(--ink-45);
+  stroke-width: 1;
+  opacity: 0.35;
+}
+
+.AnalyticsChart .gap-band {
+  stroke: none;
+}
+
+.AnalyticsChart .axis-text {
+  fill: var(--ink-45);
+  font-family: var(--font-family);
+  font-size: 11px;
+}
+
+.AnalyticsChart .series-line {
+  fill: none;
+  stroke: var(--brand);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2;
+}
+
+.AnalyticsChart .series-area {
+  fill: var(--brand);
+  opacity: 0.1;
+}
+
+.AnalyticsChart .crosshair {
+  stroke: var(--ink-45);
+  stroke-width: 1;
+}
+
+.AnalyticsChart .hover-dot {
+  fill: var(--brand);
+  stroke: var(--panel);
+  stroke-width: 2;
+}
+
+.AnalyticsChart .tooltip-box {
+  fill: var(--menu-bg);
+  opacity: 0.95;
+}
+
+.AnalyticsChart .tooltip-value {
+  fill: var(--text);
+  font-family: var(--font-family);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.AnalyticsChart .tooltip-text {
+  fill: var(--ink-6);
+  font-family: var(--font-family);
+  font-size: 11px;
+}

@@ -21,6 +21,30 @@ fn extension(mime: &str) -> &'static str {
     }
 }
 
+fn detect_and_validate_mime(
+    data: &[u8],
+    declared: &str,
+    allowed: &[&str],
+) -> Result<&'static str, ApiError> {
+    let normalized = declared
+        .split(';')
+        .next()
+        .unwrap_or(declared)
+        .trim()
+        .to_ascii_lowercase();
+    let reject = || {
+        ApiError::bad_request(format!(
+            "Invalid file content; expected one of {}",
+            allowed.join(", ")
+        ))
+    };
+    let detected = infer::get(data).map(|t| t.mime_type()).ok_or_else(reject)?;
+    if detected != normalized.as_str() || !allowed.contains(&detected) {
+        return Err(reject());
+    }
+    Ok(detected)
+}
+
 struct UploadedPoster {
     data: Vec<u8>,
     mime: String,
@@ -87,6 +111,19 @@ async fn store_and_respond(
     })))
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/poster",
+    tag = "posters",
+    request_body(content = Vec<u8>, content_type = "multipart/form-data"),
+    responses(
+        (status = 200, body = serde_json::Value),
+        (status = 400, body = catalyrst_types::ApiErrorBody),
+        (status = 401, body = catalyrst_types::ApiErrorBody),
+        (status = 413, body = catalyrst_types::ApiErrorBody),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn upload_poster(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -94,16 +131,25 @@ pub async fn upload_poster(
 ) -> Result<Json<Value>, ApiError> {
     crate::auth_chain::require_signer(&headers, "post", "/api/poster")
         .map_err(|_| ApiError::unauthorized("Unauthorized"))?;
-    let poster = read_poster(multipart).await?;
-    if !POSTER_FILE_TYPES.contains(&poster.mime.as_str()) {
-        return Err(ApiError::bad_request(format!(
-            "Invalid file type {}",
-            poster.mime
-        )));
-    }
+    let mut poster = read_poster(multipart).await?;
+    let mime = detect_and_validate_mime(&poster.data, &poster.mime, &POSTER_FILE_TYPES)?;
+    poster.mime = mime.to_string();
     store_and_respond(&state, poster, "poster").await
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/poster-vertical",
+    tag = "posters",
+    request_body(content = Vec<u8>, content_type = "multipart/form-data"),
+    responses(
+        (status = 200, body = serde_json::Value),
+        (status = 400, body = catalyrst_types::ApiErrorBody),
+        (status = 401, body = catalyrst_types::ApiErrorBody),
+        (status = 413, body = catalyrst_types::ApiErrorBody),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn upload_poster_vertical(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -111,13 +157,9 @@ pub async fn upload_poster_vertical(
 ) -> Result<Json<Value>, ApiError> {
     crate::auth_chain::require_signer(&headers, "post", "/api/poster-vertical")
         .map_err(|_| ApiError::unauthorized("Unauthorized"))?;
-    let poster = read_poster(multipart).await?;
-    if !POSTER_VERTICAL_FILE_TYPES.contains(&poster.mime.as_str()) {
-        return Err(ApiError::bad_request(format!(
-            "Invalid file type {}. Only PNG, JPG and WebP are allowed for vertical posters",
-            poster.mime
-        )));
-    }
+    let mut poster = read_poster(multipart).await?;
+    let mime = detect_and_validate_mime(&poster.data, &poster.mime, &POSTER_VERTICAL_FILE_TYPES)?;
+    poster.mime = mime.to_string();
     store_and_respond(&state, poster, "poster-vertical").await
 }
 
@@ -143,5 +185,52 @@ mod tests {
             assert!(POSTER_FILE_TYPES.contains(&t));
             assert!(POSTER_VERTICAL_FILE_TYPES.contains(&t));
         }
+    }
+
+    const PNG_MAGIC: [u8; 16] = [
+        0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44,
+        0x52,
+    ];
+
+    #[test]
+    fn detect_and_validate_returns_detected_mime_when_png_declares_png() {
+        assert_eq!(
+            detect_and_validate_mime(&PNG_MAGIC, "image/png", &POSTER_FILE_TYPES).unwrap(),
+            "image/png"
+        );
+    }
+
+    #[test]
+    fn detect_and_validate_normalizes_declared_case_and_params() {
+        assert_eq!(
+            detect_and_validate_mime(&PNG_MAGIC, "IMAGE/PNG; charset=binary", &POSTER_FILE_TYPES)
+                .unwrap(),
+            "image/png"
+        );
+    }
+
+    #[test]
+    fn detect_and_validate_rejects_arbitrary_bytes_declaring_allowed_type() {
+        assert!(detect_and_validate_mime(
+            b"<script>alert(1)</script>",
+            "image/png",
+            &POSTER_FILE_TYPES
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn detect_and_validate_rejects_declared_detected_mismatch() {
+        assert!(detect_and_validate_mime(&PNG_MAGIC, "image/jpeg", &POSTER_FILE_TYPES).is_err());
+    }
+
+    #[test]
+    fn detect_and_validate_enforces_endpoint_allowlist() {
+        let gif = [0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 0x01, 0x00, 0x01, 0x00];
+        assert_eq!(
+            detect_and_validate_mime(&gif, "image/gif", &POSTER_FILE_TYPES).unwrap(),
+            "image/gif"
+        );
+        assert!(detect_and_validate_mime(&gif, "image/gif", &POSTER_VERTICAL_FILE_TYPES).is_err());
     }
 }
