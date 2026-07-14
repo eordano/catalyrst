@@ -8,6 +8,7 @@ pub mod errors;
 pub mod formatters;
 pub mod handlers;
 pub mod metrics;
+pub mod nul_guard;
 pub mod query_params;
 pub mod routes;
 pub mod state;
