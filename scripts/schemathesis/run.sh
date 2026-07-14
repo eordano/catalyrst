@@ -117,6 +117,8 @@ export PYTHONPATH="${SCRIPT_DIR}${PYTHONPATH:+:${PYTHONPATH}}"
 ARGS=(
     run
     "${SPEC}"
+    # docs/openapi.yaml is OpenAPI 3.1; schemathesis >=3.x needs this opt-in.
+    --experimental=openapi-3.1
     --base-url "${TARGET}"
     --checks "${CHECKS}"
     --hypothesis-max-examples "${MAX_EXAMPLES}"
@@ -127,5 +129,7 @@ if [[ -n "${REPORT}" ]]; then
     ARGS+=(--junit-xml "${REPORT}")
 fi
 
+# schemathesis >=3.20 dropped the `python -m schemathesis` entrypoint; invoke the
+# console script installed into the venv instead.
 echo "==> schemathesis ${ARGS[*]}" >&2
-exec python3 -m schemathesis "${ARGS[@]}"
+exec schemathesis "${ARGS[@]}"
