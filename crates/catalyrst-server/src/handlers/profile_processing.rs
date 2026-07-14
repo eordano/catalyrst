@@ -134,22 +134,52 @@ async fn resolve_ownership_batch(
     resolve_owned(&unique, &owned_exact, &owned_prefixes)
 }
 
-pub async fn validate_ownership(
-    squid_pool: Option<&PgPool>,
-    eth_address: &str,
-    metadata: &mut Value,
-) {
-    let pool = match squid_pool {
-        Some(p) => p,
-        None => return,
-    };
+pub async fn fetch_owned_ens_names(pool: &PgPool, address: &str) -> Vec<String> {
+    sqlx::query_scalar::<_, String>(
+        "SELECT name FROM squid_marketplace.nft \
+         WHERE category = 'ens' AND owner_address = lower($1) \
+         ORDER BY id ASC",
+    )
+    .bind(address)
+    .fetch_all(pool)
+    .await
+    .unwrap_or_default()
+}
 
+/// Recompute `hasClaimedName` from actual ENS ownership, overriding whatever
+/// the deployed profile asserts. Mirrors lamb2 profiles.ts:
+/// `hasClaimedName: ownedNames.findIndex((name) => name.name === avatar.name) !== -1`
+/// (case-sensitive exact match).
+pub fn apply_claimed_name(metadata: &mut Value, owned_names: &[String]) {
     let avatars = match metadata.get_mut("avatars").and_then(|v| v.as_array_mut()) {
         Some(arr) => arr,
         None => return,
     };
 
+    for avatar_val in avatars.iter_mut() {
+        let claimed = avatar_val
+            .get("name")
+            .and_then(|v| v.as_str())
+            .map(|name| owned_names.iter().any(|owned| owned == name))
+            .unwrap_or(false);
+        if let Some(obj) = avatar_val.as_object_mut() {
+            obj.insert("hasClaimedName".to_string(), Value::Bool(claimed));
+        }
+    }
+}
+
+/// Collect the normalized URNs whose ownership must be validated for a profile's
+/// avatars (wearables + emotes), skipping base items. Extracted from
+/// `validate_ownership` so the ownership DB fetch can be run concurrently with the
+/// ENS lookup in `process_profile` (they read the same address independently).
+fn collect_ownership_urns(metadata: &Value) -> Vec<String> {
     let mut to_check: Vec<String> = Vec::new();
+
+    let avatars = match metadata.get("avatars").and_then(|v| v.as_array()) {
+        Some(arr) => arr,
+        None => return to_check,
+    };
+
     for avatar_val in avatars.iter() {
         let avatar_obj = match avatar_val.get("avatar") {
             Some(a) => a,
@@ -185,8 +215,25 @@ pub async fn validate_ownership(
         }
     }
 
+    to_check
+}
+
+pub async fn validate_ownership(
+    squid_pool: Option<&PgPool>,
+    eth_address: &str,
+    metadata: &mut Value,
+) {
+    let pool = match squid_pool {
+        Some(p) => p,
+        None => return,
+    };
+
+    let to_check = collect_ownership_urns(metadata);
     let owned = resolve_ownership_batch(pool, eth_address, &to_check).await;
-    filter_avatars_by_ownership(avatars, &owned);
+
+    if let Some(avatars) = metadata.get_mut("avatars").and_then(|v| v.as_array_mut()) {
+        filter_avatars_by_ownership(avatars, &owned);
+    }
 }
 
 fn filter_avatars_by_ownership(avatars: &mut [Value], owned: &std::collections::HashSet<String>) {
@@ -365,7 +412,22 @@ pub async fn process_profile(
     rewrite_snapshot_urls(eid, &mut metadata, cdn_base);
 
     if !eth_address.starts_with("default") {
-        validate_ownership(squid_pool, &eth_address, &mut metadata).await;
+        if let Some(pool) = squid_pool {
+            // The ownership resolution and the ENS-name lookup both read the same
+            // address but are independent, so run them concurrently. Ordering of
+            // the subsequent mutations is preserved: ownership filtering first,
+            // then hasClaimedName, exactly as the sequential version did.
+            let to_check = collect_ownership_urns(&metadata);
+            let (owned, owned_names) = tokio::join!(
+                resolve_ownership_batch(pool, &eth_address, &to_check),
+                fetch_owned_ens_names(pool, &eth_address),
+            );
+
+            if let Some(avatars) = metadata.get_mut("avatars").and_then(|v| v.as_array_mut()) {
+                filter_avatars_by_ownership(avatars, &owned);
+            }
+            apply_claimed_name(&mut metadata, &owned_names);
+        }
     }
 
     Some(metadata)
@@ -779,6 +841,52 @@ mod tests {
             .collect();
         assert_eq!(batched, expected);
         assert!(batched.is_empty());
+    }
+
+    #[test]
+    fn apply_claimed_name_overrides_stale_true_when_name_not_owned() {
+        let mut metadata = json!({
+            "avatars": [{"name": "Genius", "hasClaimedName": true}]
+        });
+
+        apply_claimed_name(&mut metadata, &["OtherName".to_string()]);
+
+        assert_eq!(metadata["avatars"][0]["hasClaimedName"], false);
+    }
+
+    #[test]
+    fn apply_claimed_name_sets_true_when_missing_and_owned() {
+        let mut metadata = json!({
+            "avatars": [{"name": "iMoo"}]
+        });
+
+        apply_claimed_name(&mut metadata, &["iMoo".to_string()]);
+
+        assert_eq!(metadata["avatars"][0]["hasClaimedName"], true);
+    }
+
+    #[test]
+    fn apply_claimed_name_is_case_sensitive() {
+        let mut metadata = json!({
+            "avatars": [{"name": "imoo", "hasClaimedName": true}]
+        });
+
+        apply_claimed_name(&mut metadata, &["iMoo".to_string()]);
+
+        assert_eq!(metadata["avatars"][0]["hasClaimedName"], false);
+    }
+
+    #[test]
+    fn apply_claimed_name_handles_missing_name_and_empty_avatars() {
+        let mut metadata = json!({
+            "avatars": [{"avatar": {}}]
+        });
+        apply_claimed_name(&mut metadata, &["iMoo".to_string()]);
+        assert_eq!(metadata["avatars"][0]["hasClaimedName"], false);
+
+        let mut no_avatars = json!({});
+        apply_claimed_name(&mut no_avatars, &["iMoo".to_string()]);
+        assert!(no_avatars.get("avatars").is_none());
     }
 
     #[test]

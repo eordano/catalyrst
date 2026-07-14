@@ -2,6 +2,7 @@ pub mod catalyst_source;
 pub mod config;
 pub mod handlers;
 pub mod index;
+pub mod jitcache;
 pub mod lodjit;
 pub mod metrics;
 pub mod range;
@@ -50,6 +51,12 @@ pub async fn build_state(cfg: &Config) -> Result<AppState> {
             "ABGEN_OUT_ROOT is not writable — JIT conversions will build but fail to persist"
         );
     }
+
+    let roots_distinct = {
+        let jit_probe = PathBuf::from(&cfg.live_cache_dir);
+        let _ = std::fs::create_dir_all(&jit_probe);
+        roots_are_distinct(&out_root, &jit_probe)
+    };
 
     let content =
         crate::catalyst::CatalystClient::from_args(&cfg.content_url, cfg.content_disk.as_deref());
@@ -161,7 +168,15 @@ pub async fn build_state(cfg: &Config) -> Result<AppState> {
     };
     let contents_registry = Arc::new(dcl_contents::registry::RegistryStateInner {
         content: registry_source,
-        manifests: dcl_contents::manifest_store::AbManifestStore::new(out_root.clone()),
+        manifests: {
+            let store = dcl_contents::manifest_store::AbManifestStore::new(out_root.clone());
+            let jit_root = PathBuf::from(&cfg.live_cache_dir);
+            if roots_distinct {
+                store.with_fallback_root(jit_root)
+            } else {
+                store
+            }
+        },
         profile_images_url: std::env::var("PROFILE_CDN_BASE_URL")
             .or_else(|_| std::env::var("PROFILE_IMAGES_URL"))
             .unwrap_or_else(|_| "https://profile-images.decentraland.org".to_string())
@@ -232,6 +247,50 @@ pub async fn build_state(cfg: &Config) -> Result<AppState> {
         pending: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
     };
 
+    let jit_root = PathBuf::from(&cfg.live_cache_dir);
+    let _ = std::fs::create_dir_all(&jit_root);
+    let jit_budget = std::env::var("ABGEN_JIT_CACHE_MAX_BYTES")
+        .ok()
+        .and_then(|s| s.trim().parse::<u64>().ok())
+        .unwrap_or(50 * 1024 * 1024 * 1024);
+    let jit_budget = if roots_distinct { jit_budget } else { 0 };
+    let jit_cache = jitcache::JitDiskCache::new(jit_budget);
+    if let Some(p) = &live_proxy {
+        p.set_jit_cache(jit_cache.clone());
+    }
+    if jit_cache.enabled() {
+        let jit_root_seed = jit_root.clone();
+        let build_roots = live_proxy.as_ref().map(|p| {
+            let (content_root, bundle_dir) = p.cache_roots();
+            (content_root.to_path_buf(), bundle_dir.to_path_buf())
+        });
+        let items = tokio::task::spawn_blocking(move || {
+            let mut items = seed_jit_cache(&jit_root_seed);
+            if let Some((content_root, bundle_dir)) = build_roots {
+                prune_stale_bundle_dirs(&bundle_dir);
+                items.extend(seed_build_caches(&content_root, &bundle_dir));
+            }
+            items
+        })
+        .await
+        .unwrap_or_default();
+        let seeded = items.len();
+        jit_cache.seed_many(items);
+        tracing::info!(
+            cache = %jit_root.display(),
+            budget_bytes = jit_budget,
+            seeded,
+            bytes = jit_cache.total_bytes(),
+            "JIT disk cache: LRU + refcount enabled (entities + bundles + content)"
+        );
+    } else {
+        tracing::info!(
+            cache = %jit_root.display(),
+            "JIT disk cache disabled (budget 0 or serve-cache == out_root); \
+             content/ and bundles/ build caches are UNBOUNDED"
+        );
+    }
+
     let inner = AppStateInner::new(
         out_root,
         content,
@@ -248,10 +307,118 @@ pub async fn build_state(cfg: &Config) -> Result<AppState> {
         index_build,
     )
     .with_worlds_content_url(crate::worlds::content_fallback_from_env())
+    .with_jit(jit_root, jit_cache, roots_distinct)
     .with_registry_state(Some(contents_registry));
     #[cfg(feature = "content-db")]
     let inner = inner.with_content_db(content_db);
     Ok(Arc::new(inner))
+}
+
+fn seed_jit_cache(jit_root: &Path) -> Vec<(String, PathBuf, u64)> {
+    let mut out = Vec::new();
+    let Ok(rd) = std::fs::read_dir(jit_root) else {
+        return out;
+    };
+    for ent in rd.flatten() {
+        let Ok(ft) = ent.file_type() else { continue };
+        let name = ent.file_name();
+        let Some(name) = name.to_str() else { continue };
+        let path = ent.path();
+        if name.contains(jitcache::EVICTED_SUFFIX) {
+            if ft.is_dir() {
+                let _ = std::fs::remove_dir_all(&path);
+            } else {
+                let _ = std::fs::remove_file(&path);
+            }
+            continue;
+        }
+        if ft.is_file() && name.contains(".tmp.") {
+            let _ = std::fs::remove_file(&path);
+            continue;
+        }
+        if matches!(
+            name,
+            "content" | "bundles" | "lod-work" | "lod-content" | "dcl"
+        ) {
+            continue;
+        }
+        if ft.is_dir() {
+            let bytes = jitcache::dir_size(&path);
+            out.push((name.to_string(), path, bytes));
+        } else if ft.is_file() {
+            let bytes = ent.metadata().map(|m| m.len()).unwrap_or(0);
+            if bytes == 0 {
+                continue;
+            }
+            out.push((name.to_string(), path, bytes));
+        }
+    }
+    out
+}
+
+fn prune_stale_bundle_dirs(current: &Path) {
+    let (Some(parent), Some(keep)) = (current.parent(), current.file_name()) else {
+        return;
+    };
+    let Ok(rd) = std::fs::read_dir(parent) else {
+        return;
+    };
+    for ent in rd.flatten() {
+        if ent.file_name() == keep {
+            continue;
+        }
+        if ent.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+            let _ = std::fs::remove_dir_all(ent.path());
+        }
+    }
+}
+
+fn seed_build_caches(content_root: &Path, bundle_dir: &Path) -> Vec<(String, PathBuf, u64)> {
+    let mut out = Vec::new();
+    if let Ok(rd) = std::fs::read_dir(bundle_dir) {
+        for ent in rd.flatten() {
+            if !ent.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+                continue;
+            }
+            let name = ent.file_name();
+            let Some(cid) = name.to_str() else { continue };
+            let path = ent.path();
+            if cid.contains(jitcache::EVICTED_SUFFIX) {
+                let _ = std::fs::remove_dir_all(&path);
+                continue;
+            }
+            let bytes = jitcache::dir_size(&path);
+            out.push((format!("b:{cid}"), path, bytes));
+        }
+    }
+    let mut stack = vec![content_root.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        let Ok(rd) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for ent in rd.flatten() {
+            let Ok(ft) = ent.file_type() else { continue };
+            if ft.is_dir() {
+                stack.push(ent.path());
+                continue;
+            }
+            if !ft.is_file() {
+                continue;
+            }
+            let name = ent.file_name();
+            let Some(hash) = name.to_str() else { continue };
+            if hash.contains(jitcache::EVICTED_SUFFIX) {
+                let _ = std::fs::remove_file(ent.path());
+                continue;
+            }
+            if hash.contains(".tmp.") {
+                continue;
+            }
+            let bytes = ent.metadata().map(|m| m.len()).unwrap_or(0);
+            out.push((format!("c:{hash}"), ent.path(), bytes));
+        }
+    }
+    out
 }
 
 fn probe_writable(dir: &Path) -> bool {
@@ -263,6 +430,39 @@ fn probe_writable(dir: &Path) -> bool {
         }
         Err(_) => false,
     }
+}
+
+fn roots_are_distinct(out_root: &Path, jit_root: &Path) -> bool {
+    match (
+        std::fs::canonicalize(out_root),
+        std::fs::canonicalize(jit_root),
+    ) {
+        (Ok(a), Ok(b)) => a != b && !same_device_inode(&a, &b),
+        _ => {
+            tracing::warn!(
+                out_root = %out_root.display(),
+                jit_root = %jit_root.display(),
+                "abgen: canonicalize failed for a cache root — treating jit_root and out_root as \
+                 the SAME directory to disable LRU eviction (fail-safe: refuses to risk \
+                 remove_dir_all-ing the immutable warm corpus)"
+            );
+            false
+        }
+    }
+}
+
+#[cfg(unix)]
+fn same_device_inode(a: &Path, b: &Path) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    match (std::fs::metadata(a), std::fs::metadata(b)) {
+        (Ok(ma), Ok(mb)) => ma.dev() == mb.dev() && ma.ino() == mb.ino(),
+        _ => false,
+    }
+}
+
+#[cfg(not(unix))]
+fn same_device_inode(_a: &Path, _b: &Path) -> bool {
+    false
 }
 
 async fn probe_catalyst(content_url: &str) {

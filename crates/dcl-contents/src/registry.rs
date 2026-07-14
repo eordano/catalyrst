@@ -170,6 +170,19 @@ pub(crate) mod testutil {
     pub fn open_state(entities: Vec<ActiveEntity>, out_root: &std::path::Path) -> RegistryAppState {
         state_with(entities, Arc::new(super::OpenWorldPolicy), out_root)
     }
+
+    pub fn open_state_dual(
+        entities: Vec<ActiveEntity>,
+        out_root: &std::path::Path,
+        jit_root: &std::path::Path,
+    ) -> RegistryAppState {
+        Arc::new(RegistryStateInner {
+            content: Arc::new(StubSource(entities)),
+            manifests: AbManifestStore::new(out_root).with_fallback_root(jit_root),
+            profile_images_url: "https://profile-images.example".to_string(),
+            world_policy: Arc::new(super::OpenWorldPolicy),
+        })
+    }
 }
 
 #[cfg(test)]

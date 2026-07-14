@@ -264,35 +264,42 @@ fn eager_build_index(state: &AppState, entities: &[ResolvedEntity]) {
     let Some(proxy) = state.live_proxy.clone() else {
         return;
     };
-    let mut targets: Vec<(String, String)> = Vec::new();
+    let mut candidates: Vec<(String, String)> = Vec::new();
     for e in entities {
         if !entity_buildable(&e.content) {
             continue;
         }
         for platform in &ib.platforms {
-            let manifest = state
-                .out_root
-                .join(&e.entity_id)
-                .join(format!("{platform}.manifest.json"));
-            if !manifest.exists() {
-                targets.push((e.entity_id.clone(), platform.clone()));
-            }
+            candidates.push((e.entity_id.clone(), platform.clone()));
         }
     }
-    if targets.is_empty() {
+    if candidates.is_empty() {
         return;
     }
 
-    let out = state.out_root.clone();
-    let csu = state.manifest_content_server_url.clone();
     let sem = ib.sem.clone();
     let pending = ib.pending.clone();
     let max_queue = ib.max_queue;
     let deadline = ib.deadline;
+    let st = state.clone();
 
     tokio::spawn(async move {
         let mut handles = Vec::new();
-        for (ent, plat) in targets {
+        for (ent, plat) in candidates {
+            let key = format!("{ent}:{plat}");
+            if st.jit_fail_cache.get(&key).await.is_some() {
+                continue;
+            }
+            let rel = format!("{plat}.manifest.json");
+            let warm = st.out_root.join(&ent).join(&rel);
+            let jit = st.jit_root.join(&ent).join(&rel);
+            let (w, j) = (warm, jit.clone());
+            let already = tokio::task::spawn_blocking(move || w.is_file() || j.is_file())
+                .await
+                .unwrap_or(false);
+            if already {
+                continue;
+            }
             if max_queue > 0 && pending.load(std::sync::atomic::Ordering::Relaxed) >= max_queue {
                 metrics::counter!("abgen_index_jit_skipped_total").increment(1);
                 continue;
@@ -301,24 +308,13 @@ fn eager_build_index(state: &AppState, entities: &[ResolvedEntity]) {
             let guard = PendingGuard(pending.clone());
             let sem = sem.clone();
             let px = proxy.clone();
-            let out = out.clone();
-            let csu = csu.clone();
+            let st = st.clone();
             handles.push(tokio::spawn(async move {
                 let _guard = guard;
                 let Ok(_permit) = sem.acquire_owned().await else {
                     return;
                 };
-                let _ = timed_corpus_build(
-                    px,
-                    out,
-                    ent,
-                    plat,
-                    csu,
-                    "abgen_index_jit_builds_total",
-                    "abgen_index_jit_build_duration_seconds",
-                    "index",
-                )
-                .await;
+                let _ = jit_build_entity(&st, &px, &ent, &plat, Some(jit), "index").await;
             }));
         }
         let deadline = tokio::time::Instant::now() + deadline;

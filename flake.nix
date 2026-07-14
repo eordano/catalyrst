@@ -422,7 +422,7 @@
               OPENSSL_NO_VENDOR = "1";
               RUSTY_V8_ARCHIVE = "${librusty_v8}";
               ABGEN_TURBOJPEG_STATIC_DIR = "${turbojpegIso}/lib";
-              ABGEN_GIT_COMMIT = "3b5f81334ef8";
+              ABGEN_GIT_COMMIT = "6f6e4ea8aa26";
             };
             postInstall = ''
               mkdir -p "$out/share/catalyrst-server"
@@ -485,6 +485,21 @@
             };
           }
         ));
+
+      # Stateless, sandboxed tests. `nix flake check` (or
+      # `nix build .#checks.<system>.catalyrst-server-tests`) builds the
+      # catalyrst derivation with its check phase enabled — no devShell, no
+      # mutable cargo target dir. Covers the catalyrst-server input-validation
+      # unit tests (nul_guard middleware, DatabaseError->AppError mapping,
+      # active_entities validator).
+      checks = forAllSystems (pkgs: {
+        catalyrst-server-tests =
+          self.packages.${pkgs.stdenv.hostPlatform.system}.catalyrst.overrideAttrs (old: {
+          pname = "catalyrst-server-tests";
+          doCheck = true;
+          cargoTestFlags = (old.cargoTestFlags or [ ]) ++ [ "-p" "catalyrst-server" ];
+        });
+      });
 
       devShells = forAllSystems (pkgs:
         let

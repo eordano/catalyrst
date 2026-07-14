@@ -1,9 +1,10 @@
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 use std::time::Duration;
 
+use super::jitcache::JitDiskCache;
 use super::lodjit::LodJit;
 use crate::catalyst::CatalystClient;
 #[cfg(feature = "content-db")]
@@ -36,6 +37,13 @@ impl IndexBuild {
 
 pub struct AppStateInner {
     pub out_root: PathBuf,
+
+    pub jit_root: PathBuf,
+
+    pub jit_cache: Arc<JitDiskCache>,
+
+    pub roots_distinct: bool,
+
     pub resolve_cache: ResolveCache,
 
     pub content: CatalystClient,
@@ -106,6 +114,9 @@ impl AppStateInner {
         index_build: IndexBuild,
     ) -> Self {
         Self {
+            jit_root: out_root.clone(),
+            jit_cache: JitDiskCache::new(0),
+            roots_distinct: false,
             out_root,
             resolve_cache: Cache::builder()
                 .max_capacity(50_000)
@@ -143,6 +154,79 @@ impl AppStateInner {
     pub fn with_worlds_content_url(mut self, url: Option<String>) -> Self {
         self.worlds_content_url = url;
         self
+    }
+
+    pub fn with_jit(
+        mut self,
+        jit_root: PathBuf,
+        jit_cache: Arc<JitDiskCache>,
+        roots_distinct: bool,
+    ) -> Self {
+        self.jit_root = jit_root;
+        self.jit_cache = jit_cache;
+        self.roots_distinct = roots_distinct;
+        self
+    }
+
+    pub fn serve_lookup(
+        &self,
+        build: impl Fn(&Path) -> Option<PathBuf>,
+    ) -> Option<(PathBuf, bool)> {
+        let out = build(&self.out_root);
+        if let Some(p) = &out {
+            if p.is_file() {
+                return Some((p.clone(), false));
+            }
+        }
+        if self.roots_distinct {
+            if let Some(p) = build(&self.jit_root) {
+                if p.is_file() {
+                    return Some((p, true));
+                }
+            }
+        }
+        out.map(|p| (p, false))
+    }
+
+    pub fn jit_key_of(&self, exact: &Path) -> Option<String> {
+        exact
+            .strip_prefix(&self.jit_root)
+            .ok()?
+            .components()
+            .next()
+            .and_then(|c| c.as_os_str().to_str())
+            .map(str::to_string)
+    }
+
+    pub fn touch_if_jit(&self, exact: &Path, from_jit: bool) {
+        if from_jit {
+            if let Some(key) = self.jit_key_of(exact) {
+                self.jit_cache.touch(&key);
+            }
+        }
+    }
+
+    pub fn jit_record(&self, entity: &str) {
+        if !self.jit_cache.enabled() {
+            return;
+        }
+        let dir = self.jit_root.join(entity);
+        let bytes = super::jitcache::dir_size(&dir);
+        if bytes == 0 {
+            return;
+        }
+        self.jit_cache.record(entity, dir, bytes);
+    }
+
+    pub fn jit_record_file(&self, key: &str, path: &Path) {
+        if !self.jit_cache.enabled() {
+            return;
+        }
+        let bytes = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
+        if bytes == 0 {
+            return;
+        }
+        self.jit_cache.record(key, path.to_path_buf(), bytes);
     }
 
     #[cfg(feature = "content-db")]

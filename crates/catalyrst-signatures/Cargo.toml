@@ -1,6 +1,6 @@
 [package]
 name = "catalyrst-signatures"
-version = "0.9.10"
+version = "0.9.14"
 edition = "2021"
 description = "Rust port of decentraland/signatures-server (signatures-api.decentraland.org), the LAND/Estate rental-listing signature store over a dedicated postgres DB"
 

@@ -159,6 +159,12 @@ pub async fn build_state(cfg: &Config) -> Result<AppState> {
         );
     }
 
+    if cfg.gatekeeper_auth_token.is_none() {
+        tracing::warn!(
+            "COMMS_GATEKEEPER_AUTH_TOKEN unset; the bearer check is skipped and all voice routes (/community-voice-chat*, /private-voice-chat*, /users/:address/*-voice-chat-status, /users/:address/private-messages-privacy) plus the world ban-status route are served UNAUTHENTICATED"
+        );
+    }
+
     let http = reqwest::Client::builder()
         .timeout(Duration::from_secs(10))
         .build()

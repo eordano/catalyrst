@@ -1,6 +1,6 @@
 [package]
 name = "catalyrst-telemetry"
-version = "0.9.10"
+version = "0.9.14"
 edition = "2021"
 description = "Local Sentry envelope + Segment HTTP API sinks: store client telemetry in postgres instead of shipping it to hosted services."
 

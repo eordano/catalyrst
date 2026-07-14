@@ -24,7 +24,7 @@ pub async fn get_content_files(
     }
 
     let rows: Vec<ContentFilesRow> = sqlx::query_as(
-        "SELECT deployment, key, content_hash FROM content_files WHERE deployment = ANY($1)",
+        "SELECT deployment, key, content_hash FROM content_files WHERE deployment = ANY($1) ORDER BY ctid",
     )
     .bind(deployment_ids)
     .fetch_all(pool)

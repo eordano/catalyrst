@@ -1,6 +1,6 @@
 [package]
 name = "dcl-contents"
-version = "0.9.10"
+version = "0.9.14"
 edition = "2021"
 description = "Content-DB active-entity component, asset-bundle status DTOs, manifest-status reader, and the unsigned registry HTTP surface (profiles, entity status, world manifests)."
 

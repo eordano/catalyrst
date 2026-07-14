@@ -1,6 +1,6 @@
 [package]
 name = "catalyrst-quests"
-version = "0.9.10"
+version = "0.9.14"
 edition = "2021"
 description = "Port of decentraland/quests — quests/achievements backend. REST surface carries the protobuf-defined message shapes (decentraland.quests definitions.proto via prost). The dcl-rpc QuestsService (StartQuest/Abort/SendEvent/Subscribe/GetAllQuests/GetQuestDefinition) is served over a signed-auth-chain WebSocket transport."
 

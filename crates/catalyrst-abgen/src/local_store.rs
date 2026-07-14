@@ -45,7 +45,17 @@ impl LocalContentStore {
     }
 
     pub fn exists(&self, cid: &str) -> bool {
-        self.path_for(cid).exists()
+        std::fs::metadata(self.path_for(cid))
+            .map(|m| m.len() > 0)
+            .unwrap_or(false)
+    }
+
+    pub fn path_of(&self, cid: &str) -> PathBuf {
+        self.path_for(cid)
+    }
+
+    pub fn root(&self) -> &Path {
+        &self.root
     }
 
     pub fn write(&self, cid: &str, bytes: &[u8]) -> Result<()> {
@@ -54,7 +64,7 @@ impl LocalContentStore {
             std::fs::create_dir_all(dir)
                 .with_context(|| format!("create shard dir {}", dir.display()))?;
         }
-        let tmp = path.with_extension(format!("tmp.{}", std::process::id()));
+        let tmp = crate::tmppath::tmp_sibling(&path);
         std::fs::write(&tmp, bytes).with_context(|| format!("write {}", tmp.display()))?;
         std::fs::rename(&tmp, &path).with_context(|| format!("rename into {}", path.display()))?;
         Ok(())

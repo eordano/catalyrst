@@ -1,6 +1,6 @@
 [package]
 name = "catalyrst-places"
-version = "0.9.10"
+version = "0.9.14"
 edition = "2021"
 description = "Rust port of decentraland/places (REST API for places.decentraland.org), federation-aware via catalyrst-fed"
 

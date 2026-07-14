@@ -1,6 +1,6 @@
 [package]
 name = "catalyrst-governance"
-version = "0.9.10"
+version = "0.9.14"
 edition = "2021"
 description = "Governance API component for the catalyrst stack"
 

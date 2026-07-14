@@ -1,6 +1,6 @@
 [package]
 name = "catalyrst-rpc"
-version = "0.9.10"
+version = "0.9.14"
 edition = "2021"
 description = "Rust port of rpc.decentraland.org — a method-filtered read-only EVM JSON-RPC relay over HTTP POST + WebSocket (Unity DappWeb3Authenticator path). Port 5141."
 

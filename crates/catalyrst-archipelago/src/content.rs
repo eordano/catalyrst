@@ -75,6 +75,8 @@ struct CacheEntry {
     at: Instant,
 }
 
+const MAX_CACHE_ENTRIES: usize = 512;
+
 pub struct ContentResolver {
     pool: Option<PgPool>,
 
@@ -121,13 +123,28 @@ impl ContentResolver {
 
         let scenes = self.query_scenes(pool, &key_tiles).await?;
 
-        self.cache.write().insert(
-            cache_key,
-            CacheEntry {
-                scenes: scenes.clone(),
-                at: Instant::now(),
-            },
-        );
+        {
+            let ttl = self.ttl;
+            let mut guard = self.cache.write();
+            guard.retain(|_, entry| entry.at.elapsed() < ttl);
+            while guard.len() >= MAX_CACHE_ENTRIES {
+                let Some(oldest) = guard
+                    .iter()
+                    .min_by_key(|(_, e)| e.at)
+                    .map(|(k, _)| k.clone())
+                else {
+                    break;
+                };
+                guard.remove(&oldest);
+            }
+            guard.insert(
+                cache_key,
+                CacheEntry {
+                    scenes: scenes.clone(),
+                    at: Instant::now(),
+                },
+            );
+        }
         Ok(scenes)
     }
 

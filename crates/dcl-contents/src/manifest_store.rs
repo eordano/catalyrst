@@ -180,6 +180,7 @@ impl AbManifests {
 #[derive(Clone)]
 pub struct AbManifestStore {
     root: PathBuf,
+    fallback: Option<PathBuf>,
     cache: Cache<String, Arc<AbManifests>>,
 }
 
@@ -187,11 +188,21 @@ impl AbManifestStore {
     pub fn new(root: impl Into<PathBuf>) -> Self {
         Self {
             root: root.into(),
+            fallback: None,
             cache: Cache::builder()
                 .max_capacity(50_000)
                 .time_to_live(Duration::from_secs(30))
                 .build(),
         }
+    }
+
+    pub fn with_fallback_root(mut self, root: impl Into<PathBuf>) -> Self {
+        self.fallback = Some(root.into());
+        self
+    }
+
+    fn roots(&self) -> impl Iterator<Item = &PathBuf> {
+        std::iter::once(&self.root).chain(self.fallback.iter())
     }
 
     pub async fn get(&self, entity_id: &str) -> Arc<AbManifests> {
@@ -207,30 +218,42 @@ impl AbManifestStore {
         if !valid_entity_id(entity_id) {
             return AbManifests::default();
         }
-        let base = self.root.join(entity_id);
         let read = |platform: &str| -> Option<PlatformManifest> {
-            let path = base.join(format!("{platform}.manifest.json"));
-            let text = std::fs::read_to_string(&path).ok()?;
-            let raw: RawManifest = serde_json::from_str(&text).ok()?;
-            Some(PlatformManifest {
-                version: raw.version,
-                build_date: normalize_build_date(raw.date.as_deref(), &path),
-                exit_code: raw.exit_code,
-            })
+            let mut first: Option<PlatformManifest> = None;
+            for root in self.roots() {
+                let path = root
+                    .join(entity_id)
+                    .join(format!("{platform}.manifest.json"));
+                let Some(raw) = parse_raw_manifest(&path) else {
+                    continue;
+                };
+                let m = PlatformManifest {
+                    version: raw.version,
+                    build_date: normalize_build_date(raw.date.as_deref(), &path),
+                    exit_code: raw.exit_code,
+                };
+                if m.exit_code == 0 {
+                    return Some(m);
+                }
+                first.get_or_insert(m);
+            }
+            first
         };
 
         let lod = {
-            let path = base.join("LOD.manifest.json");
-            std::fs::read_to_string(&path)
-                .ok()
-                .and_then(|t| serde_json::from_str::<RawManifest>(&t).ok())
-                .map(|raw| {
-                    if raw.exit_code == 0 {
-                        BuildStatus::Complete
-                    } else {
-                        BuildStatus::Failed
-                    }
-                })
+            let mut first: Option<BuildStatus> = None;
+            for root in self.roots() {
+                let path = root.join(entity_id).join("LOD.manifest.json");
+                let Some(raw) = parse_raw_manifest(&path) else {
+                    continue;
+                };
+                if raw.exit_code == 0 {
+                    first = Some(BuildStatus::Complete);
+                    break;
+                }
+                first.get_or_insert(BuildStatus::Failed);
+            }
+            first
         };
 
         AbManifests {
@@ -256,6 +279,10 @@ impl AbManifestStore {
 
 fn valid_entity_id(id: &str) -> bool {
     (10..=128).contains(&id.len()) && id.bytes().all(|b| b.is_ascii_alphanumeric())
+}
+
+fn parse_raw_manifest(path: &Path) -> Option<RawManifest> {
+    serde_json::from_str(&std::fs::read_to_string(path).ok()?).ok()
 }
 
 fn normalize_build_date(raw_date: Option<&str>, manifest_path: &Path) -> Option<String> {
@@ -321,6 +348,104 @@ mod tests {
             .unwrap(),
         )
         .unwrap();
+    }
+
+    fn write_platform_manifest(dir: &Path, platform: &str, exit_code: i32) {
+        std::fs::create_dir_all(dir).unwrap();
+        std::fs::write(
+            dir.join(format!("{platform}.manifest.json")),
+            serde_json::to_string(&serde_json::json!({
+                "version": "v41",
+                "exitCode": exit_code,
+                "date": "2024-03-15T12:34:56.789Z",
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn fallback_root_reports_jit_only_entity_complete() {
+        let tmp = std::env::temp_dir().join(format!("ab_registry_fbjit_{}", std::process::id()));
+        let out_root = tmp.join("out");
+        let jit_root = tmp.join("jit");
+        let entity = "QmPAyzWU7gtdVRr9DGohiRzrSXL67NQdRuMwpfecoireUD";
+        for platform in ["windows", "mac", "linux"] {
+            write_platform_manifest(&jit_root.join(entity), platform, 0);
+        }
+
+        let store = AbManifestStore::new(&out_root).with_fallback_root(&jit_root);
+        let m = store.read_from_disk(entity);
+        assert!(matches!(m.windows_status(), BuildStatus::Complete));
+        assert!(matches!(m.mac_status(), BuildStatus::Complete));
+        assert!(matches!(m.linux_status(), BuildStatus::Complete));
+
+        let single = AbManifestStore::new(&out_root);
+        let sm = single.read_from_disk(entity);
+        assert!(
+            matches!(sm.windows_status(), BuildStatus::Pending),
+            "a single-root store must not see jit_root manifests"
+        );
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn fallback_root_unions_platforms_across_both_roots() {
+        let tmp = std::env::temp_dir().join(format!("ab_registry_fbunion_{}", std::process::id()));
+        let out_root = tmp.join("out");
+        let jit_root = tmp.join("jit");
+        let entity = "QmPAyzWU7gtdVRr9DGohiRzrSXL67NQdRuMwpfecoireUD";
+        write_platform_manifest(&out_root.join(entity), "windows", 0);
+        write_platform_manifest(&jit_root.join(entity), "mac", 0);
+        write_platform_manifest(&jit_root.join(entity), "linux", 0);
+
+        let store = AbManifestStore::new(&out_root).with_fallback_root(&jit_root);
+        let m = store.read_from_disk(entity);
+        assert!(matches!(m.windows_status(), BuildStatus::Complete));
+        assert!(matches!(m.mac_status(), BuildStatus::Complete));
+        assert!(matches!(m.linux_status(), BuildStatus::Complete));
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn fallback_root_out_root_wins_per_platform() {
+        let tmp = std::env::temp_dir().join(format!("ab_registry_fbwin_{}", std::process::id()));
+        let out_root = tmp.join("out");
+        let jit_root = tmp.join("jit");
+        let entity = "QmPAyzWU7gtdVRr9DGohiRzrSXL67NQdRuMwpfecoireUD";
+        write_platform_manifest(&out_root.join(entity), "windows", 0);
+        write_platform_manifest(&jit_root.join(entity), "windows", 1);
+
+        let store = AbManifestStore::new(&out_root).with_fallback_root(&jit_root);
+        let m = store.read_from_disk(entity);
+        assert!(
+            matches!(m.windows_status(), BuildStatus::Complete),
+            "out_root must win over jit_root for the same platform"
+        );
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn prefer_complete_across_roots_over_stale_out_root_failure() {
+        let tmp =
+            std::env::temp_dir().join(format!("ab_registry_prefercplt_{}", std::process::id()));
+        let out_root = tmp.join("out");
+        let jit_root = tmp.join("jit");
+        let entity = "QmPAyzWU7gtdVRr9DGohiRzrSXL67NQdRuMwpfecoireUD";
+        write_platform_manifest(&out_root.join(entity), "windows", 12);
+        write_platform_manifest(&jit_root.join(entity), "windows", 0);
+
+        let store = AbManifestStore::new(&out_root).with_fallback_root(&jit_root);
+        let m = store.read_from_disk(entity);
+        assert!(
+            matches!(m.windows_status(), BuildStatus::Complete),
+            "a Complete jit_root rebuild must win over a stale Failed out_root manifest"
+        );
+
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 
     #[test]

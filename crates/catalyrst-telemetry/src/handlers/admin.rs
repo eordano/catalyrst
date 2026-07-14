@@ -45,7 +45,10 @@ fn token_ok(expected: Option<&str>, presented: Option<&str>) -> bool {
     }
 }
 
-fn authorize(state: &AppState, headers: &HeaderMap) -> Result<(), (StatusCode, String)> {
+pub(crate) fn authorize(
+    state: &AppState,
+    headers: &HeaderMap,
+) -> Result<(), (StatusCode, String)> {
     if state.admin_token.is_none() {
         return Err((
             StatusCode::FORBIDDEN,

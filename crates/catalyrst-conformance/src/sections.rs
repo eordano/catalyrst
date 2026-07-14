@@ -4,7 +4,7 @@ use colored::Colorize;
 use crate::checks::{
     test_content_hash, test_get_bytes, test_get_json, test_pagination, test_post_json,
 };
-use crate::{Args, BootstrapData, Ctx, Endpoints, Scoreboard};
+use crate::{Args, BootstrapData, Ctx, Endpoints, Outcome, Scoreboard};
 
 pub(crate) async fn run_content_section(
     ctx: &Ctx,
@@ -124,7 +124,7 @@ pub(crate) async fn run_content_section(
             )
             .await?;
             score.record_outcome(outcome, &format!("Deployments ({})", label), args.verbose);
-            ctx.sleep_between().await;
+            ctx.sleep_heavy().await;
         }
         println!();
 
@@ -644,15 +644,19 @@ pub(crate) async fn run_lambdas_section(
                     &path,
                 )
                 .await?;
-                score.record_outcome(
-                    outcome,
-                    &format!(
-                        "/lambdas/explorer/{}...{}",
-                        &addr[..addr.len().min(10)],
-                        sub
-                    ),
-                    args.verbose,
+                let label = format!(
+                    "/lambdas/explorer/{}...{}",
+                    &addr[..addr.len().min(10)],
+                    sub
                 );
+                if baseline_404_candidate_200(&outcome) {
+                    score.skip(
+                        &label,
+                        "endpoint absent on TS baseline (404); candidate value-add",
+                    );
+                } else {
+                    score.record_outcome(outcome, &label, args.verbose);
+                }
                 ctx.sleep_between().await;
             }
         } else {
@@ -745,4 +749,15 @@ pub(crate) async fn run_lambdas_section(
     }
 
     Ok(())
+}
+
+/// True when the only difference is baseline responding 404 while the
+/// candidate responds 200 — i.e. an endpoint the TS reference does not
+/// implement but the candidate does (a deliberate value-add). Any other
+/// status mismatch (e.g. candidate 500) still counts as a failure.
+fn baseline_404_candidate_200(outcome: &Outcome) -> bool {
+    matches!(outcome, Outcome::Diffs(d) if d.len() == 1
+        && d[0].path == "HTTP status"
+        && d[0].baseline_value.starts_with("404")
+        && d[0].candidate_value.starts_with("200"))
 }

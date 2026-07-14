@@ -49,18 +49,23 @@ pub(super) async fn dispatch_local(
         let Some(stem) = name.strip_suffix(".json") else {
             return serve::not_found();
         };
-        let Some(exact) = resolver::manifest_path(&state.out_root, stem) else {
+        let Some((exact, from_jit)) = state.serve_lookup(|r| resolver::manifest_path(r, stem))
+        else {
             return serve::not_found();
         };
+        state.touch_if_jit(&exact, from_jit);
         return serve::serve_manifest(state, path, &exact, method).await;
     }
 
     if segments.first() == Some(&"LOD") && segments.len() == 3 {
         let level = segments[1];
         let filename = segments[2];
-        let Some(exact) = resolver::lod_path(&state.out_root, level, filename) else {
+        let Some((exact, from_jit)) =
+            state.serve_lookup(|r| resolver::lod_path(r, level, filename))
+        else {
             return serve::not_found();
         };
+        state.touch_if_jit(&exact, from_jit);
         let etag = filename.strip_suffix(".br").unwrap_or(filename);
         let is_br = filename.ends_with(".br");
         return serve::serve_binary(state, path, &exact, etag, is_br, method, headers).await;
@@ -68,9 +73,12 @@ pub(super) async fn dispatch_local(
 
     if segments.len() == 3 && segments[0] == "lods-unity" && segments[1] == "manifests" {
         let filename = segments[2];
-        let Some(exact) = resolver::iss_manifest_path(&state.out_root, filename) else {
+        let Some((exact, from_jit)) =
+            state.serve_lookup(|r| resolver::iss_manifest_path(r, filename))
+        else {
             return serve::not_found();
         };
+        state.touch_if_jit(&exact, from_jit);
         return serve::serve_manifest(state, filename, &exact, method).await;
     }
 
@@ -80,9 +88,12 @@ pub(super) async fn dispatch_local(
         let raw = filename.strip_suffix(".br").unwrap_or(filename);
         if is_bundle_name(raw) {
             let is_br = filename.ends_with(".br");
-            let Some(exact) = resolver::binary_path(&state.out_root, entity, filename) else {
+            let Some((exact, from_jit)) =
+                state.serve_lookup(|r| resolver::binary_path(r, entity, filename))
+            else {
                 return serve::not_found();
             };
+            state.touch_if_jit(&exact, from_jit);
             return serve::serve_binary(state, path, &exact, raw, is_br, method, headers).await;
         }
 
@@ -101,10 +112,12 @@ pub(super) async fn dispatch_local(
             .bundle_index
             .get(&filename.to_ascii_lowercase())
             .cloned()
-            .or_else(|| resolver::binary_path(&state.out_root, bare, filename));
-        let Some(exact) = exact else {
+            .map(|p| (p, false))
+            .or_else(|| state.serve_lookup(|r| resolver::binary_path(r, bare, filename)));
+        let Some((exact, from_jit)) = exact else {
             return serve::not_found();
         };
+        state.touch_if_jit(&exact, from_jit);
         return serve::serve_binary(state, path, &exact, raw, is_br, method, headers).await;
     }
 

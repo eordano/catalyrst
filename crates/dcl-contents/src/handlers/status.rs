@@ -67,7 +67,7 @@ mod tests {
     use axum::response::IntoResponse;
     use serde_json::json;
 
-    use crate::registry::testutil::{entity, open_state};
+    use crate::registry::testutil::{entity, open_state, open_state_dual};
 
     fn write_manifest(root: &std::path::Path, id: &str, platform: &str, exit: i32) {
         let dir = root.join(id);
@@ -122,6 +122,37 @@ mod tests {
         assert_eq!(missing.into_response().status().as_u16(), 404);
 
         let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[tokio::test]
+    async fn status_by_id_reads_jit_fallback_manifests() {
+        let out_root = tmp_root("jitout");
+        let jit_root = tmp_root("jitfb");
+        let id = "bafkjitstatusentity";
+        for platform in ["windows", "mac", "linux"] {
+            write_manifest(&jit_root, id, platform, 0);
+        }
+        let state = open_state_dual(
+            vec![entity(id, "scene", &["0,0"], json!({}))],
+            &out_root,
+            &jit_root,
+        );
+
+        let Json(got) = get_entity_status(
+            State(state),
+            Path(id.to_string()),
+            Query(WorldNameQuery { world_name: None }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(got.entity_id, id);
+        assert!(got.complete);
+        assert!(matches!(got.asset_bundles.windows, BuildStatus::Complete));
+        assert!(matches!(got.asset_bundles.mac, BuildStatus::Complete));
+        assert!(matches!(got.asset_bundles.linux, BuildStatus::Complete));
+
+        let _ = std::fs::remove_dir_all(&out_root);
+        let _ = std::fs::remove_dir_all(&jit_root);
     }
 
     #[tokio::test]

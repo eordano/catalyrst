@@ -6,8 +6,8 @@ use crate::naming;
 use crate::space::Space;
 use anyhow::{anyhow, bail, Context, Result};
 use std::collections::HashMap;
-use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, OnceLock};
 
 const CONVERTIBLE_EXTS: [&str; 5] = [".glb", ".gltf", ".png", ".jpg", ".jpeg"];
 
@@ -95,23 +95,57 @@ pub struct Proxy {
     v38_compat: bool,
     v38_timestamp: i64,
     magenta_missing: bool,
+    jit_cache: OnceLock<Arc<crate::abcdn::jitcache::JitDiskCache>>,
 }
 
 impl Proxy {
+    fn jit(&self) -> Option<&Arc<crate::abcdn::jitcache::JitDiskCache>> {
+        self.jit_cache.get().filter(|c| c.enabled())
+    }
+
+    pub fn set_jit_cache(&self, c: Arc<crate::abcdn::jitcache::JitDiskCache>) {
+        let _ = self.jit_cache.set(c);
+    }
+
+    pub(crate) fn cache_roots(&self) -> (&Path, &Path) {
+        (self.content.root(), self.bundle_dir.as_path())
+    }
+
+    fn record_content(&self, hash: &str, len: usize) {
+        if len == 0 {
+            return;
+        }
+        if let Some(c) = self.jit() {
+            c.record(&format!("c:{hash}"), self.content.path_of(hash), len as u64);
+        }
+    }
+
     fn ensure_content(&self, hash: &str) -> Result<()> {
         if self.content.exists(hash) {
+            if let Some(c) = self.jit() {
+                c.touch(&format!("c:{hash}"));
+            }
             return Ok(());
         }
         if let Some(local) = &self.local {
             if let Ok(b) = local.fetch(hash) {
-                return self.content.write(hash, &b);
+                if !b.is_empty() {
+                    self.content.write(hash, &b)?;
+                    self.record_content(hash, b.len());
+                    return Ok(());
+                }
             }
         }
         let bytes = self
             .catalyst
             .fetch_content(hash)
             .with_context(|| format!("fetch content {hash}"))?;
-        self.content.write(hash, &bytes)
+        if bytes.is_empty() {
+            bail!("fetch content {hash}: empty payload");
+        }
+        self.content.write(hash, &bytes)?;
+        self.record_content(hash, bytes.len());
+        Ok(())
     }
 
     fn entity_ctx(&self, cid: &str) -> Result<Arc<EntityCtx>> {
@@ -168,21 +202,35 @@ impl Proxy {
         let entity_dir = self.bundle_dir.join(cid);
         let cache_path = entity_dir.join(bundle_name);
         if let Ok(b) = std::fs::read(&cache_path) {
+            if let Some(c) = self.jit() {
+                c.touch(&format!("b:{cid}"));
+            }
             return Ok(b);
         }
         let lock = self.bundle_locks.get(&format!("{cid}/{bundle_name}"));
         let _g = lock.lock().unwrap();
         if let Ok(b) = std::fs::read(&cache_path) {
+            if let Some(c) = self.jit() {
+                c.touch(&format!("b:{cid}"));
+            }
             return Ok(b);
         }
+
+        let _pin = self.jit().and_then(|c| c.pin(&format!("b:{cid}")));
 
         let ctx = self.entity_ctx(cid)?;
         let data = self.build(&ctx, bundle_name)?;
 
         std::fs::create_dir_all(&entity_dir).ok();
-        let tmp = cache_path.with_extension(format!("tmp.{}", std::process::id()));
+        let tmp = crate::tmppath::tmp_sibling(&cache_path);
         std::fs::write(&tmp, &data).with_context(|| format!("write {}", tmp.display()))?;
         std::fs::rename(&tmp, &cache_path).ok();
+        if let Some(c) = self.jit() {
+            let bytes = crate::abcdn::jitcache::dir_size(&entity_dir);
+            if bytes > 0 {
+                c.record(&format!("b:{cid}"), entity_dir.clone(), bytes);
+            }
+        }
         Ok(data)
     }
 
@@ -230,7 +278,13 @@ impl Proxy {
         }
 
         self.ensure_content(hash)?;
-        let glb = self.content.fetch(hash)?;
+        let glb = match self.content.fetch(hash) {
+            Ok(b) => b,
+            Err(_) => {
+                self.ensure_content(hash)?;
+                self.content.fetch(hash)?
+            }
+        };
 
         let m_deps = if is_glb {
             ctx.scan
@@ -260,7 +314,10 @@ impl Proxy {
             if let Err(e) = self.ensure_content(h) {
                 eprintln!("warn: resolve {uri} (hash {h}): {e:#}");
             }
-            self.content.fetch(h).ok()
+            self.content.fetch(h).ok().or_else(|| {
+                let _ = self.ensure_content(h);
+                self.content.fetch(h).ok()
+            })
         };
         let resolve: crate::gltf::Resolve = if !content_by_file.is_empty() {
             Some(&resolve_fn)
@@ -503,7 +560,7 @@ impl Proxy {
             let existed = dst.is_file();
             match self.bundle(cid, &bundle_name) {
                 Ok(bytes) => {
-                    let tmp = dst.with_extension(format!("tmp.{}", std::process::id()));
+                    let tmp = crate::tmppath::tmp_sibling(&dst);
                     std::fs::write(&tmp, &bytes)
                         .with_context(|| format!("write {}", tmp.display()))?;
                     std::fs::rename(&tmp, &dst).ok();
@@ -701,6 +758,7 @@ impl Proxy {
             v38_compat,
             v38_timestamp,
             magenta_missing,
+            jit_cache: OnceLock::new(),
         })
     }
 
@@ -883,6 +941,66 @@ mod tests {
         bounded_reserve(&mut m, 2, "c");
         assert_eq!(m.len(), 2);
         assert!(m.contains_key("c"));
+    }
+
+    #[test]
+    fn content_build_cache_is_lru_bounded_and_self_heals() {
+        use crate::abcdn::jitcache::JitDiskCache;
+
+        let cache_dir = temp_cache("jit-content-bound");
+        let _ = std::fs::remove_dir_all(&cache_dir);
+        std::fs::create_dir_all(&cache_dir).unwrap();
+        let local_dir = cache_dir.join("src-local");
+        let local = LocalContentStore::new(&local_dir);
+        for h in ["hasha", "hashb", "hashc"] {
+            local.write(h, &vec![0u8; 100]).unwrap();
+        }
+
+        let cfg = ProxyConfig {
+            catalyst_url: "http://127.0.0.1:9".to_string(),
+            local_root: Some(local_dir.to_string_lossy().into_owned()),
+            cache_dir: cache_dir.to_string_lossy().into_owned(),
+            version: "v41".to_string(),
+            fallback_version: "v40".to_string(),
+            ..Default::default()
+        };
+        let proxy = Proxy::new(cfg);
+        let cache = JitDiskCache::new(250);
+        proxy.set_jit_cache(cache.clone());
+
+        let content = LocalContentStore::new(proxy.cache_roots().0);
+
+        proxy.ensure_content("hasha").unwrap();
+        proxy.ensure_content("hashb").unwrap();
+        proxy.ensure_content("hasha").unwrap();
+        proxy.ensure_content("hashc").unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(80));
+
+        assert!(
+            cache.total_bytes() <= 250,
+            "content cache must stay within budget: {}",
+            cache.total_bytes()
+        );
+        assert!(content.exists("hasha"), "hasha was touched, must survive");
+        assert!(content.exists("hashc"), "hashc is newest, must survive");
+        assert!(
+            !content.exists("hashb"),
+            "hashb is LRU, must be evicted off disk"
+        );
+
+        proxy.ensure_content("hashb").unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(80));
+        assert!(
+            content.exists("hashb"),
+            "evicted hashb must self-heal (refetch) on next ensure_content"
+        );
+        assert!(
+            cache.total_bytes() <= 250,
+            "still bounded after self-heal: {}",
+            cache.total_bytes()
+        );
+
+        let _ = std::fs::remove_dir_all(&cache_dir);
     }
 
     #[test]

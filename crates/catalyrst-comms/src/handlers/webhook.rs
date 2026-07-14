@@ -6,7 +6,7 @@ use axum::response::{IntoResponse, Response};
 use crate::http::{unauthorized, ApiError};
 use crate::livekit::{
     address_from_identity, is_community_voice_chat_room, is_private_voice_chat_room,
-    verify_webhook_signature,
+    verify_webhook_token,
 };
 use crate::voice_logic::DisconnectReason;
 use crate::AppState;
@@ -16,13 +16,18 @@ pub async fn livekit_webhook(
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<Response, ApiError> {
-    if let Some(key) = state.livekit_webhook_key.as_deref() {
-        let sig = headers
+    if state.livekit_configured {
+        let auth = headers
             .get("authorization")
             .or_else(|| headers.get("x-livekit-signature"))
             .and_then(|v| v.to_str().ok())
             .unwrap_or("");
-        if !verify_webhook_signature(key, &body, sig) {
+        if !verify_webhook_token(
+            &state.livekit_api_key,
+            &state.livekit_api_secret,
+            &body,
+            auth,
+        ) {
             return Err(unauthorized("invalid livekit webhook signature"));
         }
     }

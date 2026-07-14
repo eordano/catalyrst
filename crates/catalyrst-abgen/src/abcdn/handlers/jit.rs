@@ -123,6 +123,12 @@ fn jit_build_sem() -> &'static tokio::sync::Semaphore {
     SEM.get_or_init(|| tokio::sync::Semaphore::new(jit_build_permits()))
 }
 
+async fn invalidate_status_cache(state: &AppState, entity: &str) {
+    if let Some(reg) = &state.contents_registry {
+        reg.manifests.invalidate(entity).await;
+    }
+}
+
 pub(super) async fn jit_build_entity(
     state: &AppState,
     proxy: &std::sync::Arc<crate::live::Proxy>,
@@ -149,9 +155,10 @@ pub(super) async fn jit_build_entity(
         JitBuild::Coalesced
     } else {
         let _permit = jit_build_sem().acquire().await.ok();
+        let _pin = state.jit_cache.pin(entity);
         if timed_corpus_build(
             proxy.clone(),
-            state.out_root.clone(),
+            state.jit_root.clone(),
             entity.to_string(),
             platform.to_string(),
             state.manifest_content_server_url.clone(),
@@ -161,6 +168,8 @@ pub(super) async fn jit_build_entity(
         )
         .await
         {
+            state.jit_record(entity);
+            invalidate_status_cache(state, entity).await;
             JitBuild::Built
         } else {
             state.jit_fail_cache.insert(key.clone(), ()).await;
@@ -190,11 +199,25 @@ pub(super) async fn bundle_fallback(
     local: Response,
 ) -> Response {
     if proxy.space_configured() && target.space_eligible() {
-        if let Some(dst) = target.probe_path(&state.out_root) {
+        if let Some(dst) = target.probe_path(&state.jit_root) {
             let fetch = target.space_fetch(proxy.clone());
-            if let Some(resp) =
-                space_lane_serve(state, None, dst, fetch, path, path, method, headers).await
+            let _pin = state.jit_cache.pin(target.entity());
+            if let Some(resp) = space_lane_serve(
+                state,
+                Some("bundle"),
+                dst,
+                fetch,
+                path,
+                path,
+                method,
+                headers,
+            )
+            .await
             {
+                state.jit_record(target.entity());
+                if matches!(target, JitTarget::Manifest { .. }) {
+                    invalidate_status_cache(state, target.entity()).await;
+                }
                 return resp;
             }
         }
@@ -204,7 +227,7 @@ pub(super) async fn bundle_fallback(
         &proxy,
         target.entity(),
         target.platform(),
-        target.probe_path(&state.out_root),
+        target.probe_path(&state.jit_root),
         "entity",
     )
     .await
@@ -275,6 +298,7 @@ pub(super) async fn lod_fallback(
                 "lod-not-built".to_string()
             } else {
                 let build_sid = resolve_lod_sid_case(state, &sid).await;
+                let _pin = state.jit_cache.pin(&sid);
                 let built = lodjit::build_and_redispatch(state, path, &build_sid, level, || {
                     dispatch_local(state, path, method, headers)
                 })
@@ -282,6 +306,7 @@ pub(super) async fn lod_fallback(
                 match built {
                     Ok(resp) => {
                         if resp.status() != StatusCode::NOT_FOUND {
+                            state.jit_record(&sid);
                             spawn_lod_writeback(state, &sid);
                             return resp;
                         }
@@ -309,9 +334,11 @@ async fn lod_space_read_through(
     if segs.len() != 3 {
         return None;
     }
-    let dst = resolver::lod_path(&state.out_root, segs[1], segs[2])?;
+    let dst = resolver::lod_path(&state.jit_root, segs[1], segs[2])?;
+    let sid = state.jit_key_of(&dst);
+    let _pin = sid.as_deref().and_then(|s| state.jit_cache.pin(s));
     let key = path.to_string();
-    space_lane_serve(
+    let resp = space_lane_serve(
         state,
         Some("lod"),
         dst,
@@ -321,7 +348,13 @@ async fn lod_space_read_through(
         method,
         headers,
     )
-    .await
+    .await;
+    if resp.is_some() {
+        if let Some(s) = &sid {
+            state.jit_record(s);
+        }
+    }
+    resp
 }
 
 pub(super) fn spawn_lod_writeback(state: &AppState, sid: &str) {
@@ -331,7 +364,7 @@ pub(super) fn spawn_lod_writeback(state: &AppState, sid: &str) {
     if !proxy.space_configured() {
         return;
     }
-    let scene_dir = state.out_root.join(sid);
+    let scene_dir = state.jit_root.join(sid);
     let sid = sid.to_string();
     tokio::task::spawn_blocking(move || {
         let mut puts = 0usize;
@@ -384,10 +417,12 @@ pub(super) async fn iss_fallback(
 ) -> Response {
     let segs: Vec<&str> = path.split('/').collect();
     let filename = segs[2];
-    let Some(dst) = resolver::iss_manifest_path(&state.out_root, filename) else {
+    let Some(dst) = resolver::iss_manifest_path(&state.jit_root, filename) else {
         return local;
     };
     if let Some(proxy) = state.live_proxy.clone().filter(|p| p.space_configured()) {
+        let sid = state.jit_key_of(&dst);
+        let _pin = sid.as_deref().and_then(|s| state.jit_cache.pin(s));
         let key = path.to_string();
         if let Some(resp) = space_lane_serve(
             state,
@@ -401,6 +436,9 @@ pub(super) async fn iss_fallback(
         )
         .await
         {
+            if let Some(s) = &sid {
+                state.jit_record(s);
+            }
             return resp;
         }
     }
@@ -415,12 +453,13 @@ pub(super) fn with_reason(mut resp: Response, reason: &str) -> Response {
 }
 
 pub(super) fn materialize_tmp_path(dst: &std::path::Path) -> std::path::PathBuf {
-    let mut tmp_os = dst.as_os_str().to_owned();
-    tmp_os.push(format!(".tmp.{}", std::process::id()));
-    std::path::PathBuf::from(tmp_os)
+    crate::tmppath::tmp_sibling(dst)
 }
 
 fn write_materialized(dst: &std::path::Path, bytes: &[u8]) -> bool {
+    if bytes.is_empty() {
+        return false;
+    }
     let Some(parent) = dst.parent() else {
         return false;
     };
@@ -599,7 +638,8 @@ async fn serve_flat_rewrite(
     method: &Method,
     headers: &HeaderMap,
 ) -> Option<Response> {
-    let exact = resolver::binary_path(&state.out_root, cid, filename)?;
+    let (exact, from_jit) = state.serve_lookup(|r| resolver::binary_path(r, cid, filename))?;
+    state.touch_if_jit(&exact, from_jit);
     let resp = serve::serve_binary(state, path, &exact, raw, is_br, method, headers).await;
     if resp.status() != StatusCode::NOT_FOUND {
         Some(resp)
@@ -629,7 +669,8 @@ pub(super) async fn flat_fallback(
         .to_string();
     let is_br = filename.ends_with(".br");
     if proxy.space_configured() {
-        let dst = state.out_root.join(&filename);
+        let dst = state.jit_root.join(&filename);
+        let _pin = state.jit_cache.pin(&filename);
         let (p2, key) = (proxy.clone(), path.to_string());
         if let Some(resp) = space_lane_serve(
             state,
@@ -643,8 +684,12 @@ pub(super) async fn flat_fallback(
         )
         .await
         {
+            state.jit_record_file(&filename, &state.jit_root.join(&filename));
             return resp;
         }
+    }
+    if is_br {
+        return with_reason(local, "br-not-built");
     }
     let neg_key = bare.to_string();
     if state.hash_neg_cache.get(&neg_key).await.is_some() {
@@ -660,12 +705,14 @@ pub(super) async fn flat_fallback(
     };
     if proxy.space_configured() && !is_br {
         let (p2, c2, r2) = (proxy.clone(), cid.clone(), raw.clone());
-        let dst = state.out_root.join(&cid).join(platform).join(&raw);
+        let dst = state.jit_root.join(&cid).join(platform).join(&raw);
+        let _pin = state.jit_cache.pin(&cid);
         let materialized = space_materialize(Some("flat-alias"), dst, move || {
             p2.space_get_bundle(&c2, &r2)
         })
         .await;
         if materialized {
+            state.jit_record(&cid);
             state.resolve_cache.invalidate(path).await;
             if let Some(resp) =
                 serve_flat_rewrite(state, path, &cid, &filename, &raw, is_br, method, headers).await
@@ -674,14 +721,14 @@ pub(super) async fn flat_fallback(
             }
         }
     }
-    let probe = state.out_root.join(&cid).join(platform).join(&raw);
+    let probe = state.jit_root.join(&cid).join(platform).join(&raw);
     let built = jit_build_entity(state, &proxy, &cid, platform, Some(probe), "flat").await;
     if matches!(built, JitBuild::Failed) {
         return local;
     }
     state.resolve_cache.invalidate(path).await;
     if matches!(built, JitBuild::Built) && proxy.space_configured() {
-        let src = state.out_root.join(&cid).join(platform).join(&raw);
+        let src = state.jit_root.join(&cid).join(platform).join(&raw);
         let alias = format!("{url_ver}/{raw}");
         let p3 = proxy.clone();
         tokio::task::spawn_blocking(move || {

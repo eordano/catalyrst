@@ -79,6 +79,11 @@ fn require_admin(state: &AppState, headers: &HeaderMap) -> Result<(), ApiError> 
             "admin controls disabled (API_ADMIN_TOKEN unset)",
         ));
     };
+    if expected.is_empty() {
+        return Err(ApiError::forbidden(
+            "admin controls disabled (API_ADMIN_TOKEN empty)",
+        ));
+    }
     let header = headers.get("authorization").and_then(|v| v.to_str().ok());
     let Some(header) = header else {
         return Err(ApiError::unauthorized("Authorization header is missing"));

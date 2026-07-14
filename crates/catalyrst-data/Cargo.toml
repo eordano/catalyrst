@@ -1,6 +1,6 @@
 [package]
 name = "catalyrst-data"
-version = "0.9.10"
+version = "0.9.14"
 edition = "2021"
 description = "Bundled Rust ports of the data-plane backend services unity-explorer needs: marketplace, economy (transactions relay), price feed, credits, and the EVM JSON-RPC relay. One binary, one axum router on port 5146."
 

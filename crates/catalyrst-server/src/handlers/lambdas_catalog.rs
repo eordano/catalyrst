@@ -641,15 +641,10 @@ pub async fn outfits(State(state): State<Arc<AppState>>, Path(id): Path<String>)
             };
 
             let owned_names: Vec<String> = match state_arc.squid_pool.as_ref() {
-                Some(pool) => sqlx::query_scalar::<_, String>(
-                    "SELECT name FROM squid_marketplace.nft \
-                     WHERE category = 'ens' AND owner_address = lower($1) \
-                     ORDER BY id ASC",
-                )
-                .bind(&address_for_fetch)
-                .fetch_all(pool)
-                .await
-                .unwrap_or_default(),
+                Some(pool) => {
+                    super::profile_processing::fetch_owned_ens_names(pool, &address_for_fetch)
+                        .await
+                }
                 None => Vec::new(),
             };
 

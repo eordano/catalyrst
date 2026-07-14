@@ -140,15 +140,24 @@ fn jit_target_skips_iss_manifest_route() {
 
 #[test]
 fn materialize_tmp_paths_are_distinct_for_br_sidecars() {
-    use std::path::{Path, PathBuf};
+    use std::path::Path;
     let a = super::materialize_tmp_path(Path::new("/out/LOD/1/a_windows"));
     let b = super::materialize_tmp_path(Path::new("/out/LOD/1/a_windows.br"));
     assert_ne!(a, b);
     let pid = std::process::id();
-    assert_eq!(a, PathBuf::from(format!("/out/LOD/1/a_windows.tmp.{pid}")));
-    assert_eq!(
-        b,
-        PathBuf::from(format!("/out/LOD/1/a_windows.br.tmp.{pid}"))
+    let a = a.to_str().unwrap();
+    let b = b.to_str().unwrap();
+    assert!(
+        a.starts_with(&format!("/out/LOD/1/a_windows.tmp.{pid}.")),
+        "{a}"
+    );
+    assert!(
+        b.starts_with(&format!("/out/LOD/1/a_windows.br.tmp.{pid}.")),
+        "{b}"
+    );
+    assert_ne!(
+        super::materialize_tmp_path(Path::new("/out/LOD/1/a_windows")),
+        super::materialize_tmp_path(Path::new("/out/LOD/1/a_windows"))
     );
 }
 

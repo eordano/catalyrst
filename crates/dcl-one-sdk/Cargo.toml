@@ -1,6 +1,6 @@
 [package]
 name = "dcl-one-sdk"
-version = "0.9.10"
+version = "0.9.14"
 edition = "2021"
 description = "Binary-compatible Rust replacement for @dcl/sdk-commands: bundle (rolldown, in-process), preview-serve, and deploy Decentraland SDK7 scenes"
 

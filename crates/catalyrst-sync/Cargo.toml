@@ -1,6 +1,6 @@
 [package]
 name = "catalyrst-sync"
-version = "0.9.10"
+version = "0.9.14"
 edition = "2021"
 description = "Rust port of the Decentraland catalyst sync orchestrator, snapshots fetcher, and pointer-changes consumer"
 

@@ -383,11 +383,128 @@ async fn flush_batch(pool: &PgPool, entities: Vec<ParsedEntity>) -> Result<(), S
         .map_err(|e| SyncError::Storage(e.to_string()))?;
     }
 
+    // Overwrite bookkeeping (mirrors the TS reference, which computes
+    // overwrote/overwrittenBy atomically at deploy time). The pg_advisory_xact_lock
+    // calls above serialize concurrent flushes over the same pointers, so these
+    // statements are race-safe. Arrays are rebuilt filtered to the rows this
+    // flush actually inserted (ON CONFLICT DO NOTHING skips pre-existing ones).
+    let mut ow_ids: Vec<i32> = Vec::with_capacity(rows.len());
+    let mut ow_types: Vec<String> = Vec::with_capacity(rows.len());
+    let mut ow_eids: Vec<String> = Vec::with_capacity(rows.len());
+    let mut ow_ts: Vec<f64> = Vec::with_capacity(rows.len());
+    let mut ow_ptrs: Vec<Value> = Vec::with_capacity(rows.len());
+    for e in &entities {
+        let Some(&dep_id) = id_map.get(e.entity_id.as_str()) else {
+            continue;
+        };
+        ow_ids.push(dep_id);
+        ow_types.push(e.entity_type.clone());
+        ow_eids.push(e.entity_id.clone());
+        ow_ts.push(e.entity_timestamp);
+        ow_ptrs.push(Value::Array(
+            e.entity_pointers
+                .iter()
+                .map(|p| Value::String(p.clone()))
+                .collect(),
+        ));
+    }
+
+    // (a) Mark older overlapping deployments as overwritten by the just-inserted
+    // rows. Because the batch rows are already inserted, this also resolves
+    // intra-batch overwrites (older batch row overwritten by newer batch row).
+    sqlx::query(
+        r#"
+        UPDATE deployments AS old
+        SET deleter_deployment = batch.new_id
+        FROM (
+            SELECT d.new_id, d.etype, d.new_eid, d.new_ts,
+                   ARRAY(SELECT json_array_elements_text(d.ptrs_json)) AS ptrs
+            FROM (
+                SELECT unnest($1::int4[]) AS new_id,
+                       unnest($2::text[]) AS etype,
+                       unnest($3::text[]) AS new_eid,
+                       to_timestamp(unnest($4::float8[]) / 1000.0) AS new_ts,
+                       unnest($5::json[]) AS ptrs_json
+            ) d
+        ) AS batch
+        WHERE old.entity_type = batch.etype
+          AND old.entity_pointers && batch.ptrs
+          AND old.deleter_deployment IS NULL
+          AND old.id <> batch.new_id
+          AND (old.entity_timestamp < batch.new_ts
+               OR (old.entity_timestamp = batch.new_ts AND old.entity_id < batch.new_eid))
+        "#,
+    )
+    .bind(&ow_ids)
+    .bind(&ow_types)
+    .bind(&ow_eids)
+    .bind(&ow_ts)
+    .bind(&ow_ptrs)
+    .execute(&mut *tx)
+    .await
+    .map_err(|e| SyncError::Storage(e.to_string()))?;
+
+    // (b) Mark just-inserted rows that are themselves already superseded by a
+    // pre-existing newer overlapping deployment (an old entity arriving after
+    // the newer one has already been synced). The immediate-successor choice
+    // matches resolve_deleter_deployments semantics.
+    sqlx::query(
+        r#"
+        UPDATE deployments AS n
+        SET deleter_deployment = sub.newer_id
+        FROM (
+            SELECT nr.id,
+                   (SELECT d2.id
+                    FROM deployments d2
+                    WHERE d2.entity_type = nr.entity_type
+                      AND d2.entity_pointers && nr.entity_pointers
+                      AND d2.id <> nr.id
+                      AND (d2.entity_timestamp > nr.entity_timestamp
+                           OR (d2.entity_timestamp = nr.entity_timestamp
+                               AND d2.entity_id > nr.entity_id))
+                    ORDER BY d2.entity_timestamp, d2.entity_id
+                    LIMIT 1) AS newer_id
+            FROM deployments nr
+            WHERE nr.id = ANY($1)
+        ) sub
+        WHERE n.id = sub.id
+          AND n.deleter_deployment IS NULL
+          AND sub.newer_id IS NOT NULL
+        "#,
+    )
+    .bind(&ow_ids)
+    .execute(&mut *tx)
+    .await
+    .map_err(|e| SyncError::Storage(e.to_string()))?;
+
+    // (c) Clear stale active_pointers rows for entities overwritten in this
+    // flush. This covers the shrunk-pointer-set case: pointers of the old
+    // entity that the new entity does not cover must become inactive.
+    sqlx::query(
+        r#"
+        DELETE FROM active_pointers AS ap
+        USING deployments d
+        WHERE ap.entity_id = d.entity_id
+          AND d.deleter_deployment IS NOT NULL
+          AND (d.deleter_deployment = ANY($1) OR d.id = ANY($1))
+        "#,
+    )
+    .bind(&ow_ids)
+    .execute(&mut *tx)
+    .await
+    .map_err(|e| SyncError::Storage(e.to_string()))?;
+
     if !ap_pointers.is_empty() {
+        // (d) Upsert active pointers, excluding entities whose deployments row
+        // now has deleter_deployment set, so a late-arriving superseded entity
+        // can never claim a pointer the newer entity does not cover.
         sqlx::query(
             r#"
             INSERT INTO active_pointers (pointer, entity_id, entity_type)
-            SELECT unnest($1::text[]), unnest($2::text[]), unnest($3::text[])
+            SELECT t.pointer, t.entity_id, t.entity_type
+            FROM unnest($1::text[], $2::text[], $3::text[]) AS t(pointer, entity_id, entity_type)
+            JOIN deployments dep ON dep.entity_id = t.entity_id
+            WHERE dep.deleter_deployment IS NULL
             ON CONFLICT (pointer) DO UPDATE
                 SET entity_id = EXCLUDED.entity_id, entity_type = EXCLUDED.entity_type
                 WHERE NOT EXISTS (

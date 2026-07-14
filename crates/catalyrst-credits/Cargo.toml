@@ -1,6 +1,6 @@
 [package]
 name = "catalyrst-credits"
-version = "0.9.10"
+version = "0.9.14"
 edition = "2021"
 description = "Rust port of credits.decentraland.org (Marketplace Credits program API): enrollment, seasons/weeks/goals, per-wallet progress, captcha-gated claims. SignedFetch (AuthChain) auth via catalyrst-crypto."
 

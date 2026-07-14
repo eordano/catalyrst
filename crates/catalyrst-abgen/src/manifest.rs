@@ -47,7 +47,7 @@ pub fn write_corpus_manifest(
     std::fs::create_dir_all(&dir)?;
     let path = dir.join(format!("{platform}.manifest.json"));
     let text = serde_json::to_string_pretty(&manifest)?;
-    let tmp = path.with_extension(format!("json.tmp.{}", std::process::id()));
+    let tmp = crate::tmppath::tmp_sibling(&path);
     std::fs::write(&tmp, &text)?;
     std::fs::rename(&tmp, &path)?;
     Ok(path)

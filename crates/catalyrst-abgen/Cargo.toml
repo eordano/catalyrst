@@ -1,6 +1,6 @@
 [package]
 name = "catalyrst-abgen"
-version = "0.9.10"
+version = "0.9.14"
 edition = "2021"
 description = "Decentraland asset-bundle conversion logic (vendored from abgen-rs) — clean-room reimplementation of asset-bundle-converter. Provides build_bundle + the disk-or-remote CatalystClient content abstraction consumed by the unified asset-bundle serving crate."
 license = "AGPL-3.0-or-later"
@@ -13,6 +13,7 @@ autobenches = false
 [lib]
 name = "abgen"
 path = "src/lib.rs"
+doctest = false
 
 [[bin]]
 name = "abgen"

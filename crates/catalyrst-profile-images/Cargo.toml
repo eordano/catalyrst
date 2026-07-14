@@ -1,6 +1,6 @@
 [package]
 name = "catalyrst-profile-images"
-version = "0.9.10"
+version = "0.9.14"
 edition = "2021"
 description = "Rust port of decentraland/profile-images (profile-images.decentraland.org): serves avatar body/face thumbnails on the upstream /entities/{id}/{face|body}.png contract. Primary backend renders locally via the headless godot-explorer avatar renderer (resolve profile from the local content core -> render equipped wearables -> content-addressed disk cache, single-flight per entity); proxy of the prod service is an explicit last-resort fallback. See README."
 

@@ -176,7 +176,8 @@ pub fn is_valid_eth_address(addr: &str) -> bool {
 }
 
 fn urlencoding_decode(s: &str) -> String {
-    let mut result = String::with_capacity(s.len());
+    let mut bytes: Vec<u8> = Vec::with_capacity(s.len());
+    let mut buf = [0u8; 4];
     let mut chars = s.chars();
     while let Some(ch) = chars.next() {
         if ch == '%' {
@@ -184,19 +185,19 @@ fn urlencoding_decode(s: &str) -> String {
             let lo = chars.next().unwrap_or('0');
             let hex = format!("{}{}", hi, lo);
             if let Ok(byte) = u8::from_str_radix(&hex, 16) {
-                result.push(byte as char);
+                bytes.push(byte);
             } else {
-                result.push('%');
-                result.push(hi);
-                result.push(lo);
+                bytes.push(b'%');
+                bytes.extend_from_slice(hi.encode_utf8(&mut buf).as_bytes());
+                bytes.extend_from_slice(lo.encode_utf8(&mut buf).as_bytes());
             }
         } else if ch == '+' {
-            result.push(' ');
+            bytes.push(b' ');
         } else {
-            result.push(ch);
+            bytes.extend_from_slice(ch.encode_utf8(&mut buf).as_bytes());
         }
     }
-    result
+    String::from_utf8_lossy(&bytes).into_owned()
 }
 
 fn urlencoding_encode(s: &str) -> String {
@@ -362,6 +363,23 @@ mod tests {
         )
         .unwrap();
         assert_eq!(p.offset, i64::MAX);
+    }
+
+    #[test]
+    fn decode_reassembles_multibyte_utf8() {
+        let params = parse_query_string("textSearch=caf%C3%A9&name=%E4%B8%AD%E6%96%87");
+        assert_eq!(
+            qs_get_string(&params, "textSearch").as_deref(),
+            Some("café")
+        );
+        assert_eq!(qs_get_string(&params, "name").as_deref(), Some("中文"));
+    }
+
+    #[test]
+    fn decode_plus_is_space_and_malformed_percent_preserved() {
+        let params = parse_query_string("q=a+b&bad=%ZZ");
+        assert_eq!(qs_get_string(&params, "q").as_deref(), Some("a b"));
+        assert_eq!(qs_get_string(&params, "bad").as_deref(), Some("%ZZ"));
     }
 
     #[test]
