@@ -108,13 +108,7 @@ struct CatalogQuery {
 }
 
 fn clamp_limit(raw: &Option<String>) -> i64 {
-    match raw {
-        None => MAX_LIMIT,
-        Some(s) => match s.parse::<i64>() {
-            Ok(n) if n > 0 && n <= MAX_LIMIT => n,
-            _ => MAX_LIMIT,
-        },
-    }
+    catalyrst_types::limit_or_max(raw.as_ref().and_then(|s| s.parse().ok()), MAX_LIMIT)
 }
 
 fn parse_catalog_query(
@@ -599,15 +593,22 @@ pub async fn nfts_collections(State(state): State<Arc<AppState>>) -> Response {
             let items = if !local.is_empty() {
                 local
             } else {
-                let urls = external_graph::subgraph_urls(&network);
-                let (l1, l2) = tokio::join!(
-                    external_graph::collections(urls.eth_collections),
-                    external_graph::collections(urls.matic_collections),
-                );
-                l1.unwrap_or_default()
-                    .into_iter()
-                    .chain(l2.unwrap_or_default())
-                    .collect()
+                match external_graph::subgraph_urls(&network) {
+                    Ok(urls) => {
+                        let (l1, l2) = tokio::join!(
+                            external_graph::collections(&urls.eth_collections),
+                            external_graph::collections(&urls.matic_collections),
+                        );
+                        l1.unwrap_or_default()
+                            .into_iter()
+                            .chain(l2.unwrap_or_default())
+                            .collect()
+                    }
+                    Err(e) => {
+                        tracing::warn!(error = %e, "collection catalog upstream unavailable");
+                        Vec::new()
+                    }
+                }
             };
             for (urn, name) in items {
                 collections.push(json!({ "id": urn, "name": name }));
@@ -641,15 +642,9 @@ pub async fn outfits(State(state): State<Arc<AppState>>, Path(id): Path<String>)
             };
 
             let owned_names: Vec<String> = match state_arc.squid_pool.as_ref() {
-                Some(pool) => sqlx::query_scalar::<_, String>(
-                    "SELECT name FROM squid_marketplace.nft \
-                     WHERE category = 'ens' AND owner_address = lower($1) \
-                     ORDER BY id ASC",
-                )
-                .bind(&address_for_fetch)
-                .fetch_all(pool)
-                .await
-                .unwrap_or_default(),
+                Some(pool) => {
+                    super::profile_processing::fetch_owned_ens_names(pool, &address_for_fetch).await
+                }
                 None => Vec::new(),
             };
 

@@ -1,0 +1,51 @@
+/* All three doors are styled identically on purpose: no accent per role, no
+   ordering weight, no "recommended" card. The only thing that differs is the
+   words. Shell, hover and focus ring come from .fd-card / .fd-cardlink. */
+.fd-role__role {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-2);
+  flex-wrap: wrap;
+  margin: 0;
+}
+
+.fd-role__who {
+  font-size: var(--fs-11);
+  line-height: var(--lh-ui);
+  color: var(--ink-45);
+}
+
+.fd-role__body {
+  margin: 0;
+  max-width: var(--measure-narrow);
+  font-size: var(--fs-13);
+  line-height: var(--lh-body);
+  color: var(--ink-6);
+}
+
+.fd-role__dest {
+  margin: auto 0 0;
+  padding-top: var(--s-2);
+  max-width: var(--measure-narrow);
+  font-size: var(--fs-12);
+  line-height: var(--lh-body);
+  color: var(--ink-45);
+}
+
+.fd-role__state {
+  margin: 0;
+  font-size: var(--fs-12);
+  line-height: var(--lh-ui);
+}
+
+/* The CTA's stretched ::after covers the whole card; the state line has to sit
+   above it to stay clickable on its own. */
+.fd-role__state a {
+  position: relative;
+  z-index: 1;
+}
+
+.fd-role__cta {
+  align-self: flex-start;
+  margin-top: var(--s-2);
+}

@@ -6,14 +6,11 @@ pub mod handlers;
 pub mod poller;
 pub mod ports;
 
-use std::str::FromStr;
 use std::sync::Arc;
-use std::time::Duration;
 
 use anyhow::{Context, Result};
 use axum::routing::{get, put};
 use axum::Router;
-use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 
 use crate::config::Config;
 use crate::ports::overrides::OverridesComponent;
@@ -45,18 +42,15 @@ pub fn api_router() -> Router<AppState> {
 }
 
 pub async fn build_state(cfg: &Config) -> Result<AppState> {
-    let opts = PgConnectOptions::from_str(&cfg.price_database_url)
-        .context("invalid PRICE_PG_COMPONENT_PSQL_CONNECTION_STRING")?
-        .options([
-            ("statement_timeout", "60000"),
-            ("idle_in_transaction_session_timeout", "30000"),
-        ]);
-    let pool = PgPoolOptions::new()
-        .max_connections(5)
-        .idle_timeout(Duration::from_secs(30))
-        .connect_with(opts)
-        .await
-        .context("failed to connect mana_price pool")?;
+    let pool = catalyrst_db::connect_pool(
+        &cfg.price_database_url,
+        &catalyrst_db::PoolSettings {
+            max_connections: 5,
+            ..catalyrst_db::PoolSettings::default()
+        },
+    )
+    .await
+    .context("failed to connect mana_price pool")?;
 
     sqlx::migrate!("./migrations")
         .run(&pool)
@@ -67,7 +61,7 @@ pub async fn build_state(cfg: &Config) -> Result<AppState> {
         poller::spawn(pool.clone(), cfg);
     } else {
         tracing::warn!(
-            "PRICE_POLL_ENABLED=false: NOT polling — this crate only serves the last \
+            "PRICE_POLL_ENABLED=false: NOT polling -- this crate only serves the last \
              price_snapshots row. If no external ingester keeps it fresh, the MANA/USD \
              reading will go stale and downstream credits /checkout will fail-close \
              (\"MANA/USD oracle is stale\"). Set PRICE_POLL_ENABLED=true to self-refresh."

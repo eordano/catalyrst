@@ -1,0 +1,52 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT d.entity_id, d.id, d.entity_pointers\n        FROM active_pointers ap\n        JOIN deployments d ON d.entity_id = ap.entity_id\n        WHERE ap.pointer = $1 AND d.entity_type = 'scene'\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "entity_id",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "deployments",
+            "name": "entity_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "id",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "deployments",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "entity_pointers",
+        "type_info": "TextArray",
+        "origin": {
+          "Table": {
+            "table": "deployments",
+            "name": "entity_pointers"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "a26b62554627a065e4cffde87bb6cce2bf80f9e116d64fb333221004ff7f4cc8"
+}

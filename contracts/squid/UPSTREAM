@@ -1,0 +1,21 @@
+# Provenance for contracts/squid -- a first-class fork, no longer vendored.
+# Promoted from third-party/marketplace-squid on 2026-08-20; local changes are
+# baked into this tree and evolve in place (the retired clone-and-patch series
+# lives in git history at third-party/marketplace-squid/patches/).
+#
+# Parity sweeps diff against upstream from this rev forward.
+url    = https://github.com/decentraland/marketplace-squid-core
+branch = main
+rev    = 065f5d2d4b0f2e0b8563736f16bc5b9c244897ea
+#
+# Baked-in changes on top of that rev:
+# - ens-owner-is-beneficiary: handleNameRegistered recorded DCLControllerV2 as
+#   ens.owner instead of the buyer; now uses _beneficiary. Rows indexed before
+#   the fix keep the wrong owner until the ENS entities are re-indexed. If
+#   upstream ships its own fix, reconcile by hand -- nothing auto-drops now.
+# - drop-graphql-slack-sns: the GraphQL API server and Slack/SNS notify paths
+#   are removed; catalyrst-market reads squid_marketplace directly.
+# - upstream cherry-picks: a3781a0 (keep bulk indices), cf765f9 (cache v3 fee
+#   config), c931f71 (empty-leg guards), portal auth.
+# - package-lock.json converted to lockfileVersion 3 (same resolved deps --
+#   buildNpmPackage requires v3).

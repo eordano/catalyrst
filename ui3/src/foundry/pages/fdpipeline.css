@@ -1,0 +1,61 @@
+.fd-pipeline__problems {
+  margin: 0;
+  padding-left: var(--s-5);
+  max-width: var(--measure);
+  font-size: var(--fs-13);
+  line-height: var(--lh-body);
+  color: var(--ink-85);
+}
+
+.fd-pipeline__problems li {
+  margin-bottom: var(--s-1);
+}
+
+.fd-pipeline__artifact {
+  margin: 0 0 var(--s-3);
+  overflow-wrap: anywhere;
+}
+
+/* The artifact's own text: the page's subject, so it keeps the reading colour
+   of a data value rather than the dimmer prose grey. */
+.fd-pipeline__doc {
+  font-size: var(--fs-13);
+  line-height: var(--lh-body);
+  color: var(--ink-85);
+}
+
+.fd-pipeline__doc > *:first-child {
+  margin-top: 0;
+}
+
+.fd-pipeline__doc p,
+.fd-pipeline__doc li {
+  max-width: var(--measure);
+}
+
+.fd-pipeline__doc p {
+  margin: 0 0 var(--s-3);
+  overflow-wrap: anywhere;
+}
+
+.fd-pipeline__doc ul,
+.fd-pipeline__doc ol {
+  margin: 0 0 var(--s-3);
+  padding-left: var(--s-5);
+}
+
+.fd-pipeline__doc li {
+  margin-bottom: var(--s-1);
+}
+
+.fd-pipeline__doc .fd-scroll {
+  margin: 0 0 var(--s-3);
+}
+
+.fd-pipeline__doc .fd-code {
+  margin: 0 0 var(--s-3);
+  padding: var(--s-2) var(--s-3);
+  border: 1px solid var(--line);
+  border-radius: var(--r-control);
+  background: var(--fill-1);
+}

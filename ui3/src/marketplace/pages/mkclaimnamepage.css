@@ -1,0 +1,535 @@
+.mkclaimnamepage {
+  --mkcn-card: #242129;
+  --mkcn-img-band: #2d2c2f;
+  --mkcn-mute: #a09ba8;
+  --mkcn-divider: rgba(255, 255, 255, 0.3);
+  --mkcn-input-border: #58606e;
+  --mkcn-ok: #34ce76;
+  --mkcn-no: var(--brand);
+  --mkcn-warn: #ffa25a;
+  --mkcn-suffix: #a09ba8;
+  --mkcn-learnmore: #ffa25a;
+  --mkcn-namelink: #ecebed;
+
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  color: #fff;
+  font-family: inherit;
+  padding: 28px 20px 64px;
+}
+
+.mkclaimnamepage__inner {
+  width: 1280px;
+  max-width: 100%;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.mkclaimnamepage__gradient {
+  width: 100%;
+  height: 524px;
+  margin-bottom: 11px;
+  border-radius: 14.48px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  overflow: hidden;
+  position: relative;
+}
+.mkclaimnamepage__gradient::before {
+  content: "";
+  position: absolute;
+  aspect-ratio: 1 / 1;
+  width: 130%;
+  background-image:
+    radial-gradient(100% 100% at 6% 9%, #ffbc5b 2%, rgba(255, 255, 255, 0) 73%),
+    linear-gradient(60deg, var(--brand) 18%, #c640cd 100%);
+  z-index: 0;
+  animation: u-spin 4s linear infinite;
+}
+.mkclaimnamepage__claim {
+  position: relative;
+  z-index: 1;
+  border-radius: 12px;
+  padding: 24px;
+  width: calc(100% - 6px);
+  background-image:
+    radial-gradient(90% 95% at 8% 4%, rgba(255, 188, 91, 0.22), transparent 55%),
+    radial-gradient(90% 95% at 96% 100%, rgba(198, 64, 205, 0.15), transparent 55%),
+    linear-gradient(180deg, rgba(28, 18, 16, 0.9), rgba(20, 14, 16, 0.96));
+  background-color: #1a1113;
+  background-size: cover;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  border: 1px solid var(--line);
+  height: 518px;
+}
+
+.mkclaimnamepage__hero {
+  position: relative;
+  height: 192px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+}
+.mkclaimnamepage__passportglyph {
+  margin-top: 10px;
+  filter: drop-shadow(0 8px 24px rgba(0, 0, 0, 0.4));
+}
+.mkclaimnamepage__title {
+  color: #fff;
+  font-size: 48px;
+  font-weight: 700;
+  line-height: normal;
+  margin: 12px 0 8px;
+  text-align: center;
+}
+
+.mkclaimnamepage__subtitle {
+  font-size: 24px;
+  line-height: 36px;
+  font-weight: 500;
+  margin-top: 8px;
+  text-align: center;
+  max-width: 760px;
+}
+
+.mkclaimnamepage__inputwrap {
+  position: relative;
+  display: flex;
+  margin-top: 60px;
+  height: 46px;
+}
+.mkclaimnamepage__field {
+  display: flex;
+  align-items: center;
+  height: 46px;
+  padding-left: 24px;
+  padding-right: 16px;
+  background: var(--lm-surface);
+  border: 1px solid var(--mkcn-input-border);
+  border-right: none;
+  border-top-left-radius: 6px;
+  border-bottom-left-radius: 6px;
+  cursor: text;
+  min-width: 360px;
+}
+.mkclaimnamepage__field.is-focus {
+  border-color: var(--brand);
+}
+.mkclaimnamepage__input {
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--panel);
+  font: inherit;
+  font-size: 16px;
+  font-weight: 600;
+  padding: 0;
+  min-width: 60px;
+  flex: 1 1 auto;
+}
+.mkclaimnamepage__input::placeholder {
+  color: #716b7c;
+  font-weight: 400;
+}
+.mkclaimnamepage__suffix {
+  color: var(--mkcn-suffix);
+  font-size: 16px;
+  font-weight: 400;
+  line-height: normal;
+  white-space: nowrap;
+}
+.mkclaimnamepage__counter {
+  color: var(--mkcn-mute);
+  font-size: 12px;
+  font-weight: 700;
+  margin-left: 14px;
+  white-space: nowrap;
+}
+
+.mkclaimnamepage__claimbtn.btn {
+  height: 46px;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  border-top-right-radius: 6px;
+  border-bottom-right-radius: 6px;
+  white-space: nowrap;
+  text-transform: uppercase;
+  letter-spacing: .4px;
+}
+.mkclaimnamepage__claimbtn.btn:disabled {
+  background: rgba(255, 255, 255, 0.14);
+  color: rgba(255, 255, 255, 0.6);
+  opacity: 1;
+  cursor: default;
+}
+.mkclaimnamepage__hint {
+  position: absolute;
+  top: 54px;
+  left: 0;
+  width: 100%;
+  padding: 14px var(--s-4);
+  border-radius: 4px;
+  background-color: rgba(255, 255, 255, 0.06);
+  color: var(--lm-ink-3, rgba(255, 255, 255, 0.7));
+  font-size: var(--fs-14);
+  font-weight: var(--fw-medium);
+}
+
+.mkclaimnamepage__availability {
+  background-color: rgba(32, 17, 22, 0.85);
+  padding: 14px 16px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  position: absolute;
+  top: 54px;
+  left: 0;
+  width: 100%;
+  font-size: 14px;
+  font-weight: 500;
+}
+.mkclaimnamepage__ok { color: var(--mkcn-ok); font-weight: 700; }
+.mkclaimnamepage__no { color: var(--mkcn-no); font-weight: 700; }
+.mkclaimnamepage__warn { color: var(--mkcn-warn); font-weight: 700; }
+.mkclaimnamepage__resoldlink {
+  margin-left: 4px;
+  text-decoration: underline;
+  font-weight: 700;
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.mkclaimnamepage__cost {
+  margin-top: 54px;
+  font-size: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  transition: opacity 1s ease;
+}
+.mkclaimnamepage__cost.is-faded { opacity: 0.35; }
+.mkclaimnamepage__costrow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: nowrap;
+}
+.mkclaimnamepage__pricesection {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: nowrap;
+}
+.mkclaimnamepage__costmana {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: 700;
+  color: #fff;
+}
+.mkclaimnamepage__managlyph { color: var(--brand); }
+.mkclaimnamepage__costnetwork {
+  color: var(--mkcn-mute);
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 24px;
+}
+.mkclaimnamepage__infotip,
+.mkclaimnamepage__infocircle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 1px solid var(--mkcn-mute);
+  color: var(--mkcn-mute);
+  font-size: 10px;
+  font-style: italic;
+  font-weight: 700;
+  cursor: help;
+}
+.mkclaimnamepage__divider {
+  color: var(--mkcn-divider);
+  font-size: 16px;
+  font-weight: 400;
+  line-height: 24px;
+  margin: 0 4px;
+}
+.mkclaimnamepage__credit {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 400;
+  font-size: 13px;
+  opacity: 0.75;
+}
+
+.mkclaimnamepage__ctas {
+  text-align: center;
+  width: 100%;
+  margin-top: 40px;
+}
+.mkclaimnamepage__whytitle {
+  margin-bottom: 16px;
+  font-size: 28px;
+  font-weight: 700;
+}
+.mkclaimnamepage__cards {
+  display: grid;
+  grid-gap: 20px;
+  grid-template-columns: repeat(auto-fit, minmax(min(305px, 100%), 1fr));
+  margin-bottom: 52px;
+}
+.mkclaimnamepage__card {
+  background-color: var(--mkcn-card);
+  border-radius: var(--r-card);
+  height: 235px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.mkclaimnamepage__whyimg {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 103px;
+  background-color: var(--mkcn-img-band);
+}
+.mkclaimnamepage__whyimg img { height: 100%; width: auto; }
+.mkclaimnamepage__whyimg--stand_out { align-items: flex-end; }
+.mkclaimnamepage__whytext {
+  height: 132px;
+  text-align: left;
+  padding: 16px 12px;
+}
+.mkclaimnamepage__whytext span {
+  font-size: 16px;
+  font-weight: 700;
+}
+.mkclaimnamepage__whytext p {
+  color: var(--mkcn-mute);
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 20px;
+  padding-top: 2px;
+  margin: 0;
+}
+.mkclaimnamepage__learnmore { color: var(--mkcn-learnmore); text-decoration: underline; }
+.mkclaimnamepage__voting { color: #ecebed; }
+.mkclaimnamepage__namelink { color: var(--mkcn-namelink); text-decoration: underline; }
+
+.mkclaimnamepage__bottom {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px;
+}
+.mkclaimnamepage__nametaken,
+.mkclaimnamepage__manage {
+  display: flex;
+  align-items: center;
+  height: 250px;
+  border-radius: 8px;
+  flex: 1 1 560px;
+  min-width: 0;
+}
+.mkclaimnamepage__nametaken {
+  background: linear-gradient(180deg, var(--brand) 0%, #c640cd 100%);
+}
+.mkclaimnamepage__manage {
+  background: linear-gradient(244deg, var(--brand) -11.67%, #ffbc5b 88.23%);
+}
+.mkclaimnamepage__ctabody {
+  display: flex;
+  height: 100%;
+  padding: 36px 26px;
+  align-items: center;
+}
+.mkclaimnamepage__ctaicon {
+  display: inline-flex;
+  padding-left: 44px;
+  flex: 0 0 auto;
+}
+.mkclaimnamepage__ctaicon img { height: auto; max-height: 158px; width: auto; }
+.mkclaimnamepage__ctacopy {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  text-align: start;
+  margin-left: 38px;
+  justify-content: center;
+}
+.mkclaimnamepage__ctacopy--center { justify-content: center; }
+.mkclaimnamepage__ctacopy h2 {
+  font-size: 24px;
+  font-weight: 700;
+  margin: 0;
+}
+.mkclaimnamepage__ctacopy span {
+  margin-top: 8px;
+  font-size: 15px;
+  line-height: 22px;
+}
+.mkclaimnamepage__ctabtn.btn {
+  margin-top: 16px;
+  align-self: flex-start;
+  background-color: #fff;
+  color: var(--panel);
+}
+.mkclaimnamepage__ctabtn.btn:hover {
+  background-color: #fff;
+  color: #000;
+}
+
+.mkclaimnamepage__scrim {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal);
+  background: var(--scrim);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+.mkclaimnamepage__modal {
+  position: relative;
+  width: 628px;
+  max-width: 100%;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r-panel);
+  box-shadow: var(--shadow-modal);
+  padding: 54px 70px 32px;
+  color: #fff;
+}
+.mkclaimnamepage__modalclose {
+  position: absolute;
+  top: 18px;
+  right: 18px;
+  background: none;
+  border: 0;
+  color: var(--ink-6);
+  font-size: 18px;
+  cursor: pointer;
+}
+.mkclaimnamepage__modaltitle {
+  font-size: 30px;
+  font-weight: 700;
+  margin: 0 0 16px;
+  text-align: left;
+}
+.mkclaimnamepage__modaldesc {
+  font-size: 16px;
+  line-height: 22px;
+  margin: 0 0 30px;
+  color: #fff;
+}
+.mkclaimnamepage__modalfield {
+  border: 1px solid var(--lm-line);
+  border-radius: 6px;
+  padding: 12px;
+  background: var(--lm-surface);
+}
+.mkclaimnamepage__modalfield.is-error { border-color: var(--error); }
+.mkclaimnamepage__modalfield input {
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--panel);
+  font: inherit;
+  font-size: 16px;
+  width: 100%;
+}
+.mkclaimnamepage__modalfield input::placeholder { color: #716b7c; }
+.mkclaimnamepage__modalerror {
+  display: block;
+  margin-top: 10px;
+  color: var(--error);
+  font-size: 13px;
+  font-weight: 600;
+}
+.mkclaimnamepage__capswarning {
+  border: 1px solid #716b7c;
+  margin-top: 15px;
+  padding: 12px 16px;
+  border-radius: 6px;
+  color: var(--mkcn-mute);
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 17px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.mkclaimnamepage__pricerow {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 24px;
+  margin-top: 24px;
+  padding: 20px;
+  background: #232129;
+  border-radius: 8px;
+}
+.mkclaimnamepage__pricelabel {
+  font-size: 12px;
+  color: var(--mkcn-mute);
+  margin-bottom: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.mkclaimnamepage__pricevalue {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.mkclaimnamepage__pricemana { display: inline-flex; align-items: center; color: var(--brand); }
+.mkclaimnamepage__priceamount { font-size: 30px; font-weight: 700; color: #fff; }
+.mkclaimnamepage__pricefiat { font-size: 16px; color: var(--mkcn-mute); font-weight: 500; }
+.mkclaimnamepage__modalactions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 30px;
+}
+.mkclaimnamepage__modalactions .btn { width: 100%; }
+.mkclaimnamepage__btnmana { display: inline-flex; align-items: center; margin-right: 6px; }
+
+@media (max-width: 768px) {
+  .mkclaimnamepage__gradient { display: none; }
+  .mkclaimnamepage__title { font-size: 30px; }
+  .mkclaimnamepage__subtitle { font-size: 16px; }
+  .mkclaimnamepage__inputwrap { flex-direction: column; height: auto; }
+  .mkclaimnamepage__field {
+    border-right: 1px solid var(--mkcn-input-border);
+    border-bottom: none;
+    border-top-right-radius: 6px;
+    border-bottom-left-radius: 0;
+  }
+  .mkclaimnamepage__claimbtn.btn {
+    width: 100%;
+    border-radius: 0 0 6px 6px;
+  }
+  .mkclaimnamepage__modal { padding: 32px; }
+  .mkclaimnamepage__costrow { flex-wrap: wrap; justify-content: center; }
+  .mkclaimnamepage__nametaken,
+  .mkclaimnamepage__manage { height: auto; }
+  .mkclaimnamepage__ctabody {
+    flex-direction: column;
+    align-items: flex-start;
+    height: auto;
+    padding: 28px 24px;
+  }
+  .mkclaimnamepage__ctaicon { padding-left: 0; }
+  .mkclaimnamepage__ctacopy { margin-left: 0; margin-top: 16px; height: auto; }
+}

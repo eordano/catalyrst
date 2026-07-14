@@ -1,0 +1,66 @@
+.mhf {
+  --mob-t: var(--safe-top, env(safe-area-inset-top, 0px));
+  --mob-b: var(--safe-bottom, env(safe-area-inset-bottom, 0px));
+  --mob-l: var(--safe-left, env(safe-area-inset-left, 0px));
+  --mob-r: var(--safe-right, env(safe-area-inset-right, 0px));
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-panel);
+  color: #fff;
+  font-family: var(--font-sans);
+  pointer-events: none;
+}
+
+.mhf__controls {
+  position: fixed;
+  inset: 0;
+  z-index: 5;
+  pointer-events: none;
+  touch-action: none;
+}
+
+.mhf__chat {
+  position: absolute;
+  left: calc(10px + var(--mob-l));
+  bottom: calc(10px + var(--mob-b));
+  width: min(340px, calc(100vw - 120px - var(--mob-l) - var(--mob-r)));
+  pointer-events: auto;
+}
+.mhf[data-orientation="portrait"] .mhf__chat {
+  bottom: calc(10px + var(--mob-b) + var(--mob-tabbar-h, 64px));
+  width: calc(100vw - 96px - var(--mob-l) - var(--mob-r));
+}
+
+.mhf__showui {
+  position: absolute;
+  top: calc(10px + var(--mob-t));
+  right: calc(10px + var(--mob-r));
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: none;
+  border-radius: var(--r-pill);
+  cursor: pointer;
+  color: #fff;
+  background: rgba(14, 12, 18, .72);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: auto;
+}
+
+.mhf__crosshair {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 18px;
+  height: 18px;
+  transform: translate(-50%, -50%);
+  background:
+    linear-gradient(#fff, #fff) center/2px 18px no-repeat,
+    linear-gradient(#fff, #fff) center/18px 2px no-repeat;
+  opacity: .8;
+  filter: drop-shadow(0 0 2px rgba(0, 0, 0, .9));
+}

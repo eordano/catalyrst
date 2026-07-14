@@ -1,6 +1,6 @@
--- MLS (RFC 9420) end-to-end-encrypted messaging — DELIVERY SERVICE state.
+-- MLS (RFC 9420) end-to-end-encrypted messaging -- DELIVERY SERVICE state.
 --
--- ADR: docs/federation/messaging.md (§5 storage model, §6 signed schemas, §7
+-- ADR: docs/federation/messaging.md (S5 storage model, S6 signed schemas, S7
 -- propagation). This catalyst is the MLS *delivery service*, NOT a group
 -- member: it stores and routes OPAQUE MLS bytes (KeyPackages, Welcome, Commit,
 -- application ciphertext) and never holds group secrets, so it can never
@@ -32,7 +32,7 @@ CREATE INDEX IF NOT EXISTS idx_kp_owner_unconsumed
 -- ---------------------------------------------------------------------------
 -- Groups. A DM is an MLS group of size 2; a community/world channel is size N.
 -- The server tracks routing metadata only (creator, kind, epoch-author,
--- current epoch) — never the group's ratchet/secret state.
+-- current epoch) -- never the group's ratchet/secret state.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS mls_groups (
     group_id          VARCHAR PRIMARY KEY,        -- hex of the 32-byte MLS GroupId
@@ -48,7 +48,7 @@ CREATE TABLE IF NOT EXISTS mls_groups (
     CHECK (group_kind IN ('dm', 'channel'))
 );
 
--- Membership roster — used ONLY for authorization (who may fetch history /
+-- Membership roster -- used ONLY for authorization (who may fetch history /
 -- who receives fan-out). It is NOT the MLS tree; the cryptographic membership
 -- lives client-side inside the encrypted group state.
 CREATE TABLE IF NOT EXISTS mls_group_members (
@@ -64,7 +64,7 @@ CREATE INDEX IF NOT EXISTS idx_member_active
 -- ---------------------------------------------------------------------------
 -- Handshake history: one row per epoch advance. commit_bytes is the opaque MLS
 -- Commit; welcome_bytes the opaque Welcome for members added in this epoch.
--- Peers that fall behind fetch these by `from=<epoch>` (ADR §4, §6 GroupCommit).
+-- Peers that fall behind fetch these by `from=<epoch>` (ADR S4, S6 GroupCommit).
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS mls_commits (
     group_id      VARCHAR NOT NULL REFERENCES mls_groups(group_id) ON DELETE CASCADE,
@@ -79,9 +79,9 @@ CREATE TABLE IF NOT EXISTS mls_commits (
 );
 
 -- ---------------------------------------------------------------------------
--- Application messages. Split content-addressed (ADR §5): message_refs is the
+-- Application messages. Split content-addressed (ADR S5): message_refs is the
 -- ordered, signed index; message_blobs holds the dedup'd ciphertext. The
--- ciphertext is an opaque MLSMessage(PrivateMessage) — undecryptable here.
+-- ciphertext is an opaque MLSMessage(PrivateMessage) -- undecryptable here.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS mls_message_blobs (
     ciphertext_hash VARCHAR PRIMARY KEY,          -- sha256(ciphertext) hex

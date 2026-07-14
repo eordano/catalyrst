@@ -2,13 +2,13 @@
 --
 -- A minimal port of the read surface of decentraland/marketplace-favorites-server
 -- (the service that backs `GET /v1/lists`). The tables live in the `favorites`
--- schema — owned by the marketplace-writer role this migration runs as — kept
+-- schema -- owned by the marketplace-writer role this migration runs as -- kept
 -- separate from both the upstream-owned `squid_marketplace` read schema and the
 -- `marketplace` federation/admin schema.
 --
 -- READ ONLY is wired today: `GET /v1/lists` reads these tables (returning an
--- empty result until the write path exists). Writes are wallet-scoped — a list
--- is created and picked into by the EIP-712-signed list owner — and are
+-- empty result until the write path exists). Writes are wallet-scoped -- a list
+-- is created and picked into by the EIP-712-signed list owner -- and are
 -- intentionally NOT implemented here: they depend on the federation auth path
 -- (see the auth gap noted in the handler). The tables are created empty and the
 -- endpoint degrades gracefully (empty `results`, `total = 0`) so nothing 500s.

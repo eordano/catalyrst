@@ -203,7 +203,16 @@ fn is_blocked_upstream_host(url: &str) -> bool {
         return ip.is_loopback() || ip.is_private() || ip.is_link_local() || ip.is_unspecified();
     }
     if let Ok(ip) = host.parse::<std::net::Ipv6Addr>() {
-        return ip.is_loopback() || ip.is_unspecified();
+        if let Some(v4) = ip.to_ipv4_mapped() {
+            return v4.is_loopback()
+                || v4.is_private()
+                || v4.is_link_local()
+                || v4.is_unspecified();
+        }
+        let seg = ip.segments();
+        let is_ula = (seg[0] & 0xfe00) == 0xfc00;
+        let is_ll = (seg[0] & 0xffc0) == 0xfe80;
+        return ip.is_loopback() || ip.is_unspecified() || is_ula || is_ll;
     }
     false
 }

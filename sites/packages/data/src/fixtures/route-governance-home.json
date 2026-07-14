@@ -1,0 +1,280 @@
+{
+  "sid": "storybook-sid",
+  "endingSoon": [
+    {
+      "id": "add-eu-catalyst-node",
+      "title": "Add a new Catalyst node operated by the DAO in the EU region",
+      "author": "0x7c\u2026a4e1",
+      "hue": 210,
+      "type": "Catalyst Node",
+      "tone": "blue",
+      "votes": 184,
+      "time": "Ends in 2 days",
+      "urgent": true,
+      "met": true,
+      "vp": "\u2014"
+    },
+    {
+      "id": "builders-hackathon-s5",
+      "title": "Grant Request: Decentraland Builders Hackathon Season 5",
+      "author": "buildersdao.dcl",
+      "hue": 268,
+      "type": "Grant Request",
+      "tone": "purple",
+      "votes": 311,
+      "time": "Ends in 18 hours",
+      "urgent": true,
+      "met": true,
+      "vp": "\u2014"
+    },
+    {
+      "id": "world-moderation-tender",
+      "title": "Tender: Build the next-gen World content moderation pipeline",
+      "author": "0x55\u20261b2a",
+      "hue": 0,
+      "type": "Tender",
+      "tone": "red",
+      "votes": 97,
+      "time": "Ends in 6 days",
+      "met": false,
+      "vp": "\u2014"
+    }
+  ],
+  "fallback": false,
+  "metrics": [
+    {
+      "category": "Proposals",
+      "title": "3 active proposals",
+      "description": "2 ending in the next 48hs"
+    }
+  ],
+  "bottomStats": [
+    {
+      "value": "$14.6M USD",
+      "label": "Funds allocated"
+    },
+    {
+      "value": "230",
+      "label": "Grants funded"
+    }
+  ],
+  "grants": [
+    {
+      "id": 1,
+      "title": "Improving the Toolbox Smart Item In Builder",
+      "category": "platform_contributor",
+      "hue": 354,
+      "size": "$3,000",
+      "pct": 0,
+      "months": 0,
+      "update": "No updates yet"
+    },
+    {
+      "id": 2,
+      "title": "DCL Knowledge Base HQ - Educational Website",
+      "category": "community",
+      "hue": 21,
+      "size": "$2,000",
+      "pct": 0,
+      "months": 0,
+      "update": "No updates yet"
+    },
+    {
+      "id": 3,
+      "title": "Video Editor for The Decentraland Report",
+      "category": "content_creator",
+      "hue": 162,
+      "size": "$500",
+      "pct": 0,
+      "months": 0,
+      "update": "No updates yet"
+    },
+    {
+      "id": 4,
+      "title": "Hiroto Kais Decentraland Builder Tutorials",
+      "category": "content_creator",
+      "hue": 288,
+      "size": "$1,500",
+      "pct": 0,
+      "months": 0,
+      "update": "No updates yet"
+    },
+    {
+      "id": 5,
+      "title": "The in-world DAO governance forum",
+      "category": "content_creator",
+      "hue": 74,
+      "size": "$3,000",
+      "pct": 0,
+      "months": 0,
+      "update": "No updates yet"
+    },
+    {
+      "id": 6,
+      "title": "Continue Video Editor for The Decentraland Report",
+      "category": "content_creator",
+      "hue": 162,
+      "size": "$1,800",
+      "pct": 0,
+      "months": 0,
+      "update": "No updates yet"
+    }
+  ],
+  "topVoters": [
+    {
+      "rank": 1,
+      "name": "0xc5f7\u2026a475",
+      "hue": 228,
+      "votes": 3
+    },
+    {
+      "rank": 2,
+      "name": "0x8218\u20260d59",
+      "hue": 105,
+      "votes": 2
+    },
+    {
+      "rank": 3,
+      "name": "0x247e\u2026b418",
+      "hue": 178,
+      "votes": 2
+    },
+    {
+      "rank": 4,
+      "name": "0x6c52\u2026a2cb",
+      "hue": 324,
+      "votes": 2
+    },
+    {
+      "rank": 5,
+      "name": "0x9dab\u2026b6c1",
+      "hue": 195,
+      "votes": 1
+    },
+    {
+      "rank": 6,
+      "name": "0xd6ef\u20266ef6",
+      "hue": 42,
+      "votes": 1
+    }
+  ],
+  "chartPoints": [
+    {
+      "label": "05/04",
+      "value": 2
+    },
+    {
+      "label": "05/11",
+      "value": 64
+    },
+    {
+      "label": "05/18",
+      "value": 14
+    },
+    {
+      "label": "05/25",
+      "value": 18
+    },
+    {
+      "label": "06/01",
+      "value": 9
+    },
+    {
+      "label": "06/08",
+      "value": 5
+    },
+    {
+      "label": "06/22",
+      "value": 5
+    },
+    {
+      "label": "06/29",
+      "value": 6
+    }
+  ],
+  "activity": [
+    {
+      "id": 1,
+      "kind": "finished",
+      "html": "Voting finished on <b>Removing the &#39;District&#39; demarcation on all Maps</b>",
+      "date": "3 d ago"
+    },
+    {
+      "id": 2,
+      "kind": "vote",
+      "hue": 22,
+      "html": "<b>0x81Aa\u20264CF5</b> voted on <b>Removing the &#39;District&#39; demarcation on all Maps</b>",
+      "date": "3 d ago"
+    },
+    {
+      "id": 3,
+      "kind": "vote",
+      "hue": 159,
+      "html": "<b>0xc723\u2026E18D</b> voted on <b>Removing the &#39;District&#39; demarcation on all Maps</b>",
+      "date": "4 d ago"
+    },
+    {
+      "id": 4,
+      "kind": "vote",
+      "hue": 44,
+      "html": "<b>0x0151\u2026c3B9</b> voted on <b>Removing the &#39;District&#39; demarcation on all Maps</b>",
+      "date": "4 d ago"
+    },
+    {
+      "id": 5,
+      "kind": "vote",
+      "hue": 82,
+      "html": "<b>0xA5F9\u2026fE32</b> voted on <b>Removing the &#39;District&#39; demarcation on all Maps</b>",
+      "date": "5 d ago"
+    },
+    {
+      "id": 6,
+      "kind": "vote",
+      "hue": 18,
+      "html": "<b>0x247e\u2026b418</b> voted on <b>Removing the &#39;District&#39; demarcation on all Maps</b>",
+      "date": "5 d ago"
+    },
+    {
+      "id": 7,
+      "kind": "vote",
+      "hue": 213,
+      "html": "<b>0xaD5d\u2026EB18</b> voted on <b>Removing the &#39;District&#39; demarcation on all Maps</b>",
+      "date": "6 d ago"
+    },
+    {
+      "id": 8,
+      "kind": "vote",
+      "hue": 284,
+      "html": "<b>0x6C52\u2026a2cB</b> voted on <b>Removing the &#39;District&#39; demarcation on all Maps</b>",
+      "date": "6 d ago"
+    },
+    {
+      "id": 9,
+      "kind": "vote",
+      "hue": 359,
+      "html": "<b>0x09B1\u2026Cb4b</b> voted on <b>Removing the &#39;District&#39; demarcation on all Maps</b>",
+      "date": "6 d ago"
+    },
+    {
+      "id": 10,
+      "kind": "vote",
+      "hue": 79,
+      "html": "<b>0x8bB9\u2026CCc2</b> voted on <b>Removing the &#39;District&#39; demarcation on all Maps</b>",
+      "date": "6 d ago"
+    },
+    {
+      "id": 11,
+      "kind": "vote",
+      "hue": 308,
+      "html": "<b>0xc5f7\u2026A475</b> voted on <b>Removing the &#39;District&#39; demarcation on all Maps</b>",
+      "date": "1 wk ago"
+    },
+    {
+      "id": 12,
+      "kind": "vote",
+      "hue": 337,
+      "html": "<b>0x8218\u20260D59</b> voted on <b>Removing the &#39;District&#39; demarcation on all Maps</b>",
+      "date": "1 wk ago"
+    }
+  ]
+}

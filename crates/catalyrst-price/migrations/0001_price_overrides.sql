@@ -2,7 +2,7 @@
 --
 -- The price bundle normally serves a read-only projection of the `mana_price`
 -- archive DB (latest CoinGecko snapshot). This table is the operator escape
--- hatch from the admin console (docs/admin-console.md §4, "Price override"):
+-- hatch from the admin console (docs/admin-console.md S4, "Price override"):
 -- a small KV of manual overrides, keyed by the lowercased CoinGecko token id
 -- (e.g. `decentraland`) and the lowercased vs-currency (e.g. `usd`).
 --

@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use catalyrst_fed::sig::MAX_SKEW_PAST_SECS;
+use catalyrst_fed::replay::NonceReplayGuard;
 use catalyrst_fed::FedError;
 use parking_lot::Mutex;
 use sqlx::PgPool;
@@ -39,15 +39,21 @@ impl PerSigner {
 
 pub struct Replay {
     pool: PgPool,
+    guard: NonceReplayGuard,
     by_signer: Mutex<HashMap<String, PerSigner>>,
 }
 
 impl Replay {
-    pub async fn new(pool: PgPool) -> Result<Arc<Self>, sqlx::Error> {
-        let me = Arc::new(Self {
-            pool: pool.clone(),
+    pub fn empty(pool: PgPool) -> Arc<Self> {
+        Arc::new(Self {
+            pool,
+            guard: NonceReplayGuard::new("market_seen_nonces"),
             by_signer: Mutex::new(HashMap::new()),
-        });
+        })
+    }
+
+    pub async fn new(pool: PgPool) -> Result<Arc<Self>, sqlx::Error> {
+        let me = Self::empty(pool.clone());
         let now = chrono::Utc::now().timestamp();
         sqlx::query("DELETE FROM market_seen_nonces WHERE expires_at < $1")
             .bind(now)
@@ -86,32 +92,9 @@ impl Replay {
             }
         }
 
-        let exists: Option<(i64,)> =
-            sqlx::query_as("SELECT 1 FROM market_seen_nonces WHERE signer = $1 AND nonce = $2")
-                .bind(&signer_key)
-                .bind(&nonce_hex)
-                .fetch_optional(&self.pool)
-                .await
-                .map_err(|e| FedError::Transport(e.to_string()))?;
-        if exists.is_some() {
-            return Err(FedError::DuplicateNonce { signer: signer_key });
-        }
-
-        let expires_at = signed_at + MAX_SKEW_PAST_SECS;
-
-        let res = sqlx::query(
-            "INSERT INTO market_seen_nonces (signer, nonce, expires_at) VALUES ($1, $2, $3) \
-             ON CONFLICT (signer, nonce) DO NOTHING",
-        )
-        .bind(&signer_key)
-        .bind(&nonce_hex)
-        .bind(expires_at)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| FedError::Transport(e.to_string()))?;
-        if res.rows_affected() == 0 {
-            return Err(FedError::DuplicateNonce { signer: signer_key });
-        }
+        self.guard
+            .check_and_record(&self.pool, &signer_key, nonce, signed_at)
+            .await?;
 
         let mut map = self.by_signer.lock();
         map.entry(signer_key)

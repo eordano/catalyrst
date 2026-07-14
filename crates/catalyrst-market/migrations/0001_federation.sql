@@ -11,7 +11,7 @@
 -- BidPlace / OrderCreate / BidCancel / OrderCancel is the actor with no
 -- further check. BidAccept additionally requires the signer to currently own
 -- at least one nft for the bid's item_id (verified at apply time against
--- squid_marketplace.nft). TradeRecord may be signed by any wallet — the
+-- squid_marketplace.nft). TradeRecord may be signed by any wallet -- the
 -- on-chain tx_hash is the canonical proof.
 
 CREATE TABLE IF NOT EXISTS market_bids_local (

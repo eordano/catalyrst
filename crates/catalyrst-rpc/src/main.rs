@@ -1,6 +1,5 @@
 use anyhow::Result;
 use axum::Router;
-use std::net::SocketAddr;
 use tower_http::trace::TraceLayer;
 
 use catalyrst_rpc::config::Config;
@@ -12,55 +11,55 @@ const ENV_DOCS: &[(&str, &str)] = &[
     ("HTTP_SERVER_PORT", "listen port (default 5153)"),
     (
         "CATALYRST_RPC_ADMIN_TOKEN",
-        "optional — bearer token for /admin/rpc/*; unset fails closed (403)",
+        "optional -- bearer token for /admin/rpc/*; unset fails closed (403)",
     ),
     (
         "RPC_UPSTREAM_MAINNET",
-        "upstream for mainnet (default https://rpc.decentraland.org/mainnet)",
+        "upstream for mainnet (unset leaves the network unsupported; no default)",
     ),
     (
         "RPC_UPSTREAM_ETHEREUM",
-        "upstream for ethereum (default https://rpc.decentraland.org/mainnet)",
+        "upstream for ethereum (unset leaves the network unsupported; no default)",
     ),
     (
         "RPC_UPSTREAM_SEPOLIA",
-        "upstream for sepolia (default https://rpc.decentraland.org/sepolia)",
+        "upstream for sepolia (unset leaves the network unsupported; no default)",
     ),
     (
         "RPC_UPSTREAM_POLYGON",
-        "upstream for polygon (default https://rpc.decentraland.org/polygon)",
+        "upstream for polygon (unset leaves the network unsupported; no default)",
     ),
     (
         "RPC_UPSTREAM_MATIC",
-        "upstream for matic (default https://rpc.decentraland.org/polygon)",
+        "upstream for matic (unset leaves the network unsupported; no default)",
     ),
     (
         "RPC_UPSTREAM_AMOY",
-        "upstream for amoy (default https://rpc.decentraland.org/amoy)",
+        "upstream for amoy (unset leaves the network unsupported; no default)",
     ),
     (
         "RPC_UPSTREAM_MUMBAI",
-        "upstream for mumbai (default https://rpc.decentraland.org/mumbai)",
+        "upstream for mumbai (unset leaves the network unsupported; no default)",
     ),
     (
         "RPC_UPSTREAM_ARBITRUM",
-        "upstream for arbitrum (default https://rpc.decentraland.org/arbitrum)",
+        "upstream for arbitrum (unset leaves the network unsupported; no default)",
     ),
     (
         "RPC_UPSTREAM_OPTIMISM",
-        "upstream for optimism (default https://rpc.decentraland.org/optimism)",
+        "upstream for optimism (unset leaves the network unsupported; no default)",
     ),
     (
         "RPC_UPSTREAM_AVALANCHE",
-        "upstream for avalanche (default https://rpc.decentraland.org/avalanche)",
+        "upstream for avalanche (unset leaves the network unsupported; no default)",
     ),
     (
         "RPC_UPSTREAM_BINANCE",
-        "upstream for binance (default https://rpc.decentraland.org/binance)",
+        "upstream for binance (unset leaves the network unsupported; no default)",
     ),
     (
         "RPC_UPSTREAM_FANTOM",
-        "upstream for fantom (default https://rpc.decentraland.org/fantom)",
+        "upstream for fantom (unset leaves the network unsupported; no default)",
     ),
     (
         "RUST_LOG",
@@ -72,13 +71,7 @@ const ENV_DOCS: &[(&str, &str)] = &[
 async fn main() -> Result<()> {
     catalyrst_envcfg::handle_standard_args("catalyrst-rpc", ENV_DOCS);
 
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "catalyrst_rpc=info,tower_http=info".into()),
-        )
-        .with_target(false)
-        .init();
+    catalyrst_envcfg::init_tracing("catalyrst_rpc=info,tower_http=info");
 
     let cfg = Config::from_env()?;
     let host = cfg.http_host.clone();
@@ -92,9 +85,5 @@ async fn main() -> Result<()> {
         .layer(TraceLayer::new_for_http())
         .with_state(state);
 
-    let addr: SocketAddr = format!("{}:{}", host, port).parse()?;
-    tracing::info!(%addr, "catalyrst-rpc listening");
-    let listener = tokio::net::TcpListener::bind(addr).await?;
-    axum::serve(listener, app).await?;
-    Ok(())
+    catalyrst_envcfg::run_service("catalyrst-rpc", host, port, app).await
 }

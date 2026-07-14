@@ -1,0 +1,557 @@
+.stcastwatcher {
+  --undefined-stage-grad: linear-gradient(247deg, #210a35 0%, #000 50%, #210a35 100%);
+  --undefined-video-bg: #1a0b2e;
+  --undefined-sidebar-grad: linear-gradient(135deg, #66497f 0%, #3f2357 100%);
+  --undefined-empty-grad: linear-gradient(135deg, rgba(74, 144, 226, 0.1) 0%, rgba(80, 227, 194, 0.1) 100%);
+  --undefined-onboard-overlay: linear-gradient(135deg, rgba(216, 0, 41, 0.3) 0%, rgba(22, 33, 62, 0.5) 50%, rgba(13, 17, 23, 0.7) 100%);
+  --undefined-onboard-hero: linear-gradient(135deg, #3a0653 0%, #2d3753 55%, #175e52 100%);
+  --undefined-modal-bg: rgba(255, 255, 255, 0.95);
+  --undefined-modal-ink: #161518;
+  --undefined-modal-muted: #666;
+  --undefined-join-grad: linear-gradient(90deg, var(--brand) 0%, #ff6b82 100%);
+  --undefined-join-grad-hover: linear-gradient(90deg, #e02849 0%, #e65970 100%);
+  --undefined-control-circle: #ffffff;
+
+  min-height: calc(100dvh - 92px);
+  display: flex;
+  flex-direction: column;
+  background: var(--undefined-stage-grad);
+  font-family: var(--font-sans);
+  color: var(--text);
+}
+
+.stcastwatcher__layout {
+  display: flex;
+  flex-direction: column;
+  height: calc(100dvh - 92px);
+  width: 100%;
+  position: relative;
+  overflow: hidden;
+}
+
+.stcastwatcher__main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  min-height: 0;
+  padding: 24px;
+}
+
+.stcastwatcher__videocontainer {
+  flex: 1;
+  display: flex;
+  position: relative;
+  min-height: 0;
+  gap: 18px;
+  overflow: hidden;
+}
+
+.stcastwatcher__videoarea {
+  flex: 1;
+  min-width: 0;
+  background: var(--undefined-video-bg);
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  box-sizing: border-box;
+  border-radius: 12px;
+  margin-right: 0;
+  transition: margin-right 0.3s ease-out;
+}
+.stcastwatcher--sidebar .stcastwatcher__videoarea {
+  margin-right: 418px;
+}
+
+.stcastwatcher__counter {
+  position: absolute;
+  top: 20px;
+  left: 20px;
+  z-index: 15;
+}
+.stcastwatcher__livepill {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  background: var(--brand-cta);
+  border-radius: 24px;
+  font-weight: bold;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: #fff;
+  box-shadow: 0 4px 12px rgba(255, 45, 85, 0.4), 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+.stcastwatcher__livedot {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  flex: 0 0 auto;
+  animation: stcastwatcher-pulse 1.5s infinite;
+}
+@keyframes stcastwatcher-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+.stcastwatcher__content {
+  width: 100%;
+  height: 100%;
+  position: relative;
+}
+
+.stcastwatcher__frame {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background:
+    radial-gradient(120% 120% at 50% 0%, rgba(255, 45, 85, 0.18) 0%, transparent 55%),
+    linear-gradient(135deg, #1a0b2e 0%, #0d1117 55%, #16213e 100%);
+}
+.stcastwatcher__framelogo {
+  width: 96px;
+  height: 96px;
+  opacity: 0.85;
+  filter: drop-shadow(0 8px 28px rgba(255, 45, 85, 0.35));
+}
+.stcastwatcher__framelogo svg { width: 100%; height: 100%; display: block; }
+
+.stcastwatcher__empty {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  width: 100%;
+  height: 100%;
+  background: var(--undefined-empty-grad);
+  text-align: center;
+  padding: 40px 20px;
+  box-sizing: border-box;
+}
+.stcastwatcher__emptyicon {
+  font-size: 64px;
+  margin-bottom: 20px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  animation: stcastwatcher-fade 2s ease-in-out infinite;
+}
+.stcastwatcher__emptyicon svg { width: 64px; height: 64px; color: rgba(255, 255, 255, 0.7); }
+@keyframes stcastwatcher-fade {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 1; }
+}
+.stcastwatcher__emptytitle {
+  color: #fff;
+  font-weight: 600;
+  margin: 0 0 12px;
+  font-size: 24px;
+}
+.stcastwatcher__emptysub {
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 16px;
+  max-width: 300px;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.stcastwatcher__sidebar {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 400px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--undefined-sidebar-grad);
+  border-radius: 12px;
+  box-sizing: border-box;
+  flex-shrink: 0;
+  transform: translateX(calc(100% + 18px));
+  transition: transform 0.3s ease-out;
+}
+.stcastwatcher--sidebar .stcastwatcher__sidebar {
+  transform: translateX(0);
+}
+.stcastwatcher__sidehead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 30px;
+  flex-shrink: 0;
+}
+.stcastwatcher__sidetitle {
+  margin: 0;
+  color: #fff;
+  font-weight: 500;
+  font-size: 24px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.stcastwatcher__sideclose {
+  background: none;
+  border: none;
+  color: rgba(255, 255, 255, 0.7);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  transition: color 0.2s ease;
+}
+.stcastwatcher__sideclose:hover { color: #fff; }
+.stcastwatcher__sideclose svg { width: 20px; height: 20px; }
+
+.stcastwatcher__chatmsgs {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 30px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+.stcastwatcher__msg { display: flex; flex-direction: column; gap: 4px; }
+.stcastwatcher__msgmeta { display: flex; align-items: center; gap: 8px; }
+.stcastwatcher__msgname { font-size: 13px; font-weight: 700; color: var(--brand-hover); }
+.stcastwatcher__msgtime { font-size: 11px; color: rgba(255, 255, 255, 0.45); }
+.stcastwatcher__msgbody { font-size: 14px; line-height: 1.45; color: rgba(255, 255, 255, 0.92); }
+.stcastwatcher__chatfoot {
+  flex-shrink: 0;
+  padding: 16px 30px 24px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.6);
+  line-height: 1.5;
+  border-top: 1px solid var(--line);
+}
+
+.stcastwatcher__controlsarea {
+  position: relative;
+  z-index: 20;
+  width: 100%;
+  background: transparent;
+  flex-shrink: 0;
+}
+.stcastwatcher__controls {
+  width: 100%;
+  padding: 20px 20px 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  box-sizing: border-box;
+  gap: 24px;
+  position: relative;
+}
+.stcastwatcher__controlscenter {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: center;
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+}
+.stcastwatcher__controlsright {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  margin-left: auto;
+}
+
+.stcastwatcher__leave {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--brand-cta);
+  border: 1px solid var(--brand-cta);
+  color: #fff;
+  font-weight: bold;
+  padding: 10px 20px;
+  border-radius: var(--r-control);
+  cursor: pointer;
+  font-family: inherit;
+  text-transform: uppercase;
+  font-size: 13px;
+  letter-spacing: 0.5px;
+  transition: background 0.12s ease;
+}
+.stcastwatcher__leave:hover { background: #e02849; }
+.stcastwatcher__leave svg { width: 18px; height: 18px; }
+
+.stcastwatcher__iconbtn {
+  position: relative;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: transparent;
+  border: none;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+.stcastwatcher__iconbtn:hover { background: rgba(255, 255, 255, 0.1); }
+.stcastwatcher__iconbtn svg { width: 24px; height: 24px; }
+.stcastwatcher__iconbtn.is-active { background: rgba(255, 255, 255, 0.16); }
+.stcastwatcher__badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  background: var(--brand-cta);
+  color: #fff;
+  border-radius: 12px;
+  padding: 2px 6px;
+  font-size: 11px;
+  font-weight: bold;
+  min-width: 20px;
+  text-align: center;
+  box-sizing: border-box;
+}
+
+.stcastwatcher__onboard {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  min-height: calc(100dvh - 92px);
+  background: var(--undefined-onboard-hero);
+  background-size: cover;
+  background-position: center;
+  position: relative;
+  padding: 24px;
+  box-sizing: border-box;
+}
+.stcastwatcher__onboard::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: var(--undefined-onboard-overlay);
+  z-index: 0;
+}
+.stcastwatcher__modal {
+  position: relative;
+  z-index: 1;
+  background: var(--undefined-modal-bg);
+  border-radius: 16px;
+  padding: 32px 72px 40px;
+  max-width: 603px;
+  width: 90%;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 24px;
+  box-sizing: border-box;
+}
+.stcastwatcher__logo {
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  box-sizing: border-box;
+}
+.stcastwatcher__logo svg { width: 100%; height: 100%; }
+.stcastwatcher__title {
+  margin: 8px 0 0;
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--undefined-modal-ink);
+  text-align: center;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.stcastwatcher__tag {
+  margin: -16px 0 0;
+  font-size: 14px;
+  color: var(--undefined-modal-muted);
+  text-align: center;
+}
+.stcastwatcher__selectors {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: 100%;
+  align-items: center;
+}
+.stcastwatcher__selectorrow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100px;
+  position: relative;
+  justify-content: center;
+}
+.stcastwatcher__selectorrow > svg {
+  color: #1a1a1a;
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+}
+.stcastwatcher__selectorbtn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 6px 8px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 14px;
+  color: #1a1a1a;
+  font-family: inherit;
+  border-radius: 4px;
+  gap: 4px;
+}
+.stcastwatcher__selectorbtn:hover { background: rgba(0, 0, 0, 0.04); }
+.stcastwatcher__selectorbtn span {
+  flex: 1;
+  text-align: left;
+  white-space: nowrap;
+}
+.stcastwatcher__selectorbtn svg { width: 18px; height: 18px; flex-shrink: 0; }
+.stcastwatcher__join {
+  width: 100%;
+  max-width: 400px;
+  padding: 12px;
+  border-radius: 8px;
+  border: none;
+  background: var(--undefined-join-grad);
+  color: #fff;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.stcastwatcher__join:hover {
+  background: var(--undefined-join-grad-hover);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(255, 45, 85, 0.3);
+}
+.stcastwatcher__join:disabled {
+  background: #cfcfcf;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.stcastwatcher__joining {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 24px;
+}
+.stcastwatcher__joininglogo {
+  width: 96px;
+  height: 96px;
+  border-radius: 50%;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px;
+  box-sizing: border-box;
+  box-shadow: 0 8px 24px rgba(255, 45, 85, 0.4);
+}
+.stcastwatcher__joininglogo svg { width: 100%; height: 100%; }
+.stcastwatcher__spinner {
+  width: 48px;
+  height: 48px;
+  border: 4px solid rgba(255, 255, 255, 0.2);
+  border-top: 4px solid var(--brand);
+  border-radius: 50%;
+  animation: u-spin 1s linear infinite;
+}
+.stcastwatcher__joiningtext {
+  color: #fff;
+  font-size: 24px;
+  font-weight: 500;
+  margin: 0;
+}
+
+.stcastwatcher__toasts {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  z-index: var(--z-toast);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 360px;
+  max-width: calc(100vw - 32px);
+}
+.stcastwatcher__toast {
+  background: #2a2730;
+  color: #fff;
+  border-radius: 8px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+  border-left: 4px solid #ff5a5f;
+}
+.stcastwatcher__toastrow { display: flex; align-items: flex-start; gap: 8px; }
+.stcastwatcher__toasttext { flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.stcastwatcher__toasttitle { font-size: 14px; font-weight: 600; line-height: 1.3; }
+.stcastwatcher__toastmsg { font-size: 13px; color: #cfcdd3; line-height: 1.4; word-break: break-word; }
+.stcastwatcher__toastclose {
+  background: none;
+  border: none;
+  color: #999;
+  cursor: pointer;
+  padding: 0;
+  margin-left: 4px;
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+.stcastwatcher__toastclose:hover { color: #fff; }
+.stcastwatcher__toastclose svg { width: 18px; height: 18px; }
+.stcastwatcher__toastaction {
+  align-self: flex-start;
+  background: var(--brand-cta);
+  color: #fff;
+  font-weight: 600;
+  font-size: 12px;
+  text-transform: uppercase;
+  padding: 4px 12px;
+  border-radius: 4px;
+  border: none;
+  cursor: pointer;
+}
+.stcastwatcher__toastaction:hover { background: #e02849; }
+
+@media (max-width: 900px) {
+  .stcastwatcher,
+  .stcastwatcher__layout,
+  .stcastwatcher__onboard { min-height: calc(100dvh - 64px); }
+  .stcastwatcher__layout { height: calc(100dvh - 64px); }
+  .stcastwatcher__main { padding: 0; }
+  .stcastwatcher__videocontainer { gap: 0; }
+  .stcastwatcher__videoarea { border-radius: 0; }
+  .stcastwatcher--sidebar .stcastwatcher__videoarea { margin-right: 0; }
+  .stcastwatcher__sidebar { width: 100%; border-radius: 0; left: 0; }
+  .stcastwatcher__modal { padding: 24px 32px 32px; width: 95%; }
+}

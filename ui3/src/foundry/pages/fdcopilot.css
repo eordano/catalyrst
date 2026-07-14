@@ -1,0 +1,69 @@
+/* Status chip: .fd-chip owns the geometry, this owns only the state colour. */
+.fd-copilot__pill.is-online {
+  border-color: color-mix(in srgb, var(--success) 40%, transparent);
+  background: color-mix(in srgb, var(--success) 14%, transparent);
+  color: var(--success);
+}
+
+.fd-copilot__pill.is-stuck {
+  border-color: color-mix(in srgb, var(--warning) 40%, transparent);
+  background: color-mix(in srgb, var(--warning) 14%, transparent);
+  color: var(--warning);
+}
+
+.fd-copilot__pill.is-offline {
+  border-style: dashed;
+  background: transparent;
+  color: var(--ink-45);
+}
+
+.fd-copilot__gateway {
+  margin: 0 0 var(--s-3);
+  max-width: var(--measure);
+  font-size: var(--fs-13);
+  line-height: var(--lh-body);
+  color: var(--warning);
+}
+
+.fd-copilot__gateway code {
+  font-family: var(--font-mono);
+  font-size: var(--fs-12);
+  line-height: var(--lh-ui);
+  color: var(--ink-45);
+  overflow-wrap: anywhere;
+}
+
+.fd-copilot__probe {
+  margin: var(--s-3) 0 0;
+}
+
+.fd-copilot__pipeline {
+  margin: 0;
+  padding: var(--s-3) var(--s-4);
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  background: var(--panel);
+  font-family: var(--font-mono);
+  font-size: var(--fs-13);
+  line-height: var(--lh-code);
+}
+
+.fd-copilot .fd-scroll {
+  margin-top: var(--s-3);
+}
+
+.fd-copilot__receipts th[scope="row"] {
+  white-space: nowrap;
+}
+
+.fd-copilot__skills {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-4);
+}
+
+.fd-copilot__skillgroup {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}

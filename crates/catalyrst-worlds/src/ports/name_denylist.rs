@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use moka::future::Cache;
@@ -11,6 +11,7 @@ pub struct NameDenyListChecker {
     http: reqwest::Client,
     url: Option<String>,
     cache: Cache<(), Arc<Vec<String>>>,
+    last_good: Arc<Mutex<Arc<Vec<String>>>>,
 }
 
 impl NameDenyListChecker {
@@ -22,6 +23,7 @@ impl NameDenyListChecker {
                 .time_to_live(Duration::from_secs(NAME_DENYLIST_TTL_SECONDS))
                 .max_capacity(1)
                 .build(),
+            last_good: Arc::new(Mutex::new(Arc::new(Vec::new()))),
         }
     }
 
@@ -33,9 +35,15 @@ impl NameDenyListChecker {
         if let Some(cached) = self.cache.get(&()).await {
             return cached;
         }
-        let fetched = Arc::new(fetch_banned_names(&self.http, self.url.as_deref()).await);
-        self.cache.insert((), fetched.clone()).await;
-        fetched
+        match fetch_banned_names(&self.http, self.url.as_deref()).await {
+            Some(names) => {
+                let fetched = Arc::new(names);
+                self.cache.insert((), fetched.clone()).await;
+                *self.last_good.lock().unwrap() = fetched.clone();
+                fetched
+            }
+            None => self.last_good.lock().unwrap().clone(),
+        }
     }
 
     pub async fn check_name_deny_list(&self, world_name: &str) -> bool {
@@ -51,22 +59,20 @@ impl NameDenyListChecker {
     }
 }
 
-async fn fetch_banned_names(http: &reqwest::Client, url: Option<&str>) -> Vec<String> {
-    let Some(url) = url else {
-        return Vec::new();
-    };
+async fn fetch_banned_names(http: &reqwest::Client, url: Option<&str>) -> Option<Vec<String>> {
+    let url = url?;
     let endpoint = format!("{}/banned-names", url);
     match http.post(&endpoint).send().await {
         Ok(resp) => match resp.json::<Value>().await {
-            Ok(body) => parse_banned_names(&body),
+            Ok(body) => Some(parse_banned_names(&body)),
             Err(e) => {
-                tracing::warn!(error = %e, url = %endpoint, "failed to parse name denylist (fail-open)");
-                Vec::new()
+                tracing::warn!(error = %e, url = %endpoint, "failed to parse name denylist (keeping last known)");
+                None
             }
         },
         Err(e) => {
-            tracing::warn!(error = %e, url = %endpoint, "failed to fetch name denylist (fail-open)");
-            Vec::new()
+            tracing::warn!(error = %e, url = %endpoint, "failed to fetch name denylist (keeping last known)");
+            None
         }
     }
 }

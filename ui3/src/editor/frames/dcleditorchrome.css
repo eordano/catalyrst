@@ -1,0 +1,419 @@
+.eui-root,
+.eui-root * {
+  box-sizing: border-box;
+}
+.eui-root button,
+.eui-root input,
+.eui-root select,
+.eui-root textarea {
+  text-transform: none;
+  letter-spacing: normal;
+}
+.eui-root {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  pointer-events: none;
+}
+.eui-root,
+.eui-modal,
+.eui-json-modal,
+.eui-shortcuts,
+.decam {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+
+  --font-mono: ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace;
+
+  --paper: var(--panel);
+  --paper-hi: color-mix(in srgb, #fff 4%, var(--panel));
+  --input: color-mix(in srgb, #000 28%, var(--panel));
+  --divider: var(--fill-4);
+  --divider-soft: var(--fill-2);
+  --text-2: var(--ink-7);
+  --text-3: var(--ink-45);
+  --hover: var(--fill-2);
+  --primary: var(--brand);
+  --primary-dark: color-mix(in srgb, var(--brand) 85%, black);
+  --primary-selected: color-mix(in srgb, var(--brand) 16%, transparent);
+  --primary-border: color-mix(in srgb, var(--brand) 60%, transparent);
+  --primary-glow: color-mix(in srgb, var(--brand) 40%, transparent);
+  --error-hover: color-mix(in srgb, var(--error) 14%, transparent);
+
+  --eui-top-inset: 12px;
+  --eui-bottom-inset: 12px;
+
+  --surface: linear-gradient(180deg, var(--paper-hi) 0%, var(--paper) 72px);
+  --shadow-panel: inset 0 1px 0 rgba(255, 255, 255, 0.07), 0 0 0 1px rgba(0, 0, 0, 0.4),
+    0 16px 40px rgba(0, 0, 0, 0.45), 0 2px 8px rgba(0, 0, 0, 0.3);
+  --shadow-float: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 0 0 1px rgba(0, 0, 0, 0.4),
+    0 12px 32px rgba(0, 0, 0, 0.55), 0 2px 6px rgba(0, 0, 0, 0.35);
+}
+.eui-root ::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.eui-root ::-webkit-scrollbar-track {
+  background: transparent;
+}
+.eui-root ::-webkit-scrollbar-thumb {
+  background: var(--fill-5);
+  border-radius: 3px;
+}
+.eui-root ::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.24);
+}
+.eui-root * {
+  scrollbar-width: thin;
+  scrollbar-color: var(--fill-5) transparent;
+}
+
+@keyframes eui-rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes eui-drop {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -8px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+@keyframes eui-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes eui-toast {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 8px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+
+.eui-panel {
+  pointer-events: auto;
+  background: var(--surface);
+  border: 1px solid var(--divider);
+  border-radius: var(--r-card);
+  box-shadow: var(--shadow-panel);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.eui-left {
+  position: absolute;
+  top: var(--eui-top-inset, 12px);
+  left: 12px;
+  bottom: var(--eui-bottom-inset, 12px);
+  width: 264px;
+  animation: eui-rise 0.28s cubic-bezier(0.2, 0.9, 0.3, 1) backwards;
+}
+.eui-right {
+  position: absolute;
+  top: var(--eui-top-inset, 12px);
+  right: 12px;
+  bottom: var(--eui-bottom-inset, 12px);
+  width: 320px;
+  animation: eui-rise 0.28s cubic-bezier(0.2, 0.9, 0.3, 1) 0.05s backwards;
+}
+
+.eui-panel-head {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 52px;
+  padding: 0 10px 0 14px;
+  flex: none;
+  border-bottom: 1px solid var(--divider);
+}
+.eui-panel-head::after {
+  content: "";
+  position: absolute;
+  left: 14px;
+  bottom: -1px;
+  height: 1px;
+  width: 56px;
+  background: linear-gradient(90deg, var(--primary), transparent);
+}
+.eui-head-text {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 1px;
+  flex: 1;
+  min-width: 0;
+}
+.eui-overline {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 500;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+.eui-title {
+  font-size: 13px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.eui-title.dim {
+  color: var(--text-3);
+  font-weight: 400;
+}
+.eui-panel-head .spacer {
+  flex: 1;
+}
+.eui-panel-body {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.eui-btn {
+  pointer-events: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: var(--r-control);
+  background: transparent;
+  border: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.12s, color 0.12s, box-shadow 0.12s;
+}
+.eui-btn:hover {
+  background: var(--hover);
+}
+.eui-btn.active {
+  background: var(--primary-selected);
+}
+.eui-btn.primary {
+  background: linear-gradient(180deg, var(--primary), var(--primary-dark));
+  color: #fff;
+  font-weight: 600;
+  padding: 0 16px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25), 0 1px 4px rgba(0, 0, 0, 0.4);
+}
+.eui-btn.primary:hover {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25), 0 2px 12px var(--primary-glow);
+  filter: brightness(1.06);
+}
+.eui-btn:disabled {
+  opacity: 0.38;
+  cursor: default;
+}
+.eui-btn:disabled:hover {
+  background: transparent;
+  box-shadow: none;
+  filter: none;
+}
+.eui-btn.primary:disabled {
+  box-shadow: none;
+}
+.eui-btn.icon {
+  width: 28px;
+  padding: 0;
+  color: var(--text-2);
+}
+.eui-btn.icon:hover {
+  color: var(--text);
+}
+.eui-btn.icon.active {
+  color: var(--primary);
+  background: var(--primary-selected);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--brand) 25%, transparent);
+}
+.eui-btn:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 1px;
+}
+.eui-btn svg {
+  width: 15px;
+  height: 15px;
+  flex: none;
+}
+
+.eui-input {
+  width: 100%;
+  height: 28px;
+  padding: 0 9px;
+  border-radius: var(--r-control);
+  background: var(--input);
+  border: 1px solid var(--divider-soft);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.35);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  outline: none;
+  transition: border-color 0.12s, box-shadow 0.12s;
+}
+.eui-input:focus {
+  border-color: var(--primary-border);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.35), 0 0 0 2px color-mix(in srgb, var(--brand) 18%, transparent);
+}
+.eui-input::placeholder {
+  color: var(--text-3);
+}
+
+.eui-num {
+  width: 100%;
+  min-width: 0;
+  height: 26px;
+  padding: 0 7px;
+  border-radius: var(--r-control);
+  background: var(--input);
+  border: 1px solid var(--divider-soft);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.3);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  outline: none;
+  transition: border-color 0.12s, box-shadow 0.12s;
+}
+.eui-num:focus {
+  border-color: var(--primary-border);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.3), 0 0 0 2px color-mix(in srgb, var(--brand) 16%, transparent);
+}
+.eui-num.dirty {
+  border-color: var(--primary-border);
+}
+
+.eui-select {
+  width: 100%;
+  height: 26px;
+  padding: 0 6px;
+  border-radius: var(--r-control);
+  background: var(--input);
+  border: 1px solid var(--divider-soft);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.3);
+  color: var(--text);
+  font: inherit;
+  font-size: 11px;
+  outline: none;
+  cursor: pointer;
+}
+.eui-select:focus {
+  border-color: var(--primary-border);
+}
+
+.eui-toggle {
+  position: relative;
+  width: 28px;
+  height: 16px;
+  border-radius: var(--r-pill);
+  flex: none;
+  background: var(--input);
+  border: 1px solid var(--divider);
+  cursor: pointer;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.4);
+  transition: background 0.18s, border-color 0.18s;
+}
+.eui-toggle::after {
+  content: "";
+  position: absolute;
+  top: 1.5px;
+  left: 2px;
+  width: 11px;
+  height: 11px;
+  border-radius: var(--r-pill);
+  background: var(--text-2);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+  transition: left 0.18s cubic-bezier(0.3, 1.4, 0.5, 1), background 0.18s;
+}
+.eui-toggle.on {
+  background: var(--primary);
+  border-color: var(--primary);
+  box-shadow: inset 0 1px 1px rgba(0, 0, 0, 0.2);
+}
+.eui-toggle.on::after {
+  left: 13px;
+  background: #fff;
+}
+
+.eui-color-swatch {
+  width: 26px;
+  height: 26px;
+  border-radius: var(--r-control);
+  border: 1px solid var(--divider);
+  padding: 0;
+  cursor: pointer;
+  flex: none;
+  background: none;
+}
+.eui-color-swatch::-webkit-color-swatch-wrapper {
+  padding: 2px;
+}
+.eui-color-swatch::-webkit-color-swatch {
+  border: none;
+  border-radius: var(--r-control);
+}
+
+.eui-raw {
+  width: 100%;
+  min-height: 72px;
+  resize: vertical;
+  border-radius: var(--r-control);
+  background: var(--input);
+  border: 1px solid var(--divider-soft);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.3);
+  color: var(--text-2);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 8px;
+  outline: none;
+}
+.eui-raw:focus {
+  border-color: var(--primary-border);
+}
+.eui-link {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.eui-link:hover {
+  color: var(--text);
+}
+.eui-link:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.eui-link:disabled:hover {
+  color: var(--text-3);
+}

@@ -4,11 +4,10 @@ use catalyrst_crypto::verify::verify_auth_chain;
 use catalyrst_types::AuthLink;
 use thiserror::Error;
 
-pub const AUTH_CHAIN_HEADER_PREFIX: &str = "x-identity-auth-chain-";
-pub const AUTH_TIMESTAMP_HEADER: &str = "x-identity-timestamp";
-pub const AUTH_METADATA_HEADER: &str = "x-identity-metadata";
-
-pub const MAX_AUTH_CHAIN_LINKS: usize = 10;
+pub use catalyrst_crypto::signed_fetch::{
+    build_payload, signed_fetch_path, AUTH_CHAIN_HEADER_PREFIX, AUTH_METADATA_HEADER,
+    AUTH_TIMESTAMP_HEADER, MAX_AUTH_CHAIN_LINKS,
+};
 
 pub const FIVE_MINUTES: i64 = 5 * 60;
 
@@ -69,20 +68,6 @@ pub fn verify_auth_frame(
     Ok(Authenticated { signer })
 }
 
-pub fn build_payload(method: &str, path: &str, timestamp: &str, metadata: &str) -> String {
-    format!("{method}:{path}:{timestamp}:{metadata}").to_lowercase()
-}
-
-pub fn signed_fetch_path<'a>(
-    headers: &axum::http::HeaderMap,
-    fallback: &'a str,
-) -> std::borrow::Cow<'a, str> {
-    match headers.get("x-original-path").and_then(|v| v.to_str().ok()) {
-        Some(raw) => std::borrow::Cow::Owned(raw.split('?').next().unwrap_or(raw).to_string()),
-        None => std::borrow::Cow::Borrowed(fallback),
-    }
-}
-
 fn extract_auth_chain(headers: &HashMap<String, String>) -> Result<Vec<AuthLink>, AuthError> {
     let mut links: Vec<AuthLink> = Vec::new();
     for i in 0..MAX_AUTH_CHAIN_LINKS {
@@ -132,7 +117,10 @@ mod tests {
     #[test]
     fn rejects_non_json() {
         let err = verify_auth_frame(b"not json", "GET", "/ws/x", 0).unwrap_err();
-        matches!(err, AuthError::BadJson(_));
+        assert!(
+            matches!(err, AuthError::BadJson(_)),
+            "expected BadJson, got {err:?}"
+        );
     }
 
     #[test]
@@ -143,7 +131,10 @@ mod tests {
         })
         .to_string();
         let err = verify_auth_frame(body.as_bytes(), "GET", "/ws/x", 0).unwrap_err();
-        matches!(err, AuthError::InsufficientLinks);
+        assert!(
+            matches!(err, AuthError::InsufficientLinks),
+            "expected InsufficientLinks, got {err:?}"
+        );
     }
 
     #[test]

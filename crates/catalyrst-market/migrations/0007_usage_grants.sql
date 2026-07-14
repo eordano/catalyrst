@@ -1,4 +1,4 @@
--- catalyrst-market usage_grants — the escrow "lease" overlay table (Phase 5 of
+-- catalyrst-market usage_grants -- the escrow "lease" overlay table (Phase 5 of
 -- the Landiler marketplace).
 --
 -- During the 15-day escrow/return window a purchased NFT is held on-chain by the
@@ -25,7 +25,7 @@
 -- search_path=marketplace and migrations 0001-0006 create tables in it). We do
 -- NOT `CREATE SCHEMA` here: the market DB role (mpa_*) has CREATE on the existing
 -- schema but NOT CREATE-on-database, and `CREATE SCHEMA IF NOT EXISTS` still
--- requires the database privilege even when the schema is present — it would
+-- requires the database privilege even when the schema is present -- it would
 -- fail the migration ("permission denied for database") at market startup.
 
 CREATE TABLE IF NOT EXISTS marketplace.usage_grants (

@@ -1,0 +1,131 @@
+.fd-replay__facts {
+  padding: var(--s-3) var(--s-4);
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  background: var(--panel);
+}
+
+.fd-replay__facts dd {
+  overflow-wrap: anywhere;
+}
+
+.fd-replay__ledger {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  background: var(--panel);
+}
+
+.fd-replay__transport {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+}
+
+.fd-replay__frameshead {
+  margin: 0 0 var(--s-2);
+}
+
+.fd-replay__framestrip {
+  display: flex;
+  gap: var(--s-2);
+  margin: 0;
+  padding: 0 0 var(--s-2);
+  list-style: none;
+  overflow-x: auto;
+}
+
+.fd-replay__frame {
+  flex: 0 0 160px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+}
+
+.fd-replay__frame img {
+  display: block;
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  background: var(--fill-1);
+}
+
+.fd-replay__framename {
+  font-size: var(--fs-11);
+  line-height: var(--lh-ui);
+  color: var(--ink-45);
+  overflow-wrap: anywhere;
+}
+
+.fd-replay__state {
+  padding: var(--s-3) var(--s-4);
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  background: var(--panel);
+}
+
+.fd-replay__statehead {
+  margin: 0 0 var(--s-2);
+}
+
+.fd-replay__seats {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.fd-replay__seat {
+  display: grid;
+  grid-template-columns: minmax(80px, auto) minmax(60px, auto) minmax(120px, 1fr) minmax(0, 2fr);
+  gap: var(--s-2) var(--s-3);
+  align-items: center;
+  font-size: var(--fs-12);
+  line-height: var(--lh-ui);
+}
+
+.fd-replay__seatname {
+  overflow-wrap: anywhere;
+}
+
+.fd-replay__seatrole {
+  color: var(--ink-7);
+}
+
+.fd-replay__seatbar {
+  display: block;
+  height: 8px;
+  border-radius: var(--r-pill);
+  background: var(--fill-2);
+  overflow: hidden;
+}
+
+.fd-replay__seatfill {
+  display: block;
+  height: 100%;
+  border-radius: var(--r-pill);
+  background: var(--brand);
+}
+
+.fd-replay__seatfacts {
+  color: var(--ink-6);
+  font-variant-numeric: tabular-nums;
+}
+
+.fd-replay__stateline {
+  margin: var(--s-2) 0 0;
+  font-size: var(--fs-12);
+  line-height: var(--lh-body);
+  color: var(--ink-6);
+}
+
+@media (max-width: 600px) {
+  .fd-replay__seat {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

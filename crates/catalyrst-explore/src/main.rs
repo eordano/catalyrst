@@ -18,7 +18,7 @@ async fn main() -> Result<()> {
             tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| {
                 "catalyrst_explore=info,catalyrst_places=info,catalyrst_events=info,\
                  catalyrst_archipelago=info,catalyrst_worlds=info,catalyrst_map=info,\
-                 catalyrst_lists=info,tower_http=info"
+                 tower_http=info"
                     .into()
             }),
         )
@@ -28,19 +28,30 @@ async fn main() -> Result<()> {
     let mut members: Vec<(&'static str, bool)> = Vec::new();
     let mut app = Router::new();
 
-    app = mount(app, &mut members, "places", build_places().await);
+    let (places, lists) = build_places().await;
+    app = mount(app, &mut members, "places", places);
     app = mount(app, &mut members, "events", build_events().await);
     app = mount(app, &mut members, "archipelago", build_archipelago().await);
     app = mount(app, &mut members, "worlds", build_worlds().await);
     app = mount(app, &mut members, "map", build_map().await);
-    app = mount(app, &mut members, "lists", build_lists().await);
+    app = mount(app, &mut members, "lists", lists);
 
     let health_body = health_body(&members);
+    let status_body = health_body.clone();
     let app = app
         .route(
             "/health",
             get(move || {
                 let body = health_body.clone();
+                async move { ([(CONTENT_TYPE, "application/json")], body).into_response() }
+            }),
+        )
+        // Members each ship their own /status probe, which cannot survive being
+        // merged onto one port. The bundle owns it and reports every member.
+        .route(
+            "/status",
+            get(move || {
+                let body = status_body.clone();
                 async move { ([(CONTENT_TYPE, "application/json")], body).into_response() }
             }),
         )
@@ -82,6 +93,22 @@ fn mount(
     }
 }
 
+// Members are merged into one Router, and axum panics when two of them claim
+// the same path. places, events and worlds each serve their own spec at
+// /openapi.json, so in the bundle each one gets its own path instead.
+fn spec_route<S>(router: Router<S>, spec: serde_json::Value, path: &'static str) -> Router<S>
+where
+    S: Clone + Send + Sync + 'static,
+{
+    router.route(
+        path,
+        get(move || {
+            let spec = spec.clone();
+            async move { axum::Json(spec) }
+        }),
+    )
+}
+
 fn health_body(members: &[(&'static str, bool)]) -> String {
     let all_up = members.iter().all(|(_, up)| *up);
     let members_obj: serde_json::Map<String, serde_json::Value> = members
@@ -95,38 +122,56 @@ fn health_body(members: &[(&'static str, bool)]) -> String {
     .to_string()
 }
 
-async fn build_places() -> Result<Router> {
+async fn build_places() -> (Result<Router>, Result<Router>) {
+    match build_places_state().await {
+        Ok(state) => {
+            let (router, spec) = catalyrst_places::api_router_with_spec();
+            let api = match serde_json::to_value(spec) {
+                Ok(spec) => {
+                    Ok(spec_route(router, spec, "/places/openapi.json").with_state(state.clone()))
+                }
+                Err(err) => Err(anyhow::Error::from(err)),
+            };
+            (api, Ok(catalyrst_places::lists_router().with_state(state)))
+        }
+        Err(err) => {
+            let msg = format!("{err:#}");
+            (Err(anyhow::anyhow!(msg.clone())), Err(anyhow::anyhow!(msg)))
+        }
+    }
+}
+
+async fn build_places_state() -> Result<catalyrst_places::AppState> {
     let cfg = catalyrst_places::config::Config::from_env()?;
-    let state = catalyrst_places::build_state(&cfg).await?;
-    Ok(catalyrst_places::api_router().with_state(state))
+    catalyrst_places::build_state(&cfg).await
 }
 
 async fn build_events() -> Result<Router> {
     let cfg = catalyrst_events::config::Config::from_env()?;
     let state = catalyrst_events::build_state(&cfg).await?;
-    Ok(catalyrst_events::api_router().with_state(state))
+    let (router, spec) = catalyrst_events::api_router_with_spec();
+    let spec = serde_json::to_value(spec)?;
+    Ok(spec_route(router, spec, "/events/openapi.json").with_state(state))
 }
 
 async fn build_archipelago() -> Result<Router> {
     let cfg = catalyrst_archipelago::Config::from_env()?;
     let state = catalyrst_archipelago::build_state(&cfg).await?;
-    Ok(catalyrst_archipelago::api_router().with_state(state))
+    Ok(catalyrst_archipelago::handlers::api_routes()
+        .merge(catalyrst_archipelago::ws::routes())
+        .with_state(state))
 }
 
 async fn build_worlds() -> Result<Router> {
     let cfg = catalyrst_worlds::config::Config::from_env()?;
     let state = catalyrst_worlds::build_state(cfg).await?;
-    Ok(catalyrst_worlds::api_router().with_state(state))
+    let (router, spec) = catalyrst_worlds::api_router_with_spec_without_status();
+    let spec = serde_json::to_value(spec)?;
+    Ok(spec_route(router, spec, "/worlds/openapi.json").with_state(state))
 }
 
 async fn build_map() -> Result<Router> {
     let cfg = catalyrst_map::config::Config::from_env()?;
     let state = catalyrst_map::build_state(&cfg).await?;
     Ok(catalyrst_map::api_router().with_state(state))
-}
-
-async fn build_lists() -> Result<Router> {
-    let cfg = catalyrst_lists::config::Config::from_env()?;
-    let state = catalyrst_lists::build_state(&cfg).await?;
-    Ok(catalyrst_lists::api_router().with_state(state))
 }

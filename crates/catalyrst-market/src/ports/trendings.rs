@@ -191,7 +191,10 @@ fn parse_u128_saturating(s: &str) -> u128 {
     s.parse::<u128>().unwrap_or(0)
 }
 
-fn midnight_days_ago(days: i64) -> i64 {
+/// Midnight (UTC) `days` days ago, as a unix SECONDS timestamp -- the same window
+/// anchor upstream derives with `Math.floor(getDateXDaysAgo(days).getTime()/1000)`.
+/// `sale.timestamp` is stored in seconds, so this is compared directly.
+pub(crate) fn midnight_days_ago(days: i64) -> i64 {
     let date = Utc::now() - Duration::days(days);
     let naive = date.date_naive().and_hms_opt(0, 0, 0).unwrap();
     Utc.from_utc_datetime(&naive).timestamp()

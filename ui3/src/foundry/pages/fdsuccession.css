@@ -1,0 +1,31 @@
+.fd-succession__offer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+  max-width: var(--measure);
+}
+
+.fd-succession__from {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  margin: 0;
+  font-size: var(--fs-13);
+  line-height: var(--lh-ui);
+  color: var(--ink-6);
+}
+
+.fd-succession__note {
+  margin: 0;
+  max-width: var(--measure);
+  font-size: var(--fs-13);
+  line-height: var(--lh-body);
+  color: var(--ink-6);
+}
+
+.fd-succession__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  margin-top: var(--s-2);
+}

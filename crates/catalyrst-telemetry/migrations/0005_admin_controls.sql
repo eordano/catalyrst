@@ -1,4 +1,4 @@
--- Admin controls owned by catalyrst-telemetry (admin-console §4 "LATER" tranche):
+-- Admin controls owned by catalyrst-telemetry (admin-console S4 "LATER" tranche):
 -- data retention/purge, ingest enable/disable toggle, per-project quota, bulk
 -- delete/export, issue history/audit, regroup, and release state. Every mutation
 -- behind these routes is bearer-gated (loopback-trusted, like the rest of /dash/*)

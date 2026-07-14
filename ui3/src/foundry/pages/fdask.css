@@ -1,0 +1,26 @@
+/* The reading is a deep-link target from every board chip: arriving there has
+   to be visible without moving the reader. */
+.fd-ask .fd-section:target .fd-section__title {
+  color: var(--brand-ink);
+}
+
+.fd-ask__pledges {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.fd-ask__pledge {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-3);
+}
+
+.fd-ask__pledgeat {
+  font-size: var(--fs-12);
+  line-height: var(--lh-ui);
+  color: var(--ink-45);
+}

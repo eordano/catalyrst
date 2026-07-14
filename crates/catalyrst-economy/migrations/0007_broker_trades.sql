@@ -2,7 +2,7 @@
 --
 -- A broker buy of a Marketplace v3 signed trade accepts a SIGNATURE, not a
 -- token listing, so the natural double-spend key is the trade's
--- hashed_signature (keccak256 of the signer's EIP-712 signature — the same
+-- hashed_signature (keccak256 of the signer's EIP-712 signature -- the same
 -- value the contract's signatureUses accounting is keyed on, and the same
 -- value marketplace.trades is UNIQUE on).
 --

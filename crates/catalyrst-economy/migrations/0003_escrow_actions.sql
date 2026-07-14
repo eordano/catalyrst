@@ -6,20 +6,20 @@
 -- payer and the escrow operator). The credits crate's ReleaseWorker (release)
 -- and return-handler (reclaim) drive these over the loopback bearer surface.
 --
---   action = 'reclaim' — operator-only, BEFORE unlock (return-before-unlock).
---   action = 'release' — permissionless, AT/AFTER unlock (settle to buyer).
+--   action = 'reclaim' -- operator-only, BEFORE unlock (return-before-unlock).
+--   action = 'release' -- permissionless, AT/AFTER unlock (settle to buyer).
 --
 -- Lives in the WRITABLE `marketplace` schema (same as `broker_purchases`).
 --
 -- `status` lifecycle:
---   'pending' — claim row inserted BEFORE the on-chain broadcast (keyed path).
---   'sent'    — tx broadcast, hash recorded (keyless path records this directly).
---   'error'   — the broadcast attempt returned an error after the claim.
+--   'pending' -- claim row inserted BEFORE the on-chain broadcast (keyed path).
+--   'sent'    -- tx broadcast, hash recorded (keyless path records this directly).
+--   'error'   -- the broadcast attempt returned an error after the claim.
 --
 -- IDEMPOTENCY (funds/gas safety): a reclaim/release moves a real NFT on-chain
 -- and the credits callers are at-least-once. `idempotency_key` makes a retry a
 -- no-op: the handler claims the key with INSERT ... ON CONFLICT DO NOTHING
--- BEFORE broadcasting, so a second POST with the same key never re-broadcasts —
+-- BEFORE broadcasting, so a second POST with the same key never re-broadcasts --
 -- it returns the recorded txHash (or 409 while in-flight).
 
 CREATE TABLE IF NOT EXISTS escrow_actions (

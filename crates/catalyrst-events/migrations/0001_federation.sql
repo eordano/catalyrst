@@ -4,17 +4,17 @@
 -- read-only for this service). Federation-signed moderator actions land in the
 -- local overlay tables this migration owns:
 --
---   * moderators                — the local moderator allow-list. A wallet in
+--   * moderators                -- the local moderator allow-list. A wallet in
 --     this table may sign profile-settings + schedule actions. Mirrors the
 --     upstream `profile_settings.permissions` gate (EditAnyProfile /
 --     EditAnySchedule), collapsed to a single moderator capability.
---   * event_profile_settings    — per-user notification preferences + the
+--   * event_profile_settings    -- per-user notification preferences + the
 --     moderator permission set (upstream ProfileSettings shape).
---   * schedules_local           — federation-owned schedule lifecycle.
---   * signed_actions_events     — append-only dedup log keyed by signature_hash.
+--   * schedules_local           -- federation-owned schedule lifecycle.
+--   * signed_actions_events     -- append-only dedup log keyed by signature_hash.
 --
--- seen_nonces is the shared per-signer replay store (00-primitives.md §2.2),
--- co-owned with the places crate over the same places_events DB — CREATE IF NOT
+-- seen_nonces is the shared per-signer replay store (00-primitives.md S2.2),
+-- co-owned with the places crate over the same places_events DB -- CREATE IF NOT
 -- EXISTS keeps both idempotent.
 
 CREATE TABLE IF NOT EXISTS moderators (

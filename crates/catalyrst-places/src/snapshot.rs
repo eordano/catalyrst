@@ -54,10 +54,7 @@ fn strategies() -> Value {
 }
 
 fn is_ethereum_address(address: &str) -> bool {
-    let bytes = address.as_bytes();
-    bytes.len() == 42
-        && address.starts_with("0x")
-        && address[2..].chars().all(|c| c.is_ascii_hexdigit())
+    catalyrst_types::is_eth_address(address)
 }
 
 fn client() -> &'static reqwest::Client {

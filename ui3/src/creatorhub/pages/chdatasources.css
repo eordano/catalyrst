@@ -1,0 +1,134 @@
+.ds {
+  padding: 24px 24px 40px;
+  color: var(--text);
+  max-width: 1180px;
+  margin: 0 auto;
+}
+
+.ds__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+
+.ds__title {
+  margin: 0;
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.ds__sub {
+  margin: 4px 0 0;
+  max-width: 62ch;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--ink-6);
+}
+
+.ds__headside {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+
+.ds__refresh {
+  appearance: none;
+  border: 1px solid var(--line);
+  border-radius: var(--r-control);
+  background: var(--fill-2);
+  color: var(--ink-85);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 6px 14px;
+  cursor: pointer;
+}
+.ds__refresh:hover:not(:disabled) {
+  background: var(--fill-3);
+  color: var(--text);
+}
+.ds__refresh:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.ds__stamp {
+  margin: 0;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-45);
+}
+
+.ds__disclosure {
+  margin: 0 0 18px;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--info);
+  border-radius: var(--r-control);
+  background: var(--fill-1);
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--ink-7);
+  max-width: 88ch;
+}
+
+.ds__filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+
+.ds__filter {
+  appearance: none;
+  border: 1px solid var(--line);
+  border-radius: var(--r-pill);
+  background: var(--fill-1);
+  color: var(--ink-7);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 5px 12px;
+  cursor: pointer;
+}
+.ds__filter:hover:not(:disabled) {
+  background: var(--fill-3);
+  color: var(--text);
+}
+.ds__filter:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+.ds__filter.is-active {
+  background: var(--brand-cta);
+  border-color: transparent;
+  color: var(--on-brand);
+}
+
+.ds__filtercount {
+  font-variant-numeric: tabular-nums;
+  opacity: 0.75;
+}
+/* Full opacity on the brand fill -- 0.75 lands at 3.33:1 there. */
+.ds__filter.is-active .ds__filtercount {
+  opacity: 1;
+}
+
+.ds__none {
+  margin: 0 0 24px;
+  font-size: 13px;
+  color: var(--ink-45);
+}
+
+.ds__foot {
+  margin: 24px 0 0;
+  max-width: 82ch;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--ink-45);
+}

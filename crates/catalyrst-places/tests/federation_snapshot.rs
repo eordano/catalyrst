@@ -1,74 +1,34 @@
 use std::sync::Arc;
-use std::time::Duration;
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
-use rand::RngExt;
-use sqlx::postgres::PgPoolOptions;
+use catalyrst_contract_gate::pg::ScratchSchema;
 use sqlx::PgPool;
 use tower::ServiceExt;
 
 use catalyrst_places::clients::{CommsGatekeeper, Events, Presence};
 use catalyrst_places::handlers::fed_sync::{changes_view, snapshot_view};
+use catalyrst_places::ports::lists::ListsComponent;
 use catalyrst_places::ports::places::PlacesComponent;
 use catalyrst_places::{api_router, AppStateInner};
 
-fn pg_url() -> Option<String> {
-    std::env::var("CATALYRST_PLACES_TEST_PG")
-        .ok()
-        .or_else(|| Some("postgres://postgres:postgres@127.0.0.1:5432/places".into()))
-}
-
-fn unique_schema() -> String {
-    let b: [u8; 8] = rand::rng().random();
-    format!("test_fed_places_{}", hex::encode(b))
-}
-
-async fn setup() -> Option<(PgPool, String, String)> {
-    let url = pg_url()?;
-    let admin = PgPoolOptions::new()
-        .max_connections(1)
-        .acquire_timeout(Duration::from_secs(5))
-        .connect(&url)
-        .await
-        .ok()?;
-    let schema = unique_schema();
-    sqlx::query(sqlx::AssertSqlSafe(format!("CREATE SCHEMA {}", schema)))
-        .execute(&admin)
-        .await
-        .ok()?;
-    let suffixed = format!("{}?options=-c%20search_path%3D{}", url, schema);
-    let pool = PgPoolOptions::new()
-        .max_connections(4)
-        .acquire_timeout(Duration::from_secs(5))
-        .connect(&suffixed)
-        .await
-        .ok()?;
-    Some((pool, schema, url))
-}
-
-async fn cleanup(admin_url: &str, schema: &str) {
-    if let Ok(admin) = PgPoolOptions::new()
-        .max_connections(1)
-        .connect(admin_url)
-        .await
-    {
-        let _ = sqlx::query(sqlx::AssertSqlSafe(format!(
-            "DROP SCHEMA {} CASCADE",
-            schema
-        )))
-        .execute(&admin)
-        .await;
-    }
+async fn setup() -> Option<ScratchSchema> {
+    ScratchSchema::create_or_default(
+        "CATALYRST_PLACES_TEST_PG",
+        "postgres://postgres:postgres@127.0.0.1:5432/places",
+        "cg_places_fedsnapshot",
+    )
+    .await
 }
 
 fn component(pool: PgPool) -> PlacesComponent {
     PlacesComponent::new(pool.clone()).with_writer(pool)
 }
 
-fn state(places: PlacesComponent) -> Arc<AppStateInner> {
+fn state(places: PlacesComponent, pool: PgPool) -> Arc<AppStateInner> {
     Arc::new(AppStateInner {
         places,
+        lists: ListsComponent::new(pool),
         admin_addresses: vec![],
         data_team_auth_token: None,
         admin_auth_token: None,
@@ -96,10 +56,10 @@ async fn seed_action(pool: &PlacesComponent, sig: &str, place: &str, action: &st
 
 #[tokio::test]
 async fn changes_pages_by_seq_and_clamps_limit() {
-    let Some((raw, schema, admin_url)) = setup().await else {
-        eprintln!("skipping changes_pages_by_seq_and_clamps_limit: no postgres reachable");
+    let Some(scratch) = setup().await else {
         return;
     };
+    let raw = scratch.pool.clone();
     let places = component(raw);
     places.ensure_local_schema().await.expect("schema");
     let pool = places.writer_pool();
@@ -131,15 +91,15 @@ async fn changes_pages_by_seq_and_clamps_limit() {
     let empty = changes_view(pool, s1 + 100, 100).await.unwrap();
     assert!(empty["actions"].as_array().unwrap().is_empty());
 
-    cleanup(&admin_url, &schema).await;
+    scratch.drop().await;
 }
 
 #[tokio::test]
 async fn snapshot_shape_is_deterministic() {
-    let Some((raw, schema, admin_url)) = setup().await else {
-        eprintln!("skipping snapshot_shape_is_deterministic: no postgres reachable");
+    let Some(scratch) = setup().await else {
         return;
     };
+    let raw = scratch.pool.clone();
     let places = component(raw);
     places.ensure_local_schema().await.expect("schema");
     let pool = places.writer_pool();
@@ -178,18 +138,18 @@ async fn snapshot_shape_is_deterministic() {
     assert_ne!(snap["log_hash"], snap3["log_hash"]);
     assert_eq!(snap3["latest_seq"].as_i64().unwrap(), 4);
 
-    cleanup(&admin_url, &schema).await;
+    scratch.drop().await;
 }
 
 #[tokio::test]
 async fn endpoints_reachable_without_auth() {
-    let Some((raw, schema, admin_url)) = setup().await else {
-        eprintln!("skipping endpoints_reachable_without_auth: no postgres reachable");
+    let Some(scratch) = setup().await else {
         return;
     };
-    let places = component(raw);
+    let raw = scratch.pool.clone();
+    let places = component(raw.clone());
     places.ensure_local_schema().await.expect("schema");
-    let app = api_router().with_state(state(places));
+    let app = api_router().with_state(state(places, raw));
 
     for path in [
         "/federation/places/snapshot",
@@ -208,5 +168,5 @@ async fn endpoints_reachable_without_auth() {
         );
     }
 
-    cleanup(&admin_url, &schema).await;
+    scratch.drop().await;
 }

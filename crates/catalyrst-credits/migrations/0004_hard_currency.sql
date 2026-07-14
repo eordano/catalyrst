@@ -5,17 +5,17 @@
 --
 -- 1. Widen the `credit_ledger.kind` CHECK to allow the new money kinds
 --    ('spend','purchase','refund') while KEEPING the existing
---    ('grant','claim','expire','consume') — `consume` is still used by the
+--    ('grant','claim','expire','consume') -- `consume` is still used by the
 --    admin revoke path, so dropping it would break admin_revoke_credits.
 --
 --    The original constraint (0001_initial.sql) is an INLINE UNNAMED CHECK, so
 --    its generated name is not portable. We locate it dynamically (the only
 --    CHECK on credit_ledger mentioning `kind`) and replace it with a NAMED one.
 --
--- 2. `credit_spend_idempotency` — mirrors `credit_grant_idempotency` so the
+-- 2. `credit_spend_idempotency` -- mirrors `credit_grant_idempotency` so the
 --    Phase-3 checkout saga can retry a spend safely.
 --
--- NOTE: no BEGIN/COMMIT here — sqlx wraps each migration in its own transaction.
+-- NOTE: no BEGIN/COMMIT here -- sqlx wraps each migration in its own transaction.
 
 DO $$
 DECLARE

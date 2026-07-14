@@ -2,13 +2,20 @@ use std::time::Duration;
 
 use catalyrst_economy::admin::RuntimeConfig;
 use catalyrst_economy::http::errors::ApiError;
-use catalyrst_economy::ports::transaction::TransactionComponent;
+use catalyrst_economy::ports::transaction::{MetaTxSender, TransactionComponent};
 use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
 use uuid::Uuid;
 
+mod support;
+
+fn sender(addr: &str) -> MetaTxSender {
+    MetaTxSender::from_meta_tx_calldata(addr, &support::split_sig_calldata(addr))
+        .expect("calldata signed by the same address it is posted for")
+}
+
 fn pg_url() -> Option<String> {
-    std::env::var("CATALYRST_ECONOMY_TEST_PG").ok()
+    catalyrst_testgate::require_pg(support::PG_VAR)
 }
 
 fn unique_schema() -> String {
@@ -17,24 +24,32 @@ fn unique_schema() -> String {
 
 async fn setup_db() -> Option<(PgPool, String, String)> {
     let url = pg_url()?;
-    let admin = PgPoolOptions::new()
+    let admin = match PgPoolOptions::new()
         .max_connections(2)
         .acquire_timeout(Duration::from_secs(5))
         .connect(&url)
         .await
-        .ok()?;
+    {
+        Ok(pool) => pool,
+        Err(e) => {
+            return catalyrst_testgate::pg_unusable(
+                support::PG_VAR,
+                &format!("connect to {url} failed: {e}"),
+            )
+        }
+    };
     let schema = unique_schema();
     sqlx::query(sqlx::AssertSqlSafe(format!("CREATE SCHEMA {}", schema)))
         .execute(&admin)
         .await
-        .ok()?;
+        .unwrap_or_else(|e| panic!("CREATE SCHEMA {schema} failed: {e}"));
     let suffixed = format!("{}?options=-c%20search_path%3D{}", url, schema);
     let pool = PgPoolOptions::new()
         .max_connections(4)
         .acquire_timeout(Duration::from_secs(5))
         .connect(&suffixed)
         .await
-        .ok()?;
+        .unwrap_or_else(|e| panic!("connect to scratch schema {schema} failed: {e}"));
 
     for sql in [
         include_str!("../migrations/0001_transactions.sql"),
@@ -65,7 +80,7 @@ async fn cleanup(admin_url: &str, schema: &str) {
 }
 
 fn component(pool: PgPool) -> TransactionComponent {
-    TransactionComponent::new(pool, None, None, RuntimeConfig::new())
+    TransactionComponent::new(pool, None, None, None, RuntimeConfig::new())
 }
 
 async fn row_count(pool: &PgPool, addr: &str) -> i64 {
@@ -79,16 +94,15 @@ async fn row_count(pool: &PgPool, addr: &str) -> i64 {
 #[tokio::test]
 async fn reserve_then_confirm_promotes_and_is_user_visible() {
     let Some((pool, schema, admin_url)) = setup_db().await else {
-        eprintln!(
-            "skipping reserve_then_confirm_promotes_and_is_user_visible: set CATALYRST_ECONOMY_TEST_PG to run"
-        );
         return;
     };
     let tc = component(pool.clone());
     let addr = "0xAAaaAAaaAAaaAAaaAAaaAAaaAAaaAAaaAAaaAAaa";
     let session = Uuid::new_v4().to_string();
 
-    tc.reserve_quota(10, addr, &session).await.expect("reserve");
+    tc.reserve_quota(10, &sender(addr), &session)
+        .await
+        .expect("reserve");
 
     let (tx_hash, sid): (Option<String>, Option<String>) =
         sqlx::query_as("SELECT tx_hash, session_id FROM transactions WHERE user_address = $1")
@@ -125,9 +139,6 @@ async fn reserve_then_confirm_promotes_and_is_user_visible() {
 #[tokio::test]
 async fn reserve_enforces_daily_limit_and_release_refunds_a_slot() {
     let Some((pool, schema, admin_url)) = setup_db().await else {
-        eprintln!(
-            "skipping reserve_enforces_daily_limit_and_release_refunds_a_slot: set CATALYRST_ECONOMY_TEST_PG to run"
-        );
         return;
     };
     let tc = component(pool.clone());
@@ -137,7 +148,7 @@ async fn reserve_enforces_daily_limit_and_release_refunds_a_slot() {
     let mut sessions = Vec::new();
     for _ in 0..MAX {
         let s = Uuid::new_v4().to_string();
-        tc.reserve_quota(MAX, addr, &s)
+        tc.reserve_quota(MAX, &sender(addr), &s)
             .await
             .expect("reserve within budget");
         sessions.push(s);
@@ -145,7 +156,7 @@ async fn reserve_enforces_daily_limit_and_release_refunds_a_slot() {
 
     let over = Uuid::new_v4().to_string();
     let err = tc
-        .reserve_quota(MAX, addr, &over)
+        .reserve_quota(MAX, &sender(addr), &over)
         .await
         .expect_err("over quota");
     assert!(
@@ -158,7 +169,7 @@ async fn reserve_enforces_daily_limit_and_release_refunds_a_slot() {
     assert_eq!(row_count(&pool, addr).await, MAX - 1);
 
     let refunded = Uuid::new_v4().to_string();
-    tc.reserve_quota(MAX, addr, &refunded)
+    tc.reserve_quota(MAX, &sender(addr), &refunded)
         .await
         .expect("reserve after release");
     assert_eq!(row_count(&pool, addr).await, MAX);
@@ -169,9 +180,6 @@ async fn reserve_enforces_daily_limit_and_release_refunds_a_slot() {
 #[tokio::test]
 async fn reservations_are_isolated_per_user() {
     let Some((pool, schema, admin_url)) = setup_db().await else {
-        eprintln!(
-            "skipping reservations_are_isolated_per_user: set CATALYRST_ECONOMY_TEST_PG to run"
-        );
         return;
     };
     let tc = component(pool.clone());
@@ -180,18 +188,18 @@ async fn reservations_are_isolated_per_user() {
     const MAX: i64 = 2;
 
     for _ in 0..MAX {
-        tc.reserve_quota(MAX, alice, &Uuid::new_v4().to_string())
+        tc.reserve_quota(MAX, &sender(alice), &Uuid::new_v4().to_string())
             .await
             .expect("alice reserve");
     }
     assert!(matches!(
-        tc.reserve_quota(MAX, alice, &Uuid::new_v4().to_string())
+        tc.reserve_quota(MAX, &sender(alice), &Uuid::new_v4().to_string())
             .await,
         Err(ApiError::QuotaReached(_))
     ));
 
     for _ in 0..MAX {
-        tc.reserve_quota(MAX, bob, &Uuid::new_v4().to_string())
+        tc.reserve_quota(MAX, &sender(bob), &Uuid::new_v4().to_string())
             .await
             .expect("bob reserve");
     }

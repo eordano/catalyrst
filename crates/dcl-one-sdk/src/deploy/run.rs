@@ -1,6 +1,6 @@
 use super::net::{
-    build_delete_payload, confirm_world_overwrite, jump_in_url, resolve_target, send_world_delete,
-    upload_entity,
+    confirm_world_overwrite, delete_world_scenes, enforce_world_permission, jump_in_url,
+    non_upstream_note, resolve_target, upload_entity,
 };
 use super::{
     base_parcel, build_entity, build_metadata, extract_pointers, now_ms, prepare, scene_title,
@@ -122,6 +122,11 @@ pub async fn deploy(opts: &DeployOptions) -> Result<()> {
 
     let headless = has_headless_signer(opts);
     let target = resolve_target(opts, world.as_deref(), headless).await?;
+    if world.is_none() {
+        if let Some(note) = non_upstream_note(&target) {
+            ux::note(note);
+        }
+    }
     let needs_delete = match &world {
         Some(w) if !opts.multi_scene => {
             confirm_world_overwrite(&target, w, &pointers, opts).await?
@@ -168,12 +173,13 @@ async fn deploy_headless(
         .sign_message(entity_id.as_bytes())
         .context("EIP-191 sign")?;
 
+    if let (Some(w), Some(_)) = (world, &opts.target_content) {
+        enforce_world_permission(target, w, &address, &prepared.pointers).await?;
+    }
+
     if needs_delete {
         if let Some(w) = world {
-            let payload = build_delete_payload(w);
-            let chain = catalyrst_crypto::create_simple_auth_chain(&wallet, &payload)
-                .context("EIP-191 sign of the scene-removal payload")?;
-            send_world_delete(target, w, &chain).await?;
+            delete_world_scenes(target, w, &wallet).await?;
         }
     }
 
@@ -221,6 +227,7 @@ async fn deploy_via_linker(
         scene_title: scene_title(metadata),
         base_parcel: base.clone(),
         multi_scene: opts.multi_scene,
+        check_permissions: opts.target_content.is_some(),
     };
     let lopts = linker::LinkerOptions {
         port: opts.port,

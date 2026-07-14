@@ -62,7 +62,7 @@ pub fn parse_filters(pairs: &[(String, String)]) -> Result<NftFilters, ApiError>
         skip: p.get_number("skip", None).map(|f| f as i64),
         sort_by,
         category,
-        owner: p.get_address("owner", false, None),
+        owner: p.get_address("owner", true, None),
         tenant: p
             .get_address("tenant", false, None)
             .map(|s| s.to_lowercase()),

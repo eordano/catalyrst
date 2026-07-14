@@ -7,6 +7,16 @@ use crate::http::response::{ApiError, ApiOk};
 use crate::schemas::EventAttendeeRecord;
 use crate::AppState;
 
+#[utoipa::path(
+    get,
+    path = "/api/events/{event_id}/attendees",
+    tag = "events",
+    params(("event_id" = String, Path)),
+    responses(
+        (status = 200, body = ApiOk<Vec<EventAttendeeRecord>>),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn get_event_attendees(
     State(state): State<AppState>,
     Path(event_id): Path<String>,
@@ -15,21 +25,39 @@ pub async fn get_event_attendees(
     Ok(Json(ApiOk::new(list)))
 }
 
-fn require_auth(headers: &HeaderMap, method: &str, path: &str) -> Result<String, ApiError> {
-    require_signer(headers, method, path)
-        .map(|s| s.to_lowercase())
-        .map_err(|_| ApiError::unauthorized("Unauthorized"))
+async fn require_auth(
+    headers: &HeaderMap,
+    method: &str,
+    path: &str,
+) -> Result<catalyrst_crypto::Signer, ApiError> {
+    require_signer(headers, method, path).await
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/events/{event_id}/attendees",
+    tag = "events",
+    params(("event_id" = String, Path)),
+    responses(
+        (status = 200, body = ApiOk<Vec<EventAttendeeRecord>>),
+        (status = 401, body = catalyrst_types::ApiErrorBody),
+        (status = 404, body = catalyrst_types::ApiErrorBody),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn create_event_attendee(
     State(state): State<AppState>,
     Path(event_id): Path<String>,
     headers: HeaderMap,
 ) -> Result<Json<ApiOk<Vec<EventAttendeeRecord>>>, ApiError> {
     let path = format!("/api/events/{}/attendees", event_id);
-    let signer = require_auth(&headers, "post", &path)?;
+    let signer = require_auth(&headers, "post", &path).await?;
 
-    if !state.events.exists_visible(&event_id, &signer).await? {
+    if !state
+        .events
+        .exists_visible(&event_id, signer.as_str())
+        .await?
+    {
         return Err(ApiError::not_found(format!(
             "Not found event \"{}\"",
             event_id
@@ -46,7 +74,7 @@ pub async fn create_event_attendee(
         .attendees
         .rsvp_going(
             &event_id,
-            &signer,
+            signer.as_str(),
             user_name.as_deref(),
             serde_json::Value::Null,
         )
@@ -54,21 +82,39 @@ pub async fn create_event_attendee(
     Ok(Json(ApiOk::new(list)))
 }
 
+#[utoipa::path(
+    delete,
+    path = "/api/events/{event_id}/attendees",
+    tag = "events",
+    params(("event_id" = String, Path)),
+    responses(
+        (status = 200, body = ApiOk<Vec<EventAttendeeRecord>>),
+        (status = 401, body = catalyrst_types::ApiErrorBody),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn delete_event_attendee(
     State(state): State<AppState>,
     Path(event_id): Path<String>,
     headers: HeaderMap,
 ) -> Result<Json<ApiOk<Vec<EventAttendeeRecord>>>, ApiError> {
     let path = format!("/api/events/{}/attendees", event_id);
-    let signer = require_auth(&headers, "delete", &path)?;
+    let signer = require_auth(&headers, "delete", &path).await?;
 
-    if !state.events.exists_visible(&event_id, &signer).await? {
+    if !state
+        .events
+        .exists_visible(&event_id, signer.as_str())
+        .await?
+    {
         return Err(ApiError::not_found(format!(
             "Not found event \"{}\"",
             event_id
         )));
     }
 
-    let list = state.attendees.rsvp_cancel(&event_id, &signer).await?;
+    let list = state
+        .attendees
+        .rsvp_cancel(&event_id, signer.as_str())
+        .await?;
     Ok(Json(ApiOk::new(list)))
 }

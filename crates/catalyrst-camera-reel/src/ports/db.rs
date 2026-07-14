@@ -13,7 +13,6 @@ pub struct DbImage {
     #[allow(dead_code)]
     pub created_at: chrono::NaiveDateTime,
     pub metadata: Json<Metadata>,
-    #[allow(dead_code)]
     pub review_status: String,
 }
 
@@ -71,7 +70,10 @@ impl Database {
             }
         }
         if public_only {
-            qb.push(" AND is_public = true");
+            // Non-owner / public reads must never surface moderator-rejected
+            // images. Owner-authenticated reads (public_only = false) keep the
+            // existing "owner can see their own" visibility model.
+            qb.push(" AND is_public = true AND review_status <> 'rejected'");
         }
         Ok(qb)
     }
@@ -179,6 +181,50 @@ impl Database {
             .execute(&self.pool)
             .await?;
         Ok(())
+    }
+
+    /// Count rows other than `exclude_id` whose `url` or `thumbnail_url` points
+    /// at the content-addressed `hash` (last path segment `/{hash}`). Used to
+    /// keep a shared blob alive while any other row still references it, since
+    /// blobs are keyed purely by content hash and multiple rows can share one.
+    pub async fn count_other_images_with_hash(
+        &self,
+        hash: &str,
+        exclude_id: &str,
+    ) -> Result<u64, sqlx::Error> {
+        let sql = format!(
+            "SELECT COUNT(*) FROM {TABLE} \
+             WHERE id <> $1 AND (url LIKE $2 OR thumbnail_url LIKE $2)"
+        );
+        let pattern = format!("%/{hash}");
+        let count = sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(sql))
+            .bind(parse_uuid(exclude_id)?)
+            .bind(pattern)
+            .fetch_one(&self.pool)
+            .await?;
+        Ok(count as u64)
+    }
+
+    /// Whether the content-addressed `hash` may still be served as bytes.
+    /// Blobs are keyed purely by content hash and can be shared by several
+    /// rows, so a hash is withheld only when every row referencing it has been
+    /// moderator-`rejected`. Hashes with no referencing row at all (e.g. legacy
+    /// or orphaned blobs) remain servable -- rejection is the sole gate here.
+    pub async fn hash_is_servable(&self, hash: &str) -> Result<bool, sqlx::Error> {
+        let sql = format!(
+            "SELECT \
+               EXISTS(SELECT 1 FROM {TABLE} \
+                      WHERE (url LIKE $1 OR thumbnail_url LIKE $1) \
+                        AND review_status <> 'rejected') \
+               OR NOT EXISTS(SELECT 1 FROM {TABLE} \
+                      WHERE url LIKE $1 OR thumbnail_url LIKE $1)"
+        );
+        let pattern = format!("%/{hash}");
+        let servable = sqlx::query_scalar::<_, bool>(sqlx::AssertSqlSafe(sql))
+            .bind(pattern)
+            .fetch_one(&self.pool)
+            .await?;
+        Ok(servable)
     }
 
     pub async fn update_image_visibility(

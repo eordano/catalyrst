@@ -320,9 +320,9 @@ async fn replay_one(
 fn print_outcome(o: &Outcome) {
     let label = o.fixture_path.display().to_string();
     if o.passed {
-        println!("  {} {}", "✓".green(), label);
+        println!("  {} {}", "\u{2713}".green(), label);
     } else {
-        println!("  {} {}", "✗".red(), label);
+        println!("  {} {}", "\u{2717}".red(), label);
         for n in &o.notes {
             println!("      {}", n);
         }

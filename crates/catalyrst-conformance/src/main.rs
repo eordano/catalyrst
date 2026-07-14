@@ -2,6 +2,7 @@ mod bootstrap;
 mod capture;
 mod checks;
 mod diff;
+mod explorer_corpus;
 mod fixture;
 mod retry;
 mod sections;
@@ -48,6 +49,40 @@ struct Args {
 
     #[arg(long)]
     capture_to: Option<PathBuf>,
+
+    #[arg(long = "profile-address")]
+    profile_address: Vec<String>,
+
+    #[arg(long = "scene-pointer", allow_hyphen_values = true)]
+    scene_pointer: Vec<String>,
+
+    #[arg(long = "profile-entity-id")]
+    profile_entity_id: Vec<String>,
+
+    #[arg(long = "scene-entity-id")]
+    scene_entity_id: Vec<String>,
+
+    #[arg(long = "wearable-entity-id")]
+    wearable_entity_id: Vec<String>,
+
+    #[arg(long = "content-hash")]
+    content_hash: Vec<String>,
+
+    #[arg(long, default_value_t = false)]
+    no_default_pins: bool,
+
+    #[arg(
+        long,
+        help = "Explorer boot-corpus fixture (JSON from rig/scripts/explorer-cdp-corpus.sh); enables the explorer section, which hits https://*.decentraland.org as baseline instead of --baseline"
+    )]
+    explorer_corpus: Option<PathBuf>,
+
+    #[arg(
+        long,
+        default_value = "interconnected.online",
+        help = "Base domain substituted for decentraland.org on the candidate side of the explorer section"
+    )]
+    explorer_candidate_domain: String,
 }
 
 struct Endpoints {
@@ -84,6 +119,7 @@ struct Scoreboard {
     passed: u32,
     failed: u32,
     skipped: u32,
+    accepted: u32,
 }
 
 impl Scoreboard {
@@ -92,6 +128,7 @@ impl Scoreboard {
             passed: 0,
             failed: 0,
             skipped: 0,
+            accepted: 0,
         }
     }
 
@@ -121,12 +158,12 @@ impl Scoreboard {
 
     fn record(&mut self, diffs: &[Difference], label: &str, verbose: bool) {
         if diffs.is_empty() {
-            println!("  {} {}", "✓".green(), label);
+            println!("  {} {}", "\u{2713}".green(), label);
             self.passed += 1;
         } else {
             println!(
                 "  {} {} ({} difference{})",
-                "✗".red(),
+                "\u{2717}".red(),
                 label,
                 diffs.len(),
                 if diffs.len() == 1 { "" } else { "s" }
@@ -147,14 +184,27 @@ impl Scoreboard {
         self.skipped += 1;
     }
 
+    fn accept(&mut self, label: &str, rationale: &str) {
+        println!(
+            "  {} {} ({}: {})",
+            "\u{2248}".cyan(),
+            label,
+            "accepted divergence".cyan(),
+            rationale
+        );
+        self.accepted += 1;
+    }
+
     fn summary(&self) {
-        let total = self.passed + self.failed + self.skipped;
+        let total = self.passed + self.failed + self.skipped + self.accepted;
         let line = format!(
-            "SUMMARY: {}/{} checks passed, {} difference{} found, {} skipped",
+            "SUMMARY: {}/{} checks passed, {} difference{} found, {} accepted divergence{}, {} skipped",
             self.passed,
             total,
             self.failed,
             if self.failed == 1 { "" } else { "s" },
+            self.accepted,
+            if self.accepted == 1 { "" } else { "s" },
             self.skipped,
         );
         if self.failed == 0 {
@@ -188,6 +238,10 @@ impl Ctx {
         if self.inter_delay_ms > 0 {
             tokio::time::sleep(Duration::from_millis(self.inter_delay_ms)).await;
         }
+    }
+
+    async fn sleep_heavy(&self) {
+        tokio::time::sleep(Duration::from_millis(self.inter_delay_ms.max(250))).await;
     }
 
     fn is_capturing(&self) -> bool {
@@ -234,7 +288,7 @@ async fn main() -> Result<()> {
         std::fs::create_dir_all(dir).ok();
         println!(
             "{} {}\n  Hitting baseline only; candidate ({}) will NOT be contacted.\n",
-            "Capture mode →".yellow().bold(),
+            "Capture mode \u{2192}".yellow().bold(),
             dir.display(),
             endpoints.candidate_root,
         );
@@ -255,9 +309,9 @@ async fn main() -> Result<()> {
     );
 
     println!("{}", "Bootstrapping test data from baseline ...".dimmed());
-    let bootstrap = bootstrap_data(&ctx, &endpoints.baseline_content).await?;
+    let bootstrap = bootstrap_data(&ctx, &endpoints.baseline_content, &args).await?;
     println!(
-        "  profiles: {} ids, {} addresses;  scenes: {} ids, {} pointers;  wearables: {} ids;  content: {} hashes\n",
+        "  profiles: {} ids, {} addresses;  scenes: {} ids, {} pointers;  wearables: {} ids;  content: {} hashes",
         bootstrap.profile_entity_ids.len(),
         bootstrap.profile_addresses.len(),
         bootstrap.scene_entity_ids.len(),
@@ -265,11 +319,34 @@ async fn main() -> Result<()> {
         bootstrap.wearable_entity_ids.len(),
         bootstrap.content_hashes.len(),
     );
+    println!(
+        "  {}",
+        "Bootstrap sample (pass these flags to replay exactly):".dimmed()
+    );
+    for (flag, values) in [
+        ("--profile-address", &bootstrap.profile_addresses),
+        ("--scene-pointer", &bootstrap.scene_pointers),
+        ("--profile-entity-id", &bootstrap.profile_entity_ids),
+        ("--scene-entity-id", &bootstrap.scene_entity_ids),
+        ("--wearable-entity-id", &bootstrap.wearable_entity_ids),
+        ("--content-hash", &bootstrap.content_hashes),
+    ] {
+        if !values.is_empty() {
+            let flags = values
+                .iter()
+                .map(|v| format!("{} {}", flag, v))
+                .collect::<Vec<_>>()
+                .join(" ");
+            println!("    {}", flags);
+        }
+    }
+    println!();
 
     let mut score = Scoreboard::new();
 
     run_content_section(&ctx, &endpoints, &bootstrap, &mut score, &args, &should_run).await?;
     run_lambdas_section(&ctx, &endpoints, &bootstrap, &mut score, &args, &should_run).await?;
+    explorer_corpus::run_explorer_corpus_section(&ctx, &args, &mut score).await?;
 
     score.summary();
 

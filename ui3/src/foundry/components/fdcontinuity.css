@@ -1,0 +1,152 @@
+.fd-cont__summary {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+}
+
+.fd-cont__counts {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+  font-weight: var(--fw-semibold);
+  font-size: var(--fs-14);
+  line-height: var(--lh-ui);
+}
+
+.fd-cont__exportnote {
+  margin: 0;
+  max-width: var(--measure);
+  font-size: var(--fs-13);
+  line-height: var(--lh-body);
+  color: var(--ink-6);
+}
+
+.fd-cont__export {
+  align-self: flex-start;
+  font-size: var(--fs-13);
+  line-height: var(--lh-body);
+  font-weight: var(--fw-semibold);
+  color: var(--brand-ink);
+}
+
+.fd-cont__stewards {
+  list-style: none;
+  margin: 0 0 var(--s-4);
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+
+.fd-cont__steward {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  flex-wrap: wrap;
+  padding: var(--s-2) var(--s-3);
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  background: var(--panel);
+}
+
+.fd-cont__steward.is-past {
+  opacity: 0.7;
+}
+
+.fd-cont__stewardsince {
+  font-size: var(--fs-12);
+  line-height: var(--lh-ui);
+  color: var(--ink-45);
+  font-variant-numeric: tabular-nums;
+}
+
+.fd-cont__basis {
+  flex: 1 1 100%;
+  margin: 0;
+  max-width: var(--measure);
+  font-size: var(--fs-13);
+  line-height: var(--lh-body);
+  color: var(--ink-6);
+}
+
+.fd-cont__stewardctl {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--s-2);
+  flex-wrap: wrap;
+}
+
+.fd-cont__noteform {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  align-items: flex-start;
+  min-width: min(100%, var(--measure-narrow));
+}
+
+.fd-cont__label {
+  font-size: var(--fs-11);
+  line-height: var(--lh-ui);
+  font-weight: var(--fw-bold);
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--ink-45);
+}
+
+.fd-cont__input,
+.fd-cont__textarea {
+  width: 100%;
+  padding: var(--s-2) var(--s-3);
+  border: 1px solid var(--line);
+  border-radius: var(--r-control);
+  background: var(--panel);
+  color: var(--text);
+  font-size: var(--fs-13);
+  line-height: var(--lh-ui);
+  font-family: inherit;
+}
+
+.fd-cont__actions {
+  display: flex;
+  gap: var(--s-2);
+}
+
+.fd-cont__minted {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  border-color: color-mix(in srgb, var(--warning) 45%, var(--line));
+}
+
+.fd-cont__mintedlead {
+  margin: 0;
+  font-size: var(--fs-13);
+  line-height: var(--lh-body);
+  font-weight: var(--fw-semibold);
+}
+
+.fd-cont__mintedurl {
+  font-family: var(--font-mono);
+  font-size: var(--fs-12);
+  line-height: var(--lh-code);
+  word-break: break-all;
+  padding: var(--s-2) var(--s-3);
+  background: var(--fill-1);
+  border-radius: var(--r-control);
+}
+
+/* Each memory row opens its own provenance page; the row says so on hover and
+   the timestamp is the link. */
+.fd-cont__memrow:hover {
+  background: var(--fill-1);
+}
+
+.fd-cont__memlink {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.fd-cont__memlink:hover,
+.fd-cont__memlink:focus-visible {
+  color: var(--brand-ink);
+}

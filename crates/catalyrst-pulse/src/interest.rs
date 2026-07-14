@@ -41,6 +41,7 @@ pub struct ParcelEncoder {
     min_x: i32,
     min_z: i32,
     width: i32,
+    height: i32,
     parcel_size: i32,
     max_index_exclusive: i32,
 }
@@ -58,6 +59,7 @@ impl ParcelEncoder {
             min_x,
             min_z,
             width,
+            height,
             parcel_size: options.parcel_size,
             max_index_exclusive: width * height,
         }
@@ -65,6 +67,17 @@ impl ParcelEncoder {
 
     pub fn is_valid_index(&self, index: i32) -> bool {
         (index as u32) < (self.max_index_exclusive as u32)
+    }
+
+    pub fn encode(&self, x: i32, z: i32) -> i32 {
+        x - self.min_x + (z - self.min_z) * self.width
+    }
+
+    pub fn is_valid_coordinate(&self, x: i32, z: i32) -> bool {
+        x >= self.min_x
+            && x < self.min_x + self.width
+            && z >= self.min_z
+            && z < self.min_z + self.height
     }
 
     pub fn decode(&self, index: i32) -> (i32, i32) {
@@ -81,6 +94,15 @@ impl ParcelEncoder {
             z: (z * self.parcel_size) as f32 + local_position.z,
         }
     }
+}
+
+/// Immutable scene-listener descriptor stamped onto `PeerState` at handshake. A peer carrying it
+/// never publishes snapshots (invisible to players) and observes a fixed parcel set instead of a
+/// radius around its own position. Changing the set requires reconnecting.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SceneListenerState {
+    pub realm: String,
+    pub parcels: std::collections::HashSet<i32>,
 }
 
 pub struct SpatialGrid {
@@ -182,7 +204,7 @@ impl SpatialAreaOfInterest {
             return;
         };
 
-        for subject in board.active_peers() {
+        for &subject in board.active_peers() {
             if subject == observer {
                 continue;
             }

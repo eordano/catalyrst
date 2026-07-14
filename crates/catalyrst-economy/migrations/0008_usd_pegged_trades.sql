@@ -1,7 +1,7 @@
 -- catalyrst-economy: USD-pegged (assetType 2) trade execution audit fields.
 --
 -- CHARGE-BASIS POLICY: a USD-pegged trade is charged the MANA equivalent of its
--- signed USD amount converted at the EXECUTION-time Chainlink MANA/USD rate —
+-- signed USD amount converted at the EXECUTION-time Chainlink MANA/USD rate --
 -- the same aggregator the DecentralandMarketplacePolygon contract settles the
 -- transfer at (value * 1e18 / rate, floor). `price_wei` on the row therefore
 -- records the execution-time MANA charge basis, NOT the signed trade amount
@@ -9,8 +9,8 @@
 -- signed USD amount and the oracle rate used, so every conversion is
 -- auditable after the fact:
 --
---   usd_amount_wei    — the trade's signed USD amount (18 decimals), verbatim.
---   mana_usd_rate_wei — the MANA/USD rate (normalized to 18 decimals) read
+--   usd_amount_wei    -- the trade's signed USD amount (18 decimals), verbatim.
+--   mana_usd_rate_wei -- the MANA/USD rate (normalized to 18 decimals) read
 --                       from the aggregator at broadcast decision time.
 --
 -- price_wei ~= usd_amount_wei * 1e18 / mana_usd_rate_wei (floor). The exact

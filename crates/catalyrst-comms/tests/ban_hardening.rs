@@ -1,75 +1,51 @@
 use std::sync::Arc;
-use std::time::Duration;
 
 use catalyrst_comms::ports::names::NamesComponent;
 use catalyrst_comms::ports::player_connection::PlayerConnectionComponent;
+use catalyrst_comms::ports::player_reports::PlayerReportsComponent;
 use catalyrst_comms::ports::scene_admin::SceneAdminComponent;
 use catalyrst_comms::ports::scene_bans::SceneBansComponent;
 use catalyrst_comms::ports::user_bans::{BanWriteError, CreateBan, UserBansComponent};
 use catalyrst_comms::voice_db::{VoiceDb, VoiceDbConfig};
 use catalyrst_comms::{AppState, AppStateInner};
-use sqlx::postgres::PgPoolOptions;
+use catalyrst_contract_gate::pg::ScratchSchema;
 use sqlx::PgPool;
-use uuid::Uuid;
 
-fn pg_url() -> Option<String> {
-    std::env::var("CATALYRST_COMMS_TEST_PG").ok()
-}
-
-fn unique_schema() -> String {
-    format!("test_comms_{}", Uuid::new_v4().simple())
-}
-
-async fn setup_db() -> Option<(PgPool, String, String)> {
-    let url = pg_url()?;
-    let admin = PgPoolOptions::new()
-        .max_connections(2)
-        .acquire_timeout(Duration::from_secs(5))
-        .connect(&url)
-        .await
-        .ok()?;
-    let schema = unique_schema();
-    sqlx::query(sqlx::AssertSqlSafe(format!("CREATE SCHEMA {}", schema)))
-        .execute(&admin)
-        .await
-        .ok()?;
-    let suffixed = format!("{}?options=-c%20search_path%3D{}", url, schema);
-    let pool = PgPoolOptions::new()
-        .max_connections(8)
-        .acquire_timeout(Duration::from_secs(5))
-        .connect(&suffixed)
-        .await
-        .ok()?;
-
-    apply_migration(&pool, include_str!("../migrations/0001_comms.sql")).await;
+async fn setup_db() -> Option<ScratchSchema> {
+    let scratch = ScratchSchema::create("CATALYRST_COMMS_TEST_PG", "cg_comms_banhard").await?;
+    apply_migration(&scratch.pool, include_str!("../migrations/0001_comms.sql")).await;
     apply_migration(
-        &pool,
+        &scratch.pool,
         include_str!("../migrations/0002_user_moderation.sql"),
     )
     .await;
     apply_migration(
-        &pool,
+        &scratch.pool,
         include_str!("../migrations/0003_private_messages_privacy.sql"),
     )
     .await;
-    apply_migration(&pool, include_str!("../migrations/0004_mls_messaging.sql")).await;
     apply_migration(
-        &pool,
+        &scratch.pool,
+        include_str!("../migrations/0004_mls_messaging.sql"),
+    )
+    .await;
+    apply_migration(
+        &scratch.pool,
         include_str!("../migrations/0005_published_events.sql"),
     )
     .await;
     apply_migration(
-        &pool,
+        &scratch.pool,
         include_str!("../migrations/0006_player_connection_and_device_bans.sql"),
     )
     .await;
     apply_migration(
-        &pool,
+        &scratch.pool,
         include_str!("../migrations/0007_community_voice_chat_sid.sql"),
     )
     .await;
 
-    Some((pool, schema, url))
+    Some(scratch)
 }
 
 async fn apply_migration(pool: &PgPool, sql: &str) {
@@ -123,27 +99,13 @@ fn strip_line_comments(s: &str) -> String {
     out
 }
 
-async fn cleanup(admin_url: &str, schema: &str) {
-    if let Ok(admin) = PgPoolOptions::new()
-        .max_connections(1)
-        .connect(admin_url)
-        .await
-    {
-        let _ = sqlx::query(sqlx::AssertSqlSafe(format!(
-            "DROP SCHEMA {} CASCADE",
-            schema
-        )))
-        .execute(&admin)
-        .await;
-    }
-}
-
 fn test_state(pool: PgPool) -> AppState {
     Arc::new(AppStateInner {
         scene_admin: SceneAdminComponent::new(pool.clone()),
         scene_bans: SceneBansComponent::new(pool.clone()),
         user_bans: UserBansComponent::new(pool.clone()),
         player_connection: PlayerConnectionComponent::new(pool.clone()),
+        player_reports: PlayerReportsComponent::new(pool.clone()),
         names: NamesComponent::new(None, "squid_marketplace".into()),
         voice_db: VoiceDb::new(pool.clone(), VoiceDbConfig::from_env()),
         places_pool: None,
@@ -160,23 +122,21 @@ fn test_state(pool: PgPool) -> AppState {
         livekit_api_secret: String::new(),
         livekit_webhook_key: None,
         livekit_configured: false,
-        livekit_token_ttl_secs: 600,
         private_messages_room_id: "private-messages".into(),
         authoritative_server_address: None,
         moderator_token: None,
         moderator_addresses: Vec::new(),
         gatekeeper_auth_token: None,
+        fed_peer_id: "test-peer".into(),
     })
 }
 
 #[tokio::test]
 async fn concurrent_create_ban_yields_single_active_ban() {
-    let Some((pool, schema, admin_url)) = setup_db().await else {
-        eprintln!(
-            "skipping concurrent_create_ban_yields_single_active_ban: set CATALYRST_COMMS_TEST_PG to run"
-        );
+    let Some(scratch) = setup_db().await else {
         return;
     };
+    let pool = scratch.pool.clone();
     let victim = "0x1111111111111111111111111111111111111111";
     let moderator = "0x9999999999999999999999999999999999999999";
 
@@ -225,15 +185,15 @@ async fn concurrent_create_ban_yields_single_active_ban() {
         "the advisory lock must prevent duplicate active bans"
     );
 
-    cleanup(&admin_url, &schema).await;
+    scratch.drop().await;
 }
 
 #[tokio::test]
 async fn scene_ban_rejects_admin_target() {
-    let Some((pool, schema, admin_url)) = setup_db().await else {
-        eprintln!("skipping scene_ban_rejects_admin_target: set CATALYRST_COMMS_TEST_PG to run");
+    let Some(scratch) = setup_db().await else {
         return;
     };
+    let pool = scratch.pool.clone();
     let state = test_state(pool.clone());
     let place_id = "place-1";
     let admin = "0xAAAA111111111111111111111111111111111111";
@@ -253,5 +213,5 @@ async fn scene_ban_rejects_admin_target() {
         .await
         .expect("a regular user must remain bannable");
 
-    cleanup(&admin_url, &schema).await;
+    scratch.drop().await;
 }

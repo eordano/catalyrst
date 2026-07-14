@@ -1,0 +1,180 @@
+#!/usr/bin/env bash
+# ts-rs drift gate, scoped per area: commits touching catalyrst crate sources
+# are checked against ui3's generated catalyst types, commits touching the
+# bevy<->overlay bridge contract against the generated bridge types. Editing
+# the generated files directly triggers the matching area too, so a hand-edit
+# can't sneak past the gate. Area names, crate lists, and the generated dir
+# all come from catalyrst/sites/scripts/ts-crates.sh -- one source of truth.
+#
+# Tracked at catalyrst/sites/scripts/hooks/pre-commit; install with:
+#   cp catalyrst/sites/scripts/hooks/pre-commit .git/hooks/pre-commit
+# Fast path: exits immediately when no gated path is staged.
+# There is NO skip escape hatch: a gated commit must pass its area's check.
+set -euo pipefail
+
+repo="$(git rev-parse --show-toplevel)"
+# shellcheck source=../ts-crates.sh
+source "$repo/catalyrst/sites/scripts/ts-crates.sh"
+
+staged="$(git diff --cached --name-only)"
+
+areas=()
+if grep -Eq "^(catalyrst/crates/[^/]+/(src/|Cargo\.toml$)|$GENERATED_DIR_REL/catalyst/)" <<<"$staged"; then
+  areas+=(catalyrst)
+fi
+if grep -Eq "^(bevy-explorer/crates/$BRIDGE_CRATE/(src/|Cargo\.toml$)|$GENERATED_DIR_REL/bridge/)" <<<"$staged"; then
+  areas+=(bridge)
+fi
+zod_area=0
+if grep -Eq "^($GENERATED_DIR_REL/catalyst/|catalyrst/sites/packages/data/src/lib/catalyst/generated-schemas/|catalyrst/sites/scripts/gen-zod-schemas\.mts$)" <<<"$staged"; then
+  zod_area=1
+fi
+telemetry_area=0
+if grep -Eq "^(catalyrst/sites/packages/.*\.(ts|tsx)$|catalyrst/sites/scripts/telemetry-catalog\.mts$)" <<<"$staged"; then
+  telemetry_area=1
+fi
+flowmap_area=0
+if grep -Eq "^(catalyrst/ui3/src/(creatorhub/pages/chflowmapdata\.ts|explorer/pages/exflowmapdata\.ts|flowmap/flowmapdata\.ts)$|catalyrst/sites/packages/routes/app/routes(/|\.ts$)|catalyrst/sites/scripts/check-flowmap-routes\.mts$)" <<<"$staged"; then
+  flowmap_area=1
+fi
+story_id_area=0
+if grep -Eq "^(catalyrst/sites/packages/features/src/stories/.*/story\.md$|catalyrst/sites/packages/core/src/lib/telemetry/story-id\.ts$|catalyrst/sites/scripts/gen-story-id\.mts$)" <<<"$staged"; then
+  story_id_area=1
+fi
+# The roots check-schema-honesty.mts scans, plus the check itself and its
+# allow/baseline lists -- so neither a new fabricated default nor a quiet
+# baseline addition can land unexamined.
+honesty_area=0
+if grep -Eq "^(catalyrst/sites/packages/data/src/lib/.*\.ts$|catalyrst/ui3/src/data/.*\.ts$|catalyrst/sites/scripts/(check-schema-honesty\.mts|schema-honesty-allow\.json|schema-honesty-baseline\.json)$)" <<<"$staged"; then
+  honesty_area=1
+fi
+# The committed .sqlx offline cache must track every static query + migration:
+# an edit without `cargo sqlx prepare` breaks offline builds and CI's
+# sqlx-prepare-check job, and nothing else catches it locally.
+sqlx_area=0
+if grep -Eq "^catalyrst/crates/catalyrst-server/(src/|migrations/|\.sqlx/|Cargo\.toml$)" <<<"$staged"; then
+  sqlx_area=1
+fi
+# Separate from the areas above because it needs no cargo: it still runs when
+# the ts-rs gate cannot build, which is when a crate silently drops off.
+artefacts_area=0
+if grep -Eq "^((catalyrst|bevy-explorer)/crates/[^/]+/Cargo\.toml$|$GENERATED_DIR_REL/|catalyrst/sites/scripts/generated-artefacts\.mts$)" <<<"$staged"; then
+  artefacts_area=1
+fi
+
+if [[ ${#areas[@]} -eq 0 && $zod_area -eq 0 && $telemetry_area -eq 0 && $flowmap_area -eq 0 && $story_id_area -eq 0 && $artefacts_area -eq 0 && $honesty_area -eq 0 && $sqlx_area -eq 0 ]]; then
+  exit 0
+fi
+
+if [[ $artefacts_area -eq 1 ]]; then
+  echo "pre-commit: running generated-artefact declaration gate" >&2
+  if ! (cd "$repo/catalyrst/sites" && node scripts/generated-artefacts.mts --check); then
+    cat >&2 <<'EOF'
+
+pre-commit: generated-artefact gate FAILED (a crate emits a generated artefact
+that no [package.metadata.generated] block declares, or the index is stale).
+
+  Fix: declare it in the crate's own Cargo.toml, then
+       cd catalyrst/sites && npm run gen:artefacts   # then stage catalyrst/ui3/src/generated/INDEX.json
+EOF
+    exit 1
+  fi
+fi
+
+if [[ ${#areas[@]} -gt 0 ]]; then
+  echo "pre-commit: running ts-rs drift gate for: ${areas[*]}" >&2
+  if ! (cd "$repo/catalyrst/sites" && bash scripts/gen-ts-check.sh "${areas[@]}"); then
+    cat >&2 <<'EOF'
+
+pre-commit: ts-rs gate FAILED (drift or toolchain -- see the message above).
+
+  Drift fix:     cd catalyrst/sites && npm run gen:types   # then stage the regenerated .ts
+  Toolchain fix: commit bridge_protocol changes from a dcl-shell environment.
+EOF
+    exit 1
+  fi
+fi
+
+if [[ $zod_area -eq 1 ]]; then
+  echo "pre-commit: running zod schema drift gate" >&2
+  if ! (cd "$repo/catalyrst/sites" && node scripts/gen-zod-schemas.mts --check); then
+    cat >&2 <<'EOF'
+
+pre-commit: zod schema gate FAILED.
+
+  Fix: cd catalyrst/sites && npm run gen:schemas   # then stage the regenerated schemas
+EOF
+    exit 1
+  fi
+fi
+
+if [[ $telemetry_area -eq 1 ]]; then
+  echo "pre-commit: running telemetry catalog gate" >&2
+  if ! (cd "$repo/catalyrst/sites" && node scripts/telemetry-catalog.mts --check); then
+    cat >&2 <<'EOF'
+
+pre-commit: telemetry catalog gate FAILED (used events != cataloged events).
+
+  Fix: update catalyrst/sites/packages/core/src/lib/telemetry/events.ts (+ events/) to match reality;
+       draft entries with: cd catalyrst/sites && node scripts/telemetry-catalog.mts --draft
+EOF
+    exit 1
+  fi
+fi
+
+if [[ $flowmap_area -eq 1 ]]; then
+  echo "pre-commit: running flowmap route gate" >&2
+  if ! (cd "$repo/catalyrst/sites" && npx tsx scripts/check-flowmap-routes.mts); then
+    cat >&2 <<'EOF'
+
+pre-commit: flowmap route gate FAILED (a flowmap route node is not a real route).
+
+  Fix: correct the dead path in ui3's chflowmapdata.ts/exflowmapdata.ts, or add
+       the missing route file under catalyrst/sites/packages/routes/app/routes/.
+EOF
+    exit 1
+  fi
+fi
+
+if [[ $story_id_area -eq 1 ]]; then
+  echo "pre-commit: running story-id drift gate" >&2
+  if ! (cd "$repo/catalyrst/sites" && node scripts/gen-story-id.mts --check); then
+    cat >&2 <<'EOF'
+
+pre-commit: story-id drift gate FAILED (StoryId union stale vs app/stories/**/story.md).
+
+  Fix: cd catalyrst/sites && npm run gen:story-ids   # then stage the regenerated story-id.ts
+EOF
+    exit 1
+  fi
+fi
+
+if [[ $sqlx_area -eq 1 ]]; then
+  echo "pre-commit: running sqlx offline-cache guard" >&2
+  if ! ts_rs_shell_run catalyrst "bash '$repo/catalyrst/sites/scripts/sqlx-guard.sh'"; then
+    cat >&2 <<'EOF'
+
+pre-commit: sqlx guard FAILED (.sqlx offline cache drift or toolchain -- see above).
+
+  Fix: catalyrst/sites/scripts/sqlx-guard.sh --regen   # then stage the changed .sqlx/ files
+       (from the catalyrst devshell: nix develop catalyrst#ci)
+EOF
+    exit 1
+  fi
+fi
+
+if [[ $honesty_area -eq 1 ]]; then
+  echo "pre-commit: running schema honesty gate" >&2
+  if ! (cd "$repo/catalyrst/sites" && node scripts/check-schema-honesty.mts --check); then
+    cat >&2 <<'EOF'
+
+pre-commit: schema honesty gate FAILED (a fabricated default, a cast after a
+failed parse, or a catch returning a literal -- see the listing above).
+
+  Fix: let the parse fail and handle the absence at the call site, or default
+       to null. A genuinely-true fabricated value goes in
+       catalyrst/sites/scripts/schema-honesty-allow.json with a "why".
+EOF
+    exit 1
+  fi
+fi

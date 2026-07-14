@@ -4,12 +4,14 @@ members = [
     "crates/catalyrst-types",
     "crates/catalyrst-envcfg",
     "crates/catalyrst-hashing",
+    "crates/catalyrst-livekit",
     "crates/catalyrst-crypto",
+    "crates/catalyrst-authenticated-principal",
+    "crates/catalyrst-authenticated-admin",
     "crates/catalyrst-storage",
     "crates/catalyrst-db",
     "crates/catalyrst-validator",
-    "crates/catalyrst-sync",
-    "crates/catalyrst-deployer",
+    "crates/catalyrst-land-authz",
     "crates/catalyrst-deploy-signer",
     "crates/catalyrst-preview-tunnel",
     "crates/dcl-one-sdk",
@@ -18,22 +20,18 @@ members = [
     "crates/catalyrst-fed",
     "crates/catalyrst-places",
     "crates/catalyrst-events",
-    "crates/catalyrst-communities",
+    "crates/catalyrst-social-service",
     "crates/catalyrst-explorer-api",
-    "crates/catalyrst-social-rpc",
     "crates/catalyrst-telemetry",
     "crates/catalyrst-comms",
     "crates/catalyrst-archipelago",
-    "crates/catalyrst-registry",
-    "crates/dcl-contents",
     "crates/catalyrst-builder",
-    "crates/catalyrst-abgen",
+    "crates/catalyrst-bvimposters",
     "crates/catalyrst-worlds",
     "crates/catalyrst-badges",
     "crates/catalyrst-notifications",
     "crates/catalyrst-camera-reel",
     "crates/catalyrst-credits",
-    "crates/catalyrst-lists",
     "crates/catalyrst-map",
     "crates/catalyrst-rpc",
     "crates/catalyrst-economy",
@@ -46,41 +44,46 @@ members = [
     "crates/catalyrst-data",
     "crates/catalyrst-scene-state",
     "crates/catalyrst-signatures",
-    "crates/catalyrst-world-storage",
     "crates/catalyrst-conformance",
+    "crates/catalyrst-contract-gate",
+    "crates/catalyrst-testgate",
     "crates/catalyrst-oracle-tests",
     "crates/catalyrst-bench",
     "crates/catalyrst-fuzz",
-    "crates/catalyrst-enet",
     "crates/catalyrst-pulse",
     "crates/catalyrst-quests",
     "crates/catalyrst-governance",
     "crates/catalyrst-presence",
+    "crates/catalyrst-drpc",
 ]
 exclude = [
     "crates/catalyrst-fuzz/fuzz",
-    "crates/catalyrst-abgen/third_party/draco_decoder",
-    "crates/catalyrst-abgen/third_party/crunch",
-    "crates/catalyrst-abgen/third_party/libjpeg9c",
-    "crates/catalyrst-abgen/kernel-ptx",
-    "crates/catalyrst-abgen/wasm-poc",
+    "third_party/rusty_enet",
 ]
+
+# rusty_enet, patched to the decentraland-pulse ENet header-flag variant (crates.io 0.4.0 + the
+# 3-constant patch in third_party/rusty_enet.patch) so the native-ENet transport interoperates with
+# the C# Pulse server and the bevy-explorer #919 client. WebTransport is unaffected. See
+# third_party/README.md.
+[patch.crates-io]
+rusty_enet = { path = "third_party/rusty_enet" }
 
 [workspace.dependencies]
 tokio = { version = "1", features = ["full"] }
 axum = { version = "0.8", features = ["multipart"] }
 tower = { version = "0.5", features = ["limit"] }
-tower-http = { version = "0.7", features = ["cors", "trace", "timeout"] }
+tower-http = { version = "0.7", features = ["cors", "trace", "timeout", "fs"] }
 reqwest = { version = "0.13", default-features = false, features = ["json", "stream", "rustls", "http2", "charset", "query", "multipart", "form"] }
-sqlx = { version = "0.9", features = ["runtime-tokio", "postgres", "json", "chrono"] }
+sqlx = { version = "0.9", features = ["runtime-tokio", "postgres", "json", "chrono", "macros"] }
 feruca = "0.12"
 serde = { version = "1", features = ["derive"] }
-ts-rs = "10"
+ts-rs = "12"
 serde_json = { version = "1", features = ["float_roundtrip"] }
-alloy = { version = "2", features = ["full"] }
+alloy = { version = "2", default-features = false, features = ["std", "reqwest-rustls-tls", "provider-http", "rpc-types-eth", "signer-local", "sol-types"] }
+alloy-primitives = "1"
 sha2 = "0.11"
 hmac = "0.13"
-base64 = "0.22"
+base64 = "0.23"
 multihash = "0.19"
 cid = "0.11"
 bs58 = "0.5"
@@ -96,26 +99,30 @@ url = { version = "2", features = ["serde"] }
 futures = "0.3"
 async-trait = "0.1"
 bytes = "1"
-uuid = { version = "1", features = ["v4"] }
+uuid = { version = "1", features = ["v4", "v5"] }
 tokio-util = { version = "0.7", features = ["io"] }
 dashmap = "6"
 parking_lot = "0.12"
 metrics = "0.24"
 metrics-exporter-prometheus = { version = "0.18", default-features = false }
-ethers-core = "2.0.14"
-ethers-signers = "2.0.14"
+utoipa = { version = "5", features = ["chrono", "uuid"] }
+utoipa-axum = "0.2"
 catalyrst-types = { path = "crates/catalyrst-types" }
 catalyrst-envcfg = { path = "crates/catalyrst-envcfg" }
 catalyrst-hashing = { path = "crates/catalyrst-hashing" }
+catalyrst-livekit = { path = "crates/catalyrst-livekit" }
 catalyrst-crypto = { path = "crates/catalyrst-crypto" }
+catalyrst-drpc = { path = "crates/catalyrst-drpc" }
+catalyrst-authenticated-principal = { path = "crates/catalyrst-authenticated-principal" }
+catalyrst-authenticated-admin = { path = "crates/catalyrst-authenticated-admin" }
 catalyrst-storage = { path = "crates/catalyrst-storage" }
 catalyrst-db = { path = "crates/catalyrst-db" }
 catalyrst-validator = { path = "crates/catalyrst-validator" }
-catalyrst-sync = { path = "crates/catalyrst-sync" }
-catalyrst-deployer = { path = "crates/catalyrst-deployer" }
+catalyrst-land-authz = { path = "crates/catalyrst-land-authz" }
 catalyrst-server = { path = "crates/catalyrst-server" }
 catalyrst-fed = { path = "crates/catalyrst-fed" }
 catalyrst-comms = { path = "crates/catalyrst-comms" }
-catalyrst-enet = { path = "crates/catalyrst-enet" }
+catalyrst-contract-gate = { path = "crates/catalyrst-contract-gate" }
+catalyrst-testgate = { path = "crates/catalyrst-testgate" }
 catalyrst-preview-tunnel = { path = "crates/catalyrst-preview-tunnel" }
-tokio-tungstenite = "=0.29.0"
+tokio-tungstenite = "=0.30.0"

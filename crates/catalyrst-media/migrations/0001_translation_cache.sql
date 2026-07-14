@@ -1,5 +1,5 @@
 -- autotranslate cache. Postgres replaces autotranslate-server's caching layer.
--- One row per (backend, target_lang, text_sha256) — i.e. a unique source string
+-- One row per (backend, target_lang, text_sha256) -- i.e. a unique source string
 -- translated into a given target language by a given backend.
 --
 -- text_sha256        = sha256(q) over the UTF-8 source string. bytea (32 bytes).

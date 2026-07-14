@@ -9,8 +9,8 @@ const BAN_CHECK_TIMEOUT: Duration = Duration::from_millis(1000);
 
 const DENY_LIST_TTL: Duration = Duration::from_secs(5 * 60);
 
-pub fn normalize_address(address: &str) -> String {
-    address.to_ascii_lowercase()
+pub fn normalize_address(address: &str) -> Option<String> {
+    catalyrst_types::normalize_eth_address(address)
 }
 
 pub fn encode_uri_component(input: &str) -> String {
@@ -148,8 +148,11 @@ impl DenyList {
         if self.url.is_none() {
             return false;
         }
+        let Some(normalized) = normalize_address(address) else {
+            return true;
+        };
         let wallets = self.current().await;
-        wallets.contains(&normalize_address(address))
+        wallets.contains(&normalized)
     }
 
     async fn current(&self) -> HashSet<String> {
@@ -195,7 +198,7 @@ impl DenyList {
                 users
                     .into_iter()
                     .filter_map(|u| u.wallet)
-                    .map(|w| normalize_address(&w))
+                    .filter_map(|w| normalize_address(&w))
                     .collect(),
             ),
             None => {
@@ -232,12 +235,35 @@ mod tests {
     #[test]
     fn encode_uri_component_escapes_space_and_utf8_bytes() {
         assert_eq!(encode_uri_component("a b"), "a%20b");
-        assert_eq!(encode_uri_component("é"), "%C3%A9");
+        assert_eq!(encode_uri_component("\u{E9}"), "%C3%A9");
     }
 
     #[test]
-    fn normalize_address_lowercases() {
-        assert_eq!(normalize_address("0xABCdef"), "0xabcdef");
+    fn normalize_address_lowercases_valid_addresses() {
+        assert_eq!(
+            normalize_address("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"),
+            Some("0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266".to_string())
+        );
+    }
+
+    #[test]
+    fn normalize_address_rejects_malformed() {
+        assert_eq!(normalize_address("0xABCdef"), None);
+        assert_eq!(normalize_address("not-an-address"), None);
+        assert_eq!(
+            normalize_address("0xZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ"),
+            None
+        );
+    }
+
+    #[tokio::test]
+    async fn armed_deny_list_rejects_malformed_address_without_fetching() {
+        let deny = DenyList::with_ttl(
+            Some("http://127.0.0.1:9/denylist".to_string()),
+            reqwest::Client::new(),
+            Duration::from_secs(300),
+        );
+        assert!(deny.is_denied("not-an-address").await);
     }
 
     #[tokio::test]

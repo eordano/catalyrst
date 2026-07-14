@@ -45,9 +45,9 @@ Entity ids are validated as canonical CIDs (no path traversal); responses carry 
 
 ### Backends
 
-- **`render`** (primary) - requires `PROFILE_IMAGES_CONTENT_URL` and `PROFILE_IMAGES_GODOT_BIN`.
-- **`proxy`** - origin-pull from `PROFILE_IMAGES_ORIGIN_URL` and cache; kept for hosts without a Godot build.
-- **`disabled`** - cache-only; 404 on every miss (offline / tests).
+- `render` (primary) - requires `PROFILE_IMAGES_CONTENT_URL` and `PROFILE_IMAGES_GODOT_BIN`.
+- `proxy` - origin-pull from `PROFILE_IMAGES_ORIGIN_URL` and cache; kept for hosts without a Godot build.
+- `disabled` - cache-only; 404 on every miss (offline / tests).
 
 Under `render`, the proxy is consulted only when `PROFILE_IMAGES_RENDER_FALLBACK_PROXY=true`; otherwise a render failure returns `502`.
 
@@ -84,7 +84,7 @@ See `deploy/catalyrst-profile-images.env.example`. Key knobs:
 | `PROFILE_IMAGES_CACHE_DIR` | `<DATA_DIR>/profile-images` | disk cache root |
 | `PROFILE_IMAGES_CACHE_TTL_SECONDS` | `86400` | re-render/re-pull after this age; `0` = never expire |
 
-> **Port collision note:** no `umbrella/env/catalyrst-profile-images.env` exists; the crate is not currently deployed. The code default `5152` is live-bound by `catalyrst-presence` (`umbrella/env/catalyrst-presence.env`); the repo's own `deploy/catalyrst-profile-images.env.example` overrides to `HTTP_SERVER_PORT=8080` for that reason. Pick an unused port from the deployment's port map when wiring this service into `umbrella/`.
+> Port collision note: no deployment env file exists for `catalyrst-profile-images`; the crate is not currently deployed. The code default `5152` is live-bound by `catalyrst-presence` in the reference deployment; the repo's own `deploy/catalyrst-profile-images.env.example` overrides to `HTTP_SERVER_PORT=8080` for that reason. Pick an unused port from the deployment's port map when wiring this service up.
 
 ## Client hand-off (unity-explorer `CatalyrstUrlsSource`)
 

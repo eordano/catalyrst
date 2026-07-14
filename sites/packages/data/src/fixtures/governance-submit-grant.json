@@ -1,0 +1,157 @@
+{
+  "_source": "https://governance.decentraland.org/api/budget/all (upstream decentraland/governance; latest period selected). Category labels/tones/descriptions + funding tiers derived from the ui3 GvSubmitGrant cleanroom reimpl of governance-ui submit/grant; budget figures are live.",
+  "_note": "Governance is NOT a Catalyst service (Snapshot + Aragon run the DAO externally). The budget read is live from the governance API; the grant SUBMISSION (createProposal) is SIMULATED in the XState wizard.",
+  "submissionThresholdVp": "2,000,000",
+  "period": {
+    "id": "59e9cd7e-bdbb-4ccd-a8f0-848218a895f1",
+    "startAt": "2024-10-01T00:00:00.000Z",
+    "finishAt": "2025-01-01T00:00:00.000Z",
+    "label": "Q4 2024",
+    "total": 699237,
+    "allocated": 257500,
+    "totalLabel": "$699,237"
+  },
+  "categories": [
+    {
+      "key": "accelerator",
+      "id": "Accelerator",
+      "tone": "green",
+      "desc": "A private company or for-profit initiative in need of funding",
+      "total": 0,
+      "allocated": 0,
+      "available": 0,
+      "totalLabel": "$0",
+      "availableLabel": "$0",
+      "availablePct": 0,
+      "suspended": true
+    },
+    {
+      "key": "core_unit",
+      "id": "Core Unit",
+      "tone": "blue",
+      "desc": "Provide core infrastructure and operations for the DAO",
+      "total": 116562.80790000001,
+      "allocated": 0,
+      "available": 116562.80790000001,
+      "totalLabel": "$116,563",
+      "availableLabel": "$116,563",
+      "availablePct": 100,
+      "suspended": false
+    },
+    {
+      "key": "documentation",
+      "id": "Documentation",
+      "tone": "purple",
+      "desc": "Creation of free educational content related to Decentraland\u2019s dynamics",
+      "total": 0,
+      "allocated": 0,
+      "available": 0,
+      "totalLabel": "$0",
+      "availableLabel": "$0",
+      "availablePct": 0,
+      "suspended": true
+    },
+    {
+      "key": "in_world_content",
+      "id": "In-World Content",
+      "tone": "red",
+      "desc": "Development of experiences aiming to improve user retention",
+      "total": 0,
+      "allocated": 0,
+      "available": 0,
+      "totalLabel": "$0",
+      "availableLabel": "$0",
+      "availablePct": 0,
+      "suspended": true
+    },
+    {
+      "key": "platform",
+      "id": "Platform",
+      "tone": "fuchsia",
+      "desc": "Creation of tools and applications extending our platform and ecosystem",
+      "total": 582674.1921,
+      "allocated": 257500,
+      "available": 325174.1921,
+      "totalLabel": "$582,674",
+      "availableLabel": "$325,174",
+      "availablePct": 56,
+      "suspended": false
+    },
+    {
+      "key": "social_media_content",
+      "id": "Social Media Content",
+      "tone": "yellow",
+      "desc": "Marketing efforts aiming to reach new users and keeping them engaged",
+      "total": 0,
+      "allocated": 0,
+      "available": 0,
+      "totalLabel": "$0",
+      "availableLabel": "$0",
+      "availablePct": 0,
+      "suspended": true
+    },
+    {
+      "key": "sponsorship",
+      "id": "Sponsorship",
+      "tone": "orange",
+      "desc": "Supporting IRL initiatives targeting audiences relevant to Decentraland",
+      "total": 0,
+      "allocated": 0,
+      "available": 0,
+      "totalLabel": "$0",
+      "availableLabel": "$0",
+      "availablePct": 0,
+      "suspended": true
+    }
+  ],
+  "tiers": [
+    {
+      "id": "Tier 1",
+      "min": 100,
+      "max": 1500,
+      "passThreshold": "2,000 VP",
+      "payout": "Single upfront payment",
+      "vesting": "none"
+    },
+    {
+      "id": "Tier 2",
+      "min": 1501,
+      "max": 3000,
+      "passThreshold": "2,000 VP",
+      "payout": "Single upfront payment",
+      "vesting": "none"
+    },
+    {
+      "id": "Tier 3",
+      "min": 3001,
+      "max": 5000,
+      "passThreshold": "2,000 VP",
+      "payout": "Single upfront payment",
+      "vesting": "none"
+    },
+    {
+      "id": "Tier 4",
+      "min": 5001,
+      "max": 60000,
+      "passThreshold": "1M VP",
+      "payout": "Monthly vesting (1\u20136 months)",
+      "vesting": "linear"
+    },
+    {
+      "id": "Tier 5",
+      "min": 60001,
+      "max": 120000,
+      "passThreshold": "1M VP",
+      "payout": "Monthly vesting (3\u201312 months)",
+      "vesting": "linear"
+    },
+    {
+      "id": "Tier 6",
+      "min": 120001,
+      "max": 240000,
+      "passThreshold": "2M VP",
+      "payout": "Monthly vesting (6\u201312 months)",
+      "vesting": "linear"
+    }
+  ]
+}

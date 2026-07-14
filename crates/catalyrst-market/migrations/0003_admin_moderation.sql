@@ -1,10 +1,10 @@
--- catalyrst-market admin moderation + audit schema (docs/admin-console.md §4).
+-- catalyrst-market admin moderation + audit schema (docs/admin-console.md S4).
 --
 -- These tables live alongside the federation log in the `marketplace` schema
 -- (the search_path that `build_state` SETs on the write pool). They are
 -- OPERATOR-OWNED state: every row is authored by a bearer-authenticated admin,
 -- not by an EIP-712 signature. They never mutate the existing federation log
--- rows in place — moderation flags and disputes are separate side tables keyed
+-- rows in place -- moderation flags and disputes are separate side tables keyed
 -- by the target's signature_hash, and force-cancel APPENDS an operator-authored
 -- row to the existing `market_cancellations` log so it propagates over the
 -- /federation/market/changes feed exactly like a wallet-signed cancellation.

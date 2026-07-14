@@ -1,0 +1,132 @@
+{
+  "generatedFrom": {
+    "command": "python3 -m dclbots.arena --seed 7",
+    "cwd": "/workspace/dcl-scene-bots",
+    "repoCommit": "7235d43f9b39eb53035b008df6835fa5ccf9a733",
+    "runtime": "CPython 3.14.6",
+    "startedAt": "2026-08-14T23:29:52.267Z",
+    "finishedAt": "2026-08-14T23:29:52.580Z",
+    "exitCode": 0,
+    "mapping": "arena stdout mapped per DESIGN-V3 lane L5: one obs/snapshot per printed line, verbatim; the run prints its scoreboard at the end, so every line carries the finish time and no per-line duration is invented."
+  },
+  "trajectory": {
+    "id": "traj-arena-flagtag-seed7",
+    "sceneId": "flagtag",
+    "provenance": "bot",
+    "runner": "arena",
+    "finishReason": {
+      "kind": "completed",
+      "detail": "exit code 0"
+    },
+    "parentTrajectoryId": null,
+    "seedLength": null,
+    "evidencePath": null,
+    "createdAt": "2026-08-14T23:29:52.267Z"
+  },
+  "events": [
+    {
+      "seq": 0,
+      "type": "turn/start",
+      "time": "2026-08-14T23:29:52.267Z",
+      "data": {
+        "turn": 1
+      }
+    },
+    {
+      "seq": 1,
+      "type": "tool/call",
+      "time": "2026-08-14T23:29:52.267Z",
+      "data": {
+        "callId": "arena-seed7",
+        "name": "dclbots.arena",
+        "arguments": "{\"module\": \"dclbots.arena\", \"argv\": [\"--seed\", \"7\"], \"cwd\": \"/workspace/dcl-scene-bots\"}"
+      }
+    },
+    {
+      "seq": 2,
+      "type": "obs/snapshot",
+      "time": "2026-08-14T23:29:52.580Z",
+      "data": {
+        "stream": "stdout",
+        "line": "flagtag sandbox: seed 7, 3 seat(s), 1 round(s) of 300 s (11.6 s cinematic), 3000 ticks"
+      }
+    },
+    {
+      "seq": 3,
+      "type": "obs/snapshot",
+      "time": "2026-08-14T23:29:52.580Z",
+      "data": {
+        "stream": "stdout",
+        "line": "  seat      role        carried   share  pickups  lost  struck"
+      }
+    },
+    {
+      "seq": 4,
+      "type": "obs/snapshot",
+      "time": "2026-08-14T23:29:52.580Z",
+      "data": {
+        "stream": "stdout",
+        "line": "  0xseat1   chase        225.8s  78.3%       13    11       1"
+      }
+    },
+    {
+      "seq": 5,
+      "type": "obs/snapshot",
+      "time": "2026-08-14T23:29:52.580Z",
+      "data": {
+        "stream": "stdout",
+        "line": "  0xseat2   cutoff        33.9s  11.8%        6     6       0"
+      }
+    },
+    {
+      "seq": 6,
+      "type": "obs/snapshot",
+      "time": "2026-08-14T23:29:52.580Z",
+      "data": {
+        "stream": "stdout",
+        "line": "  0xseat3   cutoff        18.0s   6.2%        6     6       0"
+      }
+    },
+    {
+      "seq": 7,
+      "type": "obs/snapshot",
+      "time": "2026-08-14T23:29:52.580Z",
+      "data": {
+        "stream": "stdout",
+        "line": "  flag loose              10.7s"
+      }
+    },
+    {
+      "seq": 8,
+      "type": "obs/snapshot",
+      "time": "2026-08-14T23:29:52.580Z",
+      "data": {
+        "stream": "stdout",
+        "line": "  25 handover(s), mean hold 11.5s, 1 strike(s)"
+      }
+    },
+    {
+      "seq": 9,
+      "type": "check/verdict",
+      "time": "2026-08-14T23:29:52.580Z",
+      "data": {
+        "kind": "exit-code",
+        "pass": true,
+        "detail": "exit 0",
+        "why": "python3 -m dclbots.arena --seed 7 returned 0; the scoreboard above is its own stdout, unedited"
+      }
+    },
+    {
+      "seq": 10,
+      "type": "turn/end",
+      "time": "2026-08-14T23:29:52.580Z",
+      "data": {
+        "turn": 1,
+        "reason": {
+          "kind": "completed",
+          "detail": "exit code 0"
+        }
+      }
+    }
+  ]
+}

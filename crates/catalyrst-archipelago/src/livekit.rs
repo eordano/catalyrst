@@ -1,21 +1,11 @@
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use base64::Engine as _;
 use chrono::Utc;
-use hmac::{Hmac, KeyInit, Mac};
 use serde::Serialize;
-use sha2::Sha256;
 
 use crate::config::LivekitConfig;
 
 #[derive(Clone, Debug)]
 pub struct LivekitMinter {
     cfg: LivekitConfig,
-}
-
-#[derive(Serialize)]
-struct Header<'a> {
-    alg: &'a str,
-    typ: &'a str,
 }
 
 #[derive(Serialize)]
@@ -90,10 +80,6 @@ impl LivekitMinter {
         iat: i64,
         exp: i64,
     ) -> String {
-        let header = Header {
-            alg: "HS256",
-            typ: "JWT",
-        };
         let claims = Claims {
             iss: api_key,
             sub: identity,
@@ -110,23 +96,21 @@ impl LivekitMinter {
                 can_publish_data: true,
             },
         };
+        let header = serde_json::json!({ "alg": "HS256", "typ": "JWT" });
         let header_json = serde_json::to_vec(&header).expect("header json");
         let claims_json = serde_json::to_vec(&claims).expect("claims json");
-        let header_b64 = URL_SAFE_NO_PAD.encode(header_json);
-        let claims_b64 = URL_SAFE_NO_PAD.encode(claims_json);
-        let signing_input = format!("{}.{}", header_b64, claims_b64);
-        let mut mac = <Hmac<Sha256> as KeyInit>::new_from_slice(api_secret.as_bytes())
-            .expect("HMAC accepts any key length");
-        mac.update(signing_input.as_bytes());
-        let sig = mac.finalize().into_bytes();
-        let sig_b64 = URL_SAFE_NO_PAD.encode(sig);
-        format!("{}.{}", signing_input, sig_b64)
+        catalyrst_livekit::sign_hs256(api_secret, &header_json, &claims_json)
+            .expect("HMAC accepts any key length")
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+    use base64::Engine as _;
+    use hmac::{Hmac, KeyInit, Mac};
+    use sha2::Sha256;
 
     #[test]
     fn jwt_has_three_parts() {

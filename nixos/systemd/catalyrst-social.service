@@ -1,5 +1,5 @@
 [Unit]
-Description=catalyrst-social bundle (communities, comms, notifications, badges, media — port 5145)
+Description=catalyrst-social bundle (communities, comms, notifications, badges, media -- port 5145)
 After=network.target postgresql.service livekit.service
 StartLimitIntervalSec=0
 Wants=postgresql.service

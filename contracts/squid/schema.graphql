@@ -1,0 +1,646 @@
+enum Network {
+  ETHEREUM
+  POLYGON
+}
+
+# ---------------------------------------------------------
+# Counts --------------------------------------------------
+# ---------------------------------------------------------
+
+# thegraph doesn't support count operations, but we need them to paginate results
+# This entity is a workaround to this issue, but it's still not enough, as we'd need counts for more complex queries
+type Count @entity {
+  id: ID!
+
+  orderTotal: Int!
+  orderParcel: Int!
+  orderEstate: Int!
+  orderWearable: Int!
+  orderENS: Int!
+  parcelTotal: Int!
+  estateTotal: Int!
+  wearableTotal: Int!
+  ensTotal: Int!
+  started: Int!
+  salesTotal: Int!
+  salesManaTotal: BigInt!
+  creatorEarningsManaTotal: BigInt!
+  daoEarningsManaTotal: BigInt!
+
+  ## collections subgraph counts
+
+  bidTotal: Int!
+  collectionTotal: Int!
+  itemTotal: Int!
+  nftTotal: Int!
+  primarySalesTotal: Int!
+  primarySalesManaTotal: BigInt!
+  secondarySalesTotal: Int!
+  secondarySalesManaTotal: BigInt!
+  royaltiesManaTotal: BigInt!
+  network: Network!
+}
+
+# ---------------------------------------------------------
+# Orders --------------------------------------------------
+# ---------------------------------------------------------
+
+# thegraph doesn't support nested property searches, so we're doing promoting properties
+# we need from each NFT type to the Order, in order to search for them, prefixing them with search_[nft]_[prop]
+type Order @entity {
+  id: ID!
+  marketplaceAddress: String!
+  category: Category!
+  nft: NFT
+  nftAddress: String!
+  tokenId: BigInt!
+  txHash: String!
+  owner: String!
+  buyer: String
+  price: BigInt!
+  status: OrderStatus!
+  blockNumber: BigInt!
+  expiresAt: BigInt!
+  expiresAtNormalized: DateTime! @index
+  createdAt: BigInt!
+  updatedAt: BigInt!
+
+  ## collections subgraph Order fields
+  # marketplaceAddress: Bytes!
+  item: Item
+  network: Network!
+  # nftAddress: Bytes!
+  # txHash: Bytes!
+  # owner: Bytes!
+  # buyer: Bytes
+}
+
+# ---------------------------------------------------------
+# Bids ----------------------------------------------------
+# ---------------------------------------------------------
+
+type Bid @entity {
+  id: ID!
+  bidAddress: String!
+  category: Category!
+  nft: NFT
+  nftAddress: String!
+  tokenId: BigInt!
+  bidder: Bytes
+  seller: Bytes
+  price: BigInt!
+  fingerprint: Bytes
+  status: OrderStatus!
+  blockchainId: String!
+  blockNumber: BigInt!
+  expiresAt: BigInt!
+  createdAt: BigInt!
+  updatedAt: BigInt!
+
+  network: Network!
+
+  #bidAddress: Bytes!
+  #nftAddress: Bytes!
+}
+
+type Wearable @entity {
+  id: ID!
+  owner: Account
+  representationId: String
+  collection: String!
+  name: String!
+  description: String!
+  category: WearableCategory!
+  rarity: WearableRarity!
+  bodyShapes: [WearableBodyShape!]
+  nft: NFT @derivedFrom(field: "wearable")
+  network: Network!
+}
+
+type ENS @entity {
+  id: ID!
+  tokenId: BigInt!
+  owner: Account!
+  caller: String
+  beneficiary: String
+  labelHash: String
+  subdomain: String
+  createdAt: BigInt
+  orderHash: String @index
+  nft: NFT @derivedFrom(field: "ens")
+}
+
+type SquidRouterOrder @entity {
+  id: ID!
+  orderHash: String! @index
+  creditIds: [String!]!
+  totalCreditsUsed: BigInt!
+  txHash: String! @index
+  blockNumber: BigInt!
+  timestamp: BigInt!
+  network: Network!
+}
+
+type Transfer @entity {
+  id: ID!
+  nftId: ID!
+  network: String! @index
+  block: Int! @index
+  # timestamp: DateTime! @index
+  timestamp: BigInt!
+  from: String! @index
+  to: String! @index
+  txHash: String! @index
+}
+
+type Data @entity {
+  id: ID!
+  parcel: Parcel
+  estate: Estate
+  version: String!
+  name: String
+  description: String
+  ipns: String
+}
+
+type NFT
+  @entity
+  @index(fields: ["item", "owner"])
+  @index(fields: ["contractAddress", "tokenId"])
+  @index(fields: ["searchOrderStatus", "searchOrderExpiresAt", "network"])
+  @index(fields: ["searchOrderStatus", "searchOrderExpiresAt", "category"]) {
+  id: ID!
+  tokenId: BigInt! @index
+  contractAddress: String! @index
+  category: Category! @index
+  owner: Account! @index
+  ownerAddress: String! @index
+  tokenURI: String
+
+  orders: [Order!] @derivedFrom(field: "nft") # History of all orders. Should only ever be ONE open order. all others must be cancelled or sold
+  bids: [Bid!] @derivedFrom(field: "nft") # History of all bids.
+  activeOrder: Order @index
+
+  name: String
+  image: String
+
+  parcel: Parcel @unique
+  estate: Estate @unique
+  wearable: Wearable @unique
+  ens: ENS @unique
+
+  createdAt: BigInt! @index
+  updatedAt: BigInt!
+  soldAt: BigInt
+  transferredAt: BigInt!
+  # analytics
+  sales: Int!
+  volume: BigInt!
+
+  # search indexes
+  searchOrderStatus: OrderStatus @index
+  searchOrderPrice: BigInt
+  searchOrderExpiresAt: BigInt @index
+  searchOrderExpiresAtNormalized: DateTime @index
+  searchOrderCreatedAt: BigInt
+
+  searchIsLand: Boolean @index
+
+  searchText: String
+
+  searchParcelIsInBounds: Boolean @index
+  searchParcelX: BigInt
+  searchParcelY: BigInt
+  searchParcelEstateId: String
+  searchDistanceToPlaza: Int
+  searchAdjacentToRoad: Boolean
+
+  searchEstateSize: Int
+
+  searchIsWearableHead: Boolean
+  searchIsWearableAccessory: Boolean
+  searchWearableRarity: String # We're using String instead of WearableRarity here so we can later query this field via ()_in
+  searchWearableCategory: WearableCategory
+  searchWearableBodyShapes: [WearableBodyShape!]
+
+  ### collections subgraph NFT fields
+
+  itemBlockchainId: BigInt
+  issuedId: BigInt
+  itemType: ItemType
+  # itemType: ItemType!
+  urn: String
+  # urn: String!
+  collection: Collection
+  # collection: Collection!
+  item: Item
+  metadata: Metadata
+  searchItemType: String
+  searchEmoteCategory: EmoteCategory
+  searchEmoteLoop: Boolean
+  searchEmoteRarity: String
+  searchEmoteBodyShapes: [WearableBodyShape]
+  network: Network!
+  # searchEmoteBodyShapes: [WearableBodyShape!]
+}
+
+type Parcel @entity {
+  id: ID!
+  tokenId: BigInt!
+  owner: Account!
+  x: BigInt!
+  y: BigInt!
+  estate: Estate
+  data: Data
+  rawData: String
+  nft: NFT @derivedFrom(field: "parcel")
+}
+
+type Estate @entity {
+  id: ID!
+  tokenId: BigInt!
+  owner: Account!
+  parcels: [Parcel!]! @derivedFrom(field: "estate")
+  parcelDistances: [Int!]
+  adjacentToRoadCount: Int
+  size: Int @index
+  data: Data
+  rawData: String
+  nft: NFT @derivedFrom(field: "estate")
+}
+
+# ---------------------------------------------------------
+# Account (user) -------------------------------------------
+# ---------------------------------------------------------
+
+type Account @entity {
+  id: ID! # ETH addr
+  address: String! @index
+  nfts: [NFT!] @derivedFrom(field: "owner")
+  # analytics
+  sales: Int!
+  purchases: Int!
+  spent: BigInt!
+  earned: BigInt!
+
+  ## collections subgraph fields
+
+  isCommitteeMember: Boolean
+  totalCurations: Int
+  primarySales: Int!
+  primarySalesEarned: BigInt!
+  royalties: BigInt!
+  uniqueAndMythicItems: [ID!]!
+  uniqueAndMythicItemsTotal: Int!
+  collections: Int!
+  creatorsSupported: [String!]!
+  creatorsSupportedTotal: Int!
+  uniqueCollectors: [String!]!
+  uniqueCollectorsTotal: Int!
+  network: Network!
+}
+
+# ---------------------------------------------------------
+# Enums ---------------------------------------------------
+# ---------------------------------------------------------
+
+enum Category {
+  parcel
+  estate
+  wearable
+  emote
+  ens
+}
+
+enum OrderStatus {
+  open
+  sold
+  cancelled
+  transferred
+}
+
+enum WearableCategory {
+  eyebrows
+  eyes
+  facial_hair
+  hair
+  mouth
+  upper_body
+  lower_body
+  feet
+  earring
+  eyewear
+  hat
+  helmet
+  mask
+  tiara
+  top_head
+  skin
+  hands_wear
+}
+
+enum WearableRarity {
+  common
+  uncommon
+  rare
+  epic
+  legendary
+  mythic
+  unique
+  exotic
+}
+
+enum WearableBodyShape {
+  BaseFemale
+  BaseMale
+}
+
+# ---------------------------------------------------------
+# Sales ---------------------------------------------------
+# ---------------------------------------------------------
+
+# We only track sales from Decentraland's smart contracts
+
+enum Operation {
+  native
+  fiat
+  cross_chain
+  credits
+}
+
+type Sale @entity @index(fields: ["searchCategory", "network"]) {
+  id: ID!
+  type: SaleType!
+  buyer: String!
+  realBuyer: String!
+  operation: Operation!
+  seller: String!
+  price: BigInt!
+  nft: NFT!
+  timestamp: BigInt! @index
+  txHash: String!
+
+  # search
+  searchTokenId: BigInt!
+  searchContractAddress: String!
+  searchCategory: String! @index
+
+  ## collections subgraph fields
+
+  beneficiary: Bytes
+  feesCollectorCut: BigInt
+  feesCollector: Bytes
+  royaltiesCut: BigInt
+  royaltiesCollector: Bytes
+  item: Item
+  #txHash: Bytes!
+
+  # search
+  searchItemId: BigInt
+  network: Network!
+  #searchContractAddress: String!
+}
+
+# Data accumulated and condensed into day stats for all of the Marketplace activity
+type AnalyticsDayData @entity {
+  id: ID! # timestamp rounded to current day by dividing by 86400
+  date: Int!
+  sales: Int!
+  volume: BigInt!
+  creatorsEarnings: BigInt!
+  daoEarnings: BigInt!
+  network: Network!
+}
+
+#### Collections Graph
+
+type Collection @entity {
+  id: ID!
+  items: [Item!] @derivedFrom(field: "collection")
+  owner: String!
+  creator: String!
+  name: String!
+  symbol: String!
+  isCompleted: Boolean
+  isApproved: Boolean
+  isEditable: Boolean
+  minters: [String!]!
+  managers: [String!]!
+  urn: String!
+  itemsCount: Int!
+  createdAt: BigInt!
+  updatedAt: BigInt!
+  reviewedAt: BigInt!
+  firstListedAt: BigInt
+
+  # Searcheable fields
+  searchIsStoreMinter: Boolean!
+  searchIsMarketplaceV3Minter: Boolean!
+  searchText: String!
+
+  # new fields
+  baseURI: String!
+  chainId: BigInt!
+
+  # Credits fields
+  usedCredits: Boolean!
+  creditValue: BigInt
+
+  # Transaction hash
+  txHash: String!
+
+  network: Network!
+}
+
+type Item @entity @index(fields: ["collection", "blockchainId"]) {
+  id: ID! # ${Collection address}_${item Id}
+  collection: Collection!
+  blockchainId: BigInt!
+  creator: String!
+  itemType: ItemType!
+  totalSupply: BigInt!
+  maxSupply: BigInt!
+  rarity: String!
+  creationFee: BigInt!
+  available: BigInt!
+  price: BigInt!
+  beneficiary: String!
+  contentHash: String
+  uri: String!
+  image: String
+  minters: [String!]!
+  managers: [String!]!
+  metadata: Metadata
+  rawMetadata: String!
+  urn: String!
+  nfts: [NFT!] @derivedFrom(field: "item")
+  createdAt: BigInt!
+  updatedAt: BigInt!
+  "Last time the item was reviewed"
+  reviewedAt: BigInt!
+  "Last time the Item was sold"
+  soldAt: BigInt
+  "First time the Item was listed"
+  firstListedAt: BigInt
+
+  # analytics
+  sales: Int!
+  volume: BigInt!
+
+  # Searcheable fields
+  searchText: String
+  searchItemType: String
+
+  ## Collection fields
+  searchIsCollectionApproved: Boolean
+  searchIsStoreMinter: Boolean!
+  searchIsMarketplaceV3Minter: Boolean!
+
+  ## Wearables search fields
+  searchIsWearableHead: Boolean
+  searchIsWearableAccessory: Boolean
+  searchWearableCategory: WearableCategory
+  searchWearableRarity: String # We're using String instead of WearableRarity here so we can later query this field via ()_in
+  searchWearableBodyShapes: [WearableBodyShape!]
+
+  ## Emote search fields
+  searchEmoteCategory: EmoteCategory
+  searchEmoteLoop: Boolean
+  searchEmoteRarity: String # We're using String instead of WearableRarity here so we can later query this field via ()_in
+  searchEmoteBodyShapes: [WearableBodyShape!]
+  searchEmoteHasSound: Boolean
+  searchEmoteHasGeometry: Boolean
+  searchEmoteOutcomeType: EmoteOutcomeType
+
+  ## Unique collectors
+  uniqueCollectors: [String!]!
+  uniqueCollectorsTotal: Int!
+
+  network: Network!
+}
+
+type Metadata @entity {
+  id: ID!
+  itemType: ItemType!
+  wearable: Wearable
+  emote: Emote
+  network: Network!
+}
+
+enum ItemType {
+  undefined
+  wearable_v1
+  wearable_v2
+  smart_wearable_v1
+  emote_v1
+}
+
+type Emote @entity {
+  id: ID!
+  name: String!
+  description: String!
+  collection: String!
+  category: EmoteCategory!
+  loop: Boolean!
+  rarity: WearableRarity!
+  bodyShapes: [WearableBodyShape!]
+  hasSound: Boolean
+  hasGeometry: Boolean
+  outcomeType: EmoteOutcomeType
+}
+
+enum EmoteCategory {
+  dance
+  stunt
+  greetings
+  fun
+  poses
+  reactions
+  horror
+  miscellaneous
+}
+
+enum EmoteOutcomeType {
+  simple_outcome
+  multiple_outcome
+  random_outcome
+}
+
+type Rarity @entity {
+  id: ID!
+  name: String!
+  maxSupply: BigInt!
+  price: BigInt!
+  currency: Currency!
+}
+
+enum Currency {
+  MANA
+  USD
+}
+
+type Mint @entity {
+  id: ID!
+
+  item: Item!
+  nft: NFT!
+
+  creator: String!
+  beneficiary: String!
+  minter: String!
+  timestamp: BigInt!
+
+  searchPrimarySalePrice: BigInt
+  searchContractAddress: String!
+  searchItemId: BigInt!
+  searchTokenId: BigInt!
+  searchIssuedId: BigInt
+  searchIsStoreMinter: Boolean!
+
+  network: Network!
+}
+
+type Curation @entity {
+  id: ID!
+  txHash: Bytes!
+  curator: Account!
+  collection: Collection!
+  item: Item
+  isApproved: Boolean!
+  timestamp: BigInt!
+}
+
+enum SaleType {
+  bid
+  order
+  mint
+}
+
+# Data accumulated and condensed into day stats for an item
+type ItemsDayData @entity {
+  id: ID! # timestamp rounded to current day by dividing by 86400 + ${Collection address}_${item Id}
+  date: Int!
+  sales: Int!
+  volume: BigInt!
+  searchEmoteCategory: EmoteCategory
+  searchWearableCategory: WearableCategory
+  searchRarity: String # We're using String instead of WearableRarity here so we can later query this field via ()_in
+}
+
+# Data accumulated and condensed into day stats for an account address
+type AccountsDayData @entity {
+  id: ID! # timestamp rounded to current day by dividing by 86400 + ${creator_address}
+  date: Int!
+  sales: Int!
+  purchases: Int!
+  earned: BigInt!
+  spent: BigInt!
+  uniqueCollectionsSales: [String!]!
+  uniqueCollectors: [String!]!
+  uniqueCollectorsTotal: Int!
+  uniqueAndMythicItems: [ID!]!
+  uniqueAndMythicItemsTotal: Int!
+  creatorsSupported: [String!]!
+  creatorsSupportedTotal: Int!
+  network: Network!
+}

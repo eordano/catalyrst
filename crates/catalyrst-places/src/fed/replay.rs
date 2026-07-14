@@ -1,14 +1,11 @@
-use catalyrst_fed::sig::MAX_SKEW_PAST_SECS;
+use std::sync::LazyLock;
+
+use catalyrst_envcfg::env_bool;
+use catalyrst_fed::replay::NonceReplayGuard;
 use catalyrst_fed::FedError;
 use sqlx::PgPool;
 
-fn hex_encode(bytes: &[u8]) -> String {
-    let mut s = String::with_capacity(bytes.len() * 2);
-    for b in bytes {
-        s.push_str(&format!("{:02x}", b));
-    }
-    s
-}
+static GUARD: LazyLock<NonceReplayGuard> = LazyLock::new(|| NonceReplayGuard::new("seen_nonces"));
 
 pub async fn check_and_record(
     pool: Option<&PgPool>,
@@ -17,31 +14,38 @@ pub async fn check_and_record(
     signed_at: i64,
 ) -> Result<(), FedError> {
     let Some(pool) = pool else {
-        return Ok(());
+        if env_bool("PLACES_FED_ALLOW_REPLAY_SKIP", false) {
+            tracing::warn!(
+                signer,
+                "replay protection skipped: no writer pool configured and \
+                 PLACES_FED_ALLOW_REPLAY_SKIP is set"
+            );
+            return Ok(());
+        }
+        return Err(FedError::Transport(
+            "replay guard unavailable: no writer pool configured \
+             (set PLACES_FED_ALLOW_REPLAY_SKIP=1 to accept unguarded replays)"
+                .to_string(),
+        ));
     };
-    let signer = signer.to_ascii_lowercase();
-    let nonce_hex = hex_encode(nonce);
-    let expires_at = signed_at + MAX_SKEW_PAST_SECS;
+    GUARD.check_and_record(pool, signer, nonce, signed_at).await
+}
 
-    let now = chrono::Utc::now().timestamp();
-    let _ = sqlx::query("DELETE FROM seen_nonces WHERE expires_at < $1")
-        .bind(now)
-        .execute(pool)
-        .await;
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-    let res = sqlx::query(
-        "INSERT INTO seen_nonces (signer, nonce, expires_at) VALUES ($1,$2,$3) \
-         ON CONFLICT (signer, nonce) DO NOTHING",
-    )
-    .bind(&signer)
-    .bind(&nonce_hex)
-    .bind(expires_at)
-    .execute(pool)
-    .await
-    .map_err(|e| FedError::Transport(e.to_string()))?;
+    #[tokio::test]
+    async fn missing_pool_fails_closed_unless_skip_env_set() {
+        std::env::remove_var("PLACES_FED_ALLOW_REPLAY_SKIP");
+        let nonce = [7u8; 16];
+        let err = check_and_record(None, "0xabc", &nonce, 0)
+            .await
+            .unwrap_err();
+        assert!(matches!(err, FedError::Transport(_)), "{err}");
 
-    if res.rows_affected() == 0 {
-        return Err(FedError::DuplicateNonce { signer });
+        std::env::set_var("PLACES_FED_ALLOW_REPLAY_SKIP", "1");
+        assert!(check_and_record(None, "0xabc", &nonce, 0).await.is_ok());
+        std::env::remove_var("PLACES_FED_ALLOW_REPLAY_SKIP");
     }
-    Ok(())
 }

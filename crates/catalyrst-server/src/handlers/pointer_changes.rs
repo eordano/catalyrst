@@ -3,13 +3,13 @@ use std::sync::Arc;
 use axum::extract::{Request, State};
 use axum::response::IntoResponse;
 use axum::Json;
-use serde_json::{json, Value};
 
 use crate::errors::{AppError, AppResult, InvalidRequestError};
 use crate::query_params::{
     camel_to_snake, parse_query_string, qs_get_array, qs_get_bool, qs_get_number, qs_get_string,
 };
 use crate::state::{AppState, PointerChangesQueryOptions};
+use crate::wire_types::{HistoryPagination, PointerChangeDelta, PointerChangesResponse};
 
 const VALID_SORTING_FIELDS: &[&str] = &["local_timestamp", "entity_timestamp"];
 
@@ -84,44 +84,42 @@ pub async fn get_pointer_changes(
         .await
         .map_err(|e| AppError::Internal(e.to_string()))?;
 
-    let deltas: Vec<Value> = result
+    let deltas: Vec<PointerChangeDelta> = result
         .deltas
         .into_iter()
-        .filter(|delta| {
-            let entity_id = delta.get("entityId").and_then(|v| v.as_str()).unwrap_or("");
-            !state.denylist.is_denylisted(entity_id)
-        })
+        .filter(|delta| !state.denylist.is_denylisted(&delta.entity_id))
         .collect();
 
-    let mut pagination = json!({
-        "offset": result.pagination.offset,
-        "limit": result.pagination.limit,
-        "moreData": result.pagination.more_data,
-    });
-
+    let mut next: Option<String> = None;
     if result.pagination.more_data {
         if let Some(last) = deltas.last() {
-            let last_ts = last.get("localTimestamp").and_then(|v| v.as_i64());
-            let last_id = last.get("entityId").and_then(|v| v.as_str());
-            if let (Some(ts), Some(id)) = (last_ts, last_id) {
-                let mut qs: Vec<String> = Vec::new();
-                for et in &options.entity_types {
-                    qs.push(format!("entityType={}", et));
-                }
-                if let Some(from) = options.from {
-                    qs.push(format!("from={}", from));
-                }
-                qs.push(format!("to={}", ts));
-                qs.push(format!("limit={}", result.pagination.limit));
-                qs.push(format!("lastId={}", id));
-                pagination["next"] = Value::String(format!("?{}", qs.join("&")));
+            let ts = last.local_timestamp;
+            let id = &last.entity_id;
+            let mut qs: Vec<String> = Vec::new();
+            for et in &options.entity_types {
+                qs.push(format!("entityType={}", et));
             }
+            if let Some(from) = options.from {
+                qs.push(format!("from={}", from));
+            }
+            qs.push(format!("to={}", ts));
+            qs.push(format!("limit={}", result.pagination.limit));
+            qs.push(format!("lastId={}", id));
+            next = Some(format!("?{}", qs.join("&")));
         }
     }
 
-    Ok(Json(json!({
-        "deltas": deltas,
-        "filters": result.filters,
-        "pagination": pagination,
-    })))
+    let pagination = HistoryPagination {
+        offset: result.pagination.offset,
+        limit: result.pagination.limit,
+        more_data: result.pagination.more_data,
+        next,
+        last_id: None,
+    };
+
+    Ok(Json(PointerChangesResponse {
+        deltas,
+        filters: result.filters,
+        pagination,
+    }))
 }

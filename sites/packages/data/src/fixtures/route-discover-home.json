@@ -1,0 +1,159 @@
+{
+  "sid": "story-sid",
+  "content": {
+    "hero": {
+      "kicker": "Decentraland now on mobile.",
+      "title": "Hang Out From Anywhere",
+      "subtitle": "Close the Feed. Come Hang Out.",
+      "downloads": "+181K",
+      "downloadsLabel": "downloads",
+      "cta": {
+        "desktop": {
+          "label": "Download for desktop",
+          "href": "/download"
+        },
+        "epic": {
+          "label": "Download on Epic Games",
+          "href": "https://store.epicgames.com/en-US/p/decentraland"
+        }
+      },
+      "platforms": [
+        {
+          "id": "ios",
+          "label": "iOS",
+          "href": "/download"
+        },
+        {
+          "id": "android",
+          "label": "Android",
+          "href": "/download"
+        }
+      ]
+    },
+    "rails": [
+      {
+        "id": "whatson",
+        "kind": "events",
+        "title": "Jump Into What's Happening",
+        "viewAll": {
+          "label": "View All",
+          "href": "/whats-on"
+        },
+        "items": [
+          {
+            "id": "409b6eb1-1fe2-40ab-afc3-6e117dd8cf10",
+            "category": "EVENT",
+            "title": "Monthly Community Meet-Up",
+            "when": "Jul 6, 14:00",
+            "live": false,
+            "image": "https://events-assets-099ac00.decentraland.org/poster/6f0da89169a691c0.png"
+          },
+          {
+            "id": "b6b57b29-b416-48b5-aa2f-1fcd6f6eab1d",
+            "category": "TRENDING",
+            "title": "W.T.F. - We Talk Facts  DCL",
+            "when": "Jun 9, 22:30",
+            "live": false,
+            "image": "https://events-assets-099ac00.decentraland.org/poster/994a1bb46864034d.png"
+          },
+          {
+            "id": "56804bf1-2e7e-4d8b-a32d-4024ecc8897e",
+            "category": "EVENT",
+            "title": "DCL Regenesis Labs Community Meet-Up",
+            "when": "Jun 24, 19:00",
+            "live": false,
+            "image": "https://events-assets-099ac00.decentraland.org/poster/e4d2def86a3a89ea.webp"
+          }
+        ]
+      },
+      {
+        "id": "vibe",
+        "kind": "hotspots",
+        "title": "Catch the Vibe",
+        "viewAll": null,
+        "items": [
+          {
+            "id": "3ca25728-5b41-48f6-8e24-5cb0e3f2bb5d",
+            "title": "Genesis Plaza",
+            "online": 6,
+            "image": "https://peer-ec1.decentraland.org/content/contents/bafybeietrfx6arffgapt65jkawued7mcsu75uuloodf3drxbvq2pfpggei",
+            "href": "https://catalyst.example.com/play/?position=-3%2C-2"
+          },
+          {
+            "id": "3fd69792-b3e1-49c3-8476-482cd42c86d8",
+            "title": "Meta GamiMall",
+            "online": 4,
+            "image": "https://peer-eu1.decentraland.org/content/contents/bafkreiczuewg3pfx3kwc6tmtnzm6qfdr5in7kuux5cjnrfy3owrlk5ejyi",
+            "href": "https://catalyst.example.com/play/?position=1%2C95"
+          },
+          {
+            "id": "59cfc6be-d101-47df-aff7-b20067b7b645",
+            "title": "WonderMine Crafting Game DCL SDK7",
+            "online": 4,
+            "image": "https://peer.decentraland.org/content/contents/bafybeia3tkxl35trqzbbxn6pcsi4o7rp7or47tssmapp34pjuihkgu52ua",
+            "href": "https://catalyst.example.com/play/?position=-29%2C55"
+          },
+          {
+            "id": "60fb8d84-8130-42e4-9a34-1210680bf8c1",
+            "title": "Grill Master Path",
+            "online": 3,
+            "image": "https://peer-ec1.decentraland.org/content/contents/bafkreihcnytbcbgqc2m2eehnlgnfmhz3hvkjouupip7zuvpchu6fbz3x5i",
+            "href": "https://catalyst.example.com/play/?position=-150%2C141"
+          }
+        ]
+      },
+      {
+        "id": "rituals",
+        "kind": "rituals",
+        "title": "Your Weekly Rituals",
+        "viewAll": {
+          "label": "View All",
+          "href": "/whats-on"
+        },
+        "items": [
+          {
+            "id": "b6b57b29-b416-48b5-aa2f-1fcd6f6eab1d",
+            "title": "W.T.F. - We Talk Facts  DCL",
+            "day": "Tuesday",
+            "image": "https://events-assets-099ac00.decentraland.org/poster/994a1bb46864034d.png",
+            "href": "/whats-on/b6b57b29-b416-48b5-aa2f-1fcd6f6eab1d"
+          },
+          {
+            "id": "56804bf1-2e7e-4d8b-a32d-4024ecc8897e",
+            "title": "DCL Regenesis Labs Community Meet-Up",
+            "day": "Wednesday",
+            "image": "https://events-assets-099ac00.decentraland.org/poster/e4d2def86a3a89ea.webp",
+            "href": "/whats-on/56804bf1-2e7e-4d8b-a32d-4024ecc8897e"
+          },
+          {
+            "id": "a6e9d9e6-2f1c-41e3-ad4c-5c93f0af856d",
+            "title": "How to get a job in Switzerland",
+            "day": "Wednesday",
+            "image": "https://events-assets-099ac00.decentraland.org/poster/91f81cdd69e903db.jpg",
+            "href": "/whats-on/a6e9d9e6-2f1c-41e3-ad4c-5c93f0af856d"
+          },
+          {
+            "id": "516ec6ba-68fe-4957-91e2-d250e9c498aa",
+            "title": "Japan Daily Walk [Replay]",
+            "day": "Thursday",
+            "image": "https://events-assets-099ac00.decentraland.org/poster/2ecae9ff69c63a0a.png",
+            "href": "/whats-on/516ec6ba-68fe-4957-91e2-d250e9c498aa"
+          },
+          {
+            "id": "a1e3a6e4-6d1d-484d-a479-b5d7e37c803c",
+            "title": "ESCORT THE VIP - SENTINEL SPECIAL EDITION",
+            "day": "Friday",
+            "image": "https://events-assets-099ac00.decentraland.org/poster/a24d193b6a342bee.webp",
+            "href": "/whats-on/a1e3a6e4-6d1d-484d-a479-b5d7e37c803c"
+          }
+        ]
+      }
+    ],
+    "comeHangOut": {
+      "title": "Come Hang Out",
+      "downloads": "+181K",
+      "downloadsLabel": "downloads"
+    }
+  },
+  "live": true
+}

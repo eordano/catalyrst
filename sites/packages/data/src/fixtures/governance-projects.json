@@ -1,0 +1,437 @@
+{
+  "_source": "https://raw.githubusercontent.com/decentraland/governance/master/src/models/Project.ts (ProjectInList) + src/entities/Grant/types.ts (ProjectStatus, NewGrantCategory, GrantTierType) + src/entities/Proposal/types.ts (ProjectFunding, LatestUpdate, ProposalType) + src/clients/VestingData.ts (Vesting). Live API: GET https://governance.decentraland.vote/api/projects -> { data: ProjectInList[], total }. Fetched 2026-06-23; rows are FAITHFUL derivations matching those upstream shapes (governance is NOT a Catalyst service \u2014 Snapshot + Aragon + the governance.decentraland.vote API live externally), not copied live data.",
+  "_shape": "ProjectInList = Pick<Project,'id'|'proposal_id'|'status'|'title'|'author'|'funding'> & Pick<ProposalAttributes,'type'|'configuration'> & { latest_update?: LatestUpdate, created_at: number, updated_at: number }",
+  "total": 9,
+  "data": [
+    {
+      "id": "a1f2c3d4-0001-4aaa-9bbb-000000000001",
+      "proposal_id": "0xprop0001",
+      "title": "Decentraland Builders Hackathon Season 5 \u2014 quarterly creator bounties",
+      "status": "in_progress",
+      "type": "grant",
+      "author": "0x9f3c7b21a45e8c0d1f2a3b4c5d6e7f8091a2b3c4",
+      "configuration": {
+        "category": "Accelerator",
+        "tier": "Tier 4: up to $60,000 USD, 6 months vesting (1 month cliff)",
+        "size": 45000,
+        "beneficiary": "0x9f3c7b21a45e8c0d1f2a3b4c5d6e7f8091a2b3c4"
+      },
+      "funding": {
+        "enacted_at": "2026-03-01T00:00:00.000Z",
+        "vesting": {
+          "start_at": "2026-03-01T00:00:00.000Z",
+          "finish_at": "2026-09-01T00:00:00.000Z",
+          "released": 24000,
+          "releasable": 3000,
+          "vested": 31500,
+          "total": 45000,
+          "address": "0xvesting00000000000000000000000000000001",
+          "status": "In Progress",
+          "token": "USDC",
+          "cliff": "2026-04-01T00:00:00.000Z",
+          "vestedPerPeriod": [
+            7500,
+            7500,
+            7500,
+            7500,
+            7500,
+            7500
+          ]
+        }
+      },
+      "latest_update": {
+        "update": {
+          "index": 4,
+          "introduction": "Shipped the Season 5 leaderboard and judged 18 submissions.",
+          "health": "onTrack",
+          "completion_date": "2026-03-12T00:00:00.000Z"
+        },
+        "update_timestamp": 1773619200
+      },
+      "created_at": 1765843200,
+      "updated_at": 1773619200
+    },
+    {
+      "id": "a1f2c3d4-0002-4aaa-9bbb-000000000002",
+      "proposal_id": "0xprop0002",
+      "title": "Core Unit: DAO Treasury transparency dashboard & quarterly reporting",
+      "status": "in_progress",
+      "type": "grant",
+      "author": "0x7c4f1d2e3a4b5c6d7e8f90112233445566a4e1bb",
+      "configuration": {
+        "category": "Core Unit",
+        "tier": "Tier 5: up to $120,000 USD, 6 months vesting (1 month cliff)",
+        "size": 120000,
+        "beneficiary": "0x7c4f1d2e3a4b5c6d7e8f90112233445566a4e1bb"
+      },
+      "funding": {
+        "enacted_at": "2026-01-15T00:00:00.000Z",
+        "vesting": {
+          "start_at": "2026-01-15T00:00:00.000Z",
+          "finish_at": "2026-07-15T00:00:00.000Z",
+          "released": 60000,
+          "releasable": 12000,
+          "vested": 72000,
+          "total": 120000,
+          "address": "0xvesting00000000000000000000000000000002",
+          "status": "In Progress",
+          "token": "USDC",
+          "cliff": "2026-02-15T00:00:00.000Z",
+          "vestedPerPeriod": [
+            20000,
+            20000,
+            20000,
+            20000,
+            20000,
+            20000
+          ]
+        }
+      },
+      "latest_update": {
+        "update": {
+          "index": 5,
+          "introduction": "Released v2 of the on-chain spend explorer.",
+          "health": "atRisk",
+          "completion_date": "2026-03-02T00:00:00.000Z"
+        },
+        "update_timestamp": 1772064000
+      },
+      "created_at": 1761091200,
+      "updated_at": 1772064000
+    },
+    {
+      "id": "a1f2c3d4-0003-4aaa-9bbb-000000000003",
+      "proposal_id": "0xprop0003",
+      "title": "In-World Content: Genesis Plaza seasonal experiences and live events",
+      "status": "in_progress",
+      "type": "grant",
+      "author": "0x1234ab56cd78ef90112233445566778899aa00bb",
+      "configuration": {
+        "category": "In-World Content",
+        "tier": "Tier 3: up to $5,000 USD in MANA, 3 months vesting (1 month cliff)",
+        "size": 28000,
+        "beneficiary": "0x1234ab56cd78ef90112233445566778899aa00bb"
+      },
+      "funding": {
+        "enacted_at": "2026-02-10T00:00:00.000Z",
+        "vesting": {
+          "start_at": "2026-02-10T00:00:00.000Z",
+          "finish_at": "2026-08-10T00:00:00.000Z",
+          "released": 9000,
+          "releasable": 3600,
+          "vested": 12600,
+          "total": 28000,
+          "address": "0xvesting00000000000000000000000000000003",
+          "status": "In Progress",
+          "token": "USDC",
+          "cliff": "2026-03-10T00:00:00.000Z",
+          "vestedPerPeriod": [
+            4666,
+            4666,
+            4666,
+            4666,
+            4666,
+            4666
+          ]
+        }
+      },
+      "latest_update": {
+        "update": {
+          "index": 2,
+          "introduction": "Launched the Winter Festival activation in Genesis Plaza.",
+          "health": "onTrack",
+          "completion_date": "2026-02-20T00:00:00.000Z"
+        },
+        "update_timestamp": 1771027200
+      },
+      "created_at": 1768176000,
+      "updated_at": 1771027200
+    },
+    {
+      "id": "a1f2c3d4-0004-4aaa-9bbb-000000000004",
+      "proposal_id": "0xprop0004",
+      "title": "Platform: WebGPU rendering pipeline for the open-source explorer",
+      "status": "in_progress",
+      "type": "grant",
+      "author": "0x12a9ff00112233445566778899aabbccddee9f0c",
+      "configuration": {
+        "category": "Platform",
+        "tier": "Tier 6: up to $240,000 USD, 6 months vesting (1 month cliff)",
+        "size": 240000,
+        "beneficiary": "0x12a9ff00112233445566778899aabbccddee9f0c"
+      },
+      "funding": {
+        "enacted_at": "2025-10-20T00:00:00.000Z",
+        "vesting": {
+          "start_at": "2025-10-20T00:00:00.000Z",
+          "finish_at": "2026-08-20T00:00:00.000Z",
+          "released": 168000,
+          "releasable": 24000,
+          "vested": 192000,
+          "total": 240000,
+          "address": "0xvesting00000000000000000000000000000004",
+          "status": "In Progress",
+          "token": "USDC",
+          "cliff": "2025-11-20T00:00:00.000Z",
+          "vestedPerPeriod": [
+            40000,
+            40000,
+            40000,
+            40000,
+            40000,
+            40000
+          ]
+        }
+      },
+      "latest_update": {
+        "update": {
+          "index": 8,
+          "introduction": "Merged the deferred lighting path; +22% FPS on midrange GPUs.",
+          "health": "onTrack",
+          "completion_date": "2026-03-10T00:00:00.000Z"
+        },
+        "update_timestamp": 1773446400
+      },
+      "created_at": 1753228800,
+      "updated_at": 1773446400
+    },
+    {
+      "id": "a1f2c3d4-0005-4aaa-9bbb-000000000005",
+      "proposal_id": "0xprop0005",
+      "title": "Social Media Content: monthly ecosystem newsletter & creator spotlights",
+      "status": "in_progress",
+      "type": "grant",
+      "author": "0xaa11bb22cc33dd44ee55ff66007788990011mmedia",
+      "configuration": {
+        "category": "Social Media Content",
+        "tier": "Tier 3: up to $5,000 USD in MANA, 3 months vesting (1 month cliff)",
+        "size": 18000,
+        "beneficiary": "0xaa11bb22cc33dd44ee55ff6600778899001122ab"
+      },
+      "funding": {
+        "enacted_at": "2026-05-05T00:00:00.000Z",
+        "vesting": {
+          "start_at": "2026-05-05T00:00:00.000Z",
+          "finish_at": "2026-11-05T00:00:00.000Z",
+          "released": 4500,
+          "releasable": 1800,
+          "vested": 6300,
+          "total": 18000,
+          "address": "0xvesting00000000000000000000000000000005",
+          "status": "In Progress",
+          "token": "USDC",
+          "cliff": "2026-06-05T00:00:00.000Z",
+          "vestedPerPeriod": [
+            3000,
+            3000,
+            3000,
+            3000,
+            3000,
+            3000
+          ]
+        }
+      },
+      "latest_update": {
+        "update": {
+          "index": 1,
+          "introduction": "Published issue #1 to 14k subscribers.",
+          "health": "onTrack",
+          "completion_date": "2026-02-28T00:00:00.000Z"
+        },
+        "update_timestamp": 1772236800
+      },
+      "created_at": 1770508800,
+      "updated_at": 1772236800
+    },
+    {
+      "id": "a1f2c3d4-0006-4aaa-9bbb-000000000006",
+      "proposal_id": "0xprop0006",
+      "title": "Sponsorship: Decentraland presence at the GDC 2026 expo floor",
+      "status": "finished",
+      "type": "grant",
+      "author": "0x55b1aa00112233445566778899aabbccddee1b2a",
+      "configuration": {
+        "category": "Sponsorship",
+        "tier": "Tier 4: up to $60,000 USD, 6 months vesting (1 month cliff)",
+        "size": 60000,
+        "beneficiary": "0x55b1aa00112233445566778899aabbccddee1b2a"
+      },
+      "funding": {
+        "enacted_at": "2026-01-30T00:00:00.000Z",
+        "vesting": {
+          "start_at": "2026-01-30T00:00:00.000Z",
+          "finish_at": "2026-05-30T00:00:00.000Z",
+          "released": 60000,
+          "releasable": 0,
+          "vested": 60000,
+          "total": 60000,
+          "address": "0xvesting00000000000000000000000000000006",
+          "status": "Finished",
+          "token": "USDC",
+          "cliff": "2026-02-28T00:00:00.000Z",
+          "vestedPerPeriod": [
+            15000,
+            15000,
+            15000,
+            15000
+          ]
+        }
+      },
+      "latest_update": {
+        "update": {
+          "index": 3,
+          "introduction": "Wrapped the expo; 9k booth visitors, 1.2k installs.",
+          "health": "onTrack",
+          "completion_date": "2026-01-30T00:00:00.000Z"
+        },
+        "update_timestamp": 1769731200
+      },
+      "created_at": 1766448000,
+      "updated_at": 1769731200
+    },
+    {
+      "id": "a1f2c3d4-0007-4aaa-9bbb-000000000007",
+      "proposal_id": "0xprop0007",
+      "title": "Tender: build the next-gen World content moderation pipeline",
+      "status": "in_progress",
+      "type": "bid",
+      "author": "0x3eab12cc34dd56ee78ff90112233445566c901aa",
+      "configuration": {
+        "category": "tender",
+        "size": 90000,
+        "beneficiary": "0x3eab12cc34dd56ee78ff90112233445566c901aa"
+      },
+      "funding": {
+        "enacted_at": "2026-04-28T00:00:00.000Z",
+        "vesting": {
+          "start_at": "2026-04-28T00:00:00.000Z",
+          "finish_at": "2026-11-28T00:00:00.000Z",
+          "released": 27000,
+          "releasable": 9000,
+          "vested": 36000,
+          "total": 90000,
+          "address": "0xvesting00000000000000000000000000000007",
+          "status": "In Progress",
+          "token": "USDC",
+          "cliff": "2026-05-28T00:00:00.000Z",
+          "vestedPerPeriod": [
+            12857,
+            12857,
+            12857,
+            12857,
+            12857,
+            12857,
+            12857
+          ]
+        }
+      },
+      "latest_update": {
+        "update": {
+          "index": 2,
+          "introduction": "Delivered the first moderation model and red-team report.",
+          "health": "onTrack",
+          "completion_date": "2026-03-06T00:00:00.000Z"
+        },
+        "update_timestamp": 1772928000
+      },
+      "created_at": 1771286400,
+      "updated_at": 1772928000
+    },
+    {
+      "id": "a1f2c3d4-0008-4aaa-9bbb-000000000008",
+      "proposal_id": "0xprop0008",
+      "title": "Documentation: rewrite the SDK7 component reference and tutorials",
+      "status": "finished",
+      "type": "grant",
+      "author": "0xdoc100022113344556677889900aabbccddee01",
+      "configuration": {
+        "category": "Documentation",
+        "tier": "Tier 4: up to $60,000 USD, 6 months vesting (1 month cliff)",
+        "size": 32000,
+        "beneficiary": "0xdoc100022113344556677889900aabbccddee01"
+      },
+      "funding": {
+        "enacted_at": "2025-09-18T00:00:00.000Z",
+        "vesting": {
+          "start_at": "2025-09-18T00:00:00.000Z",
+          "finish_at": "2026-03-18T00:00:00.000Z",
+          "released": 32000,
+          "releasable": 0,
+          "vested": 32000,
+          "total": 32000,
+          "address": "0xvesting00000000000000000000000000000008",
+          "status": "Finished",
+          "token": "USDC",
+          "cliff": "2025-10-18T00:00:00.000Z",
+          "vestedPerPeriod": [
+            5333,
+            5333,
+            5333,
+            5333,
+            5333,
+            5333
+          ]
+        }
+      },
+      "latest_update": {
+        "update": {
+          "index": 6,
+          "introduction": "Final docs merged; 64 pages migrated to the new IA.",
+          "health": "onTrack",
+          "completion_date": "2025-12-18T00:00:00.000Z"
+        },
+        "update_timestamp": 1766016000
+      },
+      "created_at": 1750204800,
+      "updated_at": 1766016000
+    },
+    {
+      "id": "a1f2c3d4-0009-4aaa-9bbb-000000000009",
+      "proposal_id": "0xprop0009",
+      "title": "Accelerator: incubation cohort for early-stage scene studios",
+      "status": "paused",
+      "type": "grant",
+      "author": "0x9f3c7b21a45e8c0d1f2a3b4c5d6e7f8091a27a21",
+      "configuration": {
+        "category": "Accelerator",
+        "tier": "Tier 5: up to $120,000 USD, 6 months vesting (1 month cliff)",
+        "size": 150000,
+        "beneficiary": "0x9f3c7b21a45e8c0d1f2a3b4c5d6e7f8091a27a21"
+      },
+      "funding": {
+        "enacted_at": "2026-02-22T00:00:00.000Z",
+        "vesting": {
+          "start_at": "2026-02-22T00:00:00.000Z",
+          "finish_at": "2026-08-22T00:00:00.000Z",
+          "released": 75000,
+          "releasable": 15000,
+          "vested": 90000,
+          "total": 150000,
+          "address": "0xvesting00000000000000000000000000000009",
+          "status": "Paused",
+          "token": "USDC",
+          "cliff": "2026-03-22T00:00:00.000Z",
+          "vestedPerPeriod": [
+            25000,
+            25000,
+            25000,
+            25000,
+            25000,
+            25000
+          ]
+        }
+      },
+      "latest_update": {
+        "update": {
+          "index": 4,
+          "introduction": "Demo Day held with 6 studios; 2 secured follow-on grants.",
+          "health": "onTrack",
+          "completion_date": "2026-03-08T00:00:00.000Z"
+        },
+        "update_timestamp": 1773100800
+      },
+      "created_at": 1769040000,
+      "updated_at": 1773100800
+    }
+  ]
+}

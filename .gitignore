@@ -11,7 +11,7 @@ crates/catalyrst-abgen/kernel-ptx/target/
 *.log
 /data
 
-# Extracted oracle test vectors — regenerable from a real DB, may contain PII.
+# Extracted oracle test vectors -- regenerable from a real DB, may contain PII.
 # Regenerate with: cargo run -p catalyrst-oracle-tests --bin extract
 crates/catalyrst-oracle-tests/test-vectors/
 
@@ -24,7 +24,7 @@ nixos/hardware-configuration.nix
 nixos/networking.nix
 catalyrst/result
 
-# Operator identity (SSH keys, ACME email) — copy operator.nix.example to operator.nix and fill in
+# Operator identity (SSH keys, ACME email) -- copy operator.nix.example to operator.nix and fill in
 nixos/operator.nix
 
 # Python tooling caches
@@ -39,7 +39,7 @@ scripts/schemathesis/.venv/
 .bench/
 .claude/
 
-# local deploy keys — never commit
+# local deploy keys -- never commit
 secrets/
 
 # ts-rs default export dir (real exports go to sites/app/lib/catalyst/_generated via TS_RS_EXPORT_DIR)

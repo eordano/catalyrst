@@ -9,7 +9,7 @@
 -- outbox -> broker buy so the SAME specific item is priced and bought.
 --
 -- Additive only: ADD COLUMN IF NOT EXISTS (nullable, no default) so this replays
--- cleanly and never rewrites existing rows wholesale. No BEGIN/COMMIT here —
+-- cleanly and never rewrites existing rows wholesale. No BEGIN/COMMIT here --
 -- sqlx wraps each migration in its own transaction.
 
 ALTER TABLE cart_items         ADD COLUMN IF NOT EXISTS collection TEXT;
@@ -31,7 +31,7 @@ UPDATE fulfillment_outbox
 
 -- Widen the cart-line identity to (cart_id, collection, item_id). itemId alone is
 -- only a per-collection blockchain index, so nearly EVERY collection has an item
--- "0", "1", ... — the old UNIQUE(cart_id, item_id) made adding (0xBBB, 0) silently
+-- "0", "1", ... -- the old UNIQUE(cart_id, item_id) made adding (0xBBB, 0) silently
 -- morph an existing (0xAAA, 0) row (ON CONFLICT) and remove/clear hit the wrong
 -- collection's line. The collection must distinguish the line. Backfill above runs
 -- FIRST so pre-0009 rows carry a non-NULL collection before the key is widened.

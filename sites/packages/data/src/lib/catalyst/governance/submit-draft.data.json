@@ -1,0 +1,20 @@
+{
+  "_source": "Static draft-proposal form config (formerly the non-poll fields of the dropped fixture). field_limits + bodies derived from decentraland/governance src/entities/Proposal/types.ts newProposalDraftScheme; vpThreshold/vpUnit from governance page.submit.submission_vp_not_met (>=1000 VP). This is NOT a Catalyst read \u2014 the linkable passed-Poll list is fetched LIVE from GOVERNANCE_API_URL /proposals (filtered type==='poll' client-side because the backend Page struct only honors limit/offset). The final createProposal write is SIMULATED (Snapshot + Aragon run the DAO externally; no catalyrst write path).",
+  "vpThreshold": 1000,
+  "vpUnit": "VP",
+  "field_limits": {
+    "title_min": 5,
+    "title_max": 80,
+    "summary_max": 250,
+    "body_max": 3500,
+    "body_min": 20,
+    "coauthors_max": 5
+  },
+  "bodies": [
+    "summary",
+    "abstract",
+    "motivation",
+    "specification",
+    "conclusion"
+  ]
+}

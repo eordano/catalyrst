@@ -1,5 +1,5 @@
 -- Seed the buyable Credit packs at the canonical 0.10 USD/Credit peg
--- (10 Credits per USD — see ports/pricing.rs CREDIT_USD). Four tiers:
+-- (10 Credits per USD -- see ports/pricing.rs CREDIT_USD). Four tiers:
 -- $5 / $15 / $25 / $50 -> 50 / 150 / 250 / 500 Credits.
 --
 -- Idempotent: deactivate any pre-existing packs, then upsert exactly these

@@ -49,18 +49,22 @@ pub struct UserBan {
     pub custom_message: Option<String>,
     #[serde(rename = "bannedDeviceId")]
     pub banned_device_id: Option<String>,
-    #[serde(rename = "bannedAt", serialize_with = "ms_iso::serialize")]
+    #[serde(rename = "bannedAt")]
+    #[serde(serialize_with = "ms_iso::serialize")]
     #[cfg_attr(feature = "ts", ts(type = "string"))]
     pub banned_at: DateTime<Utc>,
-    #[serde(rename = "expiresAt", serialize_with = "ms_iso::option::serialize")]
+    #[serde(rename = "expiresAt")]
+    #[serde(serialize_with = "ms_iso::option::serialize")]
     #[cfg_attr(feature = "ts", ts(type = "string | null"))]
     pub expires_at: Option<DateTime<Utc>>,
-    #[serde(rename = "liftedAt", serialize_with = "ms_iso::option::serialize")]
+    #[serde(rename = "liftedAt")]
+    #[serde(serialize_with = "ms_iso::option::serialize")]
     #[cfg_attr(feature = "ts", ts(type = "string | null"))]
     pub lifted_at: Option<DateTime<Utc>>,
     #[serde(rename = "liftedBy")]
     pub lifted_by: Option<String>,
-    #[serde(rename = "createdAt", serialize_with = "ms_iso::serialize")]
+    #[serde(rename = "createdAt")]
+    #[serde(serialize_with = "ms_iso::serialize")]
     #[cfg_attr(feature = "ts", ts(type = "string"))]
     pub created_at: DateTime<Utc>,
 }
@@ -78,10 +82,12 @@ pub struct UserWarning {
     #[serde(rename = "warnedBy")]
     pub warned_by: String,
     pub reason: String,
-    #[serde(rename = "warnedAt", serialize_with = "ms_iso::serialize")]
+    #[serde(rename = "warnedAt")]
+    #[serde(serialize_with = "ms_iso::serialize")]
     #[cfg_attr(feature = "ts", ts(type = "string"))]
     pub warned_at: DateTime<Utc>,
-    #[serde(rename = "createdAt", serialize_with = "ms_iso::serialize")]
+    #[serde(rename = "createdAt")]
+    #[serde(serialize_with = "ms_iso::serialize")]
     #[cfg_attr(feature = "ts", ts(type = "string"))]
     pub created_at: DateTime<Utc>,
 }
@@ -96,6 +102,7 @@ pub struct BanStatus {
     #[serde(rename = "isBanned")]
     pub is_banned: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
     pub ban: Option<UserBan>,
 }
 
@@ -218,8 +225,7 @@ impl UserBansComponent {
         )
         .bind(&address)
         .fetch_one(&self.pool)
-        .await
-        .unwrap_or(0);
+        .await?;
         Ok(n > 0)
     }
 
@@ -231,26 +237,28 @@ impl UserBansComponent {
         let address = address.to_lowercase();
         let device_id = device_id.filter(|s| !s.is_empty());
         let n: i64 = match device_id {
-            Some(device_id) => sqlx::query_scalar(
-                "SELECT COUNT(*) FROM user_bans \
+            Some(device_id) => {
+                sqlx::query_scalar(
+                    "SELECT COUNT(*) FROM user_bans \
                  WHERE (banned_address = $1 OR banned_device_id = $2) \
                    AND lifted_at IS NULL \
                    AND (expires_at IS NULL OR expires_at > now())",
-            )
-            .bind(&address)
-            .bind(device_id)
-            .fetch_one(&self.pool)
-            .await
-            .unwrap_or(0),
-            None => sqlx::query_scalar(
-                "SELECT COUNT(*) FROM user_bans \
+                )
+                .bind(&address)
+                .bind(device_id)
+                .fetch_one(&self.pool)
+                .await?
+            }
+            None => {
+                sqlx::query_scalar(
+                    "SELECT COUNT(*) FROM user_bans \
                  WHERE banned_address = $1 AND lifted_at IS NULL \
                    AND (expires_at IS NULL OR expires_at > now())",
-            )
-            .bind(&address)
-            .fetch_one(&self.pool)
-            .await
-            .unwrap_or(0),
+                )
+                .bind(&address)
+                .fetch_one(&self.pool)
+                .await?
+            }
         };
         Ok(n > 0)
     }
@@ -283,9 +291,6 @@ impl UserBansComponent {
         let banned_address = input.banned_address.to_lowercase();
         let banned_by = input.banned_by.to_lowercase();
 
-        // No DB uniqueness constraint covers active bans (a partial unique index would block
-        // re-banning after expiry), so serialize concurrent check-then-insert per address with a
-        // transaction-scoped advisory lock, mirroring upstream.
         let mut txn = self.pool.begin().await?;
 
         sqlx::query("SELECT pg_advisory_xact_lock(hashtext($1))")

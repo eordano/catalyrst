@@ -6,8 +6,9 @@ use axum::response::{IntoResponse, Response};
 use crate::http::{unauthorized, ApiError};
 use crate::livekit::{
     address_from_identity, is_community_voice_chat_room, is_private_voice_chat_room,
-    verify_webhook_signature,
+    verify_webhook_token,
 };
+use crate::util::now_ms;
 use crate::voice_logic::DisconnectReason;
 use crate::AppState;
 
@@ -16,13 +17,18 @@ pub async fn livekit_webhook(
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<Response, ApiError> {
-    if let Some(key) = state.livekit_webhook_key.as_deref() {
-        let sig = headers
+    if state.livekit_configured {
+        let auth = headers
             .get("authorization")
             .or_else(|| headers.get("x-livekit-signature"))
             .and_then(|v| v.to_str().ok())
             .unwrap_or("");
-        if !verify_webhook_signature(key, &body, sig) {
+        if !verify_webhook_token(
+            &state.livekit_api_key,
+            &state.livekit_api_secret,
+            &body,
+            auth,
+        ) {
             return Err(unauthorized("invalid livekit webhook signature"));
         }
     }
@@ -174,14 +180,6 @@ fn leave_event_time_ms(event: &serde_json::Value) -> i64 {
     } else {
         now_ms()
     }
-}
-
-fn now_ms() -> i64 {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or(0)
 }
 
 fn ingress_id(event: &serde_json::Value) -> Option<String> {

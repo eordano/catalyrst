@@ -45,21 +45,23 @@ fn all_values(raw_query: &str, key: &str) -> Vec<String> {
 
 fn urldecode(s: &str) -> String {
     let s = s.replace('+', " ");
-    let mut out = String::with_capacity(s.len());
     let bytes = s.as_bytes();
+    let mut out: Vec<u8> = Vec::with_capacity(bytes.len());
     let mut i = 0;
     while i < bytes.len() {
         if bytes[i] == b'%' && i + 2 < bytes.len() {
-            if let Ok(b) = u8::from_str_radix(&s[i + 1..i + 3], 16) {
-                out.push(b as char);
+            let hi = (bytes[i + 1] as char).to_digit(16);
+            let lo = (bytes[i + 2] as char).to_digit(16);
+            if let (Some(hi), Some(lo)) = (hi, lo) {
+                out.push(((hi << 4) | lo) as u8);
                 i += 3;
                 continue;
             }
         }
-        out.push(bytes[i] as char);
+        out.push(bytes[i]);
         i += 1;
     }
-    out
+    String::from_utf8_lossy(&out).into_owned()
 }
 
 pub async fn get_rentals_listings(
@@ -140,18 +142,13 @@ pub async fn create_rentals_listing(
     use axum::response::IntoResponse;
 
     let signer = catalyrst_crypto_require_signer(&state, &headers, "post", "/v1/rentals-listings")
+        .await
         .map_err(|e| ApiError::Unauthorized(e).into_response())?;
 
     let now_ms = chrono::Utc::now().timestamp_millis();
     if body.expiration < now_ms {
         return Err(
-            ApiError::BadRequest("The rental listing has expired".to_string())
-                .with_data(json!({
-                    "contractAddress": body.contract_address,
-                    "tokenId": body.token_id,
-                    "expiration": body.expiration,
-                }))
-                .into_response(),
+            ApiError::BadRequest("The rental listing has expired".to_string()).into_response(),
         );
     }
 
@@ -186,14 +183,7 @@ pub async fn create_rentals_listing(
             .nft_by_contract_token(&body.contract_address, &body.token_id)
             .await
             .map_err(|e| ApiError::from(e).into_response())?;
-        let nft = nft.ok_or_else(|| {
-            ApiError::not_found("NFT not found")
-                .with_data(json!({
-                    "contractAddress": body.contract_address,
-                    "tokenId": body.token_id,
-                }))
-                .into_response()
-        })?;
+        let nft = nft.ok_or_else(|| ApiError::not_found("NFT not found").into_response())?;
 
         if !nft.owner_address.eq_ignore_ascii_case(&signer) {
             return Err(ApiError::Unauthorized(format!(
@@ -227,17 +217,16 @@ pub async fn create_rentals_listing(
             updated,
         )
     } else {
-        let now = chrono::Utc::now().naive_utc();
-        (
-            format!("{}-{}", body.contract_address, body.token_id),
-            "parcel".to_string(),
-            String::new(),
-            None,
-            None,
-            None,
-            now,
-            now,
-        )
+        // Fail closed: ownership is verified ONLY inside the Some(squid) arm above.
+        // state.squid is None for the whole process lifetime when the squid pool is
+        // unconfigured OR its initial connect failed at boot (a transient DB blip,
+        // no retry). Fabricating metadata and inserting here skipped the ownership
+        // check entirely -- any signed-fetch caller could list assets they don't own
+        // and durably 409-grief the real owner. Reject instead of inserting.
+        return Err(
+            ApiError::Internal("NFT ownership verification is unavailable".to_string())
+                .into_response(),
+        );
     };
 
     let inserted = state
@@ -261,10 +250,6 @@ pub async fn create_rentals_listing(
         Err(e) if crate::db::Database::is_open_conflict(&e) => Err(ApiError::Conflict(
             "There is already an open rental listing for the asset".to_string(),
         )
-        .with_data(json!({
-            "contractAddress": body.contract_address,
-            "tokenId": body.token_id,
-        }))
         .into_response()),
         Err(e) => Err(ApiError::from(e).into_response()),
     }
@@ -360,12 +345,13 @@ pub async fn get_rental_listings_prices(
     Ok(Ok2(StatusCode::OK, serde_json::Value::Object(map)))
 }
 
-fn catalyrst_crypto_require_signer(
+async fn catalyrst_crypto_require_signer(
     state: &AppState,
     headers: &HeaderMap,
     method: &str,
     path: &str,
 ) -> Result<String, String> {
     crate::auth::require_signer(headers, method, path, state.config.auth_expiration_secs)
-        .map_err(|e| e.to_string())
+        .await
+        .map_err(|e| crate::auth::wire_message(&e))
 }

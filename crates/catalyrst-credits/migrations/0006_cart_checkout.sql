@@ -1,7 +1,7 @@
 -- catalyrst-credits cart + checkout saga (Phase 3 of the Landiler marketplace)
 --
 -- The fiat -> Credits -> wearables flow debits Credits ONCE, locally, in this DB
--- (atomic, REJECT-if-short — never a clamp), then fulfils the on-chain NFT buy
+-- (atomic, REJECT-if-short -- never a clamp), then fulfils the on-chain NFT buy
 -- asynchronously through an outbox/saga. This migration adds the four tables that
 -- substrate needs:
 --
@@ -12,7 +12,7 @@
 --
 -- Money discipline: every Credits/price amount is NUMERIC (read/bound as ::text,
 -- never f64). Quantities are plain INTs. All additive; CREATE ... IF NOT EXISTS
--- only. No BEGIN/COMMIT here — sqlx wraps each migration in its own transaction.
+-- only. No BEGIN/COMMIT here -- sqlx wraps each migration in its own transaction.
 
 -- One open cart per wallet. The wallet address is the natural key (lowercase,
 -- enforced by the caller) so cart lookups never need a separate id round-trip.
@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS carts (
 );
 
 -- A cart line. `unit_price_credits` is the server-computed Credit price captured
--- at add time (and re-computed at checkout) — the client price is never trusted.
+-- at add time (and re-computed at checkout) -- the client price is never trusted.
 -- UNIQUE(cart_id,item_id) lets a re-add bump qty / re-price instead of dup'ing.
 CREATE TABLE IF NOT EXISTS cart_items (
     id                 BIGSERIAL PRIMARY KEY,

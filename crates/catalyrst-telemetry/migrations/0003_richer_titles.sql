@@ -3,7 +3,7 @@
 -- ~1000 events (sentry sessions/transactions/envelopes, segment track/identify)
 -- carry no message/logentry/exception, so the 0002 title chain fell through to
 -- the literal "(no message)" and they all collapsed into one noisy issue. Those
--- payloads DO have meaningful fields — extract them, and fall back to "(kind)"
+-- payloads DO have meaningful fields -- extract them, and fall back to "(kind)"
 -- (e.g. "(session)") instead of "(no message)" for anything still unnamed:
 --   transaction -> body.transaction (e.g. "loading_process")
 --   segment track -> body.event

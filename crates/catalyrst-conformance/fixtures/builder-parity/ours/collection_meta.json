@@ -1,0 +1,15 @@
+{
+  "ok": true,
+  "data": {
+    "id": "00000000-0000-0000-0000-000000000000",
+    "name": "Hats",
+    "eth_address": "0xowner",
+    "contract_address": "0xcontract",
+    "urn": "urn:decentraland:matic:collections-v2:0xc0ffee",
+    "third_party_id": null,
+    "is_published": true,
+    "is_approved": false,
+    "created_at": 1700000000000,
+    "updated_at": 1700000100000
+  }
+}

@@ -7,7 +7,7 @@
 -- Money discipline: Credits amounts are NUMERIC (read/bound as ::text, never
 -- f64); Stripe fiat amounts are INTEGER minor units (cents) -> BIGINT.
 --
--- All additive; CREATE ... IF NOT EXISTS only. No BEGIN/COMMIT here — sqlx wraps
+-- All additive; CREATE ... IF NOT EXISTS only. No BEGIN/COMMIT here -- sqlx wraps
 -- each migration in its own transaction.
 
 -- Buyable Credit packs. `credits` is the NUMERIC Credits granted on purchase;

@@ -2,13 +2,15 @@ syntax = "proto3";
 
 package decentraland.pulse;
 
-import "decentraland/common/vectors.proto";
+import "decentraland/common/options.proto";
 import "decentraland/pulse/pulse_shared.proto";
 
 message HandshakeRequest {
 	bytes auth_chain = 1;
   int32 profile_version = 2;
   optional PlayerInitialState initial_state = 3;
+  // Capability bitmask the client offers (absent/0 = the baseline quantized wire; the server masks off unknown bits and negotiates the intersection with its own features, so an old or new peer stays interoperable).
+  uint32 protocol_features = 4;
 }
 
 message PlayerInitialState {
@@ -43,10 +45,33 @@ message EmoteStart {
 message EmoteStop {
 }
 
+// Also announces the peer's realm; peers in different realms never see each other.
 message TeleportRequest {
   int32 parcel_index = 1;
-  decentraland.common.Vector3 position = 2;
-  string realm = 3;
+  uint32 position_x = 2 [(decentraland.common.quantized) = { min: 0, max: 16, bits: 8 }];
+  uint32 position_y = 3 [(decentraland.common.quantized) = { min: 0, max: 200, bits: 13 }];
+  uint32 position_z = 4 [(decentraland.common.quantized) = { min: 0, max: 16, bits: 8 }];
+  // Non-empty realm identifier. Rejected if empty.
+  string realm = 5;
+}
+
+// Rectangular parcel-coordinate span, inclusive on both corners. sint32 so negative parcel
+// coords (Genesis City is centered on 0,0) stay compact.
+message ParcelRect {
+  sint32 min_x = 1;
+  sint32 min_z = 2;
+  sint32 max_x = 3;
+  sint32 max_z = 4;
+}
+
+// Scene-listener connect: same signed-fetch auth chain as HandshakeRequest, plus an immutable
+// rect-set area of interest. Never sends state; never becomes a subject.
+message SceneListenerHandshakeRequest {
+  bytes auth_chain = 1;
+  string realm = 2;
+  repeated ParcelRect parcel_rects = 3;
+  // Local extension mirroring HandshakeRequest.protocol_features; a #29 client omitting it decodes to 0 = baseline wire.
+  uint32 protocol_features = 4;
 }
 
 message ClientMessage {
@@ -58,5 +83,6 @@ message ClientMessage {
     EmoteStart emote_start = 5;
     EmoteStop emote_stop = 6;
     TeleportRequest teleport = 7;
+    SceneListenerHandshakeRequest scene_listener_handshake = 8;
   }
 }

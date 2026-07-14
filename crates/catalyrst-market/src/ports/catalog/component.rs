@@ -125,7 +125,6 @@ impl CatalogComponent {
                 listings_count: r.try_get("listings_count").ok(),
                 owners_count: r.try_get("owners_count").ok(),
                 min_price: r.try_get("min_price").ok(),
-                max_price: r.try_get("max_price").ok(),
             };
             items.push(from_db_row_to_catalog_item(row, network_hint));
         }

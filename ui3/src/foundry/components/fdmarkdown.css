@@ -1,0 +1,42 @@
+/* The FdMarkdown block renderer's own shapes. Container rhythm (measure,
+   margins, text colour) stays with each page that embeds it. */
+
+/* One step under the h3 container this renders inside:
+   container name (h3) > markdown ## (h4) > markdown ### (h5). */
+.fd-gdd__dochead {
+  margin: var(--s-4) 0 var(--s-2);
+}
+
+.fd-gdd__docsubhead {
+  margin: var(--s-3) 0 var(--s-1-5);
+  font-size: var(--fs-13);
+  font-weight: var(--fw-semibold);
+  line-height: var(--lh-snug);
+  color: var(--ink-85);
+}
+
+.fd-gdd__inlinecode {
+  padding: 1px 4px;
+  border-radius: var(--r-control);
+  background: var(--fill-1);
+  font-family: var(--font-mono);
+  font-size: var(--fs-12);
+  color: var(--ink-7);
+}
+
+/* A passage the document quotes from somewhere else. */
+.fd-gdd__quote {
+  margin: 0 0 var(--s-3);
+  padding-left: var(--s-4);
+  border-left: 3px solid var(--line);
+}
+
+.fd-gdd__quote p:last-child {
+  margin-bottom: 0;
+}
+
+.fd-gdd__rule {
+  margin: var(--s-4) 0;
+  border: 0;
+  border-top: 1px solid var(--line);
+}

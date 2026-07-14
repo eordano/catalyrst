@@ -1,0 +1,37 @@
+.fd-evidence__shots {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: var(--s-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.fd-evidence__shot {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+}
+
+.fd-evidence__shot img {
+  display: block;
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  background: var(--fill-1);
+}
+
+.fd-evidence__shotname {
+  font-size: var(--fs-11);
+  line-height: var(--lh-ui);
+  color: var(--ink-45);
+  overflow-wrap: anywhere;
+}
+
+.fd-evidence__log {
+  padding: var(--s-3);
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  background: var(--fill-1);
+  overflow-wrap: anywhere;
+}

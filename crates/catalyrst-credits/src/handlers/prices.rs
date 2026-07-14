@@ -189,17 +189,30 @@ pub async fn quote(
         })
         .collect();
 
-    let mut amounts = Vec::with_capacity(body.amounts.len());
-    for raw in &body.amounts {
-        let credits = match (valid_wei(raw), mana_usd.as_ref()) {
-            (Some(wei), Some(mana_usd)) => state
+    // One batched round trip for every valid amount instead of a serial reprice
+    // per entry. Invalid/unparseable weis stay `None`, and -- mirroring the old
+    // per-call `.ok()` -- a DB failure leaves every valid slot `None` too; index
+    // alignment with `body.amounts` is preserved by carrying the saved indices.
+    let mut amounts: Vec<Option<String>> = vec![None; body.amounts.len()];
+    if let Some(mana_usd) = mana_usd.as_ref() {
+        let valid: Vec<(usize, String)> = body
+            .amounts
+            .iter()
+            .enumerate()
+            .filter_map(|(i, raw)| valid_wei(raw).map(|wei| (i, wei.to_string())))
+            .collect();
+        if !valid.is_empty() {
+            let weis: Vec<String> = valid.iter().map(|(_, wei)| wei.clone()).collect();
+            if let Ok(priced) = state
                 .pricing
-                .compute_credit_price(&state.credits.pool, wei, mana_usd)
+                .compute_credit_prices_batch(&state.credits.pool, &weis, mana_usd)
                 .await
-                .ok(),
-            _ => None,
-        };
-        amounts.push(credits);
+            {
+                for ((i, _), credit) in valid.iter().zip(priced) {
+                    amounts[*i] = Some(credit);
+                }
+            }
+        }
     }
 
     Ok(Json(PriceQuotesOut { items, amounts }))

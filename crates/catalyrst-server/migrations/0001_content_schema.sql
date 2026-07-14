@@ -8,7 +8,7 @@
 -- sync_backends.rs, bin/live.rs) depend on.
 --
 -- Apply this once against a fresh content DB, before starting the catalyrst
--- content/sync process — NOT via sqlx::migrate!, because catalyrst-media already
+-- content/sync process -- NOT via sqlx::migrate!, because catalyrst-media already
 -- owns the shared content DB's _sqlx_migrations table (a second sqlx migrator on
 -- the same table would collide).
 --

@@ -1,0 +1,55 @@
+.fd-continuity__scene.is-selected {
+  border-color: var(--brand-ink);
+}
+
+/* The card's stretched title link stops at the foot, so the bundle download
+   and the inline view stay their own targets. */
+.fd-continuity__actions {
+  position: relative;
+  z-index: 1;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  flex-wrap: wrap;
+}
+
+.fd-continuity__bundle {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+  margin-top: var(--s-3);
+}
+
+.fd-continuity__stewards {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+}
+
+.fd-continuity__steward {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-2);
+  padding: var(--s-3);
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  background: var(--panel);
+}
+
+.fd-continuity__steward.is-past {
+  opacity: 0.7;
+}
+
+.fd-continuity__basis {
+  flex-basis: 100%;
+  margin: 0;
+  max-width: var(--measure);
+  font-size: var(--fs-13);
+  line-height: var(--lh-body);
+  color: var(--ink-6);
+}

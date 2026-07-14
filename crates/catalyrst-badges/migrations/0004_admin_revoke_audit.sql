@@ -1,6 +1,6 @@
 -- Admin action audit log. Grant provenance lives inline on the per-user
 -- progress/tier rows (migration 0003), but revoke DELETEs those rows, so the
--- "who revoked, and when" information had nowhere to land — leaving an
+-- "who revoked, and when" information had nowhere to land -- leaving an
 -- asymmetric audit trail. This independent, append-only log records every
 -- bearer-gated admin grant/revoke regardless of whether the user rows survive
 -- the operation. Non-destructive: read API never touches this table.

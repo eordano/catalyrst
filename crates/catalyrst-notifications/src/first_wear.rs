@@ -1,7 +1,6 @@
 use std::time::Duration;
 
 use serde_json::{json, Value as Json};
-use sqlx::postgres::PgPoolOptions;
 use sqlx::{PgPool, Row};
 use uuid::Uuid;
 
@@ -171,14 +170,6 @@ async fn funnel_event(telemetry: Option<&PgPool>, kind: &str, body: Json) {
     .await;
 }
 
-pub async fn connect_pool(url: &str) -> Result<PgPool, sqlx::Error> {
-    PgPoolOptions::new()
-        .max_connections(2)
-        .acquire_timeout(Duration::from_secs(10))
-        .connect(url)
-        .await
-}
-
 pub fn spawn_first_wear(pools: FirstWearPools, shop_item_base: String) {
     tokio::spawn(async move {
         let mut ticker = tokio::time::interval(Duration::from_secs(POLL_SECS));
@@ -229,24 +220,24 @@ fn profile_name(metadata: &Json) -> Option<String> {
         .map(String::from)
 }
 
-fn image_catalyst_base() -> String {
+fn image_catalyst_base() -> Option<String> {
     std::env::var("FIRST_WEAR_IMAGE_BASE")
         .ok()
+        .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| "https://peer.decentraland.org".to_string())
 }
 
 fn repoint_image(image: Option<String>) -> Option<String> {
     let img = image?;
-    match img.find("/lambdas/") {
-        Some(ix) => Some(format!("{}{}", image_catalyst_base(), &img[ix..])),
-        None => Some(img),
+    match (img.find("/lambdas/"), image_catalyst_base()) {
+        (Some(ix), Some(base)) => Some(format!("{}{}", base, &img[ix..])),
+        _ => Some(img),
     }
 }
 
 fn short_address(addr: &str) -> String {
     if addr.len() > 12 {
-        format!("{}…{}", &addr[..6], &addr[addr.len() - 4..])
+        format!("{}...{}", &addr[..6], &addr[addr.len() - 4..])
     } else {
         addr.to_string()
     }

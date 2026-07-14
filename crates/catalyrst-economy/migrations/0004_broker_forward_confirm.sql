@@ -14,14 +14,14 @@
 --     tx hash and the auto-assigned minted tokenId are tracked here.
 --
 -- `status` lifecycle (broker_purchases):
---   'pending'    — claim row inserted BEFORE the buy broadcast (keyed path).
---   'sent'       — buy broadcast, hash recorded, receipt NOT yet observed.
---   'reverted'   — the buy (or forward) tx was mined with status==0.
---   'bought'     — buy confirmed on-chain (status==1); awaiting the forward tx.
---   'forwarding' — forward safeTransferFrom broadcast; receipt not yet observed.
---   'confirmed'  — the NFT is in escrow custody with the buyer lease recorded
+--   'pending'    -- claim row inserted BEFORE the buy broadcast (keyed path).
+--   'sent'       -- buy broadcast, hash recorded, receipt NOT yet observed.
+--   'reverted'   -- the buy (or forward) tx was mined with status==0.
+--   'bought'     -- buy confirmed on-chain (status==1); awaiting the forward tx.
+--   'forwarding' -- forward safeTransferFrom broadcast; receipt not yet observed.
+--   'confirmed'  -- the NFT is in escrow custody with the buyer lease recorded
 --                  (forward tx mined with status==1). ONLY this returns 200+txHash.
---   'error'      — a pre-broadcast failure (validation/estimate) after the claim.
+--   'error'      -- a pre-broadcast failure (validation/estimate) after the claim.
 --
 -- All additions are pure-additive and safe to re-run. `status` stays free TEXT
 -- (no CHECK to alter); the new states are written by the handler/reconciler.

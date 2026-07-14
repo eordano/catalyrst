@@ -8,11 +8,11 @@
 -- populates this column when it writes the grant.
 --
 -- Additive + idempotent: ADD COLUMN IF NOT EXISTS, no BEGIN/COMMIT (sqlx wraps
--- each migration in its own transaction). NULLable — pre-existing rows (and any
+-- each migration in its own transaction). NULLable -- pre-existing rows (and any
 -- manual/admin grant) simply leave it NULL; the ReleaseWorker logs a warn and
 -- skips a grant whose collection (or token_id) is unknown.
 --
--- NOTE: we do NOT `CREATE SCHEMA` — the market role (mpa_*) has CREATE on the
+-- NOTE: we do NOT `CREATE SCHEMA` -- the market role (mpa_*) has CREATE on the
 -- existing `marketplace` schema but NOT CREATE-on-database (see 0007).
 
 ALTER TABLE marketplace.usage_grants ADD COLUMN IF NOT EXISTS collection TEXT;

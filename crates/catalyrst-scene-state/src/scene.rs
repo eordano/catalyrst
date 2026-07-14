@@ -12,6 +12,16 @@ pub struct Client {
     pub address: String,
 
     pub tx: mpsc::Sender<Vec<u8>>,
+
+    /// The entity range this client was **actually given** at open time.
+    ///
+    /// Persisted rather than recomputed, because the scene can rewrite the
+    /// transport config from `onUpdate` (`registerScene`). Recomputing at close
+    /// time made a departing client's reclaim either leak its entities or wipe
+    /// a live neighbour's; recomputing at message time made two live clients
+    /// answer to the same window.
+    pub start: u32,
+    pub size: u32,
 }
 
 pub struct Scene {
@@ -55,9 +65,20 @@ impl Scene {
     ) -> (Arc<Client>, crate::runtime::InitState) {
         let index = self.runtime.allocate_client_index();
         let init = self.runtime.on_client_open(index, tx.clone());
-        let client = Arc::new(Client { index, address, tx });
+        let client = Arc::new(Client {
+            index,
+            address,
+            tx,
+            start: init.start,
+            size: init.size,
+        });
         self.clients.insert(index, Arc::clone(&client));
         (client, init)
+    }
+
+    /// The range `index` was assigned at open time, if it is still connected.
+    pub fn client_range(&self, index: u32) -> Option<(u32, u32)> {
+        self.clients.get(&index).map(|c| (c.start, c.size))
     }
 
     pub fn broadcast(&self, frame: &[u8], except: u32) {
@@ -72,7 +93,15 @@ impl Scene {
 
     pub fn remove_client(&self, index: u32) {
         self.clients.remove(&index);
-        self.runtime.on_client_close(index);
+
+        // Whatever the runtime reclaimed for the departing client is state the
+        // rest of the room has to be told about: without this the players still
+        // connected keep rendering a departed player's objects forever, while a
+        // fresh joiner served from `snapshot()` never sees them.
+        for body in self.runtime.on_client_close(index) {
+            let frame = crate::runtime::frame_crdt(&body);
+            self.broadcast(&frame, index);
+        }
     }
 
     pub fn kick_all(&self) -> usize {
@@ -89,8 +118,6 @@ impl Scene {
     }
 }
 
-// Reloads replace the Scene in the manager; aborting here keeps replaced scenes
-// from accumulating orphan delegation-renewal loops.
 impl Drop for Scene {
     fn drop(&mut self) {
         if let Some(task) = self.renewal.lock().take() {
@@ -168,5 +195,90 @@ mod tests {
         assert_eq!(a.index, 0);
         assert_eq!(b.index, 1);
         assert_eq!(scene.client_count(), 2);
+    }
+
+    /// D3. The assigned range travels with the client, so nothing downstream
+    /// has to re-derive it from a config the scene can move.
+    #[test]
+    fn client_carries_the_range_it_was_given() {
+        let scene = Scene::new(
+            "localScene",
+            Arc::new(RelayRuntime::new("h", ServerTransportConfig::default())),
+        );
+        let (tx, _rx) = mpsc::channel(16);
+        let (a, ia) = scene.add_client("0x1".into(), tx.clone());
+        let (b, ib) = scene.add_client("0x2".into(), tx);
+
+        assert_eq!((a.start, a.size), (ia.start, ia.size));
+        assert_eq!((b.start, b.size), (ib.start, ib.size));
+        assert_eq!(scene.client_range(a.index), Some((1024, 512)));
+        assert_eq!(scene.client_range(b.index), Some((1536, 512)));
+        assert_ne!((a.start, a.size), (b.start, b.size));
+    }
+
+    /// The refusal condition `ws::handle_socket` checks: a client for which no
+    /// representable range is left is handed `EMPTY_RANGE`, whose `size` is 0. It
+    /// can author nothing (`decode_client_batch` admits nothing,
+    /// `Authority::Client` rejects everything), so the socket layer now closes
+    /// rather than serving a connected-but-mute client -- and the slot must come
+    /// straight back, or one refusal would burn it forever.
+    #[test]
+    fn a_client_with_no_representable_range_gets_an_empty_one_and_frees_its_slot() {
+        use crate::runtime::EMPTY_RANGE;
+
+        // a config where the server band alone consumes the whole number space
+        let cfg = ServerTransportConfig {
+            reserved_local_entities: 512,
+            server_network_entities_limit: u32::MAX - 512,
+            client_network_entities_limit: 512,
+        };
+        assert_eq!(cfg.max_client_slots(), 0);
+
+        let scene = Scene::new("localScene", Arc::new(RelayRuntime::new("h", cfg)));
+        let (tx, _rx) = mpsc::channel(16);
+        let (client, init) = scene.add_client("0x1".into(), tx.clone());
+        assert_eq!((init.start, init.size), EMPTY_RANGE);
+        assert_eq!(init.size, 0, "this is what ws.rs refuses on");
+
+        // refusal path: remove_client returns the slot, so the next attempt is
+        // handed index 0 again rather than walking the index space
+        scene.remove_client(client.index);
+        assert_eq!(scene.client_count(), 0);
+        let (again, _) = scene.add_client("0x2".into(), tx);
+        assert_eq!(again.index, client.index);
+    }
+
+    /// D4. `remove_client` must push the reclaim out to everyone still here.
+    #[test]
+    fn removing_a_client_broadcasts_the_reclaim() {
+        use crate::crdt::{decode_batch, encode_batch, CrdtMessage};
+
+        let scene = Scene::new(
+            "localScene",
+            Arc::new(RelayRuntime::new("h", ServerTransportConfig::default())),
+        );
+        let (tx_a, _rx_a) = mpsc::channel(16);
+        let (tx_b, mut rx_b) = mpsc::channel(16);
+        let (a, _) = scene.add_client("0x1".into(), tx_a);
+        let (_b, _) = scene.add_client("0x2".into(), tx_b);
+
+        let body = encode_batch(&[CrdtMessage::Put {
+            entity: 1100,
+            component_id: 7,
+            timestamp: 1,
+            data: vec![1],
+        }]);
+        assert_eq!(scene.runtime.on_client_crdt(a.index, &body).len(), 1);
+
+        scene.remove_client(a.index);
+
+        let frame = rx_b
+            .try_recv()
+            .expect("the remaining client must be told the departed range is gone");
+        assert_eq!(frame[0], crate::protocol::MessageType::Crdt as u8);
+        assert_eq!(
+            decode_batch(&frame[1..]),
+            vec![CrdtMessage::DeleteEntity { entity: 1100 }]
+        );
     }
 }

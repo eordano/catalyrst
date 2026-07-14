@@ -1,7 +1,6 @@
 use anyhow::Result;
 use axum::routing::get;
 use axum::Router;
-use std::net::SocketAddr;
 use tower_http::trace::TraceLayer;
 
 use catalyrst_market::config::Config;
@@ -16,7 +15,7 @@ const ENV_DOCS: &[(&str, &str)] = &[
     ("HTTP_SERVER_PORT", "listen port (default 5133)"),
     (
         "DAPPS_PG_COMPONENT_PSQL_CONNECTION_STRING",
-        "required — dapps Postgres connection string",
+        "required \u{2014} dapps Postgres connection string",
     ),
     (
         "DAPPS_PG_COMPONENT_PSQL_SCHEMA",
@@ -24,35 +23,27 @@ const ENV_DOCS: &[(&str, &str)] = &[
     ),
     (
         "DAPPS_READ_PG_COMPONENT_PSQL_CONNECTION_STRING",
-        "required — dapps read-replica Postgres connection string",
+        "required \u{2014} dapps read-replica Postgres connection string",
     ),
     (
         "DAPPS_READ_PG_COMPONENT_PSQL_SCHEMA",
         "dapps read-replica schema (default marketplace)",
     ),
     (
-        "FAVORITES_PG_COMPONENT_PSQL_CONNECTION_STRING",
-        "required — favorites Postgres connection string",
-    ),
-    (
-        "FAVORITES_PG_COMPONENT_PSQL_SCHEMA",
-        "favorites schema (default favorites)",
-    ),
-    (
         "CONTENT_PG_COMPONENT_PSQL_CONNECTION_STRING",
-        "optional — catalyst content DB connection string",
+        "optional \u{2014} catalyst content DB connection string",
     ),
     (
         "CATALYRST_MARKET_ADMIN_TOKEN",
-        "optional — bearer token guarding the admin endpoints",
+        "optional \u{2014} bearer token guarding the admin endpoints",
     ),
     (
         "CATALYRST_MARKET_TRADES_PAGINATION",
-        "bool — enable trades pagination (default true)",
+        "bool \u{2014} enable trades pagination (default true)",
     ),
     (
         "TRADES_SYNC_UPSTREAM_URL",
-        "trades sync upstream (default https://marketplace-api.decentraland.org/v1/trades; empty disables sync)",
+        "trades sync upstream (unset/empty disables sync; no default)",
     ),
     (
         "TRADES_SYNC_INTERVAL_SECS",
@@ -61,6 +52,26 @@ const ENV_DOCS: &[(&str, &str)] = &[
     (
         "CATALYRST_MARKET_HTTP_CACHE_TTL_SECS",
         "response cache TTL in seconds (default 30; 0 disables)",
+    ),
+    (
+        "PRICE_BASE_URL",
+        "MANA/USD oracle: catalyrst-price base URL (default http://127.0.0.1:5156; same feed the credits checkout settles at)",
+    ),
+    (
+        "MANA_RATE_REFRESH_INTERVAL_MS",
+        "MANA/USD rate cache refresh interval in ms (default 90000)",
+    ),
+    (
+        "MANA_USD_FALLBACK_RATE",
+        "USD per MANA served before the first successful oracle fetch (default 0.02)",
+    ),
+    (
+        "MANA_ORACLE_MAX_STALENESS_SECONDS",
+        "max age of an oracle quote before it is refused (default 86400)",
+    ),
+    (
+        "MANA_RATE_STARTUP_TIMEOUT_MS",
+        "max time the initial rate fetch may delay startup (default 5000)",
     ),
     (
         "RUST_LOG",
@@ -72,13 +83,7 @@ const ENV_DOCS: &[(&str, &str)] = &[
 async fn main() -> Result<()> {
     catalyrst_envcfg::handle_standard_args("catalyrst-market", ENV_DOCS);
 
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "catalyrst_market=info,tower_http=info".into()),
-        )
-        .with_target(false)
-        .init();
+    catalyrst_envcfg::init_tracing("catalyrst_market=info,tower_http=info");
 
     let cfg = Config::from_env()?;
     let host = cfg.http_host.clone();
@@ -102,10 +107,5 @@ async fn main() -> Result<()> {
         .layer(TraceLayer::new_for_http())
         .with_state(state);
 
-    let addr: SocketAddr = format!("{}:{}", host, port).parse()?;
-    tracing::info!(%addr, "catalyrst-market listening");
-
-    let listener = tokio::net::TcpListener::bind(addr).await?;
-    axum::serve(listener, app).await?;
-    Ok(())
+    catalyrst_envcfg::run_service("catalyrst-market", host, port, app).await
 }

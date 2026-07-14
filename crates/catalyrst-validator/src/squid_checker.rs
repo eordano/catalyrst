@@ -1,18 +1,41 @@
+use std::sync::Arc;
+
 use async_trait::async_trait;
 use sqlx::PgPool;
 use tracing::warn;
 
 use crate::checker::{BlockchainChecker, BlockchainLayer};
 use crate::error::{PermissionResult, ValidatorError};
+use crate::land_rights::ParcelPermissionFlags;
 use crate::types::*;
 
 const DECENTRALAND_ADDRESS: &str = "0x1337e0507eb4ab47e08a179573ed4533d9e22a7b";
+
+#[derive(Debug, Clone, Default)]
+pub struct LandOperators {
+    pub operator: Option<String>,
+    pub update_operator: Option<String>,
+    pub update_managers: Vec<String>,
+    pub approved_for_all: Vec<String>,
+}
+
+/// The squid schema indexes LAND ownership and estate membership only: its
+/// `parcel`/`estate` tables carry `owner_id` and `estate_id` and nothing else,
+/// and it has no authorization entity at all. The operator, update-operator,
+/// update-manager and approved-for-all legs therefore cannot be answered
+/// locally and must come from whatever indexer a deployment configures for
+/// them; with none configured those legs are denied, never assumed.
+#[async_trait]
+pub trait LandOperatorResolver: Send + Sync {
+    async fn operators(&self, x: i32, y: i32) -> Result<Option<LandOperators>, String>;
+}
 
 pub struct SquidBlockchainChecker {
     pool: PgPool,
     additional_decentraland_address: Option<String>,
     tp_subgraph: Option<crate::tp_subgraph::TpSubgraph>,
     tp_root_via_squid: bool,
+    operator_resolver: Option<Arc<dyn LandOperatorResolver>>,
 }
 
 impl SquidBlockchainChecker {
@@ -22,6 +45,7 @@ impl SquidBlockchainChecker {
             additional_decentraland_address,
             tp_subgraph: None,
             tp_root_via_squid: false,
+            operator_resolver: None,
         }
     }
 
@@ -36,7 +60,13 @@ impl SquidBlockchainChecker {
             additional_decentraland_address,
             tp_subgraph,
             tp_root_via_squid,
+            operator_resolver: None,
         }
+    }
+
+    pub fn with_operator_resolver(mut self, resolver: Arc<dyn LandOperatorResolver>) -> Self {
+        self.operator_resolver = Some(resolver);
+        self
     }
 
     async fn third_party_root_from_squid(
@@ -77,10 +107,14 @@ impl SquidBlockchainChecker {
     }
 }
 
+// `account_id` is `0x<address>-<NETWORK>`; compare only the address segment and
+// compare it whole. A prefix test would let a truncated address ("0x") match
+// every account.
 fn address_matches_account_id(address: &str, account_id: &str) -> bool {
     account_id
-        .to_lowercase()
-        .starts_with(&address.to_lowercase())
+        .split('-')
+        .next()
+        .is_some_and(|owner| owner.eq_ignore_ascii_case(address))
 }
 
 fn addresses_match(a: &str, b: &str) -> bool {
@@ -92,44 +126,117 @@ fn address_in_list(address: &str, list: &[String]) -> bool {
     list.iter().any(|a| a.to_lowercase() == lower)
 }
 
-async fn check_parcel_access(
+pub fn operator_flags(address: &str, operators: &LandOperators) -> ParcelPermissionFlags {
+    let matches = |o: &Option<String>| {
+        o.as_deref()
+            .map(|v| addresses_match(address, v))
+            .unwrap_or(false)
+    };
+    ParcelPermissionFlags {
+        owner: false,
+        operator: matches(&operators.operator),
+        update_operator: matches(&operators.update_operator),
+        update_manager: address_in_list(address, &operators.update_managers),
+        approved_for_all: address_in_list(address, &operators.approved_for_all),
+    }
+}
+
+pub fn operator_grants(address: &str, operators: &LandOperators) -> bool {
+    operator_flags(address, operators).grants_deploy()
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct ParcelOwnership {
+    pub parcel_owner: Option<String>,
+    pub estate_owner: Option<String>,
+}
+
+impl ParcelOwnership {
+    pub fn owned_by(&self, address: &str) -> bool {
+        [&self.parcel_owner, &self.estate_owner]
+            .into_iter()
+            .flatten()
+            .any(|owner| address_matches_account_id(address, owner))
+    }
+}
+
+/// `None` means the squid has no parcel at those coordinates at all, which is
+/// a different answer from "indexed but you hold no rights on it".
+pub async fn parcel_ownership(
     pool: &PgPool,
-    address: &str,
     x: i32,
     y: i32,
-) -> Result<bool, ValidatorError> {
-    let parcel_owner: Option<String> =
-        sqlx::query_scalar("SELECT owner_id FROM squid_marketplace.parcel WHERE x = $1 AND y = $2")
-            .bind(x)
-            .bind(y)
-            .fetch_optional(pool)
-            .await
-            .map_err(|e| ValidatorError::BlockchainQuery(format!("parcel query failed: {e}")))?;
-
-    if let Some(ref owner_id) = parcel_owner {
-        if address_matches_account_id(address, owner_id) {
-            return Ok(true);
-        }
-    }
-
-    let estate_owner: Option<String> = sqlx::query_scalar(
-        "SELECT e.owner_id FROM squid_marketplace.parcel p \
-         JOIN squid_marketplace.estate e ON e.id = p.estate_id \
+) -> Result<Option<ParcelOwnership>, ValidatorError> {
+    let row: Option<(Option<String>, Option<String>)> = sqlx::query_as(
+        "SELECT p.owner_id, e.owner_id \
+         FROM squid_marketplace.parcel p \
+         LEFT JOIN squid_marketplace.estate e ON e.id = p.estate_id \
          WHERE p.x = $1 AND p.y = $2",
     )
     .bind(x)
     .bind(y)
     .fetch_optional(pool)
     .await
-    .map_err(|e| ValidatorError::BlockchainQuery(format!("estate query failed: {e}")))?;
+    .map_err(|e| ValidatorError::BlockchainQuery(format!("parcel query failed: {e}")))?;
 
-    if let Some(ref owner_id) = estate_owner {
-        if address_matches_account_id(address, owner_id) {
-            return Ok(true);
+    Ok(row.map(|(parcel_owner, estate_owner)| ParcelOwnership {
+        parcel_owner,
+        estate_owner,
+    }))
+}
+
+async fn operator_legs(
+    operator_resolver: Option<&dyn LandOperatorResolver>,
+    address: &str,
+    x: i32,
+    y: i32,
+) -> ParcelPermissionFlags {
+    let Some(resolver) = operator_resolver else {
+        return ParcelPermissionFlags::default();
+    };
+    match resolver.operators(x, y).await {
+        Ok(Some(operators)) => operator_flags(address, &operators),
+        Ok(None) => ParcelPermissionFlags::default(),
+        Err(e) => {
+            warn!(x, y, error = %e, "land operator resolver failed; denying operator legs (fail-closed)");
+            ParcelPermissionFlags::default()
         }
     }
+}
 
-    Ok(false)
+/// The single reading of who holds which right on a parcel: owner and estate
+/// owner from the local squid, the operator legs from the resolver. Both the
+/// deploy predicate and the lambdas permissions route answer from this, so
+/// what the route reports is what a deploy will actually be allowed to do.
+pub async fn parcel_permission_flags(
+    pool: &PgPool,
+    operator_resolver: Option<&dyn LandOperatorResolver>,
+    address: &str,
+    x: i32,
+    y: i32,
+) -> Result<Option<ParcelPermissionFlags>, ValidatorError> {
+    let Some(ownership) = parcel_ownership(pool, x, y).await? else {
+        return Ok(None);
+    };
+    let mut flags = operator_legs(operator_resolver, address, x, y).await;
+    flags.owner = ownership.owned_by(address);
+    Ok(Some(flags))
+}
+
+pub async fn check_parcel_access(
+    pool: &PgPool,
+    operator_resolver: Option<&dyn LandOperatorResolver>,
+    address: &str,
+    x: i32,
+    y: i32,
+) -> Result<bool, ValidatorError> {
+    let ownership = parcel_ownership(pool, x, y).await?;
+    if ownership.is_some_and(|o| o.owned_by(address)) {
+        return Ok(true);
+    }
+    Ok(operator_legs(operator_resolver, address, x, y)
+        .await
+        .grants_deploy())
 }
 
 async fn check_name_ownership(
@@ -137,12 +244,19 @@ async fn check_name_ownership(
     address: &str,
     name: &str,
 ) -> Result<bool, ValidatorError> {
-    let owner: Option<String> =
-        sqlx::query_scalar("SELECT owner_id FROM squid_marketplace.ens WHERE subdomain = $1")
-            .bind(name)
-            .fetch_optional(pool)
-            .await
-            .map_err(|e| ValidatorError::BlockchainQuery(format!("ENS query failed: {e}")))?;
+    // Ownership comes from the NFT entity, never from `ens.owner_id`: the squid's
+    // ENS handler seeds the owner from the registrar *caller* and never updates
+    // it, so a DCLControllerV2 registration records the controller contract
+    // rather than the buyer. `nft.owner_id` is the ERC-721 owner.
+    let owner: Option<String> = sqlx::query_scalar(
+        "SELECT n.owner_id FROM squid_marketplace.nft n
+         JOIN squid_marketplace.ens e ON n.ens_id = e.id
+         WHERE n.category = 'ens' AND e.subdomain = $1",
+    )
+    .bind(name)
+    .fetch_optional(pool)
+    .await
+    .map_err(|e| ValidatorError::BlockchainQuery(format!("ENS query failed: {e}")))?;
 
     Ok(match owner {
         Some(o) => address_matches_account_id(address, &o),
@@ -329,17 +443,21 @@ async fn check_nft_ownership(
     let prefix_sql = if overlay {
         "SELECT \
              EXISTS (SELECT 1 FROM squid_marketplace.nft \
-                     WHERE urn LIKE $1 AND owner_address = lower($2)) \
+                     WHERE urn LIKE $1 ESCAPE '\\' AND owner_address = lower($2)) \
           OR EXISTS (SELECT 1 FROM marketplace.usage_grants ug \
                      WHERE ug.status = 'active' \
                        AND ug.grantee_address = lower($2) \
-                       AND ug.urn LIKE $1)"
+                       AND ug.urn LIKE $1 ESCAPE '\\')"
     } else {
         "SELECT EXISTS (SELECT 1 FROM squid_marketplace.nft \
-                     WHERE urn LIKE $1 AND owner_address = lower($2))"
+                     WHERE urn LIKE $1 ESCAPE '\\' AND owner_address = lower($2))"
     };
+    let esc = urn
+        .replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_");
     let owns_prefix: bool = sqlx::query_scalar(prefix_sql)
-        .bind(format!("{urn}:%"))
+        .bind(format!("{esc}:%"))
         .bind(address)
         .fetch_one(pool)
         .await
@@ -373,7 +491,14 @@ impl BlockchainChecker for SquidBlockchainChecker {
     ) -> Result<Vec<bool>, ValidatorError> {
         let mut results = Vec::with_capacity(parcels.len());
         for &(x, y) in parcels {
-            let has_access = check_parcel_access(&self.pool, eth_address, x, y).await?;
+            let has_access = check_parcel_access(
+                &self.pool,
+                self.operator_resolver.as_deref(),
+                eth_address,
+                x,
+                y,
+            )
+            .await?;
             results.push(has_access);
         }
         Ok(results)
@@ -546,6 +671,22 @@ mod tests {
         ));
     }
 
+    #[test]
+    fn a_truncated_address_never_matches() {
+        let account_id = "0x959e104e1a4db6317fa58f8295f586e1a978c297-ETHEREUM";
+        for prefix in [
+            "0x",
+            "0x959e",
+            "0x959e104e1a4db6317fa58f8295f586e1a978c29",
+            "",
+        ] {
+            assert!(
+                !address_matches_account_id(prefix, account_id),
+                "prefix {prefix:?} must not authorize"
+            );
+        }
+    }
+
     #[tokio::test]
     async fn decentraland_address_check() {
         let checker = SquidBlockchainChecker {
@@ -553,6 +694,7 @@ mod tests {
             additional_decentraland_address: Some("0xextra".to_string()),
             tp_subgraph: None,
             tp_root_via_squid: false,
+            operator_resolver: None,
         };
 
         assert!(checker.is_address_owned_by_decentraland(DECENTRALAND_ADDRESS));
@@ -569,5 +711,25 @@ mod tests {
         assert!(address_in_list("0xABC123", &list));
         assert!(address_in_list("0xdef456", &list));
         assert!(!address_in_list("0x999999", &list));
+    }
+
+    #[test]
+    fn operator_grants_each_leg() {
+        let ops = LandOperators {
+            operator: Some("0xAAA1".into()),
+            update_operator: Some("0xbbb2".into()),
+            update_managers: vec!["0xccc3".into()],
+            approved_for_all: vec!["0xDDD4".into()],
+        };
+        assert!(operator_grants("0xaaa1", &ops));
+        assert!(operator_grants("0xBBB2", &ops));
+        assert!(operator_grants("0xCCC3", &ops));
+        assert!(operator_grants("0xddd4", &ops));
+        assert!(!operator_grants("0xeee5", &ops));
+    }
+
+    #[test]
+    fn operator_grants_denies_on_empty() {
+        assert!(!operator_grants("0xaaa1", &LandOperators::default()));
     }
 }

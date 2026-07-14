@@ -2,11 +2,11 @@
 --
 -- Two additive, non-destructive changes:
 --
--- 1. `admin_audit.actor` — the operator label resolved from the trusted
+-- 1. `admin_audit.actor` -- the operator label resolved from the trusted
 --    `X-Catalyrst-Admin` request header (set server-side by the admin console).
 --    Nullable so existing rows and header-less calls stay valid.
 --
--- 2. `credit_grant_idempotency` — makes operator credit grants safe to retry.
+-- 2. `credit_grant_idempotency` -- makes operator credit grants safe to retry.
 --    A grant may carry an optional client-supplied idempotency key; the first
 --    grant for a key records its result, and any replay of the same key returns
 --    that stored result WITHOUT applying a second grant. The UNIQUE primary key

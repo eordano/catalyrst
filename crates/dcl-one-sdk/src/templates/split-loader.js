@@ -6,8 +6,18 @@
 'use strict'
 
 var __dclOneSdkChunkPath = '__DCL_ONE_SDK_CHUNK__'
+// Empty unless this scene uses smart items. The smart-item runtime is a second
+// registry chunk layered over the first, so a scene without smart items never
+// ships, reads, decodes or evaluates it.
+var __dclOneSmartChunkPath = '__DCL_ONE_SMART_CHUNK__'
 var __dclOneSceneChunkPath = '__DCL_ONE_SCENE_CHUNK__'
 var __dclOneSceneModule = null
+
+// Upstream bakes DCL_MAX_COMPOSITE_ENTITY into its single bundle as an esbuild
+// define; the consumer (@dcl/ecs createEntityContainer) guards with a typeof
+// check, so a global set before the sdk chunk evals is equivalent — and keeps
+// the sdk-runtime chunk bytes independent of composite content (cache contract).
+globalThis.DCL_MAX_COMPOSITE_ENTITY = __DCL_ONE_MAX_COMPOSITE_ENTITY__
 
 // Chunks are esbuild --charset=ascii output (pure ASCII bytes), and TextDecoder is
 // not a sandbox contract on either runtime, so decode with chunked
@@ -37,6 +47,32 @@ function __dclOneMakeRequire(__dclOneRegistry, __dclOneHostRequire) {
     if (__dclOneSpec in __dclOneRegistry) return __dclOneRegistry[__dclOneSpec]
     throw new Error(
       'dcl-one split bundle: "' + __dclOneSpec + '" is not in the sdk runtime registry'
+    )
+  }
+}
+
+// Layer one registry over another, later wins. Property *descriptors* are copied,
+// not values: registry entries are lazy getters (`@dcl/sdk/platform` calls the
+// host at module scope, so reading one eagerly here would run it before the scene
+// starts), and the generated registries mark them configurable so the second
+// defineProperty of the same key is legal. The one key that is deliberately in
+// both chunks is '~sdk/script-utils' — core has the no-op stub, smart has the
+// real runScripts runtime — so this shadowing is what makes smart items run.
+function __dclOneOverlay(__dclOneBase, __dclOneTop) {
+  var __dclOneOut = {}
+  __dclOneCopyDescriptors(__dclOneOut, __dclOneBase)
+  __dclOneCopyDescriptors(__dclOneOut, __dclOneTop)
+  return __dclOneOut
+}
+
+function __dclOneCopyDescriptors(__dclOneTarget, __dclOneSource) {
+  var __dclOneKeys = Object.keys(__dclOneSource)
+  for (var __dclOneI = 0; __dclOneI < __dclOneKeys.length; __dclOneI++) {
+    var __dclOneKey = __dclOneKeys[__dclOneI]
+    Object.defineProperty(
+      __dclOneTarget,
+      __dclOneKey,
+      Object.getOwnPropertyDescriptor(__dclOneSource, __dclOneKey)
     )
   }
 }
@@ -74,11 +110,26 @@ module.exports.onStart = async function () {
   var __dclOneSceneSrc = __dclOneDecode(
     (await __dclOneRuntime.readFile({ fileName: __dclOneSceneChunkPath })).content
   )
+  var __dclOneSmartSrc = __dclOneSmartChunkPath
+    ? __dclOneDecode(
+        (await __dclOneRuntime.readFile({ fileName: __dclOneSmartChunkPath })).content
+      )
+    : null
   var __dclOneRegistry = __dclOneEvalChunk(
     __dclOneSdkSrc,
     __dclOneSdkChunkPath,
     __dclOneMakeRequire({}, require)
   )
+  if (__dclOneSmartSrc !== null) {
+    __dclOneRegistry = __dclOneOverlay(
+      __dclOneRegistry,
+      __dclOneEvalChunk(
+        __dclOneSmartSrc,
+        __dclOneSmartChunkPath,
+        __dclOneMakeRequire(__dclOneRegistry, require)
+      )
+    )
+  }
   var __dclOneScene = __dclOneEvalChunk(
     __dclOneSceneSrc,
     __dclOneSceneChunkPath,

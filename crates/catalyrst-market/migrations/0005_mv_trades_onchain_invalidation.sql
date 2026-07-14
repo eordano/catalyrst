@@ -1,8 +1,8 @@
 -- catalyrst-market: on-chain trade invalidation for mv_trades (Marketplace v3).
 --
 -- Audit gap #11. Migration 0004 derived `status` only from catalyrst's local
--- federation log (market_cancellations + expiry → cancelled, market_trades_local
--- executions → sold) and explicitly COLLAPSED the on-chain
+-- federation log (market_cancellations + expiry -> cancelled, market_trades_local
+-- executions -> sold) and explicitly COLLAPSED the on-chain
 -- signature-index-invalidation path. That diverges from upstream
 -- marketplace-server's `mv_trades` (src/logic/trades/materialized-view.ts), whose
 -- `status` CASE flips a trade out of `open` the instant it is invalidated
@@ -10,11 +10,11 @@
 --
 -- This migration restores the three missing on-chain invalidation branches,
 -- byte-faithful to the upstream view:
---   (a) squid_trades.trade.action = 'cancelled'  — an explicit on-chain cancel
+--   (a) squid_trades.trade.action = 'cancelled'  -- an explicit on-chain cancel
 --       of the trade's signature.
---   (b) signer signature_index nonce bump — the signer rotated their per-account
+--   (b) signer signature_index nonce bump -- the signer rotated their per-account
 --       signature index, invalidating every trade signed with the old index.
---   (c) marketplace-contract signature_index nonce bump — the off-chain
+--   (c) marketplace-contract signature_index nonce bump -- the off-chain
 --       marketplace contract rotated its global signature index, invalidating
 --       every trade on that network.
 -- All three resolve to `status = 'cancelled'`, exactly as upstream. The
@@ -26,12 +26,12 @@
 -- allowed to; in a real deployment the indexer owns it. The MV joins it with
 -- LEFT JOINs, so against an unpopulated index the branches behave exactly as
 -- upstream's do:
---   * st NULL          → branch (a) never fires.
---   * si_signer NULL   → branch (b) fires iff signerSignatureIndex != 0.
---   * si_contract NULL → branch (c) fires iff contractSignatureIndex != 0.
+--   * st NULL          -> branch (a) never fires.
+--   * si_signer NULL   -> branch (b) fires iff signerSignatureIndex != 0.
+--   * si_contract NULL -> branch (c) fires iff contractSignatureIndex != 0.
 -- i.e. a freshly-signed trade (both indices == its current on-chain index) stays
 -- `open`, and the instant a real cancellation / nonce-bump row lands the trade
--- flips to `cancelled` on the next refresh — the exact upstream semantics, no
+-- flips to `cancelled` on the next refresh -- the exact upstream semantics, no
 -- approximation.
 --
 -- Robustness: the catalyrst migration role may lack CREATE-schema privilege (the
@@ -205,7 +205,7 @@ BEGIN
         -- trade's network. Addresses are the OffChainMarketplace{,V2}
         -- {Polygon,Ethereum} mainnet contracts from decentraland-transactions.
         -- Upstream embeds them via getContract(...).address; both squid-indexed
-        -- addresses and these literals are compared lowercased — identical to the
+        -- addresses and these literals are compared lowercased -- identical to the
         -- live getTrades query (ports/trades/queries.ts, which `.toLowerCase()`s
         -- all four). marketplace-server's materialized-view.ts happens to leave the
         -- mixed-case Polygon-V1 literal un-lowercased (so that one branch never

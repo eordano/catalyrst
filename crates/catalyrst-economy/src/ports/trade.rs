@@ -354,7 +354,7 @@ pub fn validate_trade(
     }
     if !is_item_order && c.uses != 1 {
         return Err(err(format!(
-            "public_nft_order with uses={} — a signed NFT order sells one token; refusing \
+            "public_nft_order with uses={} \u{2014} a signed NFT order sells one token; refusing \
              multi-use NFT orders",
             c.uses
         )));

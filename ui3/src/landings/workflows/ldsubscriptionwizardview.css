@@ -1,0 +1,131 @@
+.subscription-wizard {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 64px 24px 96px;
+  box-sizing: border-box;
+  color: #fff;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.subscription-wizard__intro,
+.subscription-wizard__progress,
+.subscription-wizard__done,
+.subscription-wizard__error {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 16px;
+  padding: 32px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.subscription-wizard h1 {
+  margin: 0;
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.subscription-wizard p {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.subscription-wizard__controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.subscription-wizard__btn {
+  appearance: none;
+  font: inherit;
+  font-weight: 700;
+  font-size: 14px;
+  padding: 11px 22px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.06);
+  color: #fff;
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+.subscription-wizard__btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+.subscription-wizard__btn--primary {
+  background: #ff2d55;
+  border-color: #ff2d55;
+  color: #fff;
+}
+.subscription-wizard__btn--primary:hover {
+  background: #ff5277;
+  border-color: #ff5277;
+}
+.subscription-wizard__btn--danger {
+  background: transparent;
+  border-color: rgba(255, 90, 90, 0.5);
+  color: #ff8a8a;
+}
+.subscription-wizard__btn--danger:hover {
+  background: rgba(255, 90, 90, 0.12);
+}
+
+.subscription-wizard__select {
+  margin: 0;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 16px;
+  padding: 24px 28px;
+  background: rgba(255, 255, 255, 0.03);
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.subscription-wizard__select legend {
+  padding: 0 8px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.6);
+}
+.subscription-wizard__group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.subscription-wizard__group-label {
+  font-size: 14px;
+  font-weight: 700;
+  color: #fff;
+}
+.subscription-wizard__type {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.82);
+  cursor: pointer;
+  text-transform: capitalize;
+}
+.subscription-wizard__type input {
+  width: 16px;
+  height: 16px;
+  accent-color: #ff2d55;
+  cursor: pointer;
+}
+
+.subscription-wizard__badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 13px;
+  font-weight: 600;
+  color: #34ce77;
+}

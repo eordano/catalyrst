@@ -25,8 +25,8 @@ pub fn community_id_from_room_name(room_name: &str) -> String {
         .to_string()
 }
 
-pub fn scene_room_name(scene_id: &str) -> String {
-    format!("scene:{scene_id}")
+pub fn scene_room_name(realm_name: &str, scene_id: &str) -> String {
+    format!("scene:{realm_name}:{scene_id}")
 }
 
 pub fn world_scene_room_name(world: &str, scene_id: &str) -> String {
@@ -37,22 +37,10 @@ pub fn world_room_name(world: &str) -> String {
     format!("{}{}", WORLD_ROOM_PREFIX, world)
 }
 
-pub fn build_adapter_url(host: &str, token: &str) -> String {
-    let host = if host.starts_with("wss://") || host.starts_with("ws://") {
-        host.to_string()
-    } else {
-        format!("wss://{}", host)
-    };
-    format!("livekit:{}?access_token={}", host, token)
-}
-
 pub fn address_from_identity(identity: &str) -> Option<String> {
     let lower = identity.to_lowercase();
     let candidate: String = lower.chars().take(42).collect();
-    if candidate.len() == 42
-        && candidate.starts_with("0x")
-        && candidate[2..].chars().all(|c| c.is_ascii_hexdigit())
-    {
+    if catalyrst_types::is_eth_address(&candidate) {
         Some(candidate)
     } else {
         None

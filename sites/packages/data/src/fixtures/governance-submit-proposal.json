@@ -1,0 +1,170 @@
+{
+  "_source": "https://raw.githubusercontent.com/decentraland/governance-ui/main/src/pages/submit/index.tsx (category groups + order + onClick/href behavior), src/types/proposals.ts (ProposalType/PoiType/HiringType/CatalystType enums), src/utils/locations.ts (submit() route slug = /submit/<type-with-dashes>), and the ui3 GvSubmitProposal COPY block (verbatim governance-ui i18n category.*_title / *_description / page.submit.*). Governance is NOT a Catalyst service (DAO runs on Snapshot + Aragon), so this is a SIMULATED/derived fixture; the upstream governance repo paths 404 (the live source is decentraland/governance-ui).",
+  "page": {
+    "title": "Submit Proposal",
+    "lead": "Select a proposal category to get started"
+  },
+  "groups": [
+    {
+      "id": "common",
+      "heading": "Common Actions",
+      "categories": [
+        {
+          "type": "catalyst",
+          "title": "Catalyst Node",
+          "description": "Add or remove a node to the decentralized network of community-run content servers",
+          "active": true,
+          "behavior": "chooser",
+          "choiceTitle": "Catalyst Node"
+        },
+        {
+          "type": "poi",
+          "title": "Point of Interest",
+          "description": "Highlight a noteworthy Decentraland location on the map for others to find",
+          "active": true,
+          "behavior": "chooser",
+          "choiceTitle": "Point of Interest"
+        },
+        {
+          "type": "ban_name",
+          "title": "Name Ban",
+          "description": "Ban an offensive name from Decentraland",
+          "active": true,
+          "behavior": "link",
+          "route": "/governance/submit/ban-name"
+        },
+        {
+          "type": "linked_wearables",
+          "title": "Linked Wearables Registry",
+          "description": "Request to be admitted as an approved partner to create wearables as representations of your NFTs in Decentraland",
+          "active": true,
+          "behavior": "link",
+          "route": "/governance/submit/linked-wearables"
+        },
+        {
+          "type": "grant",
+          "title": "Grant Request",
+          "description": "Request funding from the DAO for a project or contribution",
+          "active": false,
+          "behavior": "link",
+          "route": "/governance/submit/grant",
+          "paused": "The Decentraland DAO Grants Program has been put on hold by community decision. Please read the relevant governance proposal to learn more or visit the DAO Discord Server to engage with members of the community."
+        },
+        {
+          "type": "hiring",
+          "title": "Hiring",
+          "description": "Request a Community member to be added or removed from a Committee",
+          "active": true,
+          "behavior": "chooser",
+          "choiceTitle": "Hiring"
+        },
+        {
+          "type": "council_decision_veto",
+          "title": "Council Decision Veto",
+          "description": "Request to veto a Council Decision",
+          "active": true,
+          "isNew": true,
+          "behavior": "link",
+          "route": "/governance/submit/council-veto"
+        }
+      ]
+    },
+    {
+      "id": "bidding",
+      "heading": "Bidding & Tendering Process",
+      "categories": [
+        {
+          "type": "pitch",
+          "title": "Pitch",
+          "description": "Validate ideas to spawn new projects",
+          "active": true,
+          "behavior": "link",
+          "route": "/governance/submit/pitch"
+        }
+      ]
+    },
+    {
+      "id": "process",
+      "heading": "Governance Process",
+      "categories": [
+        {
+          "type": "poll",
+          "title": "Poll",
+          "description": "Ask community members for their opinion on an issue or topic",
+          "active": true,
+          "behavior": "link",
+          "route": "/governance/submit/poll"
+        }
+      ]
+    }
+  ],
+  "choosers": {
+    "catalyst": {
+      "title": "Catalyst Node",
+      "prompt": "What would you like to do?",
+      "options": [
+        {
+          "request": "add",
+          "type": "catalyst_add",
+          "title": "Add Catalyst Node",
+          "description": "Add a node to the network of community-run servers",
+          "active": true,
+          "route": "/governance/submit/catalyst?request=add"
+        },
+        {
+          "request": "remove",
+          "type": "catalyst_remove",
+          "title": "Remove Catalyst Node",
+          "description": "Remove a node from the network of community-run servers",
+          "active": true,
+          "route": "/governance/submit/catalyst?request=remove"
+        }
+      ]
+    },
+    "poi": {
+      "title": "Point of Interest",
+      "prompt": "What would you like to do?",
+      "options": [
+        {
+          "request": "add",
+          "type": "add_poi",
+          "title": "Add POI",
+          "description": "Highlight a noteworthy Decentraland location on the map for others to find",
+          "active": true,
+          "route": "/governance/submit/poi?request=add"
+        },
+        {
+          "request": "remove",
+          "type": "remove_poi",
+          "title": "Remove POI",
+          "description": "Maybe a given location wasn\u2019t noteworthy enough. We dare you to try to put it down.",
+          "active": true,
+          "route": "/governance/submit/poi?request=remove"
+        }
+      ]
+    },
+    "hiring": {
+      "title": "Hiring",
+      "prompt": "What would you like to do?",
+      "options": [
+        {
+          "request": "add",
+          "type": "hiring_add",
+          "title": "Add Committee Member",
+          "description": "Promote a noteworthy Decentraland citizen to be hired by the DAO",
+          "active": false,
+          "paused": "There are no open seats in any of the DAO Committees",
+          "route": "/governance/submit/hiring?request=add"
+        },
+        {
+          "request": "remove",
+          "type": "hiring_remove",
+          "title": "Remove Committee Member",
+          "description": "Suggest to demote a specific DAO member from their Committee duties",
+          "active": true,
+          "route": "/governance/submit/hiring?request=remove"
+        }
+      ]
+    }
+  }
+}

@@ -28,7 +28,7 @@ impl HandshakeError {
             HandshakeError::InvalidJson => "Invalid auth chain JSON".to_string(),
             HandshakeError::NoAuthChain => "No x-identity-auth-chain-* headers found.".to_string(),
             HandshakeError::StaleTimestamp => {
-                format!("timestamp outside ±{MAX_TIMESTAMP_SKEW_MS}ms skew window")
+                format!("timestamp outside \u{B1}{MAX_TIMESTAMP_SKEW_MS}ms skew window")
             }
             HandshakeError::InvalidAuthChain(e) => e.clone(),
         }
@@ -98,7 +98,16 @@ pub fn verify_handshake(
     request: &HandshakeRequest,
     now_ms: i64,
 ) -> Result<VerifiedHandshake, HandshakeError> {
-    let json = std::str::from_utf8(&request.auth_chain).map_err(|_| HandshakeError::InvalidJson)?;
+    verify_handshake_bytes(&request.auth_chain, now_ms)
+}
+
+/// Verify a signed-fetch auth chain from its raw header-bag bytes. Shared by the player and
+/// scene-listener handshake paths, which sign the identical `"connect"/"/"` payload.
+pub fn verify_handshake_bytes(
+    auth_chain: &[u8],
+    now_ms: i64,
+) -> Result<VerifiedHandshake, HandshakeError> {
+    let json = std::str::from_utf8(auth_chain).map_err(|_| HandshakeError::InvalidJson)?;
     let headers: BTreeMap<String, String> =
         serde_json::from_str(json).map_err(|_| HandshakeError::InvalidJson)?;
 
@@ -173,6 +182,7 @@ mod tests {
             auth_chain: vec![0xFF, 0xFE],
             profile_version: 0,
             initial_state: None,
+            protocol_features: 0,
         };
         assert_eq!(
             verify_handshake(&req, 1000),
@@ -183,6 +193,7 @@ mod tests {
             auth_chain: b"not json".to_vec(),
             profile_version: 0,
             initial_state: None,
+            protocol_features: 0,
         };
         assert_eq!(
             verify_handshake(&req, 1000),
@@ -198,6 +209,7 @@ mod tests {
             auth_chain: json.into_bytes(),
             profile_version: 0,
             initial_state: None,
+            protocol_features: 0,
         };
         assert_eq!(
             verify_handshake(&req, 1000),
@@ -217,6 +229,7 @@ mod tests {
             auth_chain: json.into_bytes(),
             profile_version: 0,
             initial_state: None,
+            protocol_features: 0,
         };
 
         assert_eq!(
@@ -237,6 +250,7 @@ mod tests {
             auth_chain: json.into_bytes(),
             profile_version: 0,
             initial_state: None,
+            protocol_features: 0,
         };
         let err = verify_handshake(&req, 100000).unwrap_err();
         assert!(matches!(err, HandshakeError::InvalidAuthChain(_)));
@@ -244,14 +258,15 @@ mod tests {
 
     #[tokio::test]
     async fn accepts_real_signed_chain() {
+        use alloy::signers::{local::PrivateKeySigner, Signer};
         use catalyrst_types::AuthChain as Chain;
-        use ethers_signers::{LocalWallet, Signer};
 
-        let root: LocalWallet = "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
-            .parse()
-            .unwrap();
+        let root: PrivateKeySigner =
+            "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
+                .parse()
+                .unwrap();
         let root_addr = format!("{:#x}", root.address());
-        let ephemeral: LocalWallet =
+        let ephemeral: PrivateKeySigner =
             "59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d"
                 .parse()
                 .unwrap();
@@ -264,17 +279,16 @@ mod tests {
         let eph_payload = format!(
             "Decentraland Login\nEphemeral address: {eph_addr}\nExpiration: 2099-01-01T00:00:00.000Z"
         );
-        let eph_sig = format!(
-            "0x{}",
-            root.sign_message(eph_payload.as_bytes()).await.unwrap()
-        );
-        let final_sig = format!(
-            "0x{}",
-            ephemeral
-                .sign_message(connect_payload.as_bytes())
-                .await
-                .unwrap()
-        );
+        let eph_sig = root
+            .sign_message(eph_payload.as_bytes())
+            .await
+            .unwrap()
+            .to_string();
+        let final_sig = ephemeral
+            .sign_message(connect_payload.as_bytes())
+            .await
+            .unwrap()
+            .to_string();
 
         let chain: Chain = vec![
             AuthLink {
@@ -300,6 +314,7 @@ mod tests {
             auth_chain: json.into_bytes(),
             profile_version: 0,
             initial_state: None,
+            protocol_features: 0,
         };
 
         let now_ms: i64 = ts.parse().unwrap();
@@ -318,6 +333,7 @@ mod tests {
             auth_chain: bad_json.into_bytes(),
             profile_version: 0,
             initial_state: None,
+            protocol_features: 0,
         };
         assert!(matches!(
             verify_handshake(&bad_req, now_ms).unwrap_err(),

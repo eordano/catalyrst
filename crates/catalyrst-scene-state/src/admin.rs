@@ -244,7 +244,7 @@ mod tests {
     fn test_cfg() -> crate::config::Config {
         crate::config::Config {
             http_host: "127.0.0.1".into(),
-            http_port: 5153,
+            http_port: 5209,
             local_scene_path: None,
             world_server_url: None,
             debugging_secret: None,

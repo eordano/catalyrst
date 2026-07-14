@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        DROP TRIGGER IF EXISTS deployment_notify_trigger ON deployments;\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "013bd39f47cff9aa4bbe43cb30780ec1a30eab0ddd635938b9f8ca3def299aba"
+}

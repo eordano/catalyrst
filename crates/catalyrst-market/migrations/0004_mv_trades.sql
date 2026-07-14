@@ -16,7 +16,7 @@
 --     item_id/amount/creator/owner/category/nft_id/issued_id/nft_name.
 --   * `amount_received` = the erc20 amount of the received side.
 --   * `available`       = the squid item's available supply (NULL for nft orders
---     that do not join an item — handled downstream by `available IS NULL OR
+--     that do not join an item -- handled downstream by `available IS NULL OR
 --     available > 0`).
 --   * trades_owner_ok: only surface a trade whose every `sent` ERC721 asset is
 --     still owned by the signer (stale-listing guard, identical to upstream).
@@ -26,13 +26,13 @@
 --   schema (cancelled / sold / signature-index invalidation). That schema is not
 --   indexed in the catalyrst squid mirror. catalyrst instead tracks the same two
 --   reachable lifecycle transitions in its own wallet-signed federation log:
---     * cancelled — the trade expired (expires_at < now()), OR a signed
+--     * cancelled -- the trade expired (expires_at < now()), OR a signed
 --       cancellation targeting this trade's hashed_signature was recorded in
 --       marketplace.market_cancellations.
---     * sold      — the number of recorded executions in
+--     * sold      -- the number of recorded executions in
 --       marketplace.market_trades_local (keyed by order_signature_hash) reached
 --       the trade's `uses` allowance.
---     * open      — otherwise.
+--     * open      -- otherwise.
 --   The signature-index-invalidation branch (signer/contract nonce bumps) has no
 --   catalyrst data source, so it collapses into the cancellation/expiry path,
 --   which covers every state reachable through the catalyrst write path.

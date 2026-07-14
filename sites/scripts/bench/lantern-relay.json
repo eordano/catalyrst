@@ -1,0 +1,141 @@
+{
+  "slug": "lantern-relay",
+  "title": "Lantern Relay",
+  "description": "Instrument-stream run against a local creator preview of the workspace copy, per the games/smoke.json pattern: `npx @dcl/sdk-commands start --no-browser --port 8024` in the scene dir, `decentra-bevy --server http://127.0.0.1:8024 --mcp --mcp-port 8134`. Beacon stands at plaza center (8, 1.5, 8), pedestals on a ring of radius 6; both are pointer-click targets (IA_POINTER). The bot arms the round at the beacon (10 s countdown), walks to the east pedestal (14, 0, 8), picks its lantern up, and carries it back; the 2 s rekindle hold auto-banks the lantern (BUILD.md documents that [agent-decided] simplification), so carry -> rekindle-start -> return all land from one round trip. Waits are sized to catch the round-start line after the countdown and several fade cycles afterward.",
+  "realm": "http://127.0.0.1:8024",
+  "authoritative": false,
+  "spawn": {
+    "x": 8,
+    "y": 0,
+    "z": 2
+  },
+  "steps": [
+    {
+      "do": "walk",
+      "x": 8,
+      "y": 0,
+      "z": 6.5,
+      "label": "south of the beacon, facing plaza center"
+    },
+    {
+      "do": "look",
+      "x": 8,
+      "y": 1.5,
+      "z": 8,
+      "label": "face the beacon column"
+    },
+    {
+      "do": "press",
+      "button": "pointer",
+      "label": "arm the round -- starts the 10 s countdown",
+      "x": 8,
+      "y": 1.5,
+      "z": 8
+    },
+    {
+      "do": "wait",
+      "seconds": 14,
+      "label": "countdown runs out, round-start line fires"
+    },
+    {
+      "do": "walk",
+      "x": 13,
+      "y": 0,
+      "z": 8,
+      "label": "approach the east pedestal (ring radius 6)"
+    },
+    {
+      "do": "look",
+      "x": 14,
+      "y": 0.5,
+      "z": 8,
+      "label": "face the east lantern"
+    },
+    {
+      "do": "press",
+      "button": "pointer",
+      "label": "pick the lantern up -- carry line fires",
+      "x": 14,
+      "y": 0.8,
+      "z": 8
+    },
+    {
+      "do": "walk",
+      "x": 8,
+      "y": 0,
+      "z": 6.5,
+      "label": "carry it back to the beacon"
+    },
+    {
+      "do": "look",
+      "x": 8,
+      "y": 1.5,
+      "z": 8,
+      "label": "face the beacon again"
+    },
+    {
+      "do": "press",
+      "button": "pointer",
+      "label": "start the 2 s rekindle hold",
+      "x": 8,
+      "y": 1.5,
+      "z": 8
+    },
+    {
+      "do": "wait",
+      "seconds": 8,
+      "label": "hold completes, lantern auto-banks -- return line fires"
+    },
+    {
+      "do": "screenshot",
+      "label": "plaza mid-round: beacon, ring, HUD timer"
+    },
+    {
+      "do": "wait",
+      "seconds": 45,
+      "label": "one full fade cycle at the opening 45 s rate plays out"
+    },
+    {
+      "do": "screenshot",
+      "label": "late round: faded lanterns visible if untended"
+    }
+  ],
+  "checks": [
+    {
+      "kind": "no-log",
+      "pattern": "(TypeError|ReferenceError|Cannot read|is not a function)",
+      "why": "a scene that throws on load looks fine in a screenshot and is broken"
+    },
+    {
+      "kind": "no-log",
+      "pattern": "Unhandled promise rejection",
+      "why": "an async failure the scene swallowed still leaves state half-applied"
+    },
+    {
+      "kind": "log",
+      "pattern": "\\[lantern-relay-arm-countdown\\] started seconds=\\d+",
+      "why": "doc section 3: any player clicks the beacon to arm a countdown so the group gathers"
+    },
+    {
+      "kind": "log",
+      "pattern": "\\[lantern-relay-round-start\\] pedestalCount=\\d+ playersPresent=\\d+ roundSeconds=\\d+",
+      "why": "doc section 3: the round opens with the tier sized to who is inside the plaza"
+    },
+    {
+      "kind": "log",
+      "pattern": "\\[lantern-relay-carry\\] lantern=\\d+ state=carried",
+      "why": "doc section 3 step 2: click-carry, one lantern per player"
+    },
+    {
+      "kind": "log",
+      "pattern": "\\[lantern-relay-rekindle-start\\] lantern=\\d+ holdSeconds=2",
+      "why": "doc section 3 step 3: the 2 s rekindle beat at the beacon, the ritual not a tap"
+    },
+    {
+      "kind": "log",
+      "pattern": "\\[lantern-relay-return\\] lantern=\\d+ newFadeDurationSeconds=\\d+",
+      "why": "doc section 3 step 4: the relit lantern banks back with the escalated fade rate applied"
+    }
+  ],
+  "timeoutSec": 240
+}

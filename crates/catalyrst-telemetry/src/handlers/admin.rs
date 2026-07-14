@@ -1,19 +1,21 @@
 use std::sync::atomic::Ordering;
 
-use axum::extract::{Query, State};
+use axum::extract::{FromRequestParts, Query, State};
+use axum::http::request::Parts;
 use axum::http::{HeaderMap, StatusCode};
 use axum::Json;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
+use catalyrst_authenticated_admin::{
+    AdminAuthRejection, AuthenticatedAdminIdentity, ConfiguredAdminBearerSecret,
+};
+
 use crate::AppState;
 
-type AdminResult = Result<Json<Value>, (StatusCode, String)>;
+use super::db_err;
 
-fn db_err(e: sqlx::Error) -> (StatusCode, String) {
-    tracing::error!(error = %e, "telemetry admin db error");
-    (StatusCode::INTERNAL_SERVER_ERROR, "database error".into())
-}
+type AdminResult = Result<Json<Value>, (StatusCode, String)>;
 
 fn bad(msg: &str) -> (StatusCode, String) {
     (StatusCode::BAD_REQUEST, msg.to_string())
@@ -45,7 +47,40 @@ fn token_ok(expected: Option<&str>, presented: Option<&str>) -> bool {
     }
 }
 
-fn authorize(state: &AppState, headers: &HeaderMap) -> Result<(), (StatusCode, String)> {
+fn cookie_token(headers: &HeaderMap) -> Option<String> {
+    let cookies = headers.get("cookie")?.to_str().ok()?;
+    cookies.split(';').find_map(|pair| {
+        let (name, value) = pair.trim().split_once('=')?;
+        (name == super::login::COOKIE_NAME && !value.is_empty()).then(|| value.to_string())
+    })
+}
+
+pub(crate) fn token_matches(state: &AppState, presented: &str) -> bool {
+    token_ok(state.admin_token.as_deref(), Some(presented))
+}
+
+// Reads and SSR pages accept the browser session cookie set by /login as well as
+// the bearer; mutations stay bearer-only so a cookie-bearing browser can never be
+// cross-site-driven into flipping operator state.
+pub(crate) fn authorize_read(
+    state: &AppState,
+    headers: &HeaderMap,
+) -> Result<(), (StatusCode, String)> {
+    if state.admin_token.is_none() {
+        return Err((
+            StatusCode::FORBIDDEN,
+            "admin disabled (CATALYRST_TELEMETRY_ADMIN_TOKEN unset)".into(),
+        ));
+    }
+    let presented = bearer_token(headers).or_else(|| cookie_token(headers));
+    if token_ok(state.admin_token.as_deref(), presented.as_deref()) {
+        Ok(())
+    } else {
+        Err((StatusCode::FORBIDDEN, "invalid admin bearer".into()))
+    }
+}
+
+pub(crate) fn authorize(state: &AppState, headers: &HeaderMap) -> Result<(), (StatusCode, String)> {
     if state.admin_token.is_none() {
         return Err((
             StatusCode::FORBIDDEN,
@@ -57,6 +92,70 @@ fn authorize(state: &AppState, headers: &HeaderMap) -> Result<(), (StatusCode, S
         Ok(())
     } else {
         Err((StatusCode::FORBIDDEN, "invalid admin bearer".into()))
+    }
+}
+
+/// The environment variable that names telemetry's admin bearer secret. Server-chosen; it is
+/// the same string the legacy `authorize` refusal printed, and the shared chokepoint uses it
+/// to build its audit label and 503 detail.
+const ADMIN_TOKEN_ENV: &str = "CATALYRST_TELEMETRY_ADMIN_TOKEN";
+
+/// Telemetry's admin gate, expressed as an unforgeable extractor rather than a forgettable
+/// `authorize(&st, &headers)?` at the top of a handler body.
+///
+/// Naming `TelemetryAdmin` in a handler signature makes the bearer check a term in the type
+/// the router demands: axum refuses the handler unless the argument resolves, and the only
+/// way it resolves at request time is [`TelemetryAdmin::from_request_parts`], which runs the
+/// shared [`AuthenticatedAdminIdentity`] chokepoint. There is no other constructor -- the
+/// field is private and the type derives nothing -- so the check can no longer be deleted from
+/// a body.
+///
+/// Wire behaviour is preserved byte-for-byte. The shared extractor answers **401** for a
+/// missing or mismatched secret and **503** for an unconfigured one; telemetry has always
+/// answered **403** for both, and the `/dash` route-layer middleware (`require_telemetry_admin`,
+/// left as a documented follow-on) still does, so [`TelemetryAdmin::from_request_parts`] maps
+/// the refusal back onto this crate's exact 403 responses.
+pub struct TelemetryAdmin {
+    // Held only as evidence that the chokepoint ran; deliberately unread. The audit actor is
+    // still taken from the request (`actor_of`) rather than from this verified identity, so the
+    // `admin_audit` rows and the /dash/admin/audit response stay byte-identical.
+    #[allow(dead_code)]
+    identity: AuthenticatedAdminIdentity,
+}
+
+/// Map the shared extractor's refusal back onto telemetry's historical wire responses, so the
+/// migration changes no status code or body a client can observe.
+fn admin_rejection_as_legacy_forbidden(rejection: &AdminAuthRejection) -> (StatusCode, String) {
+    match rejection.refusal().http_status() {
+        // Unconfigured secret <=> `admin_token` is `None` (lib.rs filters empty to `None`, so the
+        // chokepoint's empty-as-unconfigured case cannot arise here). Legacy: the unset branch.
+        503 => (
+            StatusCode::FORBIDDEN,
+            "admin disabled (CATALYRST_TELEMETRY_ADMIN_TOKEN unset)".into(),
+        ),
+        // Missing or mismatched bearer (401), collapsed to the legacy 403 like the old
+        // `authorize`.
+        _ => (StatusCode::FORBIDDEN, "invalid admin bearer".into()),
+    }
+}
+
+impl FromRequestParts<AppState> for TelemetryAdmin {
+    type Rejection = (StatusCode, String);
+
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &AppState,
+    ) -> Result<Self, Self::Rejection> {
+        let secret = ConfiguredAdminBearerSecret {
+            environment_variable: ADMIN_TOKEN_ENV,
+            configured: state.admin_token.clone(),
+        };
+        // `ConfiguredAdminBearerSecret` stands in as the extractor's state via axum's blanket
+        // `impl<T: Clone> FromRef<T> for T`; the secret is the whole state the extractor reads.
+        match AuthenticatedAdminIdentity::from_request_parts(parts, &secret).await {
+            Ok(identity) => Ok(Self { identity }),
+            Err(rejection) => Err(admin_rejection_as_legacy_forbidden(&rejection)),
+        }
     }
 }
 
@@ -92,6 +191,20 @@ mod tests {
         assert_eq!(bearer_token(&h).as_deref(), Some("abc123"));
         let empty = HeaderMap::new();
         assert_eq!(bearer_token(&empty), None);
+    }
+
+    #[test]
+    fn cookie_token_parses_session_cookie() {
+        let mut h = HeaderMap::new();
+        h.insert(
+            "cookie",
+            "other=1; telemetry_admin=tok123; more=2".parse().unwrap(),
+        );
+        assert_eq!(cookie_token(&h).as_deref(), Some("tok123"));
+        let mut empty_val = HeaderMap::new();
+        empty_val.insert("cookie", "telemetry_admin=".parse().unwrap());
+        assert_eq!(cookie_token(&empty_val), None);
+        assert_eq!(cookie_token(&HeaderMap::new()), None);
     }
 
     #[test]
@@ -184,12 +297,12 @@ pub struct PurgeBody {
 }
 
 pub async fn purge(
+    _admin: TelemetryAdmin,
     State(st): State<AppState>,
     headers: HeaderMap,
     Query(aq): Query<ActorQuery>,
     Json(b): Json<PurgeBody>,
 ) -> AdminResult {
-    authorize(&st, &headers)?;
     if b.older_than_days < 1 {
         return Err(bad("older_than_days must be >= 1"));
     }
@@ -204,7 +317,7 @@ pub async fn purge(
     .bind(b.project.as_deref().filter(|s| !s.is_empty()))
     .execute(&st.pool)
     .await
-    .map_err(db_err)?;
+    .map_err(|e| db_err("telemetry admin", e))?;
     let deleted = res.rows_affected() as i64;
     let actor = actor_of(&headers, &aq);
     audit(
@@ -223,12 +336,12 @@ pub struct IngestBody {
 }
 
 pub async fn ingest_toggle(
+    _admin: TelemetryAdmin,
     State(st): State<AppState>,
     headers: HeaderMap,
     Query(aq): Query<ActorQuery>,
     Json(b): Json<IngestBody>,
 ) -> AdminResult {
-    authorize(&st, &headers)?;
     sqlx::query(
         "INSERT INTO admin_settings (key, value, updated_at) VALUES ('ingest_enabled', $1, now()) \
          ON CONFLICT (key) DO UPDATE SET value = $1, updated_at = now()",
@@ -236,7 +349,7 @@ pub async fn ingest_toggle(
     .bind(if b.enabled { "true" } else { "false" })
     .execute(&st.pool)
     .await
-    .map_err(db_err)?;
+    .map_err(|e| db_err("telemetry admin", e))?;
     st.ingest.enabled.store(b.enabled, Ordering::Relaxed);
     let actor = actor_of(&headers, &aq);
     audit(
@@ -257,12 +370,12 @@ pub struct QuotaBody {
 }
 
 pub async fn quota(
+    _admin: TelemetryAdmin,
     State(st): State<AppState>,
     headers: HeaderMap,
     Query(aq): Query<ActorQuery>,
     Json(b): Json<QuotaBody>,
 ) -> AdminResult {
-    authorize(&st, &headers)?;
     if b.project.is_empty() {
         return Err(bad("project required"));
     }
@@ -279,7 +392,7 @@ pub async fn quota(
             .bind(limit)
             .execute(&st.pool)
             .await
-            .map_err(db_err)?;
+            .map_err(|e| db_err("telemetry admin", e))?;
             st.ingest
                 .quotas
                 .write()
@@ -291,7 +404,7 @@ pub async fn quota(
                 .bind(&b.project)
                 .execute(&st.pool)
                 .await
-                .map_err(db_err)?;
+                .map_err(|e| db_err("telemetry admin", e))?;
             st.ingest.quotas.write().unwrap().remove(&b.project);
         }
     }
@@ -356,12 +469,12 @@ const BULK_WHERE: &str = "($1::text IS NULL OR source = $1) \
      AND ($5::text IS NULL OR body->>'level' = $5)";
 
 pub async fn bulk_delete(
+    _admin: TelemetryAdmin,
     State(st): State<AppState>,
     headers: HeaderMap,
     Query(aq): Query<ActorQuery>,
     Json(f): Json<BulkFilter>,
 ) -> AdminResult {
-    authorize(&st, &headers)?;
     f.require_some()?;
     let sql = format!("DELETE FROM telemetry_events WHERE {BULK_WHERE}");
     let [b1, b2, b3, b4, b5] = f.binds();
@@ -395,13 +508,12 @@ pub struct ExportBody {
 }
 
 pub async fn export(
+    _admin: TelemetryAdmin,
     State(st): State<AppState>,
     headers: HeaderMap,
     Query(aq): Query<ActorQuery>,
     Json(b): Json<ExportBody>,
 ) -> AdminResult {
-    authorize(&st, &headers)?;
-
     let limit = b.limit.unwrap_or(100).clamp(1, 10_000);
 
     let sql = format!(
@@ -450,11 +562,10 @@ fn d_audit_limit() -> i64 {
 }
 
 pub async fn audit_list(
+    _admin: TelemetryAdmin,
     State(st): State<AppState>,
-    headers: HeaderMap,
     Query(q): Query<AuditQuery>,
 ) -> AdminResult {
-    authorize(&st, &headers)?;
     let limit = q.limit.clamp(1, 1000);
     let sql = format!(
         "SELECT id, to_char(at AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS at, \
@@ -469,7 +580,7 @@ pub async fn audit_list(
         .bind(q.action.as_deref().filter(|s| !s.is_empty()))
         .fetch_all(&st.pool)
         .await
-        .map_err(db_err)?;
+        .map_err(|e| db_err("telemetry admin", e))?;
     let items: Vec<Value> = rows
         .into_iter()
         .map(|(id, at, actor, action, detail)| {
@@ -489,12 +600,12 @@ pub struct RegroupBody {
 }
 
 pub async fn regroup(
+    _admin: TelemetryAdmin,
     State(st): State<AppState>,
     headers: HeaderMap,
     Query(aq): Query<ActorQuery>,
     Json(b): Json<RegroupBody>,
 ) -> AdminResult {
-    authorize(&st, &headers)?;
     if b.canonical.is_empty() {
         return Err(bad("canonical required"));
     }
@@ -521,7 +632,7 @@ pub async fn regroup(
         .bind(&b.canonical)
         .execute(&st.pool)
         .await
-        .map_err(db_err)?;
+        .map_err(|e| db_err("telemetry admin", e))?;
         merged += 1;
     }
     let actor = actor_of(&headers, &aq);
@@ -546,12 +657,12 @@ pub struct ReleaseBody {
 }
 
 pub async fn release(
+    _admin: TelemetryAdmin,
     State(st): State<AppState>,
     headers: HeaderMap,
     Query(aq): Query<ActorQuery>,
     Json(b): Json<ReleaseBody>,
 ) -> AdminResult {
-    authorize(&st, &headers)?;
     if b.release.is_empty() {
         return Err(bad("release required"));
     }
@@ -567,7 +678,7 @@ pub async fn release(
     .bind(b.note.as_deref().filter(|s| !s.is_empty()))
     .execute(&st.pool)
     .await
-    .map_err(db_err)?;
+    .map_err(|e| db_err("telemetry admin", e))?;
     let actor = actor_of(&headers, &aq);
     audit(
         &st,

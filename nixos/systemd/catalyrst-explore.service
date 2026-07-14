@@ -1,5 +1,5 @@
 [Unit]
-Description=catalyrst-explore bundle (places, events, archipelago, worlds, map, lists — port 5143)
+Description=catalyrst-explore bundle (places, events, archipelago, worlds, map, lists -- port 5143)
 After=network.target postgresql.service livekit.service
 StartLimitIntervalSec=0
 Wants=postgresql.service

@@ -3,18 +3,18 @@ use super::*;
 pub async fn flush_deployments_cache(
     session: AdminSession,
     State(state): State<Arc<AppState>>,
-) -> Json<Value> {
+) -> Response {
     state.deployments_cache.clear();
     audit::record(
         state.audit_pool.as_ref(),
-        &session.address,
+        session.address(),
         "content.flush-cache",
         None,
         json!({}),
         "ok",
     )
     .await;
-    Json(json!({ "ok": true, "cleared": true }))
+    AdminEnvelope::success(json!({ "cleared": true }))
 }
 
 #[derive(serde::Deserialize)]
@@ -44,21 +44,20 @@ pub async fn content_retry_failed(
     Json(req): Json<EntityIdReq>,
 ) -> Response {
     if !valid_content_id(&req.id) {
-        return (
+        return AdminEnvelope::error(
             StatusCode::BAD_REQUEST,
-            Json(json!({ "ok": false, "error": "invalid-entity-id" })),
-        )
-            .into_response();
+            json!({ "error": "invalid-entity-id" }),
+        );
     }
     let outcome = state
         .deployer
         .retry_failed_deployment(&req.id)
         .await
         .map(Value::String)
-        .map_err(|errs| errs.join("; "));
+        .map_err(|errs| AdminActionError::from_backend(errs.join("; ")));
     finish(
         &state,
-        &session.address,
+        session.address(),
         "content.failed-deployments.retry",
         Some(&req.id),
         json!({ "entityId": req.id }),
@@ -79,7 +78,7 @@ pub async fn content_clear_failed(
                 .clear_all_failed_deployments()
                 .await
                 .map(|n| json!({ "removed": n, "scope": "all" }))
-                .map_err(|e| e.to_string()),
+                .map_err(|e| AdminActionError::Internal(e.to_string())),
             None,
             json!({ "scope": "all" }),
         )
@@ -97,14 +96,14 @@ pub async fn content_clear_failed(
                 .clear_failed_deployment(&req.id)
                 .await
                 .map(|n| json!({ "removed": n, "scope": "one" }))
-                .map_err(|e| e.to_string()),
+                .map_err(|e| AdminActionError::Internal(e.to_string())),
             Some(req.id.clone()),
             json!({ "entityId": req.id }),
         )
     };
     finish(
         &state,
-        &session.address,
+        session.address(),
         "content.failed-deployments.clear",
         target.as_deref(),
         detail,
@@ -119,19 +118,16 @@ pub async fn content_denylist_add(
     Json(req): Json<DenylistReq>,
 ) -> Response {
     if !valid_content_id(&req.id) {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(json!({ "ok": false, "error": "invalid-id" })),
-        )
-            .into_response();
+        return AdminEnvelope::error(StatusCode::BAD_REQUEST, json!({ "error": "invalid-id" }));
     }
     let outcome = state
         .denylist
         .add(&req.id)
-        .map(|added| json!({ "added": added }));
+        .map(|added| json!({ "added": added }))
+        .map_err(AdminActionError::from_backend);
     finish(
         &state,
-        &session.address,
+        session.address(),
         "content.denylist.add",
         Some(&req.id),
         json!({ "id": req.id }),
@@ -146,19 +142,16 @@ pub async fn content_denylist_remove(
     Json(req): Json<DenylistReq>,
 ) -> Response {
     if !valid_content_id(&req.id) {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(json!({ "ok": false, "error": "invalid-id" })),
-        )
-            .into_response();
+        return AdminEnvelope::error(StatusCode::BAD_REQUEST, json!({ "error": "invalid-id" }));
     }
     let outcome = state
         .denylist
         .remove(&req.id)
-        .map(|removed| json!({ "removed": removed }));
+        .map(|removed| json!({ "removed": removed }))
+        .map_err(AdminActionError::from_backend);
     finish(
         &state,
-        &session.address,
+        session.address(),
         "content.denylist.remove",
         Some(&req.id),
         json!({ "id": req.id }),
@@ -174,7 +167,7 @@ pub async fn content_denylist_list(
     let ids = state.denylist.list();
     finish(
         &state,
-        &session.address,
+        session.address(),
         "content.denylist.list",
         None,
         json!({ "count": ids.len() }),
@@ -190,10 +183,11 @@ pub async fn content_snapshots_regenerate(
     let outcome = state
         .snapshot_generator
         .trigger_regeneration()
-        .map(Value::String);
+        .map(Value::String)
+        .map_err(AdminActionError::from_backend);
     finish(
         &state,
-        &session.address,
+        session.address(),
         "content.snapshots.regenerate",
         None,
         json!({}),
@@ -209,7 +203,7 @@ pub async fn content_challenge_refresh(
     let text = state.challenge_supervisor.refresh();
     finish(
         &state,
-        &session.address,
+        session.address(),
         "content.challenge.refresh",
         None,
         json!({}),
@@ -225,10 +219,11 @@ pub async fn content_sync_pause(
     let outcome = state
         .synchronization_state
         .pause()
-        .map(|_| json!({ "control": "paused" }));
+        .map(|_| json!({ "control": "paused" }))
+        .map_err(AdminActionError::from_backend);
     finish(
         &state,
-        &session.address,
+        session.address(),
         "content.sync.pause",
         None,
         json!({}),
@@ -244,10 +239,11 @@ pub async fn content_sync_resume(
     let outcome = state
         .synchronization_state
         .resume()
-        .map(|_| json!({ "control": "run" }));
+        .map(|_| json!({ "control": "run" }))
+        .map_err(AdminActionError::from_backend);
     finish(
         &state,
-        &session.address,
+        session.address(),
         "content.sync.resume",
         None,
         json!({}),
@@ -263,10 +259,11 @@ pub async fn content_sync_force(
     let outcome = state
         .synchronization_state
         .force()
-        .map(|_| json!({ "forced": true }));
+        .map(|_| json!({ "forced": true }))
+        .map_err(AdminActionError::from_backend);
     finish(
         &state,
-        &session.address,
+        session.address(),
         "content.sync.force",
         None,
         json!({}),
@@ -283,7 +280,7 @@ pub async fn content_read_only(
     let now = state.set_read_only(req.enabled);
     finish(
         &state,
-        &session.address,
+        session.address(),
         "content.read-only",
         None,
         json!({ "enabled": req.enabled }),
@@ -300,10 +297,11 @@ pub async fn content_accepting_users(
     let outcome = state
         .accepting_users
         .set_accepting(req.enabled)
-        .map(|_| json!({ "acceptingUsers": state.accepting_users.is_accepting() }));
+        .map(|_| json!({ "acceptingUsers": state.accepting_users.is_accepting() }))
+        .map_err(AdminActionError::from_backend);
     finish(
         &state,
-        &session.address,
+        session.address(),
         "content.accepting-users",
         None,
         json!({ "enabled": req.enabled }),

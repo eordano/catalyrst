@@ -1,0 +1,498 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<!-- SSR-injected <base>+window.__BASE__ so the page works behind a stripped /telemetry/ mount. -->
+<!--SSR:base-->
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>telemetry &#xB7; flags</title>
+<style>
+  @font-face{font-family:'Archivo';font-style:normal;font-weight:400;font-display:swap;src:url('fonts/archivo-400.woff2') format('woff2')}
+  @font-face{font-family:'Archivo';font-style:normal;font-weight:500;font-display:swap;src:url('fonts/archivo-500.woff2') format('woff2')}
+  @font-face{font-family:'Archivo';font-style:normal;font-weight:600;font-display:swap;src:url('fonts/archivo-600.woff2') format('woff2')}
+  @font-face{font-family:'Archivo';font-style:normal;font-weight:700;font-display:swap;src:url('fonts/archivo-700.woff2') format('woff2')}
+  @font-face{font-family:'Archivo';font-style:normal;font-weight:800;font-display:swap;src:url('fonts/archivo-800.woff2') format('woff2')}
+  @font-face{font-family:'IBM Plex Mono';font-style:normal;font-weight:400;font-display:swap;src:url('fonts/ibm-plex-mono-400.woff2') format('woff2')}
+  @font-face{font-family:'IBM Plex Mono';font-style:normal;font-weight:500;font-display:swap;src:url('fonts/ibm-plex-mono-500.woff2') format('woff2')}
+  @font-face{font-family:'IBM Plex Mono';font-style:normal;font-weight:600;font-display:swap;src:url('fonts/ibm-plex-mono-600.woff2') format('woff2')}
+  :root{
+    --bg:#efe9db; --bg2:#f6f1e6; --bg3:#e7e0cf; --card:#f6f1e6; --line:#d4cdbb;
+    --fg:#16130c; --mut:#6c6655; --mut2:#9a9382;
+    --acc:#d6312b; --acc2:#a1211c;
+    --err:#d6312b; --warn:#9a6a12; --info:#1f55c9; --ok:#2f7d32; --dbg:#9a9382;
+    --mono:'IBM Plex Mono',ui-monospace,Menlo,Consolas,monospace;
+    --display:'Archivo',system-ui,-apple-system,Segoe UI,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.45 var(--display);-webkit-font-smoothing:antialiased;border-top:3px solid var(--acc);
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E")}
+  a{color:var(--acc);text-decoration:none;cursor:pointer;border-bottom:1px solid transparent}
+  a:hover{border-bottom-color:var(--acc)}
+  .row{display:flex;align-items:center;gap:10px}
+  header{display:flex;align-items:center;gap:18px;padding:14px 20px;border-bottom:2px solid var(--fg);background:var(--bg2);position:sticky;top:0;z-index:5}
+  header h1{font-family:var(--display);font-size:15px;margin:0;font-weight:800;letter-spacing:-.02em}
+  header h1 .dot{display:inline-block;width:10px;height:10px;border-radius:0;background:var(--acc);margin-right:9px;animation:pulse 2.4s ease-in-out infinite}
+  header h1::after{content:'/ flags';font-family:var(--mono);font-size:10px;font-weight:500;letter-spacing:.14em;text-transform:uppercase;color:var(--mut2);margin-left:11px;vertical-align:middle}
+  header .spacer{flex:1}
+  .total{font-family:var(--mono);font-variant-numeric:tabular-nums;color:var(--mut);font-size:11px;text-transform:uppercase;letter-spacing:.06em}
+  .total b{color:var(--fg);font-size:12px;font-weight:600}
+  select,input,button,textarea{background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:0;padding:6px 10px;font:inherit;font-family:var(--mono);font-size:12px;outline:none}
+  input:focus,select:focus,textarea:focus{border-color:var(--fg)}
+  textarea{width:100%;min-height:64px;resize:vertical;line-height:1.5}
+  button{cursor:pointer;text-transform:uppercase;letter-spacing:.06em;font-size:11px;transition:.12s}
+  button:hover{border-color:var(--fg);background:var(--bg3)}
+  button.on{background:var(--fg);border-color:var(--fg);color:var(--bg);font-weight:600}
+  .tabs{display:flex;border:1px solid var(--fg);border-radius:0;overflow:hidden}
+  .tabs button{border:0;border-right:1px solid var(--line);border-radius:0;background:transparent}
+  .tabs button:last-child{border-right:0}
+  .tabs button.on{background:var(--fg);color:var(--bg)}
+  .stats{display:flex;gap:0;align-items:stretch;padding:0;border-bottom:2px solid var(--fg);flex-wrap:wrap}
+  .card{background:var(--bg2);border-right:1px solid var(--line);border-radius:0;padding:14px 18px;min-width:130px}
+  .card .lab{color:var(--mut);font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.12em}
+  .card .big{font-family:var(--display);font-size:32px;font-weight:800;letter-spacing:-.03em;font-variant-numeric:tabular-nums;margin-top:4px;line-height:1}
+  .stats>.card:first-child{background:var(--bg)}
+  .stats>.card:first-child .big{font-size:46px;color:var(--acc)}
+  .toolbar{display:flex;gap:10px;align-items:center;padding:12px 18px;border-bottom:1px solid var(--line);flex-wrap:wrap;background:var(--bg2)}
+  .toolbar label{font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.12em;color:var(--mut);display:flex;align-items:center;gap:6px}
+  main{padding:0 18px 60px}
+  table{width:100%;border-collapse:collapse}
+  th{text-align:left;color:var(--mut);font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.12em;font-weight:600;padding:9px 12px;border-bottom:2px solid var(--fg);background:var(--bg2)}
+  td{padding:11px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+  .cnt{font-family:var(--mono);font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}
+  .chip{font-family:var(--mono);font-size:11px;padding:2px 8px;border-radius:0;background:transparent;border:1px solid var(--line);color:var(--mut);white-space:nowrap}
+  .chip b{color:var(--fg);font-variant-numeric:tabular-nums}
+  .tag{font-size:11px;color:var(--mut);font-family:var(--mono)}
+  .when{color:var(--mut);white-space:nowrap;font-family:var(--mono);font-size:12px;font-variant-numeric:tabular-nums}
+  .wrap{white-space:normal}
+  .empty{padding:60px;text-align:center;color:var(--mut2);font-family:var(--mono);text-transform:uppercase;letter-spacing:.08em;font-size:12px}
+  h3.sec{font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.14em;color:var(--mut);margin:26px 0 10px;padding-bottom:5px;border-bottom:1px solid var(--line)}
+  h3.sec b{color:var(--fg)}
+  .sbadge{font-family:var(--mono);font-size:9px;text-transform:uppercase;letter-spacing:.08em;padding:1px 6px;border-radius:0;border:1px solid var(--line);color:var(--mut);white-space:nowrap}
+  .sbadge.resolved{color:var(--ok);border-color:var(--ok)} .sbadge.ignored{color:var(--mut2)}
+  .sbadge.hit{color:var(--bg);background:var(--acc);border-color:var(--acc)}
+  .lvl{display:inline-block;width:8px;height:8px;border-radius:0;flex:none}
+  .lvl.ok{background:var(--ok)} .lvl.none{background:var(--mut2)}
+  td.acts{white-space:nowrap;text-align:right}
+  td.arow{background:var(--bg2);border-top:2px solid var(--fg);border-bottom:2px solid var(--fg);font-family:var(--mono);font-size:10px;
+    text-transform:uppercase;letter-spacing:.14em;color:var(--mut);padding:9px 12px}
+  td.arow b{color:var(--fg)}
+  .act{background:transparent;border:1px solid var(--line);border-radius:0;padding:2px 7px;font-size:12px;margin-left:4px;cursor:pointer}
+  .act:hover{border-color:var(--acc);background:var(--acc);color:var(--bg)}
+  .gbox{background:var(--bg2);border:2px solid var(--fg);padding:4px 18px 18px;margin:20px 0 6px;box-shadow:6px 6px 0 var(--bg3)}
+  .gbox h3.sec{margin-top:16px}
+  .track{position:relative;height:14px;background:var(--bg3);border:1px solid var(--line);width:180px;display:inline-block;vertical-align:middle}
+  .track .fill{position:absolute;left:0;top:0;bottom:0;background:var(--acc);opacity:.22}
+  .track .mark{position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--fg)}
+  #toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%) translateY(20px);background:var(--fg);border:1px solid var(--fg);
+    color:var(--bg);padding:10px 18px;border-radius:0;opacity:0;pointer-events:none;transition:.18s;z-index:20;font-family:var(--mono);font-size:12px;text-transform:uppercase;letter-spacing:.05em;box-shadow:4px 4px 0 var(--acc)}
+  #toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+  @keyframes rise{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+  body>header{animation:rise .42s ease both}
+  body>.stats{animation:rise .5s ease .06s both}
+  body>.toolbar{animation:rise .5s ease .12s both}
+  body>main{animation:rise .55s ease .18s both}
+  @media (prefers-reduced-motion:reduce){*{animation:none!important}}
+</style>
+</head>
+<body>
+<header>
+  <h1><span class="dot"></span>telemetry</h1>
+  <div class="tabs" style="margin-left:4px">
+    <button id="surf-errors" title="Sentry error tracking">Errors</button>
+    <button id="surf-metrics" title="Segment product analytics">Metrics</button>
+    <button id="surf-health" title="Release health (sessions)">Health</button>
+    <button class="on" title="Feature flags">Flags</button>
+    <button id="surf-experiments" title="A/B experiment readouts">Experiments</button>
+    <button id="surf-sql" title="Ad-hoc read-only SQL">SQL</button>
+  </div>
+  <span class="total" id="total">&#x2014;</span>
+  <span class="spacer"></span>
+  <select id="range" title="exposure window">
+    <option value="1">last 1h</option><option value="6">last 6h</option>
+    <option value="24" selected>last 24h</option><option value="168">last 7d</option>
+    <option value="720">last 30d</option>
+  </select>
+</header>
+
+<div class="stats" id="kpis"></div>
+
+<div class="toolbar">
+  <label>preview as user <input id="u-key" placeholder="0x&#x2026; wallet or user key" style="min-width:330px;text-transform:none;letter-spacing:0"></label>
+  <button id="u-go" class="on">who would match</button>
+  <button id="u-clear">clear</button>
+  <span class="spacer" style="flex:1"></span>
+  <span class="total">group target &gt; global override &gt; upstream config</span>
+</div>
+
+<main>
+  <div id="resolve"></div>
+  <div id="groups"></div>
+  <div id="flagsec"><div class="empty">loading flags&#x2026;</div></div>
+  <div id="exps"></div>
+  <div id="hist"></div>
+</main>
+<div id="toast"></div>
+
+<script>
+const $=s=>document.querySelector(s);
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const BASE=(typeof window.__BASE__==='string')?window.__BASE__.replace(/\/+$/,''):
+  (location.pathname.endsWith('/flags')?location.pathname.slice(0,-'/flags'.length):'');
+// Same token mechanism as the dashboard: load once with ?admin=<token>, it is kept
+// in localStorage and stripped from the URL so a copied permalink carries no secret.
+function adminToken(){try{return localStorage.getItem('telemetry_admin')||'';}catch(e){return '';}}
+(function(){try{const u=new URL(location.href),t=u.searchParams.get('admin');
+  if(t!=null){t?localStorage.setItem('telemetry_admin',t):localStorage.removeItem('telemetry_admin');
+    u.searchParams.delete('admin');history.replaceState(null,'',u.pathname+u.search);}}catch(e){}})();
+function authHeaders(extra){const h=Object.assign({},extra||{});const t=adminToken();if(t)h.Authorization='Bearer '+t;return h;}
+async function jget(u){const r=await fetch(BASE+u,{headers:authHeaders()});if(!r.ok)throw new Error(await r.text());return r.json();}
+async function jpost(u,body){
+  const r=await fetch(BASE+u,{method:'POST',headers:authHeaders({'Content-Type':'application/json'}),body:JSON.stringify(body)});
+  if(!r.ok)throw new Error(await r.text());return r.json();}
+const NAV={'surf-errors':'/','surf-metrics':'/metrics','surf-health':'/health','surf-experiments':'/experiments','surf-sql':'/sql'};
+for(const id in NAV)$('#'+id).onclick=()=>{location.href=(BASE+NAV[id])||'/';};
+let toastT=null;
+function toast(msg){const t=$('#toast');t.textContent=msg;t.classList.add('show');clearTimeout(toastT);toastT=setTimeout(()=>t.classList.remove('show'),1800);}
+const num=x=>(+x||0).toLocaleString();
+const state={user:'',hours:24,flags:null,groups:[],areaRows:[],gerr:null,xp:{},expo:{},audit:null};
+
+function syncUrl(){
+  const p=new URLSearchParams();
+  if(state.user)p.set('user',state.user);
+  if(state.hours!==24)p.set('hours',state.hours);
+  const q=p.toString();
+  history.replaceState(null,'',location.pathname+(q?'?'+q:''));
+}
+function cfgFlags(){return (state.flags&&state.flags.config&&state.flags.config.flags)||{};}
+function cfgVariants(){return (state.flags&&state.flags.config&&state.flags.config.variants)||{};}
+function overrides(){const o=state.flags&&state.flags.overrides;return (o&&typeof o==='object')?o:{};}
+function areaOf(){return (state.flags&&state.flags.areas)||{};}
+function targetsByFlag(){
+  const m={};
+  for(const g of state.groups)for(const t of (g.flag_targets||[]))(m[t.flag]||(m[t.flag]=[])).push({group:g.name,state:t.state,variant:t.variant});
+  return m;
+}
+function flagNames(){
+  const s=new Set([...Object.keys(cfgFlags()),...Object.keys(overrides()),...Object.keys(areaOf())]);
+  for(const g of state.groups)for(const t of (g.flag_targets||[]))s.add(t.flag);
+  return Array.from(s).sort();
+}
+const effOn=n=>{const o=overrides()[n];return o?o.state!=='off':!!cfgFlags()[n];};
+
+async function loadAll(){
+  const q=state.user?('?user='+encodeURIComponent(state.user)):'';
+  state.flags=await jget('/dash/flags'+q);
+  state.gerr=null;
+  try{const g=await jget('/dash/groups');state.groups=g.groups||[];state.areaRows=g.areas||[];}
+  catch(e){state.gerr=e.message||'unauthorized';state.groups=[];state.areaRows=[];}
+  state.xp=await jget('/dash/experiment').catch(()=>({}));
+  state.expo=await flagExposure().catch(()=>({}));
+  state.audit=await jget('/dash/admin/audit?limit=40').then(a=>a.items||[]).catch(()=>null);
+  renderAll();
+  runResolve();
+}
+// Per-experiment exposure counts straight from event data (experiment_exposed
+// segment events carry properties.exp_key + anonymousId). Uses the read-only SQL
+// endpoint &#x2014; admin-gated, so this is best-effort and degrades to "&#x2014;" without a token.
+async function flagExposure(){
+  const sql="select body->'properties'->>'exp_key' k, count(*) n, count(distinct body->>'anonymousId') u\n"
+    +"from telemetry.telemetry_events\n"
+    +"where source='segment' and body->>'event'='experiment_exposed'\n"
+    +"  and body->'properties'->>'exp_key' is not null\n"
+    +"  and received_at > now() - make_interval(hours => "+(+state.hours||24)+")\ngroup by 1";
+  const r=await fetch(BASE+'/dash/sql',{method:'POST',headers:authHeaders({'content-type':'application/json'}),body:JSON.stringify({sql})});
+  if(!r.ok)throw new Error('exposure query unavailable');
+  const d=await r.json();
+  return Object.fromEntries((d.rows||[]).map(row=>[row.k,{n:+row.n||0,u:+row.u||0}]));
+}
+
+function renderAll(){
+  const names=flagNames(),ovr=overrides();
+  const onN=names.filter(effOn).length,ovrN=names.filter(n=>ovr[n]).length;
+  const nMembers=state.groups.reduce((s,g)=>s+(g.member_count||0),0);
+  const nTargets=state.groups.reduce((s,g)=>s+(g.flag_targets||[]).length+(g.experiment_targets||[]).length,0);
+  const nAreas=new Set(Object.values(areaOf())).size;
+  $('#kpis').innerHTML=`
+    <div class="card"><div class="lab">flags</div><div class="big">${names.length}</div></div>
+    <div class="card"><div class="lab">on / off</div><div class="big">${onN}<span style="color:var(--mut2);font-size:20px"> / ${names.length-onN}</span></div></div>
+    <div class="card"><div class="lab">overrides</div><div class="big" style="color:${ovrN?'var(--acc)':'inherit'}">${ovrN}</div></div>
+    <div class="card"><div class="lab">groups</div><div class="big">${state.groups.length}<span style="color:var(--mut2);font-size:20px"> &#xB7; ${nMembers}m</span></div></div>
+    <div class="card"><div class="lab">group targets</div><div class="big" style="color:${nTargets?'var(--acc)':'inherit'}">${nTargets}</div></div>
+    <div class="card"><div class="lab">product areas</div><div class="big">${nAreas}</div></div>`;
+  $('#total').innerHTML=state.user?`previewing as <b>${esc(state.user)}</b>`:`<b>${names.length}</b> flags`;
+  renderGroups();
+  renderFlags(names,ovr);
+  renderExps();
+  renderHist();
+}
+
+function renderGroups(){
+  if(state.gerr){
+    $('#groups').innerHTML=`<h3 class="sec">audience groups</h3>
+      <div class="when wrap" style="opacity:.8">group management needs an admin token &#x2014; <a href="login">sign in</a> or reload with <b>?admin=&lt;token&gt;</b> (${esc(state.gerr)})</div>`;
+    return;
+  }
+  const tchips=(g)=>[
+    ...(g.flag_targets||[]).map(t=>`<span class="chip">flag <b>${esc(t.flag)}</b> &#x2192; ${esc(t.state==='forced'?('variant '+(t.variant||'')):t.state)}
+      <button class="act" data-tcflag="${esc(t.flag)}" data-tcgroup="${esc(g.name)}" title="remove target">&#x2298;</button></span>`),
+    ...(g.experiment_targets||[]).map(t=>`<span class="chip">exp <b>${esc(t.exp_key)}</b> &#x2192; ${t.killed?'killed':(t.variant?('variant '+esc(t.variant)):'live')}
+      <button class="act" data-tcexp="${esc(t.exp_key)}" data-tcgroup="${esc(g.name)}" title="remove target">&#x2298;</button></span>`),
+  ].join(' ')||'<span class="tag" style="opacity:.5">&#x2014;</span>';
+  const rows=state.groups.map(g=>`<tr>
+    <td><b>${esc(g.name)}</b><div class="tag">${esc(g.description||'')}</div></td>
+    <td class="cnt">${num(g.member_count)}</td>
+    <td class="cnt">${+g.rollout_pct||0}%</td>
+    <td class="cnt">${+g.priority||0}</td>
+    <td class="wrap" style="max-width:520px">${tchips(g)}</td>
+    <td class="acts"><button class="act" data-gedit="${esc(g.name)}" title="load into the editor">edit</button><button class="act" data-gdel="${esc(g.name)}" title="delete group">&#x2298;</button></td></tr>`).join('');
+  $('#groups').innerHTML=`<h3 class="sec">audience groups</h3>
+    <div class="when wrap" style="margin-bottom:10px">a member key always matches; everyone else matches when their deterministic bucket lands under the rollout %. Higher priority wins when two groups target the same flag.</div>
+    <table><thead><tr><th>group</th><th class="cnt">members</th><th class="cnt">rollout</th><th class="cnt">priority</th><th>targets</th><th></th></tr></thead>
+      <tbody>${rows||'<tr><td colspan=6 class="empty">no groups</td></tr>'}</tbody></table>
+    <div class="row" style="margin-top:14px;flex-wrap:wrap;gap:8px">
+      <input id="g-name" placeholder="group name" style="min-width:180px;text-transform:none;letter-spacing:0">
+      <input id="g-desc" placeholder="description" style="min-width:260px;text-transform:none;letter-spacing:0">
+      <label class="when" style="display:flex;align-items:center;gap:6px;margin:0">rollout % <input id="g-pct" type="number" min="0" max="100" placeholder="0" style="width:80px"></label>
+      <label class="when" style="display:flex;align-items:center;gap:6px;margin:0">priority <input id="g-prio" type="number" placeholder="0" style="width:80px"></label>
+      <button id="g-save" class="on">save group</button>
+      <button id="g-del">delete</button>
+    </div>
+    <textarea id="g-members" placeholder="member user keys &#x2014; one per line (wallet addresses)" style="margin-top:8px"></textarea>
+    <div class="row" style="margin-top:12px;flex-wrap:wrap;gap:8px">
+      <select id="t-group">${state.groups.map(g=>`<option value="${esc(g.name)}">${esc(g.name)}</option>`).join('')}</select>
+      <select id="t-kind"><option value="flag">flag target</option><option value="experiment">experiment target</option></select>
+      <input id="t-key" placeholder="flag_name / exp_key" style="min-width:210px;text-transform:none;letter-spacing:0">
+      <select id="t-state"><option value="on">on</option><option value="off">off</option><option value="forced">forced variant</option></select>
+      <label class="when" id="t-killwrap" style="display:none;align-items:center;gap:5px;margin:0"><input type="checkbox" id="t-killed" style="width:auto;min-width:0;padding:0"> kill</label>
+      <input id="t-variant" placeholder="variant (optional)" style="min-width:150px;text-transform:none;letter-spacing:0">
+      <button id="t-save" class="on">set target</button>
+      <button id="t-clear">clear target</button>
+    </div>`;
+  wireGroups();
+}
+function wireGroups(){
+  const byName=n=>state.groups.find(g=>g.name===n)||{};
+  document.querySelectorAll('[data-gedit]').forEach(b=>b.onclick=()=>{
+    const g=byName(b.dataset.gedit);
+    $('#g-name').value=g.name||''; $('#g-desc').value=g.description||'';
+    $('#g-pct').value=g.rollout_pct??0; $('#g-prio').value=g.priority??0;
+    $('#g-members').value=(g.members||[]).join('\n');
+    $('#t-group').value=g.name||''; toast('loaded '+g.name);});
+  document.querySelectorAll('[data-gdel]').forEach(b=>b.onclick=()=>{
+    const n=b.dataset.gdel;
+    if(confirm('delete group "'+n+'" and its targets?'))saveGroup({name:n,clear:true});});
+  document.querySelectorAll('[data-tcflag]').forEach(b=>b.onclick=()=>saveTarget({group:b.dataset.tcgroup,flag:b.dataset.tcflag,clear:true}));
+  document.querySelectorAll('[data-tcexp]').forEach(b=>b.onclick=()=>saveTarget({group:b.dataset.tcgroup,exp_key:b.dataset.tcexp,clear:true}));
+  const kind=$('#t-kind');
+  kind.onchange=()=>{const isFlag=kind.value==='flag';
+    $('#t-state').style.display=isFlag?'':'none'; $('#t-killwrap').style.display=isFlag?'none':'flex';};
+  $('#g-save').onclick=()=>{
+    const name=$('#g-name').value.trim(); if(!name){toast('group name required');return;}
+    const body={name,description:$('#g-desc').value.trim(),
+      members:$('#g-members').value.split(/[\s,]+/).map(s=>s.trim()).filter(Boolean)};
+    const pct=$('#g-pct').value.trim(), prio=$('#g-prio').value.trim();
+    if(pct!=='')body.rollout_pct=+pct;
+    if(prio!=='')body.priority=+prio;
+    saveGroup(body);};
+  $('#g-del').onclick=()=>{const n=$('#g-name').value.trim(); if(!n){toast('group name required');return;}
+    if(confirm('delete group "'+n+'" and its targets?'))saveGroup({name:n,clear:true});};
+  $('#t-save').onclick=()=>targetFromForm(false);
+  $('#t-clear').onclick=()=>targetFromForm(true);
+}
+function targetFromForm(clear){
+  const group=$('#t-group').value, key=$('#t-key').value.trim();
+  if(!group){toast('group required');return;}
+  if(!key){toast('flag_name / exp_key required');return;}
+  const variant=$('#t-variant').value.trim();
+  if($('#t-kind').value==='flag'){
+    const st=$('#t-state').value;
+    if(st==='forced'&&!variant&&!clear){toast('variant required');return;}
+    saveTarget({group,flag:key,state:st,variant:variant||null,clear});
+  }else{
+    saveTarget({group,exp_key:key,killed:$('#t-killed').checked,variant:variant||null,clear});
+  }
+}
+async function saveGroup(body){
+  try{await jpost('/dash/groups',body);
+    toast(body.clear?('deleted '+body.name):('saved '+body.name));
+    if(body.clear){$('#g-name').value='';$('#g-desc').value='';$('#g-members').value='';}
+    loadAll().catch(()=>{});}
+  catch(e){toast('group save failed: '+e.message);}
+}
+async function saveTarget(body){
+  try{await jpost('/dash/group/target',body);
+    toast(body.clear?('cleared target on '+body.group):('targeted '+body.group));
+    loadAll().catch(()=>{});}
+  catch(e){toast('target failed: '+e.message);}
+}
+
+function renderFlags(names,ovr){
+  const flags=cfgFlags(),variants=cfgVariants();
+  const obs=Object.fromEntries((state.flags.observed||[]).map(([k,c])=>[k,c]));
+  const tbf=targetsByFlag(), areas=areaOf();
+  const active=new Set(state.flags.group_targeted||[]);
+  const ovrCell=o=>{ if(!o)return '<span class="tag" style="opacity:.5">&#x2014;</span>';
+    if(o.state==='forced')return `<span class="sbadge" style="color:var(--info);border-color:var(--info)">&#x2192; ${esc(o.variant||'variant')}</span>`;
+    return `<span class="sbadge" style="color:var(--acc);border-color:var(--acc)">forced ${o.state==='off'?'off':'on'}</span>`;};
+  const gcell=n=>((tbf[n]||[]).map(t=>{
+    const hit=active.has(n);
+    return `<span class="sbadge${hit?' hit':''}" title="${hit?'this group matches the previewed user &#x2014; it beats the global override':'group target'}">${esc(t.group)} &#x2192; ${esc(t.state==='forced'?('var '+(t.variant||'')):t.state)}</span>`;
+  }).join(' ')||'<span class="tag" style="opacity:.5">&#x2014;</span>');
+  const row=n=>{const has=Object.prototype.hasOwnProperty.call(flags,n),on=!!flags[n],v=variants[n],o=ovr[n];
+    return `<tr><td><span class="lvl ${effOn(n)?'ok':'none'}"></span> ${esc(n)}${v?` <span class="tag">${esc(v.name||'')}</span>`:''}</td>
+      <td>${has?(on?'<span class="sbadge resolved">on</span>':'<span class="sbadge ignored">off</span>'):'<span class="tag" style="opacity:.5">&#x2014;</span>'}</td>
+      <td>${ovrCell(o)}</td>
+      <td class="wrap">${gcell(n)}</td>
+      <td class="cnt">${obs[n]?num(obs[n]):'&#x2014;'}</td>
+      <td class="acts"><button class="act" data-fon="${esc(n)}" title="force on">on</button><button class="act" data-foff="${esc(n)}" title="force off">off</button><button class="act" data-fvar="${esc(n)}" title="force a variant">var&#x2026;</button><button class="act" data-farea="${esc(n)}" title="set product area">area&#x2026;</button>${o?`<button class="act" data-fclear="${esc(n)}" title="clear override">&#x2298;</button>`:''}</td></tr>`;};
+  const byArea={};
+  for(const n of names)(byArea[areas[n]||'']||(byArea[areas[n]||'']=[])).push(n);
+  const keys=Object.keys(byArea).filter(a=>a).sort();
+  if(byArea[''])keys.push('');
+  const body=keys.map(a=>`<tr><td class="arow" colspan="6">${a?esc(a):'unfiled'} <b>${byArea[a].length}</b></td></tr>
+    ${byArea[a].map(row).join('')}`).join('');
+  $('#flagsec').innerHTML=`<h3 class="sec">flags by product area</h3>
+    <div class="when wrap" style="margin-bottom:10px">${names.length} flags &#xB7; live config from <b>${esc(state.flags.source_url||'')}</b> &#xB7; "observed" = times a flag appeared in event data (contexts.flags)${state.user?` &#xB7; override column resolved for <b>${esc(state.user)}</b>`:' &#xB7; type a user above to resolve group targets'}</div>
+    <table><thead><tr><th>flag</th><th style="width:80px">config</th><th style="width:120px">override</th>
+      <th style="width:260px">group target</th><th class="cnt" style="width:110px">observed</th><th style="width:220px"></th></tr></thead>
+      <tbody>${body||'<tr><td colspan=6 class="empty">flag service unreachable</td></tr>'}</tbody></table>
+    <div class="row" style="margin-top:14px;flex-wrap:wrap;gap:8px">
+      <input id="fl-key" placeholder="flag_name" style="min-width:200px;text-transform:none;letter-spacing:0">
+      <select id="fl-mode"><option value="on">force on</option><option value="off">force off</option><option value="variant">force variant</option></select>
+      <input id="fl-variant" placeholder="variant" style="min-width:150px;text-transform:none;letter-spacing:0;display:none">
+      <button id="fl-save" class="on">save</button>
+      <button id="fl-clear">clear</button>
+    </div>`;
+  document.querySelectorAll('[data-fon]').forEach(b=>b.onclick=()=>saveFlag(b.dataset.fon,{state:'on'}));
+  document.querySelectorAll('[data-foff]').forEach(b=>b.onclick=()=>saveFlag(b.dataset.foff,{state:'off'}));
+  document.querySelectorAll('[data-fvar]').forEach(b=>b.onclick=()=>{const n=b.dataset.fvar;const cur=(ovr[n]||{}).variant||'';
+    const v=prompt('Force variant for '+n+':',cur); if(v==null)return; const t=v.trim();
+    if(!t){toast('variant required');return;} saveFlag(n,{state:'forced',variant:t});});
+  document.querySelectorAll('[data-fclear]').forEach(b=>b.onclick=()=>saveFlag(b.dataset.fclear,{clear:true}));
+  document.querySelectorAll('[data-farea]').forEach(b=>b.onclick=()=>{const n=b.dataset.farea;
+    const a=prompt('Product area for '+n+' (empty clears):',areas[n]||''); if(a==null)return; setArea(n,a.trim());});
+  const flMode=$('#fl-mode'),flVar=$('#fl-variant');
+  flMode.onchange=()=>{flVar.style.display=flMode.value==='variant'?'':'none';};
+  $('#fl-save').onclick=()=>{const k=$('#fl-key').value.trim(); if(!k){toast('flag_name required');return;}
+    if(flMode.value==='variant'){const v=flVar.value.trim(); if(!v){toast('variant required');return;} saveFlag(k,{state:'forced',variant:v});}
+    else saveFlag(k,{state:flMode.value});};
+  $('#fl-clear').onclick=()=>{const k=$('#fl-key').value.trim(); if(!k){toast('flag_name required');return;} saveFlag(k,{clear:true});};
+}
+async function saveFlag(flag,opts){
+  try{await jpost('/dash/flag',Object.assign({flag},opts));
+    toast(opts.clear?('cleared '+flag):('saved '+flag)); loadAll().catch(()=>{});}
+  catch(e){toast('flag override failed: '+e.message);}
+}
+async function setArea(name,area){
+  try{await jpost('/dash/area',area?{kind:'flag',name,area}:{kind:'flag',name,clear:true});
+    toast(area?(name+' &#x2192; '+area):('unfiled '+name)); loadAll().catch(()=>{});}
+  catch(e){toast('area failed: '+e.message);}
+}
+
+function renderExps(){
+  const xkeys=Object.keys(state.xp).sort();
+  const rows=xkeys.map(k=>{const o=state.xp[k]||{},e=state.expo[k];
+    const fl=(o.flags&&Object.keys(o.flags).length)?esc(JSON.stringify(o.flags)):'';
+    return `<tr><td>${esc(k)}</td>
+      <td>${o.killed?'<span class="sbadge" style="color:var(--err);border-color:var(--err)">killed</span>':'<span class="sbadge resolved">live</span>'}</td>
+      <td class="tag">${o.variant?esc(o.variant):'&#x2014;'}</td>
+      <td class="cnt">${e?num(e.n):'&#x2014;'}${e&&e.u?`<span class="tag"> &#xB7; ${e.u}u</span>`:''}</td>
+      <td class="tag" style="max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${fl}">${fl||'&#x2014;'}</td>
+      <td class="acts"><button class="act" data-xedit="${esc(k)}" title="load into form">edit</button><button class="act" data-xclear="${esc(k)}" title="clear override">&#x2298;</button></td></tr>`;}).join('');
+  $('#exps').innerHTML=`<h3 class="sec">experiment overrides</h3>
+    <div class="when wrap" style="margin-bottom:10px">${xkeys.length} global override${xkeys.length===1?'':'s'} &#xB7; server-side kill switch / forced variant &#xB7; per-group experiment targets live in the groups table above &#xB7; exposures / ${state.hours}h</div>
+    <table><thead><tr><th>experiment</th><th>state</th><th>forced variant</th><th class="cnt">exposures</th><th>flags</th><th></th></tr></thead>
+      <tbody>${rows||'<tr><td colspan=6 class="empty">no overrides</td></tr>'}</tbody></table>
+    <div class="row" style="margin-top:14px;flex-wrap:wrap;gap:8px">
+      <input id="x-key" placeholder="exp_key" style="min-width:200px;text-transform:none;letter-spacing:0">
+      <label class="when" style="display:flex;align-items:center;gap:5px;margin:0"><input type="checkbox" id="x-killed" style="width:auto;min-width:0;padding:0"> kill</label>
+      <input id="x-variant" placeholder="force variant (optional)" style="min-width:170px;text-transform:none;letter-spacing:0">
+      <button id="x-save" class="on">save</button>
+      <button id="x-clear">clear</button>
+    </div>`;
+  document.querySelectorAll('[data-xedit]').forEach(b=>b.onclick=()=>{const k=b.dataset.xedit,o=state.xp[k]||{};
+    $('#x-key').value=k; $('#x-killed').checked=!!o.killed; $('#x-variant').value=o.variant||''; toast('loaded '+k);});
+  document.querySelectorAll('[data-xclear]').forEach(b=>b.onclick=()=>saveExperiment(b.dataset.xclear,{clear:true}));
+  $('#x-save').onclick=()=>{const k=$('#x-key').value.trim(); if(!k){toast('exp_key required');return;}
+    saveExperiment(k,{killed:$('#x-killed').checked, variant:$('#x-variant').value.trim()||null});};
+  $('#x-clear').onclick=()=>{const k=$('#x-key').value.trim(); if(!k){toast('exp_key required');return;} saveExperiment(k,{clear:true});};
+}
+async function saveExperiment(exp_key,opts){
+  try{await jpost('/dash/experiment',Object.assign({exp_key},opts));
+    toast(opts.clear?('cleared '+exp_key):('saved '+exp_key)); loadAll().catch(()=>{});}
+  catch(e){toast('failed: '+e.message);}
+}
+
+function renderHist(){
+  if(state.audit==null){
+    $('#hist').innerHTML=`<h3 class="sec">recent changes</h3>
+      <div class="when wrap" style="opacity:.7">recent-changes history needs an admin token &#x2014; <a href="login">sign in</a> or reload with <b>?admin=&lt;token&gt;</b> (GET /dash/admin/audit is bearer-gated)</div>`;
+    return;
+  }
+  const rows=state.audit.filter(r=>/^(experiment|flag|group|area)\./.test(r.action||'')).slice(0,20).map(r=>{
+    const d=r.detail||{}, key=d.exp_key||d.flag||d.name||'';
+    const what=d.clear?'cleared':d.state?(d.state==='forced'?('&#x2192; '+(d.variant||'variant')):d.state):
+      (d.area?('area '+d.area):d.variant?('&#x2192; '+d.variant):d.killed?'killed':
+      (d.rollout_pct!=null||d.members!=null)?`${d.members!=null?(+d.members||0)+' members':''}${d.rollout_pct!=null?' &#xB7; '+(+d.rollout_pct||0)+'%':''}`:'set');
+    return `<tr><td class="when">${esc((r.at||'').replace('T',' ').replace('Z',''))}</td><td class="tag">${esc(r.actor||'')}</td>
+      <td><span class="sbadge">${esc(r.action||'')}</span> ${esc(key)} <span class="tag">${esc(what)}</span></td></tr>`;}).join('');
+  $('#hist').innerHTML=`<h3 class="sec">recent changes</h3>
+    <table><thead><tr><th>when (UTC)</th><th>actor</th><th>change</th></tr></thead>
+      <tbody>${rows||'<tr><td colspan=3 class="empty">no recent flag / group / experiment changes</td></tr>'}</tbody></table>`;
+}
+
+async function runResolve(){
+  if(!state.user){
+    $('#resolve').innerHTML=`<div class="gbox"><h3 class="sec">who would match</h3>
+      <div class="when wrap">type a wallet address or user key above to see which audience groups it lands in.
+      Rollout is a deterministic FNV-1a bucket of "&lt;group&gt;:&lt;user key&gt;" &#x2014; the same key always lands the same way,
+      so a rollout never reshuffles under an operator. A matching group target beats the global override, which beats the upstream config.</div></div>`;
+    return;
+  }
+  let r;
+  try{r=await jget('/dash/group/resolve?user='+encodeURIComponent(state.user));}
+  catch(e){$('#resolve').innerHTML=`<div class="gbox"><h3 class="sec">who would match</h3><div class="when wrap">resolve failed: ${esc(e.message)}</div></div>`;return;}
+  const byName=n=>state.groups.find(g=>g.name===n)||{};
+  const matched=(r.groups||[]).map(g=>{const src=byName(g.name);
+    const tg=[...(src.flag_targets||[]).map(t=>`<span class="chip">flag <b>${esc(t.flag)}</b> &#x2192; ${esc(t.state)}</span>`),
+      ...(src.experiment_targets||[]).map(t=>`<span class="chip">exp <b>${esc(t.exp_key)}</b> &#x2192; ${t.killed?'killed':esc(t.variant||'live')}</span>`)].join(' ');
+    return `<tr><td><b>${esc(g.name)}</b></td>
+      <td><span class="sbadge ${g.via==='member'?'resolved':'hit'}">via ${esc(g.via)}</span></td>
+      <td class="cnt">${+g.priority||0}</td>
+      <td class="wrap">${tg||'<span class="tag" style="opacity:.5">no targets</span>'}</td></tr>`;}).join('');
+  const buckets=(r.bucket||[]).map(b=>{
+    const pct=Math.max(0,Math.min(100,+b.rollout_pct||0)), bk=Math.max(0,Math.min(100,+b.bucket||0));
+    const inRoll=bk<pct, member=(byName(b.group).members||[]).includes(r.user);
+    return `<tr><td>${esc(b.group)}</td>
+      <td class="cnt">${pct}%</td>
+      <td class="cnt">${bk}</td>
+      <td><span class="track" title="bucket ${bk} vs rollout ${pct}%"><span class="fill" style="width:${pct}%"></span><span class="mark" style="left:${bk}%"></span></span></td>
+      <td>${member?'<span class="sbadge resolved">member</span>':inRoll?'<span class="sbadge hit">in rollout</span>':'<span class="sbadge ignored">out</span>'}</td></tr>`;}).join('');
+  $('#resolve').innerHTML=`<div class="gbox">
+    <h3 class="sec">who would match &#xB7; <b>${esc(r.user)}</b></h3>
+    <div class="when wrap" style="margin-bottom:10px">${(r.groups||[]).length} matching group${(r.groups||[]).length===1?'':'s'} &#xB7; a group target on a flag beats the global override for this user</div>
+    <table><thead><tr><th>group</th><th>matched</th><th class="cnt">priority</th><th>what it targets</th></tr></thead>
+      <tbody>${matched||'<tr><td colspan=4 class="empty">no group matches this user</td></tr>'}</tbody></table>
+    <h3 class="sec">bucket per group</h3>
+    <div class="when wrap" style="margin-bottom:10px">bucket = FNV-1a("&lt;group&gt;:${esc(r.user)}") mod 100 &#xB7; stable forever &#xB7; a user is in the rollout when bucket &lt; rollout %</div>
+    <table><thead><tr><th>group</th><th class="cnt">rollout</th><th class="cnt">bucket</th><th>position</th><th>verdict</th></tr></thead>
+      <tbody>${buckets||'<tr><td colspan=5 class="empty">no groups</td></tr>'}</tbody></table></div>`;
+}
+
+function setUser(u){state.user=u;syncUrl();loadAll().catch(e=>toast('load failed: '+e.message));}
+$('#u-go').onclick=()=>setUser($('#u-key').value.trim());
+$('#u-key').onkeydown=e=>{if(e.key==='Enter')setUser($('#u-key').value.trim());};
+$('#u-clear').onclick=()=>{$('#u-key').value='';setUser('');};
+$('#range').onchange=e=>{state.hours=+e.target.value||24;syncUrl();loadAll().catch(()=>{});};
+(function boot(){
+  const q=new URLSearchParams(location.search);
+  state.user=q.get('user')||'';
+  state.hours=+(q.get('hours')||24)||24;
+  $('#u-key').value=state.user; $('#range').value=String(state.hours);
+  loadAll().catch(e=>{$('#flagsec').innerHTML=`<div class="empty">error: ${esc(e.message)}</div>`;});
+})();
+</script>
+</body>
+</html>

@@ -15,13 +15,11 @@ pub mod ws;
 pub use config::Config;
 pub use state::{AppState, AppStateInner};
 
-use std::str::FromStr;
 use std::sync::Arc;
-use std::time::Duration;
 
 use anyhow::{Context, Result};
 use axum::Router;
-use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
+use tower_http::cors::{Any, CorsLayer};
 
 use crate::auth::ChallengeStore;
 use crate::ban::{BanChecker, DenyList};
@@ -39,6 +37,13 @@ pub async fn build_state(cfg: &Config) -> Result<AppState> {
     let livekit = Arc::new(LivekitMinter::new(cfg.livekit.clone()));
     let ban_checker = BanChecker::new(cfg.livekit.comms_gatekeeper_url.clone(), http.clone());
     let deny_list = DenyList::new(cfg.auth.deny_list_url.clone(), http.clone());
+    if !deny_list.is_armed() {
+        tracing::warn!(
+            "DENY_LIST_URL is unset \u{2014} the wallet denylist is DISARMED and no address \
+             will be blocked. This used to fall back to Decentraland's production \
+             denylist; set DENY_LIST_URL to a list this deployment controls to re-arm it."
+        );
+    }
     let cluster = Cluster::new(
         cfg.cluster.clone(),
         Arc::clone(&livekit),
@@ -53,27 +58,25 @@ pub async fn build_state(cfg: &Config) -> Result<AppState> {
 
     let content_pool = match &cfg.content_database_url {
         Some(url) => {
-            let opts = PgConnectOptions::from_str(url)
-                .context("invalid content DB connection string")?
-                .options([
-                    ("statement_timeout", "60000"),
-                    ("idle_in_transaction_session_timeout", "30000"),
-                ]);
-            match PgPoolOptions::new()
-                .max_connections(5)
-                .idle_timeout(Duration::from_secs(30))
-                .connect_with(opts)
-                .await
-            {
+            let settings = catalyrst_db::PoolSettings {
+                max_connections: 5,
+                ..catalyrst_db::PoolSettings::default()
+            };
+            match catalyrst_db::connect_pool(url, &settings).await {
                 Ok(pool) => Some(pool),
-                Err(e) => {
-                    tracing::warn!(error = %e, "content DB unavailable — /hot-scenes scene resolution disabled");
+                Err(e @ catalyrst_db::PoolError::InvalidUrl(_)) => {
+                    return Err(e).context("invalid content DB connection string");
+                }
+                Err(catalyrst_db::PoolError::Connect(e)) => {
+                    tracing::warn!(error = %e, "content DB unavailable \u{2014} /hot-scenes scene resolution disabled");
                     None
                 }
             }
         }
         None => {
-            tracing::warn!("content DB unconfigured — /hot-scenes scene resolution disabled");
+            tracing::warn!(
+                "content DB unconfigured \u{2014} /hot-scenes scene resolution disabled"
+            );
             None
         }
     };
@@ -103,7 +106,13 @@ pub async fn build_state(cfg: &Config) -> Result<AppState> {
 
 pub fn api_router() -> Router<AppState> {
     Router::new()
-        .merge(handlers::status_routes())
-        .merge(handlers::api_routes())
+        .merge(handlers::routes())
         .merge(ws::routes())
+        .layer(
+            CorsLayer::new()
+                .allow_origin(Any)
+                .allow_methods(Any)
+                .allow_headers(Any)
+                .expose_headers(Any),
+        )
 }

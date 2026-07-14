@@ -1,0 +1,27 @@
+/* The one answer a reader came for. */
+.fd-session__when {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: var(--fs-16);
+  font-weight: var(--fw-semibold);
+  line-height: var(--lh-snug);
+  color: var(--text);
+}
+
+.fd-session__text {
+  margin: 0;
+  max-width: var(--measure);
+  font-size: var(--fs-13);
+  line-height: var(--lh-body);
+  color: var(--ink-7);
+}
+
+/* Host-only controls sit under the RSVP row, never inside it. */
+.fd-session__hostrow {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  flex-wrap: wrap;
+  padding-top: var(--s-2);
+  border-top: 1px solid var(--line);
+}

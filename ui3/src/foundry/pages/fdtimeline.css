@@ -1,0 +1,90 @@
+.fd-timeline__lanes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+}
+
+.fd-timeline__lanes .fd-chip {
+  padding: var(--s-1-5) var(--s-3);
+  color: var(--ink-6);
+}
+
+.fd-timeline__lanes .fd-chip.is-on {
+  border-color: var(--brand-ink);
+  color: var(--brand-ink);
+}
+
+.fd-timeline__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Aligned on the top edge, not the baseline: a wrapping body would otherwise
+   pull the stamp and the lane chip down with its last line. */
+.fd-timeline__row {
+  display: grid;
+  grid-template-columns: 240px 112px 1fr;
+  gap: var(--s-3);
+  align-items: start;
+  padding: var(--s-3) 0;
+  border-top: 1px solid var(--line);
+}
+
+.fd-timeline__row:first-child {
+  border-top: none;
+}
+
+@media (max-width: 600px) {
+  .fd-timeline__row {
+    grid-template-columns: 1fr;
+    gap: var(--s-1);
+  }
+}
+
+.fd-timeline__at {
+  font-family: var(--font-mono);
+  font-size: var(--fs-12);
+  line-height: var(--lh-ui);
+  color: var(--ink-45);
+  white-space: nowrap;
+}
+
+/* A stamp that opens the event's own page is a link and reads as one. */
+a.fd-timeline__at {
+  color: var(--brand-ink);
+  text-decoration-color: color-mix(in srgb, var(--brand-ink) 45%, transparent);
+}
+
+.fd-timeline__lanechip {
+  justify-self: start;
+}
+
+/* Human vs machine-made: a dashed edge marks the imported/bot/recorded rows;
+   a visitor's own action keeps the solid one. */
+.fd-timeline__row.is-machine .fd-timeline__lanechip {
+  border-style: dashed;
+}
+
+.fd-timeline__main {
+  font-size: var(--fs-13);
+  line-height: var(--lh-body);
+  color: var(--text);
+}
+
+.fd-timeline__actor {
+  font-weight: var(--fw-semibold);
+}
+
+.fd-timeline__actor.is-badge,
+.fd-timeline__actor.is-source {
+  font-weight: var(--fw-regular);
+  color: var(--ink-45);
+  font-style: italic;
+}
+
+.fd-timeline__subject {
+  color: var(--ink-45);
+}

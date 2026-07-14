@@ -1,0 +1,225 @@
+{
+  "sid": "story-sid",
+  "tab": "collections",
+  "address": "0x4f7fe261619141ffa63fefee35bba886581292f4",
+  "source": "live",
+  "fallback": false,
+  "ownedCards": [
+    {
+      "id": "0x7f4607e8e286737a90ef391e78b1785796de2a2b-28",
+      "name": "Uncle Sam's Top Hat",
+      "collection": "hat",
+      "price": "12",
+      "rarity": "epic",
+      "network": "polygon",
+      "image": "https://catalyst.example.com/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0x7f4607e8e286737a90ef391e78b1785796de2a2b:0/thumbnail"
+    },
+    {
+      "id": "0x479b656ea58fce1eb01196abc909652424af2d28-1",
+      "name": "Born to be Free",
+      "collection": "upper_body",
+      "price": null,
+      "rarity": "epic",
+      "network": "polygon",
+      "image": "https://catalyst.example.com/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0x479b656ea58fce1eb01196abc909652424af2d28:0/thumbnail"
+    },
+    {
+      "id": "0x3c17ed856ca12d6ac8d623482f0551b47bb1fa62-1",
+      "name": "Lights of Liberty",
+      "collection": "hands_wear",
+      "price": null,
+      "rarity": "epic",
+      "network": "polygon",
+      "image": "https://catalyst.example.com/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0x3c17ed856ca12d6ac8d623482f0551b47bb1fa62:0/thumbnail"
+    },
+    {
+      "id": "0xf3db9b37b791890443a15cd16423f4e35c82d513-88",
+      "name": "Pride Bucket Hat",
+      "collection": "hat",
+      "price": null,
+      "rarity": "rare",
+      "network": "polygon",
+      "image": "https://catalyst.example.com/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0xf3db9b37b791890443a15cd16423f4e35c82d513:0/thumbnail"
+    },
+    {
+      "id": "0xfa97672f146b7a47f0791b7087cf3270d6f847ac-16",
+      "name": "Donald Dump",
+      "collection": "helmet",
+      "price": null,
+      "rarity": "legendary",
+      "network": "polygon",
+      "image": "https://catalyst.example.com/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0xfa97672f146b7a47f0791b7087cf3270d6f847ac:0/thumbnail"
+    },
+    {
+      "id": "0x2c958cbd5c73cbfcd389e4e08d0f45a367937d0f-98",
+      "name": "Dollar Pump President ",
+      "collection": "upper_body",
+      "price": "40",
+      "rarity": "legendary",
+      "network": "polygon",
+      "image": "https://catalyst.example.com/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0x2c958cbd5c73cbfcd389e4e08d0f45a367937d0f:0/thumbnail"
+    },
+    {
+      "id": "0xbdf24869d59f36e3c1b312181b08f7f623d79441-51",
+      "name": "DCL Kickoff Jersey",
+      "collection": "upper_body",
+      "price": null,
+      "rarity": "rare",
+      "network": "polygon",
+      "image": "https://catalyst.example.com/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0xbdf24869d59f36e3c1b312181b08f7f623d79441:0/thumbnail"
+    },
+    {
+      "id": "0xbdf24869d59f36e3c1b312181b08f7f623d79441-1",
+      "name": "DCL Kickoff Jersey",
+      "collection": "upper_body",
+      "price": null,
+      "rarity": "rare",
+      "network": "polygon",
+      "image": "https://catalyst.example.com/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0xbdf24869d59f36e3c1b312181b08f7f623d79441:0/thumbnail"
+    }
+  ],
+  "ownedTotal": 1656,
+  "names": [
+    {
+      "name": "nightlounge",
+      "price": null
+    },
+    {
+      "name": "METASANTA",
+      "price": null
+    },
+    {
+      "name": "BlenderMan",
+      "price": null
+    },
+    {
+      "name": "clubnight",
+      "price": null
+    },
+    {
+      "name": "Amiga",
+      "price": null
+    },
+    {
+      "name": "doriangray",
+      "price": null
+    },
+    {
+      "name": "TigersCave",
+      "price": null
+    },
+    {
+      "name": "TigerFarm",
+      "price": null
+    },
+    {
+      "name": "STARDUCKS",
+      "price": null
+    },
+    {
+      "name": "C64",
+      "price": null
+    },
+    {
+      "name": "METATIGER",
+      "price": null
+    },
+    {
+      "name": "testworld",
+      "price": null
+    },
+    {
+      "name": "Tropical",
+      "price": null
+    },
+    {
+      "name": "HorseDealer",
+      "price": null
+    },
+    {
+      "name": "Faerghail",
+      "price": null
+    }
+  ],
+  "namesTotal": 15,
+  "onSaleRows": [],
+  "onSaleTotal": 0,
+  "collections": [
+    {
+      "contractAddress": "0x479b656ea58fce1eb01196abc909652424af2d28",
+      "name": "METATIGER Born to be Free",
+      "size": 1,
+      "isOnSale": false,
+      "tiles": [
+        "epic"
+      ]
+    },
+    {
+      "contractAddress": "0x3c17ed856ca12d6ac8d623482f0551b47bb1fa62",
+      "name": "METATIGER Liberty",
+      "size": 1,
+      "isOnSale": false,
+      "tiles": [
+        "epic"
+      ]
+    },
+    {
+      "contractAddress": "0x83abf049009fdbfd093c17a0f0e8ea48740757a8",
+      "name": "METATIGER Raveballoon",
+      "size": 3,
+      "isOnSale": false,
+      "tiles": [
+        "epic",
+        "legendary",
+        "exotic"
+      ]
+    },
+    {
+      "contractAddress": "0x827d203017351c55bf5b996ef87f4f8d56953954",
+      "name": "METATIGER Heart Thrower",
+      "size": 1,
+      "isOnSale": false,
+      "tiles": [
+        "legendary"
+      ]
+    },
+    {
+      "contractAddress": "0x754fc6d73cb7e5bef7770e5774c457034d3fe0bb",
+      "name": "METATIGER FX Devices",
+      "size": 2,
+      "isOnSale": false,
+      "tiles": [
+        "legendary",
+        "legendary"
+      ]
+    },
+    {
+      "contractAddress": "0x17629d9a2db80955a083c0e14a2f67efdeb1d841",
+      "name": "METATIGER Stable Tiger",
+      "size": 1,
+      "isOnSale": false,
+      "tiles": [
+        "unique"
+      ]
+    },
+    {
+      "contractAddress": "0x8ce457f89106d08e664e7c090e178cc9d709e4ed",
+      "name": "METATIGER Hoodie",
+      "size": 1,
+      "isOnSale": false,
+      "tiles": [
+        "epic"
+      ]
+    },
+    {
+      "contractAddress": "0x916a896318f2ac178862c7ebfd072b39a6b438cd",
+      "name": "METATIGER Santa's Hat",
+      "size": 1,
+      "isOnSale": false,
+      "tiles": [
+        "epic"
+      ]
+    }
+  ],
+  "collectionsTotal": 36
+}

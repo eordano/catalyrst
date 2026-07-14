@@ -253,19 +253,20 @@ pub async fn estate_map_png(
             }
 
             if selected.is_empty() {
-                return Err(Response::builder()
-                    .status(StatusCode::FOUND)
-                    .header(
-                        header::LOCATION,
-                        std::env::var("DISSOLVED_ESTATE_URL")
-                            .ok()
-                            .filter(|s| !s.is_empty())
-                            .unwrap_or_else(|| {
-                                "https://ui.decentraland.org/dissolved_estate.png".to_string()
-                            }),
-                    )
-                    .body(Body::empty())
-                    .unwrap());
+                let placeholder = std::env::var("DISSOLVED_ESTATE_URL")
+                    .ok()
+                    .filter(|s| !s.trim().is_empty());
+                return Err(match placeholder {
+                    Some(url) => Response::builder()
+                        .status(StatusCode::FOUND)
+                        .header(header::LOCATION, url)
+                        .body(Body::empty())
+                        .unwrap(),
+                    None => Response::builder()
+                        .status(StatusCode::NOT_FOUND)
+                        .body(Body::empty())
+                        .unwrap(),
+                });
             }
 
             let mut xs: Vec<i32> = selected.iter().map(|c| c.x).collect();

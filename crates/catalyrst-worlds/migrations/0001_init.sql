@@ -1,4 +1,4 @@
--- catalyrst-worlds schema — ported from decentraland/worlds-content-server
+-- catalyrst-worlds schema -- ported from decentraland/worlds-content-server
 -- migrations 0002 / 0011 / 0013 / 0015 / 0016 / 0017 / 0020, collapsed to the
 -- final shape (post 0016 drops entity_id/entity/deployer/size from `worlds`;
 -- scene data lives in `world_scenes`). Access settings live in worlds.access
@@ -64,7 +64,7 @@ CREATE INDEX IF NOT EXISTS world_permissions_address_idx ON world_permissions (a
 CREATE INDEX IF NOT EXISTS world_permissions_world_permission_idx
     ON world_permissions (world_name, permission_type);
 
--- over-storage / platform block list (migration 0013) — keyed by wallet
+-- over-storage / platform block list (migration 0013) -- keyed by wallet
 CREATE TABLE IF NOT EXISTS blocked (
     wallet     VARCHAR NOT NULL PRIMARY KEY,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),

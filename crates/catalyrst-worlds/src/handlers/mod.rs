@@ -4,6 +4,7 @@ pub mod admin;
 pub mod comms;
 pub mod contents;
 pub mod deploy;
+pub mod gc;
 pub mod index;
 pub mod live_data;
 pub mod permissions;

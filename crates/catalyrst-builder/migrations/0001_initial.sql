@@ -3,7 +3,7 @@
 -- A fresh, minimal slice of decentraland/builder-server (the pre-publish draft
 -- store behind builder-api.decentraland.org). NOT a literal replay of the
 -- builder-server node-pg-migrate sequence (migrations/1597864779562_create-items.ts
--- and friends) — the columns the explorer's BuilderApiDtos actually need are
+-- and friends) -- the columns the explorer's BuilderApiDtos actually need are
 -- collapsed into final shape so bootstrap is one transaction. This DB is distinct
 -- from marketplace_squid (on-chain published view), content (catalyst entities),
 -- and communities (social data).

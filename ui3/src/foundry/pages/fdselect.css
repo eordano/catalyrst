@@ -1,0 +1,6 @@
+.fd-select__crowd {
+  padding: var(--s-5) var(--s-4);
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  background: var(--panel);
+}

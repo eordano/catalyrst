@@ -1,0 +1,102 @@
+/* A number and its provenance. Position is stable: a tile never moves, hides
+   or reorders because its state changed -- only the badge and the value swap. */
+
+.dt {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 14px 16px 13px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  background: var(--panel);
+  color: var(--text);
+}
+
+/* The thing exists; today's read failed. Solid border, red spine. */
+.dt--unavailable {
+  border-left: 3px solid var(--error);
+}
+
+/* A plan, not a break. */
+.dt--unbuilt {
+  border-style: dashed;
+  background: transparent;
+  box-shadow: none;
+}
+
+.dt--nosample {
+  border-style: dashed;
+}
+
+.dt--stale {
+  border-left: 3px solid var(--warning);
+}
+
+.dt__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.dt__label {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--ink-45);
+}
+
+.dt__value {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin: 0;
+}
+
+.dt__num {
+  font-size: 30px;
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+}
+
+/* Same size, same weight, same line -- only the colour tells you it is absent,
+   and the badge beside it tells you why. No skeleton, no shimmer, no zero. */
+.dt__num--absent {
+  color: var(--ink-45);
+}
+
+.dt__unit {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink-6);
+}
+
+.dt__note {
+  margin: 8px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--ink-7);
+}
+
+/* Two hosts measuring the same thing and disagreeing. Both stay on screen. */
+.dt__compare {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 10px 0 0;
+  padding-top: 9px;
+  border-top: 1px solid var(--line);
+  font-size: 12px;
+  color: var(--ink-45);
+}
+
+.dt__comparevalue {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--ink-85);
+}

@@ -101,7 +101,7 @@ pub fn verify_purchase_intent(
     }
     if intent.expires_at <= now_secs {
         return Err(ApiError::bad_request(
-            "purchase intent has expired — please review and sign the purchase again",
+            "purchase intent has expired \u{2014} please review and sign the purchase again",
         ));
     }
     if intent.expires_at - now_secs > INTENT_MAX_TTL_SECS {
@@ -128,7 +128,7 @@ pub fn verify_intent_matches_order(
     let canonical = canonical_items(repriced);
     if intent.items != canonical {
         return Err(ApiError::conflict(
-            "the items in this order changed after the purchase was signed — please review and \
+            "the items in this order changed after the purchase was signed \u{2014} please review and \
              sign again",
         ));
     }
@@ -137,7 +137,7 @@ pub fn verify_intent_matches_order(
     })?;
     if !decimal_eq(&intent.total_credits, &total) {
         return Err(ApiError::conflict(format!(
-            "the order total changed after the purchase was signed (signed {}, current {}) — \
+            "the order total changed after the purchase was signed (signed {}, current {}) \u{2014} \
              please review and sign again",
             intent.total_credits, total
         )));
@@ -501,5 +501,40 @@ mod tests {
                 "expiresAt": 1767225600u64,
             })
         );
+    }
+}
+
+/// Characterizes `parse_decimal` on the shared edge-input set used across all
+/// decimal-string validators in this crate (see the sibling
+/// `characterization_*` tests in money.rs, ports/pricing.rs,
+/// ports/checkout.rs, and handlers/packs.rs). Like `charge_is_positive` and
+/// `parse_nonneg_decimal`, this rejects scientific notation and a stray
+/// extra `.`, and tolerates surrounding whitespace via `.trim()` -- but unlike
+/// them it has ITS OWN magnitude bound (`int_part.len() > 30` or
+/// `frac_part.len() > 18`), close to but not the same mechanism as `CreditAmount`'s exponent
+/// bound, and it returns a scaled mantissa `(u128, scale)` rather than a bool
+/// or string tuple, because it feeds an exact-arithmetic total-credits
+/// comparison for the signed purchase intent, not a positivity check.
+#[cfg(test)]
+mod characterization_parse_decimal {
+    use super::parse_decimal;
+
+    #[test]
+    fn current_accept_reject_on_edge_inputs() {
+        assert_eq!(parse_decimal("1e18"), None);
+        assert_eq!(parse_decimal("1E18"), None);
+        assert_eq!(parse_decimal(" 1.5 "), Some((15, 1)));
+        assert_eq!(parse_decimal(".5"), Some((5, 1)));
+        assert_eq!(parse_decimal("5."), Some((5, 0)));
+        assert_eq!(parse_decimal("01.50"), Some((150, 2)));
+        assert_eq!(parse_decimal(""), None);
+        assert_eq!(parse_decimal("-1"), None);
+        assert_eq!(parse_decimal("1.2.3"), None);
+        // 50-digit int_part exceeds this validator's OWN 30-digit cap --
+        // rejected here even though pricing/checkout's grammar has no
+        // magnitude bound at all (see their characterization tests).
+        assert_eq!(parse_decimal(&"9".repeat(50)), None);
+        // Same story for the fractional side's 18-digit cap.
+        assert_eq!(parse_decimal(&format!("0.{}", "9".repeat(50))), None);
     }
 }

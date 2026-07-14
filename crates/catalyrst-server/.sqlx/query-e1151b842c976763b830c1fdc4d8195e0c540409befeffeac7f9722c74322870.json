@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        CREATE OR REPLACE FUNCTION notify_new_deployment() RETURNS trigger AS $$\n        BEGIN\n            PERFORM pg_notify('new_deployment', NEW.entity_type || ':' || NEW.entity_id);\n            RETURN NEW;\n        END;\n        $$ LANGUAGE plpgsql;\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "e1151b842c976763b830c1fdc4d8195e0c540409befeffeac7f9722c74322870"
+}

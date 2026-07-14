@@ -7,13 +7,13 @@
 -- loopback bearer surface (POST /v1/broker/buy).
 --
 -- Lives in the WRITABLE `marketplace` schema (same as `transactions`). Money is
--- NUMERIC: `price_wei` is the MANA-wei integer price as NUMERIC/text — NEVER
+-- NUMERIC: `price_wei` is the MANA-wei integer price as NUMERIC/text -- NEVER
 -- f64.
 --
 -- `status` lifecycle:
---   'pending' — claim row inserted BEFORE the on-chain broadcast (keyed path).
---   'sent'    — tx broadcast, hash recorded (keyless path records this directly).
---   'error'   — the broadcast attempt returned an error after the claim.
+--   'pending' -- claim row inserted BEFORE the on-chain broadcast (keyed path).
+--   'sent'    -- tx broadcast, hash recorded (keyless path records this directly).
+--   'error'   -- the broadcast attempt returned an error after the claim.
 -- A reconciler later confirms/fails 'sent' rows on-chain.
 --
 -- IDEMPOTENCY (funds safety): a broker buy moves real MANA + gas on-chain, and
@@ -21,7 +21,7 @@
 -- after a successful broadcast triggers a retry). `idempotency_key` makes the
 -- retry a no-op: the handler claims the key with INSERT ... ON CONFLICT DO
 -- NOTHING BEFORE broadcasting, so a second POST with the same key never
--- re-broadcasts — it returns the recorded txHash (or 409 while in-flight).
+-- re-broadcasts -- it returns the recorded txHash (or 409 while in-flight).
 
 CREATE TABLE IF NOT EXISTS broker_purchases (
     id              BIGSERIAL    PRIMARY KEY,

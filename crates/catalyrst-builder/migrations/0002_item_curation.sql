@@ -1,4 +1,4 @@
--- Item curation status for the admin console (admin-console.md §4).
+-- Item curation status for the admin console (admin-console.md S4).
 --
 -- The initial schema only carried an `is_approved` boolean on items, which
 -- cannot distinguish a never-reviewed item ("pending") from one a curator

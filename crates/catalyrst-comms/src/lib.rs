@@ -11,6 +11,7 @@ pub mod moderator;
 pub mod ports;
 pub mod room_metadata_sync;
 pub mod scene_perms;
+pub mod util;
 pub mod voice_db;
 pub mod voice_logic;
 
@@ -20,22 +21,22 @@ use std::time::Duration;
 use anyhow::{Context, Result};
 use axum::routing::{delete, get, patch, post};
 use axum::Router;
-use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
+use catalyrst_db::{PoolError, PoolSettings};
 use sqlx::PgPool;
 
 use crate::config::Config;
 
-fn connect_opts(url: &str) -> Result<PgConnectOptions> {
-    Ok(url
-        .parse::<PgConnectOptions>()
-        .context("invalid postgres connection string")?
-        .options([
-            ("statement_timeout", "60000"),
-            ("idle_in_transaction_session_timeout", "30000"),
-        ]))
+fn pool_settings(max_connections: u32) -> PoolSettings {
+    PoolSettings {
+        max_connections,
+        idle_timeout_secs: 60,
+        acquire_timeout_secs: Some(10),
+        ..PoolSettings::default()
+    }
 }
 use crate::ports::names::NamesComponent;
 use crate::ports::player_connection::PlayerConnectionComponent;
+use crate::ports::player_reports::PlayerReportsComponent;
 use crate::ports::scene_admin::SceneAdminComponent;
 use crate::ports::scene_bans::SceneBansComponent;
 use crate::ports::user_bans::UserBansComponent;
@@ -47,6 +48,7 @@ pub struct AppStateInner {
     pub scene_bans: SceneBansComponent,
     pub user_bans: UserBansComponent,
     pub player_connection: PlayerConnectionComponent,
+    pub player_reports: PlayerReportsComponent,
     pub names: NamesComponent,
 
     pub voice_db: VoiceDb,
@@ -63,13 +65,17 @@ pub struct AppStateInner {
     pub livekit_webhook_key: Option<String>,
     pub livekit_configured: bool,
 
-    pub livekit_token_ttl_secs: u64,
     pub private_messages_room_id: String,
     pub authoritative_server_address: Option<String>,
     pub moderator_token: Option<String>,
     pub moderator_addresses: Vec<String>,
 
     pub gatekeeper_auth_token: Option<String>,
+
+    /// This catalyst's federation identity (MLS `epoch_author`): `FED_PEER_ID`
+    /// when set, otherwise the DB-persisted per-instance id from migration
+    /// 0009. Never a shared literal that collides across instances.
+    pub fed_peer_id: String,
 
     pub places_pool: Option<PgPool>,
 
@@ -94,11 +100,7 @@ pub type AppState = Arc<AppStateInner>;
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 pub async fn build_state(cfg: &Config) -> Result<AppState> {
-    let pool = PgPoolOptions::new()
-        .max_connections(20)
-        .acquire_timeout(Duration::from_secs(10))
-        .idle_timeout(Some(Duration::from_secs(60)))
-        .connect_with(connect_opts(&cfg.database_url)?)
+    let pool = catalyrst_db::connect_pool(&cfg.database_url, &pool_settings(20))
         .await
         .context("failed to connect to comms database")?;
 
@@ -108,15 +110,12 @@ pub async fn build_state(cfg: &Config) -> Result<AppState> {
         .context("comms migration failed")?;
 
     let dapps_pool = match cfg.dapps_database_url.as_deref() {
-        Some(url) => match PgPoolOptions::new()
-            .max_connections(5)
-            .acquire_timeout(Duration::from_secs(10))
-            .idle_timeout(Some(Duration::from_secs(60)))
-            .connect_with(connect_opts(url)?)
-            .await
-        {
+        Some(url) => match catalyrst_db::connect_pool(url, &pool_settings(5)).await {
             Ok(p) => Some(p),
-            Err(e) => {
+            Err(e @ PoolError::InvalidUrl(_)) => {
+                return Err(e).context("invalid postgres connection string");
+            }
+            Err(PoolError::Connect(e)) => {
                 tracing::warn!(error = %e, "failed to connect to squid marketplace pool; name enrichment disabled");
                 None
             }
@@ -128,15 +127,12 @@ pub async fn build_state(cfg: &Config) -> Result<AppState> {
     };
 
     let places_pool = match cfg.places_database_url.as_deref() {
-        Some(url) => match PgPoolOptions::new()
-            .max_connections(5)
-            .acquire_timeout(Duration::from_secs(10))
-            .idle_timeout(Some(Duration::from_secs(60)))
-            .connect_with(connect_opts(url)?)
-            .await
-        {
+        Some(url) => match catalyrst_db::connect_pool(url, &pool_settings(5)).await {
             Ok(p) => Some(p),
-            Err(e) => {
+            Err(e @ PoolError::InvalidUrl(_)) => {
+                return Err(e).context("invalid postgres connection string");
+            }
+            Err(PoolError::Connect(e)) => {
                 tracing::warn!(error = %e, "failed to connect to places_events pool; scene-bans/admin owner resolution degraded (admins still work, non-admins denied)");
                 None
             }
@@ -159,16 +155,40 @@ pub async fn build_state(cfg: &Config) -> Result<AppState> {
         );
     }
 
+    if cfg.gatekeeper_auth_token.is_none() {
+        tracing::error!(
+            "COMMS_GATEKEEPER_AUTH_TOKEN unset; every bearer-gated route (/community-voice-chat*, /private-voice-chat*, /users/:address/*-voice-chat-status, /users/:address/private-messages-privacy) plus the world ban-status route will answer 503 until the token is configured"
+        );
+    }
+
     let http = reqwest::Client::builder()
         .timeout(Duration::from_secs(10))
         .build()
         .context("failed to build comms http client")?;
+
+    let fed_peer_id = match &cfg.fed_peer_id {
+        Some(id) => id.clone(),
+        None => {
+            // Row guaranteed by migration 0009, which ran above.
+            let (id,): (String,) = sqlx::query_as("SELECT peer_id FROM fed_instance_identity")
+                .fetch_one(&pool)
+                .await
+                .context("failed to load the persisted per-instance federation id")?;
+            tracing::warn!(
+                peer_id = %id,
+                "FED_PEER_ID unset; using the DB-persisted per-instance federation id \u{2014} set \
+                 FED_PEER_ID to a stable public name before federating this catalyst"
+            );
+            id
+        }
+    };
 
     Ok(Arc::new(AppStateInner {
         scene_admin: SceneAdminComponent::new(pool.clone()),
         scene_bans: SceneBansComponent::new(pool.clone()),
         user_bans: UserBansComponent::new(pool.clone()),
         player_connection: PlayerConnectionComponent::new(pool.clone()),
+        player_reports: PlayerReportsComponent::new(pool.clone()),
         names: NamesComponent::new(dapps_pool.clone(), cfg.dapps_schema.clone()),
         voice_db: VoiceDb::new(pool.clone(), crate::voice_db::VoiceDbConfig::from_env()),
         places_pool,
@@ -188,12 +208,12 @@ pub async fn build_state(cfg: &Config) -> Result<AppState> {
         livekit_api_secret: cfg.livekit_api_secret.clone(),
         livekit_webhook_key: cfg.livekit_webhook_key.clone(),
         livekit_configured: cfg.livekit_configured,
-        livekit_token_ttl_secs: cfg.livekit_token_ttl_secs,
         private_messages_room_id: cfg.private_messages_room_id.clone(),
         authoritative_server_address: cfg.authoritative_server_address.clone(),
         moderator_token: cfg.moderator_token.clone(),
         moderator_addresses: cfg.moderator_addresses.clone(),
         gatekeeper_auth_token: cfg.gatekeeper_auth_token.clone(),
+        fed_peer_id,
     }))
 }
 
@@ -208,13 +228,8 @@ pub async fn voice_auth_layer(
 ) -> axum::response::Response {
     use axum::response::IntoResponse;
     if is_bearer_gated_path(req.uri().path()) {
-        if let Some(expected) = state.gatekeeper_auth_token.as_deref() {
-            let ok = crate::moderator::bearer_token(req.headers())
-                .map(|t| crate::moderator::timing_safe_eq(&t, expected))
-                .unwrap_or(false);
-            if !ok {
-                return crate::http::unauthorized("Authentication required").into_response();
-            }
+        if let Err(e) = crate::moderator::require_service_token(&state, req.headers()) {
+            return e.into_response();
         }
     }
     next.run(req).await
@@ -266,6 +281,27 @@ pub fn api_router(state: AppState) -> Router<AppState> {
                 .post(handlers::user_bans::post_user_warning),
         )
         .route("/bans", get(handlers::user_bans::list_all_bans))
+        .route(
+            handlers::reports::PRESIGN_PATH,
+            post(handlers::reports::presign_evidence),
+        )
+        .route(
+            "/reports/players/{report_id}/evidence/{key}",
+            axum::routing::put(handlers::reports::upload_evidence)
+                .get(handlers::reports::download_evidence)
+                .layer(axum::extract::DefaultBodyLimit::max(
+                    ports::player_reports::MAX_EVIDENCE_BYTES as usize + 4096,
+                )),
+        )
+        .route(
+            handlers::reports::CREATE_PATH,
+            post(handlers::reports::create_report),
+        )
+        .route(
+            handlers::reports::LIST_PATH,
+            get(handlers::reports::list_reports),
+        )
+        .route("/reports/{report_id}", get(handlers::reports::get_report))
         .route("/livekit-webhook", post(handlers::webhook::livekit_webhook))
         .route(
             "/private-messages/token",
@@ -369,8 +405,10 @@ pub fn api_router(state: AppState) -> Router<AppState> {
         )
         .route(
             "/scene-stream-access",
-            axum::routing::put(handlers::deferred::scene_stream_access_put_delete)
-                .delete(handlers::deferred::scene_stream_access_put_delete),
+            get(handlers::deferred::scene_stream_access)
+                .post(handlers::deferred::scene_stream_access)
+                .put(handlers::deferred::scene_stream_access)
+                .delete(handlers::deferred::scene_stream_access),
         )
         .layer(axum::extract::DefaultBodyLimit::max(512 * 1024))
         .layer(axum::middleware::from_fn_with_state(

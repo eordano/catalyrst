@@ -5,7 +5,7 @@
 -- Refreshed periodically by catalyrst-market from the catalyst content DB
 -- (CONTENT_PG_COMPONENT_PSQL_CONNECTION_STRING). Rows are only ever upserted:
 -- an item that falls out of the refresh window keeps its old last_seen, which
--- stays truthful — it just ranks lower over time.
+-- stays truthful -- it just ranks lower over time.
 --
 -- last_seen mirrors deployments.entity_timestamp (timestamp WITHOUT time
 -- zone, UTC by catalyst convention), so no tz conversion happens on copy.

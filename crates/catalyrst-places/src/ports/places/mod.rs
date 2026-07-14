@@ -2,10 +2,10 @@ mod component;
 mod query;
 mod rows;
 
-pub use component::PlacesComponent;
+pub use component::{PlacesComponent, ReportUploadOutcome};
 pub use rows::{
     CategoryTarget, PlaceListFilters, PlaceOrderBy, PlaceRow, PlaceStatusRow, PoiRow, ReportRow,
-    UserInteraction,
+    UserInteraction, WorldRow,
 };
 
 #[cfg(test)]
@@ -38,17 +38,20 @@ mod wire_tests {
             likes: 0,
             dislikes: 0,
             categories: vec![],
-            tags: vec![],
             highlighted: false,
             highlighted_image: None,
             ranking: None,
             sdk: None,
             creator_address: None,
             world_id: None,
+            deployment_id: None,
             deployed_at: None,
             world: false,
             world_name: None,
             is_private: false,
+            show_in_places: true,
+            single_player: false,
+            skybox_time: None,
             user_favorite: false,
             user_like: false,
             user_dislike: false,
@@ -87,10 +90,8 @@ mod wire_tests {
         let v = serde_json::to_value(sample()).unwrap();
         let obj = v.as_object().unwrap();
         for key in [
-            "is_private",
             "highlighted_image",
             "sdk",
-            "tags",
             "highlighted",
             "user_favorite",
             "user_like",
@@ -103,12 +104,25 @@ mod wire_tests {
             "world_name",
             "base_position",
             "positions",
+            "deployment_id",
         ] {
             assert!(obj.contains_key(key), "{key} must be present on base Place");
         }
 
-        assert!(obj["is_private"].is_boolean());
-        assert!(obj["tags"].is_array());
+        for absent in [
+            "is_private",
+            "tags",
+            "show_in_places",
+            "single_player",
+            "skybox_time",
+        ] {
+            assert!(
+                !obj.contains_key(absent),
+                "{absent} must not be serialized on base Place"
+            );
+        }
+
+        assert!(obj["deployment_id"].is_null());
     }
 
     #[test]
@@ -167,7 +181,7 @@ mod filter_tests {
             ..Default::default()
         };
         let (where_clause, binds) = build_where(&f);
-        assert!(where_clause.contains("lower(raw->>'world_name') = ANY"));
+        assert!(where_clause.contains("lower(world_name) = ANY"));
         match binds.last().unwrap() {
             Bind::TextArray(v) => assert_eq!(v, &vec!["foo.dcl.eth".to_string()]),
             _ => panic!("expected names text array bind"),
@@ -287,7 +301,7 @@ mod most_active_order_tests {
         };
         let (prefix, binds) = build_live_user_count_order(&f, 1);
         assert!(
-            prefix.contains("lower(raw->>'world_name')"),
+            prefix.contains("lower(world_name)"),
             "worlds must be matched on lower(world_name): {prefix}"
         );
         assert!(
@@ -360,11 +374,11 @@ mod most_active_order_tests {
             "place branch must start at start_idx: {prefix}"
         );
         assert!(
-            prefix.contains("CASE lower(raw->>'world_name') WHEN $7 THEN $8"),
+            prefix.contains("CASE lower(world_name) WHEN $7 THEN $8"),
             "world branch must continue after place branch: {prefix}"
         );
         assert!(
-            prefix.contains("CASE WHEN COALESCE((raw->>'world')::bool, false) THEN"),
+            prefix.contains("CASE WHEN world THEN"),
             "row is routed to world vs place arm by the world flag: {prefix}"
         );
         assert_eq!(binds.len(), 4);

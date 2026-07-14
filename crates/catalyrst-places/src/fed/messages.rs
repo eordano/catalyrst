@@ -19,6 +19,8 @@ impl TypedMessage for PlaceFavorite {
     const PRIMARY_TYPE: &'static str = "PlaceFavorite";
     fn encode_struct(&self) -> Vec<u8> {
         let mut out = Vec::with_capacity(self.place_id.len() + 1 + 8);
+        out.extend_from_slice(Self::PRIMARY_TYPE.as_bytes());
+        out.push(0);
         out.extend_from_slice(self.place_id.as_bytes());
         out.push(match self.action {
             PlaceFavoriteAction::Add => 1,
@@ -40,6 +42,8 @@ impl TypedMessage for PlaceVote {
     const PRIMARY_TYPE: &'static str = "PlaceVote";
     fn encode_struct(&self) -> Vec<u8> {
         let mut out = Vec::with_capacity(self.place_id.len() + 1 + 8);
+        out.extend_from_slice(Self::PRIMARY_TYPE.as_bytes());
+        out.push(0);
         out.extend_from_slice(self.place_id.as_bytes());
         out.push(self.score as u8);
         out.extend_from_slice(&self.signed_at.to_be_bytes());
@@ -67,6 +71,8 @@ impl TypedMessage for PlaceReport {
     const PRIMARY_TYPE: &'static str = "PlaceReport";
     fn encode_struct(&self) -> Vec<u8> {
         let mut out = Vec::with_capacity(self.place_id.len() + 1 + 8);
+        out.extend_from_slice(Self::PRIMARY_TYPE.as_bytes());
+        out.push(0);
         out.extend_from_slice(self.place_id.as_bytes());
         out.push(match self.reason {
             PlaceReportReason::Spam => 1,
@@ -92,6 +98,8 @@ impl TypedMessage for PlaceMetadataUpdate {
     const PRIMARY_TYPE: &'static str = "PlaceMetadataUpdate";
     fn encode_struct(&self) -> Vec<u8> {
         let mut out = Vec::with_capacity(self.place_id.len() + 32 + 8);
+        out.extend_from_slice(Self::PRIMARY_TYPE.as_bytes());
+        out.push(0);
         out.extend_from_slice(self.place_id.as_bytes());
         if let Some(t) = &self.title {
             out.extend_from_slice(t.as_bytes());

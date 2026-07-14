@@ -1,3 +1,4 @@
+pub mod contract;
 pub mod handlers;
 
 use std::collections::HashMap;
@@ -33,14 +34,18 @@ impl IngestControl {
     }
 
     pub fn admit(&self, project: &str) -> bool {
-        if !self.enabled.load(Ordering::Relaxed) {
-            return false;
+        self.admit_n(project, 1) > 0
+    }
+
+    pub fn admit_n(&self, project: &str, count: usize) -> usize {
+        if count == 0 || !self.enabled.load(Ordering::Relaxed) {
+            return 0;
         }
         let limit = {
             let q = self.quotas.read().unwrap();
             match q.get(project) {
                 Some(&l) => l,
-                None => return true,
+                None => return count,
             }
         };
         let today = today_utc();
@@ -55,13 +60,13 @@ impl IngestControl {
                 }
             }
         }
+        let requested = i64::try_from(count).unwrap_or(i64::MAX);
         let mut counters = self.counters.write().unwrap();
         let used = counters.entry(project.to_string()).or_insert(0);
-        if *used >= limit {
-            return false;
-        }
-        *used += 1;
-        true
+        let remaining = (limit - *used).max(0);
+        let granted = remaining.min(requested);
+        *used += granted;
+        granted as usize
     }
 }
 
@@ -74,6 +79,10 @@ pub struct AppStateInner {
     pub ingest: IngestControl,
 
     pub admin_token: Option<String>,
+
+    /// Loaded telemetry contract (from `TELEMETRY_CONTRACT_PATH`). `None` =
+    /// validation disabled (fail-open): the ingest path accepts every event.
+    pub contract: Option<Arc<contract::Contract>>,
 }
 
 pub type AppState = Arc<AppStateInner>;
@@ -117,6 +126,8 @@ pub async fn build_state(cfg: &Config) -> Result<AppState> {
 
     let ingest = IngestControl::new();
 
+    let contract = contract::load_from_env();
+
     if let Ok(Some((v,))) = sqlx::query_as::<_, (String,)>(
         "SELECT value FROM admin_settings WHERE key = 'ingest_enabled'",
     )
@@ -140,10 +151,69 @@ pub async fn build_state(cfg: &Config) -> Result<AppState> {
         pool,
         ingest,
         admin_token: cfg.admin_token.clone(),
+        contract,
     }))
 }
 
-pub fn api_router() -> Router<AppState> {
+async fn require_telemetry_admin(
+    axum::extract::State(state): axum::extract::State<AppState>,
+    headers: axum::http::HeaderMap,
+    request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    use axum::response::IntoResponse;
+    if let Err(rejection) = handlers::admin::authorize(&state, &headers) {
+        return rejection.into_response();
+    }
+    next.run(request).await
+}
+
+// Same gate for reads/SSR, but session-cookie aware, and an unauthenticated
+// BROWSER navigation lands on the sign-in form instead of a bare 403 -- the
+// bearer header cannot be attached to a plain page load.
+async fn require_telemetry_admin_read(
+    axum::extract::State(state): axum::extract::State<AppState>,
+    headers: axum::http::HeaderMap,
+    request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    use axum::response::IntoResponse;
+    if let Err(rejection) = handlers::admin::authorize_read(&state, &headers) {
+        let wants_html = request.method() == axum::http::Method::GET
+            && headers
+                .get("accept")
+                .and_then(|v| v.to_str().ok())
+                .is_some_and(|a| a.contains("text/html"));
+        if wants_html {
+            let base = std::env::var("TELEMETRY_BASE_PATH").unwrap_or_default();
+            return axum::response::Redirect::to(&format!("{base}/login")).into_response();
+        }
+        return rejection.into_response();
+    }
+    next.run(request).await
+}
+
+fn gated_reads(state: AppState) -> Router<AppState> {
+    Router::new()
+        .route("/dash/events", get(handlers::dashboard::events))
+        .route("/dash/event/{id}", get(handlers::dashboard::event_detail))
+        .route("/dash/stats", get(handlers::dashboard::stats))
+        .route("/dash/sql", post(handlers::dashboard::sql_query))
+        .route("/dash/story/{id}", get(handlers::dashboard::story))
+        .route("/dash/session/{id}", get(handlers::dashboard::session))
+        .route_layer(axum::middleware::from_fn_with_state(
+            state,
+            require_telemetry_admin_read,
+        ))
+}
+
+// The data-bearing SSR pages render user ids + full event streams
+// (e.g. /session/{id} embeds the event stream in window.__BOOT__), calling
+// dashboard::stats/events/session directly. They must carry the same admin gate
+// as the /dash/* JSON reads, otherwise nginx serves them publicly and a stranger
+// reads PII/crash data unauthenticated. Excluded (public-by-design): /flags and
+// /experiments (SPA shells with no data call), /fonts, /v1 ingest.
+fn gated_ssr(state: AppState) -> Router<AppState> {
     Router::new()
         .route("/", get(handlers::ssr::page))
         .route("/events", get(handlers::ssr::page))
@@ -153,32 +223,70 @@ pub fn api_router() -> Router<AppState> {
         .route("/metrics/funnel", get(handlers::ssr::page))
         .route("/metrics/breakdown", get(handlers::ssr::page))
         .route("/health", get(handlers::ssr::page))
-        .route("/flags", get(handlers::ssr::page))
         .route("/sql", get(handlers::ssr::page))
         .route("/session/{id}", get(handlers::ssr::page))
-        .route("/dash/events", get(handlers::dashboard::events))
-        .route("/dash/event/{id}", get(handlers::dashboard::event_detail))
-        .route("/dash/stats", get(handlers::dashboard::stats))
-        .route("/dash/metrics", get(handlers::dashboard::metrics))
-        .route("/dash/health", get(handlers::dashboard::health))
-        .route("/dash/funnel", get(handlers::dashboard::funnel))
-        .route("/dash/breakdown", get(handlers::dashboard::breakdown))
-        .route("/dash/flags", get(handlers::dashboard::flags))
-        .route("/dash/sql", post(handlers::dashboard::sql_query))
-        .route("/dash/story/{id}", get(handlers::dashboard::story))
-        .route("/dash/session/{id}", get(handlers::dashboard::session))
+        .route_layer(axum::middleware::from_fn_with_state(
+            state,
+            require_telemetry_admin_read,
+        ))
+}
+
+// Everything that MUTATES operator state, plus the group reads that expose
+// member lists (wallet addresses). nginx serves this whole prefix publicly, so
+// without this layer a stranger could flip a production flag: only the ingest
+// (/v1/*), the flag/experiment SSR shells, and the flag/experiment resolution
+// sites needs stay open.
+fn gated_writes(state: AppState) -> Router<AppState> {
+    Router::new()
         .route(
             "/dash/issue/state",
             post(handlers::dashboard::set_issue_state),
         )
         .route(
-            "/dash/experiments",
-            get(handlers::dashboard::experiments_get),
+            "/dash/experiment",
+            get(handlers::dashboard::experiments_get).post(handlers::dashboard::experiment_set),
+        )
+        .route("/dash/flag", post(handlers::dashboard::flag_set))
+        .route(
+            "/dash/groups",
+            get(handlers::groups::list).post(handlers::groups::set),
+        )
+        .route("/dash/group/target", post(handlers::groups::set_target))
+        .route("/dash/group/resolve", get(handlers::groups::resolve))
+        .route("/dash/area", post(handlers::groups::set_area))
+        .route_layer(axum::middleware::from_fn_with_state(
+            state,
+            require_telemetry_admin,
+        ))
+}
+
+pub fn api_router(state: AppState) -> Router<AppState> {
+    Router::new()
+        .route("/flags", get(handlers::ssr::page))
+        .route("/experiments", get(handlers::ssr::page))
+        .route(
+            "/login",
+            get(handlers::login::page).post(handlers::login::submit),
+        )
+        .route("/fonts/{name}", get(handlers::fonts::serve))
+        .route("/dash/metrics", get(handlers::dashboard::metrics))
+        .route("/dash/health", get(handlers::dashboard::health))
+        .route("/dash/funnel", get(handlers::dashboard::funnel))
+        .route("/dash/breakdown", get(handlers::dashboard::breakdown))
+        .route("/dash/flags", get(handlers::dashboard::flags))
+        .merge(gated_ssr(state.clone()))
+        .merge(gated_reads(state.clone()))
+        .merge(gated_writes(state))
+        .route("/dash/experiments", get(handlers::experiments::list))
+        .route(
+            "/dash/experiments/readout",
+            get(handlers::experiments::readout),
         )
         .route(
-            "/dash/experiment",
-            post(handlers::dashboard::experiment_set),
+            "/dash/experiments/timeseries",
+            get(handlers::experiments::timeseries),
         )
+        .route("/dash/experiments/rates", get(handlers::experiments::rates))
         .route("/dash/admin/purge", post(handlers::admin::purge))
         .route("/dash/admin/ingest", post(handlers::admin::ingest_toggle))
         .route("/dash/admin/quota", post(handlers::admin::quota))

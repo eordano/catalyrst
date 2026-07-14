@@ -1,0 +1,81 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT entity_id, entity_type, reason, auth_chain, error_description, COALESCE(snapshot_hash, '') AS \"snapshot_hash!\" FROM failed_deployments",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "entity_id",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "failed_deployments",
+            "name": "entity_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "entity_type",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "failed_deployments",
+            "name": "entity_type"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "reason",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "failed_deployments",
+            "name": "reason"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "auth_chain",
+        "type_info": "Json",
+        "origin": {
+          "Table": {
+            "table": "failed_deployments",
+            "name": "auth_chain"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "error_description",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "failed_deployments",
+            "name": "error_description"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "snapshot_hash!",
+        "type_info": "Text",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      null
+    ]
+  },
+  "hash": "63b4760815a61b48a7b91d0bc2d42c0523a72950df1dc8feecdd028eada26288"
+}

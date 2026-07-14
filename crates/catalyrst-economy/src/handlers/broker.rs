@@ -480,15 +480,16 @@ async fn confirm_buy(
             set_bought(state, key, &token_id.to_string()).await?;
             Ok(token_id)
         }
-        ReceiptOutcome::Reverted => {
-            set_reverted(state, key).await;
-            Err(ApiError::RelayReverted(format!(
-                "broker buy tx {buy_tx} reverted on-chain; no MANA spent, no item minted"
-            )))
-        }
-        ReceiptOutcome::Pending => Err(ApiError::RelayerTimeout(format!(
-            "broker buy tx {buy_tx} not yet mined; not confirming — retry/reconcile to settle"
-        ))),
+        ReceiptOutcome::Reverted | ReceiptOutcome::Pending => Err(reverted_or_pending_error(
+            state,
+            key,
+            outcome,
+            format!("broker buy tx {buy_tx} reverted on-chain; no MANA spent, no item minted"),
+            format!(
+                "broker buy tx {buy_tx} not yet mined; not confirming \u{2014} retry/reconcile to settle"
+            ),
+        )
+        .await),
     }
 }
 
@@ -507,22 +508,26 @@ async fn drive_forward(
     let fwd_tx = signer.send_direct_call(fwd.to, fwd.data).await?;
     set_forwarding(state, key, &fwd_tx).await?;
 
-    match signer.await_receipt(&fwd_tx).await? {
+    let outcome = signer.await_receipt(&fwd_tx).await?;
+    match outcome {
         ReceiptOutcome::Confirmed => {
             set_confirmed(state, key).await?;
             Ok(BuyOutcome {
                 forward_tx_hash: fwd_tx,
             })
         }
-        ReceiptOutcome::Reverted => {
-            set_reverted(state, key).await;
-            Err(ApiError::RelayReverted(format!(
+        ReceiptOutcome::Reverted | ReceiptOutcome::Pending => Err(reverted_or_pending_error(
+            state,
+            key,
+            outcome,
+            format!(
                 "escrow forward tx {fwd_tx} reverted on-chain (token at relayer, not in custody)"
-            )))
-        }
-        ReceiptOutcome::Pending => Err(ApiError::RelayerTimeout(format!(
-            "escrow forward tx {fwd_tx} not yet mined; not confirming — retry/reconcile to settle"
-        ))),
+            ),
+            format!(
+                "escrow forward tx {fwd_tx} not yet mined; not confirming \u{2014} retry/reconcile to settle"
+            ),
+        )
+        .await),
     }
 }
 
@@ -646,26 +651,28 @@ async fn resume_existing(
                     "broker buy {key:?} is 'forwarding' without a forward_tx_hash"
                 ))
             })?;
-            match signer.await_receipt(&fwd_tx).await? {
+            let outcome = signer.await_receipt(&fwd_tx).await?;
+            match outcome {
                 ReceiptOutcome::Confirmed => {
                     set_confirmed(state, key).await?;
                     Ok(BuyOutcome {
                         forward_tx_hash: fwd_tx,
                     })
                 }
-                ReceiptOutcome::Reverted => {
-                    set_reverted(state, key).await;
-                    Err(ApiError::RelayReverted(format!(
-                        "escrow forward tx {fwd_tx} reverted on-chain"
-                    )))
+                ReceiptOutcome::Reverted | ReceiptOutcome::Pending => {
+                    Err(reverted_or_pending_error(
+                        state,
+                        key,
+                        outcome,
+                        format!("escrow forward tx {fwd_tx} reverted on-chain"),
+                        format!("escrow forward tx {fwd_tx} not yet mined; retry/reconcile to settle"),
+                    )
+                    .await)
                 }
-                ReceiptOutcome::Pending => Err(ApiError::RelayerTimeout(format!(
-                    "escrow forward tx {fwd_tx} not yet mined; retry/reconcile to settle"
-                ))),
             }
         }
         "pending" => Err(ApiError::Conflict(format!(
-            "broker buy {key:?} is in flight (status 'pending'); not re-broadcasting — retry once it settles"
+            "broker buy {key:?} is in flight (status 'pending'); not re-broadcasting \u{2014} retry once it settles"
         ))),
         other => Err(ApiError::Conflict(format!(
             "broker buy {key:?} has unexpected status {other:?}; reconcile manually"
@@ -810,6 +817,34 @@ async fn set_reverted(state: &AppState, key: &str) {
     .await
     {
         tracing::error!(idempotency_key = %key, error = %e, "failed to mark broker buy 'reverted'");
+    }
+}
+
+/// The `Reverted`/`Pending` tail shared by `confirm_buy`, `drive_forward`, and the
+/// "forwarding" branch of `resume_existing`: on `Reverted` the tracked purchase row is marked
+/// reverted and the call returns `RelayReverted`; on `Pending` it returns `RelayerTimeout`
+/// without touching the row. Each call site's message text differs by more than an operation
+/// label (extra trailing clauses, slightly different wording), so the finished strings are
+/// passed in rather than assembled here -- this stays a pure structural extraction of the
+/// side effect and error-variant choice, and changes no response text a client could
+/// observe. `Confirmed` is never passed in: it differs meaningfully at each site and moves
+/// money, so it is handled inline by the caller.
+async fn reverted_or_pending_error(
+    state: &AppState,
+    key: &str,
+    outcome: ReceiptOutcome,
+    reverted_message: String,
+    pending_message: String,
+) -> ApiError {
+    match outcome {
+        ReceiptOutcome::Reverted => {
+            set_reverted(state, key).await;
+            ApiError::RelayReverted(reverted_message)
+        }
+        ReceiptOutcome::Pending => ApiError::RelayerTimeout(pending_message),
+        ReceiptOutcome::Confirmed => {
+            unreachable!("reverted_or_pending_error is only called for Reverted/Pending")
+        }
     }
 }
 

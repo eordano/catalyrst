@@ -4,7 +4,7 @@
 -- derived from. For secondary-mode lines this is the price of the specific
 -- cheapest open MarketplaceV2 listing selected at checkout (whose tokenId is
 -- already in `token_id`); the outbox worker then buys exactly
--- (token_id, basis_wei) — MarketplaceV2.executeOrder binds both on-chain and
+-- (token_id, basis_wei) -- MarketplaceV2.executeOrder binds both on-chain and
 -- reverts on any mismatch, so fulfillment can never pay a different amount
 -- than the one the buyer was charged for. NULL = primary/mint line or a
 -- legacy row from before pinning (the worker falls back to fresh selection,
