@@ -111,7 +111,9 @@ const ENV_DOCS: &[(&str, &str)] = &[
     (
         "USD_PEGGED_ORACLE_MAX_AGE_SECS",
         "max age of the MANA/USD oracle round before a USD-pegged trade is refused \
-         (default 60; the on-chain contract enforces its own 27s tolerance at execution)",
+         (default 60; keep <= the deployed marketplace manaUsdAggregatorTolerance, \
+         read as 60s from 0x540fb08eDb56AaE562864B390542C97F562825BA; \
+         refusals are counted in /health usd_pegged_stale_refusals)",
     ),
     (
         "USD_PEGGED_SLIPPAGE_BPS",

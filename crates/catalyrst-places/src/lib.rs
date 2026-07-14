@@ -14,16 +14,21 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
-use axum::routing::{get, patch, post, put};
+use axum::routing::{get, post};
 use axum::Router;
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
+use utoipa::OpenApi;
+use utoipa_axum::router::OpenApiRouter;
+use utoipa_axum::routes;
 
 use crate::clients::{CommsGatekeeper, Events, Presence};
 use crate::config::Config;
+use crate::ports::lists::ListsComponent;
 use crate::ports::places::PlacesComponent;
 
 pub struct AppStateInner {
     pub places: PlacesComponent,
+    pub lists: ListsComponent,
     pub admin_addresses: Vec<String>,
     pub data_team_auth_token: Option<String>,
     pub admin_auth_token: Option<String>,
@@ -55,6 +60,10 @@ pub async fn build_state(cfg: &Config) -> Result<AppState> {
         .await
         .context("failed to connect places_events pool")?;
 
+    let lists = ListsComponent::new(pool.clone());
+    if let Err(e) = lists.ensure_schema().await {
+        tracing::warn!(error = %e, "could not ensure lists schema; /pois and /banned-names fall back to empty until deploy/sync-lists.sh seeds the tables");
+    }
     let mut places = PlacesComponent::new(pool);
 
     if let Some(writer_url) = &cfg.places_writer_database_url {
@@ -122,6 +131,7 @@ pub async fn build_state(cfg: &Config) -> Result<AppState> {
 
     let state = Arc::new(AppStateInner {
         places,
+        lists,
         admin_addresses: cfg.admin_addresses.clone(),
         data_team_auth_token: cfg.data_team_auth_token.clone(),
         admin_auth_token: cfg.admin_auth_token.clone(),
@@ -137,120 +147,111 @@ pub async fn build_state(cfg: &Config) -> Result<AppState> {
     Ok(state)
 }
 
-pub fn api_router() -> Router<AppState> {
-    let api = Router::new()
-        .route("/categories", get(handlers::categories::get_categories))
-        .route(
-            "/places/{entity_id}/favorites",
-            patch(handlers::federation::patch_place_favorites),
-        )
-        .route(
-            "/places/{entity_id}/likes",
-            patch(handlers::federation::patch_place_likes),
-        )
-        .route("/places/{place_id}", get(handlers::places::get_place))
-        .route(
-            "/places",
-            get(handlers::places::get_place_list).post(handlers::places::post_place_list_by_id),
-        )
-        .route(
-            "/places/{place_id}/rating",
-            put(handlers::federation::put_place_rating),
-        )
-        .route(
-            "/places/{place_id}/ranking",
-            put(handlers::federation::put_place_ranking),
-        )
-        .route(
-            "/places/{place_id}/highlight",
-            put(handlers::federation::put_place_highlight),
-        )
-        .route(
-            "/places/{place_id}/categories",
-            get(handlers::categories::get_place_categories),
-        )
-        .route(
-            "/places/{place_id}/featured",
-            put(handlers::federation::put_place_featured)
-                .delete(handlers::federation::delete_place_featured),
-        )
-        .route(
-            "/places/status",
-            post(handlers::places::post_place_status_list_by_id),
-        )
-        .route("/worlds/{world_id}", get(handlers::worlds::get_world))
-        .route("/worlds", get(handlers::worlds::get_world_list))
-        .route("/world_names", get(handlers::worlds::get_world_names_list))
-        .route(
-            "/worlds/{world_id}/favorites",
-            patch(handlers::federation::patch_world_favorites),
-        )
-        .route(
-            "/worlds/{world_id}/likes",
-            patch(handlers::federation::patch_world_likes),
-        )
-        .route(
-            "/worlds/{world_id}/highlight",
-            put(handlers::federation::put_world_highlight),
-        )
-        .route(
-            "/worlds/{world_id}/ranking",
-            put(handlers::federation::put_world_ranking),
-        )
-        .route(
-            "/worlds/{world_id}/rating",
-            put(handlers::federation::put_world_rating),
-        )
-        .route(
-            "/worlds/{world_id}/featured",
-            put(handlers::federation::put_world_featured)
-                .delete(handlers::federation::delete_world_featured),
-        )
-        .route("/report", post(handlers::report::post_report))
-        .route(
-            "/report/upload/{filename}",
-            put(handlers::report::put_report_upload),
-        )
-        .route("/map", get(handlers::map::get_map_places))
-        .route("/map/places", get(handlers::map::get_all_places_list))
-        .route(
-            "/destinations",
-            get(handlers::destinations::get_destinations_list)
-                .post(handlers::destinations::post_destinations_list_by_id),
-        )
-        .route("/status", get(handlers::status::status))
-        .route("/reports", get(handlers::admin::get_reports))
-        .route("/reports/{id}", patch(handlers::admin::patch_report))
-        .route(
-            "/places/{place_id}/disable",
-            patch(handlers::admin::patch_place_disable)
-                .put(handlers::federation::put_place_disable),
-        )
-        .route(
-            "/pois",
-            get(handlers::admin::get_pois).post(handlers::admin::post_poi),
-        )
-        .route(
-            "/pois/{position}",
-            patch(handlers::admin::patch_poi).delete(handlers::admin::delete_poi),
-        );
+#[derive(OpenApi)]
+#[openapi(info(title = "catalyrst-places"))]
+struct ApiDoc;
 
-    let social = Router::new()
-        .route("/place", get(handlers::social::inject_place_metadata))
-        .route("/world", get(handlers::social::inject_world_metadata));
+pub fn api_router_with_spec() -> (Router<AppState>, utoipa::openapi::OpenApi) {
+    let api = OpenApiRouter::new()
+        .routes(routes!(handlers::categories::get_categories))
+        .routes(routes!(handlers::federation::patch_place_favorites))
+        .routes(routes!(handlers::federation::patch_place_likes))
+        .routes(routes!(handlers::places::get_place))
+        .routes(routes!(
+            handlers::places::get_place_list,
+            handlers::places::post_place_list_by_id
+        ))
+        .routes(routes!(handlers::federation::put_place_rating))
+        .routes(routes!(handlers::federation::put_place_ranking))
+        .routes(routes!(handlers::federation::put_place_highlight))
+        .routes(routes!(handlers::categories::get_place_categories))
+        .routes(routes!(
+            handlers::federation::put_place_featured,
+            handlers::federation::delete_place_featured
+        ))
+        .routes(routes!(handlers::places::post_place_status_list_by_id))
+        .routes(routes!(handlers::worlds::get_world))
+        .routes(routes!(handlers::worlds::get_world_list))
+        .routes(routes!(handlers::worlds::get_world_names_list))
+        .routes(routes!(handlers::federation::patch_world_favorites))
+        .routes(routes!(handlers::federation::patch_world_likes))
+        .routes(routes!(handlers::federation::put_world_highlight))
+        .routes(routes!(handlers::federation::put_world_ranking))
+        .routes(routes!(handlers::federation::put_world_rating))
+        .routes(routes!(
+            handlers::federation::put_world_featured,
+            handlers::federation::delete_world_featured
+        ))
+        .routes(routes!(handlers::report::post_report))
+        .routes(routes!(handlers::report::put_report_upload))
+        .routes(routes!(handlers::map::get_map_places))
+        .routes(routes!(handlers::map::get_all_places_list))
+        .routes(routes!(
+            handlers::destinations::get_destinations_list,
+            handlers::destinations::post_destinations_list_by_id
+        ))
+        .routes(routes!(handlers::status::status))
+        .routes(routes!(handlers::admin::get_reports))
+        .routes(routes!(handlers::admin::patch_report))
+        .routes(routes!(
+            handlers::admin::patch_place_disable,
+            handlers::federation::put_place_disable
+        ))
+        .routes(routes!(
+            handlers::admin::get_pois,
+            handlers::admin::post_poi
+        ))
+        .routes(routes!(
+            handlers::admin::patch_poi,
+            handlers::admin::delete_poi
+        ));
 
-    let federation = Router::new()
-        .route(
-            "/federation/places/snapshot",
-            get(handlers::fed_sync::snapshot),
-        )
-        .route(
-            "/federation/places/changes",
-            get(handlers::fed_sync::changes),
-        );
+    let social = OpenApiRouter::new()
+        .routes(routes!(handlers::social::inject_place_metadata))
+        .routes(routes!(handlers::social::inject_world_metadata));
 
-    Router::new()
+    let federation = OpenApiRouter::new()
+        .routes(routes!(handlers::fed_sync::snapshot))
+        .routes(routes!(handlers::fed_sync::changes));
+
+    OpenApiRouter::with_openapi(ApiDoc::openapi())
         .nest("/api", api)
         .nest("/places", social)
         .merge(federation)
+        .split_for_parts()
+}
+
+pub fn api_router() -> Router<AppState> {
+    let (router, spec) = api_router_with_spec();
+    router.route(
+        "/openapi.json",
+        get(move || {
+            let spec = spec.clone();
+            async move { axum::Json(spec) }
+        }),
+    )
+}
+
+pub fn lists_router() -> Router<AppState> {
+    Router::new()
+        .route("/pois", post(handlers::lists::post_pois))
+        .route("/banned-names", post(handlers::lists::post_banned_names))
+}
+
+#[cfg(test)]
+mod openapi_export {
+    #[test]
+    fn export_bindings_openapi() {
+        let Ok(dir) = std::env::var("TS_RS_EXPORT_DIR") else {
+            return;
+        };
+        let spec = super::api_router_with_spec().1;
+        let out = std::path::Path::new(&dir).join("openapi");
+        std::fs::create_dir_all(&out).unwrap();
+        std::fs::write(
+            out.join("places.openapi.json"),
+            serde_json::to_string_pretty(&spec).unwrap(),
+        )
+        .unwrap();
+    }
 }

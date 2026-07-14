@@ -13,7 +13,7 @@ use catalyrst_crypto::{Eip1654Validator, RpcEip1654Validator, ValidationCache};
 use catalyrst_storage::ContentStorage;
 use catalyrst_validator::content_validator::{CalculatedHash, ContentValidator, ExternalCalls};
 use catalyrst_validator::error::ValidationResponse;
-use catalyrst_validator::squid_checker::SquidBlockchainChecker;
+use catalyrst_validator::squid_checker::{LandOperatorResolver, SquidBlockchainChecker};
 use catalyrst_validator::types::{
     AuthChain as VAuthChain, DeploymentAuditInfo, DeploymentToValidate, Entity as VEntity,
 };
@@ -236,6 +236,7 @@ impl WriteDeployer {
         tpr_subgraph_url: Option<String>,
         blocks_l2_subgraph_url: Option<String>,
         third_party_root_via_squid: bool,
+        land_operator_resolver: Option<Arc<dyn LandOperatorResolver>>,
     ) -> Self {
         let eip1654: Arc<dyn Eip1654Validator> = Arc::new(ValidationCache::new(Arc::new(
             RpcEip1654Validator::new(eth_rpc_url),
@@ -252,7 +253,7 @@ impl WriteDeployer {
             )),
             _ => None,
         };
-        let blockchain_checker = if tp_subgraph.is_some() || third_party_root_via_squid {
+        let mut blockchain_checker = if tp_subgraph.is_some() || third_party_root_via_squid {
             SquidBlockchainChecker::with_third_party(
                 squid_pool,
                 additional_dcl_address,
@@ -262,6 +263,9 @@ impl WriteDeployer {
         } else {
             SquidBlockchainChecker::new(squid_pool, additional_dcl_address)
         };
+        if let Some(resolver) = land_operator_resolver {
+            blockchain_checker = blockchain_checker.with_operator_resolver(resolver);
+        }
         let validator =
             ContentValidator::new(external_calls, blockchain_checker, ignore_blockchain_access);
 
@@ -329,7 +333,7 @@ impl Deployer for WriteDeployer {
         files: Vec<Bytes>,
         entity_id: &str,
         auth_chain: Value,
-        _context: &str,
+        context: &str,
     ) -> Result<i64, Vec<String>> {
         let mut by_v0: HashMap<String, Bytes> = HashMap::new();
         let mut by_v1: HashMap<String, Bytes> = HashMap::new();
@@ -453,7 +457,7 @@ impl Deployer for WriteDeployer {
         }
 
         let creation_ts = self
-            .persist(&entity, &entity_bytes, &files, &audit_info)
+            .persist(&entity, &entity_bytes, &files, &audit_info, context)
             .await
             .map_err(|e| vec![e])?;
 
@@ -468,6 +472,7 @@ impl WriteDeployer {
         entity_bytes: &Bytes,
         files: &[Bytes],
         audit_info: &DeploymentAuditInfo,
+        context: &str,
     ) -> Result<i64, String> {
         self.storage
             .store(&entity.id, entity_bytes.clone())
@@ -497,7 +502,15 @@ impl WriteDeployer {
             Some(m) if !m.is_null() => serde_json::json!({ "v": m }),
             _ => Value::Null,
         };
-        let pointers: Vec<String> = entity.pointers.iter().map(|p| p.to_lowercase()).collect();
+        let pointers: Vec<String> = {
+            let mut seen = std::collections::HashSet::new();
+            entity
+                .pointers
+                .iter()
+                .map(|p| p.to_lowercase())
+                .filter(|p| seen.insert(p.clone()))
+                .collect()
+        };
         let auth_chain_json =
             serde_json::to_value(&audit_info.auth_chain).map_err(|e| e.to_string())?;
 
@@ -567,6 +580,13 @@ impl WriteDeployer {
             info!(entity_id = %entity.id, "entity already deployed; treating as success");
             return Ok(now_ms);
         };
+
+        if context == "LOCAL" && entity.entity_type == catalyrst_validator::types::EntityType::Scene
+        {
+            crate::land_publish::record_local_provenance(&mut tx, &entity.id, &deployer_address)
+                .await
+                .map_err(|e| format!("local provenance insert failed: {e}"))?;
+        }
 
         if !entity.content.is_empty() {
             let deployments: Vec<i32> = vec![dep_id; entity.content.len()];

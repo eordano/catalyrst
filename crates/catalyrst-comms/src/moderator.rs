@@ -1,7 +1,7 @@
 use axum::http::HeaderMap;
 
 use crate::auth_chain::{try_extract_signer, AUTH_METADATA_HEADER};
-use crate::http::{unauthorized, ApiError};
+use crate::http::{service_unavailable, unauthorized, ApiError};
 use crate::AppState;
 
 const MAX_MODERATOR_NAME_LENGTH: usize = 100;
@@ -29,6 +29,22 @@ pub(crate) fn timing_safe_eq(a: &str, b: &str) -> bool {
         diff |= x ^ y;
     }
     diff == 0
+}
+
+pub(crate) fn require_service_token(state: &AppState, headers: &HeaderMap) -> Result<(), ApiError> {
+    let Some(expected) = state.gatekeeper_auth_token.as_deref() else {
+        return Err(service_unavailable(
+            "This route is unavailable: COMMS_GATEKEEPER_AUTH_TOKEN is not configured, so the platform service token cannot be verified",
+        ));
+    };
+    let presented = bearer_token(headers)
+        .map(|t| timing_safe_eq(&t, expected))
+        .unwrap_or(false);
+    if presented {
+        Ok(())
+    } else {
+        Err(unauthorized("Authentication required"))
+    }
 }
 
 fn sanitize_moderator_name(name: &str) -> Option<String> {

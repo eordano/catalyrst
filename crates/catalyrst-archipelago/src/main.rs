@@ -14,7 +14,7 @@ const ENV_DOCS: &[(&str, &str)] = &[
     ),
     (
         "ARCHIPELAGO_REQUIRE_AUTH",
-        "1/true — require a signed challenge on websocket connect (overrides config file)",
+        "default 1 — a signed challenge is required; 0/false/no accepts unsigned POST /heartbeat presence writes for any address (development only, overrides config file)",
     ),
     (
         "LIVEKIT_API_KEY",

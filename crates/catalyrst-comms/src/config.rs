@@ -34,9 +34,7 @@ pub struct Config {
 fn parse_moderator_addresses(raw: &str) -> Vec<String> {
     raw.split([',', ' ', '\n'])
         .map(|s| s.trim().to_lowercase())
-        .filter(|a| {
-            a.len() == 42 && a.starts_with("0x") && a[2..].chars().all(|c| c.is_ascii_hexdigit())
-        })
+        .filter(|a| catalyrst_types::is_eth_address(a))
         .collect()
 }
 

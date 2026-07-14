@@ -126,11 +126,4 @@ impl PermissionResult {
             },
         }
     }
-
-    pub fn denied_empty() -> Self {
-        PermissionResult {
-            result: false,
-            failing: None,
-        }
-    }
 }

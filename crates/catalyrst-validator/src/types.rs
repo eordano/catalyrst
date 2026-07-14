@@ -72,16 +72,6 @@ pub struct BlockInformation {
     pub block_five_min_before: Option<u64>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum ContractType {
-    #[serde(rename = "erc721")]
-    Erc721,
-    #[serde(rename = "erc1155")]
-    Erc1155,
-    Unknown,
-}
-
 pub const L1_NETWORKS: &[&str] = &["mainnet", "kovan", "rinkeby", "goerli", "sepolia"];
 
 pub const L2_NETWORKS: &[&str] = &["matic", "mumbai", "amoy"];

@@ -3,6 +3,7 @@ use sqlx::PgPool;
 
 use crate::dcl_schemas::{ethereum_chain_id, get_db_networks, polygon_chain_id, ChainId, Network};
 use crate::http::response::ApiError;
+use crate::logic::sql_filters::{clamp_first, clamp_skip};
 use crate::MARKETPLACE_SQUID_SCHEMA;
 
 #[derive(Debug, Clone, Copy)]
@@ -91,11 +92,8 @@ impl CollectionsComponent {
     ) -> Result<(Vec<Collection>, i64), ApiError> {
         const MAX_LIMIT: i64 = 1000;
 
-        let limit = filters
-            .first
-            .map(|f| f.clamp(0, MAX_LIMIT))
-            .unwrap_or(MAX_LIMIT);
-        let offset = filters.skip.unwrap_or(0).max(0);
+        let limit = clamp_first(filters.first, MAX_LIMIT);
+        let offset = clamp_skip(filters.skip);
 
         let mut where_clauses: Vec<String> = vec!["is_approved = true".to_string()];
         let mut bind_idx: usize = 0;

@@ -11,10 +11,6 @@ pub fn subject_snapshots(scope: Scope) -> String {
     format!("fed.{}.snapshots", scope.as_str())
 }
 
-pub fn account_name() -> &'static str {
-    "federation"
-}
-
 pub fn stream_name(scope: Scope) -> String {
     format!("FED_{}", scope.as_str().to_ascii_uppercase())
 }

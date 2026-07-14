@@ -30,26 +30,6 @@ pub async fn get_item_entities_ids_matching_collection_urn_prefix(
     Ok(rows.into_iter().map(|r| r.0).collect())
 }
 
-pub async fn get_third_party_collection_items_entity_ids_matching_urn_prefix(
-    pool: &PgPool,
-    collection_urn: &str,
-) -> Result<Vec<String>, sqlx::Error> {
-    let pattern = format!("{}%", escape_like(collection_urn));
-
-    let rows: Vec<(String,)> = sqlx::query_as(
-        r#"
-        SELECT entity_id
-        FROM active_third_party_collection_items_deployments_with_content
-        WHERE pointer LIKE $1 ESCAPE '\'
-        "#,
-    )
-    .bind(&pattern)
-    .fetch_all(pool)
-    .await?;
-
-    Ok(rows.into_iter().map(|r| r.0).collect())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -2,6 +2,8 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<!-- SSR-injected <base>+window.__BASE__ so the SPA works behind a stripped /telemetry/ mount. -->
+<!--SSR:base-->
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>telemetry</title>
 <style>
@@ -235,6 +237,23 @@ const lvlClass=l=>['error','fatal','warning','info','debug'].includes((l||'').to
 function rel(ts){ if(!ts)return''; const d=(Date.now()-new Date(ts).getTime())/1000;
   if(d<60)return Math.max(0,d|0)+'s ago'; if(d<3600)return (d/60|0)+'m ago';
   if(d<86400)return (d/3600|0)+'h ago'; return (d/86400|0)+'d ago'; }
+// The dashboard is reachable both at the server root (loopback :5150) and behind
+// an nginx prefix like /telemetry/ that strips the prefix before proxying — so the
+// backend never sees the prefix. Every in-page URL (fetch + history) is prepended
+// with a BASE prefix; any root-absolute '/dash/…' would escape the mount and 404.
+// Authoritative source is window.__BASE__, injected by the SSR template from
+// TELEMETRY_BASE_PATH (empty at root). When the raw file is served without that
+// substitution, fall back to detecting the prefix off the initial location by
+// stripping a known route suffix. (jget/jpost + pathFor prepend BASE; parsePath strips it.)
+const ROUTES=['/metrics/breakdown','/metrics/funnel','/metrics/stream','/metrics','/events','/health','/flags','/sql'];
+function detectBase(){
+  const p=location.pathname;
+  for(const seg of ['/issues/','/session/']){const i=p.indexOf(seg);if(i>=0)return p.slice(0,i);}
+  for(const r of ROUTES){if(p===r)return '';if(p.endsWith(r))return p.slice(0,-r.length);}
+  return p.replace(/\/+$/,'');   // index mount: '/telemetry/' -> '/telemetry'; '/' -> ''
+}
+const BASE=(typeof window.__BASE__==='string')?window.__BASE__.replace(/\/+$/,''):detectBase();
+function stripBase(p){return BASE&&p.startsWith(BASE)?(p.slice(BASE.length)||'/'):p;}
 const LIMIT=100;
 const state={surface:'errors', tab:'issues', hours:24, q:'', level:'', kind:'', env:'', release:'', tag:'', prop:'', fprop:'', sort:'recent', status:'unresolved', fingerprint:null, sessionId:null, imeta:null, live:true, offset:0, items:[]};
 const isMetrics=()=>state.surface==='metrics';
@@ -246,7 +265,7 @@ let timer=null, lastDetail=null, lastEventId=null, restoring=false, navLock=fals
 // else replace so filter tweaks don't spam history).
 function pathFor(){
   let path='/';
-  if(state.surface==='session') return '/session/'+state.sessionId;
+  if(state.surface==='session') return BASE+'/session/'+state.sessionId;
   if(state.surface==='errors') path = state.fingerprint ? '/issues/'+encodeURIComponent(state.fingerprint) : (state.tab==='events'?'/events':'/');
   else if(state.surface==='metrics') path = state.tab==='funnel'?'/metrics/funnel' : state.tab==='breakdown'?'/metrics/breakdown' : state.tab==='events'?'/metrics/stream' : '/metrics';
   else path = '/'+state.surface;   // health | flags | sql
@@ -262,7 +281,8 @@ function pathFor(){
   if(state.status&&state.status!==(state.surface==='metrics'?'all':'unresolved'))p.set('status',state.status);
   if(lastEventId)p.set('event',lastEventId);
   const q=p.toString();
-  return q?(path+'?'+q):path;
+  const full=BASE+path;   // history entries live under the mount prefix
+  return q?(full+'?'+q):full;
 }
 function syncUrl(push){
   if(restoring||navLock)return;
@@ -272,7 +292,7 @@ function syncUrl(push){
 }
 // Read state back out of the current path + query (inverse of pathFor).
 function parsePath(){
-  const path=location.pathname.replace(/\/+$/,'')||'/';
+  const path=stripBase(location.pathname).replace(/\/+$/,'')||'/';
   let surface='errors', tab='issues', fingerprint=null, sessionId=null;
   if(path.startsWith('/session/')){surface='session';sessionId=path.slice('/session/'.length);}
   else if(path==='/'){surface='errors';tab='issues';}
@@ -315,12 +335,29 @@ function setFilter(kind,val){
 // the SSR'd content without a network round-trip; everything after falls back to
 // a real fetch.
 const BOOT=(window.__BOOT__||{}), BOOT_CACHE=BOOT.cache||{};
+// `u` is always a raw '/dash/…' path: the boot cache is keyed by that raw path
+// (the backend, blind to the mount prefix, emits raw keys) while the live fetch
+// goes to BASE+u so it survives the nginx prefix-strip.
 async function jget(u){
   if(Object.prototype.hasOwnProperty.call(BOOT_CACHE,u)){const d=BOOT_CACHE[u];delete BOOT_CACHE[u];return d;}
-  const r=await fetch(u);if(!r.ok)throw new Error(await r.text());return r.json();}
+  const r=await fetch(BASE+u,{headers:authHeaders()});if(!r.ok)throw new Error(await r.text());return r.json();}
 async function jpost(u,body){
-  const r=await fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const r=await fetch(BASE+u,{method:'POST',headers:authHeaders({'Content-Type':'application/json'}),body:JSON.stringify(body)});
   if(!r.ok)throw new Error(await r.text());return r.json();}
+// The PII-bearing reads (/dash/events, /dash/event, /dash/stats, /dash/sql,
+// /dash/story, /dash/session) and the override-history read (/dash/admin/audit)
+// sit behind the admin bearer; the aggregate/config reads and the loopback
+// mutation endpoints do not. Behind nginx the bearer is injected server-side, so
+// the whole dashboard works with no client token. For direct-loopback access an
+// operator supplies it by loading the dashboard once with ?admin=<token>: it is
+// kept in localStorage and stripped from the URL (so a copied permalink never
+// carries the secret). Absent a token the gated surfaces show an error and the
+// history degrades to a note. authHeaders attaches the bearer to every request.
+function adminToken(){try{return localStorage.getItem('telemetry_admin')||'';}catch(e){return '';}}
+(function(){try{const u=new URL(location.href),t=u.searchParams.get('admin');
+  if(t!=null){t?localStorage.setItem('telemetry_admin',t):localStorage.removeItem('telemetry_admin');
+    u.searchParams.delete('admin');history.replaceState(null,'',u.pathname+u.search);}}catch(e){}})();
+function authHeaders(extra){const h=Object.assign({},extra||{});const t=adminToken();if(t)h.Authorization='Bearer '+t;return h;}
 function fillSelect(sel,pairs,cur){
   const keep=sel.querySelector('option').outerHTML;
   sel.innerHTML=keep+pairs.map(([k,c])=>`<option value="${esc(k)}"${k===cur?' selected':''}>${esc(k)} (${c})</option>`).join('');
@@ -407,7 +444,7 @@ function render(){
   document.querySelectorAll('.act').forEach(b=>b.onclick=e=>{e.stopPropagation();setIssueState(b.dataset.fp,b.dataset.st);});
 }
 async function setIssueState(fp,status){
-  try{await fetch('/dash/issue/state',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({fingerprint:fp,status})});
+  try{await fetch(BASE+'/dash/issue/state',{method:'POST',headers:authHeaders({'Content-Type':'application/json'}),body:JSON.stringify({fingerprint:fp,status})});
     toast('issue '+status); refreshAll();}catch(e){toast('failed: '+e.message);}
 }
 async function assignIssue(fp,cur){
@@ -415,7 +452,7 @@ async function assignIssue(fp,cur){
   if(v===null)return;  // cancelled
   const name=v.trim();
   // empty -> assignee:null (unassign); omit `status` so it is preserved
-  try{await fetch('/dash/issue/state',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({fingerprint:fp,assignee:name||null})});
+  try{await fetch(BASE+'/dash/issue/state',{method:'POST',headers:authHeaders({'Content-Type':'application/json'}),body:JSON.stringify({fingerprint:fp,assignee:name||null})});
     toast(name?('assigned to '+name):'unassigned'); drillIn(fp);}catch(e){toast('failed: '+e.message);}
 }
 async function loadList(reset=true){
@@ -625,38 +662,116 @@ async function loadFlags(){
   const f=await jget('/dash/flags');
   const flags=(f.config&&f.config.flags)||{}, variants=(f.config&&f.config.variants)||{};
   const obs=Object.fromEntries((f.observed||[]).map(([k,c])=>[k,c]));
-  const names=Object.keys(flags).sort();
-  const rows=names.map(n=>{const on=flags[n],v=variants[n];
-    return `<tr><td><span class="lvl ${on?'ok':'none'}"></span> ${esc(n)}</td>
-      <td>${on?'<span class="sbadge resolved">on</span>':'<span class="sbadge ignored">off</span>'}</td>
-      <td class="tag">${v?esc(v.name||''):''}</td><td class="cnt">${obs[n]?obs[n].toLocaleString():'—'}</td></tr>`;}).join('');
+  // Flag/gate overrides mirror experiment overrides. Server contract:
+  //   GET  /dash/flags -> `overrides`: { <flag>: {state:'on'|'off'|'forced', variant:string|null} }
+  //   POST /dash/flag    { flag, state:'on'|'off'|'forced', variant?:string|null, clear?:bool }
+  //     state on -> forced true · off -> forced false · forced -> true + variant pinned · clear removes it.
+  // sites getRuntimeFlags reads the same override to force the runtime flag value.
+  const ovr=(f.overrides&&typeof f.overrides==='object')?f.overrides:{};
+  const names=Array.from(new Set([...Object.keys(flags),...Object.keys(ovr)])).sort();
+  const effOn=n=>{const o=ovr[n];return o?o.state!=='off':!!flags[n];};
   let xp={}; try{xp=await jget('/dash/experiments');}catch(e){xp={};}
   const xkeys=Object.keys(xp).sort();
-  const xrows=xkeys.map(k=>{const o=xp[k]||{};
+  const expo=await flagExposure().catch(()=>({}));   // per-experiment exposure counts (best-effort; loopback SQL read)
+  const audit=await jget('/dash/admin/audit?limit=40').then(a=>a.items||[]).catch(()=>null);
+
+  const onN=names.filter(effOn).length, ovrN=names.filter(n=>ovr[n]).length;
+  const totExpo=Object.values(expo).reduce((s,x)=>s+(x.n||0),0);
+  const summary=`<div class="stats" style="border:0;padding:0 0 16px;margin:0">
+    <div class="card"><div class="lab">flags</div><div class="big">${names.length}</div></div>
+    <div class="card"><div class="lab">on / off</div><div class="big">${onN}<span style="color:var(--mut2);font-size:20px"> / ${names.length-onN}</span></div></div>
+    <div class="card"><div class="lab">flag overrides</div><div class="big" style="color:${ovrN?'var(--acc)':'inherit'}">${ovrN}</div></div>
+    <div class="card"><div class="lab">experiment overrides</div><div class="big" style="color:${xkeys.length?'var(--acc)':'inherit'}">${xkeys.length}</div></div>
+    <div class="card"><div class="lab">exposures / ${state.hours}h</div><div class="big">${totExpo?totExpo.toLocaleString():'—'}</div></div>
+  </div>`;
+
+  const ovrCell=o=>{ if(!o)return '<span class="tag" style="opacity:.5">—</span>';
+    if(o.state==='forced')return `<span class="sbadge" style="color:var(--info);border-color:var(--info)">→ ${esc(o.variant||'variant')}</span>`;
+    return `<span class="sbadge" style="color:var(--acc);border-color:var(--acc)">forced ${o.state==='off'?'off':'on'}</span>`;};
+  const rows=names.map(n=>{const has=Object.prototype.hasOwnProperty.call(flags,n),on=!!flags[n],v=variants[n],o=ovr[n];
+    return `<tr><td><span class="lvl ${effOn(n)?'ok':'none'}"></span> ${esc(n)}${v?` <span class="tag">${esc(v.name||'')}</span>`:''}</td>
+      <td>${has?(on?'<span class="sbadge resolved">on</span>':'<span class="sbadge ignored">off</span>'):'<span class="tag" style="opacity:.5">—</span>'}</td>
+      <td>${ovrCell(o)}</td>
+      <td class="cnt">${obs[n]?obs[n].toLocaleString():'—'}</td>
+      <td class="acts"><button class="act" data-fon="${esc(n)}" title="force on">on</button><button class="act" data-foff="${esc(n)}" title="force off">off</button><button class="act" data-fvar="${esc(n)}" title="force a variant">var…</button>${o?`<button class="act" data-fclear="${esc(n)}" title="clear override">⊘</button>`:''}</td></tr>`;}).join('');
+
+  const xrows=xkeys.map(k=>{const o=xp[k]||{},e=expo[k];
     const fl=(o.flags&&Object.keys(o.flags).length)?esc(JSON.stringify(o.flags)):'';
     return `<tr><td>${esc(k)}</td>
       <td>${o.killed?'<span class="sbadge" style="color:var(--err);border-color:var(--err)">killed</span>':'<span class="sbadge resolved">live</span>'}</td>
       <td class="tag">${o.variant?esc(o.variant):'—'}</td>
-      <td class="tag" style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${fl}">${fl||'—'}</td>
+      <td class="cnt">${e?e.n.toLocaleString():'—'}${e&&e.u?`<span class="tag"> · ${e.u}u</span>`:''}</td>
+      <td class="tag" style="max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${fl}">${fl||'—'}</td>
       <td class="acts"><button class="act" data-xedit="${esc(k)}" title="load into form">edit</button><button class="act" data-xclear="${esc(k)}" title="clear override">⊘</button></td></tr>`;}).join('');
-  $('#panel').innerHTML=`<div class="when" style="margin-bottom:10px">${names.length} flags · live config from <b>${esc(f.source_url)}</b> · "observed" = times a flag appeared in event data (contexts.flags)</div>
-    <table><thead><tr><th>flag</th><th>state</th><th>variant</th><th class="cnt">observed</th></tr></thead><tbody>${rows||'<tr><td colspan=4 class="empty">flag service unreachable</td></tr>'}</tbody></table>
+
+  const histRows=audit==null?'':audit.filter(r=>/^(experiment|flag)\./.test(r.action||'')).slice(0,20).map(r=>{
+    const d=r.detail||{}, key=d.exp_key||d.flag||'';
+    const what=d.clear?'cleared':d.state?(d.state==='forced'?('→ '+(d.variant||'variant')):d.state):(d.variant?('→ '+d.variant):d.killed?'killed':'set');
+    return `<tr><td class="when">${esc((r.at||'').replace('T',' ').replace('Z',''))}</td><td class="tag">${esc(r.actor||'')}</td>
+      <td><span class="sbadge">${esc(r.action||'')}</span> ${esc(key)} <span class="tag">${esc(what)}</span></td></tr>`;}).join('');
+  const histBlock=audit==null
+    ? `<div class="when" style="opacity:.7">recent-changes history needs an admin token — reload with <b>?admin=&lt;token&gt;</b> (GET /dash/admin/audit is bearer-gated)</div>`
+    : `<table><thead><tr><th>when (UTC)</th><th>actor</th><th>change</th></tr></thead><tbody>${histRows||'<tr><td colspan=3 class="empty">no recent flag / experiment changes</td></tr>'}</tbody></table>`;
+
+  $('#panel').innerHTML=summary+
+    `<div class="when" style="margin-bottom:10px">${names.length} flags · live config from <b>${esc(f.source_url)}</b> · "observed" = times a flag appeared in event data (contexts.flags) · override = server-side force honored by sites getRuntimeFlags</div>
+    <table><thead><tr><th>flag</th><th>value</th><th>override</th><th class="cnt">observed</th><th></th></tr></thead><tbody>${rows||'<tr><td colspan=5 class="empty">flag service unreachable</td></tr>'}</tbody></table>
+    <div class="row" style="margin-top:14px;flex-wrap:wrap;gap:8px;align-items:center">
+      <input id="fl-key" placeholder="flag_name" style="min-width:200px;text-transform:none;letter-spacing:0">
+      <select id="fl-mode"><option value="on">force on</option><option value="off">force off</option><option value="variant">force variant</option></select>
+      <input id="fl-variant" placeholder="variant" style="min-width:150px;text-transform:none;letter-spacing:0;display:none">
+      <button id="fl-save" class="on">save</button>
+      <button id="fl-clear">clear</button>
+    </div>
     <h3 class="sec" style="margin-top:22px">experiment overrides</h3>
-    <div class="when" style="margin-bottom:10px">${xkeys.length} active override${xkeys.length===1?'':'s'} · server-side kill switch / forced variant for sites experiments (POST /dash/experiment · read by /dash/experiments)</div>
-    <table><thead><tr><th>experiment</th><th>state</th><th>forced variant</th><th>flags</th><th></th></tr></thead><tbody>${xrows||'<tr><td colspan=5 class="empty">no overrides</td></tr>'}</tbody></table>
+    <div class="when" style="margin-bottom:10px">${xkeys.length} active override${xkeys.length===1?'':'s'} · server-side kill switch / forced variant (POST /dash/experiment) · exposures from experiment_exposed events / ${state.hours}h</div>
+    <table><thead><tr><th>experiment</th><th>state</th><th>forced variant</th><th class="cnt">exposures</th><th>flags</th><th></th></tr></thead><tbody>${xrows||'<tr><td colspan=6 class="empty">no overrides</td></tr>'}</tbody></table>
     <div class="row" style="margin-top:14px;flex-wrap:wrap;gap:8px;align-items:center">
       <input id="x-key" placeholder="exp_key" style="min-width:200px;text-transform:none;letter-spacing:0">
       <label class="when" style="display:flex;align-items:center;gap:5px;margin:0"><input type="checkbox" id="x-killed" style="width:auto;min-width:0;padding:0"> kill</label>
       <input id="x-variant" placeholder="force variant (optional)" style="min-width:170px;text-transform:none;letter-spacing:0">
       <button id="x-save" class="on">save</button>
       <button id="x-clear">clear</button>
-    </div>`;
+    </div>
+    <h3 class="sec" style="margin-top:22px">recent changes</h3>
+    ${histBlock}`;
+  // flag row + form actions
+  $('#panel').querySelectorAll('[data-fon]').forEach(b=>b.onclick=()=>saveFlag(b.dataset.fon,{state:'on'}));
+  $('#panel').querySelectorAll('[data-foff]').forEach(b=>b.onclick=()=>saveFlag(b.dataset.foff,{state:'off'}));
+  $('#panel').querySelectorAll('[data-fvar]').forEach(b=>b.onclick=()=>{const n=b.dataset.fvar;const cur=(ovr[n]||{}).variant||'';const v=prompt('Force variant for '+n+':',cur);if(v==null)return;const t=v.trim();if(!t){toast('variant required');return;}saveFlag(n,{state:'forced',variant:t});});
+  $('#panel').querySelectorAll('[data-fclear]').forEach(b=>b.onclick=()=>saveFlag(b.dataset.fclear,{clear:true}));
+  const flMode=$('#fl-mode'),flVar=$('#fl-variant');
+  flMode.onchange=()=>{flVar.style.display=flMode.value==='variant'?'':'none';};
+  $('#fl-save').onclick=()=>{const k=$('#fl-key').value.trim(); if(!k){toast('flag_name required');return;}
+    if(flMode.value==='variant'){const v=flVar.value.trim(); if(!v){toast('variant required');return;} saveFlag(k,{state:'forced',variant:v});}
+    else saveFlag(k,{state:flMode.value});};
+  $('#fl-clear').onclick=()=>{const k=$('#fl-key').value.trim(); if(!k){toast('flag_name required');return;} saveFlag(k,{clear:true});};
+  // experiment row + form actions
   $('#panel').querySelectorAll('[data-xedit]').forEach(b=>b.onclick=()=>{const k=b.dataset.xedit,o=xp[k]||{};
     $('#x-key').value=k; $('#x-killed').checked=!!o.killed; $('#x-variant').value=o.variant||''; toast('loaded '+k);});
   $('#panel').querySelectorAll('[data-xclear]').forEach(b=>b.onclick=()=>saveExperiment(b.dataset.xclear,{clear:true}));
   $('#x-save').onclick=()=>{const k=$('#x-key').value.trim(); if(!k){toast('exp_key required');return;}
     saveExperiment(k,{killed:$('#x-killed').checked, variant:$('#x-variant').value.trim()||null});};
   $('#x-clear').onclick=()=>{const k=$('#x-key').value.trim(); if(!k){toast('exp_key required');return;} saveExperiment(k,{clear:true});};
+}
+// Per-experiment exposure counts straight from event data (experiment_exposed
+// segment events carry properties.exp_key + anonymousId). Uses the read-only SQL
+// endpoint — admin-gated, so this is best-effort and degrades to "—" without a token.
+async function flagExposure(){
+  const sql="select body->'properties'->>'exp_key' k, count(*) n, count(distinct body->>'anonymousId') u\n"
+    +"from telemetry.telemetry_events\n"
+    +"where source='segment' and body->>'event'='experiment_exposed'\n"
+    +"  and body->'properties'->>'exp_key' is not null\n"
+    +"  and received_at > now() - make_interval(hours => "+(+state.hours||24)+")\ngroup by 1";
+  const r=await fetch(BASE+'/dash/sql',{method:'POST',headers:authHeaders({'content-type':'application/json'}),body:JSON.stringify({sql})});
+  if(!r.ok)throw new Error('exposure query unavailable');
+  const d=await r.json();
+  return Object.fromEntries((d.rows||[]).map(row=>[row.k,{n:+row.n||0,u:+row.u||0}]));
+}
+async function saveFlag(flag,opts){
+  try{ await jpost('/dash/flag',Object.assign({flag},opts));
+    toast(opts.clear?('cleared '+flag):('saved '+flag)); loadFlags().catch(()=>{}); }
+  catch(e){ toast('flag override failed: '+e.message); }
 }
 async function saveExperiment(exp_key,opts){
   try{ await jpost('/dash/experiment',Object.assign({exp_key},opts));
@@ -727,7 +842,7 @@ async function runSql(){
   const sql=$('#sqlbox').value.trim(); state._sql=sql;
   $('#sqlout').innerHTML='<div class="empty">running…</div>';
   try{
-    const r=await fetch('/dash/sql',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({sql})});
+    const r=await fetch(BASE+'/dash/sql',{method:'POST',headers:authHeaders({'content-type':'application/json'}),body:JSON.stringify({sql})});
     if(!r.ok)throw new Error(await r.text());
     const d=await r.json();
     if(!d.rows.length){$('#sqlout').innerHTML='<div class="empty">0 rows</div>';return;}

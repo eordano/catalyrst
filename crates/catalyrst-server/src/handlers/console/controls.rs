@@ -504,26 +504,6 @@ pub(super) fn controls(va: &ViewerAdmin, which: &str) -> String {
     if want("data") && has_service("data") && env_set_any(&["CATALYRST_CREDITS_ADMIN_TOKEN"]) {
         let mut inner = String::new();
 
-        inner.push_str("<form class=\"ctlform\" data-admin-action=\"/admin/api/credits/season-create\" data-confirm=\"Create / update this credits season?\">");
-        inner.push_str("<label>Seasons<span class=\"hint\">credits program seasons</span></label>");
-        inner.push_str("<input name=\"id\" placeholder=\"id (for update/delete)\"><input name=\"name\" placeholder=\"name\"><input name=\"start_at\" placeholder=\"start_at\"><input name=\"end_at\" placeholder=\"end_at\">");
-        inner.push_str("<div class=\"btnrow\">");
-        inner.push_str("<button class=\"btn ghost\" type=\"button\" data-admin-action=\"/admin/api/credits/seasons-list\" data-fields=\"\">List seasons</button>");
-        inner.push_str("<button class=\"btn\" type=\"submit\">Create season</button>");
-        inner.push_str("<button class=\"btn ghost\" type=\"button\" data-admin-action=\"/admin/api/credits/season-update\" data-fields=\"id,name,start_at,end_at\" data-confirm=\"Update this season?\">Update season</button>");
-        inner.push_str("<button class=\"btn danger\" type=\"button\" data-admin-action=\"/admin/api/credits/season-delete\" data-fields=\"id\" data-confirm=\"Delete this season? This is irreversible.\">Delete season</button>");
-        inner.push_str("</div><div class=\"ctl-result\"></div></form>");
-
-        inner.push_str("<form class=\"ctlform\" data-admin-action=\"/admin/api/credits/goal-create\" data-confirm=\"Create / update this goal?\">");
-        inner.push_str("<label>Goals<span class=\"hint\">weekly credit goals</span></label>");
-        inner.push_str("<input name=\"id\" placeholder=\"id (for update/delete)\"><input name=\"weekId\" placeholder=\"weekId (for list)\"><input name=\"description\" placeholder=\"description\">");
-        inner.push_str("<div class=\"btnrow\">");
-        inner.push_str("<button class=\"btn ghost\" type=\"button\" data-admin-action=\"/admin/api/credits/goals-list\" data-fields=\"weekId\">List goals</button>");
-        inner.push_str("<button class=\"btn\" type=\"submit\">Create goal</button>");
-        inner.push_str("<button class=\"btn ghost\" type=\"button\" data-admin-action=\"/admin/api/credits/goal-update\" data-fields=\"id,description\" data-confirm=\"Update this goal?\">Update goal</button>");
-        inner.push_str("<button class=\"btn danger\" type=\"button\" data-admin-action=\"/admin/api/credits/goal-delete\" data-fields=\"id\" data-confirm=\"Delete this goal? This is irreversible.\">Delete goal</button>");
-        inner.push_str("</div><div class=\"ctl-result\"></div></form>");
-
         inner.push_str("<form class=\"ctlform danger-form\" data-admin-action=\"/admin/api/credits/grant\" data-confirm=\"GRANT credits to this address? This mints real spendable Marketplace Credits. Confirm the address and amount are correct.\">");
         inner.push_str("<label class=\"danger-lab\">⚠ Credits grant / revoke (financial)<input name=\"address\" placeholder=\"0x…\" required></label>");
         inner.push_str("<input name=\"amount\" placeholder=\"amount\"><input name=\"reason\" placeholder=\"reason (audited)\">");

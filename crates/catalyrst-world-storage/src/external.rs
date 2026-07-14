@@ -7,9 +7,6 @@ use crate::http::errors::ApiError;
 
 pub const GENESIS_CITY_REALM: &str = "main";
 
-// Shared realms (Genesis City catalysts such as `main`) host scenes owned by unrelated
-// land owners under a single realm name, so anything scoped "per world" (storage quotas,
-// usage aggregation, advisory locks) must be scoped per place instead.
 pub fn is_shared_realm(world_name: &str) -> bool {
     !world_name.to_ascii_lowercase().ends_with(".dcl.eth")
 }
@@ -114,8 +111,6 @@ impl ExternalClient {
         }
     }
 
-    // A single bounded retry for the idempotent upstream GETs (a hung or blipping
-    // upstream must not surface as a 401 to a legitimate world owner).
     async fn get_with_retry(&self, url: &str) -> Result<reqwest::Response, reqwest::Error> {
         match self.http.get(url).send().await {
             Ok(resp) if !resp.status().is_server_error() => Ok(resp),
@@ -188,8 +183,6 @@ impl ExternalClient {
         address: &str,
         parcel: &str,
     ) -> Result<bool, ApiError> {
-        // Short TTL: bounds upstream load per authenticated request AND how long a
-        // revoked permission keeps working. Only successful lookups are cached.
         let cache_key = format!("{}:{}:{}", world_name, address, parcel);
         if let Some(hit) = self.world_permission_cache.get(&cache_key).await {
             return Ok(hit);
@@ -251,8 +244,6 @@ impl ExternalClient {
         address: &str,
         parcel: &str,
     ) -> Result<bool, ApiError> {
-        // The parcel format is validated by derive_world_and_parcel; the segments are
-        // still encoded so this authorization-relevant URL can never be shaped by input.
         let mut parts = parcel.split(',');
         let x = parts.next().unwrap_or("0");
         let y = parts.next().unwrap_or("0");

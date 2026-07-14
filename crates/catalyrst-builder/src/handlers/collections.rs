@@ -21,24 +21,17 @@ pub async fn get_collection(
     let path = format!("/v1/collections/{}", id);
     let signer = require_signer(&headers, "get", &path)?.to_ascii_lowercase();
 
-    let collection_id = Uuid::parse_str(id.trim()).map_err(|_| {
-        ApiError::not_found_with("Not found", json!({ "id": id, "eth_address": signer }))
-    })?;
+    let collection_id = Uuid::parse_str(id.trim()).map_err(|_| ApiError::not_found("Not found"))?;
 
     let meta = state
         .items
         .collection_by_id(&collection_id)
         .await?
-        .ok_or_else(|| {
-            ApiError::not_found_with("Not found", json!({ "id": id, "eth_address": signer }))
-        })?;
+        .ok_or_else(|| ApiError::not_found("Not found"))?;
 
     let is_admin = state.admin_addresses.iter().any(|a| a == &signer);
     if signer != meta.eth_address.to_ascii_lowercase() && !is_admin {
-        return Err(ApiError::unauthorized_with(
-            "Unauthorized",
-            json!({ "eth_address": signer }),
-        ));
+        return Err(ApiError::unauthorized("Unauthorized"));
     }
 
     Ok(Json(ApiData::ok(meta.to_meta_json())))
@@ -66,31 +59,21 @@ pub async fn get_collection_items(
 
     if let Some(status) = &params.status {
         if !CURATION_STATUSES.contains(&status.as_str()) {
-            return Err(ApiError::bad_request_with(
-                "Invalid Status provided",
-                json!({ "id": id, "status": status }),
-            ));
+            return Err(ApiError::bad_request("Invalid Status provided"));
         }
     }
 
-    let collection_id = Uuid::parse_str(id.trim()).map_err(|_| {
-        ApiError::not_found_with("Not found", json!({ "id": id, "eth_address": signer }))
-    })?;
+    let collection_id = Uuid::parse_str(id.trim()).map_err(|_| ApiError::not_found("Not found"))?;
 
     let owner = state
         .items
         .collection_owner(&collection_id)
         .await?
-        .ok_or_else(|| {
-            ApiError::not_found_with("Not found", json!({ "id": id, "eth_address": signer }))
-        })?;
+        .ok_or_else(|| ApiError::not_found("Not found"))?;
 
     let is_admin = state.admin_addresses.iter().any(|a| a == &signer);
     if signer != owner && !is_admin {
-        return Err(ApiError::unauthorized_with(
-            "Unauthorized",
-            json!({ "eth_address": signer }),
-        ));
+        return Err(ApiError::unauthorized("Unauthorized"));
     }
 
     let paginate = params.page.is_some() && params.limit.is_some();

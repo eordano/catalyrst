@@ -352,12 +352,11 @@ pub fn build_nfts_query(filters: &NftFilters, for_count: bool) -> (String, Vec<B
             parcel.parcel_estate_name,
             parcel.estate_id AS parcel_estate_id,
             COALESCE(wearable.description, emote.description, land_data.description) AS description,
-            -- Sort key for sortBy=recently_listed. search_order_created_at is a
-            -- NUMERIC unix-epoch on the nft row (NULL when not listed); upstream
-            -- coalesces it with the trade created_at. The unified_trades CTE is
-            -- the empty stub here, so trades.created_at is always NULL -- kept for
-            -- parity. Without this projection the ORDER BY references a column that
-            -- does not exist (column order_created_at does not exist) -> 500.
+            -- Sort key for sortBy=recently_listed, projected so the outer ORDER BY
+            -- can reference order_created_at (missing column -> 500).
+            -- search_order_created_at (NUMERIC unix-epoch, NULL when unlisted) is the
+            -- legacy on-chain order listing time; trades.created_at from the
+            -- unified_trades/mv_trades CTE supplies the real off-chain trade listing time.
             COALESCE(TO_TIMESTAMP(nft.search_order_created_at), trades.created_at) AS order_created_at,
             -- Numeric listing price, projected so the outer ORDER BY for
             -- sortBy=cheapest_parcel sorts numerically (NULL when unlisted).

@@ -1,6 +1,6 @@
 [package]
 name = "catalyrst-world-storage"
-version = "0.9.10"
+version = "0.14.1"
 edition = "2021"
 description = "Rust port of decentraland/world-storage-service: signed-fetch (ADR-44) key-value + encrypted env storage for Decentraland worlds, over a dedicated postgres DB"
 
@@ -26,8 +26,10 @@ tracing-subscriber = { workspace = true }
 thiserror = { workspace = true }
 anyhow = { workspace = true }
 url = { workspace = true }
-uuid = { workspace = true }
 moka = { version = "0.12", features = ["future"] }
 aes-gcm = "0.11"
 hex = "0.4"
 rand = "0.10"
+
+[dev-dependencies]
+catalyrst-contract-gate = { workspace = true }

@@ -4,8 +4,8 @@ use async_trait::async_trait;
 use tracing::{debug, warn};
 
 use super::helpers::{
-    count_urn_segments, is_ipfs_v2_hash, profile_has_emotes, should_validate_face_thumbnail,
-    validate_profile_emote_urns, validate_profile_wearable_urns,
+    count_urn_segments, is_ipfs_v2_hash, is_relative_thumbnail_path, profile_has_emotes,
+    should_validate_face_thumbnail, validate_profile_emote_urns, validate_profile_wearable_urns,
 };
 use super::spring_bones::validate_spring_bones_metadata;
 use crate::checker::{
@@ -132,7 +132,19 @@ impl<E: ExternalCalls, B: BlockchainChecker> ContentValidator<E, B> {
             return result;
         }
 
-        let result = crate::third_party::validate_third_party_merkle_proof_content(deployment);
+        let result = match deployment.entity.entity_type {
+            EntityType::Wearable => crate::third_party::validate_third_party_merkle_proof_content(
+                deployment,
+                crate::third_party::WEARABLE_REQUIRED_HASHING_KEYS,
+                "wearable",
+            ),
+            EntityType::Emote => crate::third_party::validate_third_party_merkle_proof_content(
+                deployment,
+                crate::third_party::EMOTE_REQUIRED_HASHING_KEYS,
+                "emote",
+            ),
+            _ => ValidationResponse::Ok,
+        };
         if !result.is_ok() {
             debug!("Validation failed at third-party merkle proof");
             return result;
@@ -657,18 +669,9 @@ impl<E: ExternalCalls, B: BlockchainChecker> ContentValidator<E, B> {
 
         if entity.timestamp >= adr_timestamps::ADR_236 {
             if let Some(metadata) = &entity.metadata {
-                if let Some(thumbnail) = metadata
-                    .get("display")
-                    .and_then(|d| d.get("navmapThumbnail"))
-                    .and_then(|t| t.as_str())
-                {
-                    let is_present = entity.content.iter().any(|c| c.file == thumbnail);
-                    if !is_present {
-                        return ValidationResponse::fail(format!(
-                            "Scene thumbnail '{thumbnail}' must be a file included in \
-                             the deployment."
-                        ));
-                    }
+                let result = validate_scene_navmap_thumbnail(metadata, &entity.content);
+                if !result.is_ok() {
+                    return result;
                 }
             }
         }
@@ -847,6 +850,148 @@ impl<E: ExternalCalls, B: BlockchainChecker> ContentValidator<E, B> {
             EntityType::Outfits => {
                 validate_outfits_access(deployment, &self.blockchain_checker, &deployer).await
             }
+        }
+    }
+}
+
+fn validate_scene_navmap_thumbnail(
+    metadata: &serde_json::Value,
+    content: &[ContentMapping],
+) -> ValidationResponse {
+    let Some(value) = metadata
+        .get("display")
+        .and_then(|d| d.get("navmapThumbnail"))
+    else {
+        return ValidationResponse::Ok;
+    };
+    let thumbnail = match value {
+        serde_json::Value::Null => return ValidationResponse::Ok,
+        serde_json::Value::String(s) if s.is_empty() => return ValidationResponse::Ok,
+        serde_json::Value::Bool(false) => return ValidationResponse::Ok,
+        serde_json::Value::Number(n) if n.as_f64() == Some(0.0) => return ValidationResponse::Ok,
+        serde_json::Value::String(s) => s.as_str(),
+        other => {
+            return ValidationResponse::fail(format!(
+                "Scene thumbnail '{other}' must be a relative path to a \
+                 file included in the deployment."
+            ));
+        }
+    };
+
+    if !is_relative_thumbnail_path(thumbnail) {
+        return ValidationResponse::fail(format!(
+            "Scene thumbnail '{thumbnail}' must be a relative path to a \
+             file included in the deployment."
+        ));
+    }
+    let is_present = content.iter().any(|c| c.file == thumbnail);
+    if !is_present {
+        return ValidationResponse::fail(format!(
+            "Scene thumbnail '{thumbnail}' must be a file included in \
+             the deployment."
+        ));
+    }
+
+    ValidationResponse::Ok
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn thumbnail_metadata(value: serde_json::Value) -> serde_json::Value {
+        serde_json::json!({ "display": { "navmapThumbnail": value } })
+    }
+
+    fn scene_content(file: &str) -> Vec<ContentMapping> {
+        vec![ContentMapping {
+            file: file.to_string(),
+            hash: "bafkreihdwdcefgh4dqkjv67uzcmw7ojee6xedzdetojuzjevtenosa7776".to_string(),
+        }]
+    }
+
+    #[test]
+    fn navmap_thumbnail_relative_embedded_path_passes() {
+        let metadata = thumbnail_metadata(serde_json::json!("thumbnail.png"));
+        assert!(
+            validate_scene_navmap_thumbnail(&metadata, &scene_content("thumbnail.png")).is_ok()
+        );
+    }
+
+    #[test]
+    fn navmap_thumbnail_absent_null_or_empty_is_skipped() {
+        let absent = serde_json::json!({ "display": {} });
+        assert!(validate_scene_navmap_thumbnail(&absent, &scene_content("x.png")).is_ok());
+        let null = thumbnail_metadata(serde_json::Value::Null);
+        assert!(validate_scene_navmap_thumbnail(&null, &scene_content("x.png")).is_ok());
+        let empty = thumbnail_metadata(serde_json::json!(""));
+        assert!(validate_scene_navmap_thumbnail(&empty, &scene_content("x.png")).is_ok());
+        let falsey = thumbnail_metadata(serde_json::json!(false));
+        assert!(validate_scene_navmap_thumbnail(&falsey, &scene_content("x.png")).is_ok());
+        let zero = thumbnail_metadata(serde_json::json!(0));
+        assert!(validate_scene_navmap_thumbnail(&zero, &scene_content("x.png")).is_ok());
+        let zero_float = thumbnail_metadata(serde_json::json!(0.0));
+        assert!(validate_scene_navmap_thumbnail(&zero_float, &scene_content("x.png")).is_ok());
+    }
+
+    #[test]
+    fn navmap_thumbnail_array_value_is_rejected() {
+        let payload = "https://x\"><script>alert(1)</script><meta name=\"y";
+        let metadata = thumbnail_metadata(serde_json::json!([payload]));
+        match validate_scene_navmap_thumbnail(&metadata, &scene_content("x.png")) {
+            ValidationResponse::Failed { errors } => {
+                assert_eq!(errors.len(), 1);
+                assert!(
+                    errors[0].starts_with("Scene thumbnail '[")
+                        && errors[0].ends_with(
+                            "must be a relative path to a file included in the deployment."
+                        ),
+                    "unexpected error: {}",
+                    errors[0]
+                );
+            }
+            ValidationResponse::Ok => panic!("array-valued navmapThumbnail must be rejected"),
+        }
+    }
+
+    #[test]
+    fn navmap_thumbnail_number_value_is_rejected() {
+        let metadata = thumbnail_metadata(serde_json::json!(5));
+        match validate_scene_navmap_thumbnail(&metadata, &scene_content("x.png")) {
+            ValidationResponse::Failed { errors } => {
+                assert_eq!(
+                    errors[0],
+                    "Scene thumbnail '5' must be a relative path to a \
+                     file included in the deployment."
+                );
+            }
+            ValidationResponse::Ok => panic!("number-valued navmapThumbnail must be rejected"),
+        }
+    }
+
+    #[test]
+    fn navmap_thumbnail_absolute_or_scheme_paths_are_rejected() {
+        for bad in ["https://evil.com/x.png", "//evil.com/x.png", "/etc/passwd"] {
+            let metadata = thumbnail_metadata(serde_json::json!(bad));
+            assert!(
+                !validate_scene_navmap_thumbnail(&metadata, &scene_content(bad)).is_ok(),
+                "{bad} must be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn navmap_thumbnail_missing_from_content_is_rejected() {
+        let metadata = thumbnail_metadata(serde_json::json!("thumbnail.png"));
+        match validate_scene_navmap_thumbnail(&metadata, &scene_content("other.png")) {
+            ValidationResponse::Failed { errors } => {
+                assert_eq!(
+                    errors[0],
+                    "Scene thumbnail 'thumbnail.png' must be a file included in \
+                     the deployment."
+                );
+            }
+            ValidationResponse::Ok => panic!("non-embedded thumbnail must be rejected"),
         }
     }
 }

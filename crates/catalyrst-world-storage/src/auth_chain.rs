@@ -1,30 +1,16 @@
 use axum::http::HeaderMap;
 use catalyrst_crypto::verify::{verify_auth_chain, verify_auth_chain_async};
-use catalyrst_crypto::{AuthError, Eip1654Validator};
-use catalyrst_types::{AuthLink as CryptoAuthLink, AuthLinkType as CryptoAuthLinkType, EthAddress};
+use catalyrst_crypto::{signed_fetch, AuthError, Eip1654Validator};
+use catalyrst_types::EthAddress;
 use serde::Deserialize;
 use thiserror::Error;
 
-pub const AUTH_CHAIN_HEADER_PREFIX: &str = "x-identity-auth-chain-";
-pub const AUTH_TIMESTAMP_HEADER: &str = "x-identity-timestamp";
-pub const AUTH_METADATA_HEADER: &str = "x-identity-metadata";
-
-pub const MAX_AUTH_CHAIN_LINKS: usize = 10;
+pub use catalyrst_crypto::signed_fetch::{
+    build_payload, header_str, signed_fetch_path, AuthChain, AuthLink, AUTH_CHAIN_HEADER_PREFIX,
+    AUTH_METADATA_HEADER, AUTH_TIMESTAMP_HEADER, MAX_AUTH_CHAIN_LINKS,
+};
 
 pub const ONE_MINUTE: i64 = 60;
-
-#[derive(Debug, Clone)]
-pub struct AuthLink {
-    pub kind: CryptoAuthLinkType,
-    pub payload: String,
-    pub signature: String,
-}
-
-#[derive(Debug, Clone)]
-pub struct AuthChain {
-    pub links: Vec<AuthLink>,
-    pub signer: EthAddress,
-}
 
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct SceneAuthMetadata {
@@ -112,78 +98,34 @@ impl AuthChainError {
     }
 }
 
-pub fn build_payload(method: &str, path: &str, timestamp: &str, metadata: &str) -> String {
-    format!("{}:{}:{}:{}", method, path, timestamp, metadata).to_lowercase()
-}
-
-fn signed_fetch_path<'a>(headers: &HeaderMap, fallback: &'a str) -> std::borrow::Cow<'a, str> {
-    match headers.get("x-original-path").and_then(|v| v.to_str().ok()) {
-        Some(raw) => std::borrow::Cow::Owned(raw.split('?').next().unwrap_or(raw).to_string()),
-        None => std::borrow::Cow::Borrowed(fallback),
+impl From<signed_fetch::AuthChainError> for AuthChainError {
+    fn from(e: signed_fetch::AuthChainError) -> Self {
+        match e {
+            signed_fetch::AuthChainError::MalformedChain { detail } => {
+                AuthChainError::MalformedChain { detail }
+            }
+            signed_fetch::AuthChainError::InsufficientLinks => AuthChainError::InsufficientLinks,
+            signed_fetch::AuthChainError::MissingTimestamp => AuthChainError::MissingTimestamp,
+            signed_fetch::AuthChainError::Expired {
+                signed_at,
+                now,
+                window_secs,
+            } => AuthChainError::Expired {
+                signed_at,
+                now,
+                window_secs,
+            },
+            signed_fetch::AuthChainError::InvalidSignature(d) => {
+                AuthChainError::InvalidSignature(d)
+            }
+            signed_fetch::AuthChainError::ForbiddenSigner => AuthChainError::SceneSignerRejected,
+            signed_fetch::AuthChainError::EipNotImplemented => AuthChainError::EipNotImplemented,
+        }
     }
-}
-
-fn header_str<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {
-    headers.get(name).and_then(|v| v.to_str().ok())
 }
 
 pub fn extract_auth_chain(headers: &HeaderMap) -> Result<AuthChain, AuthChainError> {
-    let mut links = Vec::new();
-
-    for i in 0..MAX_AUTH_CHAIN_LINKS {
-        let name = format!("{}{}", AUTH_CHAIN_HEADER_PREFIX, i);
-        let Some(raw) = header_str(headers, &name) else {
-            break;
-        };
-
-        let link: CryptoAuthLink = serde_json::from_str(raw).map_err(|e| {
-            let mut detail = e.to_string();
-            if detail.len() > 64 {
-                detail.truncate(64);
-            }
-            AuthChainError::MalformedChain { detail }
-        })?;
-
-        match link.link_type {
-            CryptoAuthLinkType::SIGNER => {
-                if i != 0 {
-                    return Err(AuthChainError::MalformedChain {
-                        detail: format!("SIGNER link at non-zero index {}", i),
-                    });
-                }
-            }
-            _ => {
-                if i == 0 {
-                    return Err(AuthChainError::MalformedChain {
-                        detail: "first link must be SIGNER".to_string(),
-                    });
-                }
-                if link.signature.as_deref().unwrap_or("").is_empty() {
-                    return Err(AuthChainError::MalformedChain {
-                        detail: format!("missing signature on link {}", i),
-                    });
-                }
-            }
-        }
-
-        links.push(AuthLink {
-            kind: link.link_type,
-            payload: link.payload,
-            signature: link.signature.unwrap_or_default(),
-        });
-    }
-
-    let overflow = format!("{}{}", AUTH_CHAIN_HEADER_PREFIX, MAX_AUTH_CHAIN_LINKS);
-    if header_str(headers, &overflow).is_some() {
-        return Err(AuthChainError::MalformedChain {
-            detail: format!("exceeds max length of {}", MAX_AUTH_CHAIN_LINKS),
-        });
-    }
-    if links.len() < 2 {
-        return Err(AuthChainError::InsufficientLinks);
-    }
-    let signer = links[0].payload.to_lowercase();
-    Ok(AuthChain { links, signer })
+    Ok(signed_fetch::extract_auth_chain(headers)?)
 }
 
 pub fn check_freshness(
@@ -204,22 +146,6 @@ pub fn check_freshness(
     Ok(())
 }
 
-fn to_crypto_chain(chain: &AuthChain) -> Vec<CryptoAuthLink> {
-    chain
-        .links
-        .iter()
-        .map(|link| CryptoAuthLink {
-            link_type: link.kind,
-            payload: link.payload.clone(),
-            signature: if link.signature.is_empty() {
-                None
-            } else {
-                Some(link.signature.clone())
-            },
-        })
-        .collect()
-}
-
 pub async fn validate_signature(
     chain: &AuthChain,
     payload: &str,
@@ -230,7 +156,7 @@ pub async fn validate_signature(
 ) -> Result<EthAddress, AuthChainError> {
     check_freshness(timestamp, expiration_secs, now)?;
 
-    let crypto_chain = to_crypto_chain(chain);
+    let crypto_chain = signed_fetch::to_crypto_chain(chain);
 
     match eip1654_validator {
         Some(validator) => {

@@ -4,6 +4,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use anyhow::{Context, Result};
+use catalyrst_types::duration_fmt::fmt_elapsed;
 use catalyrst_worlds::config::Config;
 use serde_json::Value;
 use sqlx::postgres::PgPoolOptions;
@@ -150,12 +151,12 @@ async fn main() -> Result<()> {
     while set.join_next().await.is_some() {}
 
     println!(
-        "DONE: synced={} skipped={} scenes={} new_blobs={} in {:.0}s",
+        "DONE: synced={} skipped={} scenes={} new_blobs={} in {}",
         synced.load(Ordering::Relaxed),
         skipped.load(Ordering::Relaxed),
         scenes_total.load(Ordering::Relaxed),
         blobs.load(Ordering::Relaxed),
-        t0.elapsed().as_secs_f64(),
+        fmt_elapsed(t0.elapsed()),
     );
     Ok(())
 }

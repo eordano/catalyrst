@@ -1,113 +1,26 @@
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::Duration;
-
+use catalyrst_contract_gate::pg::ScratchSchema;
 use catalyrst_worlds::access::AccessSetting;
 use catalyrst_worlds::http::ApiError;
 use catalyrst_worlds::ports::worlds::{
     OrderDirection, WorldsComponent, WorldsListFilters, WorldsListOptions, WorldsOrderBy,
 };
 use serde_json::json;
-use sqlx::postgres::PgPoolOptions;
-use sqlx::PgPool;
 
-static COUNTER: AtomicU64 = AtomicU64::new(0);
-
-fn pg_url() -> Option<String> {
-    std::env::var("CATALYRST_WORLDS_TEST_PG").ok()
-}
-
-fn unique_schema() -> String {
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
-    let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-    format!("test_worlds_{}_{}_{}", std::process::id(), nanos, n)
-}
-
-async fn setup_db() -> Option<(PgPool, String, String)> {
-    let url = pg_url()?;
-    let admin = PgPoolOptions::new()
-        .max_connections(2)
-        .acquire_timeout(Duration::from_secs(5))
-        .connect(&url)
-        .await
-        .ok()?;
-    let schema = unique_schema();
-    sqlx::query(sqlx::AssertSqlSafe(format!("CREATE SCHEMA {}", schema)))
-        .execute(&admin)
-        .await
-        .ok()?;
-    let suffixed = format!("{}?options=-c%20search_path%3D{}", url, schema);
-    let pool = PgPoolOptions::new()
-        .max_connections(4)
-        .acquire_timeout(Duration::from_secs(5))
-        .connect(&suffixed)
-        .await
-        .ok()?;
-
-    apply_migration(&pool, include_str!("../migrations/0001_init.sql")).await;
-    apply_migration(&pool, include_str!("../migrations/0002_access_log.sql")).await;
-    apply_migration(
-        &pool,
-        include_str!("../migrations/0003_permission_parcels.sql"),
-    )
-    .await;
-
-    Some((pool, schema, url))
-}
-
-async fn apply_migration(pool: &PgPool, sql: &str) {
-    let cleaned = strip_line_comments(sql);
-    let mut buf = String::new();
-    for line in cleaned.lines() {
-        let trimmed = line.trim();
-        if trimmed.is_empty() {
-            continue;
-        }
-        buf.push_str(line);
-        buf.push('\n');
-        if trimmed.ends_with(';') {
-            sqlx::query(sqlx::AssertSqlSafe(buf.as_str()))
-                .execute(pool)
-                .await
-                .unwrap_or_else(|e| panic!("migration stmt failed: {e}\n{}", buf.clone()));
-            buf.clear();
-        }
-    }
-    if !buf.trim().is_empty() {
-        sqlx::query(sqlx::AssertSqlSafe(buf.as_str()))
-            .execute(pool)
-            .await
-            .expect("trailing sql");
-    }
-}
-
-fn strip_line_comments(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    for line in s.lines() {
-        if line.trim_start().starts_with("--") {
-            continue;
-        }
-        out.push_str(line);
-        out.push('\n');
-    }
-    out
-}
-
-async fn cleanup(admin_url: &str, schema: &str) {
-    if let Ok(admin) = PgPoolOptions::new()
-        .max_connections(1)
-        .connect(admin_url)
-        .await
-    {
-        let _ = sqlx::query(sqlx::AssertSqlSafe(format!(
-            "DROP SCHEMA {} CASCADE",
-            schema
-        )))
-        .execute(&admin)
+async fn setup_db() -> Option<ScratchSchema> {
+    let scratch = ScratchSchema::create("CATALYRST_WORLDS_TEST_PG", "cg_worlds_surface").await?;
+    scratch
+        .apply_sql(include_str!("../migrations/0001_init.sql"))
         .await;
-    }
+    scratch
+        .apply_sql(include_str!("../migrations/0002_access_log.sql"))
+        .await;
+    scratch
+        .apply_sql(include_str!("../migrations/0003_permission_parcels.sql"))
+        .await;
+    scratch
+        .apply_sql(include_str!("../migrations/0004_lower_name_indexes.sql"))
+        .await;
+    Some(scratch)
 }
 
 fn deploy_entity(title: &str, thumb: &str) -> serde_json::Value {
@@ -132,16 +45,16 @@ fn deploy_entity(title: &str, thumb: &str) -> serde_json::Value {
 
 #[tokio::test]
 async fn deploy_populates_settings_and_read_surfaces() {
-    let Some((pool, schema, admin_url)) = setup_db().await else {
+    let Some(scratch) = setup_db().await else {
         eprintln!("skipping deploy_populates_settings_and_read_surfaces: set CATALYRST_WORLDS_TEST_PG to run");
         return;
     };
-    let wc = WorldsComponent::new(pool.clone());
+    let wc = WorldsComponent::new(scratch.pool.clone());
     let owner = "0x1111111111111111111111111111111111111111";
 
     wc.deploy_scene(
         "test.dcl.eth",
-        owner,
+        Some(owner),
         "bafyentity",
         owner,
         &json!([{ "type": "SIGNER", "payload": owner }]),
@@ -246,7 +159,7 @@ async fn deploy_populates_settings_and_read_surfaces() {
     assert_eq!(manifest.parcels, vec!["0,0".to_string(), "0,1".to_string()]);
     assert_eq!(manifest.spawn_coordinates.as_deref(), Some("0,0"));
 
-    cleanup(&admin_url, &schema).await;
+    scratch.drop().await;
 }
 
 fn list_opts() -> WorldsListOptions {
@@ -260,11 +173,11 @@ fn list_opts() -> WorldsListOptions {
 
 #[tokio::test]
 async fn permission_parcels_lifecycle() {
-    let Some((pool, schema, admin_url)) = setup_db().await else {
+    let Some(scratch) = setup_db().await else {
         eprintln!("skipping permission_parcels_lifecycle: set CATALYRST_WORLDS_TEST_PG to run");
         return;
     };
-    let wc = WorldsComponent::new(pool.clone());
+    let wc = WorldsComponent::new(scratch.pool.clone());
     let owner = "0x1111111111111111111111111111111111111111";
     let deployer = "0xAAaAAaAAaAAAAaaAaaAaaaAaaAaAAaAaAaAAaAAA";
     let streamer = "0xBBbBBBbbBbBbBBBBBbBbBBbBbbBbbbBbbBBbBBBb";
@@ -367,16 +280,16 @@ async fn permission_parcels_lifecycle() {
         .unwrap();
     assert_eq!(removed, vec![deployer.to_lowercase()]);
 
-    cleanup(&admin_url, &schema).await;
+    scratch.drop().await;
 }
 
 #[tokio::test]
 async fn access_allow_list_modify() {
-    let Some((pool, schema, admin_url)) = setup_db().await else {
+    let Some(scratch) = setup_db().await else {
         eprintln!("skipping access_allow_list_modify: set CATALYRST_WORLDS_TEST_PG to run");
         return;
     };
-    let wc = WorldsComponent::new(pool.clone());
+    let wc = WorldsComponent::new(scratch.pool.clone());
 
     wc.create_basic_world_if_not_exists(
         "acc.dcl.eth",
@@ -460,5 +373,5 @@ async fn access_allow_list_modify() {
         .await;
     assert!(err.is_err());
 
-    cleanup(&admin_url, &schema).await;
+    scratch.drop().await;
 }

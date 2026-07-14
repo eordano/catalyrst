@@ -108,13 +108,7 @@ struct CatalogQuery {
 }
 
 fn clamp_limit(raw: &Option<String>) -> i64 {
-    match raw {
-        None => MAX_LIMIT,
-        Some(s) => match s.parse::<i64>() {
-            Ok(n) if n > 0 && n <= MAX_LIMIT => n,
-            _ => MAX_LIMIT,
-        },
-    }
+    catalyrst_types::limit_or_max(raw.as_ref().and_then(|s| s.parse().ok()), MAX_LIMIT)
 }
 
 fn parse_catalog_query(
@@ -641,15 +635,9 @@ pub async fn outfits(State(state): State<Arc<AppState>>, Path(id): Path<String>)
             };
 
             let owned_names: Vec<String> = match state_arc.squid_pool.as_ref() {
-                Some(pool) => sqlx::query_scalar::<_, String>(
-                    "SELECT name FROM squid_marketplace.nft \
-                     WHERE category = 'ens' AND owner_address = lower($1) \
-                     ORDER BY id ASC",
-                )
-                .bind(&address_for_fetch)
-                .fetch_all(pool)
-                .await
-                .unwrap_or_default(),
+                Some(pool) => {
+                    super::profile_processing::fetch_owned_ens_names(pool, &address_for_fetch).await
+                }
                 None => Vec::new(),
             };
 

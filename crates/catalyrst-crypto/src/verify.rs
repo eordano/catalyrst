@@ -392,15 +392,15 @@ mod tests {
 
     #[tokio::test]
     async fn test_real_ecdsa_auth_chain() {
-        use ethers_signers::{LocalWallet, Signer};
+        use alloy::signers::{local::PrivateKeySigner, Signer};
 
-        let root_key: LocalWallet =
+        let root_key: PrivateKeySigner =
             "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
                 .parse()
                 .unwrap();
         let root_address = format!("{:#x}", root_key.address());
 
-        let ephemeral_key: LocalWallet =
+        let ephemeral_key: PrivateKeySigner =
             "59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d"
                 .parse()
                 .unwrap();
@@ -415,7 +415,7 @@ mod tests {
             .sign_message(ephemeral_payload.as_bytes())
             .await
             .unwrap();
-        let ephemeral_sig_hex = format!("0x{}", ephemeral_sig);
+        let ephemeral_sig_hex = ephemeral_sig.to_string();
 
         let entity_payload = "bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi";
 
@@ -423,7 +423,7 @@ mod tests {
             .sign_message(entity_payload.as_bytes())
             .await
             .unwrap();
-        let entity_sig_hex = format!("0x{}", entity_sig);
+        let entity_sig_hex = entity_sig.to_string();
 
         let chain = vec![
             AuthLink {

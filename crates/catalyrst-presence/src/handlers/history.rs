@@ -77,5 +77,5 @@ pub async fn world_history(
 }
 
 fn clamp_limit(limit: Option<i64>) -> i64 {
-    limit.unwrap_or(DEFAULT_LIMIT).clamp(1, MAX_LIMIT)
+    catalyrst_types::clamp_limit(limit, DEFAULT_LIMIT, MAX_LIMIT)
 }

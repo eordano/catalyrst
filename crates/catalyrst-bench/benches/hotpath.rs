@@ -163,20 +163,20 @@ fn bench_json_serialization(c: &mut Criterion) {
 }
 
 fn bench_auth_chain_verification(c: &mut Criterion) {
+    use alloy::signers::{local::PrivateKeySigner, Signer};
     use catalyrst_crypto::auth_chain::{AuthLink, AuthLinkType};
     use catalyrst_crypto::verify::verify_auth_chain;
-    use ethers_signers::{LocalWallet, Signer};
 
     let rt = tokio::runtime::Runtime::new().unwrap();
 
     let (chain, entity_payload) = rt.block_on(async {
-        let root_key: LocalWallet =
+        let root_key: PrivateKeySigner =
             "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
                 .parse()
                 .unwrap();
         let root_address = format!("{:#x}", root_key.address());
 
-        let ephemeral_key: LocalWallet =
+        let ephemeral_key: PrivateKeySigner =
             "59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d"
                 .parse()
                 .unwrap();
@@ -191,7 +191,7 @@ fn bench_auth_chain_verification(c: &mut Criterion) {
             .sign_message(ephemeral_payload.as_bytes())
             .await
             .unwrap();
-        let ephemeral_sig_hex = format!("0x{}", ephemeral_sig);
+        let ephemeral_sig_hex = ephemeral_sig.to_string();
 
         let entity_payload =
             "bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi".to_string();
@@ -200,7 +200,7 @@ fn bench_auth_chain_verification(c: &mut Criterion) {
             .sign_message(entity_payload.as_bytes())
             .await
             .unwrap();
-        let entity_sig_hex = format!("0x{}", entity_sig);
+        let entity_sig_hex = entity_sig.to_string();
 
         let chain = vec![
             AuthLink {
@@ -341,50 +341,64 @@ mod http_handlers {
 
     #[async_trait]
     impl ContentStorage for LiveContentStorage {
-        async fn retrieve(&self, hash: &str) -> Option<Bytes> {
-            self.inner.retrieve(hash).await.ok().flatten()
+        async fn retrieve(
+            &self,
+            hash: &str,
+        ) -> Result<Option<Bytes>, catalyrst_storage::StorageError> {
+            self.inner.retrieve(hash).await
         }
 
-        async fn retrieve_stream(&self, hash: &str) -> Option<(Body, u64)> {
-            let (path, _is_gzip) = self.inner.file_path(hash).await.ok()??;
-            let file = tokio::fs::File::open(&path).await.ok()?;
-            let metadata = file.metadata().await.ok()?;
-            let size = metadata.len();
+        async fn retrieve_stream(
+            &self,
+            hash: &str,
+        ) -> Result<Option<(Body, u64)>, catalyrst_storage::StorageError> {
+            // Mirrors live/storage.rs: one open, one absence decision. The stat-then-open version
+            // this replaced absorbed the open's ENOENT as `Ok(None)`, reporting a shard destroyed
+            // between the two syscalls as a 404 — the inversion state.rs's contract forbids.
+            let Some((file, size)) = self.inner.open_for_read(hash).await? else {
+                return Ok(None);
+            };
             let stream = ReaderStream::new(file);
             let body = Body::from_stream(stream);
-            Some((body, size))
+            Ok(Some((body, size)))
         }
 
-        async fn retrieve_range(&self, hash: &str, start: u64, end: u64) -> Option<Bytes> {
-            let data = self
-                .inner
-                .retrieve_uncompressed(hash)
-                .await
-                .ok()
-                .flatten()?;
+        async fn retrieve_range(
+            &self,
+            hash: &str,
+            start: u64,
+            end: u64,
+        ) -> Result<Option<Bytes>, catalyrst_storage::StorageError> {
+            let Some(data) = self.inner.retrieve_uncompressed(hash).await? else {
+                return Ok(None);
+            };
             let s = start as usize;
             let e = (end as usize).min(data.len().saturating_sub(1));
             if s > e || s >= data.len() {
-                return None;
+                return Ok(None);
             }
-            Some(data.slice(s..=e))
+            Ok(Some(data.slice(s..=e)))
         }
 
-        async fn file_info(&self, hash: &str) -> Option<FileInfo> {
-            let info = self.inner.file_info(hash).await.ok()??;
-            Some(FileInfo {
+        async fn file_info(
+            &self,
+            hash: &str,
+        ) -> Result<Option<FileInfo>, catalyrst_storage::StorageError> {
+            let info = self.inner.file_info(hash).await?;
+            Ok(info.map(|info| FileInfo {
                 size: Some(info.size),
                 content_size: info.content_size,
                 encoding: info.encoding,
-            })
+            }))
         }
 
-        async fn exist_multiple(&self, hashes: &[String]) -> HashMap<String, bool> {
+        async fn exist_multiple(
+            &self,
+            hashes: &[String],
+        ) -> Result<HashMap<String, bool>, catalyrst_storage::StorageError> {
             let refs: Vec<&str> = hashes.iter().map(|s| s.as_str()).collect();
-            match self.inner.exist_multiple(&refs).await {
-                Ok(results) => results.into_iter().collect(),
-                Err(_) => hashes.iter().map(|h| (h.clone(), false)).collect(),
-            }
+            let results = self.inner.exist_multiple(&refs).await?;
+            Ok(results.into_iter().collect())
         }
     }
 
@@ -815,6 +829,7 @@ mod http_handlers {
                 content_server_address: "http://127.0.0.1:5141".to_string(),
                 read_only: std::sync::atomic::AtomicBool::new(true),
                 audit_pool: None,
+                content_pool: None,
                 entities_cache_control_max_age: 10,
                 content_public_url: "http://127.0.0.1:5141/content".to_string(),
                 lambdas_public_url: "http://127.0.0.1:5141/lambdas".to_string(),

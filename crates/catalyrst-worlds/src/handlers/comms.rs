@@ -11,6 +11,21 @@ use crate::livekit::{
 use crate::rate_limiter::RATE_LIMIT_WINDOW_SECONDS;
 use crate::AppState;
 
+#[utoipa::path(
+    post,
+    path = "/worlds/{world_name}/comms",
+    tag = "comms",
+    params(("world_name" = String, Path)),
+    responses(
+        (status = 200, body = serde_json::Value),
+        (status = 400, body = catalyrst_types::ApiErrorBody),
+        (status = 401, body = catalyrst_types::ApiErrorBody),
+        (status = 403, body = catalyrst_types::ApiErrorBody),
+        (status = 404, body = catalyrst_types::ApiErrorBody),
+        (status = 429, body = catalyrst_types::ApiErrorBody),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn world_comms(
     State(state): State<AppState>,
     Path(world_name): Path<String>,
@@ -20,6 +35,21 @@ pub async fn world_comms(
     mint(&state, &world_name, None, uri.path(), &headers).await
 }
 
+#[utoipa::path(
+    post,
+    path = "/worlds/{world_name}/scenes/{scene_id}/comms",
+    tag = "comms",
+    params(("world_name" = String, Path), ("scene_id" = String, Path)),
+    responses(
+        (status = 200, body = serde_json::Value),
+        (status = 400, body = catalyrst_types::ApiErrorBody),
+        (status = 401, body = catalyrst_types::ApiErrorBody),
+        (status = 403, body = catalyrst_types::ApiErrorBody),
+        (status = 404, body = catalyrst_types::ApiErrorBody),
+        (status = 429, body = catalyrst_types::ApiErrorBody),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn world_scene_comms(
     State(state): State<AppState>,
     Path((world_name, scene_id)): Path<(String, String)>,

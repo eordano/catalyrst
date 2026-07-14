@@ -2,7 +2,7 @@
 
 Rust port of `builder-api.decentraland.org` (decentraland/builder-server); serves only the slice the
 explorer's `BuilderApiDtos` consume. Listens on the deployment's assigned port (`5144`; see
-`umbrella/env/catalyrst-builder.env`), PostgreSQL at `<DB_HOST>:5433`, dedicated `builder` database.
+the deployment's `catalyrst-builder` env file), PostgreSQL at `<DB_HOST>:5433`, dedicated `builder` database.
 
 | Method | Path | Auth | Status | Notes |
 |---|---|---|---|---|

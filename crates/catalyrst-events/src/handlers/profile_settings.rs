@@ -20,6 +20,16 @@ fn require_auth(headers: &HeaderMap, method: &str, path: &str) -> Result<String,
         .map_err(|_| ApiError::unauthorized("Unauthorized"))
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/profiles/settings",
+    tag = "profiles",
+    responses(
+        (status = 200, body = serde_json::Value),
+        (status = 401, body = catalyrst_types::ApiErrorBody),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn list_profile_settings(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -30,6 +40,16 @@ pub async fn list_profile_settings(
     Ok(ok(json!(list)))
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/profiles/me/settings",
+    tag = "profiles",
+    responses(
+        (status = 200, body = serde_json::Value),
+        (status = 401, body = catalyrst_types::ApiErrorBody),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn get_auth_profile_settings(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -43,6 +63,19 @@ pub async fn get_auth_profile_settings(
     Ok(ok(settings))
 }
 
+#[utoipa::path(
+    patch,
+    path = "/api/profiles/me/settings",
+    tag = "profiles",
+    request_body = serde_json::Value,
+    responses(
+        (status = 200, body = serde_json::Value),
+        (status = 400, body = catalyrst_types::ApiErrorBody),
+        (status = 401, body = catalyrst_types::ApiErrorBody),
+        (status = 403, body = catalyrst_types::ApiErrorBody),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn update_my_profile_settings(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -65,6 +98,17 @@ pub async fn update_my_profile_settings(
     Ok(ok(settings))
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/profiles/{profile_id}/settings",
+    tag = "profiles",
+    params(("profile_id" = String, Path)),
+    responses(
+        (status = 200, body = serde_json::Value),
+        (status = 401, body = catalyrst_types::ApiErrorBody),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn get_profile_settings(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -77,6 +121,19 @@ pub async fn get_profile_settings(
     Ok(ok(settings))
 }
 
+#[utoipa::path(
+    patch,
+    path = "/api/profiles/{profile_id}/settings",
+    tag = "profiles",
+    params(("profile_id" = String, Path)),
+    request_body = serde_json::Value,
+    responses(
+        (status = 200, body = serde_json::Value),
+        (status = 400, body = catalyrst_types::ApiErrorBody),
+        (status = 401, body = catalyrst_types::ApiErrorBody),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn update_profile_settings(
     State(state): State<AppState>,
     headers: HeaderMap,

@@ -24,6 +24,7 @@ pub struct LinkerDeploy {
     pub scene_title: String,
     pub base_parcel: String,
     pub multi_scene: bool,
+    pub check_permissions: bool,
 }
 
 pub struct LinkerOptions {
@@ -155,6 +156,22 @@ async fn sign(State(st): State<Arc<LinkerState>>, Json(req): Json<SignReq>) -> J
             "error": "unknown or stale entity id — reload the page and sign again"
         }));
     };
+    if st.dep.check_permissions {
+        if let Some(w) = st.dep.world.as_deref() {
+            if let Err(e) = deploy::enforce_world_permission(
+                &st.dep.target_content,
+                w,
+                &req.address,
+                &st.dep.prepared.pointers,
+            )
+            .await
+            {
+                let msg = format!("{e:#}");
+                finish(&st, Err(e));
+                return Json(json!({ "ok": false, "fatal": true, "error": msg }));
+            }
+        }
+    }
     if let Some(payload) = &pending.delete_payload {
         let Some(dsig) = &req.delete_signature else {
             return Json(json!({
@@ -489,6 +506,7 @@ mod tests {
             scene_title: "Linker Smoke".to_string(),
             base_parcel: "0,0".to_string(),
             multi_scene: false,
+            check_permissions: false,
         };
         (t, dep)
     }

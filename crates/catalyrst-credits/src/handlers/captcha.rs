@@ -103,7 +103,7 @@ pub async fn claim(
         }
     }
 
-    let outcome = state.credits.claim_credits(&signer, now).await?;
+    let outcome = state.credits.claim_credits(&signer).await?;
 
     Ok(Json(ClaimCreditsResponse {
         ok: outcome.ok,

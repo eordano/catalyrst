@@ -5,6 +5,7 @@ use catalyrst_comms::handlers::scene_bans::resolve_listing_place_id;
 use catalyrst_comms::handlers::scene_participants::{list_participants, ParticipantsQuery};
 use catalyrst_comms::ports::names::NamesComponent;
 use catalyrst_comms::ports::player_connection::PlayerConnectionComponent;
+use catalyrst_comms::ports::player_reports::PlayerReportsComponent;
 use catalyrst_comms::ports::scene_admin::SceneAdminComponent;
 use catalyrst_comms::ports::scene_bans::SceneBansComponent;
 use catalyrst_comms::ports::user_bans::UserBansComponent;
@@ -73,6 +74,7 @@ fn lazy_state(catalyst_url: &str, world_content_url: &str, livekit_host: &str) -
         scene_bans: SceneBansComponent::new(pool.clone()),
         user_bans: UserBansComponent::new(pool.clone()),
         player_connection: PlayerConnectionComponent::new(pool.clone()),
+        player_reports: PlayerReportsComponent::new(pool.clone()),
         names: NamesComponent::new(None, "squid_marketplace".into()),
         voice_db: VoiceDb::new(pool.clone(), VoiceDbConfig::from_env()),
         places_pool: None,

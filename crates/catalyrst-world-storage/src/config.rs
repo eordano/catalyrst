@@ -8,10 +8,6 @@ pub struct NamespaceLimits {
     pub max_total_size_bytes: i64,
 }
 
-// The cache is capped by entry count, so worst-case memory is roughly
-// max_entries * max_value_bytes (defaults: 8000 * 32 KB ~= 250 MB). Because it is
-// per-instance, the TTL — not invalidation — bounds how long a stale read can
-// survive on a replica that did not handle the write.
 #[derive(Debug, Clone, Copy)]
 pub struct StorageCacheConfig {
     pub enabled: bool,

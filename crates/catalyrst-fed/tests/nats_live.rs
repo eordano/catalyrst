@@ -1,9 +1,9 @@
 #![cfg(feature = "nats")]
 
+use alloy::signers::{local::PrivateKeySigner, Signer};
 use catalyrst_fed::gossip::nats::NatsPublisher;
 use catalyrst_fed::sig::{domains, Eip712Domain};
 use catalyrst_fed::{GossipEnvelope, GossipPublisher, Scope, Signed, TypedMessage};
-use ethers_signers::{LocalWallet, Signer};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
@@ -23,7 +23,7 @@ impl TypedMessage for PlaceVote {
 }
 
 async fn sign(
-    w: &LocalWallet,
+    w: &PrivateKeySigner,
     message: PlaceVote,
     domain: Eip712Domain,
     nonce: [u8; 16],
@@ -37,8 +37,8 @@ async fn sign(
         signature: String::new(),
     };
     let hash = s.hash();
-    let sig = w.sign_message(hash).await.unwrap();
-    s.signature = format!("0x{}", sig);
+    let sig = w.sign_message(&hash).await.unwrap();
+    s.signature = sig.to_string();
     s
 }
 
@@ -69,7 +69,7 @@ async fn nats_publish_then_consume_roundtrip() {
     let mut key = [0u8; 32];
     key[31] = 7;
     key[0] = 1;
-    let w = LocalWallet::from_bytes(&key).unwrap();
+    let w = PrivateKeySigner::from_slice(&key).unwrap();
     let signer = format!("{:#x}", w.address());
     let t = chrono::Utc::now().timestamp();
 

@@ -1,11 +1,13 @@
 [package]
 name = "catalyrst-storage"
-version = "0.9.10"
+version = "0.14.1"
 edition = "2021"
 description = "Rust port of the Decentraland catalyst content storage layer"
 
 [dependencies]
-tokio = { workspace = true, features = ["fs", "io-util"] }
+# "rt" + "sync": creating the staging file is handed to a detached task that owns its cleanup, so a
+# cancelled store cannot leave one behind (see `create_staging_file`).
+tokio = { workspace = true, features = ["fs", "io-util", "rt", "sync"] }
 bytes = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }

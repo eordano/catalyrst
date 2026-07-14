@@ -7,6 +7,7 @@ pub mod fed;
 pub mod handlers;
 pub mod http;
 pub mod ports;
+pub mod sanitize;
 pub mod schemas;
 
 use std::str::FromStr;
@@ -14,11 +15,14 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
-use axum::routing::{get, post};
+use axum::routing::get;
 use axum::Router;
 use catalyrst_fed::sig::Eip712Domain;
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use sqlx::PgPool;
+use utoipa::OpenApi;
+use utoipa_axum::router::OpenApiRouter;
+use utoipa_axum::routes;
 
 use crate::clients::CommsGatekeeper;
 use crate::config::Config;
@@ -98,92 +102,88 @@ pub async fn build_state(cfg: &Config) -> Result<AppState> {
     Ok(state)
 }
 
+#[derive(OpenApi)]
+#[openapi(info(title = "catalyrst-events"))]
+struct ApiDoc;
+
+pub fn api_router_with_spec() -> (Router<AppState>, utoipa::openapi::OpenApi) {
+    OpenApiRouter::with_openapi(ApiDoc::openapi())
+        .routes(routes!(
+            handlers::events::get_event_list,
+            handlers::events::create_event
+        ))
+        .routes(routes!(handlers::events::post_event_search))
+        .routes(routes!(handlers::events::get_attending_event_list))
+        .routes(routes!(handlers::events::get_moderation_list))
+        .routes(routes!(handlers::categories::get_event_category_list))
+        .routes(routes!(
+            handlers::events::get_event,
+            handlers::events::patch_event,
+            handlers::events::delete_event
+        ))
+        .routes(routes!(
+            handlers::attendees::get_event_attendees,
+            handlers::attendees::create_event_attendee,
+            handlers::attendees::delete_event_attendee
+        ))
+        .routes(routes!(
+            handlers::schedules::get_schedule_list,
+            handlers::schedules::create_schedule
+        ))
+        .routes(routes!(
+            handlers::schedules::get_schedule_by_id,
+            handlers::schedules::patch_schedule
+        ))
+        .routes(routes!(handlers::poster::upload_poster))
+        .routes(routes!(handlers::poster::upload_poster_vertical))
+        .routes(routes!(handlers::profile_settings::list_profile_settings))
+        .routes(routes!(
+            handlers::profile_settings::get_auth_profile_settings,
+            handlers::profile_settings::update_my_profile_settings
+        ))
+        .routes(routes!(
+            handlers::profile_settings::get_profile_settings,
+            handlers::profile_settings::update_profile_settings
+        ))
+        .routes(routes!(
+            handlers::profile_subscription::get_profile_subscription,
+            handlers::profile_subscription::create_profile_subscription,
+            handlers::profile_subscription::delete_profile_subscription
+        ))
+        .routes(routes!(handlers::sitemap::sitemap_index))
+        .routes(routes!(handlers::sitemap::sitemap_static))
+        .routes(routes!(handlers::sitemap::sitemap_events))
+        .routes(routes!(handlers::sitemap::sitemap_schedules))
+        .routes(routes!(handlers::federation::get_feed))
+        .routes(routes!(handlers::federation::get_attendance))
+        .split_for_parts()
+}
+
 pub fn api_router() -> Router<AppState> {
-    Router::new()
-        .route(
-            "/api/events",
-            get(handlers::events::get_event_list).post(handlers::events::create_event),
+    let (router, spec) = api_router_with_spec();
+    router.route(
+        "/openapi.json",
+        get(move || {
+            let spec = spec.clone();
+            async move { axum::Json(spec) }
+        }),
+    )
+}
+
+#[cfg(test)]
+mod openapi_export {
+    #[test]
+    fn export_bindings_openapi() {
+        let Ok(dir) = std::env::var("TS_RS_EXPORT_DIR") else {
+            return;
+        };
+        let spec = super::api_router_with_spec().1;
+        let out = std::path::Path::new(&dir).join("openapi");
+        std::fs::create_dir_all(&out).unwrap();
+        std::fs::write(
+            out.join("events.openapi.json"),
+            serde_json::to_string_pretty(&spec).unwrap(),
         )
-        .route(
-            "/api/events/search",
-            post(handlers::events::post_event_search),
-        )
-        .route(
-            "/api/events/attending",
-            get(handlers::events::get_attending_event_list),
-        )
-        .route(
-            "/api/events/moderation",
-            get(handlers::events::get_moderation_list),
-        )
-        .route(
-            "/api/events/categories",
-            get(handlers::categories::get_event_category_list),
-        )
-        .route(
-            "/api/events/{event_id}",
-            get(handlers::events::get_event)
-                .patch(handlers::events::patch_event)
-                .delete(handlers::events::delete_event),
-        )
-        .route(
-            "/api/events/{event_id}/attendees",
-            get(handlers::attendees::get_event_attendees)
-                .post(handlers::attendees::create_event_attendee)
-                .delete(handlers::attendees::delete_event_attendee),
-        )
-        .route(
-            "/api/schedules",
-            get(handlers::schedules::get_schedule_list).post(handlers::schedules::create_schedule),
-        )
-        .route(
-            "/api/schedules/{schedule_id}",
-            get(handlers::schedules::get_schedule_by_id).patch(handlers::schedules::patch_schedule),
-        )
-        .route("/api/poster", post(handlers::poster::upload_poster))
-        .route(
-            "/api/poster-vertical",
-            post(handlers::poster::upload_poster_vertical),
-        )
-        .route(
-            "/api/profiles/settings",
-            get(handlers::profile_settings::list_profile_settings),
-        )
-        .route(
-            "/api/profiles/me/settings",
-            get(handlers::profile_settings::get_auth_profile_settings)
-                .patch(handlers::profile_settings::update_my_profile_settings),
-        )
-        .route(
-            "/api/profiles/{profile_id}/settings",
-            get(handlers::profile_settings::get_profile_settings)
-                .patch(handlers::profile_settings::update_profile_settings),
-        )
-        .route(
-            "/api/profiles/subscriptions",
-            get(handlers::profile_subscription::get_profile_subscription)
-                .post(handlers::profile_subscription::create_profile_subscription)
-                .delete(handlers::profile_subscription::delete_profile_subscription),
-        )
-        .route("/events/sitemap.xml", get(handlers::sitemap::sitemap_index))
-        .route(
-            "/events/sitemap.static.xml",
-            get(handlers::sitemap::sitemap_static),
-        )
-        .route(
-            "/events/sitemap.events.xml",
-            get(handlers::sitemap::sitemap_events),
-        )
-        .route(
-            "/events/sitemap.schedules.xml",
-            get(handlers::sitemap::sitemap_schedules),
-        )
-        .route(
-            "/federation/v1/events/feed",
-            get(handlers::federation::get_feed),
-        )
-        .route(
-            "/federation/v1/events/{event_id}/attendance",
-            get(handlers::federation::get_attendance),
-        )
+        .unwrap();
+    }
 }

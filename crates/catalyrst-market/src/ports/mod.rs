@@ -8,6 +8,7 @@ pub mod collections;
 pub mod contracts;
 pub mod items;
 pub mod lists;
+pub mod mana_rate;
 pub mod nfts;
 pub mod orders;
 pub mod owners;

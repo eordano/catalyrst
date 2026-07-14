@@ -7,7 +7,7 @@ use axum::Json;
 use serde::Deserialize;
 use serde_json::Value;
 
-use crate::auth_chain::{try_extract_signer, verify_signed_fetch};
+use crate::auth_chain::{require_signer, verify_signed_fetch};
 use crate::extract::{device_identifier, get_request_ip};
 use crate::http::{auth_error, forbidden, unauthorized, ApiError};
 use crate::livekit::{
@@ -20,7 +20,6 @@ use crate::AppState;
 pub struct SceneAdapterRequest {
     #[serde(rename = "sceneId")]
     pub scene_id: Option<String>,
-    pub identity: Option<String>,
     pub parcel: Option<String>,
     #[serde(rename = "realmName")]
     pub realm_name: Option<String>,
@@ -206,10 +205,8 @@ pub async fn get_server_scene_adapter(
     headers: HeaderMap,
     Json(body): Json<SceneAdapterRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let signer = try_extract_signer(&headers, "post", "/get-server-scene-adapter");
-    let identity = signer
-        .or(body.identity.clone())
-        .ok_or_else(|| unauthorized("missing identity (no auth chain, no body.identity)"))?
+    let identity = require_signer(&headers, "post", "/get-server-scene-adapter")
+        .map_err(|e| unauthorized(format!("Access denied, invalid signed-fetch request: {e}")))?
         .to_lowercase();
 
     match state.authoritative_server_address.as_deref() {

@@ -4,6 +4,7 @@ pub mod error;
 pub mod recover;
 pub mod rpc_validator;
 pub mod sign;
+pub mod signed_fetch;
 pub mod validation_cache;
 pub mod verify;
 

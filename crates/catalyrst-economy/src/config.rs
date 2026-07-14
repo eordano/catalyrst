@@ -3,7 +3,10 @@ use anyhow::{anyhow, Context, Result};
 use catalyrst_envcfg::{get_int, get_port, get_u64, required};
 use std::env;
 
-use crate::ports::oracle::MANA_USD_AGGREGATOR_POLYGON;
+use crate::ports::oracle::{
+    exceeds_onchain_stale_tolerance, MANA_USD_AGGREGATOR_POLYGON,
+    ONCHAIN_MANA_USD_STALE_TOLERANCE_SECS,
+};
 
 pub struct Config {
     pub http_host: String,
@@ -130,6 +133,15 @@ impl Config {
             cfg.admin_token.as_deref(),
             "CATALYRST_ECONOMY_ADMIN_TOKEN",
         )?;
+        if exceeds_onchain_stale_tolerance(cfg.usd_pegged_oracle_max_age_secs) {
+            tracing::warn!(
+                max_age_secs = cfg.usd_pegged_oracle_max_age_secs,
+                onchain_tolerance_secs = ONCHAIN_MANA_USD_STALE_TOLERANCE_SECS,
+                "USD_PEGGED_ORACLE_MAX_AGE_SECS is looser than the deployed marketplace \
+                 manaUsdAggregatorTolerance; the chain refuses at execution what this bound \
+                 accepts, so keep the local max age at or below the on-chain tolerance"
+            );
+        }
         Ok(cfg)
     }
 

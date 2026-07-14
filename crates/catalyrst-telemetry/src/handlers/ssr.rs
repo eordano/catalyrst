@@ -381,6 +381,12 @@ pub async fn page(State(st): State<AppState>, OriginalUri(uri): OriginalUri) -> 
 
     let mut html = TEMPLATE.to_string();
     html = html.replace("<!--SSR:boot-->", &boot_script);
+    html = html.replace(
+        "<!--SSR:base-->",
+        &base_head(&normalize_base(
+            &std::env::var("TELEMETRY_BASE_PATH").unwrap_or_default(),
+        )),
+    );
     html = html.replace("<!--SSR:total-->", &total_html);
     html = html.replace("<!--SSR:thead-->", &thead_html);
     html = html.replace("<!--SSR:rows-->", &rows_html);
@@ -874,17 +880,11 @@ fn render_health(h: &Value) -> String {
 }
 
 fn render_flags(f: &Value) -> String {
-    let config = f.get("config").cloned().unwrap_or(Value::Null);
-    let flags = config
+    let empty_map = Map::new();
+    let flags = f
         .get("flags")
         .and_then(|x| x.as_object())
-        .cloned()
-        .unwrap_or_default();
-    let variants = config
-        .get("variants")
-        .and_then(|x| x.as_object())
-        .cloned()
-        .unwrap_or_default();
+        .unwrap_or(&empty_map);
     let empty = vec![];
     let observed = f
         .get("observed")
@@ -897,15 +897,31 @@ fn render_flags(f: &Value) -> String {
     let mut names: Vec<&String> = flags.keys().collect();
     names.sort();
     let source_url = vstr(f, "source_url");
+    let overridden = flags
+        .values()
+        .filter(|v| {
+            v.get("overridden")
+                .and_then(|x| x.as_bool())
+                .unwrap_or(false)
+        })
+        .count();
     let rows: String = names.iter().map(|n| {
-        let on = flags.get(*n).and_then(|x| x.as_bool()).unwrap_or(false);
-        let variant = variants.get(*n).and_then(|x| x.get("name")).and_then(|x| x.as_str()).unwrap_or("");
+        let entry = &flags[*n];
+        let on = entry.get("value").and_then(|x| x.as_bool()).unwrap_or(false);
+        let variant = entry.get("variant").and_then(|x| x.as_str()).unwrap_or("");
+        let is_ov = entry.get("overridden").and_then(|x| x.as_bool()).unwrap_or(false);
+        let ostate = entry.get("override_state").and_then(|x| x.as_str()).unwrap_or("");
         let obs_txt = obs.get(*n).map(|c| commas(*c)).unwrap_or_else(|| "—".to_string());
+        let state_badge = if on { "<span class=\"sbadge resolved\">on</span>" } else { "<span class=\"sbadge ignored\">off</span>" };
+        let ov_badge = if is_ov {
+            format!(" <span class=\"sbadge\" style=\"color:var(--acc);border-color:var(--acc)\" title=\"operator override\">override: {}</span>", esc(ostate))
+        } else {
+            String::new()
+        };
         format!(
-            "<tr><td><span class=\"lvl {oc}\"></span> {name}</td>\n      <td>{state}</td>\n      <td class=\"tag\">{variant}</td><td class=\"cnt\">{obs}</td></tr>",
+            "<tr><td><span class=\"lvl {oc}\"></span> {name}</td>\n      <td>{state}{ov}</td>\n      <td class=\"tag\">{variant}</td><td class=\"cnt\">{obs}</td></tr>",
             oc = if on { "ok" } else { "none" }, name = esc(n),
-            state = if on { "<span class=\"sbadge resolved\">on</span>" } else { "<span class=\"sbadge ignored\">off</span>" },
-            variant = esc(variant), obs = obs_txt
+            state = state_badge, ov = ov_badge, variant = esc(variant), obs = obs_txt
         )
     }).collect();
     let body = if rows.is_empty() {
@@ -913,8 +929,13 @@ fn render_flags(f: &Value) -> String {
     } else {
         rows
     };
+    let ov_note = if overridden > 0 {
+        format!(" · <b>{overridden}</b> overridden")
+    } else {
+        String::new()
+    };
     format!(
-        "<div class=\"when\" style=\"margin-bottom:10px\">{n} flags · live config from <b>{url}</b> · \"observed\" = times a flag appeared in event data (contexts.flags)</div>\n    <table><thead><tr><th>flag</th><th>state</th><th>variant</th><th class=\"cnt\">observed</th></tr></thead><tbody>{body}</tbody></table>",
+        "<div class=\"when\" style=\"margin-bottom:10px\">{n} flags · live config from <b>{url}</b>{ov_note} · \"observed\" = times a flag appeared in event data (contexts.flags)</div>\n    <table><thead><tr><th>flag</th><th>state</th><th>variant</th><th class=\"cnt\">observed</th></tr></thead><tbody>{body}</tbody></table>",
         n = names.len(), url = esc(&source_url)
     )
 }
@@ -1072,4 +1093,65 @@ fn urlencode(s: &str) -> String {
         }
     }
     out
+}
+
+fn normalize_base(raw: &str) -> String {
+    let t = raw.trim().trim_end_matches('/');
+    if t.is_empty() {
+        String::new()
+    } else if t.starts_with('/') {
+        t.to_string()
+    } else {
+        format!("/{t}")
+    }
+}
+
+// nginx strips the /telemetry/ prefix, so the page must re-declare its base for
+// the SPA's fetch/nav to resolve; window.__BASE__ is always defined (empty=root).
+fn base_head(base: &str) -> String {
+    if base.is_empty() {
+        "<script>window.__BASE__=\"\";</script>".to_string()
+    } else {
+        format!("<base href=\"{base}/\"><script>window.__BASE__=\"{base}\";</script>")
+    }
+}
+
+#[cfg(test)]
+mod base_tests {
+    use super::*;
+
+    #[test]
+    fn normalize_base_forms() {
+        assert_eq!(normalize_base(""), "");
+        assert_eq!(normalize_base("/telemetry"), "/telemetry");
+        assert_eq!(normalize_base("telemetry"), "/telemetry");
+        assert_eq!(normalize_base("/telemetry/"), "/telemetry");
+        assert_eq!(normalize_base("  /telemetry/  "), "/telemetry");
+    }
+
+    #[test]
+    fn base_head_injects_tag_and_global() {
+        let h = base_head("/telemetry");
+        assert!(h.contains("<base href=\"/telemetry/\">"));
+        assert!(h.contains("window.__BASE__=\"/telemetry\""));
+    }
+
+    #[test]
+    fn base_head_empty_has_no_base_tag() {
+        let h = base_head("");
+        assert!(!h.contains("<base "));
+        assert!(h.contains("window.__BASE__=\"\""));
+    }
+
+    #[test]
+    fn rendered_page_consumes_base_marker_and_carries_base() {
+        assert!(
+            TEMPLATE.contains("<!--SSR:base-->"),
+            "dashboard.html must carry the SSR base marker"
+        );
+        let out = TEMPLATE.replace("<!--SSR:base-->", &base_head(&normalize_base("/telemetry")));
+        assert!(!out.contains("<!--SSR:base-->"));
+        assert!(out.contains("<base href=\"/telemetry/\">"));
+        assert!(out.contains("window.__BASE__=\"/telemetry\""));
+    }
 }

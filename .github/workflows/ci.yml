@@ -20,6 +20,38 @@ env:
 # and the comment via PR.
 
 jobs:
+  # rust-toolchain.toml is the single source of the Rust version: rustup honours it
+  # for every cargo invocation here, and flake.nix feeds it to
+  # rust-bin.fromRustupToolchainFile so `nix develop .#ci` gets the same compiler.
+  # The toolchain: inputs below only preinstall it, so this job fails the build if
+  # one of them drifts away from the file. A local rustfmt one patch release ahead
+  # of CI reformats ~26 files CI is happy with, which is why this is gated.
+  toolchain-consistency:
+    name: toolchain pin is single-sourced
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - run: |
+          set -euo pipefail
+          channel="$(sed -n 's/^channel *= *"\(.*\)"/\1/p' rust-toolchain.toml)"
+          if [ -z "$channel" ]; then
+            echo "::error::could not read channel from rust-toolchain.toml"
+            exit 1
+          fi
+          echo "rust-toolchain.toml channel: $channel"
+          bad=0
+          while read -r pinned; do
+            if [ "$pinned" != "$channel" ]; then
+              echo "::error::.github/workflows/ci.yml pins toolchain \"$pinned\" but rust-toolchain.toml says \"$channel\""
+              bad=1
+            fi
+          done < <(sed -n 's/^ *toolchain: *"\(.*\)"/\1/p' .github/workflows/ci.yml)
+          if grep -qE 'rust-bin\.stable\."[0-9]' flake.nix; then
+            echo "::error::flake.nix hardcodes a rust-bin.stable version; it must use fromRustupToolchainFile ./rust-toolchain.toml"
+            bad=1
+          fi
+          exit $bad
+
   fmt:
     name: rustfmt
     runs-on: ubuntu-latest
@@ -64,6 +96,109 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends protobuf-compiler libprotobuf-dev
       - run: cargo build --workspace --all-targets
       - run: cargo test --workspace --lib
+
+  contract-gate:
+    name: contract gate (events/places/worlds)
+    runs-on: ubuntu-latest
+    # `cargo test --workspace --lib` above never builds tests/contract_gate.rs
+    # (it's an integration test, not a lib test), so this is the only place
+    # the route-level OpenAPI contract gate runs on GitHub; everywhere else it
+    # is pre-commit-hook + devshell only. See catalyrst/docs/openapi-contracts.md.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=10
+    env:
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      CARGO_PROFILE_TEST_DEBUG: "0"
+      CATALYRST_EVENTS_TEST_PG: postgres://postgres:postgres@localhost:5432/postgres
+      CATALYRST_PLACES_TEST_PG: postgres://postgres:postgres@localhost:5432/postgres
+      CATALYRST_WORLDS_TEST_PG: postgres://postgres:postgres@localhost:5432/postgres
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable @ 2026-07-08
+        with:
+          toolchain: "1.97.0"
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+      # ScratchDb/ScratchSchema (crates/catalyrst-contract-gate/src/pg.rs) skip
+      # silently when CATALYRST_<CRATE>_TEST_PG is unset OR unreachable, so a
+      # broken service here would otherwise pass green without testing
+      # anything. --nocapture forces the skip eprintln to print even on a
+      # passing run, so the grep below can catch that failure mode.
+      - name: cargo test --test contract_gate
+        run: |
+          set -o pipefail
+          cargo test -p catalyrst-events -p catalyrst-places -p catalyrst-worlds \
+            --test contract_gate -- --nocapture 2>&1 | tee contract-gate.log
+          if grep -q "skipping .* contract gate" contract-gate.log; then
+            echo "::error::contract gate skipped instead of running — CATALYRST_*_TEST_PG unreachable"
+            exit 1
+          fi
+
+  security-regression:
+    name: authorization-scoping regressions
+    runs-on: ubuntu-latest
+    # `cargo test --workspace --lib` in build-test runs lib tests only, so these
+    # integration tests compile there but never execute. This job is the only
+    # place the cross-tenant write regressions run. See docs/authz-confusion-defense.md.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=10
+    env:
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      CARGO_PROFILE_TEST_DEBUG: "0"
+      CATALYRST_COMMS_TEST_PG: postgres://postgres:postgres@localhost:5432/postgres
+      CATALYRST_ECONOMY_TEST_PG: postgres://postgres:postgres@localhost:5432/postgres
+      CATALYRST_PLACES_TEST_PG: postgres://postgres:postgres@localhost:5432/postgres
+      CATALYRST_SOCIAL_SERVICE_TEST_PG: postgres://postgres:postgres@localhost:5432/postgres
+      CATALYRST_WORLDS_TEST_PG: postgres://postgres:postgres@localhost:5432/postgres
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable @ 2026-07-08
+        with:
+          toolchain: "1.97.0"
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+      # prost-build (archipelago/social-rpc/pulse/quests build.rs) shells out
+      # to protoc, which the ubuntu-latest image does not ship.
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends protobuf-compiler libprotobuf-dev
+      # These tests return early with a "skipping ..." line when their
+      # CATALYRST_<CRATE>_TEST_PG is unset or unreachable, which would otherwise
+      # report green having asserted nothing. --nocapture forces that line to
+      # print on a passing run so the grep below can fail the build on it.
+      - name: cargo test (cross-tenant write regressions)
+        run: |
+          set -o pipefail
+          : > security-regression.log
+          run() { cargo test "$@" -- --nocapture 2>&1 | tee -a security-regression.log; }
+          run -p catalyrst-archipelago --test heartbeat_presence_spoof
+          run -p catalyrst-comms --test server_scene_adapter_auth
+          run -p catalyrst-comms --test mls_group_community_binding
+          run -p catalyrst-comms --test voice_auth_fail_closed
+          run -p catalyrst-economy --test meta_tx_sender_binding
+          run -p catalyrst-places --test report_upload_authz
+          run -p catalyrst-social-service --test cross_community_writes
+          run -p catalyrst-worlds --test deploy_owner_escalation
+          if grep -q "^skipping " security-regression.log; then
+            echo "::error::authorization-scoping regressions skipped instead of running — CATALYRST_*_TEST_PG unreachable"
+            exit 1
+          fi
 
   audit:
     name: cargo audit

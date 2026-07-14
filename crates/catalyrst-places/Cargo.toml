@@ -1,6 +1,6 @@
 [package]
 name = "catalyrst-places"
-version = "0.9.10"
+version = "0.14.1"
 edition = "2021"
 description = "Rust port of decentraland/places (REST API for places.decentraland.org), federation-aware via catalyrst-fed"
 
@@ -16,7 +16,9 @@ ts = ["dep:ts-rs"]
 [dependencies]
 catalyrst-fed = { workspace = true }
 catalyrst-crypto = { workspace = true }
-catalyrst-types = { workspace = true }
+catalyrst-types = { workspace = true, features = ["openapi"] }
+utoipa = { workspace = true }
+utoipa-axum = { workspace = true }
 tokio = { workspace = true }
 axum = { workspace = true }
 tower-http = { workspace = true }
@@ -29,6 +31,7 @@ sha1 = "0.11"
 sha2 = { workspace = true }
 hmac = { workspace = true }
 base64 = { workspace = true }
+rand = "0.10"
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 thiserror = { workspace = true }
@@ -40,5 +43,5 @@ ts-rs = { workspace = true, optional = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 tower = { workspace = true }
 sqlx = { workspace = true }
-rand = "0.10"
 hex = "0.4"
+catalyrst-contract-gate = { workspace = true }

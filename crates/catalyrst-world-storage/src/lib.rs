@@ -92,9 +92,6 @@ pub struct AuthPolicy {
 
     pub allow_owners_and_deployers: bool,
 
-    // Accept world-scoped authoritative storage delegations. Enabled ONLY on the
-    // /values/* routes — env routes stay strictly authoritative-server-only so a
-    // scoped worker ephemeral can never read env secrets.
     pub allow_scoped_delegation: bool,
 }
 
@@ -111,10 +108,10 @@ impl AuthPolicy {
         allow_scoped_delegation: false,
     };
 
-    pub const AUTHORIZED_ADDRESSES_ONLY: AuthPolicy = AuthPolicy {
+    pub const AUTHORIZED_ADDRESSES_OR_SCOPED_DELEGATION: AuthPolicy = AuthPolicy {
         allow_authorized_addresses: true,
         allow_owners_and_deployers: false,
-        allow_scoped_delegation: false,
+        allow_scoped_delegation: true,
     };
 }
 
@@ -171,9 +168,6 @@ pub async fn authorize(
         }
     }
 
-    // Scope claims must be signed specifically by the authoritative server, never by
-    // AUTHORIZED_ADDRESSES entries. A failed delegation falls through to the
-    // owner/deployer path instead of erroring.
     if policy.allow_scoped_delegation {
         if let Some(scope_header) = &ctx.scope_header {
             let trusted_signers: Vec<String> = state
@@ -224,8 +218,6 @@ pub async fn authorize(
 }
 
 fn derive_world_and_parcel(meta: &SceneAuthMetadata) -> Result<(String, String), ApiError> {
-    // The realm is client-supplied and used verbatim as world_name in every query,
-    // cache key, and quota scope, so casing must not split storage.
     let realm = meta
         .realm
         .as_ref()
@@ -261,9 +253,6 @@ fn derive_world_and_parcel(meta: &SceneAuthMetadata) -> Result<(String, String),
     Ok((world_name, resolved_parcel))
 }
 
-// Scene base parcels are `x,y` integer coordinates. The parcel reaches this service
-// from client-supplied signed metadata and ends up spliced into upstream API paths
-// (Places, LAMBDAS permissions), so anything else is rejected here.
 fn is_valid_parcel(parcel: &str) -> bool {
     fn is_coord(s: &str) -> bool {
         let digits = s.strip_prefix('-').unwrap_or(s);
@@ -381,16 +370,19 @@ mod scene_context_tests {
     }
 
     #[test]
-    fn scoped_delegation_is_accepted_only_on_the_default_policy() {
-        // Env routes must never accept a delegation, so a scoped worker ephemeral
-        // can never read env secrets.
+    fn scoped_delegation_policy_matrix() {
         let cases = [
-            (AuthPolicy::DEFAULT, true),
-            (AuthPolicy::OWNERS_DEPLOYERS_ONLY, false),
-            (AuthPolicy::AUTHORIZED_ADDRESSES_ONLY, false),
+            (AuthPolicy::DEFAULT, true, true),
+            (AuthPolicy::OWNERS_DEPLOYERS_ONLY, false, true),
+            (
+                AuthPolicy::AUTHORIZED_ADDRESSES_OR_SCOPED_DELEGATION,
+                true,
+                false,
+            ),
         ];
-        for (policy, allowed) in cases {
-            assert_eq!(policy.allow_scoped_delegation, allowed);
+        for (policy, delegation, owners) in cases {
+            assert_eq!(policy.allow_scoped_delegation, delegation);
+            assert_eq!(policy.allow_owners_and_deployers, owners);
         }
     }
 }

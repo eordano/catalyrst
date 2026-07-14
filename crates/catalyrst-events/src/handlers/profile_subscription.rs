@@ -5,14 +5,32 @@ use crate::http::response::ApiError;
 
 const DEPRECATED: &str = "Web-push subscriptions are deprecated and no longer supported";
 
+#[utoipa::path(
+    get,
+    path = "/api/profiles/subscriptions",
+    tag = "profiles",
+    responses((status = 410, body = catalyrst_types::ApiErrorBody))
+)]
 pub async fn get_profile_subscription() -> Result<Json<Value>, ApiError> {
     Err(ApiError::gone(DEPRECATED))
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/profiles/subscriptions",
+    tag = "profiles",
+    responses((status = 410, body = catalyrst_types::ApiErrorBody))
+)]
 pub async fn create_profile_subscription() -> Result<Json<Value>, ApiError> {
     Err(ApiError::gone(DEPRECATED))
 }
 
+#[utoipa::path(
+    delete,
+    path = "/api/profiles/subscriptions",
+    tag = "profiles",
+    responses((status = 410, body = catalyrst_types::ApiErrorBody))
+)]
 pub async fn delete_profile_subscription() -> Result<Json<Value>, ApiError> {
     Err(ApiError::gone(DEPRECATED))
 }

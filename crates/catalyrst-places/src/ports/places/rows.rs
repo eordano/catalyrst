@@ -36,7 +36,7 @@ pub(super) const PLACE_COLUMNS: &str = r#"
     NULLIF(raw->>'like_score','')::float8 AS like_score
 "#;
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "places/"))]
 pub struct PlaceRow {
     pub id: String,
@@ -181,7 +181,7 @@ impl CategoryTarget {
     }
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
 pub struct ReportRow {
     pub id: i64,
     pub entity_id: Option<String>,
@@ -222,7 +222,7 @@ pub(super) fn row_to_report(r: sqlx::postgres::PgRow) -> ReportRow {
     }
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
 pub struct PoiRow {
     pub position: String,
     pub entity_id: Option<String>,
@@ -249,7 +249,7 @@ pub(super) fn row_to_poi(r: sqlx::postgres::PgRow) -> PoiRow {
     }
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
 pub struct PlaceStatusRow {
     pub id: String,
     pub disabled: bool,

@@ -146,5 +146,29 @@ fn normalize_address(address: &str) -> Result<String, ApiError> {
     if trimmed.is_empty() {
         return Err(ApiError::bad_request("address is required"));
     }
-    Ok(trimmed.to_ascii_lowercase())
+    let lowered = trimmed.to_ascii_lowercase();
+    if !catalyrst_types::is_eth_address(&lowered) {
+        return Err(ApiError::bad_request("invalid address"));
+    }
+    Ok(lowered)
+}
+
+#[cfg(test)]
+mod normalize_address_tests {
+    use super::normalize_address;
+
+    #[test]
+    fn accepts_and_lowercases_valid_addresses() {
+        assert_eq!(
+            normalize_address(" 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 ").unwrap(),
+            "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266"
+        );
+    }
+
+    #[test]
+    fn rejects_malformed_addresses() {
+        assert!(normalize_address("not-an-address").is_err());
+        assert!(normalize_address("0x1234").is_err());
+        assert!(normalize_address("0xZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ").is_err());
+    }
 }

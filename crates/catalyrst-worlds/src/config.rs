@@ -35,11 +35,70 @@ pub struct Config {
     pub admin_token: Option<String>,
 
     pub max_in_flight_upload_bytes: u64,
+    pub max_concurrent_uploads: u64,
+    pub max_in_flight_upload_files: u64,
+    pub multipart_upload_timeout_ms: u64,
+    pub deployment_processing_timeout_ms: u64,
+}
+
+fn positive_limit(name: &str, value: u64) -> Result<u64> {
+    if value == 0 {
+        return Err(anyhow!("{name} must be a positive integer, got {value}"));
+    }
+    Ok(value)
+}
+
+fn validate_upload_limits(max_in_flight_upload_bytes: u64) -> Result<()> {
+    let max_upload = crate::handlers::deploy::MAX_UPLOAD_SIZE_BYTES as u64;
+    if max_in_flight_upload_bytes < max_upload {
+        return Err(anyhow!(
+            "MAX_IN_FLIGHT_UPLOAD_BYTES ({max_in_flight_upload_bytes}) must be greater than or \
+             equal to maxSizeInBytes ({max_upload})"
+        ));
+    }
+    Ok(())
 }
 
 impl Config {
     pub fn from_env() -> Result<Self> {
         let http_port = get_port("HTTP_SERVER_PORT", 5146)?;
+
+        let max_in_flight_upload_bytes = positive_limit(
+            "MAX_IN_FLIGHT_UPLOAD_BYTES",
+            get_u64(
+                "MAX_IN_FLIGHT_UPLOAD_BYTES",
+                crate::upload_limits::DEFAULT_MAX_IN_FLIGHT_UPLOAD_BYTES,
+            )?,
+        )?;
+        let max_concurrent_uploads = positive_limit(
+            "MAX_CONCURRENT_UPLOADS",
+            get_u64(
+                "MAX_CONCURRENT_UPLOADS",
+                crate::upload_limits::DEFAULT_MAX_CONCURRENT_UPLOADS,
+            )?,
+        )?;
+        let max_in_flight_upload_files = positive_limit(
+            "MAX_IN_FLIGHT_UPLOAD_FILES",
+            get_u64(
+                "MAX_IN_FLIGHT_UPLOAD_FILES",
+                crate::upload_limits::DEFAULT_MAX_IN_FLIGHT_UPLOAD_FILES,
+            )?,
+        )?;
+        let multipart_upload_timeout_ms = positive_limit(
+            "MULTIPART_UPLOAD_TIMEOUT_MS",
+            get_u64(
+                "MULTIPART_UPLOAD_TIMEOUT_MS",
+                crate::upload_limits::DEFAULT_MULTIPART_UPLOAD_TIMEOUT_MS,
+            )?,
+        )?;
+        let deployment_processing_timeout_ms = positive_limit(
+            "DEPLOYMENT_PROCESSING_TIMEOUT_MS",
+            get_u64(
+                "DEPLOYMENT_PROCESSING_TIMEOUT_MS",
+                crate::upload_limits::DEFAULT_DEPLOYMENT_PROCESSING_TIMEOUT_MS,
+            )?,
+        )?;
+        validate_upload_limits(max_in_flight_upload_bytes)?;
 
         let livekit_api_key = env::var("LIVEKIT_API_KEY").unwrap_or_default();
         let livekit_api_secret = env::var("LIVEKIT_API_SECRET").unwrap_or_default();
@@ -118,10 +177,39 @@ impl Config {
             admin_token: env::var("CATALYRST_WORLDS_ADMIN_TOKEN")
                 .ok()
                 .filter(|s| !s.is_empty()),
-            max_in_flight_upload_bytes: get_u64(
-                "MAX_IN_FLIGHT_UPLOAD_BYTES",
-                crate::handlers::deploy::DEFAULT_MAX_IN_FLIGHT_UPLOAD_BYTES,
-            )?,
+            max_in_flight_upload_bytes,
+            max_concurrent_uploads,
+            max_in_flight_upload_files,
+            multipart_upload_timeout_ms,
+            deployment_processing_timeout_ms,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn limiter_knobs_reject_zero_with_upstream_message_shape() {
+        assert_eq!(positive_limit("MAX_CONCURRENT_UPLOADS", 40).unwrap(), 40);
+        let err = positive_limit("MAX_CONCURRENT_UPLOADS", 0).unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "MAX_CONCURRENT_UPLOADS must be a positive integer, got 0"
+        );
+    }
+
+    #[test]
+    fn byte_budget_must_cover_the_deploy_payload_cap() {
+        let max_upload = crate::handlers::deploy::MAX_UPLOAD_SIZE_BYTES as u64;
+        assert!(validate_upload_limits(max_upload).is_ok());
+        assert!(validate_upload_limits(max_upload + 1).is_ok());
+        let err = validate_upload_limits(max_upload - 1).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("must be greater than or equal to maxSizeInBytes"),
+            "unexpected message: {err}"
+        );
     }
 }

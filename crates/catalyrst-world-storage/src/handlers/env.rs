@@ -21,7 +21,12 @@ pub async fn get(
 ) -> Result<Json<Value>, ApiError> {
     let path = signed_path(&uri);
     let ctx = resolve_scene_context(&state, &headers, "get", &path).await?;
-    authorize(&state, &ctx, AuthPolicy::AUTHORIZED_ADDRESSES_ONLY).await?;
+    authorize(
+        &state,
+        &ctx,
+        AuthPolicy::AUTHORIZED_ADDRESSES_OR_SCOPED_DELEGATION,
+    )
+    .await?;
     validate_key(&key)?;
 
     let enc = state
@@ -29,8 +34,6 @@ pub async fn get(
         .env_get_enc(&ctx.world_name, &ctx.place_id, &key)
         .await?;
     match enc {
-        // An empty string is a legitimately stored value (the upsert schema accepts
-        // it), so only a missing row is a 404.
         Some(blob) => {
             let value = state.encryptor.decrypt(&blob)?;
             Ok(Json(json!({ "value": value })))
@@ -39,8 +42,6 @@ pub async fn get(
     }
 }
 
-// Authorization runs before the body is buffered or parsed so unauthorized callers
-// cannot make the server do either; Content-Length is checked before buffering.
 pub async fn upsert(
     State(state): State<AppState>,
     Path(key): Path<String>,

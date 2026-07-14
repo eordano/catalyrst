@@ -50,17 +50,6 @@ impl FederationRegistry {
         Arc::new(Self::default())
     }
 
-    pub fn load_static(peers: impl IntoIterator<Item = PeerCert>) -> Arc<Self> {
-        let reg = Self::default();
-        {
-            let mut w = reg.peers.write();
-            for p in peers {
-                w.insert(p.peer_id.clone(), p);
-            }
-        }
-        Arc::new(reg)
-    }
-
     pub fn from_file(path: &Path) -> Result<Arc<Self>, FedError> {
         let map = Self::parse_file(path)?;
         let reg = Self::default();

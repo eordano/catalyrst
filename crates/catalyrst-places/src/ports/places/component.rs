@@ -10,6 +10,13 @@ use super::rows::{
     PlaceStatusRow, PoiRow, ReportRow, UserInteraction, PLACE_COLUMNS,
 };
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReportUploadOutcome {
+    Stored,
+    NoReportOwnedByReporter,
+    PersistenceDisabled,
+}
+
 pub struct PlacesComponent {
     pool: PgPool,
     writer: Option<PgPool>,
@@ -36,10 +43,6 @@ impl PlacesComponent {
     pub fn with_writer(mut self, writer: PgPool) -> Self {
         self.writer = Some(writer);
         self
-    }
-
-    pub fn has_writer(&self) -> bool {
-        self.writer.is_some()
     }
 
     pub fn writer_pool(&self) -> Option<&PgPool> {
@@ -521,17 +524,26 @@ impl PlacesComponent {
     pub async fn record_report_upload(
         &self,
         filename: &str,
+        reporter: &str,
         payload: &serde_json::Value,
-    ) -> Result<(), ApiError> {
+    ) -> Result<ReportUploadOutcome, ApiError> {
         let Some(writer) = self.writer.as_ref() else {
-            return Ok(());
+            return Ok(ReportUploadOutcome::PersistenceDisabled);
         };
-        sqlx::query(r#"UPDATE place_reports_local SET payload = $2 WHERE filename = $1"#)
-            .bind(filename)
-            .bind(payload)
-            .execute(writer)
-            .await?;
-        Ok(())
+        let updated = sqlx::query(
+            r#"UPDATE place_reports_local SET payload = $3
+               WHERE filename = $1 AND lower(reporter) = $2"#,
+        )
+        .bind(filename)
+        .bind(reporter.to_lowercase())
+        .bind(payload)
+        .execute(writer)
+        .await?
+        .rows_affected();
+        if updated == 0 {
+            return Ok(ReportUploadOutcome::NoReportOwnedByReporter);
+        }
+        Ok(ReportUploadOutcome::Stored)
     }
 
     pub async fn set_highlighted(
@@ -635,25 +647,6 @@ impl PlacesComponent {
         .fetch_one(writer)
         .await?;
         Ok(row.get::<i64, _>("total"))
-    }
-
-    pub async fn get_report(&self, id: i64) -> Result<Option<ReportRow>, ApiError> {
-        let writer = self
-            .writer
-            .as_ref()
-            .ok_or_else(|| ApiError::service_unavailable("report persistence not configured"))?;
-        let row = sqlx::query(
-            r#"
-            SELECT id, entity_id, reporter, signed_url, filename, payload,
-                   status, resolution, moderator_notes, resolved_by,
-                   resolved_at, created_at
-            FROM place_reports_local WHERE id = $1
-            "#,
-        )
-        .bind(id)
-        .fetch_optional(writer)
-        .await?;
-        Ok(row.map(row_to_report))
     }
 
     pub async fn update_report_status(

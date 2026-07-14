@@ -65,7 +65,7 @@ mod loom_tests {
                 match result {
                     None => {}
                     Some(entry) => {
-                        assert!(entry.result == true, "torn read: got {:?}", entry);
+                        assert!(entry.result, "torn read: got {:?}", entry);
                     }
                 }
             });
@@ -98,7 +98,7 @@ mod loom_tests {
 
             let result = cache.get(&key);
             assert!(result.is_some(), "key must exist after both inserts");
-            assert_eq!(result.unwrap().result, true);
+            assert!(result.unwrap().result);
         });
     }
 
@@ -150,15 +150,12 @@ mod loom_tests {
             t2.join().unwrap();
 
             let snap = cache.snapshot();
-            match snap.get("entity-1") {
-                Some(reason) => {
-                    assert!(
-                        reason == "initial error" || reason == "updated error",
-                        "corrupt cache entry: {:?}",
-                        reason
-                    );
-                }
-                None => {}
+            if let Some(reason) = snap.get("entity-1") {
+                assert!(
+                    reason == "initial error" || reason == "updated error",
+                    "corrupt cache entry: {:?}",
+                    reason
+                );
             }
         });
     }

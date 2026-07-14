@@ -59,16 +59,12 @@ fn validate_status(status: &str) -> Result<(), ApiError> {
     if CURATION_STATUSES.contains(&status) {
         Ok(())
     } else {
-        Err(ApiError::bad_request_with(
-            "Invalid Status provided",
-            json!({ "status": status, "allowed": CURATION_STATUSES }),
-        ))
+        Err(ApiError::bad_request("Invalid Status provided"))
     }
 }
 
 fn parse_uuid(raw: &str) -> Result<Uuid, ApiError> {
-    Uuid::parse_str(raw.trim())
-        .map_err(|_| ApiError::not_found_with("Not found", json!({ "id": raw })))
+    Uuid::parse_str(raw.trim()).map_err(|_| ApiError::not_found("Not found"))
 }
 
 pub async fn get_curation_collections(
@@ -129,10 +125,7 @@ pub async fn patch_item_status(
         .await?;
 
     if updated == 0 {
-        return Err(ApiError::not_found_with(
-            "Not found",
-            json!({ "id": id, "item": item }),
-        ));
+        return Err(ApiError::not_found("Not found"));
     }
 
     Ok(Json(ApiData::ok(json!({
@@ -170,10 +163,7 @@ pub async fn patch_items_status_bulk(
         return Err(ApiError::bad_request("itemIds must not be empty"));
     }
     if body.item_ids.len() > MAX_BULK_ITEMS {
-        return Err(ApiError::bad_request_with(
-            "Too many items in a single request",
-            json!({ "max": MAX_BULK_ITEMS, "got": body.item_ids.len() }),
-        ));
+        return Err(ApiError::bad_request("Too many items in a single request"));
     }
 
     let collection_id = parse_uuid(&id)?;

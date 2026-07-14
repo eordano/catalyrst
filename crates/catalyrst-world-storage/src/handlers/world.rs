@@ -29,8 +29,6 @@ pub async fn get(
     get_value_response(value)
 }
 
-// Authorization runs before the body is buffered or parsed so unauthorized callers
-// cannot make the server do either; Content-Length is checked before buffering.
 pub async fn upsert(
     State(state): State<AppState>,
     Path(key): Path<String>,
@@ -46,7 +44,6 @@ pub async fn upsert(
     let req = axum::http::Request::from_parts(parts, body);
     let ValidatedJson(body) = ValidatedJson::<UpsertBody>::from_request(req, &()).await?;
 
-    // Serialized once here; the same text is stored and spliced into the response.
     let serialized = serde_json::to_string(&body.value)
         .map_err(|e| ApiError::bad_request(format!("invalid value: {e}")))?;
     reject_nul_characters(&serialized)?;

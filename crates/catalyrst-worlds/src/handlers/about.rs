@@ -6,6 +6,17 @@ use crate::http::ApiError;
 use crate::ports::worlds::WorldScene;
 use crate::AppState;
 
+#[utoipa::path(
+    get,
+    path = "/world/{world_name}/about",
+    tag = "worlds",
+    params(("world_name" = String, Path)),
+    responses(
+        (status = 200, body = serde_json::Value),
+        (status = 404, body = catalyrst_types::ApiErrorBody),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn get_about(
     State(state): State<AppState>,
     Path(world_name): Path<String>,

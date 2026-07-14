@@ -1,18 +1,35 @@
+use std::sync::Arc;
+
 use async_trait::async_trait;
 use sqlx::PgPool;
 use tracing::warn;
 
 use crate::checker::{BlockchainChecker, BlockchainLayer};
 use crate::error::{PermissionResult, ValidatorError};
+use crate::land_rights::ParcelPermissionFlags;
 use crate::types::*;
 
 const DECENTRALAND_ADDRESS: &str = "0x1337e0507eb4ab47e08a179573ed4533d9e22a7b";
+
+#[derive(Debug, Clone, Default)]
+pub struct LandOperators {
+    pub operator: Option<String>,
+    pub update_operator: Option<String>,
+    pub update_managers: Vec<String>,
+    pub approved_for_all: Vec<String>,
+}
+
+#[async_trait]
+pub trait LandOperatorResolver: Send + Sync {
+    async fn operators(&self, x: i32, y: i32) -> Result<Option<LandOperators>, String>;
+}
 
 pub struct SquidBlockchainChecker {
     pool: PgPool,
     additional_decentraland_address: Option<String>,
     tp_subgraph: Option<crate::tp_subgraph::TpSubgraph>,
     tp_root_via_squid: bool,
+    operator_resolver: Option<Arc<dyn LandOperatorResolver>>,
 }
 
 impl SquidBlockchainChecker {
@@ -22,6 +39,7 @@ impl SquidBlockchainChecker {
             additional_decentraland_address,
             tp_subgraph: None,
             tp_root_via_squid: false,
+            operator_resolver: None,
         }
     }
 
@@ -36,7 +54,13 @@ impl SquidBlockchainChecker {
             additional_decentraland_address,
             tp_subgraph,
             tp_root_via_squid,
+            operator_resolver: None,
         }
+    }
+
+    pub fn with_operator_resolver(mut self, resolver: Arc<dyn LandOperatorResolver>) -> Self {
+        self.operator_resolver = Some(resolver);
+        self
     }
 
     async fn third_party_root_from_squid(
@@ -92,8 +116,28 @@ fn address_in_list(address: &str, list: &[String]) -> bool {
     list.iter().any(|a| a.to_lowercase() == lower)
 }
 
-async fn check_parcel_access(
+pub fn operator_flags(address: &str, operators: &LandOperators) -> ParcelPermissionFlags {
+    let matches = |o: &Option<String>| {
+        o.as_deref()
+            .map(|v| addresses_match(address, v))
+            .unwrap_or(false)
+    };
+    ParcelPermissionFlags {
+        owner: false,
+        operator: matches(&operators.operator),
+        update_operator: matches(&operators.update_operator),
+        update_manager: address_in_list(address, &operators.update_managers),
+        approved_for_all: address_in_list(address, &operators.approved_for_all),
+    }
+}
+
+pub fn operator_grants(address: &str, operators: &LandOperators) -> bool {
+    operator_flags(address, operators).grants_deploy()
+}
+
+pub async fn check_parcel_access(
     pool: &PgPool,
+    operator_resolver: Option<&dyn LandOperatorResolver>,
     address: &str,
     x: i32,
     y: i32,
@@ -106,26 +150,49 @@ async fn check_parcel_access(
             .await
             .map_err(|e| ValidatorError::BlockchainQuery(format!("parcel query failed: {e}")))?;
 
-    if let Some(ref owner_id) = parcel_owner {
-        if address_matches_account_id(address, owner_id) {
-            return Ok(true);
-        }
+    let mut flags = ParcelPermissionFlags {
+        owner: parcel_owner
+            .as_deref()
+            .map(|o| address_matches_account_id(address, o))
+            .unwrap_or(false),
+        ..ParcelPermissionFlags::default()
+    };
+
+    if !flags.owner {
+        let estate_owner: Option<String> = sqlx::query_scalar(
+            "SELECT e.owner_id FROM squid_marketplace.parcel p \
+             JOIN squid_marketplace.estate e ON e.id = p.estate_id \
+             WHERE p.x = $1 AND p.y = $2",
+        )
+        .bind(x)
+        .bind(y)
+        .fetch_optional(pool)
+        .await
+        .map_err(|e| ValidatorError::BlockchainQuery(format!("estate query failed: {e}")))?;
+
+        flags.owner = estate_owner
+            .as_deref()
+            .map(|o| address_matches_account_id(address, o))
+            .unwrap_or(false);
     }
 
-    let estate_owner: Option<String> = sqlx::query_scalar(
-        "SELECT e.owner_id FROM squid_marketplace.parcel p \
-         JOIN squid_marketplace.estate e ON e.id = p.estate_id \
-         WHERE p.x = $1 AND p.y = $2",
-    )
-    .bind(x)
-    .bind(y)
-    .fetch_optional(pool)
-    .await
-    .map_err(|e| ValidatorError::BlockchainQuery(format!("estate query failed: {e}")))?;
+    if flags.grants_deploy() {
+        return Ok(true);
+    }
 
-    if let Some(ref owner_id) = estate_owner {
-        if address_matches_account_id(address, owner_id) {
-            return Ok(true);
+    if let Some(resolver) = operator_resolver {
+        match resolver.operators(x, y).await {
+            Ok(Some(operators)) => {
+                let owner = flags.owner;
+                flags = operator_flags(address, &operators);
+                flags.owner = owner;
+                return Ok(flags.grants_deploy());
+            }
+            Ok(None) => return Ok(false),
+            Err(e) => {
+                warn!(x, y, error = %e, "land operator resolver failed; denying operator leg (fail-closed)");
+                return Ok(false);
+            }
         }
     }
 
@@ -373,7 +440,14 @@ impl BlockchainChecker for SquidBlockchainChecker {
     ) -> Result<Vec<bool>, ValidatorError> {
         let mut results = Vec::with_capacity(parcels.len());
         for &(x, y) in parcels {
-            let has_access = check_parcel_access(&self.pool, eth_address, x, y).await?;
+            let has_access = check_parcel_access(
+                &self.pool,
+                self.operator_resolver.as_deref(),
+                eth_address,
+                x,
+                y,
+            )
+            .await?;
             results.push(has_access);
         }
         Ok(results)
@@ -553,6 +627,7 @@ mod tests {
             additional_decentraland_address: Some("0xextra".to_string()),
             tp_subgraph: None,
             tp_root_via_squid: false,
+            operator_resolver: None,
         };
 
         assert!(checker.is_address_owned_by_decentraland(DECENTRALAND_ADDRESS));
@@ -569,5 +644,25 @@ mod tests {
         assert!(address_in_list("0xABC123", &list));
         assert!(address_in_list("0xdef456", &list));
         assert!(!address_in_list("0x999999", &list));
+    }
+
+    #[test]
+    fn operator_grants_each_leg() {
+        let ops = LandOperators {
+            operator: Some("0xAAA1".into()),
+            update_operator: Some("0xbbb2".into()),
+            update_managers: vec!["0xccc3".into()],
+            approved_for_all: vec!["0xDDD4".into()],
+        };
+        assert!(operator_grants("0xaaa1", &ops));
+        assert!(operator_grants("0xBBB2", &ops));
+        assert!(operator_grants("0xCCC3", &ops));
+        assert!(operator_grants("0xddd4", &ops));
+        assert!(!operator_grants("0xeee5", &ops));
+    }
+
+    #[test]
+    fn operator_grants_denies_on_empty() {
+        assert!(!operator_grants("0xaaa1", &LandOperators::default()));
     }
 }

@@ -64,8 +64,12 @@ enum Command {
     Start {
         #[arg(long, default_value = ".")]
         dir: PathBuf,
-        #[arg(short = 'p', long, default_value_t = 8000)]
-        port: u16,
+        #[arg(
+            short = 'p',
+            long,
+            help = "Port to serve on; without it, 8000 or the next free port"
+        )]
+        port: Option<u16>,
         #[arg(long)]
         skip_build: bool,
         #[arg(long)]
@@ -84,6 +88,10 @@ enum Command {
         offline_comms: bool,
         #[arg(long, hide = true)]
         mini_comms: bool,
+        #[arg(long = "multi-instance", hide = true)]
+        multi_instance: bool,
+        #[arg(long = "no-client", hide = true)]
+        no_client: bool,
         #[arg(short = 'm', long)]
         mobile: bool,
         #[arg(
@@ -133,6 +141,19 @@ enum Command {
         ci: bool,
         #[arg(short = 'p', long)]
         port: Option<u16>,
+    },
+    #[command(
+        about = "Remove a LAND scene published to a dcl-one-style content server (signed request)"
+    )]
+    Unpublish {
+        #[arg(long, value_name = "X,Y")]
+        parcel: String,
+        #[arg(short = 't', long)]
+        target: Option<String>,
+        #[arg(long)]
+        target_content: Option<String>,
+        #[arg(long)]
+        sign_key: Option<PathBuf>,
     },
     #[command(
         alias = "pack-smart-wearable",
@@ -276,6 +297,7 @@ fn init_tracing(verbose: bool) {
 async fn main() {
     let cli = Cli::parse();
     let verbose = cli.verbose || std::env::var_os("RUST_LOG").is_some();
+    ux::set_verbose(verbose);
     init_tracing(verbose);
     if let Err(e) = run(cli.command).await {
         ux::report(&e, verbose);
@@ -366,6 +388,8 @@ async fn run(command: Command) -> Result<()> {
             ignore_composite,
             offline_comms,
             mini_comms,
+            multi_instance,
+            no_client,
             mobile,
             no_asset_bundles,
             tunnel,
@@ -392,6 +416,12 @@ async fn run(command: Command) -> Result<()> {
             }
             if mini_comms {
                 ux::note("--mini-comms has no effect (the built-in ws-room relay is always on)");
+            }
+            if multi_instance {
+                ux::note("--multi-instance has no effect (the join block always prints a 2nd-instance deep link)");
+            }
+            if no_client {
+                ux::note("--no-client has no effect (dcl-one-sdk never launches a client)");
             }
             start::start(start::StartOptions {
                 dir,
@@ -437,6 +467,20 @@ async fn run(command: Command) -> Result<()> {
                 no_browser,
                 ci,
                 port,
+            })
+            .await
+        }
+        Command::Unpublish {
+            parcel,
+            target,
+            target_content,
+            sign_key,
+        } => {
+            deploy::unpublish(&deploy::UnpublishOptions {
+                parcel,
+                target,
+                target_content,
+                sign_key,
             })
             .await
         }

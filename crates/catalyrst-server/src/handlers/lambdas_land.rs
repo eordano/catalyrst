@@ -349,13 +349,13 @@ pub async fn parcel_permissions(
 
     let eq = |v: &Option<String>| v.as_deref() == Some(addr.as_str());
 
-    Json(json!({
-        "owner": ops.owner == addr,
-        "operator": eq(&ops.operator),
-        "updateOperator": eq(&ops.update_operator),
-        "updateManager": ops.update_managers.iter().any(|m| m == &addr),
-        "approvedForAll": ops.approved_for_all.iter().any(|a| a == &addr),
-    }))
+    Json(catalyrst_validator::ParcelPermissionFlags {
+        owner: ops.owner == addr,
+        operator: eq(&ops.operator),
+        update_operator: eq(&ops.update_operator),
+        update_manager: ops.update_managers.iter().any(|m| m == &addr),
+        approved_for_all: ops.approved_for_all.iter().any(|a| a == &addr),
+    })
     .into_response()
 }
 

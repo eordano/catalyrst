@@ -7,6 +7,16 @@ use crate::http::response::{ApiError, ApiOk};
 use crate::schemas::EventAttendeeRecord;
 use crate::AppState;
 
+#[utoipa::path(
+    get,
+    path = "/api/events/{event_id}/attendees",
+    tag = "events",
+    params(("event_id" = String, Path)),
+    responses(
+        (status = 200, body = ApiOk<Vec<EventAttendeeRecord>>),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn get_event_attendees(
     State(state): State<AppState>,
     Path(event_id): Path<String>,
@@ -21,6 +31,18 @@ fn require_auth(headers: &HeaderMap, method: &str, path: &str) -> Result<String,
         .map_err(|_| ApiError::unauthorized("Unauthorized"))
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/events/{event_id}/attendees",
+    tag = "events",
+    params(("event_id" = String, Path)),
+    responses(
+        (status = 200, body = ApiOk<Vec<EventAttendeeRecord>>),
+        (status = 401, body = catalyrst_types::ApiErrorBody),
+        (status = 404, body = catalyrst_types::ApiErrorBody),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn create_event_attendee(
     State(state): State<AppState>,
     Path(event_id): Path<String>,
@@ -54,6 +76,17 @@ pub async fn create_event_attendee(
     Ok(Json(ApiOk::new(list)))
 }
 
+#[utoipa::path(
+    delete,
+    path = "/api/events/{event_id}/attendees",
+    tag = "events",
+    params(("event_id" = String, Path)),
+    responses(
+        (status = 200, body = ApiOk<Vec<EventAttendeeRecord>>),
+        (status = 401, body = catalyrst_types::ApiErrorBody),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn delete_event_attendee(
     State(state): State<AppState>,
     Path(event_id): Path<String>,

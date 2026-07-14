@@ -18,7 +18,7 @@ async fn main() -> Result<()> {
             tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| {
                 "catalyrst_explore=info,catalyrst_places=info,catalyrst_events=info,\
                  catalyrst_archipelago=info,catalyrst_worlds=info,catalyrst_map=info,\
-                 catalyrst_lists=info,tower_http=info"
+                 tower_http=info"
                     .into()
             }),
         )
@@ -28,12 +28,13 @@ async fn main() -> Result<()> {
     let mut members: Vec<(&'static str, bool)> = Vec::new();
     let mut app = Router::new();
 
-    app = mount(app, &mut members, "places", build_places().await);
+    let (places, lists) = build_places().await;
+    app = mount(app, &mut members, "places", places);
     app = mount(app, &mut members, "events", build_events().await);
     app = mount(app, &mut members, "archipelago", build_archipelago().await);
     app = mount(app, &mut members, "worlds", build_worlds().await);
     app = mount(app, &mut members, "map", build_map().await);
-    app = mount(app, &mut members, "lists", build_lists().await);
+    app = mount(app, &mut members, "lists", lists);
 
     let health_body = health_body(&members);
     let app = app
@@ -95,10 +96,22 @@ fn health_body(members: &[(&'static str, bool)]) -> String {
     .to_string()
 }
 
-async fn build_places() -> Result<Router> {
+async fn build_places() -> (Result<Router>, Result<Router>) {
+    match build_places_state().await {
+        Ok(state) => (
+            Ok(catalyrst_places::api_router().with_state(state.clone())),
+            Ok(catalyrst_places::lists_router().with_state(state)),
+        ),
+        Err(err) => {
+            let msg = format!("{err:#}");
+            (Err(anyhow::anyhow!(msg.clone())), Err(anyhow::anyhow!(msg)))
+        }
+    }
+}
+
+async fn build_places_state() -> Result<catalyrst_places::AppState> {
     let cfg = catalyrst_places::config::Config::from_env()?;
-    let state = catalyrst_places::build_state(&cfg).await?;
-    Ok(catalyrst_places::api_router().with_state(state))
+    catalyrst_places::build_state(&cfg).await
 }
 
 async fn build_events() -> Result<Router> {
@@ -123,10 +136,4 @@ async fn build_map() -> Result<Router> {
     let cfg = catalyrst_map::config::Config::from_env()?;
     let state = catalyrst_map::build_state(&cfg).await?;
     Ok(catalyrst_map::api_router().with_state(state))
-}
-
-async fn build_lists() -> Result<Router> {
-    let cfg = catalyrst_lists::config::Config::from_env()?;
-    let state = catalyrst_lists::build_state(&cfg).await?;
-    Ok(catalyrst_lists::api_router().with_state(state))
 }

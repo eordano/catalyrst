@@ -87,6 +87,22 @@ const ENV_DOCS: &[(&str, &str)] = &[
         "max in-flight upload bytes (default 4294967296)",
     ),
     (
+        "MAX_CONCURRENT_UPLOADS",
+        "max simultaneous multipart uploads (default 40)",
+    ),
+    (
+        "MAX_IN_FLIGHT_UPLOAD_FILES",
+        "max aggregate buffered upload files (default 40000)",
+    ),
+    (
+        "MULTIPART_UPLOAD_TIMEOUT_MS",
+        "deadline for receiving+parsing a multipart body (default 300000)",
+    ),
+    (
+        "DEPLOYMENT_PROCESSING_TIMEOUT_MS",
+        "deadline for post-body deployment processing (default 300000)",
+    ),
+    (
         "RUST_LOG",
         "tracing filter (default catalyrst_worlds=info,tower_http=info)",
     ),
@@ -112,7 +128,6 @@ async fn main() -> Result<()> {
 
     let app = Router::new()
         .route("/ping", get(handlers::status::ping))
-        .route("/status", get(handlers::status::status))
         .route("/health", get(handlers::status::health))
         .merge(api_router())
         .layer(TraceLayer::new_for_http())

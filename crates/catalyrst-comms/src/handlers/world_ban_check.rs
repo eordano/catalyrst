@@ -3,7 +3,7 @@ use axum::http::HeaderMap;
 use axum::Json;
 
 use crate::handlers::scene_adapter::fetch_world_scene_id;
-use crate::http::{unauthorized, ApiError};
+use crate::http::ApiError;
 use crate::AppState;
 
 pub const WORLD_BAN_STATUS_PATH: &str =
@@ -14,14 +14,7 @@ pub async fn world_ban_check(
     headers: HeaderMap,
     Path((world_name, base_parcel, address)): Path<(String, String, String)>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    if let Some(expected) = state.gatekeeper_auth_token.as_deref() {
-        let ok = crate::moderator::bearer_token(&headers)
-            .map(|t| crate::moderator::timing_safe_eq(&t, expected))
-            .unwrap_or(false);
-        if !ok {
-            return Err(unauthorized("Invalid authorization header"));
-        }
-    }
+    crate::moderator::require_service_token(&state, &headers)?;
 
     let Some(place_id) = fetch_world_scene_id(&state, &world_name).await else {
         tracing::warn!(

@@ -1,11 +1,14 @@
 mod net;
 mod run;
+mod unpublish;
 
 pub use net::{
-    build_delete_payload, encode_segment, jump_in_url, sanitize_catalyst_url,
-    scenes_on_other_parcels, send_world_delete, simple_auth_chain, upload_entity, WorldScene,
+    build_delete_payload, encode_segment, enforce_world_permission, jump_in_url, non_upstream_note,
+    sanitize_catalyst_url, scenes_on_other_parcels, send_world_delete, simple_auth_chain,
+    upload_entity, WorldScene,
 };
 pub use run::{deploy, load_signer};
+pub use unpublish::{unpublish, UnpublishOptions};
 
 use crate::jsjson::{self, JsValue};
 use crate::scene::Project;
@@ -35,7 +38,10 @@ pub struct DeployOptions {
 
 const MAX_FILE_SIZE_BYTES: usize = 50_000_000;
 
+// interconnected.online first: it is also the preview proxy's default
+// upstream (start/proxy.rs DEFAULT_CATALYST), so previews and deploys agree.
 pub const CATALYST_ROTATION: [&str; 8] = [
+    "https://interconnected.online",
     "https://peer-ec2.decentraland.org",
     "https://peer.melonwave.com",
     "https://peer-ec1.decentraland.org",
@@ -43,10 +49,9 @@ pub const CATALYST_ROTATION: [&str; 8] = [
     "https://peer.uadevops.com",
     "https://peer.dclnodes.io",
     "https://peer-eu1.decentraland.org",
-    "https://interconnected.online",
 ];
 
-const DEFAULT_DCL_IGNORE: [&str; 20] = [
+const DEFAULT_DCL_IGNORE: [&str; 21] = [
     ".*",
     "package.json",
     "package-lock.json",
@@ -67,6 +72,7 @@ const DEFAULT_DCL_IGNORE: [&str; 20] = [
     "*.fbx",
     "*.zip",
     "*.rar",
+    "*.map",
 ];
 
 const EXTRA_DCL_IGNORE: [&str; 6] = [
@@ -466,7 +472,6 @@ mod tests {
                 "scene.json",
                 "builder.json",
                 "src/tex.png",
-                "bin/index.js.map",
                 "bin/index.js",
                 "assets/model.glb"
             ]
@@ -576,6 +581,39 @@ mod tests {
         assert_eq!(parts.len(), 4);
         assert!(parts[2].chars().all(|c| c.is_ascii_digit()));
         assert_eq!(p, p.to_lowercase());
+    }
+
+    #[test]
+    fn network_scope_note_fires_only_off_the_upstream_rotation() {
+        assert_eq!(
+            non_upstream_note("https://peer-ec2.decentraland.org/content"),
+            None
+        );
+        assert_eq!(
+            non_upstream_note("https://interconnected.online/content"),
+            None
+        );
+        let dclone = non_upstream_note("https://catalyst.example.com/content").unwrap();
+        assert!(
+            dclone.contains("publishing to catalyst.example.com"),
+            "{dclone}"
+        );
+        assert!(
+            dclone.contains("not Genesis City on decentraland.org"),
+            "{dclone}"
+        );
+        let local = non_upstream_note("http://127.0.0.1:5198/content").unwrap();
+        assert!(local.contains("127.0.0.1:5198"), "{local}");
+    }
+
+    #[test]
+    fn base_url_path_extraction() {
+        assert_eq!(net::url_path("http://127.0.0.1:5198/content"), "/content");
+        assert_eq!(net::url_path("http://127.0.0.1:5142"), "");
+        assert_eq!(
+            net::url_path("https://catalyst.example.com/content"),
+            "/content"
+        );
     }
 
     #[test]

@@ -2,10 +2,17 @@ use std::time::Duration;
 
 use catalyrst_economy::admin::RuntimeConfig;
 use catalyrst_economy::http::errors::ApiError;
-use catalyrst_economy::ports::transaction::TransactionComponent;
+use catalyrst_economy::ports::transaction::{MetaTxSender, TransactionComponent};
 use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
 use uuid::Uuid;
+
+mod support;
+
+fn sender(addr: &str) -> MetaTxSender {
+    MetaTxSender::from_meta_tx_calldata(addr, &support::split_sig_calldata(addr))
+        .expect("calldata signed by the same address it is posted for")
+}
 
 fn pg_url() -> Option<String> {
     std::env::var("CATALYRST_ECONOMY_TEST_PG").ok()
@@ -88,7 +95,9 @@ async fn reserve_then_confirm_promotes_and_is_user_visible() {
     let addr = "0xAAaaAAaaAAaaAAaaAAaaAAaaAAaaAAaaAAaaAAaa";
     let session = Uuid::new_v4().to_string();
 
-    tc.reserve_quota(10, addr, &session).await.expect("reserve");
+    tc.reserve_quota(10, &sender(addr), &session)
+        .await
+        .expect("reserve");
 
     let (tx_hash, sid): (Option<String>, Option<String>) =
         sqlx::query_as("SELECT tx_hash, session_id FROM transactions WHERE user_address = $1")
@@ -137,7 +146,7 @@ async fn reserve_enforces_daily_limit_and_release_refunds_a_slot() {
     let mut sessions = Vec::new();
     for _ in 0..MAX {
         let s = Uuid::new_v4().to_string();
-        tc.reserve_quota(MAX, addr, &s)
+        tc.reserve_quota(MAX, &sender(addr), &s)
             .await
             .expect("reserve within budget");
         sessions.push(s);
@@ -145,7 +154,7 @@ async fn reserve_enforces_daily_limit_and_release_refunds_a_slot() {
 
     let over = Uuid::new_v4().to_string();
     let err = tc
-        .reserve_quota(MAX, addr, &over)
+        .reserve_quota(MAX, &sender(addr), &over)
         .await
         .expect_err("over quota");
     assert!(
@@ -158,7 +167,7 @@ async fn reserve_enforces_daily_limit_and_release_refunds_a_slot() {
     assert_eq!(row_count(&pool, addr).await, MAX - 1);
 
     let refunded = Uuid::new_v4().to_string();
-    tc.reserve_quota(MAX, addr, &refunded)
+    tc.reserve_quota(MAX, &sender(addr), &refunded)
         .await
         .expect("reserve after release");
     assert_eq!(row_count(&pool, addr).await, MAX);
@@ -180,18 +189,18 @@ async fn reservations_are_isolated_per_user() {
     const MAX: i64 = 2;
 
     for _ in 0..MAX {
-        tc.reserve_quota(MAX, alice, &Uuid::new_v4().to_string())
+        tc.reserve_quota(MAX, &sender(alice), &Uuid::new_v4().to_string())
             .await
             .expect("alice reserve");
     }
     assert!(matches!(
-        tc.reserve_quota(MAX, alice, &Uuid::new_v4().to_string())
+        tc.reserve_quota(MAX, &sender(alice), &Uuid::new_v4().to_string())
             .await,
         Err(ApiError::QuotaReached(_))
     ));
 
     for _ in 0..MAX {
-        tc.reserve_quota(MAX, bob, &Uuid::new_v4().to_string())
+        tc.reserve_quota(MAX, &sender(bob), &Uuid::new_v4().to_string())
             .await
             .expect("bob reserve");
     }

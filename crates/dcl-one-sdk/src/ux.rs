@@ -3,6 +3,18 @@ use std::io::IsTerminal;
 use std::path::Path;
 use std::time::Duration;
 
+static VERBOSE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Record the CLI-wide --verbose / RUST_LOG choice so far-flung output paths
+/// (sidecar relays, banners) can consult it without threading a flag through.
+pub fn set_verbose(on: bool) {
+    VERBOSE.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
+pub fn verbose() -> bool {
+    VERBOSE.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 pub struct TrySteps(Vec<String>);
 
 impl TrySteps {
@@ -210,7 +222,47 @@ pub fn note_stderr(message: impl AsRef<str>) {
 }
 
 pub fn fmt_elapsed(d: Duration) -> String {
-    format!("{:.1}s", d.as_secs_f64())
+    // Both grouped tiers cap at 9,999, so grouping is at most one comma.
+    fn grouped(n: u32, unit: &str) -> String {
+        if n < 1_000 {
+            format!("{n}{unit}")
+        } else {
+            format!("{},{:03}{unit}", n / 1_000, n % 1_000)
+        }
+    }
+    let secs = d.as_secs();
+    if secs < 10 {
+        let micros = secs as u32 * 1_000_000 + d.subsec_micros();
+        if micros < 10_000 {
+            grouped(micros, "\u{00b5}s")
+        } else {
+            grouped(micros / 1_000, "ms")
+        }
+    } else if secs < 600 || (secs == 600 && d.subsec_nanos() == 0) {
+        format!("{:.2}s", d.as_secs_f64())
+    } else {
+        // Work in rounded centiseconds so 11m59.999s carries to 12m rather
+        // than printing "11m:60.00s".
+        let cs = (d.as_secs_f64() * 100.0).round() as u64;
+        let h = cs / 360_000;
+        let m = (cs % 360_000) / 6_000;
+        let s = (cs % 6_000) as f64 / 100.0;
+        format!("{h}h:{m:02}m:{s:05.2}s")
+    }
+}
+
+pub fn fmt_bytes(n: u64) -> String {
+    const KB: f64 = 1024.0;
+    let v = n as f64;
+    if v < KB {
+        format!("{n}b")
+    } else if v < KB * KB {
+        format!("{:.1}kb", v / KB)
+    } else if v < KB * KB * KB {
+        format!("{:.1}mb", v / (KB * KB))
+    } else {
+        format!("{:.1}gb", v / (KB * KB * KB))
+    }
 }
 
 pub fn rel_to(root: &Path, path: &Path) -> String {
@@ -266,6 +318,34 @@ fn loc_file(line: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fmt_elapsed_tiers() {
+        assert_eq!(fmt_elapsed(Duration::from_micros(320)), "320\u{00b5}s");
+        assert_eq!(fmt_elapsed(Duration::from_micros(1_234)), "1,234\u{00b5}s");
+        assert_eq!(fmt_elapsed(Duration::from_micros(9_999)), "9,999\u{00b5}s");
+        assert_eq!(fmt_elapsed(Duration::from_micros(9_999_999)), "9,999ms");
+        assert_eq!(fmt_elapsed(Duration::from_millis(10)), "10ms");
+        assert_eq!(fmt_elapsed(Duration::from_millis(2_321)), "2,321ms");
+        assert_eq!(fmt_elapsed(Duration::from_millis(9_999)), "9,999ms");
+        assert_eq!(fmt_elapsed(Duration::from_millis(10_000)), "10.00s");
+        assert_eq!(fmt_elapsed(Duration::from_secs(600)), "600.00s");
+        assert_eq!(fmt_elapsed(Duration::from_millis(683_450)), "0h:11m:23.45s");
+        assert_eq!(
+            fmt_elapsed(Duration::from_millis(3_723_400)),
+            "1h:02m:03.40s"
+        );
+        assert_eq!(fmt_elapsed(Duration::from_millis(719_999)), "0h:12m:00.00s");
+    }
+
+    #[test]
+    fn fmt_bytes_tiers() {
+        assert_eq!(fmt_bytes(0), "0b");
+        assert_eq!(fmt_bytes(512), "512b");
+        assert_eq!(fmt_bytes(33866), "33.1kb");
+        assert_eq!(fmt_bytes(1_258_291), "1.2mb");
+        assert_eq!(fmt_bytes(2_684_354_560), "2.5gb");
+    }
 
     #[test]
     fn user_error_renders_try_line() {

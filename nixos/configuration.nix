@@ -313,6 +313,14 @@ in
             extraConfig = ''
               internal;
               alias ${cfg.contentStorageRoot}/contents/;
+              # X-Accel-Redirect drops the upstream response headers and nginx's static
+              # module would generate its default mtime-size ETag, breaking parity with
+              # the TS catalyst whose ETag is the quoted content CID. Disable the auto
+              # ETag and re-emit the app's headers (kept in $upstream_http_* across the
+              # internal redirect).
+              etag off;
+              add_header ETag $upstream_http_etag always;
+              add_header Access-Control-Expose-Headers $upstream_http_access_control_expose_headers always;
               add_header Cache-Control "public, max-age=31536000, immutable" always;
               add_header X-Content-Type-Options "nosniff" always;
               sendfile on;

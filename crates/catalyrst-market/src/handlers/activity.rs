@@ -4,6 +4,8 @@ use axum::Json;
 use chrono::Utc;
 use serde::Serialize;
 
+use catalyrst_crypto::signed_fetch::signed_fetch_path;
+
 use crate::auth_chain::{
     self, build_payload, AuthChainError, AUTH_METADATA_HEADER, AUTH_TIMESTAMP_HEADER, FIVE_MINUTES,
 };
@@ -16,13 +18,6 @@ use crate::AppState;
 pub struct ActivityEnvelope {
     pub data: Vec<ActivityEvent>,
     pub total: i64,
-}
-
-fn signed_fetch_path<'a>(headers: &HeaderMap, fallback: &'a str) -> std::borrow::Cow<'a, str> {
-    match headers.get("x-original-path").and_then(|v| v.to_str().ok()) {
-        Some(raw) => std::borrow::Cow::Owned(raw.split('?').next().unwrap_or(raw).to_string()),
-        None => std::borrow::Cow::Borrowed(fallback),
-    }
 }
 
 fn auth_chain_error_to_api(e: AuthChainError) -> ApiError {
@@ -39,6 +34,18 @@ fn auth_chain_error_to_api(e: AuthChainError) -> ApiError {
     }
 }
 
+#[utoipa::path(
+    get,
+    path = "/v1/activity",
+    tag = "market",
+    params(("address" = String, Query)),
+    responses(
+        (status = 200, body = serde_json::Value),
+        (status = 400, body = crate::http::response::MarketErrorBody),
+        (status = 401, body = crate::http::response::MarketErrorBody),
+        (status = 500, body = crate::http::response::MarketErrorBody)
+    )
+)]
 pub async fn get_activity(
     State(state): State<AppState>,
     headers: HeaderMap,

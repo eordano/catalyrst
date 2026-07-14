@@ -8,8 +8,6 @@ use crate::config::{NamespaceLimits, StorageCacheConfig};
 use crate::external::is_shared_realm;
 use crate::http::errors::ApiError;
 
-// `value` holds the stored jsonb already serialized as JSON text (`value::text`), so
-// reads pass straight through to the HTTP response without a decode/re-encode round-trip.
 #[derive(Debug)]
 pub struct StorageEntry {
     pub key: String,
@@ -26,8 +24,6 @@ pub fn value_size_bytes(serialized: &str) -> i64 {
     serialized.len() as i64
 }
 
-// LIKE metacharacters in the prefix are escaped so it always matches literally:
-// without this `_` matches any single character and `%` any sequence.
 fn prefix_pattern(prefix: Option<&str>) -> Option<String> {
     prefix.filter(|p| !p.is_empty()).map(|p| {
         let mut pat = String::with_capacity(p.len() + 1);
@@ -42,10 +38,6 @@ fn prefix_pattern(prefix: Option<&str>) -> Option<String> {
     })
 }
 
-// The lock granularity matches the scope the quota is computed over: per world for
-// *.dcl.eth worlds, per place for shared Genesis City realms (locking all of `main`
-// would serialize every Genesis City write globally), plus per player for player
-// storage. These locks share the database-global advisory-lock space (seed 0).
 fn quota_lock_key(namespace: &str, world: &str, place: &str, player: Option<&str>) -> String {
     let mut key = if is_shared_realm(world) {
         format!("{namespace}:{world}:{place}")
@@ -59,10 +51,6 @@ fn quota_lock_key(namespace: &str, world: &str, place: &str, player: Option<&str
     key
 }
 
-// Quota totals are aggregated per world for *.dcl.eth worlds and per place for shared
-// Genesis City realms; the existing-value credit always matches the exact
-// (place_id, key) row being replaced — filtering by key alone would credit a
-// same-named key from another scene and let the quota be exceeded.
 fn size_info_sql(table: &str, world: &str, extra_where: &str) -> String {
     let mut sql = format!(
         "SELECT COALESCE(MAX(value_size) FILTER (WHERE place_id = $2::uuid AND key = $3), 0)::bigint AS existing,
@@ -96,9 +84,6 @@ pub fn check_limits(
     Ok(())
 }
 
-// World names, place ids (UUIDs) and player addresses (0x-hex) never contain ':', and
-// the user-supplied key sits at the trailing position, so keys cannot collide across
-// scenes or players and the scope prefixes below match exactly one scope.
 fn world_value_cache_key(world: &str, place: &str, key: &str) -> String {
     format!("w:{world}:{place}:{key}")
 }
@@ -118,12 +103,6 @@ fn player_scope_prefix(world: &str, place: &str, player: Option<&str>) -> String
     }
 }
 
-// Read-through cache for single-key world/player reads, invalidated after each
-// committed write. Per-instance, so the TTL — not invalidation — bounds staleness on
-// replicas that did not handle the write. Values are cached as raw JSON text; misses
-// are never cached and values above max_value_bytes are skipped so the
-// entry-count-capped cache stays memory-bounded. The paginated listings are not
-// cached: they would be invalidated on every write to a write-heavy scene.
 #[derive(Clone)]
 pub struct StorageCache {
     cfg: StorageCacheConfig,
@@ -185,9 +164,6 @@ impl Storage {
         }
     }
 
-    // `value` is NOT NULL in the schema, so a missing row is the only source of None
-    // and a cache miss is unambiguous. The value is selected as `value::text` and
-    // returned verbatim, decoded by neither the driver nor the response layer.
     pub async fn world_get(
         &self,
         world: &str,
@@ -212,11 +188,6 @@ impl Storage {
         Ok(Some(value))
     }
 
-    // Limits validation and the write run atomically: concurrent upserts to the same
-    // quota scope serialize on the advisory lock so they cannot both validate against
-    // the same usage snapshot and both pass. The value arrives already serialized (the
-    // caller serialized it once for validation) and is stored verbatim; no RETURNING —
-    // the caller already has the text for the response.
     pub async fn world_upsert_with_quota(
         &self,
         world: &str,
@@ -771,7 +742,6 @@ mod tests {
         assert!(p.starts_with(&player_scope_prefix("foo.dcl.eth", "p1", Some("0xabc"))));
         assert!(p.starts_with(&player_scope_prefix("foo.dcl.eth", "p1", None)));
         assert!(!p.starts_with(&world_scene_prefix("foo.dcl.eth", "p1")));
-        // A player address is never a prefix of another scope's entries.
         assert!(!player_value_cache_key("foo.dcl.eth", "p1", "0xabcd", "k")
             .starts_with(&player_scope_prefix("foo.dcl.eth", "p1", Some("0xabc"))));
     }

@@ -2,7 +2,7 @@ mod component;
 mod query;
 mod rows;
 
-pub use component::PlacesComponent;
+pub use component::{PlacesComponent, ReportUploadOutcome};
 pub use rows::{
     CategoryTarget, PlaceListFilters, PlaceOrderBy, PlaceRow, PlaceStatusRow, PoiRow, ReportRow,
     UserInteraction,

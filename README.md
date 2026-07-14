@@ -24,35 +24,30 @@ into bundle binaries (one axum port) - see [Service bundles](#service-bundles).
 | `catalyrst-storage` | Content blob storage backends |
 | `catalyrst-db` | PostgreSQL repositories (deployments, pointers, snapshots, ...) |
 | `catalyrst-validator` | Entity / content / third-party (Merkle) validation |
-| `catalyrst-sync` | Snapshot + pointer-changes sync from a catalyst pool |
-| `catalyrst-deployer` | Deployment pipeline, GC, pointer management |
 | `catalyrst-registry` | Asset-bundle-registry surface (active-entity + AB status/versions/bundles + profiles/worlds/admin handlers) - library only; the standalone `catalyrst-ab-registry` binary is retired, now consumed by `catalyrst-create` and `catalyrst-abgen` |
-| `catalyrst-enet` | ENet reliable-UDP protocol (connect, channels, reliable/unreliable/sequenced delivery, acks, fragmentation) - foundation for `catalyrst-pulse` |
 
 ### Content / catalyst core
 
 | Crate | Ports / serves |
 |---|---|
-| `catalyrst-server` | The catalyst content-server HTTP layer (`/content`, `/lambdas`, `/about`); ships the `catalyrst-live` binary |
+| `catalyrst-server` | The catalyst content-server HTTP layer (`/content`, `/lambdas`, `/about`) plus the snapshot + pointer-changes sync pipeline (`src/sync/`); ships the `catalyrst-live` binary |
 
 ### Service crates (each a standalone binary)
 
 | Crate | Reference service it ports |
 |---|---|
-| `catalyrst-places` | `places.decentraland.org` REST (federation-aware) |
+| `catalyrst-places` | `places.decentraland.org` REST (federation-aware) + `dcl-lists` POI list / ENS banned-name denylist |
 | `catalyrst-events` | `events.decentraland.org` REST (HTTP-snapshot federation) |
 | `catalyrst-archipelago` | `archipelago-workers` - peer clustering, ws-connector, stats |
 | `catalyrst-worlds` | `worlds-content-server` - World realm `/about`, permissions, comms |
 | `catalyrst-map` | `atlas-server` - map tiles + `map.png` renderer (squid DB) |
-| `catalyrst-lists` | `dcl-lists` - curated POI list + ENS banned-name denylist |
 | `catalyrst-builder` | `builder-server` (`builder-api`) - collection items, newsletter |
 | `catalyrst-camera-reel` | `camera-reel-service` - content-addressed photo store |
-| `catalyrst-communities` | `social-service-ea` community routes (authority-chain federation) |
+| `catalyrst-social-service` | `social-service-ea` - community REST routes (authority-chain federation) + dcl-rpc WebSocket (friends, blocks, mutes, voice); bins `catalyrst-communities` and `catalyrst-social-rpc` |
 | `catalyrst-comms` | `comms-gatekeeper` - LiveKit tokens, scene bans, voice, Cast 2.0 |
 | `catalyrst-notifications` | `notifications` REST (signed-fetch reader/marker) |
 | `catalyrst-badges` | `badges` REST - profile badge state |
 | `catalyrst-media` | `autotranslate-server` - LibreTranslate-compatible `/translate` |
-| `catalyrst-social-rpc` | `social-service-ea` - dcl-rpc WebSocket (friends, blocks, mutes, voice) |
 | `catalyrst-pulse` | `Pulse` - real-time social/MMO server over ENet (sessions, rooms, presence, message routing) |
 | `catalyrst-quests` | `quests` - quests/achievements backend (REST + dcl-rpc `QuestsService` over signed-auth-chain WebSocket) |
 | `catalyrst-market` | `marketplace-server` REST (squid `marketplace` schema) |
@@ -68,14 +63,14 @@ into bundle binaries (one axum port) - see [Service bundles](#service-bundles).
 | `catalyrst-abgen` | `ab-cdn` - content-addressed AB server over abgen's output root + in-process converter |
 | `catalyrst-telemetry` | Local Sentry-envelope + Segment sinks - store client telemetry in postgres |
 | `catalyrst-governance` | `governance.decentraland.org/api` - proposals/projects/budgets/vestings/members archiver + paged read API (one-shot `backfill`, incremental `sync`, optional background poll) |
-| `catalyrst-presence` | Unified user-count history - peers/islands/hot-scenes + per-scene/per-world occupancy snapshots & history; collects from the local archipelago/comms services (replaces the umbrella archipelago/comms/worlds-membership archivers) |
+| `catalyrst-presence` | Unified user-count history - peers/islands/hot-scenes + per-scene/per-world occupancy snapshots & history; collects from the local archipelago/comms services (replaces the earlier standalone archipelago/comms/worlds-membership archivers) |
 | `catalyrst-deploy-signer` | `sdk-commands deploy`'s linker dApp - one-shot local web page that collects a wallet signature and deploys a scene/World to a content server. Second mode: `--serve-delegations` runs a long-lived authoritative-storage delegation minter (`POST /delegations`; `--delegation-ttl-secs`, default 3600). An empty/absent `--delegation-token` forces a loopback-only bind; a non-empty token enables `--bind` and gates minting behind a timing-safe bearer check |
 | `catalyrst-preview-tunnel` | HTTP tunnel for scene previews - allocates public URLs and relays requests over a bearer-authenticated trunk WebSocket |
 
 ### Service bundles
 
 Members still build/run standalone. An edge proxy terminates TLS and
-path-routes; see [`docs/deploy/runbook.md`](./docs/deploy/runbook.md).
+path-routes; see [`docs/deploy.md`](./docs/deploy.md).
 
 | Bundle binary | Port | Members |
 |---|---|---|
@@ -85,7 +80,7 @@ path-routes; see [`docs/deploy/runbook.md`](./docs/deploy/runbook.md).
 | `catalyrst-social` | 5145 | communities, comms, notifications, badges, media |
 | `catalyrst-data` | 5146 | market, economy, price, credits, rpc |
 | `catalyrst-explorer-api` | 5137 | realm-provider, auth-api, blocklist, builder-api, feature-flags |
-| `catalyrst-abgen` | 5147 | asset-bundle CDN (LOD / manifest / binaries) |
+| `abgen` | 5147 | asset-bundle CDN + AB-registry (LOD / manifest / binaries; upstream `decentraland/abgen` via the flake input) |
 | `catalyrst-social-rpc` | 5148 | dcl-rpc WebSocket (friends / voice) |
 | `catalyrst-governance` | 5151 | governance archive + read API (standalone) |
 | `catalyrst-presence` | 5152 | user-count history collector + read API (standalone) |
@@ -133,7 +128,7 @@ cargo build --release --bin catalyrst-market        # standalone marketplace (51
 On Nix/NixOS, `nix develop` provides the full toolchain; `nix build
 .#catalyrst` / `.#catalyrst-all` build pinned artifacts. Binaries land in
 `target/release/catalyrst-<name>`; see
-[`docs/deploy/runbook.md`](./docs/deploy/runbook.md) for the bundle->port map
+[`docs/deploy.md`](./docs/deploy.md) for the bundle->port map
 and per-service env files. The HTTP stack uses `rustls`, but `openssl-sys` is
 pulled transitively via the Helios consensus light-client, so a system OpenSSL
 may be needed during compilation.
@@ -146,15 +141,13 @@ Start at [docs/README.md](./docs/README.md) (index + reading order + trust polic
 |---|---|
 | Architecture - composition contract, port truth, DB ownership, external deps | [docs/architecture.md](./docs/architecture.md) |
 | Building & testing (incl. NixOS notes, flake pins, test harnesses) | [docs/build-and-test.md](./docs/build-and-test.md) |
-| Sync pipeline invariants | [docs/sync.md](./docs/sync.md) |
-| Snapshot CID convergency | [docs/snapshots.md](./docs/snapshots.md) |
+| Sync pipeline invariants + snapshot CID convergency | [docs/content-sync.md](./docs/content-sync.md) |
 | Auth-chain + EIP-1654 | [docs/auth.md](./docs/auth.md) |
 | Third-party Merkle verification | [docs/third-party-merkle.md](./docs/third-party-merkle.md) |
 | Federation (signed writes, gossip, snapshot-pull) | [docs/federation.md](./docs/federation.md) |
-| Asset-bundle server + validation gates | [docs/asset-bundles.md](./docs/asset-bundles.md) |
 | OpenAPI 3.1 spec (content core) | [docs/openapi.yaml](./docs/openapi.yaml) |
-| Deploy: bundle runbook, explorer pointing, gateway mode, nginx configs | [docs/deploy/](./docs/deploy/) |
-| Operations: postgres, networking, observability, LiveKit, admin console | [docs/operations/](./docs/operations/) |
+| Deploy: bundle runbook, explorer pointing, gateway mode | [docs/deploy.md](./docs/deploy.md) (nginx configs in [docs/deploy/](./docs/deploy/)) |
+| Operations: postgres, networking, observability, LiveKit, admin console | [docs/operations.md](./docs/operations.md) |
 
 ## Run
 

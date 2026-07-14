@@ -624,7 +624,7 @@ pub async fn collections_from_squid(
     let rows: Vec<(String, Option<String>)> = sqlx::query_as(
         "SELECT urn, name FROM squid_marketplace.collection \
          WHERE network = $1 AND urn IS NOT NULL \
-         ORDER BY urn ASC LIMIT $2",
+         ORDER BY urn COLLATE \"C\" ASC LIMIT $2",
     )
     .bind(squid_network)
     .bind(COLLECTIONS_PAGE_SIZE)

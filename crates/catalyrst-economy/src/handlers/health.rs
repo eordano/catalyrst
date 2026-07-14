@@ -20,6 +20,7 @@ pub async fn health(State(state): State<AppState>) -> (StatusCode, Json<Value>) 
         "status": if db_ok { "ok" } else { "degraded" },
         "database": db_ok,
         "relayer": relayer,
+        "usd_pegged_stale_refusals": crate::ports::oracle::stale_refusal_count(),
     });
     (status, Json(body))
 }

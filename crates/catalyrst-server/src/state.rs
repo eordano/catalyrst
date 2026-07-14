@@ -6,20 +6,30 @@ use std::time::Instant;
 use async_trait::async_trait;
 use axum::body::Body;
 use bytes::Bytes;
+use catalyrst_storage::StorageError;
 use dashmap::DashMap;
 use serde_json::Value;
 
+/// Read surface over the content store: `Ok(None)` means provably absent, `Err` a storage fault -- a fault reported as absence makes a broken node advertise itself as empty to peers.
 #[async_trait]
 pub trait ContentStorage: Send + Sync {
-    async fn retrieve(&self, hash: &str) -> Option<Bytes>;
+    async fn retrieve(&self, hash: &str) -> Result<Option<Bytes>, StorageError>;
 
-    async fn retrieve_stream(&self, hash: &str) -> Option<(Body, u64)>;
+    async fn retrieve_stream(&self, hash: &str) -> Result<Option<(Body, u64)>, StorageError>;
 
-    async fn retrieve_range(&self, hash: &str, start: u64, end: u64) -> Option<Bytes>;
+    async fn retrieve_range(
+        &self,
+        hash: &str,
+        start: u64,
+        end: u64,
+    ) -> Result<Option<Bytes>, StorageError>;
 
-    async fn file_info(&self, hash: &str) -> Option<FileInfo>;
+    async fn file_info(&self, hash: &str) -> Result<Option<FileInfo>, StorageError>;
 
-    async fn exist_multiple(&self, hashes: &[String]) -> HashMap<String, bool>;
+    async fn exist_multiple(
+        &self,
+        hashes: &[String],
+    ) -> Result<HashMap<String, bool>, StorageError>;
 }
 
 #[derive(Debug, Clone)]
@@ -295,6 +305,8 @@ pub struct AppState {
     pub read_only: AtomicBool,
 
     pub audit_pool: Option<sqlx::PgPool>,
+
+    pub content_pool: Option<sqlx::PgPool>,
 
     pub entities_cache_control_max_age: u64,
 

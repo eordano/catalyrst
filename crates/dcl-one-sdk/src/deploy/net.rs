@@ -1,6 +1,7 @@
 use super::{now_ms, DeployOptions, CATALYST_ROTATION};
 use crate::ux::{self, TrySteps, UserError};
 use anyhow::{bail, Context, Result};
+use catalyrst_crypto::Wallet;
 use serde_json::json;
 use std::collections::HashSet;
 use std::io::{IsTerminal, Write};
@@ -26,7 +27,22 @@ pub(super) async fn resolve_target(
     world: Option<&str>,
     headless: bool,
 ) -> Result<String> {
-    match (&opts.target, &opts.target_content) {
+    resolve_target_from(
+        opts.target.as_deref(),
+        opts.target_content.as_deref(),
+        world,
+        headless,
+    )
+    .await
+}
+
+pub(super) async fn resolve_target_from(
+    target: Option<&str>,
+    target_content: Option<&str>,
+    world: Option<&str>,
+    headless: bool,
+) -> Result<String> {
+    match (target, target_content) {
         (Some(_), Some(_)) => Err(UserError::new(
             "pass either --target or --target-content, not both",
             TrySteps::one("--target <catalyst-domain> resolves the content server via /about")
@@ -61,6 +77,38 @@ pub(super) async fn resolve_target(
             }
             rotation_content_url().await
         }
+    }
+}
+
+pub fn non_upstream_note(target: &str) -> Option<String> {
+    let host = host_of(target)?;
+    let upstream = CATALYST_ROTATION
+        .iter()
+        .any(|r| host_of(r).is_some_and(|h| h.eq_ignore_ascii_case(&host)));
+    if upstream {
+        None
+    } else {
+        Some(format!(
+            "publishing to {host}: this updates that network only, not Genesis City on decentraland.org"
+        ))
+    }
+}
+
+fn host_of(url: &str) -> Option<String> {
+    let rest = url.split_once("://").map_or(url, |(_, r)| r);
+    let host = rest.split(['/', '?', '#']).next().unwrap_or_default();
+    if host.is_empty() {
+        None
+    } else {
+        Some(host.to_string())
+    }
+}
+
+pub(super) fn url_path(base: &str) -> String {
+    let rest = base.split_once("://").map_or(base, |(_, r)| r);
+    match rest.find('/') {
+        Some(i) => rest[i..].to_string(),
+        None => String::new(),
     }
 }
 
@@ -212,6 +260,136 @@ async fn fetch_world_scenes(target: &str, world: &str) -> Result<Vec<WorldScene>
         .collect())
 }
 
+pub struct PermissionCheck {
+    pub allowed: bool,
+    pub denied_parcels: Vec<String>,
+}
+
+async fn check_world_deployment_permission(
+    target: &str,
+    world: &str,
+    address: &str,
+    deploying: &[String],
+) -> Result<PermissionCheck> {
+    let client = probe_client()?;
+    let base = target.trim_end_matches('/');
+    let lower = address.to_lowercase();
+    let url = format!("{base}/world/{}/permissions", encode_segment(world));
+    let resp = client.get(&url).send().await?;
+    let status = resp.status();
+    if !status.is_success() {
+        bail!("GET {url} returned HTTP {}", status.as_u16());
+    }
+    let body: serde_json::Value = resp.json().await.context("parsing the world permissions")?;
+    let granted = PermissionCheck {
+        allowed: true,
+        denied_parcels: Vec::new(),
+    };
+    if body
+        .get("owner")
+        .and_then(|o| o.as_str())
+        .is_some_and(|o| o.eq_ignore_ascii_case(address))
+    {
+        return Ok(granted);
+    }
+    if let Some(dep) = body.get("permissions").and_then(|p| p.get("deployment")) {
+        if dep.get("type").and_then(|t| t.as_str()) == Some("unrestricted") {
+            return Ok(granted);
+        }
+        let in_wallets = dep
+            .get("wallets")
+            .and_then(|w| w.as_array())
+            .is_some_and(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str())
+                    .any(|w| w.eq_ignore_ascii_case(address))
+            });
+        if in_wallets {
+            let world_wide = body
+                .get("summary")
+                .and_then(|s| s.get(&lower))
+                .and_then(|entries| entries.as_array())
+                .and_then(|arr| {
+                    arr.iter().find(|e| {
+                        e.get("permission").and_then(|p| p.as_str()) == Some("deployment")
+                    })
+                })
+                .map(|e| {
+                    e.get("world_wide")
+                        .and_then(|w| w.as_bool())
+                        .unwrap_or(false)
+                });
+            if world_wide.unwrap_or(true) {
+                return Ok(granted);
+            }
+        }
+    }
+    let url = format!(
+        "{base}/world/{}/permissions/deployment/address/{lower}/parcels",
+        encode_segment(world)
+    );
+    let resp = client.get(&url).send().await?;
+    let status = resp.status();
+    if !status.is_success() {
+        bail!("GET {url} returned HTTP {}", status.as_u16());
+    }
+    let body: serde_json::Value = resp
+        .json()
+        .await
+        .context("parsing the parcel permissions")?;
+    let allowed: HashSet<&str> = body
+        .get("parcels")
+        .and_then(|p| p.as_array())
+        .map(|arr| arr.iter().filter_map(|v| v.as_str()).collect())
+        .unwrap_or_default();
+    let denied_parcels: Vec<String> = deploying
+        .iter()
+        .filter(|p| !allowed.contains(p.as_str()))
+        .cloned()
+        .collect();
+    Ok(PermissionCheck {
+        allowed: denied_parcels.is_empty(),
+        denied_parcels,
+    })
+}
+
+pub async fn enforce_world_permission(
+    target: &str,
+    world: &str,
+    address: &str,
+    deploying: &[String],
+) -> Result<()> {
+    match check_world_deployment_permission(target, world, address, deploying).await {
+        Ok(check) if check.allowed => {
+            ux::note(format!(
+                "deploy permission on \"{world}\" verified for {address}"
+            ));
+            Ok(())
+        }
+        Ok(check) => {
+            let denied = if check.denied_parcels.is_empty() {
+                String::new()
+            } else {
+                format!(" (parcels: {})", check.denied_parcels.join(", "))
+            };
+            Err(UserError::new(
+                format!(
+                    "wallet {address} has no permission to deploy to world \"{world}\"{denied}"
+                ),
+                TrySteps::one(format!(
+                    "ask the world owner to grant it: dcl-one-sdk world permissions grant {world} deployment {address}"
+                ))
+                .and("or sign with a wallet that owns the world"),
+            )
+            .into())
+        }
+        Err(e) => {
+            tracing::warn!("could not verify deployment permissions: {e:#}");
+            Ok(())
+        }
+    }
+}
+
 pub fn scenes_on_other_parcels<'a>(
     existing: &'a [WorldScene],
     deploying: &[String],
@@ -319,7 +497,11 @@ pub fn encode_segment(s: &str) -> String {
     out
 }
 
-pub async fn send_world_delete(target: &str, world: &str, chain: &serde_json::Value) -> Result<()> {
+async fn world_delete_request(
+    target: &str,
+    world: &str,
+    chain: &serde_json::Value,
+) -> Result<(u16, String)> {
     let links = chain.as_array().cloned().unwrap_or_default();
     let payload = links
         .last()
@@ -342,31 +524,89 @@ pub async fn send_world_delete(target: &str, world: &str, chain: &serde_json::Va
         Ok(resp) => resp,
         Err(e) => return Err(unreachable_server(&url, e)),
     };
-    let status = resp.status();
+    let status = resp.status().as_u16();
     let body = resp.text().await.unwrap_or_default();
-    if status.is_success() {
+    Ok((status, body))
+}
+
+fn world_delete_refused(world: &str, status: u16, body: &str) -> anyhow::Error {
+    let mut u = UserError::new(
+        format!(
+            "the content server refused to delete the existing scenes in {world} (HTTP {status})"
+        ),
+        TrySteps::one(
+            "use --multi-scene to deploy alongside existing scenes without deleting them",
+        )
+        .and("check the signing wallet has permission on the world"),
+    );
+    let body = body.trim();
+    if !body.is_empty() {
+        u = u.why(body);
+    }
+    u.into()
+}
+
+pub async fn send_world_delete(target: &str, world: &str, chain: &serde_json::Value) -> Result<()> {
+    let (status, body) = world_delete_request(target, world, chain).await?;
+    if (200..300).contains(&status) {
         ux::note(format!(
-            "removed the existing scenes in {world} (HTTP {})",
-            status.as_u16()
+            "removed the existing scenes in {world} (HTTP {status})"
         ));
         Ok(())
     } else {
-        let mut u = UserError::new(
-            format!(
-                "the content server refused to delete the existing scenes in {world} (HTTP {})",
-                status.as_u16()
-            ),
-            TrySteps::one(
-                "use --multi-scene to deploy alongside existing scenes without deleting them",
-            )
-            .and("check the signing wallet has permission on the world"),
-        );
-        let body = body.trim();
-        if !body.is_empty() {
-            u = u.why(body);
-        }
-        Err(u.into())
+        Err(world_delete_refused(world, status, &body))
     }
+}
+
+pub(super) async fn delete_world_scenes(target: &str, world: &str, wallet: &Wallet) -> Result<()> {
+    let payload = build_delete_payload(world);
+    let chain = catalyrst_crypto::create_simple_auth_chain(wallet, &payload)
+        .context("EIP-191 sign of the scene-removal payload")?;
+    let (status, body) = world_delete_request(target, world, &chain).await?;
+    if (200..300).contains(&status) {
+        ux::note(format!(
+            "removed the existing scenes in {world} (HTTP {status})"
+        ));
+        return Ok(());
+    }
+    if status == 404 || status == 405 {
+        return delete_scenes_per_coord(target, world, wallet).await;
+    }
+    Err(world_delete_refused(world, status, &body))
+}
+
+async fn delete_scenes_per_coord(target: &str, world: &str, wallet: &Wallet) -> Result<()> {
+    let scenes = fetch_world_scenes(target, world)
+        .await
+        .context("listing the world scenes for per-scene removal")?;
+    let client = upload_client()?;
+    let mut removed = 0usize;
+    for scene in &scenes {
+        let Some(parcel) = scene.parcels.first() else {
+            continue;
+        };
+        let suffix = format!("/world/{}/scenes/{parcel}", encode_segment(world));
+        let path = format!("{}{suffix}", url_path(target));
+        let url = format!("{target}{suffix}");
+        let mut req = client.delete(&url);
+        for (k, v) in crate::world::signed_headers(wallet, "delete", &path)? {
+            req = req.header(k, v);
+        }
+        let resp = match req.send().await {
+            Ok(resp) => resp,
+            Err(e) => return Err(unreachable_server(&url, e)),
+        };
+        let status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+        if !status.is_success() {
+            return Err(world_delete_refused(world, status.as_u16(), &body));
+        }
+        removed += 1;
+    }
+    ux::note(format!(
+        "removed {removed} existing scene(s) in {world} via the per-scene route"
+    ));
+    Ok(())
 }
 
 pub async fn upload_entity(

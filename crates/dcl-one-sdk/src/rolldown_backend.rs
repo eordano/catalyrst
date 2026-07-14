@@ -1,7 +1,7 @@
 use crate::esbuild::EsbuildOptions;
 use crate::scene::Project;
 use crate::ux::{TrySteps, UserError};
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, Result};
 use rolldown::Bundler;
 use rolldown_common::{
     BundlerOptions, BundlerTransformOptions, ChecksOptions, Either, InputItem, IsExternal,
@@ -9,7 +9,7 @@ use rolldown_common::{
 };
 use rolldown_utils::indexmap::FxIndexMap;
 use rolldown_utils::pattern_filter::StringOrRegex;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 pub async fn run(project: &Project, opts: &EsbuildOptions) -> Result<()> {
     let mut bundler = Bundler::new(bundler_options(project, opts)?).map_err(|e| {
@@ -36,9 +36,6 @@ pub async fn run(project: &Project, opts: &EsbuildOptions) -> Result<()> {
             continue;
         }
         tracing::warn!("rolldown {kind}: {warning}");
-    }
-    if opts.production {
-        patch_source_root(&opts.outfile)?;
     }
     Ok(())
 }
@@ -70,11 +67,11 @@ fn bundler_options(project: &Project, opts: &EsbuildOptions) -> Result<BundlerOp
             ..Default::default()
         }),
         minify: Some(RawMinifyOptions::Bool(opts.production)),
-        sourcemap: Some(if opts.production {
-            SourceMapType::Hidden
+        sourcemap: if opts.production {
+            None
         } else {
-            SourceMapType::Inline
-        }),
+            Some(SourceMapType::Inline)
+        },
         ..Default::default()
     })
 }
@@ -132,23 +129,4 @@ fn defines(production: bool) -> FxIndexMap<String, String> {
     m.insert("globalThis.DEBUG".to_string(), debug.to_string());
     m.insert("process.env.NODE_ENV".to_string(), env.to_string());
     m
-}
-
-fn patch_source_root(outfile: &Path) -> Result<()> {
-    let map_path = PathBuf::from(format!("{}.map", outfile.display()));
-    if !map_path.exists() {
-        return Ok(());
-    }
-    let raw = std::fs::read_to_string(&map_path)
-        .with_context(|| format!("reading {}", map_path.display()))?;
-    let mut map: serde_json::Value =
-        serde_json::from_str(&raw).with_context(|| format!("parsing {}", map_path.display()))?;
-    if let Some(obj) = map.as_object_mut() {
-        obj.insert(
-            "sourceRoot".to_string(),
-            serde_json::Value::String("dcl:///".to_string()),
-        );
-    }
-    std::fs::write(&map_path, serde_json::to_string(&map)?)
-        .with_context(|| format!("writing {}", map_path.display()))
 }
