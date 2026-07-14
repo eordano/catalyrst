@@ -1,0 +1,84 @@
+{
+  "_source": "https://raw.githubusercontent.com/decentraland/governance-ui/main/src/pages/submit/council-decision-veto.tsx \u2014 the live DAO governance dapp Submit-Council-Decision-Veto page. Copy is verbatim from src/intl/en.json (page.submit_council_decision_veto.*, page.submit.* and error.council_decision_veto.*). The proposal payload shape + validation come from src/types/proposals.ts (NewProposalCouncilDecisionVeto { decision_snapshot_id, reasons, suggestions?, coAuthors? }; newProposalCouncilDecisionVetoScheme: reasons minLength 20 maxLength 3500, suggestions minLength 20 maxLength 3500, required ['decision_snapshot_id','reasons','suggestions']). The submission VP gate is SUBMISSION_THRESHOLD_COUNCIL_DECISION_VETO (config; example .env values for other proposal types default to 100, so a sample 2500 floor is used here for the VP-not-met copy demo \u2014 the gate copy/behaviour is what matters, not the number). getSnapshotIdFromUrl() in the page extracts the snapshot proposal id from the decision URL hash. Decentraland governance is NOT a Catalyst service (the DAO runs on Snapshot + Aragon externally \u2014 confirmed by a catalyrst crate scan: no governance route), and decentraland/governance repo paths 404, so the createProposalCouncilDecisionVeto call is SIMULATED here. No remote calls are made; the copy/validation/flow are faithful, the final submit is a clearly-noted stub.",
+  "proposal_type": "council_decision_veto",
+  "submit_label": "Submit proposal",
+  "optional_tooltip": "(optional)",
+  "character_counter": "({current} out of {limit} characters)",
+  "error_label": "There was an error while trying to create the proposal, please try again later.",
+  "submission_threshold": 2500,
+  "council_snapshot_space": "https://snapshot.org/#/dao-council.dcl.eth",
+  "decision_max_age_days": 14,
+  "copy": {
+    "title": "Council Decision Veto",
+    "description": "Allows the community to challenge and veto recent decisions made by the DAO Council through a governance vote."
+  },
+  "fields": {
+    "decision_snapshot_id": {
+      "name": "decision_snapshot_id",
+      "label": "DAO Council Decision (URL)",
+      "detail": "This field requires the URL of the DAO Council decision from the Council Snapshot Space. It validates two conditions: 1. The URL must belong to the Council Snapshot Space. 2. The proposal must have been closed no more than 14 days before this veto proposal is created.",
+      "placeholder": "URL of the Council decision you want to veto (must be from the Council Snapshot Space).",
+      "required": true,
+      "format": "url",
+      "errors": {
+        "empty": "Council Decision URL is empty",
+        "invalid": "Couldn't read a Council decision from that URL. Use a link from the Council Snapshot Space."
+      }
+    },
+    "reasons": {
+      "name": "reasons",
+      "label": "Reasons to Veto",
+      "detail": "Explain why you believe this decision should be vetoed. Consider including potential issues, inconsistencies, or negative impacts.",
+      "markdown": true,
+      "required": true,
+      "min_length": 20,
+      "max_length": 3500,
+      "errors": {
+        "empty": "Please provide a reason for vetoing this decision",
+        "too_short": "Reasons field is too short",
+        "too_large": "Reasons field is too large"
+      }
+    },
+    "suggestions": {
+      "name": "suggestions",
+      "label": "Suggestions to the Council",
+      "detail": "Share your suggestions or alternative recommendations for the Council regarding this decision.",
+      "markdown": true,
+      "optional": true,
+      "min_length": 20,
+      "max_length": 3500,
+      "errors": {
+        "empty": "Please provide suggestions for the Council",
+        "too_short": "Suggestions field is too short",
+        "too_large": "Suggestions field is too large"
+      }
+    },
+    "coAuthors": {
+      "name": "coAuthors",
+      "label": "Co-authors",
+      "detail": "If you co-authored this proposal with someone else, you can add their wallet addresses to acknowledge their work. After you publish the proposal, co-authors will be asked to confirm or reject the request. Only if they confirm, they will be listed publicly on the proposal page.",
+      "optional": true,
+      "max": 5,
+      "address_length": 42,
+      "placeholder": "Enter a wallet address"
+    }
+  },
+  "vp_not_met_template": "This action requires at least {threshold} VP.",
+  "submit_error": "There was an error while trying to create the proposal, please try again later.",
+  "account": {
+    "address": "",
+    "label": "",
+    "votingPower": 0
+  },
+  "sample_decision": {
+    "url": "https://snapshot.org/#/dao-council.dcl.eth/proposal/0x6f70a96c9b8c1b8f0e4d2a5c1c3e7d9f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d",
+    "snapshot_id": "0x6f70a96c9b8c1b8f0e4d2a5c1c3e7d9f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d",
+    "title": "Council Decision \u2014 Grant request review (sample)",
+    "closed_days_ago": 3
+  },
+  "success": {
+    "title": "Proposal created",
+    "lead": "Your Council Decision Veto proposal is now live for the DAO to vote on.",
+    "note": "This proposal was created in a simulation \u2014 no on-chain transaction or Snapshot proposal was submitted."
+  }
+}

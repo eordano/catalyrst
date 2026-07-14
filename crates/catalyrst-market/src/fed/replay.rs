@@ -86,17 +86,6 @@ impl Replay {
             }
         }
 
-        let exists: Option<(i64,)> =
-            sqlx::query_as("SELECT 1 FROM market_seen_nonces WHERE signer = $1 AND nonce = $2")
-                .bind(&signer_key)
-                .bind(&nonce_hex)
-                .fetch_optional(&self.pool)
-                .await
-                .map_err(|e| FedError::Transport(e.to_string()))?;
-        if exists.is_some() {
-            return Err(FedError::DuplicateNonce { signer: signer_key });
-        }
-
         let expires_at = signed_at + MAX_SKEW_PAST_SECS;
 
         let res = sqlx::query(

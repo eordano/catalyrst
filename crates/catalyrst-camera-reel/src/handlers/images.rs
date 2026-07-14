@@ -80,7 +80,7 @@ pub async fn upload_image(
 
     finalize_upload(
         &state,
-        &address,
+        address.as_str(),
         image_bytes,
         image_content_type,
         metadata,
@@ -117,7 +117,7 @@ pub async fn upload_image_json(
 
     finalize_upload(
         &state,
-        &address,
+        address.as_str(),
         image_bytes,
         Some(req.content_type),
         req.metadata,
@@ -225,7 +225,7 @@ pub async fn delete_image(
         .await
         .map_err(|_| ApiError::NotFound("image not found".to_string()))?;
 
-    if !image.user_address.eq_ignore_ascii_case(&address) {
+    if !image.user_address.eq_ignore_ascii_case(address.as_str()) {
         return Err(ApiError::Forbidden("forbidden".to_string()));
     }
 
@@ -272,7 +272,7 @@ pub async fn update_image_visibility(
         .await
         .map_err(|_| ApiError::NotFound("image not found".to_string()))?;
 
-    if !image.user_address.eq_ignore_ascii_case(&address) {
+    if !image.user_address.eq_ignore_ascii_case(address.as_str()) {
         return Err(ApiError::Forbidden("forbidden".to_string()));
     }
 

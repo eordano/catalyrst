@@ -23,9 +23,11 @@
     enableComms = false;
 
     realmName = "my-realm";
-    syncSource = [
-      "https://peer.decentraland.org/content"
-      "https://peer-eu1.decentraland.org/content"
-    ];
+    ethRpcUrl = "http://127.0.0.1:8545";
+    commsGatekeeperUrl = "http://127.0.0.1:5138";
+
+    # Catalyst content servers to sync from. Empty means "sync from nothing";
+    # name the peers of the network you actually intend to mirror.
+    syncSource = [ ];
   };
 }

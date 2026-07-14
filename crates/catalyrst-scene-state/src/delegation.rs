@@ -1,9 +1,3 @@
-// Consumer side of the world-scoped authoritative storage delegation verified by
-// catalyrst-world-storage/src/delegation.rs. The envelope is minted by
-// catalyrst-deploy-signer (--serve-delegations) so the authoritative key never
-// enters this process; scenes only ever see fetch RESULTS, never the ephemeral
-// key or signed headers.
-
 use std::sync::Arc;
 
 use anyhow::{anyhow, bail, Context, Result};
@@ -36,7 +30,6 @@ pub struct StorageDelegation {
     pub scope_header: String,
 }
 
-// Manual Debug: the ephemeral wallet (key material) must never reach logs.
 impl std::fmt::Debug for StorageDelegation {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("StorageDelegation")
@@ -67,10 +60,6 @@ fn claim_field(payload: &str, prefix: &str) -> Option<String> {
         .filter(|s| !s.is_empty())
 }
 
-// Every scope field is DERIVED from the signed scope.payload — the unsigned
-// envelope only contributes the ephemeral key material, so tampering with
-// unsigned copies cannot widen the scope. Returns None on any malformation;
-// callers must log only fixed messages (the decoded JSON contains a private key).
 pub fn parse_storage_delegation(encoded: &str) -> Option<StorageDelegation> {
     let decoded = BASE64.decode(encoded.trim()).ok()?;
     let value: serde_json::Value = serde_json::from_slice(&decoded).ok()?;
@@ -155,8 +144,6 @@ pub async fn mint_from_minter(
     let delegation = parse_storage_delegation(encoded)
         .ok_or_else(|| anyhow!("delegation minter returned an unparseable delegation"))?;
 
-    // No silent rebind: a minter answer scoped to anything but the requested
-    // scene is discarded.
     if delegation.world != world.to_lowercase()
         || delegation.scene_id != scene_id
         || delegation.parcel != parcel
@@ -166,9 +153,6 @@ pub async fn mint_from_minter(
     Ok(delegation)
 }
 
-// Per-scene renewal task: wakes at expiration - REFRESH_BUFFER or on demand from
-// the fetch worker, mints once per wake (single-flight; queued requests coalesce),
-// and keeps the current slot value on mint failure.
 #[allow(clippy::too_many_arguments)]
 pub async fn renewal_loop(
     http: reqwest::Client,
@@ -244,7 +228,9 @@ pub async fn renewal_loop(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use catalyrst_world_storage::delegation::{verify_storage_delegation, StorageDelegationTarget};
+    use catalyrst_worlds::world_storage::delegation::{
+        verify_storage_delegation, StorageDelegationTarget,
+    };
     use chrono::Duration;
 
     const AUTHORITATIVE_KEY: &str =
@@ -331,7 +317,7 @@ mod tests {
     fn scope_header_verifies_against_the_real_world_storage_verifier() {
         assert_eq!(
             MAX_SCOPE_HEADER_LENGTH,
-            catalyrst_world_storage::delegation::MAX_SCOPE_HEADER_LENGTH
+            catalyrst_worlds::world_storage::delegation::MAX_SCOPE_HEADER_LENGTH
         );
         let authoritative = Wallet::from_hex(AUTHORITATIVE_KEY).unwrap();
         let trusted = vec![authoritative.address()];
@@ -389,8 +375,6 @@ mod tests {
         )
         .is_err());
 
-        // Signed by a non-authoritative key: parses fine here, but the verifier
-        // rejects it.
         let rogue = Wallet::from_hex(EPHEMERAL2_KEY).unwrap();
         let eph = Wallet::from_hex(EPHEMERAL_KEY).unwrap();
         let payload = claim_payload(
@@ -449,18 +433,12 @@ mod tests {
         let signature = authoritative.sign_message(payload.as_bytes()).unwrap();
 
         let cases: Vec<serde_json::Value> = vec![
-            // v != 1
             serde_json::json!({ "v": 2, "ephemeral": { "privateKey": EPHEMERAL_KEY, "publicKey": "0x04", "address": eph.address() }, "scope": { "payload": payload, "signature": signature } }),
-            // missing v
             serde_json::json!({ "ephemeral": { "privateKey": EPHEMERAL_KEY, "publicKey": "0x04", "address": eph.address() }, "scope": { "payload": payload, "signature": signature } }),
-            // non-string ephemeral fields
             serde_json::json!({ "v": 1, "ephemeral": { "privateKey": 1, "publicKey": "0x04", "address": eph.address() }, "scope": { "payload": payload, "signature": signature } }),
             serde_json::json!({ "v": 1, "ephemeral": { "privateKey": EPHEMERAL_KEY, "publicKey": null, "address": eph.address() }, "scope": { "payload": payload, "signature": signature } }),
-            // privateKey/address mismatch
             serde_json::json!({ "v": 1, "ephemeral": { "privateKey": EPHEMERAL2_KEY, "publicKey": "0x04", "address": eph.address() }, "scope": { "payload": payload, "signature": signature } }),
-            // missing scope
             serde_json::json!({ "v": 1, "ephemeral": { "privateKey": EPHEMERAL_KEY, "publicKey": "0x04", "address": eph.address() } }),
-            // scope payload not a string
             serde_json::json!({ "v": 1, "ephemeral": { "privateKey": EPHEMERAL_KEY, "publicKey": "0x04", "address": eph.address() }, "scope": { "payload": 5, "signature": signature } }),
         ];
         for (i, env) in cases.iter().enumerate() {
@@ -470,7 +448,6 @@ mod tests {
             );
         }
 
-        // wrong prefix, missing expiration, non-RFC3339 expiration
         for bad_payload in [
             format!("wrong prefix\nEphemeral: {}", eph.address()),
             format!(
@@ -487,7 +464,6 @@ mod tests {
             );
         }
 
-        // claim ephemeral not matching the envelope key
         let other = Wallet::from_hex(EPHEMERAL2_KEY).unwrap();
         let mismatched = claim_payload(&other.address(), WORLD, SCENE_ID, PARCEL, &exp);
         let sig = authoritative.sign_message(mismatched.as_bytes()).unwrap();
@@ -561,7 +537,6 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn renewal_keeps_the_slot_when_the_minter_rebinds_or_is_down() {
-        // H5: the minter answers for a DIFFERENT scene — slot unchanged.
         let rebind = mint(EPHEMERAL2_KEY, WORLD, "bafkreiother", PARCEL, 3600);
         let (minter, _hits) = serve_minter(serde_json::json!({ "delegation": rebind })).await;
 
@@ -594,7 +569,6 @@ mod tests {
         );
         task.abort();
 
-        // Minter down: request answered, slot unchanged.
         let slot2: DelegationSlot = Arc::new(Mutex::new(Some(
             parse_storage_delegation(&mint(EPHEMERAL_KEY, WORLD, SCENE_ID, PARCEL, 60)).unwrap(),
         )));

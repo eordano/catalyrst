@@ -1,0 +1,249 @@
+{
+  "sid": "story-sid",
+  "address": "0x4f7fe261619141ffa63fefee35bba886581292f4",
+  "own": false,
+  "tab": "overview",
+  "source": "live",
+  "profileFallback": false,
+  "hasClaimedName": true,
+  "profile": {
+    "address": "0x4f7fe261619141ffa63fefee35bba886581292f4",
+    "name": "METATIGER",
+    "hasClaimedName": true,
+    "nameColor": "#ffbd40",
+    "mutualCount": 0,
+    "bio": "Hi, I'm METATIGER, Decentraland's most furry homie and artist. I create wearables for myself and others, like to party and have a passion for virtual Farming in DCL. Visit my parcel at -134,93 or my worlds at \"amiga\", \"faerghail\", \"metatiger\", \"nightlounge\", \"tropical\", \"tigerscave\", \"doriangray\"\u000b\u000bPlease check out my current Game at world \"tigerfarm\", just type \"/goto tigerfarm\" in chat to play",
+    "accountUrl": "https://catalyst.example.com/shop",
+    "info": [
+      {
+        "key": "country",
+        "label": "Country",
+        "value": "Germany",
+        "icon": "globe"
+      },
+      {
+        "key": "language",
+        "label": "Language",
+        "value": "German",
+        "icon": "translate"
+      },
+      {
+        "key": "pronouns",
+        "label": "Pronouns",
+        "value": "He / Him",
+        "icon": "pronouns"
+      },
+      {
+        "key": "gender",
+        "label": "Gender",
+        "value": "Tiger",
+        "icon": "gender"
+      },
+      {
+        "key": "profession",
+        "label": "Profession",
+        "value": "IT Engineer",
+        "icon": "games"
+      },
+      {
+        "key": "favorite_hobby",
+        "label": "Favorite hobby",
+        "value": "Coding, Rabbits",
+        "icon": "heart"
+      }
+    ],
+    "links": [
+      {
+        "title": "My Giveaways",
+        "url": "https://giveaway.metatiger.art"
+      },
+      {
+        "title": "My Homepage",
+        "url": "https://www.metatiger.art"
+      },
+      {
+        "title": "Discord",
+        "url": "https://www.discord.com/users/metatiger"
+      },
+      {
+        "title": "Twitter / X",
+        "url": "https://twitter.com/DCLMETATIGER"
+      }
+    ],
+    "equipped": []
+  },
+  "creations": {
+    "wearables": [
+      {
+        "id": "0x479b656ea58fce1eb01196abc909652424af2d28-0",
+        "name": "Born to be Free",
+        "creator": "METATIGER",
+        "price": "17.76",
+        "rarity": "epic",
+        "category": "upper_body",
+        "body": "unisex",
+        "smart": false
+      },
+      {
+        "id": "0x3c17ed856ca12d6ac8d623482f0551b47bb1fa62-0",
+        "name": "Lights of Liberty",
+        "creator": "METATIGER",
+        "price": "17.76",
+        "rarity": "epic",
+        "category": "hands_wear",
+        "body": "unisex",
+        "smart": false
+      },
+      {
+        "id": "0x8ce457f89106d08e664e7c090e178cc9d709e4ed-0",
+        "name": "METATIGER Hoodie",
+        "creator": "METATIGER",
+        "price": "0",
+        "rarity": "epic",
+        "category": "upper_body",
+        "body": "unisex",
+        "smart": false
+      },
+      {
+        "id": "0x916a896318f2ac178862c7ebfd072b39a6b438cd-0",
+        "name": "Santa's Hat 2025",
+        "creator": "METATIGER",
+        "price": "10",
+        "rarity": "epic",
+        "category": "hat",
+        "body": "unisex",
+        "smart": false
+      },
+      {
+        "id": "0x007fab9bc5fed783a06484995770666bfb1a1549-0",
+        "name": "Smiley Tears \ud83d\ude02",
+        "creator": "METATIGER",
+        "price": "10",
+        "rarity": "epic",
+        "category": "helmet",
+        "body": "unisex",
+        "smart": false
+      },
+      {
+        "id": "0x007fab9bc5fed783a06484995770666bfb1a1549-1",
+        "name": "Smiley Cool \ud83d\ude0e",
+        "creator": "METATIGER",
+        "price": "10",
+        "rarity": "epic",
+        "category": "helmet",
+        "body": "unisex",
+        "smart": false
+      },
+      {
+        "id": "0x007fab9bc5fed783a06484995770666bfb1a1549-2",
+        "name": "Smiley Star \ud83e\udd29",
+        "creator": "METATIGER",
+        "price": "10",
+        "rarity": "epic",
+        "category": "helmet",
+        "body": "unisex",
+        "smart": false
+      },
+      {
+        "id": "0x007fab9bc5fed783a06484995770666bfb1a1549-3",
+        "name": "Smiley Love \ud83d\ude0d",
+        "creator": "METATIGER",
+        "price": "10",
+        "rarity": "epic",
+        "category": "helmet",
+        "body": "unisex",
+        "smart": false
+      }
+    ],
+    "emotes": [
+      {
+        "id": "0x83abf049009fdbfd093c17a0f0e8ea48740757a8-0",
+        "name": "Raveballoon",
+        "creator": "METATIGER",
+        "price": null,
+        "rarity": "epic",
+        "category": null,
+        "body": null,
+        "smart": false
+      },
+      {
+        "id": "0x83abf049009fdbfd093c17a0f0e8ea48740757a8-1",
+        "name": "Raveballoon DCL",
+        "creator": "METATIGER",
+        "price": "50",
+        "rarity": "legendary",
+        "category": null,
+        "body": null,
+        "smart": false
+      },
+      {
+        "id": "0x83abf049009fdbfd093c17a0f0e8ea48740757a8-2",
+        "name": "Raveballoon Glitter RGB",
+        "creator": "METATIGER",
+        "price": null,
+        "rarity": "exotic",
+        "category": null,
+        "body": null,
+        "smart": false
+      },
+      {
+        "id": "0x827d203017351c55bf5b996ef87f4f8d56953954-0",
+        "name": "Heart Thrower",
+        "creator": "METATIGER",
+        "price": "1,000,000",
+        "rarity": "legendary",
+        "category": null,
+        "body": null,
+        "smart": false
+      },
+      {
+        "id": "0x754fc6d73cb7e5bef7770e5774c457034d3fe0bb-0",
+        "name": "Mofyah",
+        "creator": "METATIGER",
+        "price": "60",
+        "rarity": "legendary",
+        "category": null,
+        "body": null,
+        "smart": false
+      },
+      {
+        "id": "0x754fc6d73cb7e5bef7770e5774c457034d3fe0bb-1",
+        "name": "Bubblegun",
+        "creator": "METATIGER",
+        "price": "40",
+        "rarity": "legendary",
+        "category": null,
+        "body": null,
+        "smart": false
+      },
+      {
+        "id": "0x17629d9a2db80955a083c0e14a2f67efdeb1d841-0",
+        "name": "Tigerhorse",
+        "creator": "METATIGER",
+        "price": null,
+        "rarity": "unique",
+        "category": null,
+        "body": null,
+        "smart": false
+      },
+      {
+        "id": "0xbd3d797a6efe7f9b48b824973a98d0dc271965ae-0",
+        "name": "Santa's Dance",
+        "creator": "METATIGER",
+        "price": "20",
+        "rarity": "legendary",
+        "category": null,
+        "body": null,
+        "smart": false
+      }
+    ]
+  },
+  "creationsFallback": false,
+  "places": [],
+  "photos": [],
+  "photosFallback": false,
+  "assets": {
+    "wearables": [],
+    "names": []
+  }
+}

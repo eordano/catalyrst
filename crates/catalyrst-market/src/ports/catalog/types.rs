@@ -41,13 +41,6 @@ impl CatalogSortDirection {
             _ => return None,
         })
     }
-
-    pub fn as_sql(self) -> &'static str {
-        match self {
-            Self::Asc => "asc",
-            Self::Desc => "desc",
-        }
-    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
@@ -131,7 +124,8 @@ pub struct PickStats {
     pub count: i64,
     #[serde(rename = "itemId")]
     pub item_id: String,
-    #[serde(rename = "pickedByUser", skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "pickedByUser")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub picked_by_user: Option<bool>,
 }
@@ -182,7 +176,8 @@ pub struct CatalogItem {
     #[serde(rename = "soldAt")]
     #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub sold_at: i64,
-    #[serde(rename = "minPrice", skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "minPrice")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub min_price: Option<String>,
     #[serde(rename = "maxListingPrice")]
@@ -225,6 +220,4 @@ pub(super) struct DbRow {
     pub(super) listings_count: Option<i64>,
     pub(super) owners_count: Option<i64>,
     pub(super) min_price: Option<String>,
-    #[allow(dead_code)]
-    pub(super) max_price: Option<String>,
 }

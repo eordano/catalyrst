@@ -6,6 +6,14 @@ use axum::response::Response;
 
 const ALLOW_METHODS: &str = "GET,HEAD,POST,PUT,DELETE,PATCH,OPTIONS";
 
+// Fallback for preflights that carry no Access-Control-Request-Headers.
+// When the request names its headers we REFLECT them instead (like the nginx
+// _cors.inc this replaces at the transparent-front cutover): auth chains are
+// open-ended — X-Identity-Auth-Chain-N grows with delegation depth and
+// smart-wallet (EIP-1654) links, so any enumerated list is a ceiling that
+// breaks signed login for someone. Upstream verification reads the headers by
+// prefix, unbounded; upstream's own CORS list omits X-Identity-* entirely,
+// which we already deliberately diverge from (see conformance cors fixtures).
 const ALLOW_HEADERS: &str = "Cache-Control,Content-Type,Origin,Accept,User-Agent,X-Upload-Origin,Range,If-None-Match,If-Modified-Since,X-Identity-Timestamp,X-Identity-Metadata,X-Identity-Auth-Chain-0,X-Identity-Auth-Chain-1,X-Identity-Auth-Chain-2,X-Identity-Auth-Chain-3";
 const MAX_AGE: &str = "86400";
 
@@ -31,6 +39,10 @@ pub async fn cors_middleware(req: Request, next: Next) -> Response {
         .and_then(|v| v.to_str().ok())
         .map(str::to_owned);
     let is_preflight = req.method() == Method::OPTIONS;
+    let requested_headers = req
+        .headers()
+        .get(header::ACCESS_CONTROL_REQUEST_HEADERS)
+        .cloned();
 
     if is_preflight {
         let mut resp = Response::builder()
@@ -44,7 +56,7 @@ pub async fn cors_middleware(req: Request, next: Next) -> Response {
         );
         h.insert(
             header::ACCESS_CONTROL_ALLOW_HEADERS,
-            HeaderValue::from_static(ALLOW_HEADERS),
+            requested_headers.unwrap_or(HeaderValue::from_static(ALLOW_HEADERS)),
         );
         h.insert(
             header::ACCESS_CONTROL_MAX_AGE,

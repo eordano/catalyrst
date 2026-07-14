@@ -1,8 +1,12 @@
 [package]
 name = "catalyrst-validator"
-version = "0.9.10"
+version = "0.15.1"
 edition = "2021"
 description = "Rust port of the Decentraland catalyst content validator (@dcl/content-validator)"
+
+[package.metadata.generated]
+gate = "sites/scripts/gen-ts-check.sh"
+ts-bindings = "ui3/src/generated/catalyst/validator"
 
 [dependencies]
 catalyrst-types = { workspace = true }
@@ -13,8 +17,11 @@ thiserror = { workspace = true }
 tracing = { workspace = true }
 tokio = { workspace = true }
 async-trait = { workspace = true }
-futures = { workspace = true }
 sqlx = { workspace = true }
 reqwest = { workspace = true }
-ethers-core = "2.0.14"
+alloy-primitives = { workspace = true }
 hex = "0.4"
+ts-rs = { workspace = true, optional = true }
+
+[features]
+ts = ["dep:ts-rs"]

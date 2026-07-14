@@ -1,4 +1,4 @@
-use alloy::primitives::U256;
+use alloy::primitives::{Address, U256};
 use alloy::sol;
 use alloy::sol_types::SolCall;
 
@@ -40,6 +40,16 @@ sol! {
     function getNonce(address user) external view returns (uint256 nonce);
 }
 
+pub mod combined_sig {
+    alloy::sol! {
+        function executeMetaTransaction(
+            address userAddress,
+            bytes functionData,
+            bytes signature
+        ) external returns (bytes);
+    }
+}
+
 pub const ERC721_TRANSFER_TOPIC0: [u8; 32] = [
     0xdd, 0xf2, 0x52, 0xad, 0x1b, 0xe2, 0xc8, 0x9b, 0x69, 0xc2, 0xb0, 0x68, 0xfc, 0x37, 0x8d, 0xaa,
     0x95, 0x2b, 0xa7, 0xf1, 0x63, 0xc4, 0xa1, 0x16, 0x28, 0xf5, 0x5a, 0x4d, 0xf5, 0x23, 0xb3, 0xef,
@@ -68,6 +78,15 @@ pub fn decode_meta_tx(full_data: &[u8]) -> Option<Vec<u8>> {
     executeMetaTransactionCall::abi_decode(full_data)
         .ok()
         .map(|c| c.functionSignature.to_vec())
+}
+
+pub fn decode_meta_tx_user_address(full_data: &[u8]) -> Option<Address> {
+    if let Ok(call) = executeMetaTransactionCall::abi_decode(full_data) {
+        return Some(call.userAddress);
+    }
+    combined_sig::executeMetaTransactionCall::abi_decode(full_data)
+        .ok()
+        .map(|call| call.userAddress)
 }
 
 pub fn get_sale_price(full_data: &[u8], kind: SaleKind) -> Option<U256> {
@@ -106,6 +125,52 @@ mod tests {
         assert!(!is_execute_meta_tx(&[0xa9, 0x05, 0x9c, 0xbb]));
         assert!(!is_execute_meta_tx(&[0x0c, 0x53, 0xc5]));
         assert!(!is_execute_meta_tx(&[]));
+    }
+
+    #[test]
+    fn accepted_selectors_are_the_two_execute_meta_tx_overloads() {
+        assert_eq!(
+            <executeMetaTransactionCall as SolCall>::SELECTOR,
+            EXEC_META_TX_SELECTORS[0]
+        );
+        assert_eq!(
+            <combined_sig::executeMetaTransactionCall as SolCall>::SELECTOR,
+            EXEC_META_TX_SELECTORS[1]
+        );
+    }
+
+    #[test]
+    fn recovers_the_signed_user_address_from_both_overloads() {
+        let user = alloy::primitives::address!("0x2222222222222222222222222222222222222222");
+
+        let split = executeMetaTransactionCall {
+            userAddress: user,
+            functionSignature: alloy::primitives::Bytes::from_static(&[0xaa]),
+            sigR: alloy::primitives::FixedBytes::<32>::repeat_byte(0x11),
+            sigS: alloy::primitives::FixedBytes::<32>::repeat_byte(0x22),
+            sigV: 27,
+        }
+        .abi_encode();
+        assert!(is_execute_meta_tx(&split));
+        assert_eq!(decode_meta_tx_user_address(&split), Some(user));
+
+        let combined = combined_sig::executeMetaTransactionCall {
+            userAddress: user,
+            functionData: alloy::primitives::Bytes::from_static(&[0xaa]),
+            signature: alloy::primitives::Bytes::from_static(&[0x33; 65]),
+        }
+        .abi_encode();
+        assert!(is_execute_meta_tx(&combined));
+        assert_eq!(decode_meta_tx_user_address(&combined), Some(user));
+    }
+
+    #[test]
+    fn refuses_to_invent_a_user_address_for_undecodable_calldata() {
+        assert_eq!(
+            decode_meta_tx_user_address(&[0x0c, 0x53, 0xc5, 0x1c, 0xff, 0xff]),
+            None
+        );
+        assert_eq!(decode_meta_tx_user_address(&[]), None);
     }
 
     #[test]

@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use alloy::primitives::U256;
+use alloy::primitives::{Address, U256};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sqlx::types::chrono::NaiveDateTime;
@@ -201,6 +201,40 @@ fn validate_transaction_data(data: &Value) -> Result<TransactionData, ApiError> 
     Ok(TransactionData { from, params })
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MetaTxSender(String);
+
+impl MetaTxSender {
+    pub fn from_meta_tx_calldata(from: &str, calldata: &str) -> Result<Self, ApiError> {
+        let data = hex_to_bytes(calldata).ok_or_else(|| {
+            ApiError::InvalidTransaction(
+                "Invalid transaction data. The calldata is not a hex byte string.".into(),
+            )
+        })?;
+        let signed_user = abi::decode_meta_tx_user_address(&data).ok_or_else(|| {
+            ApiError::InvalidTransaction(
+                "Invalid transaction data. The executeMetaTransaction calldata could not be \
+                 decoded, so the userAddress it was signed for cannot be established."
+                    .into(),
+            )
+        })?;
+        let claimed = from.trim().parse::<Address>().map_err(|_| {
+            ApiError::InvalidTransaction(format!("Invalid from address. Received: {from}"))
+        })?;
+        if signed_user != claimed {
+            return Err(ApiError::InvalidTransaction(format!(
+                "The from address does not match the userAddress signed into the \
+                 executeMetaTransaction calldata. from: {claimed} - userAddress: {signed_user}"
+            )));
+        }
+        Ok(Self(format!("{signed_user:#x}")))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ReservationDisposition {
     Release,
@@ -293,10 +327,10 @@ impl TransactionComponent {
     pub async fn reserve_quota(
         &self,
         max_transactions_per_day: i64,
-        user_address: &str,
+        sender: &MetaTxSender,
         session_id: &str,
     ) -> Result<(), ApiError> {
-        let user_address = user_address.to_lowercase();
+        let user_address = sender.as_str().to_string();
 
         let mut db_tx = self.pool.begin().await?;
 
@@ -372,16 +406,17 @@ impl TransactionComponent {
         cfg: &Config,
         contracts: &ContractsComponent,
         tx: &TransactionData,
-    ) -> Result<(), ApiError> {
+    ) -> Result<MetaTxSender, ApiError> {
         self.check_function_selector(tx)?;
-        self.check_quota(cfg, tx).await?;
+        let sender = MetaTxSender::from_meta_tx_calldata(&tx.from, &tx.params[1])?;
+        self.check_quota(cfg, &sender).await?;
         if cfg.has_rpc() {
             self.check_gas_price(cfg, tx).await?;
             self.check_transaction(cfg, tx).await?;
         }
         check_sale_price(cfg, tx)?;
         self.check_contract_address(contracts, tx).await?;
-        Ok(())
+        Ok(sender)
     }
 
     fn check_function_selector(&self, tx: &TransactionData) -> Result<(), ApiError> {
@@ -413,14 +448,12 @@ impl TransactionComponent {
         Ok(())
     }
 
-    async fn check_quota(&self, cfg: &Config, tx: &TransactionData) -> Result<(), ApiError> {
-        let from = tx.from.to_lowercase();
-
+    async fn check_quota(&self, cfg: &Config, sender: &MetaTxSender) -> Result<(), ApiError> {
         let count: i64 = sqlx::query_scalar(
             "SELECT COUNT(*) FROM transactions \
              WHERE user_address = $1 AND created_at >= NOW() - INTERVAL '1 day'",
         )
-        .bind(&from)
+        .bind(sender.as_str())
         .fetch_one(&self.pool)
         .await?;
 
@@ -757,6 +790,49 @@ mod tests {
             msg.contains(r##""schemaPath":"#/properties/params/items/1/maxLength""##),
             "{msg}"
         );
+    }
+
+    fn meta_tx_calldata(user_address: &str) -> String {
+        let call = abi::executeMetaTransactionCall {
+            userAddress: user_address.parse().expect("address"),
+            functionSignature: alloy::primitives::Bytes::from_static(&[0xaa]),
+            sigR: alloy::primitives::FixedBytes::<32>::repeat_byte(0x11),
+            sigS: alloy::primitives::FixedBytes::<32>::repeat_byte(0x22),
+            sigV: 27,
+        };
+        format!(
+            "0x{}",
+            alloy::hex::encode(alloy::sol_types::SolCall::abi_encode(&call))
+        )
+    }
+
+    #[test]
+    fn sender_is_the_address_signed_into_the_calldata() {
+        let sender = MetaTxSender::from_meta_tx_calldata(FROM, &meta_tx_calldata(FROM))
+            .expect("matching from and userAddress");
+        assert_eq!(sender.as_str(), FROM.to_lowercase());
+    }
+
+    #[test]
+    fn a_from_that_disagrees_with_the_signed_user_address_is_rejected() {
+        let victim = "0x1111111111111111111111111111111111111111";
+        let attacker = "0x2222222222222222222222222222222222222222";
+        let err = MetaTxSender::from_meta_tx_calldata(victim, &meta_tx_calldata(attacker))
+            .expect_err("a forged from must not yield a sender");
+        let msg = match err {
+            ApiError::InvalidTransaction(m) => m,
+            other => panic!("expected ApiError::InvalidTransaction, got {other:?}"),
+        };
+        assert!(msg.contains(victim), "{msg}");
+        assert!(msg.contains(attacker), "{msg}");
+    }
+
+    #[test]
+    fn calldata_with_an_unrecoverable_user_address_yields_no_sender() {
+        assert!(matches!(
+            MetaTxSender::from_meta_tx_calldata(FROM, CALLDATA),
+            Err(ApiError::InvalidTransaction(_))
+        ));
     }
 
     #[test]

@@ -1,5 +1,4 @@
 use axum::extract::{Path, Query, State};
-use axum::http::HeaderMap;
 use axum::Json;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value as JsonValue};
@@ -8,8 +7,8 @@ use crate::http::ApiError;
 use crate::AppState;
 
 use super::common::{
-    admin_actor, authorize_admin, normalize_address, paginate, validate_escrow_ref,
-    validate_idempotency_key, validate_positive_amount, validated_reason,
+    normalize_address, paginate, validate_escrow_ref, validate_idempotency_key,
+    validate_positive_amount, validated_reason, RequireAdmin,
 };
 
 #[derive(Debug, Deserialize)]
@@ -33,17 +32,16 @@ pub(super) struct GrantOut {
 }
 
 pub(super) async fn grant_credits(
+    admin: RequireAdmin,
     State(state): State<AppState>,
-    headers: HeaderMap,
     body: Option<Json<GrantBody>>,
 ) -> Result<Json<GrantOut>, ApiError> {
-    authorize_admin(&state, &headers)?;
     let Json(b) = body.ok_or_else(|| ApiError::bad_request("missing JSON body"))?;
     let address = normalize_address(&b.address)?;
     let amount = validate_positive_amount(&b.amount)?;
     let reason = validated_reason(&b.reason)?;
     let idempotency_key = validate_idempotency_key(&b.idempotency_key)?;
-    let actor = admin_actor(&headers);
+    let actor = Some(admin.audit_actor_description());
     let detail = json!({
         "address": address, "amount": amount, "reason": reason,
         "idempotencyKey": idempotency_key,
@@ -69,16 +67,15 @@ pub(super) async fn grant_credits(
 }
 
 pub(super) async fn revoke_credits(
+    admin: RequireAdmin,
     State(state): State<AppState>,
-    headers: HeaderMap,
     body: Option<Json<GrantBody>>,
 ) -> Result<Json<GrantOut>, ApiError> {
-    authorize_admin(&state, &headers)?;
     let Json(b) = body.ok_or_else(|| ApiError::bad_request("missing JSON body"))?;
     let address = normalize_address(&b.address)?;
     let amount = validate_positive_amount(&b.amount)?;
     let reason = validated_reason(&b.reason)?;
-    let actor = admin_actor(&headers);
+    let actor = Some(admin.audit_actor_description());
     let detail = json!({ "address": address, "amount": amount, "reason": reason });
     let outcome = state
         .credits
@@ -112,16 +109,15 @@ pub(super) struct BlockOut {
 }
 
 pub(super) async fn block_user(
+    admin: RequireAdmin,
     State(state): State<AppState>,
     Path(address): Path<String>,
-    headers: HeaderMap,
     body: Option<Json<BlockBody>>,
 ) -> Result<Json<BlockOut>, ApiError> {
-    authorize_admin(&state, &headers)?;
     let address = normalize_address(&address)?;
     let Json(b) = body.ok_or_else(|| ApiError::bad_request("missing JSON body { blocked }"))?;
     let reason = validated_reason(&b.reason)?;
-    let actor = admin_actor(&headers);
+    let actor = Some(admin.audit_actor_description());
     let detail = json!({ "address": address, "blocked": b.blocked, "reason": reason });
     let blocked = state
         .credits
@@ -162,11 +158,10 @@ pub(super) struct PurchaseOut {
 }
 
 pub(super) async fn list_purchases(
+    _admin: RequireAdmin,
     State(state): State<AppState>,
-    headers: HeaderMap,
     Query(q): Query<PurchaseListQuery>,
 ) -> Result<Json<Vec<PurchaseOut>>, ApiError> {
-    authorize_admin(&state, &headers)?;
     let address = match q.address.as_deref() {
         Some(a) => Some(normalize_address(a)?),
         None => None,
@@ -234,11 +229,10 @@ pub(super) struct CheckoutOut {
 }
 
 pub(super) async fn list_checkouts(
+    _admin: RequireAdmin,
     State(state): State<AppState>,
-    headers: HeaderMap,
     Query(q): Query<CheckoutListQuery>,
 ) -> Result<Json<Vec<CheckoutOut>>, ApiError> {
-    authorize_admin(&state, &headers)?;
     let address = match q.address.as_deref() {
         Some(a) => Some(normalize_address(a)?),
         None => None,
@@ -297,11 +291,10 @@ pub(super) struct LedgerOut {
 }
 
 pub(super) async fn list_ledger(
+    _admin: RequireAdmin,
     State(state): State<AppState>,
-    headers: HeaderMap,
     Query(q): Query<LedgerListQuery>,
 ) -> Result<Json<Vec<LedgerOut>>, ApiError> {
-    authorize_admin(&state, &headers)?;
     let address = normalize_address(&q.address)?;
     let (limit, offset) = paginate(q.limit, q.offset);
     let rows = state
@@ -329,14 +322,13 @@ pub(super) struct ManualOpBody {
 }
 
 pub(super) async fn refund_checkout(
+    admin: RequireAdmin,
     State(state): State<AppState>,
     Path(id): Path<i64>,
-    headers: HeaderMap,
     body: Option<Json<ManualOpBody>>,
 ) -> Result<Json<JsonValue>, ApiError> {
-    authorize_admin(&state, &headers)?;
     let reason = validated_reason(&body.map(|b| b.0.reason).unwrap_or(None))?;
-    let actor = admin_actor(&headers);
+    let actor = Some(admin.audit_actor_description());
 
     let checkout = state
         .credits
@@ -351,26 +343,20 @@ pub(super) async fn refund_checkout(
         ));
     }
 
-    let idem = format!("admin:refund:{}", id);
-    let tx_ref = format!("checkout:{}", id);
     tracing::info!(
         action = "checkout.refund",
         checkout_id = id,
         "admin manual refund"
     );
-    let outcome = state
+    let (outcome, closed) = state
         .credits
-        .refund(
-            &checkout.address,
-            &checkout.total_credits,
-            &tx_ref,
-            Some(&idem),
-        )
+        .refund_checkout_manual(id, &checkout.address, &checkout.total_credits)
         .await?;
 
     let detail = json!({
         "checkoutId": id, "address": checkout.address,
-        "amount": checkout.total_credits, "replayed": outcome.replayed, "reason": reason,
+        "requested": checkout.total_credits, "applied": outcome.applied,
+        "replayed": outcome.replayed, "closed": closed, "reason": reason,
     });
     state
         .credits
@@ -387,21 +373,20 @@ pub(super) async fn refund_checkout(
     Ok(Json(json!({
         "checkoutId": id,
         "address": checkout.address,
-        "refunded": checkout.total_credits,
+        "refunded": outcome.applied,
         "available": outcome.available,
         "replayed": outcome.replayed,
     })))
 }
 
 pub(super) async fn force_fulfill_checkout(
+    admin: RequireAdmin,
     State(state): State<AppState>,
     Path(id): Path<i64>,
-    headers: HeaderMap,
     body: Option<Json<ManualOpBody>>,
 ) -> Result<Json<JsonValue>, ApiError> {
-    authorize_admin(&state, &headers)?;
     let reason = validated_reason(&body.map(|b| b.0.reason).unwrap_or(None))?;
-    let actor = admin_actor(&headers);
+    let actor = Some(admin.audit_actor_description());
 
     tracing::info!(
         action = "checkout.force_fulfill",
@@ -441,15 +426,14 @@ fn escrow_deps(state: &AppState) -> Result<(&sqlx::PgPool, &str), ApiError> {
 }
 
 pub(super) async fn reclaim_grant(
+    admin: RequireAdmin,
     State(state): State<AppState>,
     Path(escrow_ref): Path<String>,
-    headers: HeaderMap,
     body: Option<Json<ManualOpBody>>,
 ) -> Result<Json<JsonValue>, ApiError> {
-    authorize_admin(&state, &headers)?;
     let escrow_ref = validate_escrow_ref(&escrow_ref)?;
     let reason = validated_reason(&body.map(|b| b.0.reason).unwrap_or(None))?;
-    let actor = admin_actor(&headers);
+    let actor = Some(admin.audit_actor_description());
     let (pool, token) = escrow_deps(&state)?;
 
     let grant = crate::ports::admin::fetch_usage_grant(pool, &escrow_ref)
@@ -488,29 +472,31 @@ pub(super) async fn reclaim_grant(
         .find_confirmed_line_by_ref(&escrow_ref)
         .await?
     {
-        Some((address, amount)) => {
-            let tx_ref = format!("reclaim:{}", escrow_ref);
-            state
+        Some((checkout_id, address, amount)) => {
+            let tx_ref = format!("checkout:{}", checkout_id);
+            let outcome = state
                 .credits
                 .refund(&address, &amount, &tx_ref, Some(&idem))
                 .await?;
-            Some((address, amount))
+            Some((address, amount, outcome.applied))
         }
         None => None,
     };
 
     let detail = json!({
         "escrowRef": escrow_ref, "grantee": grant.grantee_address, "urn": grant.urn,
-        "txHash": tx_hash, "refunded": refunded.as_ref().map(|(_, a)| a.clone()),
+        "txHash": tx_hash,
+        "refundRequested": refunded.as_ref().map(|(_, req, _)| req.clone()),
+        "refunded": refunded.as_ref().map(|(_, _, app)| app.clone()),
         "reason": reason,
     });
     state
         .credits
         .admin_audit_op(
             "grant.reclaim",
-            refunded.as_ref().map(|(a, _)| a.as_str()),
+            refunded.as_ref().map(|(a, _, _)| a.as_str()),
             None,
-            refunded.as_ref().map(|(_, a)| a.as_str()),
+            refunded.as_ref().map(|(_, _, app)| app.as_str()),
             actor.as_deref(),
             &detail,
         )
@@ -519,20 +505,20 @@ pub(super) async fn reclaim_grant(
     Ok(Json(json!({
         "escrowRef": escrow_ref,
         "txHash": tx_hash,
-        "refunded": refunded.map(|(addr, amt)| json!({ "address": addr, "amount": amt })),
+        "refunded": refunded
+            .map(|(addr, _, app)| json!({ "address": addr, "amount": app })),
     })))
 }
 
 pub(super) async fn release_grant(
+    admin: RequireAdmin,
     State(state): State<AppState>,
     Path(escrow_ref): Path<String>,
-    headers: HeaderMap,
     body: Option<Json<ManualOpBody>>,
 ) -> Result<Json<JsonValue>, ApiError> {
-    authorize_admin(&state, &headers)?;
     let escrow_ref = validate_escrow_ref(&escrow_ref)?;
     let reason = validated_reason(&body.map(|b| b.0.reason).unwrap_or(None))?;
-    let actor = admin_actor(&headers);
+    let actor = Some(admin.audit_actor_description());
     let (pool, token) = escrow_deps(&state)?;
 
     let grant = crate::ports::admin::fetch_usage_grant(pool, &escrow_ref)
@@ -592,10 +578,9 @@ pub(super) async fn release_grant(
 }
 
 pub(super) async fn reconcile(
+    _admin: RequireAdmin,
     State(state): State<AppState>,
-    headers: HeaderMap,
 ) -> Result<Json<crate::ports::reconcile::ReconcileReport>, ApiError> {
-    authorize_admin(&state, &headers)?;
     tracing::info!(action = "reconcile", "admin reconciliation run");
     let report = state
         .credits

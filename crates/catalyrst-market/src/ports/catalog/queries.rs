@@ -1,6 +1,6 @@
 use sqlx::postgres::PgArguments;
 
-use crate::{BUILDER_SERVER_TABLE_SCHEMA, MARKETPLACE_SQUID_SCHEMA};
+use crate::MARKETPLACE_SQUID_SCHEMA;
 
 use super::sql::{
     build_collections_where, build_get_max_price_case, build_get_max_price_case_with_trades,
@@ -337,11 +337,5 @@ pub(super) fn build_search_query(f: &CatalogFilters) -> (String, PgArguments) {
         bi,
         schema = MARKETPLACE_SQUID_SCHEMA,
     ));
-    let _ = BUILDER_SERVER_TABLE_SCHEMA;
     (b.sql, b.args)
-}
-
-#[allow(dead_code)]
-fn escape_sql_literal(s: &str) -> String {
-    s.replace('\'', "''")
 }

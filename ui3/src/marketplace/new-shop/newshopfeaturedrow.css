@@ -1,0 +1,72 @@
+.nsfeat {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.nsfeat__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.nsfeat__title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--lm-ink);
+}
+.nsfeat__actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.nsfeat__viewall {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: var(--brand);
+}
+.nsfeat__viewall:hover { color: var(--brand-hover); text-decoration: underline; }
+.nsfeat__arrows { display: flex; gap: 6px; }
+.nsfeat__arrow {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid var(--lm-line);
+  border-radius: var(--r-pill);
+  background: var(--lm-surface);
+  color: var(--lm-ink-2);
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+}
+.nsfeat__arrow:hover:not(:disabled) {
+  background: var(--fill-3);
+  color: var(--lm-ink);
+  border-color: rgba(255, 255, 255, 0.18);
+}
+.nsfeat__arrow:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.nsfeat__arrow svg { width: 16px; height: 16px; }
+
+.nsfeat__track {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(180px, 1fr);
+  gap: 16px;
+  overflow-x: auto;
+  scroll-snap-type: x proximity;
+  padding-bottom: 4px;
+  scrollbar-width: none;
+}
+.nsfeat__track::-webkit-scrollbar { display: none; }
+.nsfeat__track > * { scroll-snap-align: start; }

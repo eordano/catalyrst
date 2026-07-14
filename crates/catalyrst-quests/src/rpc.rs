@@ -96,7 +96,7 @@ impl RpcRuntime {
 
         let signer = verify_handshake(&text, "get", "/", FIVE_MINUTES_SECS, now_secs)
             .map_err(|e| anyhow!("handshake: {e}"))?;
-        Ok(signer)
+        Ok(signer.as_str().to_string())
     }
 }
 

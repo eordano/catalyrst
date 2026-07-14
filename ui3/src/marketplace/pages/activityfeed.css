@@ -1,0 +1,293 @@
+.mkact {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 28px 24px 64px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.mkact__head {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.mkact__title {
+  margin: 0;
+  font-size: 28px;
+  line-height: 1.1;
+}
+
+.mkact__sub {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 14px;
+}
+
+.mkact__filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.mkact__tab {
+  appearance: none;
+  cursor: pointer;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: transparent;
+  color: rgba(255, 255, 255, 0.82);
+  border-radius: 999px;
+  padding: 7px 16px;
+  font-size: 13px;
+  line-height: 1;
+}
+
+.mkact__tab.is-active {
+  background: var(--brand, #ff2d55);
+  border-color: var(--brand, #ff2d55);
+  color: #fff;
+}
+
+.mkact__tablewrap {
+  overflow-x: auto;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.mkact__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.mkact__table thead th {
+  text-align: left;
+  padding: 12px 16px;
+  color: rgba(255, 255, 255, 0.5);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 11px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  white-space: nowrap;
+}
+
+.mkact__row td {
+  padding: 12px 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.mkact__row:last-child td {
+  border-bottom: none;
+}
+
+.mkact__row:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.mkact__badge {
+  display: inline-block;
+  padding: 3px 9px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.mkact__badge--sale {
+  background: rgba(54, 211, 153, 0.16);
+  color: #36d399;
+}
+
+.mkact__badge--listing {
+  background: rgba(96, 165, 250, 0.16);
+  color: #60a5fa;
+}
+
+.mkact__badge--bid {
+  background: rgba(251, 191, 36, 0.16);
+  color: #fbbf24;
+}
+
+.mkact__itemlink {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.mkact__itemlink:hover .mkact__id {
+  text-decoration: underline;
+}
+
+.mkact__net {
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.mkact__net[data-net="ethereum"] {
+  color: #8aa3ff;
+  border-color: rgba(138, 163, 255, 0.4);
+}
+
+.mkact__price {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.mkact__mana {
+  color: var(--brand, #ff2d55);
+}
+
+.mkact__dash,
+.mkact__addr {
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.mkact__addr {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 12px;
+}
+
+.mkact__when {
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.mkact__empty {
+  color: rgba(255, 255, 255, 0.7);
+  padding: 32px 0;
+  text-align: center;
+}
+
+.mkact__pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+}
+
+.mkact__pagebtn {
+  appearance: none;
+  cursor: pointer;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: transparent;
+  color: rgba(255, 255, 255, 0.85);
+  border-radius: 8px;
+  padding: 8px 16px;
+  font-size: 13px;
+}
+
+.mkact__pagebtn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.mkact__pageinfo {
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.mksales {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  padding: 18px 20px;
+  background: rgba(255, 255, 255, 0.02);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.mksales__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.mksales__title {
+  margin: 0;
+  font-size: 18px;
+}
+
+.mksales__note {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.4);
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+}
+
+.mksales__stats {
+  display: flex;
+  gap: 28px;
+}
+
+.mksales__stat {
+  display: flex;
+  flex-direction: column;
+}
+
+.mksales__statval {
+  font-size: 22px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.mksales__statlabel {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.mksales__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.mksales__item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 13px;
+  padding: 8px 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.mksales__kind {
+  text-transform: capitalize;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.mksales__to {
+  color: rgba(255, 255, 255, 0.5);
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 12px;
+  margin-right: auto;
+}
+
+.mksales__amt {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.mksales__mana {
+  color: var(--brand, #ff2d55);
+}
+
+.mksales__empty {
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 13px;
+  margin: 0;
+}

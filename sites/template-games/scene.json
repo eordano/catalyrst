@@ -1,0 +1,25 @@
+{
+  "ecs7": true,
+  "runtimeVersion": "7",
+  "display": {
+    "title": "Creator Hub template games",
+    "description": "Build-time scene wrapper for the prebuilt template game bundle. Never deployed as-is: only bin/index.js is shipped (catalyrst/sites/public/template-bundles/games.js) and served by the Creator Hub editor as a template project's scene runtime."
+  },
+  "owner": "",
+  "contact": { "name": "", "email": "" },
+  "main": "bin/index.js",
+  "tags": [],
+  "scene": {
+    "parcels": ["0,0"],
+    "base": "0,0"
+  },
+  "spawnPoints": [
+    {
+      "name": "spawn",
+      "default": true,
+      "position": { "x": [2], "y": [0], "z": [2] },
+      "cameraTarget": { "x": 8, "y": 1, "z": 8 }
+    }
+  ],
+  "featureToggles": {}
+}

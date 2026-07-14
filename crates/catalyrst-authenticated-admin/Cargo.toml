@@ -1,0 +1,17 @@
+[package]
+name = "catalyrst-authenticated-admin"
+version = "0.15.1"
+edition = "2021"
+description = "The axum-facing companion to catalyrst-authenticated-principal: an unforgeable AuthenticatedAdminIdentity FromRequestParts extractor over the shared static-bearer admin gate"
+
+# Deliberately tiny. This crate is the axum front door onto the shared-secret verifier that
+# already lives in catalyrst-authenticated-principal; it adds no verification of its own and
+# depends on no per-domain AppState, no sqlx, and no ApiError. See docs/auth-arc-plan.md and
+# docs/crate-boundaries.md.
+[dependencies]
+axum = { workspace = true }
+catalyrst-authenticated-principal = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }
+regex = "1"
