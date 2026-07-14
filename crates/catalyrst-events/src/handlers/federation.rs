@@ -16,10 +16,24 @@ pub struct FeedQuery {
     pub limit: Option<i64>,
 }
 
+#[utoipa::path(
+    get,
+    path = "/federation/v1/events/feed",
+    tag = "federation",
+    params(("since" = Option<i64>, Query), ("limit" = Option<i64>, Query)),
+    responses((status = 200, body = serde_json::Value))
+)]
 pub async fn get_feed(Query(_q): Query<FeedQuery>) -> Result<Json<Value>, ApiError> {
     Ok(Json(json!({"events": [], "partial": false})))
 }
 
+#[utoipa::path(
+    get,
+    path = "/federation/v1/events/{event_id}/attendance",
+    tag = "federation",
+    params(("event_id" = String, Path), ("since" = Option<i64>, Query), ("limit" = Option<i64>, Query)),
+    responses((status = 200, body = serde_json::Value))
+)]
 pub async fn get_attendance(
     Path(event_id): Path<String>,
     Query(_q): Query<FeedQuery>,

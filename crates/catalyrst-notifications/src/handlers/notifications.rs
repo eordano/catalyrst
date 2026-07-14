@@ -34,10 +34,10 @@ pub async fn get_notifications(
     };
     let only_unread = q.only_unread.unwrap_or(false);
 
-    state.notifications.touch_reader_seen(&signer).await;
+    state.notifications.touch_reader_seen(signer.as_str()).await;
     let items = state
         .notifications
-        .list(&signer, limit, q.from, only_unread)
+        .list(signer.as_str(), limit, q.from, only_unread)
         .await?;
 
     Ok(Json(serde_json::json!({ "notifications": items })))
@@ -63,7 +63,7 @@ pub async fn put_read(
         .collect::<Result<_, _>>()
         .map_err(|_| ApiError::bad_request("invalid notification id"))?;
 
-    let updated = state.notifications.mark_read(&signer, &ids).await?;
+    let updated = state.notifications.mark_read(signer.as_str(), &ids).await?;
     Ok((
         StatusCode::OK,
         Json(serde_json::json!({ "updated": updated })),

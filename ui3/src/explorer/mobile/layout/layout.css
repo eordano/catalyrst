@@ -1,0 +1,150 @@
+.mor { display: contents; }
+
+.msa {
+  padding-top: max(
+    calc(max(var(--msa-default, 0), var(--msa-min-top, 0)) * var(--ui-px, 1px)),
+    var(--safe-top, 0px)
+  );
+  padding-right: max(
+    calc(max(var(--msa-default, 0), var(--msa-min-right, 0)) * var(--ui-px, 1px)),
+    var(--safe-right, 0px)
+  );
+  padding-bottom: max(
+    calc(max(var(--msa-default, 0), var(--msa-min-bottom, 0)) * var(--ui-px, 1px)),
+    var(--safe-bottom, 0px)
+  );
+  padding-left: max(
+    calc(max(var(--msa-default, 0), var(--msa-min-left, 0)) * var(--ui-px, 1px)),
+    var(--safe-left, 0px)
+  );
+}
+.msa.msa--no-top { padding-top: 0; }
+.msa.msa--no-right { padding-right: 0; }
+.msa.msa--no-bottom { padding-bottom: 0; }
+.msa.msa--no-left { padding-left: 0; }
+
+.mrp {
+  --mrp-w: var(--mrp-lw);
+  --mrp-minh: var(--mrp-lminh);
+  --mrp-maxh: var(--mrp-lmaxh);
+  --mrp-tx: 0px;
+  --mrp-ty: 0px;
+  position: fixed;
+  left: 0;
+  top: 0;
+  transform: translate(var(--mrp-tx), var(--mrp-ty));
+  margin-top: calc(var(--mrp-voff, 0) * var(--ui-px, 1px));
+  width: calc(var(--mrp-w) * 100dvw);
+  min-height: calc(var(--mrp-minh) * 100dvh);
+  max-height: calc(var(--mrp-maxh) * 100dvh);
+  height: fit-content;
+  overflow: auto;
+}
+.mrp--center-h { left: 50%; --mrp-tx: -50%; }
+.mrp--center-v { top: 50%; --mrp-ty: -50%; }
+
+@media (orientation: portrait) {
+  .mrp {
+    --mrp-w: var(--mrp-pw);
+    --mrp-minh: var(--mrp-pminh);
+    --mrp-maxh: var(--mrp-pmaxh);
+  }
+}
+[data-orientation="landscape"] .mrp {
+  --mrp-w: var(--mrp-lw);
+  --mrp-minh: var(--mrp-lminh);
+  --mrp-maxh: var(--mrp-lmaxh);
+}
+[data-orientation="portrait"] .mrp {
+  --mrp-w: var(--mrp-pw);
+  --mrp-minh: var(--mrp-pminh);
+  --mrp-maxh: var(--mrp-pmaxh);
+}
+
+.mox {
+  display: flex;
+  flex-direction: row;
+  gap: calc(var(--mox-gap, 0) * var(--ui-px, 1px));
+}
+.mox--invert { flex-direction: column; }
+
+@media (orientation: portrait) {
+  .mox { flex-direction: column; }
+  .mox--invert { flex-direction: row; }
+}
+[data-orientation="landscape"] .mox { flex-direction: row; }
+[data-orientation="landscape"] .mox--invert { flex-direction: column; }
+[data-orientation="portrait"] .mox { flex-direction: column; }
+[data-orientation="portrait"] .mox--invert { flex-direction: row; }
+
+.mog { display: none; }
+
+@media (orientation: portrait) {
+  .mog--portrait { display: contents; }
+}
+@media (orientation: landscape) {
+  .mog--landscape { display: contents; }
+}
+[data-orientation="portrait"] .mog--portrait { display: contents; }
+[data-orientation="portrait"] .mog--landscape { display: none; }
+[data-orientation="landscape"] .mog--landscape { display: contents; }
+[data-orientation="landscape"] .mog--portrait { display: none; }
+
+.mfm {
+  padding: var(--mfm-lt) var(--mfm-lr) var(--mfm-lb) var(--mfm-ll);
+}
+
+@media (orientation: portrait) {
+  .mfm { padding: var(--mfm-pt) var(--mfm-pr) var(--mfm-pb) var(--mfm-pl); }
+}
+[data-orientation="landscape"] .mfm {
+  padding: var(--mfm-lt) var(--mfm-lr) var(--mfm-lb) var(--mfm-ll);
+}
+[data-orientation="portrait"] .mfm {
+  padding: var(--mfm-pt) var(--mfm-pr) var(--mfm-pb) var(--mfm-pl);
+}
+
+.msd {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: var(--z-toast, 200);
+  font-family: var(--font-mono, monospace);
+}
+
+.msd__strip {
+  position: absolute;
+  background: rgba(255, 64, 26, .35);
+}
+.msd__strip--top { top: 0; left: 0; right: 0; height: var(--safe-top, 0px); }
+.msd__strip--right { top: 0; right: 0; bottom: 0; width: var(--safe-right, 0px); }
+.msd__strip--bottom { bottom: 0; left: 0; right: 0; height: var(--safe-bottom, 0px); }
+.msd__strip--left { top: 0; left: 0; bottom: 0; width: var(--safe-left, 0px); }
+
+.msd__probe {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 1px;
+  width: calc(1000 * var(--ui-px, 1px));
+  visibility: hidden;
+}
+
+.msd__hud {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  min-width: 216px;
+  padding: 10px 12px;
+  border-radius: var(--r-control, 10px);
+  background: rgba(14, 12, 18, .82);
+  color: var(--text, #fcfcfc);
+  font-size: var(--fs-xs);
+  line-height: 1.55;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, .4);
+}
+
+.msd__row { display: flex; justify-content: space-between; gap: 14px; }
+.msd__key { color: rgba(255, 255, 255, .6); }
+.msd__val { font-variant-numeric: tabular-nums; }

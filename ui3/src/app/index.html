@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, initial-scale=1">
+		<title>Decentraland — Explore</title>
+		<style>
+			html,
+			body {
+				margin: 0;
+				padding: 0;
+				height: 100%;
+				background: transparent;
+			}
+			#root {
+				position: fixed;
+				inset: 0;
+				z-index: 20;
+				pointer-events: none;
+			}
+			.ui3-app-root {
+				position: absolute;
+				inset: 0;
+				pointer-events: none;
+			}
+			.ui3-app-root .xc { pointer-events: none; }
+			.ui3-app-root .xc__nav,
+			.ui3-app-root .xc__body { pointer-events: auto; }
+			.ui3-app-root .xc--hud .xc__body { pointer-events: none; }
+			.ui3-app-root .sb__stage {
+				width: auto; height: auto; background: transparent;
+				overflow: visible; pointer-events: none;
+			}
+			.ui3-app-root .sb { pointer-events: auto; }
+		</style>
+	</head>
+	<body>
+		<div id="root"></div>
+		<script type="module" src="./main.jsx"></script>
+	</body>
+</html>

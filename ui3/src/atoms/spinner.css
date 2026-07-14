@@ -1,0 +1,3 @@
+.spinner { display: inline-flex; width: var(--sz, 28px); height: var(--sz, 28px); }
+.spinner svg { animation: u-spin .9s linear infinite; }
+.spinner__arc { stroke: var(--spinner-arc, var(--brand)); }

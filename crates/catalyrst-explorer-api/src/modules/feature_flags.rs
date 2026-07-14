@@ -1,4 +1,5 @@
 use crate::modules::admin_auth::require_admin;
+use crate::modules::json_response;
 use crate::AppState;
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode};
@@ -122,18 +123,16 @@ async fn admin_flag_toggle(
         return resp;
     }
     if body.name.trim().is_empty() {
-        return (
+        return json_response(
             StatusCode::BAD_REQUEST,
-            Json(json!({ "error": "name is required" })),
-        )
-            .into_response();
+            json!({ "error": "name is required" }),
+        );
     }
     let new_value = state.feature_flags.set_flag(&body.name, body.value);
-    (
+    json_response(
         StatusCode::OK,
-        Json(json!({ "ok": true, "name": body.name, "value": new_value })),
+        json!({ "ok": true, "name": body.name, "value": new_value }),
     )
-        .into_response()
 }
 
 async fn admin_flags_reload(State(state): State<AppState>, headers: HeaderMap) -> Response {
@@ -142,12 +141,11 @@ async fn admin_flags_reload(State(state): State<AppState>, headers: HeaderMap) -
     }
     let path = state.cfg.feature_flags_config_path.clone();
     match state.feature_flags.reload_from_path(&path) {
-        Ok(()) => (StatusCode::OK, Json(json!({ "ok": true, "path": path }))).into_response(),
-        Err(err) => (
+        Ok(()) => json_response(StatusCode::OK, json!({ "ok": true, "path": path })),
+        Err(err) => json_response(
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "ok": false, "path": path, "error": err })),
-        )
-            .into_response(),
+            json!({ "ok": false, "path": path, "error": err }),
+        ),
     }
 }
 
@@ -166,9 +164,8 @@ async fn get_flag(State(state): State<AppState>, Path(name): Path<String>) -> im
     if let Some(flag) = snap.get("flags").and_then(|v| v.get(&name)) {
         return (StatusCode::OK, Json(flag.clone())).into_response();
     }
-    (
+    json_response(
         StatusCode::NOT_FOUND,
-        Json(json!({ "error": "flag_not_found", "name": name })),
+        json!({ "error": "flag_not_found", "name": name }),
     )
-        .into_response()
 }

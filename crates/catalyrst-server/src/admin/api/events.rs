@@ -12,7 +12,7 @@ pub async fn events_create(
     };
     proxy_audited(
         &state,
-        &session.address,
+        session.address(),
         "events.create",
         None,
         body.clone(),
@@ -45,7 +45,7 @@ pub async fn events_moderate(
     }
     proxy_audited(
         &state,
-        &session.address,
+        session.address(),
         "events.moderate",
         Some(&req.event_id),
         req.extra.clone(),

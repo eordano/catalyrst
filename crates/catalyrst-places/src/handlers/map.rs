@@ -46,6 +46,15 @@ fn list_filters(pairs: &[(String, String)], only_worlds: bool) -> (PlaceListFilt
     (f, only_favorites)
 }
 
+#[utoipa::path(
+    get,
+    path = "/map",
+    tag = "map",
+    responses(
+        (status = 200, body = serde_json::Value),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn get_map_places(
     State(state): State<AppState>,
     Query(pairs): Query<Vec<(String, String)>>,
@@ -76,6 +85,15 @@ pub async fn get_map_places(
     Ok(Json(json!({ "ok": true, "data": map, "total": total })))
 }
 
+#[utoipa::path(
+    get,
+    path = "/map/places",
+    tag = "map",
+    responses(
+        (status = 200, body = serde_json::Value),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn get_all_places_list(
     State(state): State<AppState>,
     Query(pairs): Query<Vec<(String, String)>>,

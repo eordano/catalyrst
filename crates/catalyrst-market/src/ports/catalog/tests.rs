@@ -52,7 +52,6 @@ fn wire_id_is_always_contract_dash_blockchain_id() {
         listings_count: None,
         owners_count: None,
         min_price: None,
-        max_price: None,
     };
     let item = from_db_row_to_catalog_item(row, None);
     assert_eq!(item.id, "0xe1ecb4e5130f493551c7d6df96ad19e5b431a0a9-3");

@@ -24,6 +24,7 @@ pub struct LinkerDeploy {
     pub scene_title: String,
     pub base_parcel: String,
     pub multi_scene: bool,
+    pub check_permissions: bool,
 }
 
 pub struct LinkerOptions {
@@ -155,6 +156,22 @@ async fn sign(State(st): State<Arc<LinkerState>>, Json(req): Json<SignReq>) -> J
             "error": "unknown or stale entity id — reload the page and sign again"
         }));
     };
+    if st.dep.check_permissions {
+        if let Some(w) = st.dep.world.as_deref() {
+            if let Err(e) = deploy::enforce_world_permission(
+                &st.dep.target_content,
+                w,
+                &req.address,
+                &st.dep.prepared.pointers,
+            )
+            .await
+            {
+                let msg = crate::ux::render(&e, false, false);
+                finish(&st, Err(e));
+                return Json(json!({ "ok": false, "fatal": true, "error": msg }));
+            }
+        }
+    }
     if let Some(payload) = &pending.delete_payload {
         let Some(dsig) = &req.delete_signature else {
             return Json(json!({
@@ -171,7 +188,7 @@ async fn sign(State(st): State<Arc<LinkerState>>, Json(req): Json<SignReq>) -> J
         )
         .await
         {
-            let msg = format!("{e:#}");
+            let msg = crate::ux::render(&e, false, false);
             finish(&st, Err(e));
             return Json(json!({ "ok": false, "fatal": true, "error": msg }));
         }
@@ -196,7 +213,7 @@ async fn sign(State(st): State<Arc<LinkerState>>, Json(req): Json<SignReq>) -> J
             Json(json!({ "ok": true, "message": message }))
         }
         Err(e) => {
-            let msg = format!("{e:#}");
+            let msg = crate::ux::render(&e, false, false);
             finish(&st, Err(e));
             Json(json!({ "ok": false, "fatal": true, "error": msg }))
         }
@@ -217,7 +234,7 @@ fn finish(st: &Arc<LinkerState>, result: Result<String>) {
     }
 }
 
-fn spawn_browser(url: &str) {
+pub(crate) fn spawn_browser(url: &str) {
     let program = if cfg!(target_os = "macos") {
         "open"
     } else if cfg!(target_os = "windows") {
@@ -236,7 +253,7 @@ fn spawn_browser(url: &str) {
     }
 }
 
-fn fmt_wait(timeout: Duration) -> String {
+pub(crate) fn fmt_wait(timeout: Duration) -> String {
     let secs = timeout.as_secs();
     if secs >= 60 && secs.is_multiple_of(60) {
         let mins = secs / 60;
@@ -489,6 +506,7 @@ mod tests {
             scene_title: "Linker Smoke".to_string(),
             base_parcel: "0,0".to_string(),
             multi_scene: false,
+            check_permissions: false,
         };
         (t, dep)
     }

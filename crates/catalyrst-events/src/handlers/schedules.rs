@@ -11,6 +11,15 @@ use crate::http::response::{ApiError, ApiOk};
 use crate::schemas::ScheduleRecord;
 use crate::AppState;
 
+#[utoipa::path(
+    get,
+    path = "/api/schedules",
+    tag = "schedules",
+    responses(
+        (status = 200, body = ApiOk<Vec<ScheduleRecord>>),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn get_schedule_list(
     State(state): State<AppState>,
 ) -> Result<Json<ApiOk<Vec<ScheduleRecord>>>, ApiError> {
@@ -18,6 +27,17 @@ pub async fn get_schedule_list(
     Ok(Json(ApiOk::new(list)))
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/schedules/{schedule_id}",
+    tag = "schedules",
+    params(("schedule_id" = String, Path)),
+    responses(
+        (status = 200, body = ApiOk<ScheduleRecord>),
+        (status = 404, body = catalyrst_types::ApiErrorBody),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn get_schedule_by_id(
     State(state): State<AppState>,
     Path(schedule_id): Path<String>,
@@ -29,6 +49,18 @@ pub async fn get_schedule_by_id(
     Ok(Json(ApiOk::new(s)))
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/schedules",
+    tag = "schedules",
+    request_body = serde_json::Value,
+    responses(
+        (status = 200, body = ApiOk<serde_json::Value>),
+        (status = 400, body = catalyrst_types::ApiErrorBody),
+        (status = 401, body = catalyrst_types::ApiErrorBody),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn create_schedule(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -37,6 +69,19 @@ pub async fn create_schedule(
     apply_upsert(&state, &headers, body, None).await
 }
 
+#[utoipa::path(
+    patch,
+    path = "/api/schedules/{schedule_id}",
+    tag = "schedules",
+    params(("schedule_id" = String, Path)),
+    request_body = serde_json::Value,
+    responses(
+        (status = 200, body = ApiOk<serde_json::Value>),
+        (status = 400, body = catalyrst_types::ApiErrorBody),
+        (status = 401, body = catalyrst_types::ApiErrorBody),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn patch_schedule(
     State(state): State<AppState>,
     headers: HeaderMap,

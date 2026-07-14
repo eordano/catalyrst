@@ -10,14 +10,12 @@ pub mod render;
 pub mod rentals;
 pub mod satellite;
 
-use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
 use axum::routing::get;
 use axum::Router;
-use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use sqlx::PgPool;
 
 use crate::config::Config;
@@ -34,18 +32,15 @@ pub struct AppStateInner {
 pub type AppState = Arc<AppStateInner>;
 
 pub async fn build_state(cfg: &Config) -> Result<AppState> {
-    let opts = PgConnectOptions::from_str(&cfg.database_url)
-        .context("invalid DAPPS_PG_COMPONENT_PSQL_CONNECTION_STRING")?
-        .options([
-            ("statement_timeout", "120000"),
-            ("idle_in_transaction_session_timeout", "30000"),
-        ]);
-    let pool = PgPoolOptions::new()
-        .max_connections(10)
-        .idle_timeout(Duration::from_secs(30))
-        .connect_with(opts)
-        .await
-        .context("failed to connect marketplace_squid pool")?;
+    let pool = catalyrst_db::connect_pool(
+        &cfg.database_url,
+        &catalyrst_db::PoolSettings {
+            statement_timeout_ms: 120_000,
+            ..catalyrst_db::PoolSettings::default()
+        },
+    )
+    .await
+    .context("failed to connect marketplace_squid pool")?;
 
     let map = MapComponent::new(
         pool.clone(),

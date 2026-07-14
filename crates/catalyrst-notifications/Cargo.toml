@@ -1,8 +1,12 @@
 [package]
 name = "catalyrst-notifications"
-version = "0.9.10"
+version = "0.15.0"
 edition = "2021"
 description = "Rust port of decentraland/notifications (REST API for notifications.decentraland.org), SignedFetch reader/marker over a dedicated notifications DB"
+
+[package.metadata.generated]
+gate = "sites/scripts/gen-ts-check.sh"
+ts-bindings = "ui3/src/generated/catalyst/notifications"
 
 [[bin]]
 name = "catalyrst-notifications"
@@ -11,9 +15,9 @@ path = "src/main.rs"
 [dependencies]
 catalyrst-types = { workspace = true }
 catalyrst-crypto = { workspace = true }
+catalyrst-db = { workspace = true }
 tokio = { workspace = true }
 axum = { workspace = true }
-tower = { workspace = true }
 tower-http = { workspace = true }
 sqlx = { workspace = true, features = ["uuid"] }
 serde = { workspace = true }

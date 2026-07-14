@@ -1,7 +1,7 @@
 # catalyrst-economy routes
 
 Rust port of `decentraland/transactions-server` (transactions-api.decentraland.org). Listens on the
-deployment's assigned port (`5155`; see `umbrella/env/catalyrst-economy.env`). All routes are
+deployment's assigned port (`5155`; see the deployment's `catalyrst-economy` env file). All routes are
 unauthenticated at the HTTP layer - authn/authz lives in the EIP-712 calldata, verified on-chain.
 
 | Method | Path | Status | Notes |

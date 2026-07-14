@@ -1,0 +1,106 @@
+.nshero {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  min-height: 190px;
+  padding: 28px 32px;
+  border-radius: var(--r-card);
+  overflow: hidden;
+  color: #fff;
+  isolation: isolate;
+}
+.nshero--purple {
+  background:
+    radial-gradient(120% 140% at 85% 20%, rgba(197, 64, 205, 0.55) 0%, rgba(197, 64, 205, 0) 55%),
+    linear-gradient(135deg, #5a15a0 0%, #40118a 46%, #2f0b6b 100%);
+}
+.nshero--magenta {
+  background:
+    radial-gradient(120% 140% at 82% 22%, rgba(255, 75, 237, 0.5) 0%, rgba(255, 75, 237, 0) 52%),
+    linear-gradient(135deg, #a524b2 0%, #7016b8 52%, #45108a 100%);
+}
+.nshero--neon {
+  background:
+    radial-gradient(120% 140% at 78% 24%, rgba(155, 209, 65, 0.42) 0%, rgba(155, 209, 65, 0) 52%),
+    linear-gradient(135deg, #2d0b6b 0%, #1c0a4a 60%, #120733 100%);
+}
+
+.nshero__body {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: 62%;
+}
+.nshero__eyebrow {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.72);
+}
+.nshero__title {
+  margin: 0;
+  font-size: 30px;
+  font-weight: 800;
+  line-height: 1.05;
+  letter-spacing: -0.01em;
+  text-transform: uppercase;
+}
+.nshero__subtitle {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.4;
+  color: rgba(255, 255, 255, 0.82);
+}
+.nshero__cta {
+  align-self: flex-start;
+  margin-top: 6px;
+  appearance: none;
+  border: 0;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: #fff;
+  padding: 11px 22px;
+  border-radius: var(--r-pill);
+  background: var(--explore-orange-grad);
+  box-shadow: 0 6px 18px rgba(255, 116, 57, 0.35);
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+.nshero__cta:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 9px 24px rgba(255, 116, 57, 0.45);
+}
+.nshero__cta:active {
+  transform: translateY(0);
+}
+
+.nshero__art {
+  position: relative;
+  z-index: 1;
+  flex: 0 0 auto;
+  width: 34%;
+  max-width: 240px;
+  align-self: stretch;
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-end;
+}
+.nshero__art > * {
+  max-width: 100%;
+  max-height: 220px;
+}
+
+@media (max-width: 640px) {
+  .nshero__art { display: none; }
+  .nshero__body { max-width: 100%; }
+  .nshero__title { font-size: 24px; }
+}

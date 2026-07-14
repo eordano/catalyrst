@@ -18,8 +18,10 @@ use catalyrst_camera_reel::ports::places::PlacesClient;
 use catalyrst_camera_reel::ports::storage::ImageStore;
 use catalyrst_camera_reel::{AppState, AppStateInner};
 
+const PG_VAR: &str = "CATALYRST_CAMERA_REEL_TEST_PG";
+
 fn pg_url() -> Option<String> {
-    std::env::var("CATALYRST_CAMERA_REEL_TEST_PG").ok()
+    catalyrst_testgate::require_pg(PG_VAR)
 }
 
 fn unique_schema() -> String {
@@ -37,24 +39,32 @@ fn unique_dir() -> std::path::PathBuf {
 
 async fn setup_db() -> Option<(PgPool, String, String)> {
     let url = pg_url()?;
-    let admin = PgPoolOptions::new()
+    let admin = match PgPoolOptions::new()
         .max_connections(2)
         .acquire_timeout(Duration::from_secs(5))
         .connect(&url)
         .await
-        .ok()?;
+    {
+        Ok(pool) => pool,
+        Err(e) => {
+            return catalyrst_testgate::pg_unusable(
+                PG_VAR,
+                &format!("connect to {url} failed: {e}"),
+            )
+        }
+    };
     let schema = unique_schema();
     sqlx::query(sqlx::AssertSqlSafe(format!("CREATE SCHEMA {}", schema)))
         .execute(&admin)
         .await
-        .ok()?;
+        .unwrap_or_else(|e| panic!("CREATE SCHEMA {schema} failed: {e}"));
     let suffixed = format!("{}?options=-c%20search_path%3D{}", url, schema);
     let pool = PgPoolOptions::new()
         .max_connections(4)
         .acquire_timeout(Duration::from_secs(5))
         .connect(&suffixed)
         .await
-        .ok()?;
+        .unwrap_or_else(|e| panic!("connect to scratch schema {schema} failed: {e}"));
     apply_migration(
         &pool,
         include_str!("../migrations/20260609000000_camera_reel_images.sql"),
@@ -143,10 +153,6 @@ fn private_image(owner: &str) -> Image {
 #[tokio::test]
 async fn private_image_metadata_is_returned_without_auth() {
     let Some((pool, schema, admin_url)) = setup_db().await else {
-        eprintln!(
-            "skipping private_image_metadata_is_returned_without_auth: \
-             set CATALYRST_CAMERA_REEL_TEST_PG to run"
-        );
         return;
     };
     let dir = unique_dir();
@@ -185,10 +191,6 @@ async fn private_image_metadata_is_returned_without_auth() {
 #[tokio::test]
 async fn missing_image_metadata_is_not_found_not_unauthorized() {
     let Some((pool, schema, admin_url)) = setup_db().await else {
-        eprintln!(
-            "skipping missing_image_metadata_is_not_found_not_unauthorized: \
-             set CATALYRST_CAMERA_REEL_TEST_PG to run"
-        );
         return;
     };
     let dir = unique_dir();

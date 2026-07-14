@@ -1,5 +1,7 @@
 use sqlx::{PgPool, Postgres, Transaction};
 
+use crate::util::now_ms;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VoiceChatUserStatus {
     Connected,
@@ -476,14 +478,6 @@ impl VoiceDb {
         is_active_community_user(&self.cfg, user, now)
     }
 
-    pub async fn is_community_room_active(&self, room_name: &str) -> Result<bool, sqlx::Error> {
-        let now = now_ms();
-        let users = self.get_community_users_in_room(room_name).await?;
-        Ok(users
-            .iter()
-            .any(|u| u.is_moderator && self.is_active_community_user(u, now)))
-    }
-
     pub async fn get_community_voice_chat_participant_count(
         &self,
         room_name: &str,
@@ -674,14 +668,6 @@ pub struct JoinOutcome {
 pub enum DeleteRoomError {
     RoomDoesNotExist,
     Db(sqlx::Error),
-}
-
-fn now_ms() -> i64 {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or(0)
 }
 
 fn is_active_community_user(

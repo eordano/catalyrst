@@ -1,0 +1,19 @@
+.toggle {
+  --w: 42px; --h: 24px;
+  width: var(--w); height: var(--h); flex: 0 0 auto;
+  border: none; cursor: pointer; padding: 0; border-radius: var(--r-pill);
+  background: rgba(255, 255, 255, .298);
+  position: relative; transition: background .15s ease;
+}
+.toggle.is-on { background: var(--brand); }
+.toggle:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring-color);
+  outline-offset: var(--focus-ring-offset);
+}
+html.theme-light .toggle { background: rgba(0, 0, 0, .22); }
+.toggle__knob {
+  position: absolute; top: 3px; left: 3px;
+  width: 18px; height: 18px; border-radius: 50%; background: #fff;
+  transition: transform .15s ease; box-shadow: 0 1px 2px rgba(0, 0, 0, .3);
+}
+.toggle.is-on .toggle__knob { transform: translateX(18px); }

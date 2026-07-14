@@ -1,0 +1,67 @@
+.sky__backdrop {
+  position: fixed; inset: 0;
+  display: flex; align-items: flex-end; justify-content: flex-start; padding: 0;
+}
+
+.sky {
+  position: relative;
+  width: 480px; max-width: 100%;
+  margin: 0 0 96px 0;
+  background: var(--panel);
+  border-radius: 0 18px 18px 0;
+  color: #fff;
+  padding: 22px 28px 24px;
+  box-shadow: 0 24px 60px rgba(0,0,0,.55);
+}
+
+.sky__head { padding-bottom: 16px; border-bottom: 1px solid rgba(255,255,255,.08); }
+.sky__title {
+  font-size: var(--fs-md); font-weight: 700; letter-spacing: .06em;
+  text-transform: uppercase; color: rgba(255,255,255,.6);
+}
+
+.sky__row { display: flex; align-items: center; justify-content: space-between; }
+.sky__row--auto {
+  padding: 16px 0; border-bottom: 1px solid rgba(255,255,255,.1);
+}
+
+.sky__label { font-size: 19px; font-weight: 700; color: #fff; }
+.sky__label--muted { color: rgba(255,255,255,.45); }
+
+.sky__group { padding-top: 16px; transition: opacity .15s ease; }
+.sky__group.is-dim { opacity: .75; pointer-events: none; }
+.sky__group.is-dim .sky__label--muted { color: rgba(255, 255, 255, .5); }
+
+.sky__time {
+  font-size: 20px; font-weight: 700; color: rgba(255,255,255,.5);
+  font-variant-numeric: tabular-nums;
+}
+
+.sky__slider { display: flex; align-items: center; margin-top: 14px; }
+
+.sky__track { position: relative; flex: 1; height: 22px; display: flex; align-items: center; }
+
+.sky__range {
+  -webkit-appearance: none; appearance: none;
+  width: 100%; height: 4px; border-radius: var(--r-pill);
+  outline: none; cursor: pointer; margin: 0;
+  background: linear-gradient(90deg,
+    var(--brand) 0%, var(--brand) var(--pct, 0%),
+    rgba(255,255,255,.14) var(--pct, 0%), rgba(255,255,255,.14) 100%);
+}
+.sky__range::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: 18px; height: 18px; border-radius: 50%; cursor: pointer;
+  background: var(--brand); border: 2px solid #fff;
+  box-shadow: 0 1px 4px var(--scrim);
+}
+.sky__range::-moz-range-thumb {
+  width: 18px; height: 18px; border-radius: 50%; cursor: pointer;
+  background: var(--brand); border: 2px solid #fff;
+  box-shadow: 0 1px 4px var(--scrim);
+}
+.sky__range:disabled { cursor: default; }
+
+@media (max-width: 520px) {
+  .sky { width: 100%; border-radius: 0; margin-bottom: 64px; }
+}
