@@ -6,7 +6,7 @@ pub async fn telemetry_issue_state(session: AdminSession, Json(body): Json<Value
         .and_then(|v| v.as_str())
         .map(|s| s.to_string());
     proxy_audited_global(
-        &session.address,
+        session.address(),
         "telemetry.issue-state",
         fingerprint.as_deref(),
         body.clone(),
@@ -20,8 +20,11 @@ pub async fn telemetry_issue_state(session: AdminSession, Json(body): Json<Value
 }
 
 pub async fn telemetry_sql(session: AdminSession, Json(body): Json<Value>) -> Response {
+    let Some(token) = env_token(TELEMETRY_TOKEN) else {
+        return token_missing("telemetry");
+    };
     proxy_audited_global(
-        &session.address,
+        session.address(),
         "telemetry.sql",
         None,
         body.clone(),
@@ -29,7 +32,7 @@ pub async fn telemetry_sql(session: AdminSession, Json(body): Json<Value>) -> Re
         "telemetry",
         "/dash/sql",
         Some(body),
-        None,
+        Some(&token),
     )
     .await
 }
@@ -66,7 +69,7 @@ pub async fn telemetry_purge(
     State(state): State<Arc<AppState>>,
     Json(body): Json<Value>,
 ) -> Response {
-    telemetry_admin(&state, &session.address, "telemetry.purge", "purge", body).await
+    telemetry_admin(&state, session.address(), "telemetry.purge", "purge", body).await
 }
 
 pub async fn telemetry_ingest(
@@ -74,7 +77,14 @@ pub async fn telemetry_ingest(
     State(state): State<Arc<AppState>>,
     Json(body): Json<Value>,
 ) -> Response {
-    telemetry_admin(&state, &session.address, "telemetry.ingest", "ingest", body).await
+    telemetry_admin(
+        &state,
+        session.address(),
+        "telemetry.ingest",
+        "ingest",
+        body,
+    )
+    .await
 }
 
 pub async fn telemetry_quota(
@@ -82,7 +92,7 @@ pub async fn telemetry_quota(
     State(state): State<Arc<AppState>>,
     Json(body): Json<Value>,
 ) -> Response {
-    telemetry_admin(&state, &session.address, "telemetry.quota", "quota", body).await
+    telemetry_admin(&state, session.address(), "telemetry.quota", "quota", body).await
 }
 
 pub async fn telemetry_bulk_delete(
@@ -92,7 +102,7 @@ pub async fn telemetry_bulk_delete(
 ) -> Response {
     telemetry_admin(
         &state,
-        &session.address,
+        session.address(),
         "telemetry.bulk-delete",
         "bulk-delete",
         body,
@@ -105,7 +115,14 @@ pub async fn telemetry_export(
     State(state): State<Arc<AppState>>,
     Json(body): Json<Value>,
 ) -> Response {
-    telemetry_admin(&state, &session.address, "telemetry.export", "export", body).await
+    telemetry_admin(
+        &state,
+        session.address(),
+        "telemetry.export",
+        "export",
+        body,
+    )
+    .await
 }
 
 pub async fn telemetry_audit(
@@ -119,7 +136,7 @@ pub async fn telemetry_audit(
     let qs = query_from_obj(&body, &["fingerprint", "action", "limit"]);
     proxy_audited(
         &state,
-        &session.address,
+        session.address(),
         "telemetry.audit",
         None,
         body.clone(),
@@ -139,7 +156,7 @@ pub async fn telemetry_regroup(
 ) -> Response {
     telemetry_admin(
         &state,
-        &session.address,
+        session.address(),
         "telemetry.regroup",
         "regroup",
         body,
@@ -154,7 +171,7 @@ pub async fn telemetry_release(
 ) -> Response {
     telemetry_admin(
         &state,
-        &session.address,
+        session.address(),
         "telemetry.release",
         "release",
         body,

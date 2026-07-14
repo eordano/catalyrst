@@ -88,15 +88,12 @@ impl BadgesComponent {
     }
 
     pub async fn list_tiers(&self, badge_id: &str) -> Result<Vec<TierData>, ApiError> {
-        let exists =
-            sqlx::query("SELECT 1 FROM badge_definitions WHERE id = $1 AND is_tier = true")
-                .bind(badge_id)
-                .fetch_optional(&self.pool)
-                .await?;
+        let exists = sqlx::query("SELECT 1 FROM badge_definitions WHERE id = $1")
+            .bind(badge_id)
+            .fetch_optional(&self.pool)
+            .await?;
         if exists.is_none() {
-            return Err(ApiError::not_found(format!(
-                "no tiered badge found with id: {badge_id}"
-            )));
+            return Err(ApiError::not_found("Badge not found"));
         }
         let rows = sqlx::query(
             "SELECT tier_id, tier_name, description, assets, criteria_steps \
@@ -222,7 +219,7 @@ impl BadgesComponent {
                 ts.iter()
                     .map(|(tier_id, at)| AchievedTier {
                         tier_id: tier_id.clone(),
-                        completed_at: Some(epoch_ms(*at)),
+                        completed_at: Some(at.timestamp_millis()),
                     })
                     .collect()
             })
@@ -232,7 +229,7 @@ impl BadgesComponent {
         let last_tier_def = last.and_then(|(tier_id, _)| {
             badge_tiers.and_then(|defs| defs.iter().find(|t| &t.tier_id == tier_id))
         });
-        let last_completed_tier_at = last.map(|(_, at)| epoch_ms(*at));
+        let last_completed_tier_at = last.map(|(_, at)| at.timestamp_millis());
         let last_completed_tier_name = last_tier_def.map(|t| t.tier_name.clone());
         let last_completed_tier_image = last_tier_def.and_then(|t| tier_image(&t.assets));
 

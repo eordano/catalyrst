@@ -1,12 +1,20 @@
-use axum::extract::{Path, Query, State};
-use axum::http::{HeaderMap, StatusCode};
+use axum::extract::{FromRef, FromRequestParts, Path, Query, State};
+use axum::http::request::Parts;
+use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
+use catalyrst_authenticated_admin::{
+    AdminAuthRejection, AuthenticatedAdminIdentity, ConfiguredAdminBearerSecret,
+};
+use catalyrst_authenticated_principal::AuthorityNotEstablished;
+
 use crate::AppState;
+
+const ADMIN_TOKEN_ENV: &str = "CATALYRST_MARKET_ADMIN_TOKEN";
 
 type AdminResponse = Response;
 type FlagRow = (String, String, String, String, String, i64);
@@ -146,24 +154,6 @@ fn to_detail_value(detail: impl Serialize, context: &str) -> Value {
     })
 }
 
-fn timing_safe_eq(a: &[u8], b: &[u8]) -> bool {
-    if a.len() != b.len() {
-        return false;
-    }
-    let mut diff = 0u8;
-    for (x, y) in a.iter().zip(b.iter()) {
-        diff |= x ^ y;
-    }
-    diff == 0
-}
-
-fn bearer_token(headers: &HeaderMap) -> Option<&str> {
-    headers
-        .get("authorization")
-        .and_then(|v| v.to_str().ok())
-        .and_then(|s| s.strip_prefix("Bearer "))
-}
-
 fn err(code: StatusCode, message: impl Into<String>) -> AdminResponse {
     (
         code,
@@ -175,19 +165,55 @@ fn err(code: StatusCode, message: impl Into<String>) -> AdminResponse {
         .into_response()
 }
 
-#[allow(clippy::result_large_err)]
-fn require_admin(state: &AppState, headers: &HeaderMap) -> Result<String, AdminResponse> {
-    let Some(expected) = state.admin_token.as_deref() else {
-        return Err(err(
+#[derive(Clone)]
+struct AdminSecretState(ConfiguredAdminBearerSecret);
+
+impl FromRef<AdminSecretState> for ConfiguredAdminBearerSecret {
+    fn from_ref(state: &AdminSecretState) -> Self {
+        state.0.clone()
+    }
+}
+
+pub struct RequireAdmin(());
+
+impl RequireAdmin {
+    fn actor(&self) -> String {
+        "admin-token".to_string()
+    }
+}
+
+fn to_admin_response(rejection: AdminAuthRejection) -> AdminResponse {
+    match rejection.refusal() {
+        AuthorityNotEstablished::CredentialNotConfigured { .. } => err(
             StatusCode::FORBIDDEN,
             "admin controls disabled (CATALYRST_MARKET_ADMIN_TOKEN unset)",
-        ));
-    };
-    match bearer_token(headers) {
-        Some(got) if timing_safe_eq(got.as_bytes(), expected.as_bytes()) => {
-            Ok("admin-token".to_string())
-        }
-        _ => Err(err(StatusCode::FORBIDDEN, "admin bearer token required")),
+        ),
+        _ => err(StatusCode::FORBIDDEN, "admin bearer token required"),
+    }
+}
+
+async fn establish_admin(
+    configured: Option<String>,
+    parts: &mut Parts,
+) -> Result<RequireAdmin, AdminResponse> {
+    let carrier = AdminSecretState(ConfiguredAdminBearerSecret {
+        environment_variable: ADMIN_TOKEN_ENV,
+        configured,
+    });
+    match AuthenticatedAdminIdentity::from_request_parts(parts, &carrier).await {
+        Ok(_) => Ok(RequireAdmin(())),
+        Err(rejection) => Err(to_admin_response(rejection)),
+    }
+}
+
+impl FromRequestParts<AppState> for RequireAdmin {
+    type Rejection = AdminResponse;
+
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &AppState,
+    ) -> Result<Self, Self::Rejection> {
+        establish_admin(state.admin_token.clone(), parts).await
     }
 }
 
@@ -232,7 +258,7 @@ async fn target_exists(state: &AppState, kind: &str, hash: &str) -> Result<bool,
         "trade" => "market_trades_local",
         _ => return Ok(false),
     };
-    let row: Option<(i64,)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+    let row = sqlx::query(sqlx::AssertSqlSafe(format!(
         "SELECT 1 FROM {table} WHERE signature_hash = $1 LIMIT 1"
     )))
     .bind(hash)
@@ -249,16 +275,27 @@ pub struct FlagBody {
     pub reason: Option<String>,
 }
 
+#[utoipa::path(
+    post,
+    path = "/v1/admin/moderation/{kind}/{hash}/flag",
+    tag = "market-admin",
+    params(("kind" = String, Path), ("hash" = String, Path)),
+    request_body = serde_json::Value,
+    responses(
+        (status = 200, body = serde_json::Value),
+        (status = 400, body = crate::http::response::MarketErrorBody),
+        (status = 403, body = crate::http::response::MarketErrorBody),
+        (status = 404, body = crate::http::response::MarketErrorBody),
+        (status = 500, body = crate::http::response::MarketErrorBody)
+    )
+)]
 pub async fn set_flag(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    admin: RequireAdmin,
     Path((kind, hash)): Path<(String, String)>,
     body: Option<Json<FlagBody>>,
 ) -> AdminResponse {
-    let actor = match require_admin(&state, &headers) {
-        Ok(a) => a,
-        Err(e) => return e,
-    };
+    let actor = admin.actor();
     if !valid_target_kind(&kind) {
         return err(StatusCode::BAD_REQUEST, "kind must be bid|order|trade");
     }
@@ -325,15 +362,24 @@ pub async fn set_flag(
         .into_response()
 }
 
+#[utoipa::path(
+    delete,
+    path = "/v1/admin/moderation/{kind}/{hash}/flag",
+    tag = "market-admin",
+    params(("kind" = String, Path), ("hash" = String, Path)),
+    responses(
+        (status = 200, body = serde_json::Value),
+        (status = 400, body = crate::http::response::MarketErrorBody),
+        (status = 403, body = crate::http::response::MarketErrorBody),
+        (status = 500, body = crate::http::response::MarketErrorBody)
+    )
+)]
 pub async fn clear_flag(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    admin: RequireAdmin,
     Path((kind, hash)): Path<(String, String)>,
 ) -> AdminResponse {
-    let actor = match require_admin(&state, &headers) {
-        Ok(a) => a,
-        Err(e) => return e,
-    };
+    let actor = admin.actor();
     if !valid_target_kind(&kind) {
         return err(StatusCode::BAD_REQUEST, "kind must be bid|order|trade");
     }
@@ -370,14 +416,22 @@ pub struct ListFlagsQuery {
     pub severity: Option<String>,
 }
 
+#[utoipa::path(
+    get,
+    path = "/v1/admin/moderation/flags",
+    tag = "market-admin",
+    params(("kind" = Option<String>, Query), ("severity" = Option<String>, Query)),
+    responses(
+        (status = 200, body = serde_json::Value),
+        (status = 403, body = crate::http::response::MarketErrorBody),
+        (status = 500, body = crate::http::response::MarketErrorBody)
+    )
+)]
 pub async fn list_flags(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    _admin: RequireAdmin,
     Query(q): Query<ListFlagsQuery>,
 ) -> AdminResponse {
-    if let Err(e) = require_admin(&state, &headers) {
-        return e;
-    }
     let rows: Result<Vec<FlagRow>, _> = sqlx::query_as(
         "SELECT target_hash, target_kind, severity, reason, flagged_by, flagged_at \
            FROM market_moderation_flags \
@@ -422,16 +476,26 @@ pub struct OpenDisputeBody {
     pub reason: Option<String>,
 }
 
+#[utoipa::path(
+    post,
+    path = "/v1/admin/disputes/{trade_hash}/open",
+    tag = "market-admin",
+    params(("trade_hash" = String, Path)),
+    request_body = serde_json::Value,
+    responses(
+        (status = 200, body = serde_json::Value),
+        (status = 403, body = crate::http::response::MarketErrorBody),
+        (status = 404, body = crate::http::response::MarketErrorBody),
+        (status = 500, body = crate::http::response::MarketErrorBody)
+    )
+)]
 pub async fn open_dispute(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    admin: RequireAdmin,
     Path(trade_hash): Path<String>,
     body: Option<Json<OpenDisputeBody>>,
 ) -> AdminResponse {
-    let actor = match require_admin(&state, &headers) {
-        Ok(a) => a,
-        Err(e) => return e,
-    };
+    let actor = admin.actor();
     let reason = body.and_then(|Json(b)| b.reason).unwrap_or_default();
 
     match target_exists(&state, "trade", &trade_hash).await {
@@ -489,16 +553,27 @@ pub struct ResolveDisputeBody {
     pub resolution: Option<String>,
 }
 
+#[utoipa::path(
+    post,
+    path = "/v1/admin/disputes/{trade_hash}/resolve",
+    tag = "market-admin",
+    params(("trade_hash" = String, Path)),
+    request_body = serde_json::Value,
+    responses(
+        (status = 200, body = serde_json::Value),
+        (status = 400, body = crate::http::response::MarketErrorBody),
+        (status = 403, body = crate::http::response::MarketErrorBody),
+        (status = 404, body = crate::http::response::MarketErrorBody),
+        (status = 500, body = crate::http::response::MarketErrorBody)
+    )
+)]
 pub async fn resolve_dispute(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    admin: RequireAdmin,
     Path(trade_hash): Path<String>,
     body: Option<Json<ResolveDisputeBody>>,
 ) -> AdminResponse {
-    let actor = match require_admin(&state, &headers) {
-        Ok(a) => a,
-        Err(e) => return e,
-    };
+    let actor = admin.actor();
     let b = body.map(|Json(b)| b).unwrap_or_default();
     let status = b.status.unwrap_or_else(|| "resolved".to_string());
     if !matches!(status.as_str(), "resolved" | "rejected") {
@@ -558,14 +633,22 @@ pub struct ListDisputesQuery {
     pub status: Option<String>,
 }
 
+#[utoipa::path(
+    get,
+    path = "/v1/admin/disputes",
+    tag = "market-admin",
+    params(("status" = Option<String>, Query)),
+    responses(
+        (status = 200, body = serde_json::Value),
+        (status = 403, body = crate::http::response::MarketErrorBody),
+        (status = 500, body = crate::http::response::MarketErrorBody)
+    )
+)]
 pub async fn list_disputes(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    _admin: RequireAdmin,
     Query(q): Query<ListDisputesQuery>,
 ) -> AdminResponse {
-    if let Err(e) = require_admin(&state, &headers) {
-        return e;
-    }
     let rows: Result<Vec<DisputeRow>, _> =
         sqlx::query_as(
             "SELECT trade_hash, status, reason, resolution, opened_by, opened_at, resolved_by, resolved_at \
@@ -620,16 +703,27 @@ pub struct ForceCancelBody {
     pub reason: Option<String>,
 }
 
+#[utoipa::path(
+    post,
+    path = "/v1/admin/listings/{kind}/{hash}/force-cancel",
+    tag = "market-admin",
+    params(("kind" = String, Path), ("hash" = String, Path)),
+    request_body = serde_json::Value,
+    responses(
+        (status = 200, body = serde_json::Value),
+        (status = 400, body = crate::http::response::MarketErrorBody),
+        (status = 403, body = crate::http::response::MarketErrorBody),
+        (status = 404, body = crate::http::response::MarketErrorBody),
+        (status = 500, body = crate::http::response::MarketErrorBody)
+    )
+)]
 pub async fn force_cancel(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    admin: RequireAdmin,
     Path((kind, hash)): Path<(String, String)>,
     body: Option<Json<ForceCancelBody>>,
 ) -> AdminResponse {
-    let actor = match require_admin(&state, &headers) {
-        Ok(a) => a,
-        Err(e) => return e,
-    };
+    let actor = admin.actor();
     if !matches!(kind.as_str(), "bid" | "order") {
         return err(
             StatusCode::BAD_REQUEST,
@@ -747,14 +841,22 @@ pub struct AuditQuery {
     pub limit: Option<i64>,
 }
 
+#[utoipa::path(
+    get,
+    path = "/v1/admin/audit",
+    tag = "market-admin",
+    params(("target_hash" = Option<String>, Query), ("action" = Option<String>, Query), ("limit" = Option<i64>, Query)),
+    responses(
+        (status = 200, body = serde_json::Value),
+        (status = 403, body = crate::http::response::MarketErrorBody),
+        (status = 500, body = crate::http::response::MarketErrorBody)
+    )
+)]
 pub async fn list_audit(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    _admin: RequireAdmin,
     Query(q): Query<AuditQuery>,
 ) -> AdminResponse {
-    if let Err(e) = require_admin(&state, &headers) {
-        return e;
-    }
     let limit = q.limit.unwrap_or(200).clamp(1, 1000);
     let rows: Result<Vec<AuditRow>, _> = sqlx::query_as(
         "SELECT id, actor, action, target_kind, target_hash, detail, created_at \
@@ -797,344 +899,5 @@ pub async fn list_audit(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-
-    #[test]
-    fn timing_safe_eq_matches_and_mismatches() {
-        assert!(timing_safe_eq(b"secret", b"secret"));
-        assert!(!timing_safe_eq(b"secret", b"secreT"));
-        assert!(!timing_safe_eq(b"secret", b"secret-longer"));
-        assert!(!timing_safe_eq(b"", b"x"));
-    }
-
-    #[test]
-    fn bearer_token_parses_prefix() {
-        let mut h = HeaderMap::new();
-        h.insert("authorization", "Bearer abc123".parse().unwrap());
-        assert_eq!(bearer_token(&h), Some("abc123"));
-
-        let mut h2 = HeaderMap::new();
-        h2.insert("authorization", "Basic abc123".parse().unwrap());
-        assert_eq!(bearer_token(&h2), None);
-
-        assert_eq!(bearer_token(&HeaderMap::new()), None);
-    }
-
-    #[test]
-    fn target_kind_validation() {
-        assert!(valid_target_kind("bid"));
-        assert!(valid_target_kind("order"));
-        assert!(valid_target_kind("trade"));
-        assert!(!valid_target_kind("listing"));
-        assert!(!valid_target_kind(""));
-    }
-
-    #[test]
-    fn wire_identity_error_envelope() {
-        let dto = AdminError {
-            ok: false,
-            message: "admin bearer token required".to_string(),
-        };
-        assert_eq!(
-            serde_json::to_value(&dto).unwrap(),
-            json!({ "ok": false, "message": "admin bearer token required" })
-        );
-
-        let dto = AdminError {
-            ok: false,
-            message: "admin controls disabled (CATALYRST_MARKET_ADMIN_TOKEN unset)".to_string(),
-        };
-        assert_eq!(
-            serde_json::to_value(&dto).unwrap(),
-            json!({
-                "ok": false,
-                "message": "admin controls disabled (CATALYRST_MARKET_ADMIN_TOKEN unset)"
-            })
-        );
-    }
-
-    #[test]
-    fn wire_identity_set_flag_ok() {
-        let dto = SetFlagResponse {
-            ok: true,
-            target_kind: "bid".to_string(),
-            target_hash: "0xabc".to_string(),
-            severity: "hide".to_string(),
-        };
-        assert_eq!(
-            serde_json::to_value(&dto).unwrap(),
-            json!({ "ok": true, "target_kind": "bid", "target_hash": "0xabc", "severity": "hide" })
-        );
-    }
-
-    #[test]
-    fn wire_identity_clear_flag_ok() {
-        let removed = ClearFlagResponse {
-            ok: true,
-            target_hash: "0xabc".to_string(),
-            removed: true,
-        };
-        assert_eq!(
-            serde_json::to_value(&removed).unwrap(),
-            json!({ "ok": true, "target_hash": "0xabc", "removed": true })
-        );
-
-        let noop = ClearFlagResponse {
-            ok: true,
-            target_hash: "0xdef".to_string(),
-            removed: false,
-        };
-        assert_eq!(
-            serde_json::to_value(&noop).unwrap(),
-            json!({ "ok": true, "target_hash": "0xdef", "removed": false })
-        );
-    }
-
-    #[test]
-    fn wire_identity_list_flags() {
-        let entry = FlagEntry {
-            target_hash: "0xabc".to_string(),
-            target_kind: "order".to_string(),
-            severity: "review".to_string(),
-            reason: "spam".to_string(),
-            flagged_by: "admin-token".to_string(),
-            flagged_at: 1_700_000_000,
-        };
-        let dto = ListEnvelope::of(vec![entry]);
-        assert_eq!(
-            serde_json::to_value(&dto).unwrap(),
-            json!({
-                "data": [{
-                    "target_hash": "0xabc",
-                    "target_kind": "order",
-                    "severity": "review",
-                    "reason": "spam",
-                    "flagged_by": "admin-token",
-                    "flagged_at": 1_700_000_000_i64,
-                }],
-                "total": 1
-            })
-        );
-
-        let empty: ListEnvelope<FlagEntry> = ListEnvelope::of(vec![]);
-        assert_eq!(
-            serde_json::to_value(&empty).unwrap(),
-            json!({ "data": [], "total": 0 })
-        );
-    }
-
-    #[test]
-    fn wire_identity_dispute_action() {
-        let opened = DisputeActionResponse {
-            ok: true,
-            trade_hash: "0xtrade".to_string(),
-            status: "open".to_string(),
-        };
-        assert_eq!(
-            serde_json::to_value(&opened).unwrap(),
-            json!({ "ok": true, "trade_hash": "0xtrade", "status": "open" })
-        );
-
-        for status in ["resolved", "rejected"] {
-            let dto = DisputeActionResponse {
-                ok: true,
-                trade_hash: "0xtrade".to_string(),
-                status: status.to_string(),
-            };
-            assert_eq!(
-                serde_json::to_value(&dto).unwrap(),
-                json!({ "ok": true, "trade_hash": "0xtrade", "status": status })
-            );
-        }
-    }
-
-    #[test]
-    fn wire_identity_list_disputes() {
-        let open = DisputeEntry {
-            trade_hash: "0xtrade".to_string(),
-            status: "open".to_string(),
-            reason: "fraud".to_string(),
-            resolution: String::new(),
-            opened_by: "admin-token".to_string(),
-            opened_at: 1_700_000_000,
-            resolved_by: None,
-            resolved_at: None,
-        };
-        let v = serde_json::to_value(&open).unwrap();
-        assert_eq!(
-            v,
-            json!({
-                "trade_hash": "0xtrade",
-                "status": "open",
-                "reason": "fraud",
-                "resolution": "",
-                "opened_by": "admin-token",
-                "opened_at": 1_700_000_000_i64,
-                "resolved_by": null,
-                "resolved_at": null,
-            })
-        );
-        let obj = v.as_object().unwrap();
-        assert!(obj.contains_key("resolved_by"));
-        assert!(obj.contains_key("resolved_at"));
-
-        let resolved = DisputeEntry {
-            trade_hash: "0xtrade".to_string(),
-            status: "resolved".to_string(),
-            reason: "fraud".to_string(),
-            resolution: "refunded".to_string(),
-            opened_by: "admin-token".to_string(),
-            opened_at: 1_700_000_000,
-            resolved_by: Some("admin-token".to_string()),
-            resolved_at: Some(1_700_000_100),
-        };
-        let dto = ListEnvelope::of(vec![resolved]);
-        assert_eq!(
-            serde_json::to_value(&dto).unwrap(),
-            json!({
-                "data": [{
-                    "trade_hash": "0xtrade",
-                    "status": "resolved",
-                    "reason": "fraud",
-                    "resolution": "refunded",
-                    "opened_by": "admin-token",
-                    "opened_at": 1_700_000_000_i64,
-                    "resolved_by": "admin-token",
-                    "resolved_at": 1_700_000_100_i64,
-                }],
-                "total": 1
-            })
-        );
-
-        let empty: ListEnvelope<DisputeEntry> = ListEnvelope::of(vec![]);
-        assert_eq!(
-            serde_json::to_value(&empty).unwrap(),
-            json!({ "data": [], "total": 0 })
-        );
-    }
-
-    #[test]
-    fn wire_identity_force_cancel() {
-        let fresh = ForceCancelResponse {
-            ok: true,
-            target_hash: "0xh".to_string(),
-            cancellation_hash: "operator:deadbeef".to_string(),
-            already_cancelled: None,
-        };
-        let v = serde_json::to_value(&fresh).unwrap();
-        assert_eq!(
-            v,
-            json!({ "ok": true, "target_hash": "0xh", "cancellation_hash": "operator:deadbeef" })
-        );
-        assert!(!v.as_object().unwrap().contains_key("already_cancelled"));
-
-        let replay = ForceCancelResponse {
-            ok: true,
-            target_hash: "0xh".to_string(),
-            cancellation_hash: "operator:prior".to_string(),
-            already_cancelled: Some(true),
-        };
-        assert_eq!(
-            serde_json::to_value(&replay).unwrap(),
-            json!({
-                "ok": true,
-                "target_hash": "0xh",
-                "cancellation_hash": "operator:prior",
-                "already_cancelled": true,
-            })
-        );
-    }
-
-    #[test]
-    fn wire_identity_list_audit() {
-        let entry = AuditEntry {
-            id: 42,
-            actor: "admin-token".to_string(),
-            action: "flag.set".to_string(),
-            target_kind: "bid".to_string(),
-            target_hash: "0xabc".to_string(),
-            detail: json!({ "severity": "hide", "reason": "spam", "legacy_extra": [1, 2] }),
-            created_at: 1_700_000_000,
-        };
-        let dto = ListEnvelope::of(vec![entry]);
-        assert_eq!(
-            serde_json::to_value(&dto).unwrap(),
-            json!({
-                "data": [{
-                    "id": 42,
-                    "actor": "admin-token",
-                    "action": "flag.set",
-                    "target_kind": "bid",
-                    "target_hash": "0xabc",
-                    "detail": { "severity": "hide", "reason": "spam", "legacy_extra": [1, 2] },
-                    "created_at": 1_700_000_000_i64,
-                }],
-                "total": 1
-            })
-        );
-
-        let empty: ListEnvelope<AuditEntry> = ListEnvelope::of(vec![]);
-        assert_eq!(
-            serde_json::to_value(&empty).unwrap(),
-            json!({ "data": [], "total": 0 })
-        );
-    }
-
-    #[test]
-    fn wire_identity_audit_details() {
-        assert_eq!(
-            to_detail_value(
-                FlagSetDetail {
-                    severity: "hide",
-                    reason: "spam"
-                },
-                "test"
-            ),
-            json!({ "severity": "hide", "reason": "spam" })
-        );
-        assert_eq!(to_detail_value(EmptyDetail {}, "test"), json!({}));
-        assert_eq!(
-            to_detail_value(ReasonDetail { reason: "fraud" }, "test"),
-            json!({ "reason": "fraud" })
-        );
-        assert_eq!(
-            to_detail_value(
-                DisputeResolveDetail {
-                    status: "resolved",
-                    resolution: "refunded"
-                },
-                "test"
-            ),
-            json!({ "status": "resolved", "resolution": "refunded" })
-        );
-        assert_eq!(
-            to_detail_value(
-                ForceCancelDetail {
-                    reason: "rug",
-                    cancellation_hash: "operator:deadbeef"
-                },
-                "test"
-            ),
-            json!({ "reason": "rug", "cancellation_hash": "operator:deadbeef" })
-        );
-        assert_eq!(
-            to_detail_value(
-                OperatorCancelPayload {
-                    operator_force_cancel: true,
-                    actor: "admin-token",
-                    reason: "rug",
-                    target_kind: "order",
-                },
-                "test"
-            ),
-            json!({
-                "operator_force_cancel": true,
-                "actor": "admin-token",
-                "reason": "rug",
-                "target_kind": "order",
-            })
-        );
-    }
-}
+#[path = "admin_tests.rs"]
+mod tests;

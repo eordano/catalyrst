@@ -1,0 +1,24 @@
+[package]
+name = "catalyrst-land-authz"
+version = "0.18.0"
+edition = "2021"
+description = "Local index of LAND/Estate authorization events, so the operator, update-operator, update-manager and approved-for-all legs of a LAND right resolve without a remote subgraph"
+
+[[bin]]
+name = "catalyrst-land-authz-index"
+path = "src/bin/index.rs"
+
+[dependencies]
+catalyrst-envcfg = { workspace = true }
+catalyrst-validator = { workspace = true }
+async-trait = { workspace = true }
+reqwest = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sqlx = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+catalyrst-contract-gate = { workspace = true }

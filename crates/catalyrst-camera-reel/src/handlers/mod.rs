@@ -7,17 +7,23 @@ use axum::http::HeaderMap;
 use crate::auth_chain::{require_signer, try_extract_signer};
 use crate::http::ApiError;
 
-pub fn require_auth(headers: &HeaderMap, method: &str, path: &str) -> Result<String, ApiError> {
-    require_signer(headers, method, path)
-        .map(|a| a.to_lowercase())
-        .map_err(|e| {
-            tracing::debug!(error = %e, "auth chain verification failed");
-            ApiError::Unauthorized
-        })
+pub async fn require_auth(
+    headers: &HeaderMap,
+    method: &str,
+    path: &str,
+) -> Result<catalyrst_crypto::Signer, ApiError> {
+    require_signer(headers, method, path).await.map_err(|e| {
+        tracing::debug!(error = %e, "auth chain verification failed");
+        ApiError::Unauthorized
+    })
 }
 
-pub fn optional_auth(headers: &HeaderMap, method: &str, path: &str) -> Option<String> {
-    try_extract_signer(headers, method, path).map(|a| a.to_lowercase())
+pub async fn optional_auth(
+    headers: &HeaderMap,
+    method: &str,
+    path: &str,
+) -> Option<catalyrst_crypto::Signer> {
+    try_extract_signer(headers, method, path).await
 }
 
 pub fn default_offset() -> u64 {

@@ -156,7 +156,6 @@ async fn verify_output(path: &Path, kind: ImageKind) -> Result<(), RenderError> 
 
 fn tail_of(stderr: &[u8], stdout: &[u8]) -> String {
     let src = if stderr.is_empty() { stdout } else { stderr };
-    let s = String::from_utf8_lossy(src);
-    let n = s.len().saturating_sub(2048);
-    s[n..].trim().to_string()
+    let start = src.len().saturating_sub(2048);
+    String::from_utf8_lossy(&src[start..]).trim().to_string()
 }

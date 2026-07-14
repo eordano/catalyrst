@@ -2,10 +2,21 @@ use axum::body::Body;
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, HeaderName, HeaderValue, Method, StatusCode};
 use axum::response::{IntoResponse, Response};
-use tokio::io::AsyncReadExt;
+use serde::Serialize;
+use tokio::io::{AsyncReadExt, AsyncSeekExt};
+use tokio_util::io::ReaderStream;
 
 use crate::http::ApiError;
 use crate::AppState;
+
+const MAX_AVAILABLE_CONTENT_CIDS: usize = 500;
+
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "worlds/"))]
+pub struct AvailableContentEntry {
+    pub cid: String,
+    pub available: bool,
+}
 
 const FORWARD_REQ_HEADERS: &[&str] = &["range", "if-none-match", "if-modified-since"];
 
@@ -25,7 +36,7 @@ fn is_sha256_hex(hash: &str) -> bool {
     hash.len() == 64 && hash.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
 }
 
-fn is_retrievable_content_key(hash: &str) -> bool {
+pub(crate) fn is_retrievable_content_key(hash: &str) -> bool {
     is_ipfs_v2(hash) || is_sha256_hex(hash)
 }
 
@@ -94,6 +105,17 @@ const FORWARD_RESP_HEADERS: &[&str] = &[
     "cache-control",
 ];
 
+#[utoipa::path(
+    get,
+    path = "/contents/{hash}",
+    tag = "contents",
+    params(("hash" = String, Path)),
+    responses(
+        (status = 200, content_type = "application/octet-stream"),
+        (status = 404, body = catalyrst_types::ApiErrorBody),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn get_content(
     state: State<AppState>,
     hash: Path<String>,
@@ -102,12 +124,116 @@ pub async fn get_content(
     proxy(state, hash, headers, Method::GET).await
 }
 
+#[utoipa::path(
+    head,
+    path = "/contents/{hash}",
+    tag = "contents",
+    params(("hash" = String, Path)),
+    responses(
+        (status = 200),
+        (status = 404, body = catalyrst_types::ApiErrorBody),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn head_content(
     state: State<AppState>,
     hash: Path<String>,
     headers: HeaderMap,
 ) -> Result<Response, ApiError> {
     proxy(state, hash, headers, Method::HEAD).await
+}
+
+#[utoipa::path(
+    get,
+    path = "/ipfs/{hash}",
+    tag = "contents",
+    params(("hash" = String, Path)),
+    responses(
+        (status = 200, content_type = "application/octet-stream"),
+        (status = 400),
+        (status = 404, body = catalyrst_types::ApiErrorBody),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
+pub async fn get_ipfs(
+    state: State<AppState>,
+    hash: Path<String>,
+    headers: HeaderMap,
+) -> Result<Response, ApiError> {
+    proxy(state, hash, headers, Method::GET).await
+}
+
+#[utoipa::path(
+    head,
+    path = "/ipfs/{hash}",
+    tag = "contents",
+    params(("hash" = String, Path)),
+    responses(
+        (status = 200),
+        (status = 400),
+        (status = 404, body = catalyrst_types::ApiErrorBody),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
+pub async fn head_ipfs(
+    state: State<AppState>,
+    hash: Path<String>,
+    headers: HeaderMap,
+) -> Result<Response, ApiError> {
+    proxy(state, hash, headers, Method::HEAD).await
+}
+
+#[utoipa::path(
+    get,
+    path = "/available-content",
+    tag = "contents",
+    params(("cid" = Option<Vec<String>>, Query)),
+    responses(
+        (status = 200, body = Vec<AvailableContentEntry>),
+        (status = 400, body = catalyrst_types::ApiErrorBody),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
+pub async fn available_content(
+    State(state): State<AppState>,
+    axum::extract::RawQuery(query): axum::extract::RawQuery,
+) -> Result<axum::Json<Vec<AvailableContentEntry>>, ApiError> {
+    let cids: Vec<&str> = query
+        .as_deref()
+        .unwrap_or("")
+        .split('&')
+        .filter_map(|kv| kv.strip_prefix("cid="))
+        .filter(|c| !c.is_empty())
+        .collect();
+
+    if cids.is_empty() {
+        return Err(ApiError::bad_request(
+            "At least one cid query parameter is required.",
+        ));
+    }
+    if cids.len() > MAX_AVAILABLE_CONTENT_CIDS {
+        return Err(ApiError::bad_request(format!(
+            "Too many cids requested; the maximum allowed is {MAX_AVAILABLE_CONTENT_CIDS}."
+        )));
+    }
+    for cid in &cids {
+        if !is_ipfs_v2(cid) {
+            return Err(ApiError::bad_request(format!("Invalid cid: {cid}")));
+        }
+    }
+
+    let mut out = Vec::with_capacity(cids.len());
+    for cid in cids {
+        let available = tokio::fs::metadata(state.cfg.contents_dir.join(cid))
+            .await
+            .map(|m| m.is_file())
+            .unwrap_or(false);
+        out.push(AvailableContentEntry {
+            cid: cid.to_string(),
+            available,
+        });
+    }
+    Ok(axum::Json(out))
 }
 
 async fn proxy(
@@ -151,11 +277,14 @@ async fn proxy(
                     if method == Method::HEAD {
                         return Ok(builder.body(Body::empty()).unwrap());
                     }
-                    let bytes = tokio::fs::read(&local)
+                    let mut file = tokio::fs::File::open(&local)
                         .await
-                        .map_err(|e| ApiError::internal(format!("local content read: {e}")))?;
-                    let slice = bytes[start as usize..=end as usize].to_vec();
-                    return Ok(builder.body(Body::from(slice)).unwrap());
+                        .map_err(|e| ApiError::internal(format!("local content open: {e}")))?;
+                    file.seek(std::io::SeekFrom::Start(start))
+                        .await
+                        .map_err(|e| ApiError::internal(format!("local content seek: {e}")))?;
+                    let stream = ReaderStream::new(file.take(end - start + 1));
+                    return Ok(builder.body(Body::from_stream(stream)).unwrap());
                 }
                 None => {}
             }
@@ -171,14 +300,23 @@ async fn proxy(
             if method == Method::HEAD {
                 return Ok(builder.body(Body::empty()).unwrap());
             }
-            let bytes = tokio::fs::read(&local)
+            let file = tokio::fs::File::open(&local)
                 .await
-                .map_err(|e| ApiError::internal(format!("local content read: {e}")))?;
-            return Ok(builder.body(Body::from(bytes)).unwrap());
+                .map_err(|e| ApiError::internal(format!("local content open: {e}")))?;
+            return Ok(builder
+                .body(Body::from_stream(ReaderStream::new(file)))
+                .unwrap());
         }
     }
 
-    let url = format!("{}/contents/{}", state.cfg.contents_upstream_url, hash);
+    let Some(upstream_base) = state.cfg.contents_upstream_url.as_deref() else {
+        return Err(ApiError::not_found(format!(
+            "content {hash} is not stored locally and CONTENTS_UPSTREAM_URL is unset, \
+             so there is no upstream to read through to"
+        )));
+    };
+
+    let url = format!("{upstream_base}/contents/{hash}");
 
     let mut req = match method {
         Method::HEAD => state.http.head(&url),

@@ -5,6 +5,7 @@ use sqlx::PgPool;
 use crate::fed::ids::{schedule_id, signature_hash_hex};
 use crate::fed::messages::{ProfileSettingsUpdate, ScheduleUpsert};
 use crate::http::response::ApiError;
+use crate::schemas::ScheduleRecord;
 
 fn now_secs() -> i64 {
     chrono::Utc::now().timestamp()
@@ -103,7 +104,7 @@ pub async fn apply_schedule(
     signed: &Signed<ScheduleUpsert>,
     signer: &str,
     origin_peer: Option<&str>,
-) -> Result<(Applied, Value), ApiError> {
+) -> Result<(Applied, ScheduleRecord), ApiError> {
     let m = &signed.message;
     let sig_hash = signature_hash_hex(&signed.hash());
     let id = m
@@ -152,7 +153,9 @@ pub async fn apply_schedule(
     .execute(pool)
     .await?;
 
-    let schedule = load_schedule(pool, &id).await?.unwrap_or_else(|| json!({}));
+    let schedule = load_schedule(pool, &id)
+        .await?
+        .ok_or_else(|| ApiError::internal("schedule vanished after write"))?;
     Ok((
         Applied {
             signature_hash: sig_hash,
@@ -226,7 +229,7 @@ pub async fn load_settings(pool: &PgPool, user: &str) -> Result<Value, ApiError>
     })
 }
 
-pub async fn load_schedule(pool: &PgPool, id: &str) -> Result<Option<Value>, ApiError> {
+pub async fn load_schedule(pool: &PgPool, id: &str) -> Result<Option<ScheduleRecord>, ApiError> {
     let row: Option<ScheduleRow> = sqlx::query_as(
         "SELECT id, name, description, image, theme, background, active_since, active_until, \
                 active, created_at, updated_at FROM schedules_local WHERE id = $1",
@@ -236,19 +239,28 @@ pub async fn load_schedule(pool: &PgPool, id: &str) -> Result<Option<Value>, Api
     .await?;
 
     Ok(row.map(|r| {
-        json!({
-            "id": r.id,
-            "name": r.name,
-            "description": r.description,
-            "image": r.image,
-            "theme": r.theme,
-            "background": r.background,
-            "active_since": r.active_since,
-            "active_until": r.active_until,
-            "active": r.active,
-            "created_at": r.created_at,
-            "updated_at": r.updated_at,
-        })
+        let background = r
+            .background
+            .as_array()
+            .map(|a| {
+                a.iter()
+                    .filter_map(|v| v.as_str().map(str::to_string))
+                    .collect()
+            })
+            .unwrap_or_default();
+        ScheduleRecord {
+            id: r.id,
+            name: r.name,
+            description: r.description,
+            image: r.image,
+            theme: r.theme,
+            background,
+            active_since: r.active_since,
+            active_until: r.active_until,
+            active: r.active,
+            created_at: Some(r.created_at),
+            updated_at: Some(r.updated_at),
+        }
     }))
 }
 

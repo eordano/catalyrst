@@ -8,7 +8,7 @@ use axum::Json;
 use serde_json::{json, Map, Value};
 
 use crate::cache;
-use crate::map::{Tile, TileType};
+use crate::map::{LegacyTile, Tile, TileType};
 use crate::AppState;
 
 fn finalize(mut resp: Response, last: i64) -> Response {
@@ -176,36 +176,23 @@ fn legacy_type(tile: &Tile) -> i32 {
     }
 }
 
-fn to_legacy(tile: &Tile) -> Value {
-    let mut m = Map::new();
-    m.insert("type".into(), json!(legacy_type(tile)));
-    m.insert("x".into(), json!(tile.x));
-    m.insert("y".into(), json!(tile.y));
-    if tile.top {
-        m.insert("top".into(), json!(1));
+pub fn to_legacy(tile: &Tile) -> LegacyTile {
+    LegacyTile {
+        tile_type: legacy_type(tile),
+        x: tile.x,
+        y: tile.y,
+        top: tile.top.then_some(1),
+        left: tile.left.then_some(1),
+        top_left: tile.top_left.then_some(1),
+        owner: tile.owner.clone(),
+        name: tile.name.clone(),
+        estate_id: tile.estate_id.clone(),
+        price: tile.price,
+        rental_price_per_day: tile
+            .rental_listing
+            .as_ref()
+            .map(|rl| rl.max_price_per_day()),
     }
-    if tile.left {
-        m.insert("left".into(), json!(1));
-    }
-    if tile.top_left {
-        m.insert("topLeft".into(), json!(1));
-    }
-    if let Some(o) = &tile.owner {
-        m.insert("owner".into(), json!(o));
-    }
-    if let Some(n) = &tile.name {
-        m.insert("name".into(), json!(n));
-    }
-    if let Some(e) = &tile.estate_id {
-        m.insert("estate_id".into(), json!(e));
-    }
-    if let Some(p) = tile.price {
-        m.insert("price".into(), json!(p));
-    }
-    if let Some(rl) = &tile.rental_listing {
-        m.insert("rentalPricePerDay".into(), json!(rl.max_price_per_day()));
-    }
-    Value::Object(m)
 }
 
 pub async fn get_legacy_tiles(
@@ -244,7 +231,10 @@ pub async fn get_legacy_tiles(
     let mut map = Map::new();
     for (id, _) in filtered {
         if let Some(t) = data.tiles.get(id) {
-            map.insert(id.clone(), to_legacy(t));
+            map.insert(
+                id.clone(),
+                serde_json::to_value(to_legacy(t)).unwrap_or(Value::Null),
+            );
         }
     }
     let body =
@@ -397,7 +387,7 @@ mod tests {
 
     #[test]
     fn legacy_tile_carries_rental_price_per_day() {
-        let v = to_legacy(&owned_tile());
+        let v = serde_json::to_value(to_legacy(&owned_tile())).unwrap();
         assert_eq!(v["rentalPricePerDay"], json!("2000"));
 
         assert_eq!(v["type"], json!(10));

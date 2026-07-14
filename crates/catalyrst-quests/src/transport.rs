@@ -1,5 +1,5 @@
 use axum::extract::ws::{Message, WebSocket};
-use dcl_rpc::transports::{Transport, TransportError, TransportMessage};
+use catalyrst_drpc::transports::{Transport, TransportError, TransportMessage};
 use futures::{SinkExt, StreamExt};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;

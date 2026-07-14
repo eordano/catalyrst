@@ -1,5 +1,7 @@
 use sqlx::PgPool;
 
+use crate::util::now_ms;
+
 pub struct UpsertPlayerConnection {
     pub address: String,
     pub ip_address: Option<String>,
@@ -45,12 +47,4 @@ impl PlayerConnectionComponent {
                 .await?;
         Ok(row.and_then(|(d,)| d).filter(|s| !s.is_empty()))
     }
-}
-
-fn now_ms() -> i64 {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or(0)
 }

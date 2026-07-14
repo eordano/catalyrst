@@ -1,0 +1,18 @@
+[
+  {
+    "route": "GET /v1/{address}/collections",
+    "ours": "ours/address_collections_anon_200.json",
+    "upstream": "upstream/address_collections_401.json",
+    "reason": "Payload is already-public on-chain squid state (creator/owner rows), equivalent to a subgraph query; anonymous-200 is an intentional simplification, not an auth hole.",
+    "upstream_evidence_date": "2026-08",
+    "routes_md_callout": "Anonymous 200 on"
+  },
+  {
+    "route": "POST /v1/newsletter",
+    "ours": "ours/newsletter_400_missing.json",
+    "upstream": "upstream/newsletter_empty.json",
+    "reason": "Upstream performs zero validation and 200s any body; we keep strict server-side validation as deliberate hardening and pin the 400 envelopes.",
+    "upstream_evidence_date": "2026-08",
+    "routes_md_callout": "Strict server-side newsletter validation"
+  }
+]

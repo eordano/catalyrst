@@ -1,17 +1,20 @@
 use axum::extract::{OriginalUri, Path, State};
 use axum::http::{HeaderMap, Method};
+use axum::response::{IntoResponse, Response};
 use axum::Json;
 use catalyrst_fed::{Signed, TypedMessage};
 use serde::de::DeserializeOwned;
 use serde_json::{json, Value};
 
-use crate::auth::{auth_address_verified, require_admin_bearer, require_bearer_token};
+use crate::auth::{
+    auth_address_verified, require_admin_bearer, require_bearer_token, require_ranking_token,
+};
 use crate::fed::apply as fed_apply;
 use crate::fed::messages::{PlaceFavorite, PlaceReport, PlaceVote};
 use crate::fed::replay;
 use crate::http::errors::ApiError;
-use crate::http::response::ApiData;
-use crate::ports::places::{PlaceRow, PlacesComponent};
+use crate::http::response::{ApiData, FavoritesResult, LikesResult, SignedApiData};
+use crate::ports::places::{PlaceRow, PlacesComponent, WorldRow};
 use crate::AppState;
 
 fn is_federation_envelope(body: &Option<Json<Value>>) -> bool {
@@ -146,6 +149,21 @@ where
     }
 }
 
+#[utoipa::path(
+    patch,
+    path = "/places/{entity_id}/favorites",
+    tag = "federation",
+    params(("entity_id" = String, Path)),
+    request_body = serde_json::Value,
+    responses(
+        (status = 200, body = ApiData<FavoritesResult>),
+        (status = 400, body = catalyrst_types::ApiErrorBody),
+        (status = 401, body = catalyrst_types::ApiErrorBody),
+        (status = 404, body = catalyrst_types::ApiErrorBody),
+        (status = 501, body = catalyrst_types::ApiErrorBody),
+        (status = 503, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn patch_place_favorites(
     State(state): State<AppState>,
     method: Method,
@@ -153,8 +171,17 @@ pub async fn patch_place_favorites(
     headers: HeaderMap,
     Path(entity_id): Path<String>,
     body: Option<Json<Value>>,
-) -> Result<Json<Value>, ApiError> {
-    do_patch_favorites(state, method, uri, headers, entity_id, body, false).await
+) -> Result<Response, ApiError> {
+    if is_federation_envelope(&body) {
+        return Ok(fed_patch_favorites(&state, &headers, &entity_id, &body)
+            .await?
+            .into_response());
+    }
+    Ok(
+        do_patch_favorites(state, method, uri, headers, entity_id, body, false)
+            .await?
+            .into_response(),
+    )
 }
 
 async fn do_patch_favorites(
@@ -165,11 +192,8 @@ async fn do_patch_favorites(
     entity_id: String,
     body: Option<Json<Value>>,
     is_world: bool,
-) -> Result<Json<Value>, ApiError> {
-    if is_federation_envelope(&body) {
-        return fed_patch_favorites(&state, &headers, &entity_id, &body).await;
-    }
-    let user = auth_address_verified(&headers, method.as_str(), uri.path())?;
+) -> Result<Json<ApiData<FavoritesResult>>, ApiError> {
+    let user = auth_address_verified(&headers, method.as_str(), uri.path()).await?;
     let favorites_req = body_bool(&body, "favorites").ok_or_else(|| {
         ApiError::bad_request("Invalid favorites body. Expected { favorites: boolean }.")
     })?;
@@ -177,13 +201,13 @@ async fn do_patch_favorites(
     let mut entity = resolve_entity(&state, &entity_id, is_world).await?;
     state
         .places
-        .apply_user_interactions(Some(&user), std::slice::from_mut(&mut entity))
+        .apply_user_interactions(Some(user.as_str()), std::slice::from_mut(&mut entity))
         .await;
 
     if favorites_req == entity.user_favorite {
-        return Ok(Json(json!({
-            "ok": true,
-            "data": { "favorites": entity.favorites, "user_favorite": entity.user_favorite }
+        return Ok(Json(ApiData::ok(FavoritesResult {
+            favorites: entity.favorites,
+            user_favorite: entity.user_favorite,
         })));
     }
 
@@ -191,15 +215,15 @@ async fn do_patch_favorites(
         .places
         .set_favorite(
             &entity.id,
-            &user,
+            user.as_str(),
             favorites_req,
             entity.favorites,
             entity.user_favorite,
         )
         .await?;
-    Ok(Json(json!({
-        "ok": true,
-        "data": { "favorites": favorites, "user_favorite": user_favorite }
+    Ok(Json(ApiData::ok(FavoritesResult {
+        favorites,
+        user_favorite,
     })))
 }
 
@@ -208,7 +232,7 @@ async fn fed_patch_favorites(
     headers: &HeaderMap,
     entity_id: &str,
     body: &Option<Json<Value>>,
-) -> Result<Json<Value>, ApiError> {
+) -> Result<Json<SignedApiData<FavoritesResult>>, ApiError> {
     let (signed, signer) = preflight::<PlaceFavorite>(state, headers, body).await?;
     if signed.message.place_id != entity_id {
         return Err(ApiError::bad_request(
@@ -220,11 +244,13 @@ async fn fed_patch_favorites(
     if applied.fresh {
         emit_gossip(state, &signed, &applied.signature_hash, &signer).await;
     }
-    Ok(Json(json!({
-        "ok": true,
-        "signature_hash": applied.signature_hash,
-        "data": { "favorites": favorites, "user_favorite": user_favorite }
-    })))
+    Ok(Json(SignedApiData::ok(
+        applied.signature_hash,
+        FavoritesResult {
+            favorites,
+            user_favorite,
+        },
+    )))
 }
 
 async fn fed_patch_likes(
@@ -232,7 +258,7 @@ async fn fed_patch_likes(
     headers: &HeaderMap,
     entity_id: &str,
     body: &Option<Json<Value>>,
-) -> Result<Json<Value>, ApiError> {
+) -> Result<Json<SignedApiData<LikesResult>>, ApiError> {
     let (signed, signer) = preflight::<PlaceVote>(state, headers, body).await?;
     if signed.message.place_id != entity_id {
         return Err(ApiError::bad_request(
@@ -244,13 +270,32 @@ async fn fed_patch_likes(
     if applied.fresh {
         emit_gossip(state, &signed, &applied.signature_hash, &signer).await;
     }
-    Ok(Json(json!({
-        "ok": true,
-        "signature_hash": applied.signature_hash,
-        "data": { "likes": likes, "dislikes": dislikes, "user_like": user_like, "user_dislike": user_dislike }
-    })))
+    Ok(Json(SignedApiData::ok(
+        applied.signature_hash,
+        LikesResult {
+            likes,
+            dislikes,
+            user_like,
+            user_dislike,
+        },
+    )))
 }
 
+#[utoipa::path(
+    patch,
+    path = "/places/{entity_id}/likes",
+    tag = "federation",
+    params(("entity_id" = String, Path)),
+    request_body = serde_json::Value,
+    responses(
+        (status = 200, body = ApiData<LikesResult>),
+        (status = 400, body = catalyrst_types::ApiErrorBody),
+        (status = 401, body = catalyrst_types::ApiErrorBody),
+        (status = 404, body = catalyrst_types::ApiErrorBody),
+        (status = 501, body = catalyrst_types::ApiErrorBody),
+        (status = 503, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn patch_place_likes(
     State(state): State<AppState>,
     method: Method,
@@ -258,8 +303,17 @@ pub async fn patch_place_likes(
     headers: HeaderMap,
     Path(entity_id): Path<String>,
     body: Option<Json<Value>>,
-) -> Result<Json<Value>, ApiError> {
-    do_patch_likes(state, method, uri, headers, entity_id, body, false).await
+) -> Result<Response, ApiError> {
+    if is_federation_envelope(&body) {
+        return Ok(fed_patch_likes(&state, &headers, &entity_id, &body)
+            .await?
+            .into_response());
+    }
+    Ok(
+        do_patch_likes(state, method, uri, headers, entity_id, body, false)
+            .await?
+            .into_response(),
+    )
 }
 
 async fn do_patch_likes(
@@ -270,11 +324,8 @@ async fn do_patch_likes(
     entity_id: String,
     body: Option<Json<Value>>,
     is_world: bool,
-) -> Result<Json<Value>, ApiError> {
-    if is_federation_envelope(&body) {
-        return fed_patch_likes(&state, &headers, &entity_id, &body).await;
-    }
-    let user = auth_address_verified(&headers, method.as_str(), uri.path())?;
+) -> Result<Json<ApiData<LikesResult>>, ApiError> {
+    let user = auth_address_verified(&headers, method.as_str(), uri.path()).await?;
     let like_req = body_like(&body).ok_or_else(|| {
         ApiError::bad_request("Invalid likes body. Expected { like: boolean|null }.")
     })?;
@@ -282,7 +333,7 @@ async fn do_patch_likes(
     let mut entity = resolve_entity(&state, &entity_id, is_world).await?;
     state
         .places
-        .apply_user_interactions(Some(&user), std::slice::from_mut(&mut entity))
+        .apply_user_interactions(Some(user.as_str()), std::slice::from_mut(&mut entity))
         .await;
 
     let current = if entity.user_like {
@@ -293,26 +344,23 @@ async fn do_patch_likes(
         None
     };
     if current == like_req {
-        return Ok(Json(json!({
-            "ok": true,
-            "data": {
-                "likes": entity.likes,
-                "dislikes": entity.dislikes,
-                "user_like": entity.user_like,
-                "user_dislike": entity.user_dislike,
-            }
+        return Ok(Json(ApiData::ok(LikesResult {
+            likes: entity.likes,
+            dislikes: entity.dislikes,
+            user_like: entity.user_like,
+            user_dislike: entity.user_dislike,
         })));
     }
 
     let user_activity = match like_req {
-        Some(_) => crate::snapshot::fetch_score(&user).await,
+        Some(_) => crate::snapshot::fetch_score(user.as_str()).await,
         None => 0.0,
     };
     let (likes, dislikes, user_like, user_dislike) = state
         .places
         .set_like(
             &entity.id,
-            &user,
+            user.as_str(),
             like_req,
             user_activity,
             entity.likes,
@@ -321,14 +369,11 @@ async fn do_patch_likes(
             entity.user_dislike,
         )
         .await?;
-    Ok(Json(json!({
-        "ok": true,
-        "data": {
-            "likes": likes,
-            "dislikes": dislikes,
-            "user_like": user_like,
-            "user_dislike": user_dislike,
-        }
+    Ok(Json(ApiData::ok(LikesResult {
+        likes,
+        dislikes,
+        user_like,
+        user_dislike,
     })))
 }
 
@@ -349,6 +394,21 @@ pub async fn fed_post_report(
     })))
 }
 
+#[utoipa::path(
+    patch,
+    path = "/worlds/{world_id}/favorites",
+    tag = "federation",
+    params(("world_id" = String, Path)),
+    request_body = serde_json::Value,
+    responses(
+        (status = 200, body = ApiData<FavoritesResult>),
+        (status = 400, body = catalyrst_types::ApiErrorBody),
+        (status = 401, body = catalyrst_types::ApiErrorBody),
+        (status = 404, body = catalyrst_types::ApiErrorBody),
+        (status = 501, body = catalyrst_types::ApiErrorBody),
+        (status = 503, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn patch_world_favorites(
     State(state): State<AppState>,
     method: Method,
@@ -356,16 +416,40 @@ pub async fn patch_world_favorites(
     headers: HeaderMap,
     Path(world_id): Path<String>,
     body: Option<Json<Value>>,
-) -> Result<Json<Value>, ApiError> {
+) -> Result<Response, ApiError> {
     if !is_federation_envelope(&body) && is_place_uuid(&world_id) {
         return Err(ApiError::bad_request(format!(
             "Invalid world ID \"{}\". Use /places/:entity_id/favorites for place entities.",
             world_id
         )));
     }
-    do_patch_favorites(state, method, uri, headers, world_id, body, true).await
+    if is_federation_envelope(&body) {
+        return Ok(fed_patch_favorites(&state, &headers, &world_id, &body)
+            .await?
+            .into_response());
+    }
+    Ok(
+        do_patch_favorites(state, method, uri, headers, world_id, body, true)
+            .await?
+            .into_response(),
+    )
 }
 
+#[utoipa::path(
+    patch,
+    path = "/worlds/{world_id}/likes",
+    tag = "federation",
+    params(("world_id" = String, Path)),
+    request_body = serde_json::Value,
+    responses(
+        (status = 200, body = ApiData<LikesResult>),
+        (status = 400, body = catalyrst_types::ApiErrorBody),
+        (status = 401, body = catalyrst_types::ApiErrorBody),
+        (status = 404, body = catalyrst_types::ApiErrorBody),
+        (status = 501, body = catalyrst_types::ApiErrorBody),
+        (status = 503, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn patch_world_likes(
     State(state): State<AppState>,
     method: Method,
@@ -373,17 +457,26 @@ pub async fn patch_world_likes(
     headers: HeaderMap,
     Path(world_id): Path<String>,
     body: Option<Json<Value>>,
-) -> Result<Json<Value>, ApiError> {
+) -> Result<Response, ApiError> {
     if !is_federation_envelope(&body) && is_place_uuid(&world_id) {
         return Err(ApiError::bad_request(format!(
             "Invalid world ID \"{}\". Use /places/:entity_id/likes for place entities.",
             world_id
         )));
     }
-    do_patch_likes(state, method, uri, headers, world_id, body, true).await
+    if is_federation_envelope(&body) {
+        return Ok(fed_patch_likes(&state, &headers, &world_id, &body)
+            .await?
+            .into_response());
+    }
+    Ok(
+        do_patch_likes(state, method, uri, headers, world_id, body, true)
+            .await?
+            .into_response(),
+    )
 }
 
-fn require_admin(
+async fn require_admin(
     state: &AppState,
     headers: &HeaderMap,
     method: &str,
@@ -393,8 +486,8 @@ fn require_admin(
     if crate::auth::bearer_token(headers).is_some() {
         return require_admin_bearer(headers, state.admin_auth_token.as_deref());
     }
-    let user = auth_address_verified(headers, method, path)?;
-    if state.admin_addresses.contains(&user) {
+    let user = auth_address_verified(headers, method, path).await?;
+    if state.admin_addresses.iter().any(|a| a == user.as_str()) {
         Ok(())
     } else {
         Err(ApiError::forbidden(format!(
@@ -459,6 +552,21 @@ fn body_content_rating(body: &Option<Json<Value>>) -> Result<String, ApiError> {
     }
 }
 
+#[utoipa::path(
+    put,
+    path = "/places/{place_id}/rating",
+    tag = "federation",
+    params(("place_id" = String, Path)),
+    request_body = serde_json::Value,
+    responses(
+        (status = 200, body = ApiData<PlaceRow>),
+        (status = 400, body = catalyrst_types::ApiErrorBody),
+        (status = 401, body = catalyrst_types::ApiErrorBody),
+        (status = 404, body = catalyrst_types::ApiErrorBody),
+        (status = 501, body = catalyrst_types::ApiErrorBody),
+        (status = 503, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn put_place_rating(
     State(state): State<AppState>,
     method: Method,
@@ -467,7 +575,7 @@ pub async fn put_place_rating(
     Path(place_id): Path<String>,
     body: Option<Json<Value>>,
 ) -> Result<Json<ApiData<PlaceRow>>, ApiError> {
-    require_admin(&state, &headers, method.as_str(), uri.path(), "rating")?;
+    require_admin(&state, &headers, method.as_str(), uri.path(), "rating").await?;
     let rating = body_content_rating(&body)?;
     let mut place = fetch_place(&state, &place_id).await?;
     state.places.set_content_rating(&place_id, &rating).await?;
@@ -475,13 +583,32 @@ pub async fn put_place_rating(
     Ok(Json(ApiData::ok(place)))
 }
 
+#[utoipa::path(
+    put,
+    path = "/places/{place_id}/ranking",
+    tag = "federation",
+    params(("place_id" = String, Path)),
+    request_body = serde_json::Value,
+    responses(
+        (status = 200, body = ApiData<PlaceRow>),
+        (status = 400, body = catalyrst_types::ApiErrorBody),
+        (status = 401, body = catalyrst_types::ApiErrorBody),
+        (status = 404, body = catalyrst_types::ApiErrorBody),
+        (status = 501, body = catalyrst_types::ApiErrorBody),
+        (status = 503, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn put_place_ranking(
     State(state): State<AppState>,
     headers: HeaderMap,
     Path(place_id): Path<String>,
     body: Option<Json<Value>>,
 ) -> Result<Json<ApiData<PlaceRow>>, ApiError> {
-    require_bearer_token(&headers, state.data_team_auth_token.as_deref())?;
+    require_ranking_token(
+        &headers,
+        state.data_team_auth_token.as_deref(),
+        state.admin_auth_token.as_deref(),
+    )?;
     let ranking = body_ranking(&body)?;
     let mut place = fetch_place(&state, &place_id).await?;
     state.places.set_ranking(&place_id, ranking).await?;
@@ -489,6 +616,21 @@ pub async fn put_place_ranking(
     Ok(Json(ApiData::ok(place)))
 }
 
+#[utoipa::path(
+    put,
+    path = "/places/{place_id}/highlight",
+    tag = "federation",
+    params(("place_id" = String, Path)),
+    request_body = serde_json::Value,
+    responses(
+        (status = 200, body = ApiData<PlaceRow>),
+        (status = 400, body = catalyrst_types::ApiErrorBody),
+        (status = 401, body = catalyrst_types::ApiErrorBody),
+        (status = 404, body = catalyrst_types::ApiErrorBody),
+        (status = 501, body = catalyrst_types::ApiErrorBody),
+        (status = 503, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn put_place_highlight(
     State(state): State<AppState>,
     method: Method,
@@ -497,7 +639,7 @@ pub async fn put_place_highlight(
     Path(place_id): Path<String>,
     body: Option<Json<Value>>,
 ) -> Result<Json<ApiData<PlaceRow>>, ApiError> {
-    require_admin(&state, &headers, method.as_str(), uri.path(), "highlight")?;
+    require_admin(&state, &headers, method.as_str(), uri.path(), "highlight").await?;
     let highlighted = body
         .as_ref()
         .and_then(|Json(v)| v.get("highlighted"))
@@ -511,6 +653,21 @@ pub async fn put_place_highlight(
     Ok(Json(ApiData::ok(place)))
 }
 
+#[utoipa::path(
+    put,
+    path = "/places/{place_id}/disable",
+    tag = "federation",
+    params(("place_id" = String, Path)),
+    request_body = serde_json::Value,
+    responses(
+        (status = 200, body = ApiData<PlaceRow>),
+        (status = 400, body = catalyrst_types::ApiErrorBody),
+        (status = 401, body = catalyrst_types::ApiErrorBody),
+        (status = 404, body = catalyrst_types::ApiErrorBody),
+        (status = 501, body = catalyrst_types::ApiErrorBody),
+        (status = 503, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn put_place_disable(
     State(state): State<AppState>,
     method: Method,
@@ -519,7 +676,7 @@ pub async fn put_place_disable(
     Path(place_id): Path<String>,
     body: Option<Json<Value>>,
 ) -> Result<Json<ApiData<PlaceRow>>, ApiError> {
-    require_admin(&state, &headers, method.as_str(), uri.path(), "disabled")?;
+    require_admin(&state, &headers, method.as_str(), uri.path(), "disabled").await?;
     let disabled = body_disabled(&body)?;
     let mut place = fetch_place(&state, &place_id).await?;
     state
@@ -534,6 +691,21 @@ pub async fn put_place_disable(
     Ok(Json(ApiData::ok(place)))
 }
 
+#[utoipa::path(
+    put,
+    path = "/places/{place_id}/featured",
+    tag = "federation",
+    params(("place_id" = String, Path)),
+    request_body = serde_json::Value,
+    responses(
+        (status = 200, body = ApiData<PlaceRow>),
+        (status = 400, body = catalyrst_types::ApiErrorBody),
+        (status = 401, body = catalyrst_types::ApiErrorBody),
+        (status = 404, body = catalyrst_types::ApiErrorBody),
+        (status = 501, body = catalyrst_types::ApiErrorBody),
+        (status = 503, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn put_place_featured(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -546,6 +718,20 @@ pub async fn put_place_featured(
     Ok(Json(ApiData::ok(place)))
 }
 
+#[utoipa::path(
+    delete,
+    path = "/places/{place_id}/featured",
+    tag = "federation",
+    params(("place_id" = String, Path)),
+    responses(
+        (status = 200, body = ApiData<PlaceRow>),
+        (status = 400, body = catalyrst_types::ApiErrorBody),
+        (status = 401, body = catalyrst_types::ApiErrorBody),
+        (status = 404, body = catalyrst_types::ApiErrorBody),
+        (status = 501, body = catalyrst_types::ApiErrorBody),
+        (status = 503, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn delete_place_featured(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -558,6 +744,21 @@ pub async fn delete_place_featured(
     Ok(Json(ApiData::ok(place)))
 }
 
+#[utoipa::path(
+    put,
+    path = "/worlds/{world_id}/highlight",
+    tag = "federation",
+    params(("world_id" = String, Path)),
+    request_body = serde_json::Value,
+    responses(
+        (status = 200, body = ApiData<WorldRow>),
+        (status = 400, body = catalyrst_types::ApiErrorBody),
+        (status = 401, body = catalyrst_types::ApiErrorBody),
+        (status = 404, body = catalyrst_types::ApiErrorBody),
+        (status = 501, body = catalyrst_types::ApiErrorBody),
+        (status = 503, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn put_world_highlight(
     State(state): State<AppState>,
     method: Method,
@@ -565,8 +766,8 @@ pub async fn put_world_highlight(
     headers: HeaderMap,
     Path(world_id): Path<String>,
     body: Option<Json<Value>>,
-) -> Result<Json<ApiData<PlaceRow>>, ApiError> {
-    require_admin(&state, &headers, method.as_str(), uri.path(), "highlight")?;
+) -> Result<Json<ApiData<WorldRow>>, ApiError> {
+    require_admin(&state, &headers, method.as_str(), uri.path(), "highlight").await?;
     let highlighted = body
         .as_ref()
         .and_then(|Json(v)| v.get("highlighted"))
@@ -577,23 +778,57 @@ pub async fn put_world_highlight(
     let mut world = fetch_world(&state, &world_id).await?;
     state.places.set_highlighted(&world.id, highlighted).await?;
     world.highlighted = highlighted;
-    Ok(Json(ApiData::ok(world)))
+    Ok(Json(ApiData::ok(WorldRow::from(world))))
 }
 
+#[utoipa::path(
+    put,
+    path = "/worlds/{world_id}/ranking",
+    tag = "federation",
+    params(("world_id" = String, Path)),
+    request_body = serde_json::Value,
+    responses(
+        (status = 200, body = ApiData<WorldRow>),
+        (status = 400, body = catalyrst_types::ApiErrorBody),
+        (status = 401, body = catalyrst_types::ApiErrorBody),
+        (status = 404, body = catalyrst_types::ApiErrorBody),
+        (status = 501, body = catalyrst_types::ApiErrorBody),
+        (status = 503, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn put_world_ranking(
     State(state): State<AppState>,
     headers: HeaderMap,
     Path(world_id): Path<String>,
     body: Option<Json<Value>>,
-) -> Result<Json<ApiData<PlaceRow>>, ApiError> {
-    require_bearer_token(&headers, state.data_team_auth_token.as_deref())?;
+) -> Result<Json<ApiData<WorldRow>>, ApiError> {
+    require_ranking_token(
+        &headers,
+        state.data_team_auth_token.as_deref(),
+        state.admin_auth_token.as_deref(),
+    )?;
     let ranking = body_ranking(&body)?;
     let mut world = fetch_world(&state, &world_id).await?;
     state.places.set_ranking(&world.id, ranking).await?;
     world.ranking = ranking;
-    Ok(Json(ApiData::ok(world)))
+    Ok(Json(ApiData::ok(WorldRow::from(world))))
 }
 
+#[utoipa::path(
+    put,
+    path = "/worlds/{world_id}/rating",
+    tag = "federation",
+    params(("world_id" = String, Path)),
+    request_body = serde_json::Value,
+    responses(
+        (status = 200, body = ApiData<WorldRow>),
+        (status = 400, body = catalyrst_types::ApiErrorBody),
+        (status = 401, body = catalyrst_types::ApiErrorBody),
+        (status = 404, body = catalyrst_types::ApiErrorBody),
+        (status = 501, body = catalyrst_types::ApiErrorBody),
+        (status = 503, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn put_world_rating(
     State(state): State<AppState>,
     method: Method,
@@ -601,44 +836,121 @@ pub async fn put_world_rating(
     headers: HeaderMap,
     Path(world_id): Path<String>,
     body: Option<Json<Value>>,
-) -> Result<Json<ApiData<PlaceRow>>, ApiError> {
-    require_admin(&state, &headers, method.as_str(), uri.path(), "rating")?;
+) -> Result<Json<ApiData<WorldRow>>, ApiError> {
+    require_admin(&state, &headers, method.as_str(), uri.path(), "rating").await?;
     let rating = body_content_rating(&body)?;
     let mut world = fetch_world(&state, &world_id).await?;
     state.places.set_content_rating(&world.id, &rating).await?;
     world.content_rating = Some(rating);
-    Ok(Json(ApiData::ok(world)))
+    Ok(Json(ApiData::ok(WorldRow::from(world))))
 }
 
+#[utoipa::path(
+    put,
+    path = "/worlds/{world_id}/featured",
+    tag = "federation",
+    params(("world_id" = String, Path)),
+    request_body = serde_json::Value,
+    responses(
+        (status = 200, body = ApiData<WorldRow>),
+        (status = 400, body = catalyrst_types::ApiErrorBody),
+        (status = 401, body = catalyrst_types::ApiErrorBody),
+        (status = 404, body = catalyrst_types::ApiErrorBody),
+        (status = 501, body = catalyrst_types::ApiErrorBody),
+        (status = 503, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn put_world_featured(
     State(state): State<AppState>,
     headers: HeaderMap,
     Path(world_id): Path<String>,
-) -> Result<Json<ApiData<PlaceRow>>, ApiError> {
+) -> Result<Json<ApiData<WorldRow>>, ApiError> {
     require_bearer_token(&headers, state.admin_auth_token.as_deref())?;
     let mut world = fetch_world(&state, &world_id).await?;
     state.places.set_highlighted(&world.id, true).await?;
     world.highlighted = true;
-    Ok(Json(ApiData::ok(world)))
+    Ok(Json(ApiData::ok(WorldRow::from(world))))
 }
 
+#[utoipa::path(
+    delete,
+    path = "/worlds/{world_id}/featured",
+    tag = "federation",
+    params(("world_id" = String, Path)),
+    responses(
+        (status = 200, body = ApiData<WorldRow>),
+        (status = 400, body = catalyrst_types::ApiErrorBody),
+        (status = 401, body = catalyrst_types::ApiErrorBody),
+        (status = 404, body = catalyrst_types::ApiErrorBody),
+        (status = 501, body = catalyrst_types::ApiErrorBody),
+        (status = 503, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn delete_world_featured(
     State(state): State<AppState>,
     headers: HeaderMap,
     Path(world_id): Path<String>,
-) -> Result<Json<ApiData<PlaceRow>>, ApiError> {
+) -> Result<Json<ApiData<WorldRow>>, ApiError> {
     require_bearer_token(&headers, state.admin_auth_token.as_deref())?;
     let mut world = fetch_world(&state, &world_id).await?;
     state.places.set_highlighted(&world.id, false).await?;
     world.highlighted = false;
-    Ok(Json(ApiData::ok(world)))
+    Ok(Json(ApiData::ok(WorldRow::from(world))))
 }
 
 #[cfg(test)]
 mod tests {
     use super::{body_disabled, is_place_uuid};
+    use crate::auth::require_ranking_token;
+    use crate::http::errors::ApiError;
+    use axum::http::HeaderMap;
     use axum::Json;
     use serde_json::json;
+
+    fn bearer(token: &str) -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        headers.insert("authorization", format!("Bearer {token}").parse().unwrap());
+        headers
+    }
+
+    #[test]
+    fn ranking_accepts_data_team_token() {
+        let headers = bearer("data-team");
+        assert!(require_ranking_token(&headers, Some("data-team"), Some("admin")).is_ok());
+        assert!(require_ranking_token(&headers, Some("data-team"), None).is_ok());
+    }
+
+    #[test]
+    fn ranking_accepts_admin_token() {
+        let headers = bearer("admin");
+        assert!(require_ranking_token(&headers, Some("data-team"), Some("admin")).is_ok());
+        assert!(require_ranking_token(&headers, None, Some("admin")).is_ok());
+    }
+
+    #[test]
+    fn ranking_rejects_wrong_token() {
+        let headers = bearer("nope");
+        let err = require_ranking_token(&headers, Some("data-team"), Some("admin")).unwrap_err();
+        assert!(matches!(
+            err,
+            ApiError::Common(catalyrst_types::ApiError::Http { status: 401, .. })
+        ));
+    }
+
+    #[test]
+    fn ranking_rejects_when_no_tokens_configured_or_header_missing() {
+        let err = require_ranking_token(&bearer("anything"), None, None).unwrap_err();
+        assert!(matches!(
+            err,
+            ApiError::Common(catalyrst_types::ApiError::Http { status: 401, .. })
+        ));
+        let err =
+            require_ranking_token(&HeaderMap::new(), Some("data-team"), Some("admin")).unwrap_err();
+        assert!(matches!(
+            err,
+            ApiError::Common(catalyrst_types::ApiError::Http { status: 401, .. })
+        ));
+    }
 
     #[test]
     fn place_uuid_guard() {

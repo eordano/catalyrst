@@ -6,9 +6,9 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use chrono::{DateTime, Duration, Utc};
 use parking_lot::Mutex;
-use serde::Deserialize;
-use serde_json::json;
+use serde::{Deserialize, Serialize};
 
+use crate::modules::{json_response, ErrorMessage};
 use crate::AppState;
 
 const SEQUENCE_HOURS: [i64; 4] = [0, 12, 24, 36];
@@ -45,11 +45,24 @@ struct CheckpointPayload {
     metadata: Option<serde_json::Value>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct PendingNudge {
     user_id: String,
     checkpoint_id: i64,
     email: String,
+}
+
+#[derive(Serialize)]
+struct CheckpointAck {
+    success: bool,
+}
+
+#[derive(Serialize)]
+struct PendingNudgesResponse {
+    sequence: i64,
+    count: u64,
+    nudges: Vec<PendingNudge>,
 }
 
 #[derive(Default)]
@@ -155,6 +168,15 @@ impl OnboardingStore {
         let hours = SEQUENCE_HOURS[sequence as usize];
         let threshold = now - Duration::hours(hours);
 
+        let mut max_cp: std::collections::HashMap<&str, i64> =
+            std::collections::HashMap::with_capacity(self.checkpoints.len());
+        for r in &self.checkpoints {
+            max_cp
+                .entry(r.user_id.as_str())
+                .and_modify(|m| *m = (*m).max(r.checkpoint))
+                .or_insert(r.checkpoint);
+        }
+
         self.checkpoints
             .iter()
             .filter_map(|oc| {
@@ -171,10 +193,9 @@ impl OnboardingStore {
                 {
                     return None;
                 }
-                let has_later = self
-                    .checkpoints
-                    .iter()
-                    .any(|later| later.user_id == oc.user_id && later.checkpoint > oc.checkpoint);
+                let has_later = max_cp
+                    .get(oc.user_id.as_str())
+                    .is_some_and(|m| *m > oc.checkpoint);
                 if has_later {
                     return None;
                 }
@@ -305,7 +326,7 @@ async fn post_checkpoint(
         Utc::now(),
     );
 
-    (StatusCode::OK, Json(json!({ "success": true }))).into_response()
+    (StatusCode::OK, Json(CheckpointAck { success: true })).into_response()
 }
 
 #[derive(Debug, Deserialize)]
@@ -329,24 +350,13 @@ async fn get_pending_nudges(
     }
 
     let nudges = state.onboarding.pending_nudges(sequence, Utc::now());
-    let nudges_json: Vec<serde_json::Value> = nudges
-        .iter()
-        .map(|n| {
-            json!({
-                "userId": n.user_id,
-                "checkpointId": n.checkpoint_id,
-                "email": n.email,
-            })
-        })
-        .collect();
-
     (
         StatusCode::OK,
-        Json(json!({
-            "sequence": sequence,
-            "count": nudges_json.len(),
-            "nudges": nudges_json,
-        })),
+        Json(PendingNudgesResponse {
+            sequence,
+            count: nudges.len() as u64,
+            nudges,
+        }),
     )
         .into_response()
 }
@@ -380,15 +390,21 @@ fn timing_safe_eq(a: &str, b: &str) -> bool {
 }
 
 fn unauthorized() -> Response {
-    (
+    json_response(
         StatusCode::UNAUTHORIZED,
-        Json(json!({ "error": "Unauthorized" })),
+        ErrorMessage {
+            error: "Unauthorized".to_string(),
+        },
     )
-        .into_response()
 }
 
 fn bad_request(msg: &str) -> Response {
-    (StatusCode::BAD_REQUEST, Json(json!({ "error": msg }))).into_response()
+    json_response(
+        StatusCode::BAD_REQUEST,
+        ErrorMessage {
+            error: msg.to_string(),
+        },
+    )
 }
 
 #[cfg(test)]
@@ -516,6 +532,32 @@ mod tests {
         state.mark_nudge_sent("a@b.com", 1, 1);
         assert!(state.pending_nudges(1, t(13 * 3600)).is_empty());
         assert_eq!(state.pending_nudges(2, t(25 * 3600)).len(), 1);
+    }
+
+    #[test]
+    fn pending_nudges_is_linear_not_quadratic() {
+        let mut store = OnboardingStore::default();
+        for i in 0..20_000 {
+            store.checkpoints.push(CheckpointRow {
+                user_id: format!("user-{i:05}"),
+                id_type: "email".into(),
+                email: Some(format!("u{i}@example.com")),
+                wallet: None,
+                checkpoint: 1,
+                reached_at: t(0),
+                completed_at: None,
+                source: None,
+                metadata: None,
+            });
+        }
+        let start = std::time::Instant::now();
+        let nudges = store.pending_nudges(1, t(13 * 3600)); // 13h > 12h threshold; every row survives to has_later
+        let elapsed = start.elapsed();
+        assert_eq!(nudges.len(), 20_000);
+        assert!(
+            elapsed < std::time::Duration::from_millis(500),
+            "pending_nudges took {elapsed:?}"
+        );
     }
 
     #[test]

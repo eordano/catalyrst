@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        CREATE TRIGGER deployment_notify_trigger\n            AFTER INSERT ON deployments\n            FOR EACH ROW EXECUTE FUNCTION notify_new_deployment();\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "fed899d5192c9f327e852772916f20b2e8faf68584ecd99f4746a6ca74b452c3"
+}

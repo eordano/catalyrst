@@ -1,5 +1,5 @@
 use axum::extract::{Query, State};
-use axum::http::{HeaderMap, StatusCode};
+use axum::http::HeaderMap;
 use axum::response::IntoResponse;
 use axum::Json;
 use serde::Deserialize;
@@ -7,6 +7,7 @@ use uuid::Uuid;
 
 use crate::auth_chain::require_signer;
 use crate::http::ApiError;
+use crate::ports::{MarkReadResponse, NotificationsListResponse};
 use crate::AppState;
 
 const DEFAULT_LIMIT: i64 = 50;
@@ -24,8 +25,8 @@ pub async fn get_notifications(
     State(state): State<AppState>,
     headers: HeaderMap,
     Query(q): Query<ListQuery>,
-) -> Result<Json<serde_json::Value>, ApiError> {
-    let signer = require_signer(&headers, "get", "/notifications")?;
+) -> Result<Json<NotificationsListResponse>, ApiError> {
+    let signer = require_signer(&headers, "get", "/notifications").await?;
 
     let limit = match q.limit {
         Some(n) if n > 0 && n <= MAX_LIMIT => n,
@@ -34,13 +35,15 @@ pub async fn get_notifications(
     };
     let only_unread = q.only_unread.unwrap_or(false);
 
-    state.notifications.touch_reader_seen(&signer).await;
+    state.notifications.touch_reader_seen(signer.as_str()).await;
     let items = state
         .notifications
-        .list(&signer, limit, q.from, only_unread)
+        .list(signer.as_str(), limit, q.from, only_unread)
         .await?;
 
-    Ok(Json(serde_json::json!({ "notifications": items })))
+    Ok(Json(NotificationsListResponse {
+        notifications: items,
+    }))
 }
 
 #[derive(Debug, Deserialize)]
@@ -54,7 +57,7 @@ pub async fn put_read(
     headers: HeaderMap,
     Json(body): Json<ReadBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let signer = require_signer(&headers, "put", "/notifications/read")?;
+    let signer = require_signer(&headers, "put", "/notifications/read").await?;
 
     let ids: Vec<Uuid> = body
         .notification_ids
@@ -63,9 +66,6 @@ pub async fn put_read(
         .collect::<Result<_, _>>()
         .map_err(|_| ApiError::bad_request("invalid notification id"))?;
 
-    let updated = state.notifications.mark_read(&signer, &ids).await?;
-    Ok((
-        StatusCode::OK,
-        Json(serde_json::json!({ "updated": updated })),
-    ))
+    let updated = state.notifications.mark_read(signer.as_str(), &ids).await?;
+    Ok(Json(MarkReadResponse { updated }))
 }

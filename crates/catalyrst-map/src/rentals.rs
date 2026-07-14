@@ -4,20 +4,26 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "map/"))]
 pub struct RentalPeriod {
     #[serde(rename = "minDays")]
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub min_days: i64,
     #[serde(rename = "maxDays")]
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub max_days: i64,
     #[serde(rename = "pricePerDay")]
     pub price_per_day: String,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "map/"))]
 pub struct TileRentalListing {
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub expiration: i64,
     pub periods: Vec<RentalPeriod>,
     #[serde(rename = "updatedAt")]
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub updated_at: i64,
 }
 

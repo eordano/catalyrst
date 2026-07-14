@@ -2,7 +2,8 @@ use std::collections::HashMap;
 use std::sync::OnceLock;
 
 use serde::Deserialize;
-use serde_json::{json, Value};
+
+use crate::nft::NftAttribute;
 
 const PROXIMITY_JSON: &str = include_str!("../data/proximity.json");
 
@@ -52,7 +53,7 @@ fn min_proximity(coords: &[(i32, i32)]) -> Option<(Option<i64>, Option<i64>, Opt
     }
 }
 
-pub fn append_attributes(attributes: &mut Vec<Value>, coords: &[(i32, i32)]) {
+pub fn append_attributes(attributes: &mut Vec<NftAttribute>, coords: &[(i32, i32)]) {
     let Some((district, plaza, road)) = min_proximity(coords) else {
         return;
     };
@@ -67,10 +68,10 @@ pub fn append_attributes(attributes: &mut Vec<Value>, coords: &[(i32, i32)]) {
     }
 }
 
-fn distance_attr(name: &str, value: i64) -> Value {
-    json!({
-        "trait_type": format!("Distance to {name}"),
-        "value": value,
-        "display_type": "number",
-    })
+fn distance_attr(name: &str, value: i64) -> NftAttribute {
+    NftAttribute {
+        trait_type: format!("Distance to {name}"),
+        value,
+        display_type: "number".into(),
+    }
 }

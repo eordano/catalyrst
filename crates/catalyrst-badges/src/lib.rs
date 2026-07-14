@@ -6,7 +6,6 @@ pub mod handlers;
 pub mod http;
 pub mod ports;
 
-use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -14,15 +13,16 @@ use anyhow::{Context, Result};
 use axum::routing::{get, post};
 use axum::Router;
 use moka::future::Cache;
-use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
+use tower_http::cors::CorsLayer;
 
 use crate::config::Config;
 use crate::ports::badges::BadgesComponent;
+use crate::ports::types::TierData;
 
 pub struct AppStateInner {
     pub badges: BadgesComponent,
     pub categories_cache: Cache<(), Vec<String>>,
-    pub tiers_cache: Cache<String, serde_json::Value>,
+    pub tiers_cache: Cache<String, Vec<TierData>>,
 
     pub admin_token: Option<String>,
 }
@@ -47,18 +47,12 @@ impl AppStateInner {
 pub type AppState = Arc<AppStateInner>;
 
 pub async fn build_state(cfg: &Config) -> Result<AppState> {
-    let opts = PgConnectOptions::from_str(&cfg.badges_database_url)
-        .context("invalid BADGES_PG_CONNECTION_STRING")?
-        .options([
-            ("statement_timeout", "60000"),
-            ("idle_in_transaction_session_timeout", "30000"),
-        ]);
-    let pool = PgPoolOptions::new()
-        .max_connections(10)
-        .idle_timeout(Duration::from_secs(30))
-        .connect_with(opts)
-        .await
-        .context("failed to connect badges pool")?;
+    let pool = catalyrst_db::connect_pool(
+        &cfg.badges_database_url,
+        &catalyrst_db::PoolSettings::default(),
+    )
+    .await
+    .context("failed to connect badges pool")?;
 
     sqlx::migrate!("./migrations")
         .run(&pool)
@@ -69,6 +63,13 @@ pub async fn build_state(cfg: &Config) -> Result<AppState> {
         BadgesComponent::new(pool.clone()),
         cfg.admin_token.clone(),
     )))
+}
+
+pub fn app_router() -> Router<AppState> {
+    Router::new()
+        .route("/ping", get(handlers::ping::ping))
+        .merge(api_router())
+        .layer(CorsLayer::permissive())
 }
 
 pub fn api_router() -> Router<AppState> {

@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        UPDATE deployments AS n\n        SET deleter_deployment = sub.newer_id\n        FROM (\n            SELECT nr.id,\n                   (SELECT c.id FROM (\n                        SELECT d2.id, d2.entity_timestamp, d2.entity_id, d2.entity_type\n                        FROM deployments d2\n                        WHERE d2.entity_pointers && nr.entity_pointers\n                          AND d2.id <> nr.id\n                          AND (d2.entity_timestamp > nr.entity_timestamp\n                               OR (d2.entity_timestamp = nr.entity_timestamp\n                                   AND d2.entity_id > nr.entity_id))\n                        OFFSET 0\n                    ) c\n                    WHERE c.entity_type = nr.entity_type\n                    ORDER BY c.entity_timestamp, c.entity_id\n                    LIMIT 1) AS newer_id\n            FROM deployments nr\n            WHERE nr.id = ANY($1)\n        ) sub\n        WHERE n.id = sub.id\n          AND n.deleter_deployment IS NULL\n          AND sub.newer_id IS NOT NULL\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int4Array"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "2408f8c97aa05ca77fffde35704defebdb88cf7c51fdbf2ec993c624ecf0eca8"
+}

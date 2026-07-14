@@ -1,0 +1,40 @@
+[package]
+name = "catalyrst-drpc"
+version = "0.18.0"
+edition = "2021"
+description = "Decentraland RPC (protobuf-over-transport, ports + modules + streams), vendored from decentraland/rpc-rust 2.3.6. Carries the wire protocol the explorer speaks to catalyrst-quests and catalyrst-social-service."
+license = "Apache-2.0"
+
+[dependencies]
+async-channel = "2"
+async-trait = { workspace = true }
+prost = "0.14"
+tokio = { workspace = true }
+tokio-util = { workspace = true }
+tracing = { workspace = true }
+
+# Only the tungstenite transport pulls these; nothing else in the crate needs a
+# websocket implementation or futures' Sink/Stream combinators.
+tokio-tungstenite = { workspace = true, optional = true }
+futures-util = { version = "0.3", default-features = false, features = ["sink", "std"], optional = true }
+
+# codegen only: this half runs in consumers' build scripts, never in the server.
+prost-build = { version = "0.14", optional = true }
+proc-macro2 = { version = "1", optional = true }
+quote = { version = "1", optional = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+
+[build-dependencies]
+prost-build = "0.14"
+
+[features]
+default = ["codegen", "memory", "websockets", "server"]
+client = []
+server = []
+codegen = ["dep:prost-build", "dep:proc-macro2", "dep:quote"]
+memory = []
+websockets = []
+tungstenite = ["dep:tokio-tungstenite", "dep:futures-util"]
+tungstenite-rustls = ["tungstenite", "tokio-tungstenite/rustls-tls-webpki-roots"]

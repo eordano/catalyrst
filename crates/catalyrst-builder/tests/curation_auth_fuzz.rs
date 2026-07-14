@@ -1,7 +1,7 @@
+use alloy::signers::{local::PrivateKeySigner, Signer};
 use axum::http::{HeaderMap, HeaderName, HeaderValue};
 use catalyrst_builder::auth_chain::build_payload;
 use catalyrst_builder::handlers::curation::authorize_admin;
-use ethers_signers::{LocalWallet, Signer};
 
 const PATH: &str = "/v1/collections/curation";
 
@@ -55,25 +55,27 @@ fn now_ms() -> i64 {
 }
 
 async fn valid_headers() -> (Vec<(HeaderName, Vec<u8>)>, String) {
-    let root: LocalWallet = "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
+    let root: PrivateKeySigner = "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
         .parse()
         .unwrap();
     let root_addr = format!("{:#x}", root.address());
-    let ephemeral: LocalWallet = "59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d"
-        .parse()
-        .unwrap();
+    let ephemeral: PrivateKeySigner =
+        "59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d"
+            .parse()
+            .unwrap();
     let ephemeral_addr = format!("{:#x}", ephemeral.address());
     let ep = format!(
         "Decentraland Login\nEphemeral address: {}\nExpiration: 2099-01-01T00:00:00.000Z",
         ephemeral_addr
     );
-    let ep_sig = format!("0x{}", root.sign_message(ep.as_bytes()).await.unwrap());
+    let ep_sig = root.sign_message(ep.as_bytes()).await.unwrap().to_string();
     let ts = now_ms().to_string();
     let canonical = build_payload("get", PATH, &ts, "{}");
-    let ent_sig = format!(
-        "0x{}",
-        ephemeral.sign_message(canonical.as_bytes()).await.unwrap()
-    );
+    let ent_sig = ephemeral
+        .sign_message(canonical.as_bytes())
+        .await
+        .unwrap()
+        .to_string();
     let link = |k: &str, p: &str, s: &str| {
         serde_json::json!({ "type": k, "payload": p, "signature": s })
             .to_string()
@@ -105,7 +107,9 @@ async fn fuzz_curation_gate_never_panics_and_never_authorizes_garbage() {
             put(&mut h, n.clone(), v);
         }
         assert!(
-            authorize_admin(None, &admins, &h, "get", PATH).is_ok(),
+            authorize_admin(None, &admins, &h, "get", PATH)
+                .await
+                .is_ok(),
             "seed chain must authorize, else the fuzz negative is vacuous"
         );
     }
@@ -167,7 +171,7 @@ async fn fuzz_curation_gate_never_panics_and_never_authorizes_garbage() {
             }
         }
 
-        let decision = authorize_admin(None, &admins, &h, "get", PATH);
+        let decision = authorize_admin(None, &admins, &h, "get", PATH).await;
         assert!(
             decision.is_err(),
             "iteration {i} authorized a fuzzed/garbage chain via the signature branch"

@@ -3,9 +3,9 @@ use crate::proto::*;
 use crate::quests::{self, QuestError};
 use crate::state::{compute_instance_state_quest, hide_quest_actions, hide_state_actions};
 use async_trait::async_trait;
-use dcl_rpc::rpc_protocol::RemoteErrorResponse;
-use dcl_rpc::service_module_definition::ProcedureContext;
-use dcl_rpc::stream_protocol::Generator;
+use catalyrst_drpc::rpc_protocol::RemoteErrorResponse;
+use catalyrst_drpc::service_module_definition::ProcedureContext;
+use catalyrst_drpc::stream_protocol::Generator;
 use tokio::sync::broadcast::error::RecvError;
 
 pub struct QuestsServiceImpl;

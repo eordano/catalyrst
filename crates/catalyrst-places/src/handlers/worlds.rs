@@ -3,14 +3,25 @@ use axum::Json;
 
 use crate::http::errors::ApiError;
 use crate::http::response::{ApiData, ApiDataTotal};
-use crate::ports::places::{PlaceListFilters, PlaceOrderBy, PlaceRow};
+use crate::ports::places::{PlaceListFilters, PlaceOrderBy, WorldRow};
 use crate::AppState;
 
+#[utoipa::path(
+    get,
+    path = "/worlds/{world_id}",
+    tag = "worlds",
+    params(("world_id" = String, Path)),
+    responses(
+        (status = 200, body = ApiData<WorldRow>),
+        (status = 404, body = catalyrst_types::ApiErrorBody),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn get_world(
     State(state): State<AppState>,
     headers: axum::http::HeaderMap,
     Path(world_id): Path<String>,
-) -> Result<Json<ApiData<PlaceRow>>, ApiError> {
+) -> Result<Json<ApiData<WorldRow>>, ApiError> {
     match state.places.find_world_by_id(&world_id).await? {
         Some(mut w) => {
             let user = crate::auth::auth_address_optional(&headers);
@@ -18,7 +29,7 @@ pub async fn get_world(
                 .places
                 .apply_user_interactions(user.as_deref(), std::slice::from_mut(&mut w))
                 .await;
-            Ok(Json(ApiData::ok(w)))
+            Ok(Json(ApiData::ok(WorldRow::from(w))))
         }
         None => Err(ApiError::not_found(format!(
             "Not found world \"{}\"",
@@ -27,11 +38,29 @@ pub async fn get_world(
     }
 }
 
+#[utoipa::path(
+    get,
+    path = "/worlds",
+    tag = "worlds",
+    params(("limit" = Option<i64>, Query),
+        ("offset" = Option<i64>, Query),
+        ("names" = Option<Vec<String>>, Query),
+        ("categories" = Option<Vec<String>>, Query),
+        ("only_favorites" = Option<String>, Query),
+        ("search" = Option<String>, Query),
+        ("order_by" = Option<String>, Query),
+        ("order" = Option<String>, Query),
+        ("owner" = Option<String>, Query)),
+    responses(
+        (status = 200, body = ApiDataTotal<WorldRow>),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn get_world_list(
     State(state): State<AppState>,
     headers: axum::http::HeaderMap,
     Query(pairs): Query<Vec<(String, String)>>,
-) -> Result<Json<ApiDataTotal<PlaceRow>>, ApiError> {
+) -> Result<Json<ApiDataTotal<WorldRow>>, ApiError> {
     let get = |k: &str| pairs.iter().find(|(p, _)| p == k).map(|(_, v)| v.clone());
     let get_all = |k: &str| {
         pairs
@@ -83,9 +112,19 @@ pub async fn get_world_list(
         .places
         .apply_user_interactions(user.as_deref(), &mut data)
         .await;
-    Ok(Json(ApiDataTotal::ok(data, total)))
+    let worlds: Vec<WorldRow> = data.into_iter().map(WorldRow::from).collect();
+    Ok(Json(ApiDataTotal::ok(worlds, total)))
 }
 
+#[utoipa::path(
+    get,
+    path = "/world_names",
+    tag = "worlds",
+    responses(
+        (status = 200, body = ApiDataTotal<String>),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn get_world_names_list(
     State(state): State<AppState>,
 ) -> Result<Json<ApiDataTotal<String>>, ApiError> {

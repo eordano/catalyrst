@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT d.entity_id\n            FROM deployments d\n            WHERE d.entity_type = 'scene'\n              AND $1 = ANY(d.entity_pointers)\n              AND d.deleter_deployment IS NULL\n              AND NOT EXISTS (\n                  SELECT 1 FROM local_entities le\n                  WHERE le.entity_id = d.entity_id AND le.tombstoned_at IS NOT NULL)\n            ORDER BY d.entity_timestamp DESC, lower(d.entity_id) DESC\n            LIMIT 1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "entity_id",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "deployments",
+            "name": "entity_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "06f63afc5a7508dba187152b1a57ef7492f3176ddcc94801bdcdf6a522ac3fc8"
+}

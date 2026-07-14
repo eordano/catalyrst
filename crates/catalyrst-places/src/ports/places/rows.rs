@@ -2,6 +2,8 @@ use chrono::{DateTime, Utc};
 use serde::Serialize;
 use sqlx::Row;
 
+use crate::sanitize::{sanitize_image_url, sanitize_place_description};
+
 pub(super) const PLACE_COLUMNS: &str = r#"
     id, title, description, raw->>'image' AS image,
     creator_address AS owner,
@@ -17,16 +19,19 @@ pub(super) const PLACE_COLUMNS: &str = r#"
     NULLIF(raw->>'created_at','')::timestamptz AS created_at,
     NULLIF(raw->>'updated_at','')::timestamptz AS updated_at,
     favorites, likes, dislikes, categories,
-    COALESCE((SELECT array_agg(t::text) FROM jsonb_array_elements_text(raw->'tags') t), ARRAY[]::text[]) AS tags,
     highlighted,
     raw->>'highlighted_image' AS highlighted_image,
     NULLIF(raw->>'ranking','')::float8 AS ranking,
     raw->>'sdk' AS sdk,
     deployed_at,
-    COALESCE((raw->>'world')::bool, false) AS world,
-    raw->>'world_name' AS world_name,
+    world,
+    world_name,
     raw->>'world_id' AS world_id,
+    raw->>'deployment_id' AS deployment_id,
     COALESCE((raw->>'is_private')::bool, false) AS is_private,
+    COALESCE((raw->>'show_in_places')::bool, true) AS show_in_places,
+    COALESCE((raw->>'single_player')::bool, false) AS single_player,
+    NULLIF(raw->>'skybox_time','')::float8 AS skybox_time,
     COALESCE((raw->>'user_favorite')::bool, false) AS user_favorite,
     COALESCE((raw->>'user_like')::bool, false) AS user_like,
     COALESCE((raw->>'user_dislike')::bool, false) AS user_dislike,
@@ -36,7 +41,7 @@ pub(super) const PLACE_COLUMNS: &str = r#"
     NULLIF(raw->>'like_score','')::float8 AS like_score
 "#;
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "places/"))]
 pub struct PlaceRow {
     pub id: String,
@@ -61,18 +66,27 @@ pub struct PlaceRow {
     pub likes: i32,
     pub dislikes: i32,
     pub categories: Vec<String>,
-    pub tags: Vec<String>,
     pub highlighted: bool,
     pub highlighted_image: Option<String>,
     pub ranking: Option<f64>,
     pub sdk: Option<String>,
     pub creator_address: Option<String>,
     pub world_id: Option<String>,
+    /// Immutable content-entity identifier for this indexed deployment.
+    /// Null for legacy rows awaiting reconciliation (upstream places #856).
+    pub deployment_id: Option<String>,
     #[cfg_attr(feature = "ts", ts(type = "string | null"))]
     pub deployed_at: Option<DateTime<Utc>>,
     pub world: bool,
     pub world_name: Option<String>,
+    #[serde(skip)]
     pub is_private: bool,
+    #[serde(skip)]
+    pub show_in_places: bool,
+    #[serde(skip)]
+    pub single_player: bool,
+    #[serde(skip)]
+    pub skybox_time: Option<f64>,
     pub user_favorite: bool,
     pub user_like: bool,
     pub user_dislike: bool,
@@ -96,6 +110,88 @@ impl PlaceRow {
     pub fn apply_realms_detail(&mut self, with_realms_detail: bool) {
         if with_realms_detail && !self.world {
             self.realms_detail = Some(Vec::new());
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "places/"))]
+pub struct WorldRow {
+    pub id: String,
+    pub title: Option<String>,
+    pub description: Option<String>,
+    pub image: Option<String>,
+    pub owner: Option<String>,
+    pub world_name: Option<String>,
+    pub content_rating: Option<String>,
+    pub categories: Vec<String>,
+    pub likes: i32,
+    pub dislikes: i32,
+    pub favorites: i32,
+    pub like_rate: Option<f64>,
+    pub like_score: Option<f64>,
+    #[cfg_attr(feature = "ts", ts(type = "string | null"))]
+    pub created_at: Option<DateTime<Utc>>,
+    #[cfg_attr(feature = "ts", ts(type = "string | null"))]
+    pub updated_at: Option<DateTime<Utc>>,
+    pub disabled: bool,
+    #[cfg_attr(feature = "ts", ts(type = "string | null"))]
+    pub disabled_at: Option<DateTime<Utc>>,
+    pub base_position: String,
+    pub contact_name: Option<String>,
+    #[cfg_attr(feature = "ts", ts(type = "string | null"))]
+    pub deployed_at: Option<DateTime<Utc>>,
+    pub highlighted: bool,
+    pub highlighted_image: Option<String>,
+    pub ranking: Option<f64>,
+    pub world: bool,
+    pub is_private: bool,
+    pub show_in_places: bool,
+    pub single_player: bool,
+    pub skybox_time: Option<f64>,
+    pub user_like: bool,
+    pub user_dislike: bool,
+    pub user_favorite: bool,
+    pub user_count: Option<i32>,
+    pub user_visits: i32,
+}
+
+impl From<PlaceRow> for WorldRow {
+    fn from(p: PlaceRow) -> Self {
+        Self {
+            id: p.id,
+            title: p.title,
+            description: p.description,
+            image: p.image,
+            owner: p.owner,
+            world_name: p.world_name,
+            content_rating: p.content_rating,
+            categories: p.categories,
+            likes: p.likes,
+            dislikes: p.dislikes,
+            favorites: p.favorites,
+            like_rate: p.like_rate,
+            like_score: p.like_score,
+            created_at: p.created_at,
+            updated_at: p.updated_at,
+            disabled: p.disabled,
+            disabled_at: p.disabled_at,
+            base_position: p.base_position,
+            contact_name: p.contact_name,
+            deployed_at: p.deployed_at,
+            highlighted: p.highlighted,
+            highlighted_image: p.highlighted_image,
+            ranking: p.ranking,
+            world: p.world,
+            is_private: p.is_private,
+            show_in_places: p.show_in_places,
+            single_player: p.single_player,
+            skybox_time: p.skybox_time,
+            user_like: p.user_like,
+            user_dislike: p.user_dislike,
+            user_favorite: p.user_favorite,
+            user_count: p.user_count,
+            user_visits: p.user_visits,
         }
     }
 }
@@ -181,7 +277,7 @@ impl CategoryTarget {
     }
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
 pub struct ReportRow {
     pub id: i64,
     pub entity_id: Option<String>,
@@ -222,7 +318,7 @@ pub(super) fn row_to_report(r: sqlx::postgres::PgRow) -> ReportRow {
     }
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
 pub struct PoiRow {
     pub position: String,
     pub entity_id: Option<String>,
@@ -249,7 +345,7 @@ pub(super) fn row_to_poi(r: sqlx::postgres::PgRow) -> PoiRow {
     }
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
 pub struct PlaceStatusRow {
     pub id: String,
     pub disabled: bool,
@@ -262,10 +358,16 @@ pub(super) fn row_to_place(r: sqlx::postgres::PgRow) -> PlaceRow {
     PlaceRow {
         id: r.get::<String, _>("id"),
         title: r.try_get::<Option<String>, _>("title").unwrap_or(None),
-        description: r
-            .try_get::<Option<String>, _>("description")
-            .unwrap_or(None),
-        image: r.try_get::<Option<String>, _>("image").unwrap_or(None),
+        description: sanitize_place_description(
+            r.try_get::<Option<String>, _>("description")
+                .unwrap_or(None)
+                .as_deref(),
+        ),
+        image: sanitize_image_url(
+            r.try_get::<Option<String>, _>("image")
+                .unwrap_or(None)
+                .as_deref(),
+        ),
         owner: r.try_get::<Option<String>, _>("owner").unwrap_or(None),
         positions: r.try_get::<Vec<String>, _>("positions").unwrap_or_default(),
         base_position: r.get::<String, _>("base_position"),
@@ -297,7 +399,6 @@ pub(super) fn row_to_place(r: sqlx::postgres::PgRow) -> PlaceRow {
         categories: r
             .try_get::<Vec<String>, _>("categories")
             .unwrap_or_default(),
-        tags: r.try_get::<Vec<String>, _>("tags").unwrap_or_default(),
         highlighted: r.try_get::<bool, _>("highlighted").unwrap_or(false),
         highlighted_image: r
             .try_get::<Option<String>, _>("highlighted_image")
@@ -308,12 +409,18 @@ pub(super) fn row_to_place(r: sqlx::postgres::PgRow) -> PlaceRow {
             .try_get::<Option<String>, _>("creator_address")
             .unwrap_or(None),
         world_id: r.try_get::<Option<String>, _>("world_id").unwrap_or(None),
+        deployment_id: r
+            .try_get::<Option<String>, _>("deployment_id")
+            .unwrap_or(None),
         deployed_at: r
             .try_get::<Option<DateTime<Utc>>, _>("deployed_at")
             .unwrap_or(None),
         world: r.try_get::<bool, _>("world").unwrap_or(false),
         world_name: r.try_get::<Option<String>, _>("world_name").unwrap_or(None),
         is_private: r.try_get::<bool, _>("is_private").unwrap_or(false),
+        show_in_places: r.try_get::<bool, _>("show_in_places").unwrap_or(true),
+        single_player: r.try_get::<bool, _>("single_player").unwrap_or(false),
+        skybox_time: r.try_get::<Option<f64>, _>("skybox_time").unwrap_or(None),
         user_favorite: r.try_get::<bool, _>("user_favorite").unwrap_or(false),
         user_like: r.try_get::<bool, _>("user_like").unwrap_or(false),
         user_dislike: r.try_get::<bool, _>("user_dislike").unwrap_or(false),

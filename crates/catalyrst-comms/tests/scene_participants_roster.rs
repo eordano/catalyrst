@@ -5,6 +5,7 @@ use catalyrst_comms::handlers::scene_bans::resolve_listing_place_id;
 use catalyrst_comms::handlers::scene_participants::{list_participants, ParticipantsQuery};
 use catalyrst_comms::ports::names::NamesComponent;
 use catalyrst_comms::ports::player_connection::PlayerConnectionComponent;
+use catalyrst_comms::ports::player_reports::PlayerReportsComponent;
 use catalyrst_comms::ports::scene_admin::SceneAdminComponent;
 use catalyrst_comms::ports::scene_bans::SceneBansComponent;
 use catalyrst_comms::ports::user_bans::UserBansComponent;
@@ -73,6 +74,7 @@ fn lazy_state(catalyst_url: &str, world_content_url: &str, livekit_host: &str) -
         scene_bans: SceneBansComponent::new(pool.clone()),
         user_bans: UserBansComponent::new(pool.clone()),
         player_connection: PlayerConnectionComponent::new(pool.clone()),
+        player_reports: PlayerReportsComponent::new(pool.clone()),
         names: NamesComponent::new(None, "squid_marketplace".into()),
         voice_db: VoiceDb::new(pool.clone(), VoiceDbConfig::from_env()),
         places_pool: None,
@@ -89,12 +91,12 @@ fn lazy_state(catalyst_url: &str, world_content_url: &str, livekit_host: &str) -
         livekit_api_secret: "devsecret".into(),
         livekit_webhook_key: None,
         livekit_configured: true,
-        livekit_token_ttl_secs: 600,
         private_messages_room_id: "private-messages".into(),
         authoritative_server_address: None,
         moderator_token: None,
         moderator_addresses: Vec::new(),
         gatekeeper_auth_token: None,
+        fed_peer_id: "test-peer".into(),
     })
 }
 
@@ -124,7 +126,7 @@ async fn world_pointer_targets_world_scene_room_via_worlds_server() {
         .await
         .expect("roster");
     assert_eq!(
-        resp.0,
+        serde_json::to_value(&resp.0).unwrap(),
         serde_json::json!({
             "ok": true,
             "data": { "addresses": ["0x1234567890abcdef1234567890abcdef12345678"] }
@@ -156,7 +158,7 @@ async fn pointer_without_realm_defaults_to_main_scene_room() {
         .await
         .expect("roster");
     assert_eq!(
-        resp.0,
+        serde_json::to_value(&resp.0).unwrap(),
         serde_json::json!({ "ok": true, "data": { "addresses": [] } })
     );
 
@@ -167,7 +169,7 @@ async fn pointer_without_realm_defaults_to_main_scene_room() {
     let (_, livekit_body) = livekit_rx.await.unwrap();
     assert_eq!(
         livekit_body,
-        serde_json::json!({ "room": "scene:bafkreigenesis" })
+        serde_json::json!({ "room": "scene:main:bafkreigenesis" })
     );
 }
 
@@ -180,7 +182,7 @@ async fn world_without_pointer_targets_world_room() {
         .await
         .expect("roster");
     assert_eq!(
-        resp.0,
+        serde_json::to_value(&resp.0).unwrap(),
         serde_json::json!({ "ok": true, "data": { "addresses": [] } })
     );
 

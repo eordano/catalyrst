@@ -1,6 +1,8 @@
 use anyhow::{anyhow, Context, Result};
-use catalyrst_envcfg::{env_bool, get_port, required};
+use catalyrst_envcfg::{env_bool, get_int, get_port, get_u64, optional_endpoint, required};
 use std::env;
+
+use crate::ports::mana_rate;
 
 pub struct Config {
     pub http_host: String,
@@ -9,8 +11,6 @@ pub struct Config {
     pub dapps_schema: String,
     pub dapps_read_database_url: String,
     pub dapps_read_schema: String,
-    pub favorites_database_url: String,
-    pub favorites_schema: String,
     pub content_database_url: Option<String>,
 
     pub admin_token: Option<String>,
@@ -20,6 +20,12 @@ pub struct Config {
     pub trades_sync_upstream_url: Option<String>,
 
     pub trades_sync_interval_secs: u64,
+
+    pub price_base_url: String,
+    pub mana_rate_refresh_interval_ms: u64,
+    pub mana_usd_fallback_rate: f64,
+    pub mana_oracle_max_staleness_secs: i64,
+    pub mana_rate_startup_timeout_ms: u64,
 }
 
 impl Config {
@@ -33,9 +39,6 @@ impl Config {
             dapps_read_database_url: required("DAPPS_READ_PG_COMPONENT_PSQL_CONNECTION_STRING")?,
             dapps_read_schema: env::var("DAPPS_READ_PG_COMPONENT_PSQL_SCHEMA")
                 .unwrap_or_else(|_| "marketplace".to_string()),
-            favorites_database_url: required("FAVORITES_PG_COMPONENT_PSQL_CONNECTION_STRING")?,
-            favorites_schema: env::var("FAVORITES_PG_COMPONENT_PSQL_SCHEMA")
-                .unwrap_or_else(|_| "favorites".to_string()),
             content_database_url: env::var("CONTENT_PG_COMPONENT_PSQL_CONNECTION_STRING")
                 .ok()
                 .filter(|s| !s.is_empty()),
@@ -43,11 +46,7 @@ impl Config {
                 .ok()
                 .filter(|s| !s.is_empty()),
             trades_pagination: env_bool("CATALYRST_MARKET_TRADES_PAGINATION", true),
-            trades_sync_upstream_url: match env::var("TRADES_SYNC_UPSTREAM_URL") {
-                Ok(v) if v.trim().is_empty() => None,
-                Ok(v) => Some(v.trim().to_string()),
-                Err(_) => Some(crate::trades_sync::DEFAULT_TRADES_SYNC_UPSTREAM_URL.to_string()),
-            },
+            trades_sync_upstream_url: optional_endpoint("TRADES_SYNC_UPSTREAM_URL"),
             trades_sync_interval_secs: match env::var("TRADES_SYNC_INTERVAL_SECS") {
                 Ok(v) => v
                     .trim()
@@ -55,6 +54,32 @@ impl Config {
                     .with_context(|| format!("invalid TRADES_SYNC_INTERVAL_SECS: {v:?}"))?,
                 Err(_) => crate::trades_sync::DEFAULT_TRADES_SYNC_INTERVAL_SECS,
             },
+            price_base_url: env::var("PRICE_BASE_URL")
+                .ok()
+                .filter(|s| !s.trim().is_empty())
+                .map(|s| s.trim().trim_end_matches('/').to_string())
+                .unwrap_or_else(|| mana_rate::DEFAULT_PRICE_BASE_URL.to_string()),
+            mana_rate_refresh_interval_ms: get_u64(
+                "MANA_RATE_REFRESH_INTERVAL_MS",
+                mana_rate::DEFAULT_REFRESH_INTERVAL_MS,
+            )?,
+            mana_usd_fallback_rate: match env::var("MANA_USD_FALLBACK_RATE") {
+                Ok(v) => v
+                    .trim()
+                    .parse::<f64>()
+                    .ok()
+                    .filter(|r| r.is_finite() && *r > 0.0)
+                    .ok_or_else(|| anyhow!("invalid MANA_USD_FALLBACK_RATE: {v:?}"))?,
+                Err(_) => mana_rate::DEFAULT_FALLBACK_RATE,
+            },
+            mana_oracle_max_staleness_secs: get_int(
+                "MANA_ORACLE_MAX_STALENESS_SECONDS",
+                mana_rate::DEFAULT_MAX_STALENESS_SECONDS,
+            )?,
+            mana_rate_startup_timeout_ms: get_u64(
+                "MANA_RATE_STARTUP_TIMEOUT_MS",
+                mana_rate::DEFAULT_STARTUP_TIMEOUT_MS,
+            )?,
         };
         guard_admin_exposure(
             &cfg.http_host,

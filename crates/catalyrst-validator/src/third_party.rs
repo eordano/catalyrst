@@ -1,22 +1,7 @@
-use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
-use crate::error::{ValidationResponse, ValidatorError};
+use crate::error::ValidationResponse;
 use crate::types::*;
-
-#[async_trait]
-pub trait ThirdPartyContractRegistry: Send + Sync {
-    fn is_erc721(&self, contract_address: &str) -> bool;
-
-    fn is_erc1155(&self, contract_address: &str) -> bool;
-
-    fn is_unknown(&self, contract_address: &str) -> bool;
-
-    async fn ensure_contracts_known(
-        &self,
-        contract_addresses: &[String],
-    ) -> Result<(), ValidatorError>;
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -36,8 +21,16 @@ pub struct ThirdPartyProps {
     pub id: String,
 }
 
+/// Hashing keys a third-party wearable's merkle proof must commit for the checks to be trustworthy.
+pub const WEARABLE_REQUIRED_HASHING_KEYS: &[&str] = &["id", "content", "data"];
+
+/// Hashing keys a third-party emote's merkle proof must commit for the checks to be trustworthy.
+pub const EMOTE_REQUIRED_HASHING_KEYS: &[&str] = &["id", "content", "emoteDataADR74"];
+
 pub fn validate_third_party_merkle_proof_content(
     deployment: &DeploymentToValidate,
+    required_hashing_keys: &[&str],
+    item_label: &str,
 ) -> ValidationResponse {
     let entity = &deployment.entity;
     let metadata = match &entity.metadata {
@@ -62,6 +55,15 @@ pub fn validate_third_party_merkle_proof_content(
             "The id '{}' does not match the pointer '{}'",
             tp_props.id,
             entity.pointers.first().map(|s| s.as_str()).unwrap_or("")
+        ));
+    }
+
+    if let Some(missing_key) = required_hashing_keys
+        .iter()
+        .find(|key| !tp_props.merkle_proof.hashing_keys.iter().any(|k| k == *key))
+    {
+        return ValidationResponse::fail(format!(
+            "The third-party {item_label} merkle proof must commit the '{missing_key}' field"
         ));
     }
 
@@ -146,7 +148,7 @@ fn keccak256_hash(metadata: &serde_json::Value, keys: &[String]) -> String {
         }
     }
     s.push('}');
-    hex::encode(ethers_core::utils::keccak256(s.as_bytes()))
+    hex::encode(alloy_primitives::keccak256(s.as_bytes()))
 }
 
 pub fn get_third_party_id(urn: &str) -> Option<String> {
@@ -159,18 +161,7 @@ pub fn get_third_party_id(urn: &str) -> Option<String> {
 }
 
 pub fn hex_to_bytes(value: &str) -> Option<Vec<u8>> {
-    let hex_str = value.strip_prefix("0x").unwrap_or(value);
-    hex_decode(hex_str)
-}
-
-fn hex_decode(hex: &str) -> Option<Vec<u8>> {
-    if !hex.len().is_multiple_of(2) {
-        return None;
-    }
-    (0..hex.len())
-        .step_by(2)
-        .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).ok())
-        .collect()
+    catalyrst_types::decode_hex_0x(value).ok()
 }
 
 #[cfg(test)]
@@ -210,7 +201,7 @@ mod tests {
             "extra": "ignored"
         });
         let keys = vec!["name".to_string(), "description".to_string()];
-        let expected = hex::encode(ethers_core::utils::keccak256(
+        let expected = hex::encode(alloy_primitives::keccak256(
             br#"{"name":"Item","description":"desc"}"#,
         ));
         assert_eq!(keccak256_hash(&metadata, &keys), expected);
@@ -235,6 +226,124 @@ mod tests {
             audit_info: DeploymentAuditInfo { auth_chain: vec![] },
         };
 
-        assert!(validate_third_party_merkle_proof_content(&deployment).is_ok());
+        assert!(validate_third_party_merkle_proof_content(
+            &deployment,
+            WEARABLE_REQUIRED_HASHING_KEYS,
+            "wearable"
+        )
+        .is_ok());
+    }
+
+    fn third_party_deployment(pointer: &str, hashing_keys: &[&str]) -> DeploymentToValidate {
+        let keys: Vec<String> = hashing_keys.iter().map(|k| k.to_string()).collect();
+        let mut metadata = serde_json::json!({
+            "id": pointer,
+            "name": "TP Item",
+            "description": "third-party item",
+            "content": {},
+            "data": { "representations": [], "tags": [], "category": "hat" },
+            "emoteDataADR74": { "representations": [], "tags": [], "category": "dance" },
+        });
+        let entity_hash = keccak256_hash(&metadata, &keys);
+        metadata["merkleProof"] = serde_json::json!({
+            "proof": ["0x0000000000000000000000000000000000000000000000000000000000000001"],
+            "index": 0,
+            "entityHash": entity_hash,
+            "hashingKeys": keys,
+        });
+
+        DeploymentToValidate {
+            entity: Entity {
+                id: "bafkrei".to_string(),
+                entity_type: EntityType::Wearable,
+                pointers: vec![pointer.to_string()],
+                timestamp: 1700000000000,
+                content: vec![],
+                version: "v3".to_string(),
+                metadata: Some(metadata),
+            },
+            files: std::collections::HashMap::new(),
+            audit_info: DeploymentAuditInfo { auth_chain: vec![] },
+        }
+    }
+
+    const TP_POINTER: &str =
+        "urn:decentraland:matic:collections-thirdparty:tp-name:collection:item";
+
+    #[test]
+    fn wearable_proof_committing_required_keys_passes() {
+        let deployment = third_party_deployment(
+            TP_POINTER,
+            &["id", "content", "data", "name", "description"],
+        );
+        assert!(validate_third_party_merkle_proof_content(
+            &deployment,
+            WEARABLE_REQUIRED_HASHING_KEYS,
+            "wearable"
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn wearable_proof_missing_content_key_fails() {
+        let deployment = third_party_deployment(TP_POINTER, &["id", "data"]);
+        let result = validate_third_party_merkle_proof_content(
+            &deployment,
+            WEARABLE_REQUIRED_HASHING_KEYS,
+            "wearable",
+        );
+        let errors = result.errors().expect("must fail");
+        assert_eq!(
+            errors[0],
+            "The third-party wearable merkle proof must commit the 'content' field"
+        );
+    }
+
+    #[test]
+    fn wearable_leaf_reused_as_emote_fails() {
+        let deployment = third_party_deployment(TP_POINTER, &["id", "content", "data"]);
+        assert!(validate_third_party_merkle_proof_content(
+            &deployment,
+            WEARABLE_REQUIRED_HASHING_KEYS,
+            "wearable"
+        )
+        .is_ok());
+
+        let result = validate_third_party_merkle_proof_content(
+            &deployment,
+            EMOTE_REQUIRED_HASHING_KEYS,
+            "emote",
+        );
+        let errors = result.errors().expect("must fail as emote");
+        assert_eq!(
+            errors[0],
+            "The third-party emote merkle proof must commit the 'emoteDataADR74' field"
+        );
+    }
+
+    #[test]
+    fn emote_proof_committing_required_keys_passes() {
+        let deployment = third_party_deployment(TP_POINTER, &["id", "content", "emoteDataADR74"]);
+        assert!(validate_third_party_merkle_proof_content(
+            &deployment,
+            EMOTE_REQUIRED_HASHING_KEYS,
+            "emote"
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn proof_missing_id_key_fails() {
+        let deployment = third_party_deployment(TP_POINTER, &["content", "data"]);
+        let result = validate_third_party_merkle_proof_content(
+            &deployment,
+            WEARABLE_REQUIRED_HASHING_KEYS,
+            "wearable",
+        );
+        let errors = result.errors().expect("must fail");
+        assert_eq!(
+            errors[0],
+            "The third-party wearable merkle proof must commit the 'id' field"
+        );
     }
 }

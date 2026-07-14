@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        DELETE FROM active_pointers AS ap\n        USING deployments d\n        WHERE ap.entity_id = d.entity_id\n          AND d.deleter_deployment IS NOT NULL\n          AND (d.deleter_deployment = ANY($1) OR d.id = ANY($1))\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int4Array"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "fce12029192be1f7566bee93e0f51fe407d7b18ce3e19a24253743ca7170007a"
+}

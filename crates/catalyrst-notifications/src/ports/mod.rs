@@ -21,13 +21,82 @@ pub struct NotificationItem {
     #[serde(rename = "type")]
     pub kind: String,
     pub address: String,
-    #[cfg_attr(feature = "ts", ts(type = "number"))]
+    #[serde(serialize_with = "serialize_i64_as_str")]
+    #[cfg_attr(feature = "ts", ts(type = "string"))]
     pub timestamp: i64,
     pub read: bool,
     pub created_at: String,
     pub updated_at: String,
     #[cfg_attr(feature = "ts", ts(type = "Record<string, unknown>"))]
     pub metadata: Json,
+}
+
+fn serialize_i64_as_str<S>(value: &i64, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    serializer.serialize_str(&value.to_string())
+}
+
+#[derive(Debug, Serialize)]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "notifications/")
+)]
+pub struct NotificationsListResponse {
+    pub notifications: Vec<NotificationItem>,
+}
+
+#[derive(Debug, Serialize)]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "notifications/")
+)]
+pub struct MarkReadResponse {
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
+    pub updated: u64,
+}
+
+#[derive(Debug, Serialize)]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "notifications/")
+)]
+pub struct OptOutResponse {
+    pub ok: bool,
+}
+
+#[derive(Debug, Serialize)]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "notifications/")
+)]
+pub struct CommunityOptOutStatus {
+    pub scope: String,
+    #[serde(rename = "scopeId")]
+    pub scope_id: String,
+    #[serde(rename = "optedOut")]
+    pub opted_out: bool,
+}
+
+#[derive(Debug, Serialize)]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "notifications/")
+)]
+pub struct BroadcastResponse {
+    pub ok: bool,
+    #[serde(rename = "broadcastId")]
+    pub broadcast_id: String,
+    #[serde(rename = "type")]
+    pub kind: String,
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
+    pub recipients: u64,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -242,7 +311,8 @@ impl Default for SubscriptionDetails {
 pub struct Subscription {
     pub address: String,
     pub email: Option<String>,
-    #[serde(rename = "unconfirmedEmail", skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "unconfirmedEmail")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub unconfirmed_email: Option<String>,
     #[cfg_attr(feature = "ts", ts(type = "Record<string, unknown>"))]

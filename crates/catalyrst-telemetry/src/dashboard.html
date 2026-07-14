@@ -2,10 +2,19 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<!-- SSR-injected <base>+window.__BASE__ so the SPA works behind a stripped /telemetry/ mount. -->
+<!--SSR:base-->
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>telemetry</title>
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+  @font-face{font-family:'Archivo';font-style:normal;font-weight:400;font-display:swap;src:url('fonts/archivo-400.woff2') format('woff2')}
+  @font-face{font-family:'Archivo';font-style:normal;font-weight:500;font-display:swap;src:url('fonts/archivo-500.woff2') format('woff2')}
+  @font-face{font-family:'Archivo';font-style:normal;font-weight:600;font-display:swap;src:url('fonts/archivo-600.woff2') format('woff2')}
+  @font-face{font-family:'Archivo';font-style:normal;font-weight:700;font-display:swap;src:url('fonts/archivo-700.woff2') format('woff2')}
+  @font-face{font-family:'Archivo';font-style:normal;font-weight:800;font-display:swap;src:url('fonts/archivo-800.woff2') format('woff2')}
+  @font-face{font-family:'IBM Plex Mono';font-style:normal;font-weight:400;font-display:swap;src:url('fonts/ibm-plex-mono-400.woff2') format('woff2')}
+  @font-face{font-family:'IBM Plex Mono';font-style:normal;font-weight:500;font-display:swap;src:url('fonts/ibm-plex-mono-500.woff2') format('woff2')}
+  @font-face{font-family:'IBM Plex Mono';font-style:normal;font-weight:600;font-display:swap;src:url('fonts/ibm-plex-mono-600.woff2') format('woff2')}
   :root{
     --bg:#efe9db; --bg2:#f6f1e6; --bg3:#e7e0cf; --card:#f6f1e6; --line:#d4cdbb;
     --fg:#16130c; --mut:#6c6655; --mut2:#9a9382;
@@ -81,6 +90,8 @@
   .fp{color:var(--mut2);font-size:11px;font-family:var(--mono);margin-top:3px;word-break:break-all;max-height:2.6em;overflow:hidden}
   .cnt{font-family:var(--mono);font-variant-numeric:tabular-nums;font-weight:600;text-align:right;white-space:nowrap}
   .tag{font-size:11px;color:var(--mut);font-family:var(--mono)}
+  td.prop{max-width:170px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  th.prop{font-family:var(--mono);font-weight:normal}
   .when{color:var(--mut);white-space:nowrap;font-family:var(--mono);font-size:12px;font-variant-numeric:tabular-nums}
   .empty{padding:60px;text-align:center;color:var(--mut2);font-family:var(--mono);text-transform:uppercase;letter-spacing:.08em;font-size:12px}
   #more{display:none;margin:16px auto;padding:8px 22px}
@@ -161,6 +172,7 @@
     <button id="surf-metrics" title="Segment product analytics">Metrics</button>
     <button id="surf-health" title="Release health (sessions)">Health</button>
     <button id="surf-flags" title="Feature flags">Flags</button>
+    <button id="surf-experiments" title="A/B experiment readouts">Experiments</button>
     <button id="surf-sql" title="Ad-hoc read-only SQL">SQL</button>
   </div>
   <span class="total" id="total"><!--SSR:total--></span>
@@ -235,6 +247,23 @@ const lvlClass=l=>['error','fatal','warning','info','debug'].includes((l||'').to
 function rel(ts){ if(!ts)return''; const d=(Date.now()-new Date(ts).getTime())/1000;
   if(d<60)return Math.max(0,d|0)+'s ago'; if(d<3600)return (d/60|0)+'m ago';
   if(d<86400)return (d/3600|0)+'h ago'; return (d/86400|0)+'d ago'; }
+// The dashboard is reachable both at the server root (loopback :5150) and behind
+// an nginx prefix like /telemetry/ that strips the prefix before proxying — so the
+// backend never sees the prefix. Every in-page URL (fetch + history) is prepended
+// with a BASE prefix; any root-absolute '/dash/…' would escape the mount and 404.
+// Authoritative source is window.__BASE__, injected by the SSR template from
+// TELEMETRY_BASE_PATH (empty at root). When the raw file is served without that
+// substitution, fall back to detecting the prefix off the initial location by
+// stripping a known route suffix. (jget/jpost + pathFor prepend BASE; parsePath strips it.)
+const ROUTES=['/metrics/breakdown','/metrics/funnel','/metrics/stream','/metrics','/events','/health','/sql'];
+function detectBase(){
+  const p=location.pathname;
+  for(const seg of ['/issues/','/session/']){const i=p.indexOf(seg);if(i>=0)return p.slice(0,i);}
+  for(const r of ROUTES){if(p===r)return '';if(p.endsWith(r))return p.slice(0,-r.length);}
+  return p.replace(/\/+$/,'');   // index mount: '/telemetry/' -> '/telemetry'; '/' -> ''
+}
+const BASE=(typeof window.__BASE__==='string')?window.__BASE__.replace(/\/+$/,''):detectBase();
+function stripBase(p){return BASE&&p.startsWith(BASE)?(p.slice(BASE.length)||'/'):p;}
 const LIMIT=100;
 const state={surface:'errors', tab:'issues', hours:24, q:'', level:'', kind:'', env:'', release:'', tag:'', prop:'', fprop:'', sort:'recent', status:'unresolved', fingerprint:null, sessionId:null, imeta:null, live:true, offset:0, items:[]};
 const isMetrics=()=>state.surface==='metrics';
@@ -246,10 +275,10 @@ let timer=null, lastDetail=null, lastEventId=null, restoring=false, navLock=fals
 // else replace so filter tweaks don't spam history).
 function pathFor(){
   let path='/';
-  if(state.surface==='session') return '/session/'+state.sessionId;
+  if(state.surface==='session') return BASE+'/session/'+state.sessionId;
   if(state.surface==='errors') path = state.fingerprint ? '/issues/'+encodeURIComponent(state.fingerprint) : (state.tab==='events'?'/events':'/');
   else if(state.surface==='metrics') path = state.tab==='funnel'?'/metrics/funnel' : state.tab==='breakdown'?'/metrics/breakdown' : state.tab==='events'?'/metrics/stream' : '/metrics';
-  else path = '/'+state.surface;   // health | flags | sql
+  else path = '/'+state.surface;   // health | sql
   const p=new URLSearchParams();
   if(state.hours!==24)p.set('hours',state.hours);
   if(state.q)p.set('q',state.q);
@@ -262,7 +291,8 @@ function pathFor(){
   if(state.status&&state.status!==(state.surface==='metrics'?'all':'unresolved'))p.set('status',state.status);
   if(lastEventId)p.set('event',lastEventId);
   const q=p.toString();
-  return q?(path+'?'+q):path;
+  const full=BASE+path;   // history entries live under the mount prefix
+  return q?(full+'?'+q):full;
 }
 function syncUrl(push){
   if(restoring||navLock)return;
@@ -272,7 +302,7 @@ function syncUrl(push){
 }
 // Read state back out of the current path + query (inverse of pathFor).
 function parsePath(){
-  const path=location.pathname.replace(/\/+$/,'')||'/';
+  const path=stripBase(location.pathname).replace(/\/+$/,'')||'/';
   let surface='errors', tab='issues', fingerprint=null, sessionId=null;
   if(path.startsWith('/session/')){surface='session';sessionId=path.slice('/session/'.length);}
   else if(path==='/'){surface='errors';tab='issues';}
@@ -283,7 +313,6 @@ function parsePath(){
   else if(path==='/metrics/funnel'){surface='metrics';tab='funnel';}
   else if(path==='/metrics/breakdown'){surface='metrics';tab='breakdown';}
   else if(path==='/health'){surface='health';}
-  else if(path==='/flags'){surface='flags';}
   else if(path==='/sql'){surface='sql';}
   return {surface,tab,fingerprint,sessionId,query:new URLSearchParams(location.search)};
 }
@@ -315,12 +344,30 @@ function setFilter(kind,val){
 // the SSR'd content without a network round-trip; everything after falls back to
 // a real fetch.
 const BOOT=(window.__BOOT__||{}), BOOT_CACHE=BOOT.cache||{};
+// `u` is always a raw '/dash/…' path: the boot cache is keyed by that raw path
+// (the backend, blind to the mount prefix, emits raw keys) while the live fetch
+// goes to BASE+u so it survives the nginx prefix-strip.
 async function jget(u){
   if(Object.prototype.hasOwnProperty.call(BOOT_CACHE,u)){const d=BOOT_CACHE[u];delete BOOT_CACHE[u];return d;}
-  const r=await fetch(u);if(!r.ok)throw new Error(await r.text());return r.json();}
+  const r=await fetch(BASE+u,{headers:authHeaders()});if(!r.ok)throw new Error(await r.text());return r.json();}
 async function jpost(u,body){
-  const r=await fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const r=await fetch(BASE+u,{method:'POST',headers:authHeaders({'Content-Type':'application/json'}),body:JSON.stringify(body)});
   if(!r.ok)throw new Error(await r.text());return r.json();}
+// The PII-bearing reads (/dash/events, /dash/event, /dash/stats, /dash/sql,
+// /dash/story, /dash/session) accept the session cookie set by /login or the
+// admin bearer; the override-history read (/dash/admin/audit) and the mutation
+// endpoints are bearer-only; the aggregate/config reads are open. nginx proxies
+// the dashboard through untouched — nothing injects the bearer server-side, so
+// gating is entirely app-side. Besides /login, an operator can seed the bearer
+// by loading the dashboard once with ?admin=<token>: it is kept in localStorage
+// and stripped from the URL (so a copied permalink never carries the secret).
+// With neither cookie nor token the gated surfaces show an error and the
+// history degrades to a note. authHeaders attaches the bearer when present.
+function adminToken(){try{return localStorage.getItem('telemetry_admin')||'';}catch(e){return '';}}
+(function(){try{const u=new URL(location.href),t=u.searchParams.get('admin');
+  if(t!=null){t?localStorage.setItem('telemetry_admin',t):localStorage.removeItem('telemetry_admin');
+    u.searchParams.delete('admin');history.replaceState(null,'',u.pathname+u.search);}}catch(e){}})();
+function authHeaders(extra){const h=Object.assign({},extra||{});const t=adminToken();if(t)h.Authorization='Bearer '+t;return h;}
 function fillSelect(sel,pairs,cur){
   const keep=sel.querySelector('option').outerHTML;
   sel.innerHTML=keep+pairs.map(([k,c])=>`<option value="${esc(k)}"${k===cur?' selected':''}>${esc(k)} (${c})</option>`).join('');
@@ -358,15 +405,28 @@ async function loadMetrics(){
   drawChart(s.series);
 }
 
-function rowHtml(it, issues){
+function propColumns(items){
+  const f=new Map();
+  for(const it of items){const p=it.properties;
+    if(p&&typeof p==='object'&&!Array.isArray(p))for(const k of Object.keys(p))f.set(k,(f.get(k)||0)+1);}
+  return [...f.entries()].sort((a,b)=>b[1]-a[1]||(a[0]<b[0]?-1:1)).slice(0,8).map(e=>e[0]);
+}
+function propCell(it,k){
+  const p=it.properties;let v=p&&typeof p==='object'?p[k]:undefined;
+  if(v==null)v='';else if(typeof v!=='string')v=JSON.stringify(v);
+  const s=[...v].length>48?[...v].slice(0,47).join('')+'…':v;
+  return `<td class="tag prop" title="${esc(v)}">${esc(s)}</td>`;
+}
+function rowHtml(it, issues, propCols){
   if(isMetrics()){
     const t=esc(stripTags(it.title||'(event)'));
     if(issues) return `<tr class="ev" data-fp="${esc(it.fingerprint||'')}"><td><span class="lvl info"></span></td>
       <td><div class="title">${t}</div></td><td class="cnt">${it.count.toLocaleString()}</td>
       <td class="cnt">${(it.users||0).toLocaleString()}</td>
       <td class="when" title="${esc(it.last_seen)}">${rel(it.last_seen)}</td></tr>`;
+    const cells=(propCols||[]).map(k=>propCell(it,k)).join('');
     return `<tr class="ev" data-id="${it.id}"><td><span class="lvl info"></span></td>
-      <td><div class="title">${t}</div></td><td class="tag">${esc(it.kind)}</td>
+      <td><div class="title">${t}</div></td><td class="tag">${esc(it.kind)}</td>${cells}
       <td class="when" title="${esc(it.received_at)}">${rel(it.received_at)}</td></tr>`;
   }
   const lc=lvlClass(it.level), title=esc(stripTags(it.title||'(no message)'));
@@ -388,16 +448,17 @@ function rowHtml(it, issues){
 }
 function render(){
   const issues = state.tab==='issues' && !state.fingerprint;
+  const propCols = isMetrics()&&!issues ? propColumns(state.items) : [];
   if(isMetrics()){
     $('#thead').innerHTML=issues
       ? `<tr><th></th><th>Event</th><th class="cnt sortable" id="sort-freq">count${state.sort==='frequent'?' ▾':''}</th><th class="cnt">users</th><th class="sortable" id="sort-recent">last seen${state.sort==='recent'?' ▾':''}</th></tr>`
-      : '<tr><th></th><th>Event</th><th>type</th><th>when</th></tr>';
+      : '<tr><th></th><th>Event</th><th>type</th>'+propCols.map(p=>'<th class="prop">'+esc(p)+'</th>').join('')+'<th>when</th></tr>';
   } else {
     $('#thead').innerHTML=issues
       ? `<tr><th></th><th>Issue</th><th class="cnt sortable" id="sort-freq">events${state.sort==='frequent'?' ▾':''}</th><th class="cnt">users</th><th>type</th><th>first</th><th class="sortable" id="sort-recent">last seen${state.sort==='recent'?' ▾':''}</th><th></th></tr>`
       : '<tr><th></th><th>Title</th><th>type</th><th>source</th><th>when</th></tr>';
   }
-  $('#rows').innerHTML=state.items.map(it=>rowHtml(it,issues)).join('');
+  $('#rows').innerHTML=state.items.map(it=>rowHtml(it,issues,propCols)).join('');
   $('#empty').style.display=state.items.length?'none':'block';
   $('#count').textContent=state.items.length+' '+(isMetrics()?(issues?'events':'records'):(issues?'issues':'events'));
   document.querySelectorAll('tr.ev').forEach(tr=>tr.onclick=()=> tr.dataset.fp!==undefined ? drillIn(tr.dataset.fp) : openDetail(tr.dataset.id));
@@ -407,7 +468,7 @@ function render(){
   document.querySelectorAll('.act').forEach(b=>b.onclick=e=>{e.stopPropagation();setIssueState(b.dataset.fp,b.dataset.st);});
 }
 async function setIssueState(fp,status){
-  try{await fetch('/dash/issue/state',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({fingerprint:fp,status})});
+  try{await fetch(BASE+'/dash/issue/state',{method:'POST',headers:authHeaders({'Content-Type':'application/json'}),body:JSON.stringify({fingerprint:fp,status})});
     toast('issue '+status); refreshAll();}catch(e){toast('failed: '+e.message);}
 }
 async function assignIssue(fp,cur){
@@ -415,7 +476,7 @@ async function assignIssue(fp,cur){
   if(v===null)return;  // cancelled
   const name=v.trim();
   // empty -> assignee:null (unassign); omit `status` so it is preserved
-  try{await fetch('/dash/issue/state',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({fingerprint:fp,assignee:name||null})});
+  try{await fetch(BASE+'/dash/issue/state',{method:'POST',headers:authHeaders({'Content-Type':'application/json'}),body:JSON.stringify({fingerprint:fp,assignee:name||null})});
     toast(name?('assigned to '+name):'unassigned'); drillIn(fp);}catch(e){toast('failed: '+e.message);}
 }
 async function loadList(reset=true){
@@ -545,14 +606,14 @@ $('#tab-issues').onclick=()=>{state.fingerprint=null;$('#ihead').classList.remov
 $('#tab-events').onclick=()=>setTab('events');
 $('#tab-funnel').onclick=()=>setTab('funnel');
 $('#tab-breakdown').onclick=()=>setTab('breakdown');
-// top-level product-surface switch: Errors (sentry) / Metrics (segment) / Health (sessions) / Flags
+// top-level product-surface switch: Errors (sentry) / Metrics (segment) / Health (sessions) / SQL
 function setSurface(s){
   state.surface=s; state.fingerprint=null; state.sessionId=null; state.q=''; state.level=''; state.env=''; state.release=''; state.prop=''; state.tab='issues';
   state.kind = s==='errors'?'event':'';            // Issues = real errors only (sessions live under Health)
   state.status = s==='metrics'?'all':'unresolved';
   state.sort = s==='metrics'?'frequent':'recent';
   $('#search').value=''; $('#f-prop').value=''; $('#search').placeholder = s==='metrics'?'search event…':'search title + body…';
-  ['errors','metrics','health','flags','sql'].forEach(x=>$('#surf-'+x).classList.toggle('on',x===s));
+  ['errors','metrics','health','sql'].forEach(x=>$('#surf-'+x).classList.toggle('on',x===s));
   $('#ihead').classList.remove('show');
   const tableSurface = (s==='errors'||s==='metrics');
   document.querySelector('.stats').style.display = tableSurface?'':'none';
@@ -569,7 +630,8 @@ function setSurface(s){
 $('#surf-errors').onclick=()=>setSurface('errors');
 $('#surf-metrics').onclick=()=>setSurface('metrics');
 $('#surf-health').onclick=()=>setSurface('health');
-$('#surf-flags').onclick=()=>setSurface('flags');
+$('#surf-flags').onclick=()=>{location.href=BASE+'/flags';};             // separate page (src/flags.html)
+$('#surf-experiments').onclick=()=>{location.href=BASE+'/experiments';};  // separate page (src/experiments.html)
 $('#surf-sql').onclick=()=>setSurface('sql');
 $('#permalink').onclick=()=>{syncUrl();if(navigator.clipboard)navigator.clipboard.writeText(location.href);toast('link copied to this view');};
 $('#iback').onclick=backToIssues;
@@ -594,12 +656,11 @@ function refreshAll(){
     document.querySelector('.stats').style.display='none';
     document.querySelector('.toolbar').style.display='none';
     $('#ihead').classList.remove('show');
-    ['errors','metrics','health','flags','sql'].forEach(x=>$('#surf-'+x).classList.remove('on'));
+    ['errors','metrics','health','sql'].forEach(x=>$('#surf-'+x).classList.remove('on'));
     showPanel();return loadSession().catch(e=>$('#panel').textContent='error: '+e.message);
   }
   if(state.surface==='sql'){showPanel();return loadSql();}
   if(state.surface==='health'){showPanel();return loadHealth().catch(e=>$('#panel').textContent='error: '+e.message);}
-  if(state.surface==='flags'){showPanel();return loadFlags().catch(e=>$('#panel').textContent='error: '+e.message);}
   if(state.surface==='metrics'&&state.tab==='funnel'){showPanel();loadStats().catch(()=>{});return loadFunnel().catch(e=>$('#panel').textContent='error: '+e.message);}
   if(state.surface==='metrics'&&state.tab==='breakdown'){showPanel();loadStats().catch(()=>{});return loadBreakdown().catch(e=>$('#panel').textContent='error: '+e.message);}
   showTable(); loadStats().catch(()=>{}); loadList(true).catch(()=>{});
@@ -620,48 +681,6 @@ async function loadHealth(){
     <h3 class="sec">by release</h3>
     <table><thead><tr><th>release</th><th class="cnt">sessions</th><th class="cnt">crash-free</th></tr></thead><tbody>${
       h.by_release.map(r=>`<tr><td>${esc(r.release||'(none)')}</td><td class="cnt">${r.sessions.toLocaleString()}</td><td class="cnt" style="color:${col(r.crash_free)}">${r.crash_free.toFixed(2)}%</td></tr>`).join('')||'<tr><td colspan=3 class="empty">no sessions</td></tr>'}</tbody></table>`;
-}
-async function loadFlags(){
-  const f=await jget('/dash/flags');
-  const flags=(f.config&&f.config.flags)||{}, variants=(f.config&&f.config.variants)||{};
-  const obs=Object.fromEntries((f.observed||[]).map(([k,c])=>[k,c]));
-  const names=Object.keys(flags).sort();
-  const rows=names.map(n=>{const on=flags[n],v=variants[n];
-    return `<tr><td><span class="lvl ${on?'ok':'none'}"></span> ${esc(n)}</td>
-      <td>${on?'<span class="sbadge resolved">on</span>':'<span class="sbadge ignored">off</span>'}</td>
-      <td class="tag">${v?esc(v.name||''):''}</td><td class="cnt">${obs[n]?obs[n].toLocaleString():'—'}</td></tr>`;}).join('');
-  let xp={}; try{xp=await jget('/dash/experiments');}catch(e){xp={};}
-  const xkeys=Object.keys(xp).sort();
-  const xrows=xkeys.map(k=>{const o=xp[k]||{};
-    const fl=(o.flags&&Object.keys(o.flags).length)?esc(JSON.stringify(o.flags)):'';
-    return `<tr><td>${esc(k)}</td>
-      <td>${o.killed?'<span class="sbadge" style="color:var(--err);border-color:var(--err)">killed</span>':'<span class="sbadge resolved">live</span>'}</td>
-      <td class="tag">${o.variant?esc(o.variant):'—'}</td>
-      <td class="tag" style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${fl}">${fl||'—'}</td>
-      <td class="acts"><button class="act" data-xedit="${esc(k)}" title="load into form">edit</button><button class="act" data-xclear="${esc(k)}" title="clear override">⊘</button></td></tr>`;}).join('');
-  $('#panel').innerHTML=`<div class="when" style="margin-bottom:10px">${names.length} flags · live config from <b>${esc(f.source_url)}</b> · "observed" = times a flag appeared in event data (contexts.flags)</div>
-    <table><thead><tr><th>flag</th><th>state</th><th>variant</th><th class="cnt">observed</th></tr></thead><tbody>${rows||'<tr><td colspan=4 class="empty">flag service unreachable</td></tr>'}</tbody></table>
-    <h3 class="sec" style="margin-top:22px">experiment overrides</h3>
-    <div class="when" style="margin-bottom:10px">${xkeys.length} active override${xkeys.length===1?'':'s'} · server-side kill switch / forced variant for sites experiments (POST /dash/experiment · read by /dash/experiments)</div>
-    <table><thead><tr><th>experiment</th><th>state</th><th>forced variant</th><th>flags</th><th></th></tr></thead><tbody>${xrows||'<tr><td colspan=5 class="empty">no overrides</td></tr>'}</tbody></table>
-    <div class="row" style="margin-top:14px;flex-wrap:wrap;gap:8px;align-items:center">
-      <input id="x-key" placeholder="exp_key" style="min-width:200px;text-transform:none;letter-spacing:0">
-      <label class="when" style="display:flex;align-items:center;gap:5px;margin:0"><input type="checkbox" id="x-killed" style="width:auto;min-width:0;padding:0"> kill</label>
-      <input id="x-variant" placeholder="force variant (optional)" style="min-width:170px;text-transform:none;letter-spacing:0">
-      <button id="x-save" class="on">save</button>
-      <button id="x-clear">clear</button>
-    </div>`;
-  $('#panel').querySelectorAll('[data-xedit]').forEach(b=>b.onclick=()=>{const k=b.dataset.xedit,o=xp[k]||{};
-    $('#x-key').value=k; $('#x-killed').checked=!!o.killed; $('#x-variant').value=o.variant||''; toast('loaded '+k);});
-  $('#panel').querySelectorAll('[data-xclear]').forEach(b=>b.onclick=()=>saveExperiment(b.dataset.xclear,{clear:true}));
-  $('#x-save').onclick=()=>{const k=$('#x-key').value.trim(); if(!k){toast('exp_key required');return;}
-    saveExperiment(k,{killed:$('#x-killed').checked, variant:$('#x-variant').value.trim()||null});};
-  $('#x-clear').onclick=()=>{const k=$('#x-key').value.trim(); if(!k){toast('exp_key required');return;} saveExperiment(k,{clear:true});};
-}
-async function saveExperiment(exp_key,opts){
-  try{ await jpost('/dash/experiment',Object.assign({exp_key},opts));
-    toast(opts.clear?('cleared '+exp_key):('saved '+exp_key)); loadFlags().catch(()=>{}); }
-  catch(e){ toast('failed: '+e.message); }
 }
 async function loadFunnel(){
   state._fsteps=state._fsteps||[];
@@ -727,7 +746,7 @@ async function runSql(){
   const sql=$('#sqlbox').value.trim(); state._sql=sql;
   $('#sqlout').innerHTML='<div class="empty">running…</div>';
   try{
-    const r=await fetch('/dash/sql',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({sql})});
+    const r=await fetch(BASE+'/dash/sql',{method:'POST',headers:authHeaders({'content-type':'application/json'}),body:JSON.stringify({sql})});
     if(!r.ok)throw new Error(await r.text());
     const d=await r.json();
     if(!d.rows.length){$('#sqlout').innerHTML='<div class="empty">0 rows</div>';return;}

@@ -49,7 +49,6 @@ const POINTER_CHANGES_SELECT: &str = r#"
                 date_part('epoch', dep1.entity_timestamp) * 1000 AS entity_timestamp,
                 dep1.deployer_address,
                 dep1.version,
-                NULL::json AS entity_metadata,
                 dep1.auth_chain
             FROM deployments AS dep1
             "#;
@@ -99,7 +98,7 @@ impl Database for LiveDatabase {
                     dep.version,
                     dep.id,
                     COALESCE(
-                        (SELECT json_agg(json_build_object('key', cf.key, 'hash', cf.content_hash))
+                        (SELECT json_agg(json_build_object('key', cf.key, 'hash', cf.content_hash) ORDER BY cf.key)
                          FROM content_files cf WHERE cf.deployment = dep.id),
                         '[]'::json
                     ) AS content_json
@@ -169,7 +168,7 @@ impl Database for LiveDatabase {
                     dep.version,
                     dep.id,
                     COALESCE(
-                        (SELECT json_agg(json_build_object('key', cf.key, 'hash', cf.content_hash))
+                        (SELECT json_agg(json_build_object('key', cf.key, 'hash', cf.content_hash) ORDER BY cf.key)
                          FROM content_files cf WHERE cf.deployment = dep.id),
                         '[]'::json
                     ) AS content_json
@@ -554,76 +553,73 @@ impl Database for LiveDatabase {
         let content_map = if !needs_content || deployment_ids.is_empty() {
             HashMap::new()
         } else {
-            let cf_rows: Vec<(i32, String, String)> = sqlx::query_as(
-                "SELECT deployment, content_hash, key FROM content_files WHERE deployment = ANY($1)"
+            let cf_rows = sqlx::query!(
+                "SELECT deployment, content_hash, key FROM content_files WHERE deployment = ANY($1) ORDER BY deployment, key",
+                &deployment_ids[..]
             )
-            .bind(&deployment_ids)
             .fetch_all(&self.pool)
             .await
             .map_err(|e| DatabaseError::QueryFailed(e.to_string()))?;
 
             let mut map: HashMap<i32, Vec<(String, String)>> = HashMap::new();
-            for (dep_id, hash, key) in cf_rows {
-                map.entry(dep_id).or_default().push((key, hash));
+            for row in cf_rows {
+                map.entry(row.deployment)
+                    .or_default()
+                    .push((row.key, row.content_hash));
             }
             map
         };
 
-        let empty_auth = Value::Array(vec![]);
         let empty_content: Vec<(String, String)> = vec![];
 
-        let deployment_values: Vec<Value> = rows
+        let deployments: Vec<ControllerDeployment> = rows
             .iter()
             .map(|d| {
                 let content = content_map.get(&d.id).unwrap_or(&empty_content);
                 let metadata = d.entity_metadata.as_ref().and_then(|m| m.get("v").cloned());
+                let auth_chain = d.auth_chain.clone().unwrap_or_else(|| Value::Array(vec![]));
+                let interned_type = intern_entity_type(&d.entity_type).to_string();
 
-                let auth_chain_ref = d.auth_chain.as_ref().unwrap_or(&empty_auth);
-                let interned_type = intern_entity_type(&d.entity_type);
-
-                let content_arr: Vec<Value> = content
+                let content_items: Vec<DeploymentContent> = content
                     .iter()
-                    .map(|(key, hash)| json!({"key": key, "hash": hash}))
+                    .map(|(key, hash)| DeploymentContent {
+                        key: key.clone(),
+                        hash: hash.clone(),
+                    })
                     .collect();
 
-                let mut obj = json!({
-                    "entityType": interned_type,
-                    "entityId": &d.entity_id,
-                    "entityTimestamp": d.entity_timestamp as i64,
-                    "pointers": &d.entity_pointers,
-                    "content": content_arr,
-                    "deployedBy": &d.deployer_address,
-                    "entityVersion": &d.version,
-                    "auditInfo": {
-                        "version": &d.version,
-                        "authChain": auth_chain_ref,
-                        "localTimestamp": d.local_timestamp as i64,
-                    },
-                    "localTimestamp": d.local_timestamp as i64,
-                });
-
-                if let Some(ref m) = metadata {
-                    obj["metadata"] = m.clone();
+                ControllerDeployment {
+                    entity_version: d.version.clone(),
+                    entity_type: interned_type,
+                    entity_id: d.entity_id.clone(),
+                    entity_timestamp: d.entity_timestamp as i64,
+                    deployed_by: d.deployer_address.clone(),
+                    pointers: Some(d.entity_pointers.clone()),
+                    content: Some(content_items),
+                    metadata,
+                    audit_info: Some(AuditInfo {
+                        version: d.version.clone(),
+                        auth_chain,
+                        local_timestamp: d.local_timestamp as i64,
+                    }),
+                    local_timestamp: d.local_timestamp as i64,
                 }
-
-                obj
             })
             .collect();
 
-        let filters_json = serde_json::to_value(&DeploymentFiltersResponse {
-            pointers: &options.pointers,
-            entity_types: &options.entity_types,
-            entity_ids: &options.entity_ids,
+        let filters = DeploymentsFilters {
+            pointers: options.pointers.clone(),
+            entity_types: options.entity_types.clone(),
+            entity_ids: options.entity_ids.clone(),
             from: options.from,
             to: options.to,
             only_currently_pointed: options.only_currently_pointed,
-            deployed_by: &options.deployed_by,
-        })
-        .unwrap_or_default();
+            deployed_by: options.deployed_by.clone(),
+        };
 
         Ok(DeploymentQueryResult {
-            deployments: deployment_values,
-            filters: filters_json,
+            deployments,
+            filters,
             pagination: PaginationResult {
                 offset,
                 limit,
@@ -720,7 +716,6 @@ impl Database for LiveDatabase {
             entity_timestamp: f64,
             deployer_address: String,
             version: String,
-            entity_metadata: Option<Value>,
             auth_chain: Value,
         }
 
@@ -758,41 +753,31 @@ impl Database for LiveDatabase {
             rows
         };
 
-        const NULL_METADATA: Value = Value::Null;
-        let deltas: Vec<Value> = rows
+        let deltas: Vec<PointerChangeDelta> = rows
             .iter()
-            .map(|r| {
-                let delta = PointerChangeDelta {
-                    deployment_id: r.deployment_id as i64,
-                    entity_type: intern_entity_type(&r.entity_type),
-                    entity_id: &r.entity_id,
-                    pointers: &r.entity_pointers,
-                    entity_timestamp: r.entity_timestamp as i64,
-                    metadata: r
-                        .entity_metadata
-                        .as_ref()
-                        .and_then(|m| m.get("v"))
-                        .unwrap_or(&NULL_METADATA),
-                    deployer_address: &r.deployer_address,
-                    version: &r.version,
-                    auth_chain: &r.auth_chain,
-                    local_timestamp: r.local_timestamp as i64,
-                };
-                serde_json::to_value(&delta).unwrap_or_default()
+            .map(|r| PointerChangeDelta {
+                deployment_id: r.deployment_id as i64,
+                entity_type: intern_entity_type(&r.entity_type).to_string(),
+                entity_id: r.entity_id.clone(),
+                pointers: r.entity_pointers.clone(),
+                entity_timestamp: r.entity_timestamp as i64,
+                deployer_address: r.deployer_address.clone(),
+                version: r.version.clone(),
+                auth_chain: r.auth_chain.clone(),
+                local_timestamp: r.local_timestamp as i64,
             })
             .collect();
 
-        let filters_json = serde_json::to_value(&PointerChangesFiltersResponse {
-            entity_types: &options.entity_types,
+        let filters = PointerChangesFilters {
+            entity_types: options.entity_types.clone(),
             from: options.from,
             to: options.to,
             include_auth_chain: options.include_auth_chain,
-        })
-        .unwrap_or_default();
+        };
 
         Ok(PointerChangesQueryResult {
             deltas,
-            filters: filters_json,
+            filters,
             pagination: PaginationResult {
                 offset,
                 limit,
@@ -849,25 +834,25 @@ impl Database for LiveDatabase {
         _entity_type: &str,
         entity_id: &str,
     ) -> Result<Option<Value>, DatabaseError> {
-        #[derive(sqlx::FromRow)]
         struct AuditRow {
             version: String,
             auth_chain: Value,
             local_timestamp: f64,
         }
 
-        let row: Option<AuditRow> = sqlx::query_as(
+        let row: Option<AuditRow> = sqlx::query_as!(
+            AuditRow,
             r#"
             SELECT
                 version,
                 auth_chain,
-                date_part('epoch', local_timestamp) * 1000 AS local_timestamp
+                date_part('epoch', local_timestamp) * 1000 AS "local_timestamp!"
             FROM deployments
             WHERE entity_id = $1
             LIMIT 1
             "#,
+            entity_id
         )
-        .bind(entity_id)
         .fetch_optional(&self.pool)
         .await
         .map_err(|e| DatabaseError::QueryFailed(e.to_string()))?;
@@ -881,13 +866,21 @@ impl Database for LiveDatabase {
             local_timestamp: i64,
         }
 
+        let provenance = catalyrst_server::land_publish::local_provenance(&self.pool, entity_id)
+            .await
+            .map_err(|e| DatabaseError::QueryFailed(e.to_string()))?;
+
         Ok(row.map(|r| {
-            serde_json::to_value(&AuditInfoDetail {
+            let mut value = serde_json::to_value(&AuditInfoDetail {
                 version: r.version,
                 auth_chain: r.auth_chain,
                 local_timestamp: r.local_timestamp as i64,
             })
-            .unwrap_or_default()
+            .unwrap_or_default();
+            if let Some(local) = provenance {
+                value["localProvenance"] = local;
+            }
+            value
         }))
     }
 
@@ -899,16 +892,18 @@ impl Database for LiveDatabase {
     }
 
     async fn clear_failed_deployment(&self, entity_id: &str) -> Result<u64, DatabaseError> {
-        let res = sqlx::query("DELETE FROM failed_deployments WHERE entity_id = $1")
-            .bind(entity_id)
-            .execute(&self.pool)
-            .await
-            .map_err(|e| DatabaseError::QueryFailed(e.to_string()))?;
+        let res = sqlx::query!(
+            "DELETE FROM failed_deployments WHERE entity_id = $1",
+            entity_id
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(|e| DatabaseError::QueryFailed(e.to_string()))?;
         Ok(res.rows_affected())
     }
 
     async fn clear_all_failed_deployments(&self) -> Result<u64, DatabaseError> {
-        let res = sqlx::query("DELETE FROM failed_deployments")
+        let res = sqlx::query!("DELETE FROM failed_deployments")
             .execute(&self.pool)
             .await
             .map_err(|e| DatabaseError::QueryFailed(e.to_string()))?;
@@ -920,9 +915,12 @@ impl Database for LiveDatabase {
 mod tests {
     use super::POINTER_CHANGES_SELECT;
 
+    // Upstream catalyst (#1947) passes includeMetadata=false for /pointer-changes: deltas
+    // never read entity_metadata, so the large TOAST JSON must not be fetched per row on
+    // this continuously cluster-polled endpoint. Pin that the column stays off the query.
     #[test]
-    fn pointer_changes_projects_null_metadata() {
-        assert!(POINTER_CHANGES_SELECT.contains("NULL::json AS entity_metadata"));
-        assert!(!POINTER_CHANGES_SELECT.contains("dep1.entity_metadata"));
+    fn pointer_changes_does_not_select_entity_metadata() {
+        assert!(!POINTER_CHANGES_SELECT.contains("entity_metadata"));
+        assert!(POINTER_CHANGES_SELECT.contains("dep1.auth_chain"));
     }
 }

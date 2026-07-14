@@ -1,11 +1,52 @@
 use axum::extract::{Query, State};
 use axum::Json;
-use serde_json::{json, Value};
+use serde::Serialize;
 use std::collections::BTreeMap;
 
 use crate::http::errors::ApiError;
-use crate::ports::places::{PlaceListFilters, PlaceOrderBy};
+use crate::http::response::{ApiDataTotal, ApiDataTotalMap};
+use crate::ports::places::{PlaceListFilters, PlaceOrderBy, PlaceRow};
 use crate::AppState;
+
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "places/"))]
+pub struct MapEntry {
+    pub id: String,
+    pub base_position: String,
+    pub title: Option<String>,
+    pub description: Option<String>,
+    pub image: Option<String>,
+    pub contact_name: Option<String>,
+    pub categories: Vec<String>,
+    pub user_favorite: bool,
+    pub user_like: bool,
+    pub user_dislike: bool,
+    pub user_visits: i32,
+    pub user_count: i32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional, type = "Array<Record<string, unknown>>"))]
+    pub realms_detail: Option<Vec<serde_json::Value>>,
+}
+
+impl From<&PlaceRow> for MapEntry {
+    fn from(p: &PlaceRow) -> Self {
+        Self {
+            id: p.id.clone(),
+            base_position: p.base_position.clone(),
+            title: p.title.clone(),
+            description: p.description.clone(),
+            image: p.image.clone(),
+            contact_name: p.contact_name.clone(),
+            categories: p.categories.clone(),
+            user_favorite: p.user_favorite,
+            user_like: p.user_like,
+            user_dislike: p.user_dislike,
+            user_visits: p.user_visits,
+            user_count: p.user_count.unwrap_or(0),
+            realms_detail: p.realms_detail.clone(),
+        }
+    }
+}
 
 fn list_filters(pairs: &[(String, String)], only_worlds: bool) -> (PlaceListFilters, bool) {
     let get = |k: &str| pairs.iter().find(|(p, _)| p == k).map(|(_, v)| v.clone());
@@ -46,15 +87,22 @@ fn list_filters(pairs: &[(String, String)], only_worlds: bool) -> (PlaceListFilt
     (f, only_favorites)
 }
 
+#[utoipa::path(
+    get,
+    path = "/map",
+    tag = "map",
+    responses(
+        (status = 200, body = ApiDataTotalMap<MapEntry>),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn get_map_places(
     State(state): State<AppState>,
     Query(pairs): Query<Vec<(String, String)>>,
-) -> Result<Json<Value>, ApiError> {
+) -> Result<Json<ApiDataTotalMap<MapEntry>>, ApiError> {
     let (mut filters, only_favorites) = list_filters(&pairs, false);
     if only_favorites {
-        return Ok(Json(
-            json!({ "ok": true, "data": serde_json::Map::new(), "total": 0 }),
-        ));
+        return Ok(Json(ApiDataTotalMap::ok(BTreeMap::new(), 0)));
     }
     filters.only_places = !filters.only_highlighted;
     let (mut data, total) = tokio::try_join!(
@@ -63,26 +111,30 @@ pub async fn get_map_places(
     )?;
 
     let realms = crate::handlers::places::with_realms_detail(&pairs);
-    let mut map: BTreeMap<String, Value> = BTreeMap::new();
+    let mut map: BTreeMap<String, MapEntry> = BTreeMap::new();
     for place in &mut data {
         place.apply_realms_detail(realms);
-        let key = place.base_position.clone();
-        let mut v = serde_json::to_value(&place).unwrap_or(Value::Null);
-        if let Some(obj) = v.as_object_mut() {
-            obj.remove("positions");
-        }
-        map.insert(key, v);
+        map.insert(place.base_position.clone(), MapEntry::from(&*place));
     }
-    Ok(Json(json!({ "ok": true, "data": map, "total": total })))
+    Ok(Json(ApiDataTotalMap::ok(map, total)))
 }
 
+#[utoipa::path(
+    get,
+    path = "/map/places",
+    tag = "map",
+    responses(
+        (status = 200, body = ApiDataTotal<PlaceRow>),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn get_all_places_list(
     State(state): State<AppState>,
     Query(pairs): Query<Vec<(String, String)>>,
-) -> Result<Json<Value>, ApiError> {
+) -> Result<Json<ApiDataTotal<PlaceRow>>, ApiError> {
     let (filters, only_favorites) = list_filters(&pairs, false);
     if only_favorites {
-        return Ok(Json(json!({ "ok": true, "data": [], "total": 0 })));
+        return Ok(Json(ApiDataTotal::ok(vec![], 0)));
     }
     let (mut data, total) = tokio::try_join!(
         state.places.find_list(&filters),
@@ -92,5 +144,5 @@ pub async fn get_all_places_list(
     for place in &mut data {
         place.apply_realms_detail(realms);
     }
-    Ok(Json(json!({ "ok": true, "data": data, "total": total })))
+    Ok(Json(ApiDataTotal::ok(data, total)))
 }

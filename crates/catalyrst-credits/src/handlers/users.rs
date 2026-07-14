@@ -1,33 +1,21 @@
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::Json;
-use chrono::Utc;
 
 use crate::dto::{
-    CreditsData, CreditsProgramProgressResponse, GoalData, GoalProgressData, UserData,
+    CreditsData, CreditsProgramProgressResponse, CreditsTotals, UsdCredits, UserCreditsResponse,
+    UserData,
 };
 use crate::handlers::signer_from;
 use crate::http::ApiError;
-use crate::ports::progress::GoalEvent;
 use crate::AppState;
-
-async fn track_login(state: &AppState, signer: &str, now: chrono::DateTime<Utc>) {
-    if let Err(e) = state
-        .credits
-        .record_event(signer, &GoalEvent::Login, now)
-        .await
-    {
-        tracing::warn!(error = %e, "goal progress: login event failed");
-    }
-}
 
 pub async fn enroll(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> Result<StatusCode, ApiError> {
-    let signer = signer_from(&headers, "post", "/users")?;
-    state.credits.mark_started(&signer).await?;
-    track_login(&state, &signer, Utc::now()).await;
+    let signer = signer_from(&headers, "post", "/users").await?;
+    state.credits.mark_started(signer.as_str()).await?;
     Ok(StatusCode::OK)
 }
 
@@ -38,34 +26,26 @@ pub async fn progress(
 ) -> Result<Json<CreditsProgramProgressResponse>, ApiError> {
     let wallet = wallet_id.to_lowercase();
     let path = format!("/users/{}/progress", wallet_id);
-    let signer = signer_from(&headers, "get", &path)?;
+    let signer = signer_from(&headers, "get", &path).await?;
 
     if signer != wallet {
         return Err(ApiError::forbidden("walletId does not match signer"));
     }
 
-    let now = Utc::now();
-    track_login(&state, &signer, now).await;
     let has_started = state.credits.has_started(&wallet).await?;
     let credits_row = state.credits.user_credits(&wallet).await?;
-    let goal_rows = state.credits.current_week_goals(&wallet, now).await?;
 
+    // Earned credits no longer expire (the seasons domain was removed), so the
+    // earned slice is always live and expiresIn is always 0. Goals were
+    // season-scoped and are gone; the list stays in the wire shape, empty.
     let credits = match credits_row {
-        Some(c) => {
-            let live = c.earned_expires_at.map(|e| e > now).unwrap_or(true);
-            let earned = if live { c.earned_available } else { 0.0 };
-            let available = c.available - (c.earned_available - earned);
-            CreditsData {
-                available,
-                earned,
-                paid: c.available - c.earned_available,
-                expires_in: match (earned > 0.0, c.earned_expires_at) {
-                    (true, Some(e)) => (e - now).num_seconds().max(0) as u64,
-                    _ => 0,
-                },
-                is_blocked_for_claiming: c.is_blocked_for_claiming,
-            }
-        }
+        Some(c) => CreditsData {
+            available: c.available,
+            earned: c.earned_available,
+            paid: c.available - c.earned_available,
+            expires_in: 0,
+            is_blocked_for_claiming: c.is_blocked_for_claiming,
+        },
         None => CreditsData {
             available: 0.0,
             earned: 0.0,
@@ -75,26 +55,76 @@ pub async fn progress(
         },
     };
 
-    let goals = goal_rows
-        .into_iter()
-        .map(|g| GoalData {
-            title: g.title,
-            description: g.description,
-            thumbnail: g.thumbnail,
-            progress: GoalProgressData {
-                total_steps: g.total_steps.max(0) as u64,
-                completed_steps: g.completed_steps.max(0) as u64,
-            },
-            reward: g.reward,
-            is_claimed: g.is_claimed,
-        })
-        .collect();
-
     Ok(Json(CreditsProgramProgressResponse {
         user: UserData {
             has_started_program: has_started,
         },
         credits,
-        goals,
+        goals: Vec::new(),
     }))
+}
+
+pub async fn user_credits(
+    State(state): State<AppState>,
+    Path(wallet_id): Path<String>,
+    headers: HeaderMap,
+) -> Result<Json<UserCreditsResponse>, ApiError> {
+    let wallet = wallet_id.to_lowercase();
+    let path = format!("/users/{}/credits", wallet_id);
+    let signer = signer_from(&headers, "get", &path).await?;
+
+    if signer != wallet {
+        return Err(ApiError::forbidden("walletId does not match signer"));
+    }
+
+    let available = state
+        .credits
+        .user_credits(&wallet)
+        .await?
+        .map(|c| c.available)
+        .unwrap_or(0.0);
+
+    Ok(Json(user_credits_response(available)))
+}
+
+fn user_credits_response(available: f64) -> UserCreditsResponse {
+    UserCreditsResponse {
+        credits: Vec::new(),
+        total_credits: available,
+        totals: CreditsTotals {
+            expiring: 0.0,
+            non_expiring: available,
+        },
+        usd: UsdCredits {
+            balance_cents: (available * 100.0).round() as i64,
+            credits: available.floor() as i32,
+        },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn user_credits_wire_shape_matches_upstream_client_dto() {
+        let v = serde_json::to_value(user_credits_response(12.5)).unwrap();
+        assert_eq!(
+            v,
+            serde_json::json!({
+                "credits": [],
+                "totalCredits": 12.5,
+                "totals": { "expiring": 0.0, "nonExpiring": 12.5 },
+                "usd": { "balanceCents": 1250, "credits": 12 }
+            })
+        );
+    }
+
+    #[test]
+    fn user_credits_zero_state_for_unknown_wallet() {
+        let v = serde_json::to_value(user_credits_response(0.0)).unwrap();
+        assert_eq!(v["totalCredits"], 0.0);
+        assert_eq!(v["usd"]["credits"], 0);
+        assert_eq!(v["usd"]["balanceCents"], 0);
+    }
 }

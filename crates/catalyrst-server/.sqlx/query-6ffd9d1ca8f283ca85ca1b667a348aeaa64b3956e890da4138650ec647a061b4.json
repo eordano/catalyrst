@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE local_entities SET tombstoned_at = now() WHERE entity_id = $1 AND tombstoned_at IS NULL",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "6ffd9d1ca8f283ca85ca1b667a348aeaa64b3956e890da4138650ec647a061b4"
+}
