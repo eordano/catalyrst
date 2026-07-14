@@ -73,7 +73,7 @@ mod tests {
     }
 
     fn is_forbidden(r: Result<(), ApiError>) -> bool {
-        matches!(r, Err(ApiError::Forbidden(_)))
+        matches!(r, Err(ApiError::Http { status: 403, .. }))
     }
 
     #[test]

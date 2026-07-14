@@ -6,7 +6,7 @@ use catalyrst_scene_state::{api_router, build_state, Config};
 
 const ENV_DOCS: &[(&str, &str)] = &[
     ("HTTP_SERVER_HOST", "bind address (default 127.0.0.1)"),
-    ("HTTP_SERVER_PORT", "listen port (default 5153)"),
+    ("HTTP_SERVER_PORT", "listen port (default 5209)"),
     (
         "LOCAL_SCENE_PATH",
         "optional — path to a local scene to serve",
@@ -110,13 +110,7 @@ const ENV_DOCS: &[(&str, &str)] = &[
 async fn main() -> Result<()> {
     catalyrst_envcfg::handle_standard_args("catalyrst-scene-state", ENV_DOCS);
 
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "catalyrst_scene_state=info,tower_http=info".into()),
-        )
-        .with_target(false)
-        .init();
+    catalyrst_envcfg::init_tracing("catalyrst_scene_state=info,tower_http=info");
 
     let cfg = Config::from_env()?;
     let addr: SocketAddr = format!("{}:{}", cfg.http_host, cfg.http_port).parse()?;

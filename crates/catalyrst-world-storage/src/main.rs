@@ -1,7 +1,6 @@
 use anyhow::Result;
 use axum::routing::get;
 use axum::Router;
-use std::net::SocketAddr;
 use tower_http::trace::TraceLayer;
 
 use catalyrst_world_storage::config::Config;
@@ -32,19 +31,19 @@ const ENV_DOCS: &[(&str, &str)] = &[
     ),
     (
         "RPC_ENDPOINT_ETH",
-        "EIP-1654 signature-validation RPC (default https://rpc.decentraland.org/mainnet)",
+        "EIP-1654 signature-validation RPC (unset rejects contract-wallet signatures; no default)",
     ),
     (
         "WORLDS_CONTENT_SERVER_URL",
-        "worlds content server (default https://worlds-content-server.decentraland.org)",
+        "worlds content server (default http://127.0.0.1:5142)",
     ),
     (
         "LAMBDAS_URL",
-        "catalyst lambdas (default https://peer.decentraland.org/lambdas)",
+        "catalyst lambdas (REQUIRED; no default)",
     ),
     (
         "PLACES_URL",
-        "places API (default https://places.decentraland.org)",
+        "places API (default http://127.0.0.1:5134)",
     ),
     (
         "PLACES_CACHE_TTL_SECONDS",
@@ -100,13 +99,7 @@ const ENV_DOCS: &[(&str, &str)] = &[
 async fn main() -> Result<()> {
     catalyrst_envcfg::handle_standard_args("catalyrst-world-storage", ENV_DOCS);
 
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "catalyrst_world_storage=info,tower_http=info".into()),
-        )
-        .with_target(false)
-        .init();
+    catalyrst_envcfg::init_tracing("catalyrst_world_storage=info,tower_http=info");
 
     let cfg = Config::from_env()?;
     let host = cfg.http_host.clone();
@@ -121,9 +114,5 @@ async fn main() -> Result<()> {
         .layer(cors)
         .with_state(state);
 
-    let addr: SocketAddr = format!("{}:{}", host, port).parse()?;
-    tracing::info!(%addr, "catalyrst-world-storage listening");
-    let listener = tokio::net::TcpListener::bind(addr).await?;
-    axum::serve(listener, app).await?;
-    Ok(())
+    catalyrst_envcfg::run_service("catalyrst-world-storage", host, port, app).await
 }

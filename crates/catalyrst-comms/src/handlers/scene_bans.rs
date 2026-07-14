@@ -169,7 +169,9 @@ pub async fn ban_user(
 ) -> Result<impl IntoResponse, ApiError> {
     let sf = verify_signed_fetch(&headers, "post", "/scene-bans", &[SCENE_SIGNER])
         .map_err(|e| auth_error(e.status, e.message))?;
-    if !crate::scene_perms::is_scene_owner_or_admin(&state, &body.place_id, &sf.signer).await? {
+    if !crate::scene_perms::is_scene_owner_or_admin(&state, &body.place_id, sf.signer.as_str())
+        .await?
+    {
         return Err(crate::http::forbidden(
             "signer is not an owner or admin of this scene",
         ));
@@ -177,7 +179,7 @@ pub async fn ban_user(
     ensure_target_not_protected(&state, &body.place_id, &body.banned_address).await?;
     state
         .scene_bans
-        .ban(&body.place_id, &body.banned_address, &sf.signer)
+        .ban(&body.place_id, &body.banned_address, sf.signer.as_str())
         .await?;
     crate::room_metadata_sync::add_ban(&state, &body.place_id, &body.banned_address).await;
     Ok(StatusCode::NO_CONTENT)
@@ -196,7 +198,7 @@ pub async fn unban_user(
     let banned_address = q
         .banned_address
         .ok_or_else(|| ApiError::bad_request("missing banned_address query"))?;
-    if !crate::scene_perms::is_scene_owner_or_admin(&state, &place_id, &sf.signer).await? {
+    if !crate::scene_perms::is_scene_owner_or_admin(&state, &place_id, sf.signer.as_str()).await? {
         return Err(crate::http::forbidden(
             "signer is not an owner or admin of this scene",
         ));

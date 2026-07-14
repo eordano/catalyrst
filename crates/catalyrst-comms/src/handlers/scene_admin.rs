@@ -122,14 +122,16 @@ pub async fn add_admin(
 ) -> Result<impl IntoResponse, ApiError> {
     let sf = verify_signed_fetch(&headers, "post", "/scene-admin", &[SCENE_SIGNER])
         .map_err(|e| auth_error(e.status, e.message))?;
-    if !crate::scene_perms::is_scene_owner_or_admin(&state, &body.place_id, &sf.signer).await? {
+    if !crate::scene_perms::is_scene_owner_or_admin(&state, &body.place_id, sf.signer.as_str())
+        .await?
+    {
         return Err(crate::http::forbidden(
             "signer is not an owner or admin of this scene",
         ));
     }
     state
         .scene_admin
-        .add(&body.place_id, &body.admin, &sf.signer)
+        .add(&body.place_id, &body.admin, sf.signer.as_str())
         .await?;
     crate::room_metadata_sync::add_admin(&state, &body.place_id, &body.admin).await;
     Ok(StatusCode::NO_CONTENT)
@@ -148,7 +150,7 @@ pub async fn remove_admin(
     let admin = q
         .admin
         .ok_or_else(|| ApiError::bad_request("missing admin query"))?;
-    if !crate::scene_perms::is_scene_owner_or_admin(&state, &place_id, &sf.signer).await? {
+    if !crate::scene_perms::is_scene_owner_or_admin(&state, &place_id, sf.signer.as_str()).await? {
         return Err(crate::http::forbidden(
             "signer is not an owner or admin of this scene",
         ));

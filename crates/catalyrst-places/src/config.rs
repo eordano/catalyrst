@@ -1,5 +1,5 @@
 use anyhow::Result;
-use catalyrst_envcfg::{get_port, required};
+use catalyrst_envcfg::{get_port, local_endpoint, required};
 use std::env;
 
 pub struct Config {
@@ -49,14 +49,8 @@ impl Config {
             admin_auth_token: env::var("PLACES_ADMIN_AUTH_TOKEN")
                 .ok()
                 .filter(|s| !s.trim().is_empty()),
-            comms_gatekeeper_url: env::var("COMMS_GATEKEEPER_URL")
-                .ok()
-                .filter(|s| !s.trim().is_empty())
-                .unwrap_or_else(|| "https://comms-gatekeeper.decentraland.zone".to_string()),
-            events_api_url: env::var("EVENTS_API_URL")
-                .ok()
-                .filter(|s| !s.trim().is_empty())
-                .unwrap_or_else(|| "https://events.decentraland.zone/api".to_string()),
+            comms_gatekeeper_url: local_endpoint("COMMS_GATEKEEPER_URL", 5138),
+            events_api_url: local_endpoint("EVENTS_API_URL", 5135),
             presence_url: env::var("PRESENCE_URL")
                 .ok()
                 .filter(|s| !s.trim().is_empty())

@@ -6,7 +6,10 @@ use std::path::{Path, PathBuf};
 pub struct Generated {
     pub dir: PathBuf,
     pub entrypoint: PathBuf,
+    pub max_composite_entity: u32,
 }
+
+const COMPOSITE_FILE_MAX_BYTES: u64 = 16 * 1024 * 1024;
 
 fn write_error(path: &Path, e: std::io::Error) -> anyhow::Error {
     UserError::new(
@@ -40,9 +43,15 @@ pub fn generate(
     };
     std::fs::write(&entry_path, content).map_err(|e| write_error(&entry_path, e))?;
 
+    let max_composite_entity = if ignore_composite {
+        0
+    } else {
+        scan_max_composite_entity(&project.root)
+    };
     Ok(Generated {
         dir,
         entrypoint: entry_path,
+        max_composite_entity,
     })
 }
 
@@ -53,7 +62,7 @@ fn entrypoint_code(safe_entry: &str, editor_scene: bool, split: bool) -> String 
         ""
     };
     let editor_block = if editor_scene {
-        "\nimport { syncEntity } from '@dcl/sdk/network'\nimport players from '@dcl/sdk/players'\nimport { initAssetPacks, setSyncEntity } from '@dcl/asset-packs/dist/scene-entrypoint'\ninitAssetPacks(engine, { syncEntity }, players)\n"
+        "\nimport { syncEntity } from '@dcl/sdk/network'\nimport players from '@dcl/sdk/players'\nimport { initAssetPacks } from '@dcl/asset-packs/dist/scene-entrypoint'\ninitAssetPacks(engine, { syncEntity }, players)\n"
             .to_string()
     } else {
         "false".to_string()
@@ -114,11 +123,15 @@ fn walk_composites(dir: &Path, out: &mut Vec<PathBuf>) {
             if !name.starts_with('.') && !matches!(name.as_str(), "node_modules" | "bin" | "dist") {
                 walk_composites(&path, out);
             }
-        } else if name.ends_with(".composite")
-            && !name.starts_with('.')
-            && path.metadata().map(|m| m.len()).unwrap_or(0) < 16_000_000
-        {
-            out.push(path);
+        } else if name.ends_with(".composite") && !name.starts_with('.') {
+            if path.metadata().map(|m| m.len()).unwrap_or(0) > COMPOSITE_FILE_MAX_BYTES {
+                tracing::warn!(
+                    "composite '{}' exceeds the {COMPOSITE_FILE_MAX_BYTES}-byte cap; refusing to parse",
+                    path.display()
+                );
+            } else {
+                out.push(path);
+            }
         }
     }
 }
@@ -133,6 +146,9 @@ fn write_all_composites(project: &Project, dir: &Path, ignore: bool) -> Result<(
                 .unwrap_or(&path)
                 .to_string_lossy()
                 .replace('\\', "/");
+            if rel != "main.composite" {
+                continue;
+            }
             let normalized = std::fs::read_to_string(&path)
                 .map_err(anyhow::Error::from)
                 .and_then(|raw| normalizer.normalize(&raw));
@@ -146,6 +162,34 @@ fn write_all_composites(project: &Project, dir: &Path, ignore: bool) -> Result<(
     let path = dir.join("all-composites.js");
     std::fs::write(&path, content).map_err(|e| write_error(&path, e))?;
     Ok(())
+}
+
+pub fn scan_max_composite_entity(root: &Path) -> u32 {
+    let mut max = 0u32;
+    for path in find_composites(root) {
+        let Ok(raw) = std::fs::read(&path) else {
+            continue;
+        };
+        let Ok(json) = serde_json::from_slice::<serde_json::Value>(&raw) else {
+            continue;
+        };
+        let comps = json
+            .get("components")
+            .and_then(|c| c.as_array())
+            .map(Vec::as_slice)
+            .unwrap_or(&[]);
+        for comp in comps {
+            let Some(data) = comp.get("data").and_then(|d| d.as_object()) else {
+                continue;
+            };
+            for key in data.keys() {
+                if let Ok(id) = key.parse::<u64>() {
+                    max = max.max((id & 0xffff) as u32);
+                }
+            }
+        }
+    }
+    max
 }
 
 fn write_script_utils(project: &Project, dir: &Path) -> Result<()> {
@@ -265,7 +309,29 @@ fn top_level_require(line: &str) -> Option<(&str, &str)> {
 
 #[cfg(test)]
 mod tests {
-    use super::{rewrite_requires, strip_cjs};
+    use super::{rewrite_requires, scan_max_composite_entity, strip_cjs};
+
+    #[test]
+    fn max_composite_entity_scans_every_parseable_composite() {
+        let dir =
+            std::env::temp_dir().join(format!("dcl-one-sdk-maxentity-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("sub")).unwrap();
+        assert_eq!(scan_max_composite_entity(&dir), 0);
+        std::fs::write(
+            dir.join("main.composite"),
+            r#"{"version":1,"components":[{"name":"core::Transform","data":{"512":{},"600":{}}}]}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("sub/other.composite"),
+            r#"{"version":1,"components":[{"name":"my::Thing","data":{"5170":{}}}]}"#,
+        )
+        .unwrap();
+        std::fs::write(dir.join("sub/broken.composite"), "not json").unwrap();
+        assert_eq!(scan_max_composite_entity(&dir), 5170);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn rewrites_dist_cjs_barrel_require_to_esm_barrel_import() {

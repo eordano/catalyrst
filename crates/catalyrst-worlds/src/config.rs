@@ -1,5 +1,7 @@
 use anyhow::{anyhow, Result};
-use catalyrst_envcfg::{env_bool, get_int, get_port, get_u64, required};
+use catalyrst_envcfg::{
+    env_bool, get_int, get_port, get_u64, optional_endpoint, required, required_endpoint,
+};
 use std::env;
 
 pub struct Config {
@@ -22,7 +24,7 @@ pub struct Config {
     pub livekit_webhook_key: Option<String>,
     pub max_users_per_world: i64,
 
-    pub contents_upstream_url: String,
+    pub contents_upstream_url: Option<String>,
     pub contents_dir: std::path::PathBuf,
 
     pub comms_gatekeeper_url: Option<String>,
@@ -35,11 +37,76 @@ pub struct Config {
     pub admin_token: Option<String>,
 
     pub max_in_flight_upload_bytes: u64,
+    pub max_concurrent_uploads: u64,
+    pub max_in_flight_upload_files: u64,
+    pub multipart_upload_timeout_ms: u64,
+    pub deployment_processing_timeout_ms: u64,
+
+    /// The five `WORLDS_FED_*` keys, grouped rather than splayed across this struct
+    /// so that "which knobs belong to federation" is answerable by reading one type.
+    /// Parsed and validated at boot by [`crate::fed::config::WorldsFedConfig::from_env`];
+    /// a zero or unparseable cap is a startup failure, not a runtime surprise.
+    pub federation: crate::fed::config::WorldsFedConfig,
+}
+
+fn positive_limit(name: &str, value: u64) -> Result<u64> {
+    if value == 0 {
+        return Err(anyhow!("{name} must be a positive integer, got {value}"));
+    }
+    Ok(value)
+}
+
+fn validate_upload_limits(max_in_flight_upload_bytes: u64) -> Result<()> {
+    let max_upload = crate::handlers::deploy::MAX_UPLOAD_SIZE_BYTES as u64;
+    if max_in_flight_upload_bytes < max_upload {
+        return Err(anyhow!(
+            "MAX_IN_FLIGHT_UPLOAD_BYTES ({max_in_flight_upload_bytes}) must be greater than or \
+             equal to maxSizeInBytes ({max_upload})"
+        ));
+    }
+    Ok(())
 }
 
 impl Config {
     pub fn from_env() -> Result<Self> {
         let http_port = get_port("HTTP_SERVER_PORT", 5146)?;
+
+        let max_in_flight_upload_bytes = positive_limit(
+            "MAX_IN_FLIGHT_UPLOAD_BYTES",
+            get_u64(
+                "MAX_IN_FLIGHT_UPLOAD_BYTES",
+                crate::upload_limits::DEFAULT_MAX_IN_FLIGHT_UPLOAD_BYTES,
+            )?,
+        )?;
+        let max_concurrent_uploads = positive_limit(
+            "MAX_CONCURRENT_UPLOADS",
+            get_u64(
+                "MAX_CONCURRENT_UPLOADS",
+                crate::upload_limits::DEFAULT_MAX_CONCURRENT_UPLOADS,
+            )?,
+        )?;
+        let max_in_flight_upload_files = positive_limit(
+            "MAX_IN_FLIGHT_UPLOAD_FILES",
+            get_u64(
+                "MAX_IN_FLIGHT_UPLOAD_FILES",
+                crate::upload_limits::DEFAULT_MAX_IN_FLIGHT_UPLOAD_FILES,
+            )?,
+        )?;
+        let multipart_upload_timeout_ms = positive_limit(
+            "MULTIPART_UPLOAD_TIMEOUT_MS",
+            get_u64(
+                "MULTIPART_UPLOAD_TIMEOUT_MS",
+                crate::upload_limits::DEFAULT_MULTIPART_UPLOAD_TIMEOUT_MS,
+            )?,
+        )?;
+        let deployment_processing_timeout_ms = positive_limit(
+            "DEPLOYMENT_PROCESSING_TIMEOUT_MS",
+            get_u64(
+                "DEPLOYMENT_PROCESSING_TIMEOUT_MS",
+                crate::upload_limits::DEFAULT_DEPLOYMENT_PROCESSING_TIMEOUT_MS,
+            )?,
+        )?;
+        validate_upload_limits(max_in_flight_upload_bytes)?;
 
         let livekit_api_key = env::var("LIVEKIT_API_KEY").unwrap_or_default();
         let livekit_api_secret = env::var("LIVEKIT_API_SECRET").unwrap_or_default();
@@ -74,10 +141,8 @@ impl Config {
                 .ok()
                 .filter(|s| !s.is_empty()),
             global_scenes_urn: env::var("GLOBAL_SCENES_URN").ok().filter(|s| !s.is_empty()),
-            content_public_url: env::var("CONTENT_PUBLIC_URL")
-                .unwrap_or_else(|_| "https://peer.decentraland.org/content".to_string()),
-            lambdas_public_url: env::var("LAMBDAS_PUBLIC_URL")
-                .unwrap_or_else(|_| "https://peer.decentraland.org/lambdas".to_string()),
+            content_public_url: required_endpoint("CONTENT_PUBLIC_URL")?,
+            lambdas_public_url: required_endpoint("LAMBDAS_PUBLIC_URL")?,
             livekit_host: env::var("LIVEKIT_HOST").unwrap_or_else(|_| "livekit.local".to_string()),
             livekit_ws_url: env::var("LIVEKIT_WS_URL")
                 .ok()
@@ -99,10 +164,8 @@ impl Config {
                 env::var("WORLDS_CONTENT_DIR")
                     .unwrap_or_else(|_| "./data/worlds/contents".to_string()),
             ),
-            contents_upstream_url: env::var("CONTENTS_UPSTREAM_URL")
-                .unwrap_or_else(|_| "https://worlds-content-server.decentraland.org".to_string())
-                .trim_end_matches('/')
-                .to_string(),
+            contents_upstream_url: optional_endpoint("CONTENTS_UPSTREAM_URL")
+                .map(|s| s.trim_end_matches('/').to_string()),
             comms_gatekeeper_url: env::var("COMMS_GATEKEEPER_URL")
                 .ok()
                 .filter(|s| !s.is_empty())
@@ -118,10 +181,40 @@ impl Config {
             admin_token: env::var("CATALYRST_WORLDS_ADMIN_TOKEN")
                 .ok()
                 .filter(|s| !s.is_empty()),
-            max_in_flight_upload_bytes: get_u64(
-                "MAX_IN_FLIGHT_UPLOAD_BYTES",
-                crate::handlers::deploy::DEFAULT_MAX_IN_FLIGHT_UPLOAD_BYTES,
-            )?,
+            max_in_flight_upload_bytes,
+            max_concurrent_uploads,
+            max_in_flight_upload_files,
+            multipart_upload_timeout_ms,
+            deployment_processing_timeout_ms,
+            federation: crate::fed::config::WorldsFedConfig::from_env()?,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn limiter_knobs_reject_zero_with_upstream_message_shape() {
+        assert_eq!(positive_limit("MAX_CONCURRENT_UPLOADS", 40).unwrap(), 40);
+        let err = positive_limit("MAX_CONCURRENT_UPLOADS", 0).unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "MAX_CONCURRENT_UPLOADS must be a positive integer, got 0"
+        );
+    }
+
+    #[test]
+    fn byte_budget_must_cover_the_deploy_payload_cap() {
+        let max_upload = crate::handlers::deploy::MAX_UPLOAD_SIZE_BYTES as u64;
+        assert!(validate_upload_limits(max_upload).is_ok());
+        assert!(validate_upload_limits(max_upload + 1).is_ok());
+        let err = validate_upload_limits(max_upload - 1).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("must be greater than or equal to maxSizeInBytes"),
+            "unexpected message: {err}"
+        );
     }
 }

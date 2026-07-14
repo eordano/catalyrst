@@ -1,5 +1,7 @@
 pub mod admin;
 pub mod dashboard;
+pub mod experiments;
+pub mod groups;
 pub mod segment;
 pub mod sentry;
 pub mod ssr;

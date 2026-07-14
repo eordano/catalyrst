@@ -247,6 +247,38 @@ pub async fn user_lands(
     }))
 }
 
+/// `None` when there is no local index to answer from, which is the only case
+/// that still warrants a remote round trip.
+async fn local_parcels_by_update_operator(
+    state: &AppState,
+    update_operator: &str,
+) -> Option<Result<Vec<Value>, sqlx::Error>> {
+    let pool = state.squid_pool.as_ref()?;
+    if !crate::land_operators::local_index_present(pool).await {
+        return None;
+    }
+    let store = catalyrst_land_authz::LandAuthzStore::new(pool.clone());
+    Some(
+        store
+            .parcels_with_update_operator(update_operator)
+            .await
+            .map(|parcels| {
+                parcels
+                    .into_iter()
+                    .map(|p| {
+                        json!({
+                            "id": p.token_id,
+                            "x": p.x.to_string(),
+                            "y": p.y.to_string(),
+                            "owner": p.owner,
+                            "updateOperator": update_operator,
+                        })
+                    })
+                    .collect()
+            }),
+    )
+}
+
 pub async fn user_lands_permissions(
     State(state): State<Arc<AppState>>,
     Path(addr): Path<String>,
@@ -256,15 +288,18 @@ pub async fn user_lands_permissions(
 
     let update_operator = addr.to_lowercase();
 
-    let elements = match external_graph::parcels_by_update_operator(
-        &state.eth_network,
-        &update_operator,
-    )
-    .await
-    {
-        Ok(e) => e,
+    let elements = match local_parcels_by_update_operator(&state, &update_operator).await {
+        Some(Ok(e)) => e,
+        Some(Err(_)) => return StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+        None => {
+            match external_graph::parcels_by_update_operator(&state.eth_network, &update_operator)
+                .await
+            {
+                Ok(e) => e,
 
-        Err(_) => return StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+                Err(_) => return StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+            }
+        }
     };
 
     let (page_size, page_num) = parse_pagination(&req, MAX_PAGE_SIZE as i64);
@@ -309,6 +344,37 @@ pub async fn parcel_operators(
         Err(resp) => return resp,
     };
 
+    if let Some(pool) = state.squid_pool.as_ref() {
+        if crate::land_operators::local_index_present(pool).await {
+            let store = catalyrst_land_authz::LandAuthzStore::new(pool.clone());
+            return match store.parcel_subject(xi as i32, yi as i32).await {
+                Ok(Some(subject)) => {
+                    let managers = store
+                        .account_grants(&subject.registry, &subject.owner, "update_manager")
+                        .await
+                        .unwrap_or_default();
+                    let approved = store
+                        .account_grants(&subject.registry, &subject.owner, "approved_for_all")
+                        .await
+                        .unwrap_or_default();
+                    Json(json!({
+                        "owner": subject.owner,
+                        "operator": subject.operator,
+                        "updateOperator": subject.update_operator,
+                        "updateManagers": managers,
+                        "approvedForAll": approved,
+                    }))
+                    .into_response()
+                }
+                Ok(None) => parcel_or_estate_not_found(xi, yi),
+                Err(e) => {
+                    tracing::warn!(x = xi, y = yi, error = %e, "local parcel operators lookup failed");
+                    StatusCode::INTERNAL_SERVER_ERROR.into_response()
+                }
+            };
+        }
+    }
+
     let ops = match external_graph::parcel_operators(&state.eth_network, xi, yi).await {
         Ok(Some(o)) => o,
         Ok(None) => return parcel_or_estate_not_found(xi, yi),
@@ -325,12 +391,13 @@ pub async fn parcel_operators(
     .into_response()
 }
 
+/// Answers from `catalyrst_validator::squid_checker::parcel_permission_flags`,
+/// the same call the deploy predicate makes, so this route cannot report a
+/// right the validator would then refuse to honour.
 pub async fn parcel_permissions(
     State(state): State<Arc<AppState>>,
     Path((address, x, y)): Path<(String, String, String)>,
 ) -> Response {
-    use crate::handlers::external_graph;
-
     let (xi, yi) = match validate_coords(&x, &y) {
         Ok(c) => c,
         Err(resp) => return resp,
@@ -341,22 +408,36 @@ pub async fn parcel_permissions(
         return bad_request("Address must be a valid Ethereum address");
     }
 
-    let ops = match external_graph::parcel_operators(&state.eth_network, xi, yi).await {
-        Ok(Some(o)) => o,
-        Ok(None) => return parcel_or_estate_not_found(xi, yi),
-        Err(_) => return StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    let Some(pool) = state.squid_pool.as_ref() else {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            [(header::CONTENT_TYPE, "application/json")],
+            json!({
+                "error": "Service Unavailable",
+                "message": "LAND rights are unavailable on this node: no marketplace index is configured",
+            })
+            .to_string(),
+        )
+            .into_response();
     };
 
-    let eq = |v: &Option<String>| v.as_deref() == Some(addr.as_str());
-
-    Json(json!({
-        "owner": ops.owner == addr,
-        "operator": eq(&ops.operator),
-        "updateOperator": eq(&ops.update_operator),
-        "updateManager": ops.update_managers.iter().any(|m| m == &addr),
-        "approvedForAll": ops.approved_for_all.iter().any(|a| a == &addr),
-    }))
-    .into_response()
+    let resolver = crate::land_operators::resolver_for(pool, &state.eth_network).await;
+    match catalyrst_validator::squid_checker::parcel_permission_flags(
+        pool,
+        Some(resolver.as_ref()),
+        &addr,
+        xi as i32,
+        yi as i32,
+    )
+    .await
+    {
+        Ok(Some(flags)) => Json(flags).into_response(),
+        Ok(None) => parcel_or_estate_not_found(xi, yi),
+        Err(e) => {
+            tracing::warn!(x = xi, y = yi, error = %e, "parcel permissions lookup failed");
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
 }
 
 pub async fn name_owner(State(state): State<Arc<AppState>>, Path(name): Path<String>) -> Response {

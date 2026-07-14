@@ -166,20 +166,6 @@ impl ItemsComponent {
         Ok(row)
     }
 
-    pub async fn item_in_collection(
-        &self,
-        collection_id: &Uuid,
-        item_id: &Uuid,
-    ) -> Result<bool, ApiError> {
-        let row: Option<(Uuid,)> =
-            sqlx::query_as("SELECT id FROM items WHERE id = $1 AND collection_id = $2")
-                .bind(item_id)
-                .bind(collection_id)
-                .fetch_optional(&self.pool)
-                .await?;
-        Ok(row.is_some())
-    }
-
     pub async fn set_item_curation_status(
         &self,
         collection_id: &Uuid,

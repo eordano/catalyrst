@@ -1,5 +1,5 @@
 use anyhow::{anyhow, Result};
-use catalyrst_envcfg::{env_bool, get_port, required};
+use catalyrst_envcfg::{env_bool, get_port, local_endpoint, required, required_endpoint};
 use std::env;
 
 pub struct Config {
@@ -34,9 +34,7 @@ pub struct Config {
 fn parse_moderator_addresses(raw: &str) -> Vec<String> {
     raw.split([',', ' ', '\n'])
         .map(|s| s.trim().to_lowercase())
-        .filter(|a| {
-            a.len() == 42 && a.starts_with("0x") && a[2..].chars().all(|c| c.is_ascii_hexdigit())
-        })
+        .filter(|a| catalyrst_types::is_eth_address(a))
         .collect()
 }
 
@@ -84,12 +82,10 @@ impl Config {
                 .unwrap_or_else(|_| "http://127.0.0.1:5134".to_string()),
             catalyst_url: env::var("CATALYST_URL")
                 .unwrap_or_else(|_| "http://127.0.0.1:5140".to_string()),
-            world_content_url: env::var("WORLD_CONTENT_URL")
-                .unwrap_or_else(|_| "https://worlds-content-server.decentraland.org".to_string())
+            world_content_url: local_endpoint("WORLD_CONTENT_URL", 5142)
                 .trim_end_matches('/')
                 .to_string(),
-            lambdas_url: env::var("LAMBDAS_URL")
-                .unwrap_or_else(|_| "https://peer.decentraland.org/lambdas".to_string()),
+            lambdas_url: required_endpoint("LAMBDAS_URL")?,
             dapps_database_url: env::var("DAPPS_PG_COMPONENT_PSQL_CONNECTION_STRING")
                 .ok()
                 .filter(|s| !s.is_empty()),

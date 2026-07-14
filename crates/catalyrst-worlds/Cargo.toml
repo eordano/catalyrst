@@ -1,22 +1,33 @@
 [package]
 name = "catalyrst-worlds"
-version = "0.9.10"
+version = "0.14.4"
 edition = "2021"
 description = "Rust port of decentraland/worlds-content-server — World realm /about, /permissions, LiveKit world/scene comms, content reads, wallet presence. Port 5141."
+
+[package.metadata.generated]
+gate = "sites/scripts/gen-ts-check.sh"
+ts-bindings = "ui3/src/generated/catalyst/worlds"
+openapi = "ui3/src/generated/catalyst/openapi/worlds.openapi.json"
 
 [[bin]]
 name = "catalyrst-worlds"
 path = "src/main.rs"
 
 [dependencies]
-catalyrst-types = { workspace = true }
+catalyrst-livekit = { workspace = true }
+catalyrst-db = { workspace = true }
+# The peer registry (federation-peers.toml) and PeerCert. `src/fed/peers.rs` is the
+# first caller of FederationRegistry::from_file anywhere in the workspace.
+catalyrst-fed = { workspace = true }
+catalyrst-types = { workspace = true, features = ["openapi"] }
 catalyrst-crypto = { workspace = true }
+utoipa = { workspace = true }
+utoipa-axum = { workspace = true }
 catalyrst-envcfg = { workspace = true }
 catalyrst-hashing = { workspace = true }
-catalyrst-fed = { workspace = true }
 tokio = { workspace = true }
+tokio-util = { workspace = true }
 axum = { workspace = true }
-tower = { workspace = true }
 tower-http = { workspace = true }
 sqlx = { workspace = true }
 serde = { workspace = true }
@@ -26,18 +37,43 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 thiserror = { workspace = true }
 anyhow = { workspace = true }
+# NOTE: the workspace reqwest feature set ("rustls", ...) already provides
+# `Certificate::from_pem` and `ClientBuilder::tls_certs_only`, verified by compile.
+# `tls_built_in_root_certs` does NOT exist in reqwest 0.13 — see src/fed/peers.rs.
 reqwest = { workspace = true }
 url = { workspace = true }
 dashmap = { workspace = true }
-parking_lot = { workspace = true }
 bytes = { workspace = true }
 hmac = "0.13"
 sha2 = { workspace = true }
-base64 = "0.22"
+base64 = "0.23"
 hex = "0.4"
 bcrypt = "0.19"
 moka = { version = "0.12", features = ["future"] }
-infer = "0.19"
+infer = "0.22"
+ts-rs = { workspace = true, optional = true }
+
+[features]
+# Exporting TS bindings is opt-in so the service build does not carry ts-rs.
+# `sites/scripts/gen-ts-check.sh` enables this to regenerate
+# ui3/src/generated/catalyst/worlds, which sites then turns into zod via
+# gen-zod-schemas.mts. Same arrangement as catalyrst-places.
+ts = ["dep:ts-rs"]
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+catalyrst-contract-gate = { workspace = true }
+# federation_mirror_routes.rs drives the real axum router with `ServiceExt::oneshot`,
+# so the "unauthenticated refresh contacts zero peers" claim is checked against a
+# response and a request counter rather than against the shape of the handler.
+tower = { workspace = true }
+# federation_mirror_invariants.rs names the invariant it did NOT check when a skip
+# happens, so a skipped run is legible in the log rather than only in the tally.
+catalyrst-testgate = { workspace = true }
+# Federation peer-admission tests only: generate a throwaway CA + leaf so the
+# "pinned client trusts only its own root" property can be proven against a real
+# TLS handshake instead of asserted in a comment. Same version catalyrst-pulse
+# already pins, so this adds no new crate to the lock.
+rcgen = "0.13"
+rustls = "0.23"
+tokio-rustls = "0.26"

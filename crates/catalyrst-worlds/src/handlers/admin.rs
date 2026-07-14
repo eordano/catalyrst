@@ -20,11 +20,22 @@ pub struct PageQuery {
 }
 
 fn clamp_page(q: &PageQuery) -> (i64, i64) {
-    let limit = q.limit.unwrap_or(DEFAULT_LIMIT).clamp(1, MAX_LIMIT);
+    let limit = catalyrst_types::clamp_limit(q.limit, DEFAULT_LIMIT, MAX_LIMIT);
     let offset = q.offset.unwrap_or(0).max(0);
     (limit, offset)
 }
 
+#[utoipa::path(
+    get,
+    path = "/admin/worlds",
+    tag = "admin",
+    params(("limit" = Option<i64>, Query), ("offset" = Option<i64>, Query), ("search" = Option<String>, Query)),
+    responses(
+        (status = 200, body = serde_json::Value),
+        (status = 403, body = catalyrst_types::ApiErrorBody),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn list_worlds(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -56,6 +67,18 @@ pub async fn list_worlds(
     })))
 }
 
+#[utoipa::path(
+    get,
+    path = "/admin/worlds/{world_name}",
+    tag = "admin",
+    params(("world_name" = String, Path)),
+    responses(
+        (status = 200, body = serde_json::Value),
+        (status = 403, body = catalyrst_types::ApiErrorBody),
+        (status = 404, body = catalyrst_types::ApiErrorBody),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn world_detail(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -88,6 +111,18 @@ pub async fn world_detail(
     })))
 }
 
+#[utoipa::path(
+    post,
+    path = "/admin/worlds/{world_name}/disable",
+    tag = "admin",
+    params(("world_name" = String, Path)),
+    responses(
+        (status = 200, body = serde_json::Value),
+        (status = 403, body = catalyrst_types::ApiErrorBody),
+        (status = 404, body = catalyrst_types::ApiErrorBody),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn disable_world(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -97,6 +132,18 @@ pub async fn disable_world(
     set_world_blocked(&state, &world_name, true).await
 }
 
+#[utoipa::path(
+    post,
+    path = "/admin/worlds/{world_name}/enable",
+    tag = "admin",
+    params(("world_name" = String, Path)),
+    responses(
+        (status = 200, body = serde_json::Value),
+        (status = 403, body = catalyrst_types::ApiErrorBody),
+        (status = 404, body = catalyrst_types::ApiErrorBody),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn enable_world(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -126,6 +173,16 @@ async fn set_world_blocked(
     ))
 }
 
+#[utoipa::path(
+    get,
+    path = "/admin/blocked",
+    tag = "admin",
+    responses(
+        (status = 200, body = serde_json::Value),
+        (status = 403, body = catalyrst_types::ApiErrorBody),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn list_blocked(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -145,6 +202,18 @@ pub async fn list_blocked(
     Ok(Json(json!({ "blocked": blocked })))
 }
 
+#[utoipa::path(
+    post,
+    path = "/admin/blocked/{wallet}",
+    tag = "admin",
+    params(("wallet" = String, Path)),
+    responses(
+        (status = 200, body = serde_json::Value),
+        (status = 400, body = catalyrst_types::ApiErrorBody),
+        (status = 403, body = catalyrst_types::ApiErrorBody),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn block_wallet(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -157,6 +226,18 @@ pub async fn block_wallet(
     ))
 }
 
+#[utoipa::path(
+    delete,
+    path = "/admin/blocked/{wallet}",
+    tag = "admin",
+    params(("wallet" = String, Path)),
+    responses(
+        (status = 200, body = serde_json::Value),
+        (status = 403, body = catalyrst_types::ApiErrorBody),
+        (status = 404, body = catalyrst_types::ApiErrorBody),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn unblock_wallet(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -187,6 +268,17 @@ pub struct AccessLogQuery {
     pub offset: Option<i64>,
 }
 
+#[utoipa::path(
+    get,
+    path = "/admin/access-log",
+    tag = "admin",
+    params(("limit" = Option<i64>, Query)),
+    responses(
+        (status = 200, body = serde_json::Value),
+        (status = 403, body = catalyrst_types::ApiErrorBody),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn access_log(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -226,6 +318,18 @@ pub struct BanStatusQuery {
     pub parcel: Option<String>,
 }
 
+#[utoipa::path(
+    get,
+    path = "/admin/worlds/{world_name}/ban-status",
+    tag = "admin",
+    params(("world_name" = String, Path), ("address" = String, Query)),
+    responses(
+        (status = 200, body = serde_json::Value),
+        (status = 403, body = catalyrst_types::ApiErrorBody),
+        (status = 500, body = catalyrst_types::ApiErrorBody),
+        (status = 503, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn world_ban_status(
     State(state): State<AppState>,
     headers: HeaderMap,

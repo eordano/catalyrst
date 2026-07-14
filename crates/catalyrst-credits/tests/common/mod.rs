@@ -3,8 +3,8 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
+use alloy::signers::{local::PrivateKeySigner, Signer};
 use axum::http::{HeaderMap, HeaderName, HeaderValue};
-use ethers_signers::{LocalWallet, Signer};
 use sha2::{Digest, Sha256};
 
 use catalyrst_credits::auth_chain::build_payload;
@@ -14,7 +14,7 @@ use catalyrst_credits::{AppState, AppStateInner};
 
 static WALLET_COUNTER: AtomicU64 = AtomicU64::new(0);
 
-pub fn scratch_wallet() -> LocalWallet {
+pub fn scratch_wallet() -> PrivateKeySigner {
     let mut h = Sha256::new();
     h.update(std::process::id().to_le_bytes());
     h.update(
@@ -26,10 +26,10 @@ pub fn scratch_wallet() -> LocalWallet {
     );
     h.update(WALLET_COUNTER.fetch_add(1, Ordering::Relaxed).to_le_bytes());
     let key: [u8; 32] = h.finalize().into();
-    LocalWallet::from_bytes(&key).expect("wallet from bytes")
+    PrivateKeySigner::from_slice(&key).expect("wallet from bytes")
 }
 
-pub fn wallet_addr(w: &LocalWallet) -> String {
+pub fn wallet_addr(w: &PrivateKeySigner) -> String {
     format!("{:#x}", w.address())
 }
 
@@ -37,7 +37,7 @@ fn link_json(kind: &str, payload: &str, signature: &str) -> String {
     serde_json::json!({ "type": kind, "payload": payload, "signature": signature }).to_string()
 }
 
-pub async fn signed_headers(wallet: &LocalWallet, method: &str, path: &str) -> HeaderMap {
+pub async fn signed_headers(wallet: &PrivateKeySigner, method: &str, path: &str) -> HeaderMap {
     let root_addr = wallet_addr(wallet);
     let ephemeral = scratch_wallet();
     let ephemeral_addr = wallet_addr(&ephemeral);
@@ -46,20 +46,19 @@ pub async fn signed_headers(wallet: &LocalWallet, method: &str, path: &str) -> H
         "Decentraland Login\nEphemeral address: {}\nExpiration: 2099-01-01T00:00:00.000Z",
         ephemeral_addr
     );
-    let ephemeral_sig = format!(
-        "0x{}",
-        wallet
-            .sign_message(ephemeral_payload.as_bytes())
-            .await
-            .unwrap()
-    );
+    let ephemeral_sig = wallet
+        .sign_message(ephemeral_payload.as_bytes())
+        .await
+        .unwrap()
+        .to_string();
 
     let ts_ms = chrono_now_ms();
     let canonical = build_payload(method, path, &ts_ms.to_string(), "{}");
-    let entity_sig = format!(
-        "0x{}",
-        ephemeral.sign_message(canonical.as_bytes()).await.unwrap()
-    );
+    let entity_sig = ephemeral
+        .sign_message(canonical.as_bytes())
+        .await
+        .unwrap()
+        .to_string();
 
     let mut headers = HeaderMap::new();
     headers.insert(
@@ -94,7 +93,7 @@ fn chrono_now_ms() -> i64 {
 }
 
 pub async fn pool() -> Option<sqlx::PgPool> {
-    let url = std::env::var("CREDITS_TEST_PG_CONNECTION_STRING").ok()?;
+    let url = catalyrst_testgate::require_pg("CREDITS_TEST_PG_CONNECTION_STRING")?;
     let pool = sqlx::postgres::PgPoolOptions::new()
         .max_connections(4)
         .connect(&url)

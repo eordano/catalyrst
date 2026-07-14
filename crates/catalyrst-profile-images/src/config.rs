@@ -77,6 +77,11 @@ impl Config {
             .filter(|s| !s.is_empty())
             .map(|s| s.trim_end_matches('/').to_string());
 
+        // Auto-selection invariant when PROFILE_IMAGES_BACKEND is unset, in
+        // precedence order: PROFILE_IMAGES_CONTENT_URL set => godot render;
+        // otherwise PROFILE_IMAGES_ORIGIN_URL set => proxy-to-origin (origin
+        // set => the proxy backend wins over the godot renderer unless a
+        // content URL explicitly enables render); neither => disabled.
         let backend_kind = match env::var("PROFILE_IMAGES_BACKEND").ok().as_deref() {
             Some("render") => BackendKind::Render,
             Some("proxy") => BackendKind::Proxy,

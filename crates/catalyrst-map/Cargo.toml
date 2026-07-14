@@ -1,6 +1,6 @@
 [package]
 name = "catalyrst-map"
-version = "0.9.10"
+version = "0.14.4"
 edition = "2021"
 description = "Rust port of decentraland/atlas-server (api.decentraland.org map tiles + map.png renderer), sourced from the shared marketplace_squid DB"
 
@@ -9,6 +9,7 @@ name = "catalyrst-map"
 path = "src/main.rs"
 
 [dependencies]
+catalyrst-db = { workspace = true }
 tokio = { workspace = true }
 axum = { workspace = true }
 tower-http = { workspace = true }

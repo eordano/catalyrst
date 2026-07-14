@@ -318,12 +318,33 @@ pub async fn regenerate_main_crdt(root: &Path, ignore_composite: bool) -> Result
     if ignore_composite {
         return Ok(None);
     }
-    if crate::entrypoint::find_composites(root).is_empty() {
-        return Ok(None);
+    match crate::crdt_gen::generate(root) {
+        Ok(None) => Ok(None),
+        Ok(Some(generated)) => {
+            tokio::fs::write(root.join("main.crdt"), &generated.bytes)
+                .await
+                .context("writing main.crdt")?;
+            tracing::info!(
+                "main.crdt regenerated natively from {} composite(s)",
+                generated.composites
+            );
+            Ok(Some(generated.composites))
+        }
+        Err(crate::crdt_gen::GenError::Unsupported(why)) => {
+            tracing::info!(
+                "native main.crdt generation does not cover this scene ({why}); using the node data-layer"
+            );
+            let n = dump_crdt(root).await?;
+            tracing::info!("main.crdt regenerated from {n} composite(s)");
+            Ok(Some(n))
+        }
+        Err(crate::crdt_gen::GenError::Invalid(why)) => Err(UserError::new(
+            "main.crdt regeneration failed \u{2014} keeping the existing main.crdt",
+            TrySteps::one("check the composite files named below"),
+        )
+        .why(why)
+        .into()),
     }
-    let n = dump_crdt(root).await?;
-    tracing::info!("main.crdt regenerated from {n} composite(s)");
-    Ok(Some(n))
 }
 
 #[cfg(test)]

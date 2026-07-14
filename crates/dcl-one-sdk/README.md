@@ -2,8 +2,10 @@
 
 Binary-compatible Rust replacement for `@dcl/sdk-commands`: bundle (rolldown,
 in-process), preview-serve, and deploy Decentraland SDK7 scenes. Parity target:
-the installed `@dcl/sdk-commands` 7.22.6 (what project-realm-template /
-editor-scene pin).
+`@dcl/sdk-commands` 7.24.5 (npm latest; the vendored node_modules and init
+scaffold pin the same line). Scenes still on 7.22.6 (project-realm-template /
+editor-scene) remain covered — every 7.22.6→7.24.5 behavior change ported here
+is backward-compatible with them.
 
 ## Commands
 
@@ -28,19 +30,47 @@ editor-scene pin).
   `[i/n] in <folder>:` header; `-w|--watch` runs one watch session per member.
 - `dcl-one-sdk start [--dir D] [-p|--port N] [--skip-build] [--skip-install] [-w|--no-watch] [--ci] [--ignoreComposite] [--offline-comms] [-m|--mobile] [--data-layer] [--no-asset-bundles] [--tunnel WSS_URL|help] [--tunnel-token TOKEN] [--tunnel-token-file PATH]` -
   accepts and ignores `--no-browser`, `--mini-comms`, `--skip-install` for
-  drop-in compat with the `umbrella-project-realm.service` /
-  `umbrella-editor-scene.service` invocations. Comms is ON by default;
+  drop-in compat with supervisor-managed preview service invocations that
+  pass the upstream flags (the deployment's project-realm / editor-scene
+  systemd units). Comms is ON by default;
   `--data-layer` enables the visual editor (Creator Hub section). An abgen
-  asset-bundle sidecar runs by default; the binary resolves in order from
-  `ABGEN_BIN`, the abgen embedded at compile time (`src/abgen_embed.rs`:
-  release builds set `ABGEN_EMBED_BIN` to an unpacked abgen release archive
-  — server binary with `template/` + `shader/` siblings, the exe-dir
-  fallback needs no env; it extracts under
-  `<temp>/dcl-abgen/bin/<content-tag>/` and is reused byte-verified across
-  runs; unset at compile time = empty embed, dev builds stay fast), the
-  scene's `@dcl/abgen` npm platform package, then PATH. A missing or
-  crashing abgen prints a one-line hint and preview starts immediately, and
-  `--no-asset-bundles` turns the sidecar off. Trap: the abgen RELEASE
+  asset-bundle sidecar runs by default on 5147 (abgen's canonical port;
+  taken = random fallback — either way the desktop deep link carries
+  `optimized-assets-url=<sidecar>` once `/readyz` passes). The binary
+  resolves in order from `ABGEN_BIN`, the abgen embedded at compile time
+  (`src/abgen_embed.rs`: release builds set `ABGEN_EMBED_BIN` to an
+  unpacked abgen release archive — server binary with `template/` +
+  `shader/` siblings, the exe-dir fallback needs no env; it extracts under
+  `<temp>/dcl-abgen/bin/<content-tag>/`, reused byte-verified across runs —
+  that path holds ONLY the extracted binary, never conversion output; unset
+  at compile time = empty embed, dev builds stay fast), the scene's
+  `@dcl/abgen` npm platform package, then PATH. Conversion output + JIT
+  cache live IN the scene: `.dcl-optimized-assets/{out,cache}`
+  (watcher-ignored — hot reload would loop on abgen's revalidation writes —
+  and never deployed). Every `ABGEN_*` var the SDK sets is env-wins (export
+  it to override): `ABGEN_CATALYST_URL=http://127.0.0.1:<port>/content`,
+  `ABGEN_UPSTREAM_AB_CDN` zone-aware (a `.zone` catalyst pairs with
+  `ab-cdn.decentraland.zone`, else `.org`; abgen derives the matching
+  asset-bundle-registry from that URL itself),
+  `ABGEN_INDEX_EAGER_BUILD=off`, `ABGEN_INDEX_BUILD_PLATFORMS=<host
+  platform>`, `ABGEN_WORLDS_CONTENT_URL=off` explicitly (abgen defaults it
+  ON when unset; nothing remote is locally convertible in preview), and
+  JIT/index/rayon concurrency = ceil(3/4·ncpu)
+  (`ABGEN_JIT_BUILD_CONCURRENCY`, `ABGEN_INDEX_BUILD_CONCURRENCY`,
+  `RAYON_NUM_THREADS`); `ABGEN_GPU_BACKEND` is deliberately NOT set
+  (abgen's auto is right) but exports still pass through. Preview
+  back-fill: content hashes the local scene does not own (wearable GLBs,
+  emotes, profile snapshots) and unmatched NON-parcel pointers resolve from
+  the upstream catalyst (default `https://interconnected.online`, override
+  `DCL_ONE_SDK_CATALYST`); parcel pointers never go upstream. Fetched
+  content is LRU-cached in `<scene>/.dcl-cache/contents` (recency = file
+  mtime, default 5000 entries, `DCL_ONE_SDK_CONTENT_CACHE_MAX` overrides, 0
+  disables), so the next session serves it offline. Sidecar `ABGEN_BUILD`
+  json lines are rewritten to
+  `abgen build: <file> (<platform>) <ms>, in <size>, out <size>` (the FAIL
+  variant goes to stderr); other sidecar output relays verbatim. A missing
+  or crashing abgen prints a one-line hint and preview starts immediately,
+  and `--no-asset-bundles` turns the sidecar off. Trap: the abgen RELEASE
   archives' `abgen` is the JIT server (`catalyrst-abgen` bin renamed by the
   abgen export assembler); the in-tree `--bin abgen` is the one-shot
   converter CLI and exits on boot if embedded. After bind
@@ -77,16 +107,27 @@ editor-scene pin).
     `worldConfiguration` scene demands an explicit server; a headless key
     demands an explicit target (key-signed deploys never pick a server
     implicitly); the browser flow walks the upstream mainnet catalyst
-    snapshot and uses the first `/about`-healthy one.
+    snapshot and uses the first `/about`-healthy one. Parcel deploys whose
+    resolved target host is off the upstream rotation print a network-scope
+    note ("updates that network only, not Genesis City on decentraland.org").
   - worlds: without `--multi-scene`, existing scenes on other parcels get a
     `Continue? (y/N)` prompt (`--yes` skips; non-TTY/`--ci` refuses); the
     armed removal signs the upstream `delete:/entities/<world>:<ts>:{}`
     payload (second browser signature or the same key) and sends
     `DELETE <tc>/entities/<world>` with `x-identity-*` headers before
-    uploading. `--multi-scene` is purely additive.
+    uploading; when the server lacks that upstream route (HTTP 404/405 -
+    today's catalyrst-worlds), the key-signed flow falls back to per-scene
+    signed-fetch deletes (`DELETE <tc>/world/<name>/scenes/<coord>`).
+    `--multi-scene` is purely additive.
   - `--timestamp`/`--entity-out` make entity construction reproducible for
     oracle A/B (browser flow re-mints at signing time unless `--timestamp`
     pins it).
+- `dcl-one-sdk unpublish --parcel X,Y [-t|--target CATALYST] [--target-content
+  URL] [--sign-key PATH]` - signed-fetch `DELETE <content>/scenes/{x},{y}`
+  against a dcl-one-style content core (key signing only, same
+  `--sign-key`/`DCL_PRIVATE_KEY` plumbing). Only scenes published to that
+  network are deletable; synced Genesis City entities 404, and a successful
+  unpublish reverts the parcel to the last synced Genesis City state there.
 - `dcl-one-sdk world settings get|set NAME [--target-content URL]` and
   `dcl-one-sdk world permissions list|grant|revoke NAME [PERMISSION ADDRESS] [--target-content URL]` -
   worlds-server management with the ADR signed-fetch auth chain
@@ -109,7 +150,7 @@ editor-scene pin).
 
 `@dcl/sdk-commands` bundles via the esbuild JS API + two JS plugins;
 dcl-one-sdk reproduces that pipeline with rolldown compiled into the binary
-(`src/rolldown_backend.rs`, crates pinned `=1.1.4` - their Rust API is
+(`src/rolldown_backend.rs`, crates pinned `=1.2.0` - their Rust API is
 internal surface, bump in lockstep), so no JS toolchain runs in the bundle
 path. The three virtual inputs upstream feeds esbuild through plugins are
 pre-generated as real files under `<project>/.dcl-one/`:
@@ -117,13 +158,22 @@ pre-generated as real files under `<project>/.dcl-one/`:
 - `.dcl-one/entrypoint.ts` - port of `getEntrypointCode()` (incl. the
   literal `false` statement upstream emits for non-editor scenes), the
   `~sdk/all-composites` / `~sdk/script-utils` imports rewritten to relative
-  paths; `is_editor_scene()` =
-  `fileExists(<root>/assets/scene/main.composite)` (project-validations.js:114)
-- `.dcl-one/all-composites.js` - `export const compositeFromLoader = {...}`,
-  every `*.composite` through the Rust port of upstream's
+  paths; `is_editor_scene()` parses `assets/scene/main.composite` and
+  requires an `asset-packs::` component other than the build-time-only
+  `asset-packs::Script` (7.24.5 `isEditorScene`, upstream #1381; malformed
+  or missing composite = not an editor scene)
+- `.dcl-one/all-composites.js` - `export const compositeFromLoader = {...}`;
+  since 7.24.5 only a ROOT-LEVEL `main.composite` is inlined (secondary
+  composites stay on disk and lazy-load at runtime through the sdk composite
+  provider via `~system/Runtime.readFile`; editor scenes keep their state in
+  `main.crdt`), each through the Rust port of upstream's
   `Composite.fromJson` -> `Composite.toJson` normalization
-  (`src/composite_norm.rs`; edge cases in
-  `docs/composite-tojson-edge-cases.json`); byte-identical to upstream
+  (`src/composite_norm.rs`, schema table `docs/composite-component-schemas.json`
+  regenerated from the released `@dcl/ecs` 7.24.5; edge cases in
+  `docs/composite-tojson-edge-cases.json`); byte-identical to upstream.
+  Composite files over 16 MiB are refused (upstream cap), and the scan also
+  yields `maxCompositeEntity` = max(`entityId & 0xffff`) across every
+  parseable composite
 - `.dcl-one/script-utils.js` - sdk-commands' `dist/logic/runtime-script.js`
   from the scene's node_modules, same CJS-strip transforms, incl.
   `prepareRuntimeCode`'s `@dcl/inspector/node_modules/@dcl/asset-packs` ->
@@ -134,11 +184,19 @@ pre-generated as real files under `<project>/.dcl-one/`:
 Options mirrored onto `rolldown::BundlerOptions`: cjs/browser/es2020,
 externals (`~system/*`, `@dcl/inspector*`; `*` globs compiled to anchored
 regexes), aliases (react, `@dcl/sdk`, `@dcl/ecs`, `@dcl/asset-packs` -
-upstream resolution order), define block (document/window/DEBUG/NODE_ENV),
-minify in production, `sourcemap: inline` dev / hidden prod with
-`sourceRoot: dcl:///` post-patched into the prod map (no direct 1.1.4
-option). `INVALID_ANNOTATION`/`IMPORT_IS_UNDEFINED` warnings are filtered
-caller-side (1.1.4 core ignores `ChecksOptions` for emission). Type checking
+upstream resolution order, which since 7.24.5 checks the scene's OWN
+`node_modules/@dcl/asset-packs` by direct path, never a walk-up resolve;
+`Project::node_module` has always behaved that way), define block
+(document/window/DEBUG/NODE_ENV), minify in production, `sourcemap: inline`
+dev / NONE in production (7.24.5 dropped prod maps; `*.map` also joined the
+`.dclignore` defaults). Upstream's `DCL_MAX_COMPOSITE_ENTITY` esbuild define
+is delivered differently in the split layout: the loader stub sets
+`globalThis.DCL_MAX_COMPOSITE_ENTITY` before the sdk chunk evals - the
+`typeof`-guarded reader in `@dcl/ecs` `createEntityContainer` sees the same
+value, and the cached sdk-runtime chunk bytes stay independent of composite
+content (watch rewrites the stub when the value changes).
+`INVALID_ANNOTATION`/`IMPORT_IS_UNDEFINED` warnings are filtered
+caller-side (rolldown core ignores `ChecksOptions` for emission). Type checking
 shells the scene's own `node_modules/typescript/lib/tsc.js --noEmit` under
 node (upstream's forked-tsc behavior).
 
@@ -310,18 +368,24 @@ set in glob-9 order, `hash_bytes_v1` CIDv1 hashing via catalyrst-hashing, v3
 entity JSON without `id` byte-identical to dcl-catalyst-client's
 (`src/jsjson.rs` reproduces JS `JSON.stringify` number/string formatting),
 EIP-191 simple 2-link auth chain, multipart POST `/entities`. Entity-id
-parity is pinned against the sdk-commands oracle. Planned: query the server
+parity is pinned against the sdk-commands oracle. World deploys with an
+explicit `--target-content` pre-check deployment permission for the signing
+address before anything is deleted or uploaded (7.24.5 semantics: owner,
+`unrestricted`, wallet with world-wide grant, else the per-parcel allowlist);
+denial is a hard error naming the denied parcels, while an unreachable
+permissions endpoint only warns and continues. Planned: query the server
 for existing hashes and upload only the delta.
 
 ## Split bundle layout
 
 Every build emits three files (the split layout is the only build mode):
 
-- `bin/index.js` - loader stub (`src/templates/split-loader.js`): reads both
-  chunks via `~system/Runtime.readFile`, evals them, wires a `require` shim
-  (`~system/*` passthrough, registry lookup, loud error otherwise), delegates
-  `onStart`/`onUpdate`; TextDecoder feature-detect with a chunked ASCII
-  fallback
+- `bin/index.js` - loader stub (`src/templates/split-loader.js`): sets
+  `globalThis.DCL_MAX_COMPOSITE_ENTITY` (upstream's esbuild define, see
+  Build parity), reads both chunks via `~system/Runtime.readFile`, evals
+  them, wires a `require` shim (`~system/*` passthrough, registry lookup,
+  loud error otherwise), delegates `onStart`/`onUpdate`; TextDecoder
+  feature-detect with a chunked ASCII fallback
 - `bin/sdk-runtime.js` - lazy+memoized registry of the SDK modules (24
   static keys + conditional `@dcl/asset-packs{,/dist/scene-entrypoint}` and
   `react/jsx-runtime`); byte-identical across scene-code edits (same

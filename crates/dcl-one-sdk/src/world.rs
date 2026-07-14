@@ -468,4 +468,38 @@ mod tests {
             "http://127.0.0.1:5142"
         );
     }
+
+    #[test]
+    fn signed_headers_are_accepted_by_the_shared_validator() {
+        use axum::http::{HeaderMap, HeaderName, HeaderValue};
+        use catalyrst_crypto::signed_fetch::{verify_signed_fetch, verify_signed_fetch_meta};
+
+        const FIVE_MINUTES: i64 = 5 * 60;
+        let signer = crate::random_test_wallet();
+        let expected = signer.address().to_lowercase();
+
+        for (method, path) in [
+            ("put", "/world/My-World.dcl.eth/settings"),
+            (
+                "put",
+                "/world/My-World.dcl.eth/permissions/deployment/0x1111111111111111111111111111111111111111",
+            ),
+            ("delete", "/scenes/52,-52"),
+        ] {
+            let mut headers = HeaderMap::new();
+            for (k, v) in signed_headers(&signer, method, path).unwrap() {
+                headers.insert(
+                    HeaderName::from_bytes(k.as_bytes()).unwrap(),
+                    HeaderValue::from_str(&v).unwrap(),
+                );
+            }
+            let recovered = verify_signed_fetch(&headers, method, path, FIVE_MINUTES)
+                .unwrap_or_else(|e| panic!("{method} {path} rejected: {e}"));
+            assert_eq!(recovered, expected);
+            let (meta_signer, metadata) =
+                verify_signed_fetch_meta(&headers, method, path, FIVE_MINUTES).unwrap();
+            assert_eq!(meta_signer, expected);
+            assert_eq!(metadata, json!({}));
+        }
+    }
 }

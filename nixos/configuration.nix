@@ -115,8 +115,8 @@ in
       type = lib.types.nullOr (lib.types.attrsOf lib.types.package);
       default = null;
       description = ''
-        Optional attrset of comms-related packages: { archipelago-workers, pulse, catalyrst }.
-        When enableComms = true, must provide archipelago-workers and pulse.
+        Optional attrset of comms-related packages: { catalyrst-archipelago, pulse }.
+        When enableComms = true, must provide catalyrst-archipelago and pulse.
         Typically set to inputs.catalyrst.packages.''${pkgs.system}.
       '';
     };
@@ -166,16 +166,32 @@ in
       '';
     };
 
+    ethRpcUrl = lib.mkOption {
+      type = lib.types.str;
+      example = "http://127.0.0.1:8545";
+      description = ''
+        HTTPS RPC endpoint used for EIP-1654 write validation. No default:
+        the previous one was Decentraland's production RPC gateway.
+      '';
+    };
+
+    commsGatekeeperUrl = lib.mkOption {
+      type = lib.types.str;
+      example = "http://127.0.0.1:5138";
+      description = ''
+        Comms gatekeeper base URL for catalyrst-archipelago. No default:
+        the previous one was the production gatekeeper.
+      '';
+    };
+
     syncSource = lib.mkOption {
       type = lib.types.listOf lib.types.str;
-      default = [
-        "https://peer.decentraland.org/content"
-        "https://peer-eu1.decentraland.org/content"
-        "https://peer.dclnodes.io/content"
-        "https://peer.uadevops.com/content"
-        "https://peer.melonwave.com/content"
-      ];
-      description = "Peer URLs catalyrst pulls deployments from. Joined with ',' into SYNC_SOURCE.";
+      default = [ ];
+      description = ''
+        Peer URLs catalyrst pulls deployments from, joined with ',' into
+        SYNC_SOURCE. Empty by default: this list used to name the public
+        Genesis City peers, so a stock deployment synced from production.
+      '';
     };
 
     cloudflareFronted = lib.mkOption {
@@ -193,8 +209,9 @@ in
       default = false;
       description = ''
         If true, run the comms stack alongside the content server:
-        archipelago-{core,ws-connector,stats}, NATS, LiveKit SFU, Pulse.
-        Requires commsPackages with archipelago-workers + pulse.
+        catalyrst-archipelago (clustering + ws-connector + stats in one Rust
+        binary on :5139), LiveKit SFU, Pulse.
+        Requires commsPackages with catalyrst-archipelago + pulse.
       '';
     };
   };
@@ -208,11 +225,11 @@ in
         }
         {
           assertion = !cfg.enableComms || (cfg.commsPackages != null
-            && cfg.commsPackages ? archipelago-workers
+            && cfg.commsPackages ? catalyrst-archipelago
             && cfg.commsPackages ? pulse);
           message = ''
             services.catalyrst.enableComms = true requires services.catalyrst.commsPackages
-            to provide both `archipelago-workers` and `pulse` packages.
+            to provide both `catalyrst-archipelago` and `pulse` packages.
           '';
         }
       ];
@@ -285,7 +302,7 @@ in
           locations."= /admin"   = { extraConfig = "return 404;"; };
           locations."= /debug"   = { extraConfig = "return 404;"; };
           locations."/ws" = lib.mkIf cfg.enableComms {
-            proxyPass = "http://127.0.0.1:5001";
+            proxyPass = "http://127.0.0.1:5139";
             proxyWebsockets = true;
             extraConfig = ''
               proxy_read_timeout 3600s;
@@ -313,6 +330,14 @@ in
             extraConfig = ''
               internal;
               alias ${cfg.contentStorageRoot}/contents/;
+              # X-Accel-Redirect drops the upstream response headers and nginx's static
+              # module would generate its default mtime-size ETag, breaking parity with
+              # the TS catalyst whose ETag is the quoted content CID. Disable the auto
+              # ETag and re-emit the app's headers (kept in $upstream_http_* across the
+              # internal redirect).
+              etag off;
+              add_header ETag $upstream_http_etag always;
+              add_header Access-Control-Expose-Headers $upstream_http_access_control_expose_headers always;
               add_header Cache-Control "public, max-age=31536000, immutable" always;
               add_header X-Content-Type-Options "nosniff" always;
               sendfile on;
@@ -458,7 +483,7 @@ in
           ENABLE_DEPLOYMENTS = lib.boolToString cfg.enableDeployments;
           THIRD_PARTY_ROOT_SOURCE = "squid";
           IGNORE_BLOCKCHAIN_ACCESS_CHECKS = "false";
-          ETH_RPC_URL = "https://rpc.decentraland.org/mainnet";
+          ETH_RPC_URL = cfg.ethRpcUrl;
           CONCURRENT_SYNC_DOWNLOADS = "1500";
           SYNC_SOURCE = lib.concatStringsSep "," cfg.syncSource;
         };
@@ -543,7 +568,7 @@ in
             ];
           }
         ] ++ lib.optionals cfg.enableComms [
-          { job_name = "archipelago"; static_configs = [{ targets = [ "127.0.0.1:5000" "127.0.0.1:5001" "127.0.0.1:5002" ]; }]; }
+          { job_name = "archipelago"; static_configs = [{ targets = [ "127.0.0.1:5139" ]; }]; }
           { job_name = "pulse"; static_configs = [{ targets = [ "127.0.0.1:5005" ]; }]; }
         ];
         rules = [ (builtins.toJSON {
@@ -756,22 +781,6 @@ in
         locations."/" = { extraConfig = "return 404;"; };
       };
 
-      systemd.services.nats = {
-        description = "NATS message bus (archipelago)";
-        wantedBy = [ "multi-user.target" ];
-        after = [ "network.target" ];
-        serviceConfig = noJitHardening // {
-          ExecStart = "${pkgs.nats-server}/bin/nats-server -a 127.0.0.1 -p 4222 -m 8222";
-          Restart = "always"; RestartSec = 5; DynamicUser = true;
-          MemoryMax = "512M";
-          TasksMax = 128;
-          SocketBindAllow = [ "tcp:5222" "tcp:5223" ];
-          SocketBindDeny = "any";
-          IPAddressAllow = [ "localhost" ];
-          IPAddressDeny = "any";
-        };
-      };
-
       systemd.services.livekit-rotate = {
         description = "Rotate LiveKit API key + secret";
         serviceConfig = {
@@ -834,11 +843,11 @@ in
             ${pkgs.util-linux}/bin/logger -t livekit-rotate "ROLLBACK: livekit failed to come up with new key"
             mv "$YAML.prev" "$YAML"
             mv "$ENV.prev"  "$ENV"
-            systemctl restart livekit.service archipelago-core.service
+            systemctl restart livekit.service catalyrst-archipelago.service
             exit 1
           fi
 
-          systemctl restart archipelago-core.service
+          systemctl restart catalyrst-archipelago.service
 
           mkdir -p "$(dirname "$METRIC")"
           printf '# HELP livekit_rotation_timestamp_seconds Unix time of last successful LiveKit key rotation\n# TYPE livekit_rotation_timestamp_seconds gauge\nlivekit_rotation_timestamp_seconds %d\n' "$(date +%s)" > "$METRIC"
@@ -872,77 +881,33 @@ in
         };
       };
 
-      systemd.services.archipelago-core = {
-        description = "archipelago core (island clustering, mints LiveKit tokens)";
+      # Rust catalyrst-archipelago: clustering + ws-connector + stats in one
+      # binary on :5139 (mirrors the reference deployment's unit). Stateless,
+      # in-memory, no NATS — the Node archipelago-workers trio (:5000-:5002)
+      # and its NATS bus are retired.
+      systemd.services.catalyrst-archipelago = {
+        description = "catalyrst-archipelago (clustering + ws-connector + stats, port 5139)";
         wantedBy = [ "multi-user.target" ];
-        after = [ "nats.service" "livekit.service" ]; wants = [ "nats.service" "livekit.service" ];
+        after = [ "livekit.service" ]; wants = [ "livekit.service" ];
         environment = {
-          HTTP_SERVER_PORT = "5000"; HTTP_SERVER_HOST = "127.0.0.1";
-          NATS_URL = "nats://127.0.0.1:5222";
-          ARCHIPELAGO_FLUSH_FREQUENCY = "2.0";
-          ARCHIPELAGO_JOIN_DISTANCE = "64";
-          ARCHIPELAGO_LEAVE_DISTANCE = "80";
-          CHECK_HEARTBEAT_INTERVAL = "60000";
-          LIVEKIT_HOST = "wss://livekit.${cfg.domain}";
-          LIVEKIT_ISLAND_SIZE = "50";
-          COMMS_GATEKEEPER_URL = "https://comms-gatekeeper.decentraland.org";
+          HTTP_SERVER_PORT = "5139"; HTTP_SERVER_HOST = "127.0.0.1";
+          LIVEKIT_WS_URL = "wss://livekit.${cfg.domain}";
+          COMMS_GATEKEEPER_URL = cfg.commsGatekeeperUrl;
+          RUST_LOG = "catalyrst_archipelago=info,tower_http=info";
         };
         serviceConfig = noPgSandbox // {
           LoadCredential = "livekit-env:/var/lib/secrets/livekit-api.env";
-          ExecStart = pkgs.writeShellScript "archipelago-core-launcher" ''
+          ExecStart = pkgs.writeShellScript "catalyrst-archipelago-launcher" ''
             set -a
             . "$CREDENTIALS_DIRECTORY/livekit-env"
             set +a
-            exec ${cfg.commsPackages.archipelago-workers}/bin/archipelago-core
+            exec ${cfg.commsPackages.catalyrst-archipelago}/bin/catalyrst-archipelago
           '';
           DynamicUser = true;
           Restart = "always"; RestartSec = 10;
           MemoryMax = "1G";
           TasksMax = 256;
-          SocketBindAllow = [ "tcp:5000" ];
-          SocketBindDeny = "any";
-          IPAddressAllow = [ "localhost" "104.16.0.0/13" "172.64.0.0/13" ];
-          IPAddressDeny = "any";
-        };
-      };
-      systemd.services.archipelago-ws-connector = {
-        description = "archipelago ws-connector (client comms WebSocket)";
-        wantedBy = [ "multi-user.target" ];
-        after = [ "nats.service" ]; wants = [ "nats.service" ];
-        environment = {
-          HTTP_SERVER_PORT = "5001"; HTTP_SERVER_HOST = "127.0.0.1";
-          NATS_URL = "nats://127.0.0.1:5222";
-          ETH_NETWORK = "mainnet";
-          COMMS_GATEKEEPER_URL = "https://comms-gatekeeper.decentraland.org";
-        };
-        serviceConfig = noPgSandbox // {
-          ExecStart = "${cfg.commsPackages.archipelago-workers}/bin/archipelago-ws-connector";
-          DynamicUser = true;
-          Restart = "always"; RestartSec = 10;
-          MemoryMax = "1G";
-          TasksMax = 256;
-          SocketBindAllow = [ "tcp:5001" ];
-          SocketBindDeny = "any";
-          IPAddressAllow = [ "localhost" "104.16.0.0/13" "172.64.0.0/13" ];
-          IPAddressDeny = "any";
-        };
-      };
-      systemd.services.archipelago-stats = {
-        description = "archipelago stats (monitoring REST)";
-        wantedBy = [ "multi-user.target" ];
-        after = [ "nats.service" ]; wants = [ "nats.service" ];
-        environment = {
-          HTTP_SERVER_PORT = "5002"; HTTP_SERVER_HOST = "127.0.0.1";
-          NATS_URL = "nats://127.0.0.1:5222";
-          CONTENT_URL = "${cfg.publicUrl}/content/";
-        };
-        serviceConfig = noPgSandbox // {
-          ExecStart = "${cfg.commsPackages.archipelago-workers}/bin/archipelago-stats";
-          DynamicUser = true;
-          Restart = "always"; RestartSec = 10;
-          MemoryMax = "1G";
-          TasksMax = 256;
-          SocketBindAllow = [ "tcp:5002" ];
+          SocketBindAllow = [ "tcp:5139" ];
           SocketBindDeny = "any";
           IPAddressAllow = [ "localhost" "104.16.0.0/13" "172.64.0.0/13" ];
           IPAddressDeny = "any";
@@ -956,6 +921,10 @@ in
         environment = {
           RUST_LOG = "info";
           PULSE_BIND = "0.0.0.0:7777";
+          # Must stay equal to the `pulse` scrape target below: pulse refuses to start if it
+          # cannot bind this, so a mismatch is a boot failure rather than a silent 0 for
+          # up{job="pulse"} poisoning the shared ServiceDown alert.
+          PULSE_METRICS_BIND = "127.0.0.1:5005";
         };
         serviceConfig = noPgSandbox // {
           ExecStart = "${cfg.commsPackages.pulse}/bin/catalyrst-pulse";
@@ -963,7 +932,7 @@ in
           MemoryHigh = "4G";
           MemoryMax = "6G";
           TasksMax = 512;
-          SocketBindAllow = [ "udp:7777" ];
+          SocketBindAllow = [ "udp:7777" "tcp:5005" ];
           SocketBindDeny = "any";
         };
       };

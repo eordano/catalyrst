@@ -22,6 +22,10 @@ const ENV_DOCS: &[(&str, &str)] = &[
         "feature-flags source for /dash/flags (default http://127.0.0.1:5137/explorer.json)",
     ),
     (
+        "TELEMETRY_BASE_PATH",
+        "URL prefix the dashboard is served under when nginx strips it (e.g. /telemetry; default empty = root)",
+    ),
+    (
         "RUST_LOG",
         "tracing filter (default catalyrst_telemetry=info,tower_http=info)",
     ),
@@ -44,7 +48,7 @@ async fn main() -> Result<()> {
 
     let app = Router::new()
         .route("/healthz", get(|| async { "ok" }))
-        .merge(api_router())
+        .merge(api_router(state.clone()))
         .layer(TraceLayer::new_for_http())
         .with_state(state);
 

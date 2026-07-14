@@ -9,6 +9,12 @@ var __dclOneSdkChunkPath = '__DCL_ONE_SDK_CHUNK__'
 var __dclOneSceneChunkPath = '__DCL_ONE_SCENE_CHUNK__'
 var __dclOneSceneModule = null
 
+// Upstream bakes DCL_MAX_COMPOSITE_ENTITY into its single bundle as an esbuild
+// define; the consumer (@dcl/ecs createEntityContainer) guards with a typeof
+// check, so a global set before the sdk chunk evals is equivalent — and keeps
+// the sdk-runtime chunk bytes independent of composite content (cache contract).
+globalThis.DCL_MAX_COMPOSITE_ENTITY = __DCL_ONE_MAX_COMPOSITE_ENTITY__
+
 // Chunks are esbuild --charset=ascii output (pure ASCII bytes), and TextDecoder is
 // not a sandbox contract on either runtime, so decode with chunked
 // String.fromCharCode and only opportunistically prefer TextDecoder when it exists.

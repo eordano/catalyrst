@@ -1,6 +1,5 @@
 use anyhow::Result;
 use axum::Router;
-use std::net::SocketAddr;
 use tower_http::trace::TraceLayer;
 
 use catalyrst_archipelago::{build_state, handlers, ws, Config};
@@ -14,7 +13,7 @@ const ENV_DOCS: &[(&str, &str)] = &[
     ),
     (
         "ARCHIPELAGO_REQUIRE_AUTH",
-        "1/true — require a signed challenge on websocket connect (overrides config file)",
+        "default 1 — a signed challenge is required; 0/false/no accepts unsigned POST /heartbeat presence writes for any address (development only, overrides config file)",
     ),
     (
         "LIVEKIT_API_KEY",
@@ -31,7 +30,7 @@ const ENV_DOCS: &[(&str, &str)] = &[
     ),
     (
         "DENY_LIST_URL",
-        "denylist JSON URL (default https://config.decentraland.org/denylist.json; empty disables)",
+        "denylist JSON URL (unset/empty disables the denylist; no default)",
     ),
     ("ARCHIPELAGO_NODE_ID", "gossip node id"),
     (
@@ -53,7 +52,7 @@ const ENV_DOCS: &[(&str, &str)] = &[
     ("POSTGRES_PORT", "content DB port (default 6432)"),
     (
         "CONTENT_BASE_URL",
-        "content server base URL (default https://peer.decentraland.org/content)",
+        "content server base URL (default http://127.0.0.1:5141)",
     ),
     ("COMMIT_HASH", "build commit reported by status endpoints"),
     (
@@ -66,13 +65,7 @@ const ENV_DOCS: &[(&str, &str)] = &[
 async fn main() -> Result<()> {
     catalyrst_envcfg::handle_standard_args("catalyrst-archipelago", ENV_DOCS);
 
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "catalyrst_archipelago=info,tower_http=info".into()),
-        )
-        .with_target(false)
-        .init();
+    catalyrst_envcfg::init_tracing("catalyrst_archipelago=info,tower_http=info");
 
     let cfg = Config::from_env()?;
     let state = build_state(&cfg).await?;
@@ -83,9 +76,5 @@ async fn main() -> Result<()> {
         .layer(TraceLayer::new_for_http())
         .with_state(state);
 
-    let addr: SocketAddr = format!("{}:{}", cfg.http_host, cfg.http_port).parse()?;
-    tracing::info!(%addr, "catalyrst-archipelago listening");
-    let listener = tokio::net::TcpListener::bind(addr).await?;
-    axum::serve(listener, app).await?;
-    Ok(())
+    catalyrst_envcfg::run_service("catalyrst-archipelago", cfg.http_host, cfg.http_port, app).await
 }

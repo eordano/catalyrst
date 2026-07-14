@@ -1,5 +1,8 @@
 use anyhow::{anyhow, Result};
-use catalyrst_envcfg::{env_bool, get_int, get_port, get_u64, required};
+use catalyrst_envcfg::{
+    env_bool, get_int, get_port, get_u64, local_endpoint, optional_endpoint, required,
+    required_endpoint,
+};
 use std::env;
 
 #[derive(Debug, Clone, Copy)]
@@ -8,10 +11,6 @@ pub struct NamespaceLimits {
     pub max_total_size_bytes: i64,
 }
 
-// The cache is capped by entry count, so worst-case memory is roughly
-// max_entries * max_value_bytes (defaults: 8000 * 32 KB ~= 250 MB). Because it is
-// per-instance, the TTL — not invalidation — bounds how long a stale read can
-// survive on a replica that did not handle the write.
 #[derive(Debug, Clone, Copy)]
 pub struct StorageCacheConfig {
     pub enabled: bool,
@@ -74,17 +73,10 @@ impl Config {
             encryption_key,
             authoritative_server_address,
             authorized_addresses,
-            eip1654_rpc_url: env::var("RPC_ENDPOINT_ETH")
-                .ok()
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty())
-                .or_else(|| Some("https://rpc.decentraland.org/mainnet".to_string())),
-            worlds_content_server_url: env::var("WORLDS_CONTENT_SERVER_URL")
-                .unwrap_or_else(|_| "https://worlds-content-server.decentraland.org".to_string()),
-            lambdas_url: env::var("LAMBDAS_URL")
-                .unwrap_or_else(|_| "https://peer.decentraland.org/lambdas".to_string()),
-            places_url: env::var("PLACES_URL")
-                .unwrap_or_else(|_| "https://places.decentraland.org".to_string()),
+            eip1654_rpc_url: optional_endpoint("RPC_ENDPOINT_ETH"),
+            worlds_content_server_url: local_endpoint("WORLDS_CONTENT_SERVER_URL", 5142),
+            lambdas_url: required_endpoint("LAMBDAS_URL")?,
+            places_url: local_endpoint("PLACES_URL", 5134),
             places_cache_ttl_seconds: get_u64("PLACES_CACHE_TTL_SECONDS", 300)?,
             world_permission_cache_ttl_seconds: get_u64("WORLD_PERMISSIONS_CACHE_TTL_SECONDS", 30)?,
             storage_cache: StorageCacheConfig {

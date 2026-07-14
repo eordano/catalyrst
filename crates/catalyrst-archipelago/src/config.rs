@@ -1,4 +1,5 @@
 use anyhow::{Context, Result};
+use catalyrst_envcfg::{local_endpoint, optional_endpoint};
 use serde::Deserialize;
 use std::env;
 use std::path::PathBuf;
@@ -52,9 +53,9 @@ impl Default for ServerConfig {
     }
 }
 
-#[derive(Clone, Debug, Default, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 pub struct AuthConfig {
-    #[serde(default)]
+    #[serde(default = "default_require_signed_challenge")]
     pub require_signed_challenge: bool,
     #[serde(default = "default_challenge_ttl_secs")]
     pub challenge_ttl_secs: u64,
@@ -64,13 +65,31 @@ pub struct AuthConfig {
     pub deny_list_url: Option<String>,
 }
 
-pub const DEFAULT_DENY_LIST_URL: &str = "https://config.decentraland.org/denylist.json";
+impl Default for AuthConfig {
+    fn default() -> Self {
+        Self {
+            require_signed_challenge: default_require_signed_challenge(),
+            challenge_ttl_secs: default_challenge_ttl_secs(),
+            signature_max_age_secs: default_signature_max_age_secs(),
+            deny_list_url: None,
+        }
+    }
+}
+
+fn default_require_signed_challenge() -> bool {
+    true
+}
 
 fn default_challenge_ttl_secs() -> u64 {
     120
 }
 fn default_signature_max_age_secs() -> u64 {
     300
+}
+
+fn is_explicit_opt_out(value: &str) -> bool {
+    let v = value.trim();
+    v == "0" || v.eq_ignore_ascii_case("false") || v.eq_ignore_ascii_case("no")
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
@@ -159,7 +178,12 @@ impl Config {
         };
 
         if let Ok(v) = env::var("ARCHIPELAGO_REQUIRE_AUTH") {
-            auth.require_signed_challenge = v == "1" || v.eq_ignore_ascii_case("true");
+            auth.require_signed_challenge = !is_explicit_opt_out(&v);
+        }
+        if !auth.require_signed_challenge {
+            tracing::warn!(
+                "signed-challenge auth is DISABLED: POST /heartbeat accepts unsigned presence and position writes for any wallet address. Development only — unset ARCHIPELAGO_REQUIRE_AUTH (or set it to 1) to restore the secure default."
+            );
         }
         if livekit.api_key.is_none() {
             if let Ok(v) = env::var("LIVEKIT_API_KEY") {
@@ -188,11 +212,7 @@ impl Config {
             }
         }
         if auth.deny_list_url.is_none() {
-            match env::var("DENY_LIST_URL") {
-                Ok(v) if v.is_empty() => {}
-                Ok(v) => auth.deny_list_url = Some(v),
-                Err(_) => auth.deny_list_url = Some(DEFAULT_DENY_LIST_URL.to_string()),
-            }
+            auth.deny_list_url = optional_endpoint("DENY_LIST_URL");
         }
         if gossip.node_id.is_none() {
             if let Ok(v) = env::var("ARCHIPELAGO_NODE_ID") {
@@ -219,10 +239,7 @@ impl Config {
         }
 
         let content_database_url = content_connection_string();
-        let content_base_url = env::var("CONTENT_BASE_URL")
-            .ok()
-            .filter(|s| !s.is_empty())
-            .unwrap_or_else(|| "https://peer.decentraland.org/content".into());
+        let content_base_url = local_endpoint("CONTENT_BASE_URL", 5141);
         let commit_hash = env::var("COMMIT_HASH").unwrap_or_default();
 
         Ok(Self {
@@ -263,4 +280,37 @@ fn content_connection_string() -> Option<String> {
         esc(&password),
         esc(&db),
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_auth_requires_a_signed_challenge() {
+        assert!(AuthConfig::default().require_signed_challenge);
+    }
+
+    #[test]
+    fn config_file_without_the_key_still_requires_a_signed_challenge() {
+        let parsed: FileConfig = toml::from_str("[auth]\nchallenge_ttl_secs = 60\n").expect("toml");
+        assert!(parsed.auth.expect("auth section").require_signed_challenge);
+    }
+
+    #[test]
+    fn config_file_can_opt_out_explicitly() {
+        let parsed: FileConfig =
+            toml::from_str("[auth]\nrequire_signed_challenge = false\n").expect("toml");
+        assert!(!parsed.auth.expect("auth section").require_signed_challenge);
+    }
+
+    #[test]
+    fn only_explicit_falsey_values_opt_out() {
+        for v in ["0", "false", "FALSE", " no ", "No"] {
+            assert!(is_explicit_opt_out(v), "{v} must disable auth");
+        }
+        for v in ["1", "true", "", "yes", "off", "disabled", "0x0"] {
+            assert!(!is_explicit_opt_out(v), "{v} must not disable auth");
+        }
+    }
 }

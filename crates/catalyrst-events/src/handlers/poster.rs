@@ -87,6 +87,19 @@ async fn store_and_respond(
     })))
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/poster",
+    tag = "posters",
+    request_body(content = Vec<u8>, content_type = "multipart/form-data"),
+    responses(
+        (status = 200, body = serde_json::Value),
+        (status = 400, body = catalyrst_types::ApiErrorBody),
+        (status = 401, body = catalyrst_types::ApiErrorBody),
+        (status = 413, body = catalyrst_types::ApiErrorBody),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn upload_poster(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -104,6 +117,19 @@ pub async fn upload_poster(
     store_and_respond(&state, poster, "poster").await
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/poster-vertical",
+    tag = "posters",
+    request_body(content = Vec<u8>, content_type = "multipart/form-data"),
+    responses(
+        (status = 200, body = serde_json::Value),
+        (status = 400, body = catalyrst_types::ApiErrorBody),
+        (status = 401, body = catalyrst_types::ApiErrorBody),
+        (status = 413, body = catalyrst_types::ApiErrorBody),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn upload_poster_vertical(
     State(state): State<AppState>,
     headers: HeaderMap,
