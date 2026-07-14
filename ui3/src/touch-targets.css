@@ -1,0 +1,12 @@
+@media (max-width: 760px), (pointer: coarse) {
+  .pcard__jump, .ecard__jump,
+  .map__catchip,
+  .dn__unitbtn,
+  .pvw__mode, .er__mode,
+  .ccr__segbtn, .mf__segbtn,
+  .pw__item--sm,
+  .pd__buy, .pd__pview,
+  .mc__claim {
+    min-height: 36px;
+  }
+}

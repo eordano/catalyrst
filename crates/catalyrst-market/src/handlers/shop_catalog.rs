@@ -1,11 +1,13 @@
 use axum::extract::{Query, State};
+use axum::response::{IntoResponse, Response};
 use axum::Json;
 use serde::Serialize;
 
 use crate::http::params::Params;
 use crate::http::response::{ApiError, DataTotal};
 use crate::ports::shop_catalog::{
-    parse_legacy_filters, parse_shop_filters, ImportableListing, LegacyListing, ShopListing,
+    parse_legacy_filters, parse_shop_filters, parse_unified_filters, parse_unified_group_by,
+    ImportableListing, LegacyListing, ShopListing, UnifiedGroupBy,
 };
 use crate::AppState;
 
@@ -15,7 +17,6 @@ pub struct ImportableResponseBody {
     pub data: Vec<ImportableListing>,
 }
 
-// GET /v3/catalog/shop — curated feed of credit-buyable (USD-pegged) listings for the Shop.
 pub async fn get_shop_catalog(
     State(state): State<AppState>,
     Query(pairs): Query<Vec<(String, String)>>,
@@ -25,9 +26,6 @@ pub async fn get_shop_catalog(
     Ok(Json(DataTotal { data, total }))
 }
 
-// GET /v3/catalog/legacy — paginated feed of classic MANA-priced PRIMARY listings (the "old
-// liquidity") so the Shop can offer them for purchase with credits. Returns the raw MANA price
-// (manaWei); the client converts to credits via the oracle.
 pub async fn get_legacy_catalog(
     State(state): State<AppState>,
     Query(pairs): Query<Vec<(String, String)>>,
@@ -37,8 +35,27 @@ pub async fn get_legacy_catalog(
     Ok(Json(DataTotal { data, total }))
 }
 
-// GET /v3/catalog/importable?seller=0x... — a seller's OLD classic (MANA-priced) listings they
-// can import into the Shop. Public read (open orders are already public).
+pub async fn get_unified_catalog(
+    State(state): State<AppState>,
+    Query(pairs): Query<Vec<(String, String)>>,
+) -> Result<Response, ApiError> {
+    let filters = parse_unified_filters(&pairs);
+    let rate = state.mana_usd_rate.get_rate();
+    match parse_unified_group_by(&pairs) {
+        UnifiedGroupBy::Item => {
+            let (data, total) = state.shop_catalog.get_shop_items(&filters, rate).await?;
+            Ok(Json(DataTotal { data, total }).into_response())
+        }
+        UnifiedGroupBy::Listing => {
+            let (data, total) = state
+                .shop_catalog
+                .get_unified_listings(&filters, rate)
+                .await?;
+            Ok(Json(DataTotal { data, total }).into_response())
+        }
+    }
+}
+
 pub async fn get_importable_listings(
     State(state): State<AppState>,
     Query(pairs): Query<Vec<(String, String)>>,

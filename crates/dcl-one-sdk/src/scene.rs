@@ -155,7 +155,21 @@ impl Project {
     }
 
     pub fn is_editor_scene(&self) -> bool {
-        self.root.join("assets/scene/main.composite").exists()
+        let Ok(raw) = std::fs::read(self.root.join("assets/scene/main.composite")) else {
+            return false;
+        };
+        let Ok(json) = serde_json::from_slice::<Value>(&raw) else {
+            return false;
+        };
+        json.get("components")
+            .and_then(|c| c.as_array())
+            .is_some_and(|comps| {
+                comps.iter().any(|c| {
+                    c.get("name").and_then(|n| n.as_str()).is_some_and(|n| {
+                        n.starts_with("asset-packs::") && n != "asset-packs::Script"
+                    })
+                })
+            })
     }
 
     pub fn tsconfig(&self) -> Result<PathBuf> {
@@ -183,7 +197,7 @@ pub fn min_cli_warning(root: &Path) -> Option<String> {
     let tracked = parse_semver(TRACKED_MIN_CLI)?;
     if min > tracked {
         Some(format!(
-            "this project asks for CLI version >= {declared}, newer than the {TRACKED_MIN_CLI} level dcl-one-sdk tracks (@dcl/sdk-commands 7.22.6) \u{2014} if a command misbehaves, cross-check with npx @dcl/sdk-commands"
+            "this project asks for CLI version >= {declared}, newer than the {TRACKED_MIN_CLI} level dcl-one-sdk tracks (@dcl/sdk-commands 7.24.5) \u{2014} if a command misbehaves, cross-check with npx @dcl/sdk-commands"
         ))
     } else {
         None
@@ -280,6 +294,28 @@ mod tests {
     fn no_package_json_is_silent() {
         let t = Tmp::new("none");
         assert_eq!(min_cli_warning(&t.0), None);
+    }
+
+    #[test]
+    fn editor_scene_requires_a_runtime_asset_packs_component() {
+        let t = Tmp::new("editorscene");
+        let project = |root: &Path| Project {
+            root: root.to_path_buf(),
+            scene_json: serde_json::json!({}),
+        };
+        assert!(!project(&t.0).is_editor_scene());
+        t.write("assets/scene/main.composite", "not json");
+        assert!(!project(&t.0).is_editor_scene());
+        t.write(
+            "assets/scene/main.composite",
+            r#"{"version":1,"components":[{"name":"asset-packs::Script","data":{}},{"name":"core::Transform","data":{}}]}"#,
+        );
+        assert!(!project(&t.0).is_editor_scene());
+        t.write(
+            "assets/scene/main.composite",
+            r#"{"version":1,"components":[{"name":"asset-packs::Actions","data":{}}]}"#,
+        );
+        assert!(project(&t.0).is_editor_scene());
     }
 
     #[test]

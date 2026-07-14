@@ -14,7 +14,6 @@ struct ContractAddrs {
     catalyst: &'static str,
     name_denylist: &'static str,
     poi: &'static str,
-    tpr_subgraph: &'static str,
 }
 
 fn contracts_for(network: &str) -> ContractAddrs {
@@ -23,14 +22,12 @@ fn contracts_for(network: &str) -> ContractAddrs {
             catalyst: "0x9b5091588a4bae0a5ea54a35af3c31f57a68ed37",
             name_denylist: "0x6082b0b10b0fe9040652e35acbf3a22fe6764f27",
             poi: "0x7a0fad6854de8df1245da952cd3ae7f6893154c1",
-            tpr_subgraph: "https://subgraph.decentraland.org/tpr-matic-amoy",
         },
 
         _ => ContractAddrs {
             catalyst: "0x4a2f10076101650f40342885b99b6b101d83c486",
             name_denylist: "0x0c4c90a4f29872a2e9ef4c4be3d419792bca9a36",
             poi: "0xFEC09d5C192aaf7Ec7E2C89Cc8D3224138391B2E",
-            tpr_subgraph: "https://subgraph.decentraland.org/tpr-matic-mainnet",
         },
     }
 }
@@ -41,14 +38,27 @@ const SEL_CATALYST_BY_ID: &str = "c9038ce9";
 const SEL_SIZE: &str = "949d225d";
 const SEL_GET: &str = "9507d39a";
 
-fn eth_rpc_url() -> String {
-    std::env::var("RPC_ENDPOINT_ETH")
-        .unwrap_or_else(|_| "https://rpc.decentraland.org/mainnet".to_string())
+/// No fallback: each of these once defaulted to a production Decentraland
+/// endpoint, so an unconfigured node silently queried production.
+fn endpoint_env(key: &str) -> Result<String, String> {
+    std::env::var(key)
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| {
+            format!(
+                "{key} is unset — there is deliberately no default: the historical \
+                 default was a production Decentraland endpoint. Set it for this deployment."
+            )
+        })
 }
 
-fn polygon_rpc_url() -> String {
-    std::env::var("RPC_ENDPOINT_POLYGON")
-        .unwrap_or_else(|_| "https://rpc.decentraland.org/polygon".to_string())
+fn eth_rpc_url() -> Result<String, String> {
+    endpoint_env("RPC_ENDPOINT_ETH")
+}
+
+fn polygon_rpc_url() -> Result<String, String> {
+    endpoint_env("RPC_ENDPOINT_POLYGON")
 }
 
 #[derive(Deserialize)]
@@ -319,7 +329,7 @@ fn be_word_to_usize(word: &[u8]) -> Result<usize, String> {
 
 async fn fetch_servers(client: &reqwest::Client, network: &str) -> Result<Vec<Value>, String> {
     let c = contracts_for(network);
-    let rpc = eth_rpc_url();
+    let rpc = eth_rpc_url()?;
 
     let count_hex = eth_call(client, &rpc, c.catalyst, SEL_CATALYST_COUNT).await?;
     let count = decode_uint_word(&count_hex)?;
@@ -392,7 +402,7 @@ async fn fetch_list(
 
 async fn fetch_pois(client: &reqwest::Client, network: &str) -> Result<Vec<String>, String> {
     let c = contracts_for(network);
-    fetch_list(client, &polygon_rpc_url(), c.poi).await
+    fetch_list(client, &polygon_rpc_url()?, c.poi).await
 }
 
 async fn fetch_denylisted_names(
@@ -400,17 +410,17 @@ async fn fetch_denylisted_names(
     network: &str,
 ) -> Result<Vec<String>, String> {
     let c = contracts_for(network);
-    fetch_list(client, &eth_rpc_url(), c.name_denylist).await
+    fetch_list(client, &eth_rpc_url()?, c.name_denylist).await
 }
 
 async fn fetch_third_party_integrations(
     client: &reqwest::Client,
-    network: &str,
+    _network: &str,
 ) -> Result<Vec<Value>, String> {
-    let c = contracts_for(network);
+    let tpr_subgraph = endpoint_env("THIRD_PARTY_REGISTRY_L2_SUBGRAPH_URL")?;
     let query = r#"{ thirdParties(where: {isApproved: true}, first: 1000) { id metadata { thirdParty { name description } } } }"#;
     let resp = client
-        .post(c.tpr_subgraph)
+        .post(&tpr_subgraph)
         .json(&json!({ "query": query }))
         .send()
         .await

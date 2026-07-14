@@ -1,0 +1,219 @@
+.eui-shortcuts {
+  font-size: 12.5px;
+}
+.eui-shortcuts-title {
+  font-weight: 600;
+  font-size: 14px;
+  margin-bottom: 10px;
+}
+.eui-shortcuts-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px 26px;
+}
+.eui-shortcuts-group {
+  margin-bottom: 10px;
+  break-inside: avoid;
+}
+.eui-shortcut-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 2px 0;
+}
+.eui-shortcut-label {
+  opacity: 0.85;
+}
+.eui-kbd {
+  font: 11px/1.7 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  padding: 0 6px;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.06);
+  white-space: nowrap;
+}
+.eui-shortcuts-foot {
+  margin-top: 4px;
+  opacity: 0.7;
+}
+
+.eui-debug {
+  position: absolute;
+  bottom: var(--eui-bottom-inset, 12px);
+  z-index: 2;
+  animation: eui-rise 0.24s cubic-bezier(0.2, 0.9, 0.3, 1) backwards;
+}
+.eui-dbg-grip {
+  position: absolute;
+  top: -4px;
+  left: 0;
+  right: 0;
+  height: 8px;
+  cursor: ns-resize;
+  z-index: 1;
+}
+.eui-dbg-grip:hover {
+  background: linear-gradient(to bottom, transparent, var(--primary-glow, rgba(120, 120, 255, 0.25)), transparent);
+}
+.eui-dbg-body {
+  display: flex;
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
+}
+.eui-dbg-entities {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  padding: 8px 12px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+.eui-dbg-systems {
+  flex: none;
+  width: 250px;
+  overflow-y: auto;
+  padding: 8px 12px;
+  border-left: 1px solid var(--divider);
+  font-size: 11.5px;
+}
+.eui-dbg-summary {
+  color: var(--text-2);
+  font-size: 11px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--divider-soft);
+  margin-bottom: 6px;
+}
+.eui-dbg-error {
+  color: var(--error, #e5484d);
+  font-size: 12px;
+  padding: 8px 0;
+}
+.eui-dbg-entity {
+  padding: 4px 0 6px;
+  border-bottom: 1px solid var(--divider-soft);
+}
+.eui-dbg-entity-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 20px;
+}
+.eui-dbg-entity-head.selectable {
+  cursor: pointer;
+  border-radius: var(--r-control);
+}
+.eui-dbg-entity-head.selectable:hover {
+  background: var(--hover);
+}
+.eui-dbg-entity-name {
+  font-weight: 600;
+  color: var(--text);
+}
+.eui-dbg-entity-id {
+  color: var(--text-3);
+}
+.eui-dbg-badge {
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 1px 6px;
+  border-radius: var(--r-pill);
+}
+.eui-dbg-badge.new {
+  background: color-mix(in srgb, var(--success, #46a758) 25%, transparent);
+  color: var(--success, #46a758);
+}
+.eui-dbg-badge.gone {
+  background: color-mix(in srgb, var(--error, #e5484d) 22%, transparent);
+  color: var(--error, #e5484d);
+}
+.eui-dbg-unchanged {
+  margin-left: auto;
+  color: var(--text-3);
+  font-size: 10px;
+}
+.eui-dbg-comps {
+  padding-left: 10px;
+}
+.eui-dbg-comp-name {
+  color: var(--primary);
+  font-weight: 600;
+}
+.eui-dbg-comp-name em {
+  font-style: normal;
+  color: var(--text-3);
+  font-weight: 400;
+}
+.eui-dbg-comp.is-added .eui-dbg-comp-name {
+  color: var(--success, #46a758);
+}
+.eui-dbg-comp.is-removed .eui-dbg-comp-name {
+  color: var(--error, #e5484d);
+}
+.eui-dbg-change {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  padding-left: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.eui-dbg-change .path {
+  color: var(--text-2);
+}
+.eui-dbg-change .old {
+  color: var(--error, #e5484d);
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+}
+.eui-dbg-change .arrow {
+  color: var(--text-3);
+}
+.eui-dbg-change .new {
+  color: var(--success, #46a758);
+}
+.eui-dbg-sys {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 0;
+}
+.eui-dbg-sys .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--fill-4);
+  flex: none;
+}
+.eui-dbg-sys.ran .dot {
+  background: var(--success, #46a758);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--success, #46a758) 60%, transparent);
+}
+.eui-dbg-sys .name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.eui-dbg-sys .runs {
+  color: var(--text-3);
+  font-size: 10px;
+}
+.eui-dbg-sys-game {
+  font-weight: 600;
+  padding-bottom: 4px;
+}
+.eui-dbg-sys-game .dim {
+  color: var(--text-3);
+  font-weight: 400;
+}
+.eui-dbg-note {
+  color: var(--text-3);
+  font-size: 11px;
+  padding-top: 6px;
+}

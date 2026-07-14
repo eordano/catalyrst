@@ -110,13 +110,13 @@ pub async fn create_intent(
         .await?
         .ok_or_else(|| ApiError::not_found("pack not found or inactive"))?;
 
-    let idempotency_key = intent_idempotency_key(&signer, &pack, auth_ts);
+    let idempotency_key = intent_idempotency_key(signer.as_str(), &pack, auth_ts);
 
     let pi = stripe
         .create_payment_intent(
             pack.price_cents,
             &pack.currency,
-            &signer,
+            signer.as_str(),
             &pack.sku,
             &pack.credits,
             &idempotency_key,
@@ -125,7 +125,7 @@ pub async fn create_intent(
 
     state
         .credits
-        .insert_pending_purchase(&signer, &pack, &pi.id)
+        .insert_pending_purchase(signer.as_str(), &pack, &pi.id)
         .await?;
 
     Ok(Json(PackIntentOut {
@@ -177,7 +177,7 @@ pub async fn mock_purchase(
     let outcome = state
         .credits
         .admin_grant_credits(
-            &signer,
+            signer.as_str(),
             &pack.credits,
             "purchase",
             Some("mock card purchase (no real charge)"),
@@ -257,7 +257,7 @@ pub async fn mock_topup(
     let outcome = state
         .credits
         .admin_grant_credits(
-            &signer,
+            signer.as_str(),
             &credits,
             "purchase",
             Some("mock card top-up (no real charge)"),

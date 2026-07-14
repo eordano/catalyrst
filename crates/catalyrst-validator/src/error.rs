@@ -3,7 +3,14 @@ use std::fmt;
 #[derive(Debug, Clone)]
 pub enum ValidationResponse {
     Ok,
-    Failed { errors: Vec<String> },
+    Failed {
+        errors: Vec<String>,
+    },
+    /// The verdict is unknown because this node's own state could not be read; callers must answer
+    /// with a retryable server error, never a rejection, so node damage is never blamed on the caller.
+    Unavailable {
+        errors: Vec<String>,
+    },
 }
 
 impl ValidationResponse {
@@ -11,6 +18,10 @@ impl ValidationResponse {
 
     pub fn is_ok(&self) -> bool {
         matches!(self, ValidationResponse::Ok)
+    }
+
+    pub fn is_unavailable(&self) -> bool {
+        matches!(self, ValidationResponse::Unavailable { .. })
     }
 
     pub fn failed(errors: impl IntoIterator<Item = String>) -> Self {
@@ -21,6 +32,12 @@ impl ValidationResponse {
 
     pub fn fail(msg: impl Into<String>) -> Self {
         ValidationResponse::Failed {
+            errors: vec![msg.into()],
+        }
+    }
+
+    pub fn unavailable(msg: impl Into<String>) -> Self {
+        ValidationResponse::Unavailable {
             errors: vec![msg.into()],
         }
     }
@@ -37,6 +54,7 @@ impl ValidationResponse {
         match self {
             ValidationResponse::Ok => None,
             ValidationResponse::Failed { errors } => Some(errors),
+            ValidationResponse::Unavailable { errors } => Some(errors),
         }
     }
 }
@@ -47,6 +65,13 @@ impl fmt::Display for ValidationResponse {
             ValidationResponse::Ok => write!(f, "ok"),
             ValidationResponse::Failed { errors } => {
                 write!(f, "validation failed: {}", errors.join("; "))
+            }
+            ValidationResponse::Unavailable { errors } => {
+                write!(
+                    f,
+                    "validation could not be completed: {}",
+                    errors.join("; ")
+                )
             }
         }
     }
@@ -124,13 +149,6 @@ impl PermissionResult {
             } else {
                 Some(failing)
             },
-        }
-    }
-
-    pub fn denied_empty() -> Self {
-        PermissionResult {
-            result: false,
-            failing: None,
         }
     }
 }

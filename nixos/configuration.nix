@@ -68,6 +68,252 @@ let
   };
 
   commsEnabled = cfg.enableComms && cfg.commsPackages != null;
+
+  subOpt = default: lib.mkOption {
+    type = lib.types.bool;
+    inherit default;
+  };
+
+  anyAllPackageService = with cfg.subServices;
+    explore || create || social || data || socialRpc || explorerApi
+    || sceneState || telemetry || worldStorage || profileImages || signatures;
+
+  anySubService = anyAllPackageService || cfg.subServices.governance || cfg.subServices.presence;
+
+  connBundle = db: "postgresql:///${db}?host=/run/postgresql&user=catalyrst";
+  # systemd Environment= lines expand % specifiers, so URL-encoded values need
+  # %% here to reach the binary as a single %.
+  connBundleAuth = db: "postgres://catalyrst@%%2Frun%%2Fpostgresql/${db}";
+
+  bundleCommonEnv = {
+    RUST_LOG = "info";
+    HTTP_SERVER_HOST = "127.0.0.1";
+    COMMIT_HASH = cfg.commitHash;
+    ETH_NETWORK = "mainnet";
+    NETWORK_ID = "1";
+
+    CONTENT_PG_CONNECTION_STRING = connBundle "content";
+    DAPPS_PG_COMPONENT_PSQL_CONNECTION_STRING = connBundle "marketplace_squid";
+    DAPPS_PG_COMPONENT_PSQL_SCHEMA = "squid_marketplace";
+    DAPPS_READ_PG_COMPONENT_PSQL_CONNECTION_STRING = connBundle "marketplace_squid";
+    SQUID_PG_COMPONENT_PSQL_SCHEMA = "squid_marketplace";
+    PLACES_PG_COMPONENT_PSQL_CONNECTION_STRING = connBundle "places";
+    PLACES_EVENTS_PG_CONNECTION_STRING = connBundle "places_events";
+    WORLDS_PG_CONNECTION_STRING = connBundle "worlds";
+    WORLD_STORAGE_PG_CONNECTION_STRING = connBundle "worlds";
+    BUILDER_PG_CONNECTION_STRING = connBundle "builder";
+    CAMERA_REEL_PG_CONNECTION_STRING = connBundle "camera_reel";
+    AB_REGISTRY_PG_CONNECTION_STRING = connBundle "ab_registry";
+    COMMUNITIES_PG_CONNECTION_STRING = connBundle "communities";
+    MUTES_PG_CONNECTION_STRING = connBundle "communities";
+    COMMS_PG_CONNECTION_STRING = connBundle "comms";
+    NOTIFICATIONS_PG_CONNECTION_STRING = connBundle "notifications";
+    BADGES_PG_CONNECTION_STRING = connBundle "badges";
+    MEDIA_PG_CONNECTION_STRING = connBundle "media";
+    PRICE_PG_COMPONENT_PSQL_CONNECTION_STRING = connBundle "price";
+    CREDITS_PG_CONNECTION_STRING = connBundle "credits";
+    SIGNATURES_PG_CONNECTION_STRING = connBundle "signatures";
+
+    CONTENT_SERVER_ADDRESS = "${cfg.publicUrl}/content";
+    CONTENT_URL = "${cfg.publicUrl}/content/";
+    CONTENT_BASE_URL = "${cfg.publicUrl}/content";
+    CONTENT_PUBLIC_URL = "${cfg.publicUrl}/content";
+    LAMBDAS_PUBLIC_URL = "${cfg.publicUrl}/lambdas";
+    CATALYST_URL = "http://127.0.0.1:5141";
+    PLACES_API_URL = "http://127.0.0.1:5143";
+    COMMS_GATEKEEPER_URL = "http://127.0.0.1:5145";
+    PROFILE_IMAGES_URL = "https://profile-images.decentraland.org";
+    PROFILE_CDN_BASE_URL = "https://profile-images.decentraland.org";
+
+    LIVEKIT_HOST = "livekit.${cfg.domain}";
+    LIVEKIT_WS_URL = "wss://livekit.${cfg.domain}";
+
+    WORLDS_CONTENT_DIR = "/srv/catalyrst/worlds/contents";
+    CONTENT_STORAGE_DIR = "/srv/catalyrst/camera-reel";
+    COMMUNITIES_CONTENT_DIR = "/srv/catalyrst/communities/content";
+  };
+
+  bundleRwDirs = [ "/srv/catalyrst" "/run/postgresql" ];
+
+  mkBundle =
+    { description
+    , bin
+    , port
+    , extraEnv ? { }
+    , needsLivekit ? false
+    , afterExtra ? [ ]
+    }:
+    let
+      exe = "${cfg.bundlesPackage}/bin/${bin}";
+      livekitEnv = needsLivekit && commsEnabled;
+    in
+    {
+      inherit description;
+      after = [ "postgresql.service" "postgresql-bundles.service" "network-online.target" ]
+        ++ lib.optional livekitEnv "livekit.service"
+        ++ afterExtra;
+      wants = [ "network-online.target" "postgresql-bundles.service" ]
+        ++ lib.optional livekitEnv "livekit.service";
+      wantedBy = [ "multi-user.target" ];
+      environment = bundleCommonEnv // extraEnv;
+      serviceConfig = baseSandbox // {
+        ExecStart =
+          if livekitEnv then
+            pkgs.writeShellScript "${bin}-launcher" ''
+              set -a
+              . "$CREDENTIALS_DIRECTORY/livekit-env"
+              set +a
+              exec ${exe}
+            ''
+          else
+            exe;
+        Restart = "always";
+        RestartSec = 10;
+        LimitNOFILE = 1048576;
+        User = "catalyrst";
+        Group = "catalyrst";
+        ProtectHome = true;
+        ReadWritePaths = bundleRwDirs;
+        MemoryHigh = "1500M";
+        MemoryMax = "1500M";
+        TasksMax = 1024;
+        SocketBindAllow = [ "tcp:${toString port}" ];
+        SocketBindDeny = "any";
+      } // lib.optionalAttrs livekitEnv {
+        LoadCredential = "livekit-env:/var/lib/secrets/livekit-api.env";
+      };
+    };
+
+  bproxy = port: { proxyPass = "http://127.0.0.1:${toString port}"; };
+  exploreLoc = bproxy 5143;
+  createLoc = bproxy 5144;
+  socialLoc = bproxy 5145;
+  dataLoc = bproxy 5146;
+
+  bundleProxyLocations =
+    lib.optionalAttrs cfg.subServices.explore {
+      "/api/places" = exploreLoc;
+      "/api/destinations" = exploreLoc;
+      "/api/map" = exploreLoc;
+      "/api/report" = exploreLoc;
+      "/places" = exploreLoc;
+      "/world_names" = exploreLoc;
+      "/worlds" = exploreLoc;
+      "/categories" = exploreLoc;
+      "/pois" = exploreLoc;
+      "/api/events" = exploreLoc;
+      "/api/schedules" = exploreLoc;
+      "/api/poster" = exploreLoc;
+      "/api/poster-vertical" = exploreLoc;
+      "/api/profiles/settings" = exploreLoc;
+      "/events/" = exploreLoc;
+      "/v1/map.png" = exploreLoc;
+      "/v1/minimap.png" = exploreLoc;
+      "/v1/estatemap.png" = exploreLoc;
+      "/v1/tiles" = exploreLoc;
+      "/v2/" = exploreLoc;
+      "/world/" = exploreLoc;
+      "/wallet/" = exploreLoc;
+    }
+    // lib.optionalAttrs cfg.subServices.create {
+      "/v1/newsletter" = createLoc;
+      "/v1/collections/" = createLoc;
+      "/v1/storage/" = createLoc;
+      "/images" = createLoc;
+      "/users" = createLoc;
+      "/profiles" = createLoc;
+      "/registry" = createLoc;
+      "/denylist" = createLoc;
+      "/queues/" = createLoc;
+      "/flush-cache" = createLoc;
+      "~ ^/places/[^/]+/images" = createLoc;
+    }
+    // lib.optionalAttrs cfg.subServices.social {
+      "/v1/communities" = socialLoc;
+      "/v1/members" = socialLoc;
+      "/v1/community-voice-chats" = socialLoc;
+      "/v1/moderation/" = socialLoc;
+      "/federation/communities" = socialLoc;
+      "/social/communities" = socialLoc;
+      "/get-scene-adapter" = socialLoc;
+      "/get-server-scene-adapter" = socialLoc;
+      "/scene-participants" = socialLoc;
+      "/scene-bans/" = socialLoc;
+      "/private-messages/token" = socialLoc;
+      "/community-voice-chat" = socialLoc;
+      "/cast/" = socialLoc;
+      "= /bans" = socialLoc;
+      "= /livekit-webhook" = socialLoc;
+      "/notifications" = socialLoc;
+      "/subscription" = socialLoc;
+      "/set-email" = socialLoc;
+      "/confirm-email" = socialLoc;
+      "/badges/" = socialLoc;
+      "/translate" = socialLoc;
+    }
+    // lib.optionalAttrs cfg.subServices.data {
+      "/v1/catalog" = dataLoc;
+      "/v2/catalog" = dataLoc;
+      "/v1/items" = dataLoc;
+      "/v1/nfts" = dataLoc;
+      "/v1/orders" = dataLoc;
+      "/v1/bids" = dataLoc;
+      "/v1/sales" = dataLoc;
+      "/v1/trades" = dataLoc;
+      "/v1/accounts" = dataLoc;
+      "/v1/activity" = dataLoc;
+      "/v1/contracts" = dataLoc;
+      "/v1/owners" = dataLoc;
+      "/v1/prices" = dataLoc;
+      "/v1/trendings" = dataLoc;
+      "/v1/volume" = dataLoc;
+      "/v1/transactions" = dataLoc;
+      "/users/" = dataLoc;
+      "/seasons" = dataLoc;
+      "= /captcha" = dataLoc;
+      "/api/v3/simple/price" = dataLoc;
+      "~ ^/(mainnet|sepolia|polygon|amoy|ethereum)$" = dataLoc;
+    }
+    // lib.optionalAttrs cfg.subServices.socialRpc {
+      "/social-rpc" = {
+        proxyPass = "http://127.0.0.1:5148";
+        proxyWebsockets = true;
+        extraConfig = ''
+          rewrite ^/social-rpc/?(.*)$ /$1 break;
+          proxy_read_timeout 3600s;
+          limit_conn catws 8;
+        '';
+      };
+    }
+    // lib.optionalAttrs cfg.subServices.sceneState {
+      "/scene-state/admin" = { extraConfig = "return 404;"; };
+      "/scene-state" = {
+        proxyPass = "http://127.0.0.1:5209";
+        proxyWebsockets = true;
+        extraConfig = ''
+          rewrite ^/scene-state/?(.*)$ /$1 break;
+          proxy_read_timeout 3600s;
+          limit_conn catws 8;
+        '';
+      };
+    }
+    // lib.optionalAttrs cfg.subServices.worldStorage {
+      # x-original-path: the trailing-slash proxy_pass strips /world-storage/,
+      # so signed-fetch verification needs the path the caller actually signed.
+      "/world-storage/" = {
+        proxyPass = "http://127.0.0.1:5149/";
+        extraConfig = "proxy_set_header x-original-path $request_uri;";
+      };
+    }
+    // lib.optionalAttrs cfg.subServices.telemetry {
+      "/telemetry/" = { proxyPass = "http://127.0.0.1:5150/"; };
+    }
+    // lib.optionalAttrs cfg.subServices.governance {
+      "/governance-api/" = { proxyPass = "http://127.0.0.1:5151/"; };
+    }
+    // lib.optionalAttrs cfg.subServices.presence {
+      "/presence/" = { proxyPass = "http://127.0.0.1:5152/"; };
+    };
 in
 {
   options.services.catalyrst = {
@@ -115,8 +361,8 @@ in
       type = lib.types.nullOr (lib.types.attrsOf lib.types.package);
       default = null;
       description = ''
-        Optional attrset of comms-related packages: { archipelago-workers, pulse, catalyrst }.
-        When enableComms = true, must provide archipelago-workers and pulse.
+        Optional attrset of comms-related packages: { catalyrst-archipelago, pulse }.
+        When enableComms = true, must provide catalyrst-archipelago and pulse.
         Typically set to inputs.catalyrst.packages.''${pkgs.system}.
       '';
     };
@@ -166,16 +412,32 @@ in
       '';
     };
 
+    ethRpcUrl = lib.mkOption {
+      type = lib.types.str;
+      example = "http://127.0.0.1:8545";
+      description = ''
+        HTTPS RPC endpoint used for EIP-1654 write validation. No default:
+        the previous one was Decentraland's production RPC gateway.
+      '';
+    };
+
+    commsGatekeeperUrl = lib.mkOption {
+      type = lib.types.str;
+      example = "http://127.0.0.1:5138";
+      description = ''
+        Comms gatekeeper base URL for catalyrst-archipelago. No default:
+        the previous one was the production gatekeeper.
+      '';
+    };
+
     syncSource = lib.mkOption {
       type = lib.types.listOf lib.types.str;
-      default = [
-        "https://peer.decentraland.org/content"
-        "https://peer-eu1.decentraland.org/content"
-        "https://peer.dclnodes.io/content"
-        "https://peer.uadevops.com/content"
-        "https://peer.melonwave.com/content"
-      ];
-      description = "Peer URLs catalyrst pulls deployments from. Joined with ',' into SYNC_SOURCE.";
+      default = [ ];
+      description = ''
+        Peer URLs catalyrst pulls deployments from, joined with ',' into
+        SYNC_SOURCE. Empty by default: this list used to name the public
+        Genesis City peers, so a stock deployment synced from production.
+      '';
     };
 
     cloudflareFronted = lib.mkOption {
@@ -193,9 +455,75 @@ in
       default = false;
       description = ''
         If true, run the comms stack alongside the content server:
-        archipelago-{core,ws-connector,stats}, NATS, LiveKit SFU, Pulse.
-        Requires commsPackages with archipelago-workers + pulse.
+        catalyrst-archipelago (clustering + ws-connector + stats in one Rust
+        binary on :5139), LiveKit SFU, Pulse.
+        Requires commsPackages with catalyrst-archipelago + pulse.
       '';
+    };
+
+    bundlesPackage = lib.mkOption {
+      type = lib.types.nullOr lib.types.package;
+      default = null;
+      description = ''
+        The catalyrst-all multi-binary package: the explore/create/social/data
+        bundles plus catalyrst-social-rpc, catalyrst-explorer-api,
+        catalyrst-scene-state, catalyrst-telemetry, catalyrst-world-storage,
+        catalyrst-profile-images and catalyrst-signatures. Required when any
+        services.catalyrst.subServices flag except governance/presence is
+        enabled. Typically set to
+        inputs.catalyrst.packages.''${pkgs.system}.catalyrst-all.
+      '';
+    };
+
+    governancePackage = lib.mkOption {
+      type = lib.types.nullOr lib.types.package;
+      default = null;
+      description = ''
+        The catalyrst-governance package. Required when
+        services.catalyrst.subServices.governance is enabled. Typically set to
+        inputs.catalyrst.packages.''${pkgs.system}.catalyrst-governance.
+      '';
+    };
+
+    presencePackage = lib.mkOption {
+      type = lib.types.nullOr lib.types.package;
+      default = null;
+      description = ''
+        The catalyrst-presence package. Required when
+        services.catalyrst.subServices.presence is enabled. Typically set to
+        inputs.catalyrst.packages.''${pkgs.system}.catalyrst-presence.
+      '';
+    };
+
+    subServices = lib.mkOption {
+      description = ''
+        Which sibling services to run beside the content server. Together they
+        stand up the full realm service surface: places/events/worlds/map on
+        the explore bundle (:5143), builder/camera-reel/registry on create
+        (:5144), communities/comms/notifications/badges/media on social
+        (:5145), market/economy/price/credits on data (:5146), plus the
+        standalone singles (social-rpc :5148, explorer-api :5137, scene-state
+        :5209, telemetry :5150, world-storage :5149, governance :5151,
+        presence :5152, signatures :5159, profile-images :5161).
+      '';
+      default = { };
+      type = lib.types.submodule {
+        options = {
+          explore = subOpt true;
+          create = subOpt true;
+          social = subOpt true;
+          data = subOpt true;
+          socialRpc = subOpt true;
+          explorerApi = subOpt true;
+          sceneState = subOpt true;
+          telemetry = subOpt true;
+          worldStorage = subOpt true;
+          profileImages = subOpt true;
+          signatures = subOpt true;
+          governance = subOpt true;
+          presence = subOpt true;
+        };
+      };
     };
   };
 
@@ -208,11 +536,11 @@ in
         }
         {
           assertion = !cfg.enableComms || (cfg.commsPackages != null
-            && cfg.commsPackages ? archipelago-workers
+            && cfg.commsPackages ? catalyrst-archipelago
             && cfg.commsPackages ? pulse);
           message = ''
             services.catalyrst.enableComms = true requires services.catalyrst.commsPackages
-            to provide both `archipelago-workers` and `pulse` packages.
+            to provide both `catalyrst-archipelago` and `pulse` packages.
           '';
         }
       ];
@@ -285,7 +613,7 @@ in
           locations."= /admin"   = { extraConfig = "return 404;"; };
           locations."= /debug"   = { extraConfig = "return 404;"; };
           locations."/ws" = lib.mkIf cfg.enableComms {
-            proxyPass = "http://127.0.0.1:5001";
+            proxyPass = "http://127.0.0.1:5139";
             proxyWebsockets = true;
             extraConfig = ''
               proxy_read_timeout 3600s;
@@ -313,6 +641,14 @@ in
             extraConfig = ''
               internal;
               alias ${cfg.contentStorageRoot}/contents/;
+              # X-Accel-Redirect drops the upstream response headers and nginx's static
+              # module would generate its default mtime-size ETag, breaking parity with
+              # the TS catalyst whose ETag is the quoted content CID. Disable the auto
+              # ETag and re-emit the app's headers (kept in $upstream_http_* across the
+              # internal redirect).
+              etag off;
+              add_header ETag $upstream_http_etag always;
+              add_header Access-Control-Expose-Headers $upstream_http_access_control_expose_headers always;
               add_header Cache-Control "public, max-age=31536000, immutable" always;
               add_header X-Content-Type-Options "nosniff" always;
               sendfile on;
@@ -458,7 +794,7 @@ in
           ENABLE_DEPLOYMENTS = lib.boolToString cfg.enableDeployments;
           THIRD_PARTY_ROOT_SOURCE = "squid";
           IGNORE_BLOCKCHAIN_ACCESS_CHECKS = "false";
-          ETH_RPC_URL = "https://rpc.decentraland.org/mainnet";
+          ETH_RPC_URL = cfg.ethRpcUrl;
           CONCURRENT_SYNC_DOWNLOADS = "1500";
           SYNC_SOURCE = lib.concatStringsSep "," cfg.syncSource;
         };
@@ -543,7 +879,7 @@ in
             ];
           }
         ] ++ lib.optionals cfg.enableComms [
-          { job_name = "archipelago"; static_configs = [{ targets = [ "127.0.0.1:5000" "127.0.0.1:5001" "127.0.0.1:5002" ]; }]; }
+          { job_name = "archipelago"; static_configs = [{ targets = [ "127.0.0.1:5139" ]; }]; }
           { job_name = "pulse"; static_configs = [{ targets = [ "127.0.0.1:5005" ]; }]; }
         ];
         rules = [ (builtins.toJSON {
@@ -602,6 +938,432 @@ in
 
       environment.systemPackages = with pkgs; [ git tmux htop curl jq nodejs_24 postgresql_18 ];
     }
+
+    (lib.mkIf anySubService {
+      assertions = [
+        {
+          assertion = !anyAllPackageService || cfg.bundlesPackage != null;
+          message = ''
+            services.catalyrst.subServices requires services.catalyrst.bundlesPackage
+            (the catalyrst-all package), or disable every subServices flag that
+            it backs.
+          '';
+        }
+        {
+          assertion = !cfg.subServices.governance || cfg.governancePackage != null;
+          message = "services.catalyrst.subServices.governance requires services.catalyrst.governancePackage.";
+        }
+        {
+          assertion = !cfg.subServices.presence || cfg.presencePackage != null;
+          message = "services.catalyrst.subServices.presence requires services.catalyrst.presencePackage.";
+        }
+      ];
+
+      services.postgresql.ensureDatabases = [
+        "places"
+        "places_events"
+        "worlds"
+        "builder"
+        "camera_reel"
+        "ab_registry"
+        "communities"
+        "comms"
+        "notifications"
+        "badges"
+        "media"
+        "price"
+        "credits"
+        "signatures"
+        "governance"
+        "presence"
+        "catalyrst"
+      ];
+
+      services.nginx.virtualHosts.${cfg.domain}.locations = bundleProxyLocations;
+
+      environment.etc = lib.mkIf cfg.subServices.explorerApi {
+        "catalyrst/feature-flags.json".text = ''{"flags":{},"variants":{}}'';
+        "catalyrst/denylist.json".text = ''{"users":[],"names":[],"coordinates":[]}'';
+      };
+
+      systemd.tmpfiles.rules = [
+        "d /var/lib/secrets                   0700 root      root      -"
+        "d /srv/catalyrst/worlds              0755 catalyrst catalyrst -"
+        "d /srv/catalyrst/worlds/contents     0755 catalyrst catalyrst -"
+        "d /srv/catalyrst/camera-reel         0755 catalyrst catalyrst -"
+        "d /srv/catalyrst/communities         0755 catalyrst catalyrst -"
+        "d /srv/catalyrst/communities/content 0755 catalyrst catalyrst -"
+        "d /srv/catalyrst/profile-images      0755 catalyrst catalyrst -"
+      ];
+
+      systemd.services = {
+        postgresql-bundles = {
+          description = "DB ownership + grants for the catalyrst sub-services";
+          after = [ "postgresql.service" "postgresql-ownership.service" ];
+          wants = [ "postgresql.service" ];
+          wantedBy = [ "multi-user.target" ];
+          serviceConfig = { Type = "oneshot"; RemainAfterExit = true; User = "postgres"; };
+          script = ''
+            set -e
+            PSQL=${pkgs.postgresql_18}/bin/psql
+
+            for db in places places_events worlds builder camera_reel ab_registry \
+                      communities comms notifications badges media price credits \
+                      signatures governance presence catalyrst; do
+              $PSQL -d postgres -c "ALTER DATABASE $db OWNER TO catalyrst;"
+              $PSQL -d postgres -c "REVOKE CONNECT ON DATABASE $db FROM PUBLIC;"
+              $PSQL -d "$db" -c "REASSIGN OWNED BY postgres TO catalyrst;" || true
+              $PSQL -d "$db" -c "GRANT ALL ON SCHEMA public TO catalyrst;"
+            done
+
+            $PSQL -d catalyrst -c "CREATE SCHEMA IF NOT EXISTS telemetry AUTHORIZATION catalyrst;"
+
+            # market/economy views + favorites live as extra schemas inside the
+            # existing marketplace_squid DB, beside the squid indexer's
+            # squid_marketplace schema. catalyrst owns them; squid keeps its own.
+            $PSQL -d marketplace_squid -c "GRANT CREATE ON DATABASE marketplace_squid TO catalyrst;"
+            $PSQL -d marketplace_squid -c "CREATE SCHEMA IF NOT EXISTS marketplace AUTHORIZATION catalyrst;"
+            $PSQL -d marketplace_squid -c "CREATE SCHEMA IF NOT EXISTS favorites   AUTHORIZATION catalyrst;"
+            $PSQL -d marketplace_squid -c "GRANT ALL ON SCHEMA public TO catalyrst;"
+          '';
+        };
+      }
+      // lib.optionalAttrs cfg.subServices.explore {
+        catalyrst-explore = mkBundle {
+          description = "catalyrst explore bundle (places, events, archipelago, worlds, map, lists; port 5143)";
+          bin = "catalyrst-explore";
+          port = 5143;
+          needsLivekit = true;
+          extraEnv = { BUNDLE_HTTP_PORT = "5143"; };
+        };
+      }
+      // lib.optionalAttrs cfg.subServices.create {
+        catalyrst-create = mkBundle {
+          description = "catalyrst create bundle (builder, camera-reel, registry; port 5144)";
+          bin = "catalyrst-create";
+          port = 5144;
+          extraEnv = {
+            BUNDLE_HTTP_PORT = "5144";
+            API_URL = cfg.publicUrl;
+          };
+        };
+      }
+      // lib.optionalAttrs cfg.subServices.social {
+        catalyrst-social = mkBundle {
+          description = "catalyrst social bundle (communities, comms, notifications, badges, media; port 5145)";
+          bin = "catalyrst-social";
+          port = 5145;
+          needsLivekit = true;
+          extraEnv = { BUNDLE_HTTP_PORT = "5145"; };
+        };
+      }
+      // lib.optionalAttrs cfg.subServices.data {
+        catalyrst-data = mkBundle {
+          description = "catalyrst data bundle (market, economy, price, credits; port 5146)";
+          bin = "catalyrst-data";
+          port = 5146;
+          extraEnv = {
+            BUNDLE_HTTP_PORT = "5146";
+            DAPPS_PG_COMPONENT_PSQL_SCHEMA = "marketplace";
+            DAPPS_READ_PG_COMPONENT_PSQL_SCHEMA = "marketplace";
+            DAPPS_PG_COMPONENT_PSQL_CONNECTION_STRING = connBundleAuth "marketplace_squid";
+            DAPPS_READ_PG_COMPONENT_PSQL_CONNECTION_STRING = connBundleAuth "marketplace_squid";
+          };
+        };
+      }
+      // lib.optionalAttrs cfg.subServices.socialRpc {
+        catalyrst-social-rpc = mkBundle {
+          description = "catalyrst-social-rpc (dcl-rpc WebSocket: friends/presence/voice; port 5148)";
+          bin = "catalyrst-social-rpc";
+          port = 5148;
+          afterExtra = lib.optional cfg.subServices.social "catalyrst-social.service";
+          extraEnv = {
+            HTTP_SERVER_PORT = "5148";
+            DATABASE_URL = connBundle "communities";
+          };
+        };
+      }
+      // lib.optionalAttrs cfg.subServices.explorerApi {
+        catalyrst-explorer-api = {
+          description = "catalyrst-explorer-api (realm provider + auth + feature flags, port 5137)";
+          after = [ "network-online.target" ];
+          wants = [ "network-online.target" ];
+          wantedBy = [ "multi-user.target" ];
+          environment = {
+            RUST_LOG = "info";
+            HTTP_SERVER_HOST = "127.0.0.1";
+            HTTP_SERVER_PORT = "5137";
+            REALM_NAME = cfg.realmName;
+            ENV_NAME = "prd";
+            NETWORK_ID = "1";
+            CATALYST_URL = "http://127.0.0.1:5141";
+            LAMBDAS_URL = "${cfg.publicUrl}/lambdas";
+            PUBLIC_REALM_URL = cfg.publicUrl;
+            HOT_SCENES_URL = "http://127.0.0.1:5143/hot-scenes";
+            FEATURE_FLAGS_CONFIG_PATH = "/etc/catalyrst/feature-flags.json";
+            BLOCKLIST_PATH = "/etc/catalyrst/denylist.json";
+          };
+          serviceConfig = baseSandbox // {
+            ExecStart = "${cfg.bundlesPackage}/bin/catalyrst-explorer-api";
+            Restart = "always";
+            RestartSec = 10;
+            User = "catalyrst";
+            Group = "catalyrst";
+            ProtectHome = true;
+            MemoryHigh = "512M";
+            MemoryMax = "512M";
+            TasksMax = 256;
+            SocketBindAllow = [ "tcp:5137" ];
+            SocketBindDeny = "any";
+          };
+        };
+      }
+      // lib.optionalAttrs cfg.subServices.sceneState {
+        catalyrst-scene-state = {
+          description = "catalyrst-scene-state (authoritative SDK7 scene state, port 5209)";
+          after = [ "network-online.target" ];
+          wants = [ "network-online.target" ];
+          wantedBy = [ "multi-user.target" ];
+          environment = {
+            HTTP_SERVER_HOST = "127.0.0.1";
+            HTTP_SERVER_PORT = "5209";
+            REALM_NAME = cfg.realmName;
+            WORLD_SERVER_URL = cfg.publicUrl;
+            STORAGE_URL = cfg.publicUrl;
+            RUST_LOG = "catalyrst_scene_state=info";
+          };
+          serviceConfig = noJitHardening // {
+            ExecStart = "${cfg.bundlesPackage}/bin/catalyrst-scene-state";
+            Restart = "always";
+            RestartSec = 10;
+            DynamicUser = true;
+            MemoryHigh = "1536M";
+            MemoryMax = "2G";
+            TasksMax = 512;
+            SocketBindAllow = [ "tcp:5209" ];
+            SocketBindDeny = "any";
+          };
+        };
+      }
+      // lib.optionalAttrs cfg.subServices.telemetry {
+        catalyrst-telemetry = {
+          description = "catalyrst-telemetry (event sink + dashboard, port 5150)";
+          after = [ "postgresql.service" "postgresql-bundles.service" "network-online.target" ];
+          wants = [ "network-online.target" "postgresql-bundles.service" ];
+          wantedBy = [ "multi-user.target" ];
+          environment = {
+            RUST_LOG = "info";
+            HTTP_SERVER_HOST = "127.0.0.1";
+            HTTP_SERVER_PORT = "5150";
+            TELEMETRY_PG_CONNECTION_STRING = "postgresql:///catalyrst?host=/run/postgresql&user=catalyrst&options=-c%%20search_path%%3Dtelemetry";
+            TELEMETRY_BASE_PATH = "/telemetry";
+            FLAGS_URL = "http://127.0.0.1:5137/explorer.json";
+          };
+          serviceConfig = baseSandbox // {
+            ExecStart = "${cfg.bundlesPackage}/bin/catalyrst-telemetry";
+            Restart = "always";
+            RestartSec = 10;
+            User = "catalyrst";
+            Group = "catalyrst";
+            ProtectHome = true;
+            ReadWritePaths = [ "/run/postgresql" ];
+            MemoryHigh = "512M";
+            MemoryMax = "512M";
+            TasksMax = 256;
+            SocketBindAllow = [ "tcp:5150" ];
+            SocketBindDeny = "any";
+          };
+        };
+      }
+      // lib.optionalAttrs cfg.subServices.worldStorage {
+        catalyrst-world-storage = {
+          description = "catalyrst-world-storage (world env/player key-value store + ACLs, port 5149)";
+          after = [
+            "postgresql.service"
+            "postgresql-bundles.service"
+            "catalyrst-world-storage-secret.service"
+            "network-online.target"
+          ];
+          wants = [
+            "network-online.target"
+            "postgresql-bundles.service"
+            "catalyrst-world-storage-secret.service"
+          ];
+          wantedBy = [ "multi-user.target" ];
+          environment = {
+            RUST_LOG = "info";
+            HTTP_SERVER_HOST = "127.0.0.1";
+            HTTP_SERVER_PORT = "5149";
+            WORLD_STORAGE_PG_CONNECTION_STRING = connBundle "worlds";
+            LAMBDAS_URL = "http://127.0.0.1:5141/lambdas";
+            WORLDS_CONTENT_SERVER_URL = "http://127.0.0.1:5143";
+            PLACES_URL = "http://127.0.0.1:5143";
+            RPC_ENDPOINT_ETH = cfg.ethRpcUrl;
+            CORS_ALLOWED_ORIGIN_SUFFIXES = "decentraland.org,decentraland.zone,decentraland.today,${cfg.domain}";
+          };
+          serviceConfig = baseSandbox // {
+            LoadCredential = "world-storage-env:/var/lib/secrets/catalyrst-world-storage.env";
+            ExecStart = pkgs.writeShellScript "catalyrst-world-storage-launcher" ''
+              set -a
+              . "$CREDENTIALS_DIRECTORY/world-storage-env"
+              set +a
+              exec ${cfg.bundlesPackage}/bin/catalyrst-world-storage
+            '';
+            Restart = "always";
+            RestartSec = 10;
+            User = "catalyrst";
+            Group = "catalyrst";
+            ProtectHome = true;
+            ReadWritePaths = [ "/run/postgresql" ];
+            MemoryHigh = "512M";
+            MemoryMax = "512M";
+            TasksMax = 256;
+            SocketBindAllow = [ "tcp:5149" ];
+            SocketBindDeny = "any";
+          };
+        };
+        catalyrst-world-storage-secret = {
+          description = "Generate the catalyrst-world-storage ENCRYPTION_KEY";
+          wantedBy = [ "multi-user.target" ];
+          before = [ "catalyrst-world-storage.service" ];
+          serviceConfig = { Type = "oneshot"; RemainAfterExit = true; User = "root"; };
+          script = ''
+            set -euo pipefail
+            umask 077
+            mkdir -p /var/lib/secrets
+            ENV=/var/lib/secrets/catalyrst-world-storage.env
+            if [ ! -s "$ENV" ]; then
+              printf 'ENCRYPTION_KEY=%s\n' "$(${pkgs.openssl}/bin/openssl rand -hex 32)" > "$ENV"
+              chmod 600 "$ENV"
+            fi
+          '';
+        };
+      }
+      // lib.optionalAttrs cfg.subServices.profileImages {
+        catalyrst-profile-images = {
+          description = "catalyrst-profile-images (profile picture proxy + cache, port 5161)";
+          after = [ "network-online.target" ];
+          wants = [ "network-online.target" ];
+          wantedBy = [ "multi-user.target" ];
+          environment = {
+            RUST_LOG = "info";
+            HTTP_SERVER_HOST = "127.0.0.1";
+            HTTP_SERVER_PORT = "5161";
+            PROFILE_IMAGES_ORIGIN_URL = "https://profile-images.decentraland.org";
+            PROFILE_IMAGES_CACHE_DIR = "/srv/catalyrst/profile-images";
+          };
+          serviceConfig = baseSandbox // {
+            ExecStart = "${cfg.bundlesPackage}/bin/catalyrst-profile-images";
+            Restart = "always";
+            RestartSec = 10;
+            User = "catalyrst";
+            Group = "catalyrst";
+            ProtectHome = true;
+            ReadWritePaths = [ "/srv/catalyrst/profile-images" ];
+            MemoryHigh = "512M";
+            MemoryMax = "512M";
+            TasksMax = 256;
+            SocketBindAllow = [ "tcp:5161" ];
+            SocketBindDeny = "any";
+          };
+        };
+      }
+      // lib.optionalAttrs cfg.subServices.signatures {
+        catalyrst-signatures = {
+          description = "catalyrst-signatures (auth-chain signature index, port 5159)";
+          after = [ "postgresql.service" "postgresql-bundles.service" "network-online.target" ];
+          wants = [ "network-online.target" "postgresql-bundles.service" ];
+          wantedBy = [ "multi-user.target" ];
+          environment = {
+            RUST_LOG = "info";
+            HTTP_SERVER_HOST = "127.0.0.1";
+            HTTP_SERVER_PORT = "5159";
+            SIGNATURES_PG_CONNECTION_STRING = connBundle "signatures";
+            DAPPS_PG_COMPONENT_PSQL_CONNECTION_STRING = connBundle "marketplace_squid";
+            DAPPS_PG_COMPONENT_PSQL_SCHEMA = "squid_marketplace";
+            CHAIN_NAME = "ETHEREUM_MAINNET";
+          };
+          serviceConfig = baseSandbox // {
+            ExecStart = "${cfg.bundlesPackage}/bin/catalyrst-signatures";
+            Restart = "always";
+            RestartSec = 10;
+            User = "catalyrst";
+            Group = "catalyrst";
+            ProtectHome = true;
+            ReadWritePaths = [ "/run/postgresql" ];
+            MemoryHigh = "512M";
+            MemoryMax = "512M";
+            TasksMax = 256;
+            SocketBindAllow = [ "tcp:5159" ];
+            SocketBindDeny = "any";
+          };
+        };
+      }
+      // lib.optionalAttrs cfg.subServices.governance {
+        catalyrst-governance = {
+          description = "catalyrst-governance (governance mirror + read API, port 5151)";
+          after = [ "postgresql.service" "postgresql-bundles.service" "network-online.target" ];
+          wants = [ "network-online.target" "postgresql-bundles.service" ];
+          wantedBy = [ "multi-user.target" ];
+          environment = {
+            RUST_LOG = "info";
+            HTTP_SERVER_HOST = "127.0.0.1";
+            HTTP_SERVER_PORT = "5151";
+            GOVERNANCE_PG_COMPONENT_PSQL_CONNECTION_STRING = connBundle "governance";
+            GOVERNANCE_API_URL = "https://governance.decentraland.org/api";
+            # Standalone deployments have no local governance archive writers,
+            # so the crate's own upstream poller is the only ingestion path.
+            GOVERNANCE_POLL_ENABLED = "true";
+          };
+          serviceConfig = baseSandbox // {
+            ExecStart = "${cfg.governancePackage}/bin/catalyrst-governance";
+            Restart = "always";
+            RestartSec = 10;
+            User = "catalyrst";
+            Group = "catalyrst";
+            ProtectHome = true;
+            ReadWritePaths = [ "/run/postgresql" ];
+            MemoryHigh = "512M";
+            MemoryMax = "512M";
+            TasksMax = 256;
+            SocketBindAllow = [ "tcp:5151" ];
+            SocketBindDeny = "any";
+          };
+        };
+      }
+      // lib.optionalAttrs cfg.subServices.presence {
+        catalyrst-presence = {
+          description = "catalyrst-presence (user-count history, port 5152)";
+          after = [ "postgresql.service" "postgresql-bundles.service" "network-online.target" ]
+            ++ lib.optional commsEnabled "catalyrst-archipelago.service";
+          wants = [ "network-online.target" "postgresql-bundles.service" ];
+          wantedBy = [ "multi-user.target" ];
+          environment = {
+            RUST_LOG = "info";
+            HTTP_SERVER_HOST = "127.0.0.1";
+            HTTP_SERVER_PORT = "5152";
+            PRESENCE_PG_COMPONENT_PSQL_CONNECTION_STRING = connBundle "presence";
+            ARCHIPELAGO_URL = "http://127.0.0.1:5139";
+            COMMS_URL = "http://127.0.0.1:5145";
+            WORLDS_SERVER_URL = "http://127.0.0.1:5143";
+          };
+          serviceConfig = baseSandbox // {
+            ExecStart = "${cfg.presencePackage}/bin/catalyrst-presence";
+            Restart = "always";
+            RestartSec = 10;
+            User = "catalyrst";
+            Group = "catalyrst";
+            ProtectHome = true;
+            ReadWritePaths = [ "/run/postgresql" ];
+            MemoryHigh = "512M";
+            MemoryMax = "512M";
+            TasksMax = 256;
+            SocketBindAllow = [ "tcp:5152" ];
+            SocketBindDeny = "any";
+          };
+        };
+      };
+    })
 
     (lib.mkIf (cfg.acmeEmail != null) {
       security.acme = {
@@ -756,22 +1518,6 @@ in
         locations."/" = { extraConfig = "return 404;"; };
       };
 
-      systemd.services.nats = {
-        description = "NATS message bus (archipelago)";
-        wantedBy = [ "multi-user.target" ];
-        after = [ "network.target" ];
-        serviceConfig = noJitHardening // {
-          ExecStart = "${pkgs.nats-server}/bin/nats-server -a 127.0.0.1 -p 4222 -m 8222";
-          Restart = "always"; RestartSec = 5; DynamicUser = true;
-          MemoryMax = "512M";
-          TasksMax = 128;
-          SocketBindAllow = [ "tcp:5222" "tcp:5223" ];
-          SocketBindDeny = "any";
-          IPAddressAllow = [ "localhost" ];
-          IPAddressDeny = "any";
-        };
-      };
-
       systemd.services.livekit-rotate = {
         description = "Rotate LiveKit API key + secret";
         serviceConfig = {
@@ -834,11 +1580,11 @@ in
             ${pkgs.util-linux}/bin/logger -t livekit-rotate "ROLLBACK: livekit failed to come up with new key"
             mv "$YAML.prev" "$YAML"
             mv "$ENV.prev"  "$ENV"
-            systemctl restart livekit.service archipelago-core.service
+            systemctl restart livekit.service catalyrst-archipelago.service
             exit 1
           fi
 
-          systemctl restart archipelago-core.service
+          systemctl restart catalyrst-archipelago.service
 
           mkdir -p "$(dirname "$METRIC")"
           printf '# HELP livekit_rotation_timestamp_seconds Unix time of last successful LiveKit key rotation\n# TYPE livekit_rotation_timestamp_seconds gauge\nlivekit_rotation_timestamp_seconds %d\n' "$(date +%s)" > "$METRIC"
@@ -872,77 +1618,33 @@ in
         };
       };
 
-      systemd.services.archipelago-core = {
-        description = "archipelago core (island clustering, mints LiveKit tokens)";
+      # Rust catalyrst-archipelago: clustering + ws-connector + stats in one
+      # binary on :5139 (mirrors the reference deployment's unit). Stateless,
+      # in-memory, no NATS — the Node archipelago-workers trio (:5000-:5002)
+      # and its NATS bus are retired.
+      systemd.services.catalyrst-archipelago = {
+        description = "catalyrst-archipelago (clustering + ws-connector + stats, port 5139)";
         wantedBy = [ "multi-user.target" ];
-        after = [ "nats.service" "livekit.service" ]; wants = [ "nats.service" "livekit.service" ];
+        after = [ "livekit.service" ]; wants = [ "livekit.service" ];
         environment = {
-          HTTP_SERVER_PORT = "5000"; HTTP_SERVER_HOST = "127.0.0.1";
-          NATS_URL = "nats://127.0.0.1:5222";
-          ARCHIPELAGO_FLUSH_FREQUENCY = "2.0";
-          ARCHIPELAGO_JOIN_DISTANCE = "64";
-          ARCHIPELAGO_LEAVE_DISTANCE = "80";
-          CHECK_HEARTBEAT_INTERVAL = "60000";
-          LIVEKIT_HOST = "wss://livekit.${cfg.domain}";
-          LIVEKIT_ISLAND_SIZE = "50";
-          COMMS_GATEKEEPER_URL = "https://comms-gatekeeper.decentraland.org";
+          HTTP_SERVER_PORT = "5139"; HTTP_SERVER_HOST = "127.0.0.1";
+          LIVEKIT_WS_URL = "wss://livekit.${cfg.domain}";
+          COMMS_GATEKEEPER_URL = cfg.commsGatekeeperUrl;
+          RUST_LOG = "catalyrst_archipelago=info,tower_http=info";
         };
         serviceConfig = noPgSandbox // {
           LoadCredential = "livekit-env:/var/lib/secrets/livekit-api.env";
-          ExecStart = pkgs.writeShellScript "archipelago-core-launcher" ''
+          ExecStart = pkgs.writeShellScript "catalyrst-archipelago-launcher" ''
             set -a
             . "$CREDENTIALS_DIRECTORY/livekit-env"
             set +a
-            exec ${cfg.commsPackages.archipelago-workers}/bin/archipelago-core
+            exec ${cfg.commsPackages.catalyrst-archipelago}/bin/catalyrst-archipelago
           '';
           DynamicUser = true;
           Restart = "always"; RestartSec = 10;
           MemoryMax = "1G";
           TasksMax = 256;
-          SocketBindAllow = [ "tcp:5000" ];
-          SocketBindDeny = "any";
-          IPAddressAllow = [ "localhost" "104.16.0.0/13" "172.64.0.0/13" ];
-          IPAddressDeny = "any";
-        };
-      };
-      systemd.services.archipelago-ws-connector = {
-        description = "archipelago ws-connector (client comms WebSocket)";
-        wantedBy = [ "multi-user.target" ];
-        after = [ "nats.service" ]; wants = [ "nats.service" ];
-        environment = {
-          HTTP_SERVER_PORT = "5001"; HTTP_SERVER_HOST = "127.0.0.1";
-          NATS_URL = "nats://127.0.0.1:5222";
-          ETH_NETWORK = "mainnet";
-          COMMS_GATEKEEPER_URL = "https://comms-gatekeeper.decentraland.org";
-        };
-        serviceConfig = noPgSandbox // {
-          ExecStart = "${cfg.commsPackages.archipelago-workers}/bin/archipelago-ws-connector";
-          DynamicUser = true;
-          Restart = "always"; RestartSec = 10;
-          MemoryMax = "1G";
-          TasksMax = 256;
-          SocketBindAllow = [ "tcp:5001" ];
-          SocketBindDeny = "any";
-          IPAddressAllow = [ "localhost" "104.16.0.0/13" "172.64.0.0/13" ];
-          IPAddressDeny = "any";
-        };
-      };
-      systemd.services.archipelago-stats = {
-        description = "archipelago stats (monitoring REST)";
-        wantedBy = [ "multi-user.target" ];
-        after = [ "nats.service" ]; wants = [ "nats.service" ];
-        environment = {
-          HTTP_SERVER_PORT = "5002"; HTTP_SERVER_HOST = "127.0.0.1";
-          NATS_URL = "nats://127.0.0.1:5222";
-          CONTENT_URL = "${cfg.publicUrl}/content/";
-        };
-        serviceConfig = noPgSandbox // {
-          ExecStart = "${cfg.commsPackages.archipelago-workers}/bin/archipelago-stats";
-          DynamicUser = true;
-          Restart = "always"; RestartSec = 10;
-          MemoryMax = "1G";
-          TasksMax = 256;
-          SocketBindAllow = [ "tcp:5002" ];
+          SocketBindAllow = [ "tcp:5139" ];
           SocketBindDeny = "any";
           IPAddressAllow = [ "localhost" "104.16.0.0/13" "172.64.0.0/13" ];
           IPAddressDeny = "any";
@@ -956,6 +1658,10 @@ in
         environment = {
           RUST_LOG = "info";
           PULSE_BIND = "0.0.0.0:7777";
+          # Must stay equal to the `pulse` scrape target below: pulse refuses to start if it
+          # cannot bind this, so a mismatch is a boot failure rather than a silent 0 for
+          # up{job="pulse"} poisoning the shared ServiceDown alert.
+          PULSE_METRICS_BIND = "127.0.0.1:5005";
         };
         serviceConfig = noPgSandbox // {
           ExecStart = "${cfg.commsPackages.pulse}/bin/catalyrst-pulse";
@@ -963,7 +1669,7 @@ in
           MemoryHigh = "4G";
           MemoryMax = "6G";
           TasksMax = 512;
-          SocketBindAllow = [ "udp:7777" ];
+          SocketBindAllow = [ "udp:7777" "tcp:5005" ];
           SocketBindDeny = "any";
         };
       };

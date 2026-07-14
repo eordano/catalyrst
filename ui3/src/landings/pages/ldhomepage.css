@@ -1,0 +1,135 @@
+.landings-home {
+  background: #0d0118;
+}
+
+.landings-home__cta,
+.landings-home__rails,
+.landings-home__banner {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 40px 24px;
+  color: #fff;
+  scroll-margin-top: 80px;
+}
+
+.landings-home__kicker {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--brand, #ff2d55);
+  margin: 0 0 8px;
+}
+
+.landings-home__title {
+  font-size: 30px;
+  line-height: 1.1;
+  font-weight: 800;
+  margin: 0 0 8px;
+}
+
+.landings-home__sub {
+  font-size: 16px;
+  color: rgba(255, 255, 255, 0.7);
+  margin: 0 0 20px;
+}
+
+.landings-home__btns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.landings-home__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border-radius: 999px;
+  padding: 12px 22px;
+  font-size: 14px;
+  font-weight: 700;
+  text-decoration: none;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+}
+
+.landings-home__btn--primary {
+  background: var(--brand, #ff2d55);
+  border-color: var(--brand, #ff2d55);
+}
+
+.landings-home__btn--ghost {
+  background: transparent;
+  font-weight: 600;
+}
+
+.landings-home__downloads {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.6);
+  margin: 0;
+}
+
+.landings-home__rails {
+  display: grid;
+  gap: 28px;
+}
+
+.landings-home__rail {
+  scroll-margin-top: 80px;
+}
+
+.landings-home__railhead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.landings-home__railtitle {
+  font-size: 20px;
+  font-weight: 800;
+  margin: 0;
+}
+
+.landings-home__viewall {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--brand, #ff2d55);
+  text-decoration: none;
+}
+
+.landings-home__raillinks {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.landings-home__raillink {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: #fff;
+  text-decoration: none;
+  font-size: 14px;
+}
+
+.landings-home__railcat {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--brand, #ff2d55);
+}
+
+.landings-home__banner {
+  text-align: center;
+}
+
+.landings-home__banner .landings-home__btns {
+  justify-content: center;
+}

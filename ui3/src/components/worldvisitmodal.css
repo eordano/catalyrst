@@ -1,0 +1,31 @@
+.wvm__scrim {
+  position: fixed; inset: 0; z-index: var(--z-dialog); background: var(--modal-scrim);
+  display: flex; align-items: center; justify-content: center; padding: 24px;
+}
+.wvm {
+  position: relative; width: min(380px, 100%); background: var(--panel); border-radius: var(--r-panel, 18px);
+  color: var(--text, #fff); padding: 30px 26px 24px; text-align: center;
+  border: 1px solid var(--line, rgba(255, 255, 255, .08)); box-shadow: var(--shadow-modal, 0 30px 80px rgba(0, 0, 0, .5));
+}
+.wvm:focus, .wvm:focus-visible { outline: none; }
+
+.wvm__close {
+  position: absolute; top: 12px; right: 12px; width: 28px; height: 28px; border-radius: 50%;
+  background: none; border: none; cursor: pointer; font-size: 18px; line-height: 1;
+  color: var(--ink-6, rgba(255, 255, 255, .6));
+}
+.wvm__close:hover { background: var(--fill-2, rgba(255, 255, 255, .06)); color: var(--text, #fff); }
+
+.wvm__question { font-size: 14px; line-height: 1.5; color: var(--ink-7, rgba(255, 255, 255, .7)); margin: 4px 0 0; }
+.wvm__realm { margin-top: 14px; font-size: 20px; font-weight: 800; word-break: break-all; }
+.wvm__realmsub { margin-top: 4px; font-size: 13px; color: var(--ink-6, rgba(255, 255, 255, .6)); }
+
+.wvm__actions { display: flex; gap: 12px; margin-top: 24px; }
+.wvm__cancel, .wvm__go {
+  flex: 1; border: none; cursor: pointer; font-family: inherit; font-size: 13px; font-weight: 700;
+  letter-spacing: .02em; padding: 12px 0; border-radius: var(--r-pill, 999px);
+}
+.wvm__cancel { background: var(--fill-3, rgba(255, 255, 255, .08)); color: var(--text, #fff); }
+.wvm__cancel:hover { background: var(--fill-4, rgba(255, 255, 255, .1)); }
+.wvm__go { background: var(--brand); color: var(--on-brand, #fff); }
+.wvm__go:hover { background: var(--brand-hover); }

@@ -15,7 +15,7 @@ async fn main() -> Result<()> {
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| {
                 "catalyrst_create=info,catalyrst_builder=info,catalyrst_camera_reel=info,\
-                 catalyrst_registry=info,tower_http=info"
+                 tower_http=info"
                     .into()
             }),
         )
@@ -27,7 +27,6 @@ async fn main() -> Result<()> {
 
     app = mount(app, &mut members, "builder", build_builder().await);
     app = mount(app, &mut members, "camera-reel", build_camera_reel().await);
-    app = mount(app, &mut members, "ab-registry", build_ab_registry().await);
 
     let health_body = health_body(&members);
     let app = app
@@ -94,10 +93,4 @@ async fn build_camera_reel() -> Result<Router> {
     let cfg = catalyrst_camera_reel::config::Config::from_env()?;
     let state = catalyrst_camera_reel::build_state(cfg).await?;
     Ok(catalyrst_camera_reel::api_router().with_state(state))
-}
-
-async fn build_ab_registry() -> Result<Router> {
-    let cfg = catalyrst_registry::config::Config::from_env()?;
-    let state = catalyrst_registry::build_state(&cfg).await?;
-    Ok(catalyrst_registry::api_router().with_state(state))
 }

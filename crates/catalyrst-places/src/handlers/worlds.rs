@@ -6,6 +6,17 @@ use crate::http::response::{ApiData, ApiDataTotal};
 use crate::ports::places::{PlaceListFilters, PlaceOrderBy, PlaceRow};
 use crate::AppState;
 
+#[utoipa::path(
+    get,
+    path = "/worlds/{world_id}",
+    tag = "worlds",
+    params(("world_id" = String, Path)),
+    responses(
+        (status = 200, body = ApiData<PlaceRow>),
+        (status = 404, body = catalyrst_types::ApiErrorBody),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn get_world(
     State(state): State<AppState>,
     headers: axum::http::HeaderMap,
@@ -27,6 +38,24 @@ pub async fn get_world(
     }
 }
 
+#[utoipa::path(
+    get,
+    path = "/worlds",
+    tag = "worlds",
+    params(("limit" = Option<i64>, Query),
+        ("offset" = Option<i64>, Query),
+        ("names" = Option<Vec<String>>, Query),
+        ("categories" = Option<Vec<String>>, Query),
+        ("only_favorites" = Option<String>, Query),
+        ("search" = Option<String>, Query),
+        ("order_by" = Option<String>, Query),
+        ("order" = Option<String>, Query),
+        ("owner" = Option<String>, Query)),
+    responses(
+        (status = 200, body = ApiDataTotal<PlaceRow>),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn get_world_list(
     State(state): State<AppState>,
     headers: axum::http::HeaderMap,
@@ -86,6 +115,15 @@ pub async fn get_world_list(
     Ok(Json(ApiDataTotal::ok(data, total)))
 }
 
+#[utoipa::path(
+    get,
+    path = "/world_names",
+    tag = "worlds",
+    responses(
+        (status = 200, body = ApiDataTotal<String>),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn get_world_names_list(
     State(state): State<AppState>,
 ) -> Result<Json<ApiDataTotal<String>>, ApiError> {

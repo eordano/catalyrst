@@ -51,14 +51,6 @@ impl WorldsComponent {
         }))
     }
 
-    pub async fn get_access(&self, world_name: &str) -> Result<AccessSetting, ApiError> {
-        Ok(self
-            .get_world(world_name)
-            .await?
-            .map(|w| w.access)
-            .unwrap_or_default())
-    }
-
     pub async fn is_world_valid(&self, world_name: &str) -> Result<bool, ApiError> {
         let exists: bool = sqlx::query_scalar(
             r#"SELECT EXISTS(
@@ -192,21 +184,26 @@ impl WorldsComponent {
         Ok(row.and_then(|r| {
             let entity: Value = r.get("entity");
             let parcels: Vec<String> = r.get("parcels");
-            let base = entity
-                .get("metadata")
-                .and_then(|m| m.get("scene"))
-                .and_then(|s| s.get("base"))
-                .and_then(|b| b.as_str())
-                .map(|s| s.to_string());
-            base.or_else(|| parcels.first().cloned())
+            Self::declared_base_parcel(&entity, &parcels)
         }))
+    }
+
+    fn declared_base_parcel(entity: &Value, parcels: &[String]) -> Option<String> {
+        entity
+            .get("metadata")
+            .and_then(|m| m.get("scene"))
+            .and_then(|s| s.get("base"))
+            .and_then(|b| b.as_str())
+            .filter(|s| !s.is_empty())
+            .map(|s| s.to_string())
+            .or_else(|| parcels.first().cloned())
     }
 
     #[allow(clippy::too_many_arguments)]
     pub async fn deploy_scene(
         &self,
         world_name: &str,
-        owner: &str,
+        name_owner: Option<&str>,
         entity_id: &str,
         deployer: &str,
         deployment_auth_chain: &Value,
@@ -223,15 +220,15 @@ impl WorldsComponent {
                    title, description, content_rating, skybox_time, categories,
                    single_player, show_in_places, thumbnail_hash, updated_at
                )
-               VALUES ($1, $2, NULL, $3, $4, $5, $6, $7, $8::text[], $9, $10, $11, now())
+               VALUES ($1, COALESCE($2, $12), NULL, $3, $4, $5, $6, $7, $8::text[], $9, $10, $11, now())
                ON CONFLICT (name) DO UPDATE SET
-                 owner = EXCLUDED.owner,
+                 owner = COALESCE($2, worlds.owner),
                  blocked_since = NULL,
                  spawn_coordinates = COALESCE(worlds.spawn_coordinates, EXCLUDED.spawn_coordinates),
                  updated_at = now()"#,
         )
         .bind(world_name)
-        .bind(owner)
+        .bind(name_owner)
         .bind(&s.spawn_coordinates)
         .bind(&s.title)
         .bind(&s.description)
@@ -241,6 +238,7 @@ impl WorldsComponent {
         .bind(s.single_player)
         .bind(s.show_in_places)
         .bind(&s.thumbnail_hash)
+        .bind(deployer)
         .execute(&mut *tx)
         .await?;
 
@@ -291,12 +289,20 @@ impl WorldsComponent {
         Ok(res.rows_affected())
     }
 
+    pub async fn undeploy_world(&self, world_name: &str) -> Result<u64, ApiError> {
+        let res = sqlx::query(r#"DELETE FROM world_scenes WHERE lower(world_name) = lower($1)"#)
+            .bind(world_name)
+            .execute(&self.pool)
+            .await?;
+        Ok(res.rows_affected())
+    }
+
     pub async fn list_scenes(
         &self,
         world_name: &str,
-    ) -> Result<Vec<(String, Vec<String>)>, ApiError> {
+    ) -> Result<Vec<(String, Vec<String>, Option<String>)>, ApiError> {
         let rows = sqlx::query(
-            r#"SELECT entity_id, parcels FROM world_scenes
+            r#"SELECT entity_id, parcels, entity FROM world_scenes
                WHERE lower(world_name) = lower($1)
                ORDER BY entity_id"#,
         )
@@ -306,10 +312,10 @@ impl WorldsComponent {
         Ok(rows
             .into_iter()
             .map(|r| {
-                (
-                    r.get::<String, _>("entity_id"),
-                    r.get::<Vec<String>, _>("parcels"),
-                )
+                let entity: Value = r.get("entity");
+                let parcels: Vec<String> = r.get("parcels");
+                let base = Self::declared_base_parcel(&entity, &parcels);
+                (r.get::<String, _>("entity_id"), parcels, base)
             })
             .collect())
     }

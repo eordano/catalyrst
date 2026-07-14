@@ -8,7 +8,7 @@ pub async fn rpc_config(session: AdminSession, State(state): State<Arc<AppState>
     };
     proxy_audited(
         &state,
-        &session.address,
+        session.address(),
         "rpc.config",
         None,
         json!({}),
@@ -30,7 +30,7 @@ pub async fn rpc_methods_list(
     };
     proxy_audited(
         &state,
-        &session.address,
+        session.address(),
         "rpc.methods.list",
         None,
         json!({}),
@@ -53,7 +53,7 @@ pub async fn rpc_methods_add(
     };
     proxy_audited(
         &state,
-        &session.address,
+        session.address(),
         "rpc.methods.add",
         target_field(&body, "method").as_deref(),
         body.clone(),
@@ -76,7 +76,7 @@ pub async fn rpc_methods_remove(
     };
     proxy_audited(
         &state,
-        &session.address,
+        session.address(),
         "rpc.methods.remove",
         target_field(&body, "method").as_deref(),
         body.clone(),
@@ -98,7 +98,7 @@ pub async fn rpc_methods_reset(
     };
     proxy_audited(
         &state,
-        &session.address,
+        session.address(),
         "rpc.methods.reset",
         None,
         json!({}),
@@ -120,7 +120,7 @@ pub async fn rpc_networks_list(
     };
     proxy_audited(
         &state,
-        &session.address,
+        session.address(),
         "rpc.networks.list",
         None,
         json!({}),
@@ -143,7 +143,7 @@ pub async fn rpc_networks_set(
     };
     proxy_audited(
         &state,
-        &session.address,
+        session.address(),
         "rpc.networks.set",
         target_field(&body, "network").as_deref(),
         body.clone(),
@@ -175,7 +175,7 @@ pub async fn rpc_networks_delete(
     let network = req.network.to_lowercase();
     proxy_audited(
         &state,
-        &session.address,
+        session.address(),
         "rpc.networks.delete",
         Some(&network),
         json!({ "network": network }),

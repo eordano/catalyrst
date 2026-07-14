@@ -1,10 +1,9 @@
 use axum::extract::{Path, Query, State};
-use axum::http::HeaderMap;
 use axum::Json;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-use crate::admin::{admin_actor, authorize_admin};
+use crate::admin::RequireAdmin;
 use crate::http::errors::ApiError;
 use crate::http::response::Data;
 use crate::AppState;
@@ -64,7 +63,7 @@ pub async fn get_badge_tiers(
         return Ok(Json(Data::new(json!({ "tiers": cached }))));
     }
     let tiers = state.badges.list_tiers(&badge_id).await?;
-    let value = serde_json::to_value(&tiers).map_err(|e| ApiError::Internal(e.to_string()))?;
+    let value = serde_json::to_value(&tiers).map_err(|e| ApiError::internal(e.to_string()))?;
     state.tiers_cache.insert(badge_id, value.clone()).await;
     Ok(Json(Data::new(json!({ "tiers": value }))))
 }
@@ -76,13 +75,12 @@ pub struct GrantBody {
 }
 
 pub async fn grant_user_badge(
+    admin: RequireAdmin,
     State(state): State<AppState>,
-    headers: HeaderMap,
     Path((address, badge_id)): Path<(String, String)>,
     body: Option<Json<GrantBody>>,
 ) -> Result<Json<Value>, ApiError> {
-    authorize_admin(&state, &headers)?;
-    let actor = admin_actor(&headers);
+    let actor = admin.audit_actor_description();
     let address = normalize_address(&address)?;
     let badge_id = normalize_badge_id(&badge_id)?;
     let tier_id = body
@@ -108,12 +106,11 @@ pub async fn grant_user_badge(
 }
 
 pub async fn revoke_user_badge(
+    admin: RequireAdmin,
     State(state): State<AppState>,
-    headers: HeaderMap,
     Path((address, badge_id)): Path<(String, String)>,
 ) -> Result<Json<Value>, ApiError> {
-    authorize_admin(&state, &headers)?;
-    let actor = admin_actor(&headers);
+    let actor = admin.audit_actor_description();
     let address = normalize_address(&address)?;
     let badge_id = normalize_badge_id(&badge_id)?;
 
@@ -146,5 +143,29 @@ fn normalize_address(address: &str) -> Result<String, ApiError> {
     if trimmed.is_empty() {
         return Err(ApiError::bad_request("address is required"));
     }
-    Ok(trimmed.to_ascii_lowercase())
+    let lowered = trimmed.to_ascii_lowercase();
+    if !catalyrst_types::is_eth_address(&lowered) {
+        return Err(ApiError::bad_request("invalid address"));
+    }
+    Ok(lowered)
+}
+
+#[cfg(test)]
+mod normalize_address_tests {
+    use super::normalize_address;
+
+    #[test]
+    fn accepts_and_lowercases_valid_addresses() {
+        assert_eq!(
+            normalize_address(" 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 ").unwrap(),
+            "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266"
+        );
+    }
+
+    #[test]
+    fn rejects_malformed_addresses() {
+        assert!(normalize_address("not-an-address").is_err());
+        assert!(normalize_address("0x1234").is_err());
+        assert!(normalize_address("0xZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ").is_err());
+    }
 }

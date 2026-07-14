@@ -363,22 +363,6 @@ impl<'a> RoomServiceClient<'a> {
         }
     }
 
-    pub async fn update_room_metadata(
-        &self,
-        room: &str,
-        patch: serde_json::Map<String, serde_json::Value>,
-    ) -> Result<(), RoomServiceError> {
-        let _guard = room_metadata_write_lock().lock().await;
-        let Some(info) = self.get_room_info(room).await? else {
-            return Ok(());
-        };
-        let mut metadata = parse_room_metadata(info.get("metadata").and_then(|m| m.as_str()));
-        for (k, v) in patch {
-            metadata.insert(k, v);
-        }
-        self.write_room_metadata(room, metadata).await
-    }
-
     pub async fn append_to_room_metadata_array(
         &self,
         room: &str,

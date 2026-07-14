@@ -1,0 +1,103 @@
+.ep__backdrop {
+  position: fixed; inset: 0; z-index: var(--z-panel);
+  background: rgba(0, 0, 0, .502);
+  display: flex; align-items: center; justify-content: center;
+  padding: 24px;
+}
+
+.pp2 {
+  position: relative; width: min(900px, 100%); height: min(600px, 100%);
+  border-radius: var(--r-panel); overflow: hidden; color: #fff;
+  display: flex; box-shadow: var(--shadow-modal);
+  background:
+    linear-gradient(125deg, #9b14d6 0%, #7a17c2 24%, #4d33a4 52%, #1f8a8f 80%, #12b89a 100%);
+}
+.pp2__close {
+  position: absolute; top: 14px; right: 16px; z-index: 5;
+  background: none; border: none; cursor: pointer; padding: 4px;
+  color: var(--ink-85); font-size: var(--fs-lg); line-height: 1;
+}
+.pp2__close:hover { color: #fff; }
+
+.pp2__preview {
+  position: relative; flex: 0 0 36%; min-width: 0;
+  display: flex; align-items: center; justify-content: center;
+  padding: 24px 16px;
+}
+.pp2__preview::before {
+  content: ""; position: absolute; top: 50%; left: 50%; width: 264px; height: 264px;
+  transform: translate(-50%, -50%); border-radius: 50%; pointer-events: none;
+  background: radial-gradient(circle, rgba(255,255,255,.20) 0%, rgba(255,255,255,0) 70%);
+}
+.pp2__avatar {
+  box-shadow:
+    0 22px 44px rgba(0,0,0,.38),
+    inset 0 0 0 4px rgba(255,255,255,.20);
+}
+
+.pp2__main {
+  flex: 1; min-width: 0; display: flex; flex-direction: column;
+  padding: 22px 24px 22px;
+}
+
+.pp2__head { display: flex; align-items: flex-start; gap: 12px; padding-right: 36px; }
+.pp2__ident { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.pp2__idline { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.pp2__name { margin: 0; font-size: var(--fs-title); font-weight: 800; line-height: 1; }
+.pp2__tag { color: #b06bff; font-weight: 700; margin-left: 1px; }
+.pp2__addr {
+  display: flex; align-items: center; gap: 6px;
+  font-size: var(--fs-xs); font-weight: 600; color: rgba(255,255,255,.55);
+}
+.pp2__addr .pp2__icon { font-size: var(--fs-xs); }
+.pp2__icon {
+  background: none; border: none; color: var(--ink-7); cursor: pointer;
+  font-size: var(--fs-md); padding: 2px; line-height: 1;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.pp2__icon:hover { color: #fff; }
+.pp2__claim {
+  margin-left: auto; cursor: pointer; border: none; font-family: inherit;
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: var(--fs-xs); font-weight: 800; letter-spacing: .05em; color: #fff;
+  padding: 7px 15px; border-radius: var(--r-pill);
+  background: #e01f6e;
+  box-shadow: 0 4px 14px rgba(224,31,110,.35);
+}
+.pp2__claim:hover { filter: brightness(1.06); }
+
+.pp2 .tabs { margin-top: 18px; gap: var(--s-5); border-bottom: 1px solid rgba(255,255,255,.16); --brand: #e83bb6; }
+.pp2 .tabs__tab { color: rgba(255,255,255,.55); }
+
+.pp2__pane {
+  flex: 1; min-height: 0; margin-top: 18px; overflow: auto;
+  border-radius: var(--r-card);
+  background:
+    linear-gradient(135deg, rgba(124,30,170,.45) 0%, rgba(36,120,128,.45) 100%),
+    rgba(0,0,0,.12);
+  display: flex;
+}
+.pp2__grid {
+  flex: 1; align-self: flex-start; display: grid; gap: 8px; padding: 16px;
+  grid-template-columns: repeat(auto-fill, minmax(clamp(110px, 16vw, 150px), 1fr));
+}
+.pp2__photo {
+  aspect-ratio: 1; border-radius: var(--r-control); cursor: pointer;
+  background:
+    linear-gradient(135deg, hsl(var(--hue,280) 55% 48%), hsl(calc(var(--hue,280) + 50) 50% 30%)),
+    radial-gradient(circle at 70% 25%, rgba(255,255,255,.22), transparent 45%);
+}
+.pp2__photo:hover { transform: scale(1.03); }
+
+.pp2__empty {
+  flex: 1; display: flex; flex-direction: column; align-items: center;
+  justify-content: center; gap: 14px; padding: 40px 20px;
+}
+.pp2__emptyicon { color: #c463d6; filter: drop-shadow(0 4px 12px rgba(196,99,214,.25)); }
+.pp2__emptytext { font-size: var(--fs-md); font-weight: 600; color: rgba(255,255,255,.7); }
+
+@media (max-width: 760px) {
+  .pp2 { flex-direction: column; height: 100%; width: 100%; border-radius: 0; }
+  .pp2__preview { flex: 0 0 auto; padding: 20px 0 4px; }
+  .pp2__main { padding: 16px 16px; }
+}
