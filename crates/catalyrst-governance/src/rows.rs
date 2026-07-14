@@ -8,25 +8,26 @@ pub struct ExtraKeys(pub Map<String, Value>);
 #[cfg(feature = "ts")]
 impl ts_rs::TS for ExtraKeys {
     type WithoutGenerics = Self;
+    type OptionInnerType = Self;
 
-    fn decl() -> String {
+    fn decl(_: &ts_rs::Config) -> String {
         panic!("ExtraKeys is only used inline, it cannot be declared")
     }
 
-    fn decl_concrete() -> String {
+    fn decl_concrete(_: &ts_rs::Config) -> String {
         panic!("ExtraKeys is only used inline, it cannot be declared")
     }
 
-    fn name() -> String {
+    fn name(_: &ts_rs::Config) -> String {
         "Record<string, unknown>".to_owned()
     }
 
-    fn inline() -> String {
-        Self::name()
+    fn inline(cfg: &ts_rs::Config) -> String {
+        <Self as ts_rs::TS>::name(cfg)
     }
 
-    fn inline_flattened() -> String {
-        Self::name()
+    fn inline_flattened(cfg: &ts_rs::Config) -> String {
+        <Self as ts_rs::TS>::name(cfg)
     }
 }
 

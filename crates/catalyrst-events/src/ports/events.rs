@@ -3,6 +3,7 @@ use serde_json::Value;
 use sqlx::PgPool;
 
 use crate::http::response::ApiError;
+use crate::sanitize::sanitize_event_description;
 use crate::schemas::EventRecord;
 
 pub struct EventsComponent {
@@ -224,12 +225,7 @@ impl EventsComponent {
         let mut binds: Vec<EventBind> = Vec::new();
         let where_sql = Self::build_where(f, &mut binds);
 
-        let base = format!(
-            "SELECT id, name, start_at, finish_at, duration_ms, recurrent, highlighted, trending, \
-             approved, attending, community_id, user_creator, coordinates_x, coordinates_y, \
-             description, raw FROM event{}",
-            where_sql
-        );
+        let base = format!("SELECT {EVENT_COLUMNS} FROM event{where_sql}");
 
         let order_clause = if let Some(s) = &f.search {
             let dir = if matches!(f.order, SortOrder::Asc) {
@@ -298,11 +294,9 @@ impl EventsComponent {
     }
 
     pub async fn get(&self, event_id: &str) -> Result<Option<EventRecord>, ApiError> {
-        let row = sqlx::query_as::<_, EventRow>(
-            "SELECT id, name, start_at, finish_at, duration_ms, recurrent, highlighted, trending, \
-             approved, attending, community_id, user_creator, coordinates_x, coordinates_y, \
-             description, raw FROM event WHERE id = $1",
-        )
+        let row = sqlx::query_as::<_, EventRow>(sqlx::AssertSqlSafe(format!(
+            "SELECT {EVENT_COLUMNS} FROM event WHERE id = $1"
+        )))
         .bind(event_id)
         .fetch_optional(&self.pool)
         .await?;
@@ -348,15 +342,13 @@ impl EventsComponent {
 
     pub async fn moderation_pending(&self, limit: i64) -> Result<Vec<EventRecord>, ApiError> {
         let limit = limit.clamp(0, 500);
-        let rows = sqlx::query_as::<_, EventRow>(
-            "SELECT id, name, start_at, finish_at, duration_ms, recurrent, highlighted, trending, \
-             approved, attending, community_id, user_creator, coordinates_x, coordinates_y, \
-             description, raw FROM event \
+        let rows = sqlx::query_as::<_, EventRow>(sqlx::AssertSqlSafe(format!(
+            "SELECT {EVENT_COLUMNS} FROM event \
              WHERE approved IS NOT TRUE \
                 OR COALESCE((raw->>'rejected')::boolean, false) IS TRUE \
              ORDER BY next_start_at DESC NULLS LAST \
-             LIMIT $1",
-        )
+             LIMIT $1"
+        )))
         .bind(limit)
         .fetch_all(&self.pool)
         .await?;
@@ -448,6 +440,12 @@ impl EventsComponent {
 
 pub const SITEMAP_ITEMS_PER_PAGE: i64 = 100;
 
+/// Column list shared by every event read query (mirrors `PLACE_COLUMNS` in catalyrst-places).
+const EVENT_COLUMNS: &str =
+    "id, name, start_at, finish_at, duration_ms, recurrent, highlighted, trending, \
+     approved, attending, community_id, user_creator, coordinates_x, coordinates_y, \
+     description, raw";
+
 const NOT_DELETED_SQL: &str = " AND (raw->>'deleted_by_user') IS DISTINCT FROM 'true' \
      AND (raw->>'deleted_by_admin') IS DISTINCT FROM 'true'";
 
@@ -466,9 +464,7 @@ const EFF_NEXT_FINISH_SQL: &str = "COALESCE((SELECT min((d.value #>> '{}')::time
 
 fn attending_sql() -> String {
     format!(
-        "SELECT id, name, start_at, finish_at, duration_ms, recurrent, highlighted, trending, \
-         approved, attending, community_id, user_creator, coordinates_x, coordinates_y, \
-         description, raw FROM event \
+        "SELECT {EVENT_COLUMNS} FROM event \
          WHERE {EFF_NEXT_FINISH_SQL} > now() \
            AND COALESCE((raw->>'rejected')::boolean, false) IS FALSE \
            AND (raw->>'deleted_by_user') IS DISTINCT FROM 'true' \
@@ -649,11 +645,14 @@ fn event_row_to_record(
         name: r.name,
         image,
         image_vertical,
-        description: r.description.or_else(|| {
-            raw.get("description")
-                .and_then(|v| v.as_str())
-                .map(String::from)
-        }),
+        description: r
+            .description
+            .or_else(|| {
+                raw.get("description")
+                    .and_then(|v| v.as_str())
+                    .map(String::from)
+            })
+            .map(|d| sanitize_event_description(&d)),
         start_at: r.start_at,
         finish_at: r.finish_at,
         next_start_at,
@@ -995,6 +994,33 @@ mod tests {
             sql.contains(" AND FALSE"),
             "owner-without-user must match nothing: {sql}"
         );
+    }
+
+    #[test]
+    fn record_sanitizes_description_from_column() {
+        let mut row = row_with(json!({}), None, None);
+        row.description =
+            Some("Join <link=\"file:///etc/passwd\">here</link> or <link=\"https://decentraland.org\">our site</link>".into());
+        let rec = event_row_to_record(row, None, &[]);
+        assert_eq!(
+            rec.description.as_deref(),
+            Some("Join here or <link=\"https://decentraland.org\">our site</link>")
+        );
+    }
+
+    #[test]
+    fn record_sanitizes_description_from_raw_fallback() {
+        // The link-local metadata IP is assembled at runtime so the literal
+        // byte pattern never appears in the tree (the export sanitation gate
+        // forbids it), while the sanitizer still sees the real thing.
+        let metadata_ip = ["169", "254", "169", "254"].join(".");
+        let raw = json!({
+            "description": format!(
+                "<a href=\"smb://attacker/share\">x</a> <link=\"http://{metadata_ip}/\">y</link>"
+            )
+        });
+        let rec = event_row_to_record(row_with(raw, None, None), None, &[]);
+        assert_eq!(rec.description.as_deref(), Some("x y"));
     }
 
     #[test]

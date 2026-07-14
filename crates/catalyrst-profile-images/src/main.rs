@@ -90,13 +90,7 @@ const ENV_DOCS: &[(&str, &str)] = &[
 async fn main() -> Result<()> {
     catalyrst_envcfg::handle_standard_args("catalyrst-profile-images", ENV_DOCS);
 
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "catalyrst_profile_images=info,tower_http=info".into()),
-        )
-        .with_target(false)
-        .init();
+    catalyrst_envcfg::init_tracing("catalyrst_profile_images=info,tower_http=info");
 
     let cfg = Config::from_env()?;
     let state = build_state(&cfg);

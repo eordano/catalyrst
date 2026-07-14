@@ -23,6 +23,7 @@ pub async fn generate(
     let expires_at = now + Duration::seconds(CAPTCHA_TTL_SECS);
     let seed = (now.timestamp_millis() as u64)
         ^ signer
+            .as_str()
             .bytes()
             .fold(0u64, |acc, b| acc.wrapping_mul(31).wrapping_add(b as u64));
     let answer = answer_for_seed(seed);
@@ -31,7 +32,7 @@ pub async fn generate(
         "UPDATE captcha_challenges SET consumed_at = now() \
          WHERE address = $1 AND consumed_at IS NULL",
     )
-    .bind(&signer)
+    .bind(signer.as_str())
     .execute(&state.credits.pool)
     .await?;
 
@@ -39,7 +40,7 @@ pub async fn generate(
         "INSERT INTO captcha_challenges (address, answer_x, expires_at) \
          VALUES ($1, $2, $3)",
     )
-    .bind(&signer)
+    .bind(signer.as_str())
     .bind(answer)
     .bind(expires_at)
     .execute(&state.credits.pool)
@@ -81,7 +82,7 @@ pub async fn claim(
          AND consumed_at IS NULL \
          RETURNING answer_x::float8 AS answer_x",
     )
-    .bind(&signer)
+    .bind(signer.as_str())
     .bind(now)
     .fetch_optional(&state.credits.pool)
     .await?;
@@ -103,7 +104,7 @@ pub async fn claim(
         }
     }
 
-    let outcome = state.credits.claim_credits(&signer, now).await?;
+    let outcome = state.credits.claim_credits(signer.as_str()).await?;
 
     Ok(Json(ClaimCreditsResponse {
         ok: outcome.ok,

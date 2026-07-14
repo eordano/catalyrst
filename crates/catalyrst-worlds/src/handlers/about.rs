@@ -6,6 +6,17 @@ use crate::http::ApiError;
 use crate::ports::worlds::WorldScene;
 use crate::AppState;
 
+#[utoipa::path(
+    get,
+    path = "/world/{world_name}/about",
+    tag = "worlds",
+    params(("world_name" = String, Path)),
+    responses(
+        (status = 200, body = serde_json::Value),
+        (status = 404, body = catalyrst_types::ApiErrorBody),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn get_about(
     State(state): State<AppState>,
     Path(world_name): Path<String>,
@@ -94,7 +105,7 @@ pub async fn get_about(
         let data_default = std::env::var("MAP_PARCEL_VIEW_URL")
             .ok()
             .filter(|s| !s.is_empty())
-            .unwrap_or_else(|| "https://api.decentraland.org/v1/minimap.png".to_string());
+            .unwrap_or_else(|| "http://127.0.0.1:5162/v1/minimap.png".to_string());
         minimap.insert(
             "dataImage".into(),
             json!(url_for_file(&rt.minimap_data_image, &data_default)),
@@ -104,7 +115,7 @@ pub async fn get_about(
         let estate_default = std::env::var("MAP_ESTATE_VIEW_URL")
             .ok()
             .filter(|s| !s.is_empty())
-            .unwrap_or_else(|| "https://api.decentraland.org/v1/estatemap.png".to_string());
+            .unwrap_or_else(|| "http://127.0.0.1:5162/v1/estatemap.png".to_string());
         minimap.insert(
             "estateImage".into(),
             json!(url_for_file(&rt.minimap_estate_image, &estate_default)),

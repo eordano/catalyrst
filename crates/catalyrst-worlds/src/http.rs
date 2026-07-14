@@ -1,7 +1,7 @@
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::Json;
-use serde_json::json;
+use catalyrst_types::ApiErrorBody;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -23,6 +23,14 @@ pub enum ApiError {
 
     #[error("{0}")]
     ServiceUnavailable(String),
+
+    /// 503 with `Retry-After: 5`: shed by the shared multipart upload limiter.
+    #[error("{0}")]
+    UploadShed(String),
+
+    /// 408: multipart receive or processing deadline exceeded.
+    #[error("{0}")]
+    RequestTimeout(String),
 
     #[error("database error: {0}")]
     Database(#[from] sqlx::Error),
@@ -70,6 +78,8 @@ impl IntoResponse for ApiError {
                 retry_after,
             } => err(429, message, Some(retry_after)),
             ApiError::ServiceUnavailable(m) => err(503, m, None),
+            ApiError::UploadShed(m) => crate::upload_limits::shed_response(&m),
+            ApiError::RequestTimeout(m) => crate::upload_limits::timeout_response(&m),
             ApiError::Database(e) => {
                 tracing::error!(error = %e, "sqlx error");
                 err(500, "database error".to_string(), None)
@@ -84,7 +94,7 @@ impl IntoResponse for ApiError {
 
 fn err(code: u16, message: String, retry_after: Option<u64>) -> Response {
     let status = StatusCode::from_u16(code).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
-    let body = Json(json!({ "error": message }));
+    let body = Json(ApiErrorBody::new(message));
     match retry_after {
         Some(secs) => (status, [("Retry-After", secs.to_string())], body).into_response(),
         None => (status, body).into_response(),

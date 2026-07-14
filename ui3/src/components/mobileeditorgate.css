@@ -1,0 +1,25 @@
+.mobile-editor-gate {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  .mobile-editor-gate {
+    position: fixed;
+    inset: 0;
+    z-index: 200;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    pointer-events: auto;
+    background:
+      radial-gradient(120% 80% at 50% 8%, #2c2640 0%, rgba(44, 38, 64, 0) 50%),
+      linear-gradient(180deg, #14131b 0%, #0c0b11 52%, #08070b 100%);
+    color: var(--text);
+    -webkit-font-smoothing: antialiased;
+  }
+  .mobile-editor-gate .es--screen {
+    height: auto;
+    min-height: 0;
+  }
+}

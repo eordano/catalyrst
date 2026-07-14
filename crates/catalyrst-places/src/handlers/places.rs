@@ -6,6 +6,17 @@ use crate::http::response::{ApiData, ApiDataTotal};
 use crate::ports::places::{PlaceListFilters, PlaceOrderBy, PlaceRow, PlaceStatusRow};
 use crate::AppState;
 
+#[utoipa::path(
+    get,
+    path = "/places/{place_id}",
+    tag = "places",
+    params(("place_id" = String, Path)),
+    responses(
+        (status = 200, body = ApiData<PlaceRow>),
+        (status = 404, body = catalyrst_types::ApiErrorBody),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn get_place(
     State(state): State<AppState>,
     headers: axum::http::HeaderMap,
@@ -29,6 +40,29 @@ pub async fn get_place(
     }
 }
 
+#[utoipa::path(
+    get,
+    path = "/places",
+    tag = "places",
+    params(("limit" = Option<i64>, Query),
+        ("offset" = Option<i64>, Query),
+        ("positions" = Option<Vec<String>>, Query),
+        ("names" = Option<Vec<String>>, Query),
+        ("categories" = Option<Vec<String>>, Query),
+        ("only_highlighted" = Option<String>, Query),
+        ("only_favorites" = Option<String>, Query),
+        ("search" = Option<String>, Query),
+        ("creator_address" = Option<String>, Query),
+        ("sdk" = Option<String>, Query),
+        ("order_by" = Option<String>, Query),
+        ("order" = Option<String>, Query),
+        ("owner" = Option<String>, Query),
+        ("with_realms_detail" = Option<String>, Query)),
+    responses(
+        (status = 200, body = ApiDataTotal<PlaceRow>),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn get_place_list(
     State(state): State<AppState>,
     headers: axum::http::HeaderMap,
@@ -70,6 +104,17 @@ pub async fn get_place_list(
     Ok(Json(ApiDataTotal::ok(data, total)))
 }
 
+#[utoipa::path(
+    post,
+    path = "/places",
+    tag = "places",
+    request_body = Vec<String>,
+    responses(
+        (status = 200, body = ApiDataTotal<PlaceRow>),
+        (status = 400, body = catalyrst_types::ApiErrorBody),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn post_place_list_by_id(
     State(state): State<AppState>,
     headers: axum::http::HeaderMap,
@@ -100,6 +145,17 @@ pub async fn post_place_list_by_id(
     Ok(Json(ApiDataTotal::ok(data, total)))
 }
 
+#[utoipa::path(
+    post,
+    path = "/places/status",
+    tag = "places",
+    request_body = Vec<String>,
+    responses(
+        (status = 200, body = ApiDataTotal<PlaceStatusRow>),
+        (status = 400, body = catalyrst_types::ApiErrorBody),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn post_place_status_list_by_id(
     State(state): State<AppState>,
     Json(ids): Json<serde_json::Value>,

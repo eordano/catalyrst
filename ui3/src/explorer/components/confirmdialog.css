@@ -1,0 +1,66 @@
+.cfd__scrim {
+  position: fixed; inset: 0; z-index: var(--z-dialog); background: rgba(0, 0, 0, .902);
+  display: flex; align-items: center; justify-content: center; padding: 24px;
+}
+.cfd {
+  width: min(420px, 100%); background: var(--panel); border-radius: var(--modal-radius, 18px); color: #fff;
+  padding: 26px 24px 20px; text-align: center;
+  border: 1px solid rgba(255, 255, 255, .08); box-shadow: 0 30px 80px rgba(0, 0, 0, .5);
+}
+.cfd:focus, .cfd:focus-visible { outline: none; }
+.cfd__title { margin: 0; font-size: var(--fs-lg); font-weight: 800; line-height: 1.3; }
+.cfd__body {
+  margin: 12px 0 0; font-size: var(--fs-md); line-height: 1.55; color: rgba(255, 255, 255, .502);
+}
+.cfd__actions { display: flex; gap: 12px; margin-top: 24px; }
+.cfd__cancel, .cfd__confirm {
+  flex: 1; border: none; cursor: pointer; font-family: inherit; font-size: var(--fs-md); font-weight: 700;
+  padding: 12px 0; border-radius: var(--ctl-radius, 999px);
+}
+.cfd__cancel { background: rgba(255, 255, 255, .1); color: #fff; }
+.cfd__cancel:hover { background: rgba(255, 255, 255, .16); }
+.cfd__confirm { background: #fff; color: var(--panel); }
+.cfd__confirm:hover { background: rgba(255, 255, 255, .85); }
+.cfd__confirm.is-danger { background: var(--brand-cta); color: #fff; }
+.cfd__confirm.is-danger:hover { background: var(--brand-hover); }
+
+@media (max-width: 420px) { .cfd { border-radius: var(--modal-radius, 14px); } }
+
+.cfd--gradient {
+  width: min(360px, 100%);
+  border: 1px solid rgba(255, 255, 255, .12);
+  border-radius: 16px;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, .55);
+}
+.cfd--grad-teal { background: var(--modal-grad); }
+.cfd--grad-purple { background: var(--modal-grad-purple); }
+
+.cfd--gradient.cfd--has-top { padding-top: 56px; }
+.cfd__avatar {
+  position: absolute; top: -28px; left: 50%; transform: translateX(-50%);
+  width: 56px; height: 56px; border-radius: 50%; object-fit: cover;
+  border: 3px solid rgba(255, 255, 255, .85);
+  background: rgba(255, 255, 255, .1);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, .4);
+}
+.cfd--gradient { position: relative; }
+.cfd__top { margin: -6px 0 4px; }
+
+.cfd--gradient .cfd__title { font-size: var(--fs-lg); }
+.cfd--gradient .cfd__body { color: rgba(255, 255, 255, .78); }
+
+.cfd--gradient .cfd__actions { gap: 14px; justify-content: center; }
+.cfd--gradient .cfd__cancel,
+.cfd--gradient .cfd__confirm {
+  flex: 0 1 auto; min-width: 120px; padding: 13px 30px;
+  text-transform: uppercase; letter-spacing: .04em; font-weight: 800;
+}
+.cfd--gradient .cfd__cancel { background: rgba(255, 255, 255, .12); }
+.cfd--gradient .cfd__cancel:hover { background: rgba(255, 255, 255, .2); }
+
+.cfd__confirm.is-primary {
+  background: var(--explore-orange-grad); color: #fff;
+}
+.cfd__confirm.is-primary:hover {
+  background: var(--explore-orange-grad); filter: brightness(1.08);
+}

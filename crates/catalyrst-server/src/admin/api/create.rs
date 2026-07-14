@@ -3,7 +3,7 @@ use super::*;
 pub async fn create_registry_reingest(session: AdminSession, Json(body): Json<Value>) -> Response {
     let token = env_token(&["AB_REGISTRY_ADMIN_TOKEN", "API_ADMIN_TOKEN"]);
     proxy_audited_global(
-        &session.address,
+        session.address(),
         "create.registry-reingest",
         None,
         body.clone(),
@@ -19,7 +19,7 @@ pub async fn create_registry_reingest(session: AdminSession, Json(body): Json<Va
 pub async fn create_flush_ab_cache(session: AdminSession) -> Response {
     let token = env_token(&["AB_REGISTRY_ADMIN_TOKEN", "API_ADMIN_TOKEN"]);
     proxy_audited_global(
-        &session.address,
+        session.address(),
         "create.flush-ab-cache",
         None,
         json!({}),
@@ -44,7 +44,7 @@ pub async fn create_queues_retry(
     };
     proxy_audited(
         &state,
-        &session.address,
+        session.address(),
         "create.queues.retry",
         None,
         body.clone(),
@@ -66,7 +66,7 @@ pub async fn create_queues_pause(
     };
     proxy_audited(
         &state,
-        &session.address,
+        session.address(),
         "create.queues.pause",
         None,
         json!({}),
@@ -88,7 +88,7 @@ pub async fn create_queues_resume(
     };
     proxy_audited(
         &state,
-        &session.address,
+        session.address(),
         "create.queues.resume",
         None,
         json!({}),
@@ -122,7 +122,7 @@ pub async fn create_denylist_add(
     }
     proxy_audited(
         &state,
-        &session.address,
+        session.address(),
         "create.denylist.add",
         Some(&req.entity_id),
         req.extra.clone(),
@@ -148,7 +148,7 @@ pub async fn create_denylist_remove(
     }
     proxy_audited(
         &state,
-        &session.address,
+        session.address(),
         "create.denylist.remove",
         Some(&req.entity_id),
         json!({ "entityId": req.entity_id }),
@@ -170,7 +170,7 @@ pub async fn create_queues_status(
     };
     proxy_audited(
         &state,
-        &session.address,
+        session.address(),
         "create.queues.status",
         None,
         json!({}),

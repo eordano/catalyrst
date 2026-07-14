@@ -1,0 +1,39 @@
+:root {
+  --ui-px: min(calc(100dvw / 1600), calc(100dvh / 720));
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+}
+
+@media (orientation: portrait) {
+  :root { --ui-px: min(calc(100dvw / 720), calc(100dvh / 1600)); }
+}
+
+[data-orientation="landscape"] { --ui-px: min(calc(100dvw / 1600), calc(100dvh / 720)); }
+[data-orientation="portrait"] { --ui-px: min(calc(100dvw / 720), calc(100dvh / 1600)); }
+
+[data-safe-emulate="ios"][data-orientation="portrait"] {
+  --safe-top: 6.9249dvh;
+  --safe-right: 0px;
+  --safe-bottom: 3.9906dvh;
+  --safe-left: 0px;
+}
+[data-safe-emulate="ios"][data-orientation="landscape"] {
+  --safe-top: 0px;
+  --safe-right: 6.9249dvw;
+  --safe-bottom: 5.3435dvh;
+  --safe-left: 6.9249dvw;
+}
+[data-safe-emulate="android"][data-orientation="portrait"] {
+  --safe-top: 4.7198dvh;
+  --safe-right: 0px;
+  --safe-bottom: 0px;
+  --safe-left: 0px;
+}
+[data-safe-emulate="android"][data-orientation="landscape"] {
+  --safe-top: 0px;
+  --safe-right: 0px;
+  --safe-bottom: 0px;
+  --safe-left: 4.7198dvw;
+}

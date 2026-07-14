@@ -1,0 +1,166 @@
+.specdoc {
+  min-height: 100%;
+  box-sizing: border-box;
+  padding: 40px 20px 72px;
+  background: #101014;
+  color: #e6e6ec;
+  font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-size: 15px;
+  line-height: 1.65;
+}
+
+.specdoc__page {
+  max-width: 76ch;
+  margin: 0 auto;
+}
+
+.specdoc__path {
+  margin: 0 0 20px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  color: #a3a3b2;
+}
+
+.specdoc__meta {
+  margin: 0 0 28px;
+  border: 1px solid #2a2a36;
+  border-radius: 8px;
+  background: #16161d;
+}
+
+.specdoc__meta > summary {
+  cursor: pointer;
+  padding: 10px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #c8c8d6;
+}
+
+.specdoc__meta > pre {
+  margin: 0;
+  padding: 12px 14px 14px;
+  border-top: 1px solid #2a2a36;
+  overflow-x: auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: #cdd6e4;
+}
+
+.mdlite h1,
+.mdlite h2,
+.mdlite h3,
+.mdlite h4,
+.mdlite h5,
+.mdlite h6 {
+  color: #f4f4f8;
+  line-height: 1.3;
+  margin: 1.6em 0 0.55em;
+  font-weight: 700;
+}
+
+.mdlite h1 { font-size: 26px; margin-top: 0.2em; }
+.mdlite h2 { font-size: 21px; border-bottom: 1px solid #26262f; padding-bottom: 0.3em; }
+.mdlite h3 { font-size: 17.5px; }
+.mdlite h4,
+.mdlite h5,
+.mdlite h6 { font-size: 15.5px; }
+
+.mdlite p {
+  margin: 0 0 1em;
+}
+
+.mdlite a {
+  color: #8ab8ff;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.mdlite a:hover {
+  color: #b3d1ff;
+}
+
+.mdlite code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.88em;
+  background: #1d1d26;
+  border: 1px solid #2a2a36;
+  border-radius: 4px;
+  padding: 0.1em 0.35em;
+  color: #e8e2cf;
+  overflow-wrap: anywhere;
+}
+
+.mdlite pre {
+  margin: 0 0 1.2em;
+  padding: 14px 16px;
+  background: #16161d;
+  border: 1px solid #2a2a36;
+  border-radius: 8px;
+  overflow-x: auto;
+  line-height: 1.55;
+}
+
+.mdlite pre > code {
+  background: none;
+  border: 0;
+  padding: 0;
+  font-size: 12.5px;
+  color: #d6dbe6;
+  overflow-wrap: normal;
+}
+
+.mdlite ul,
+.mdlite ol {
+  margin: 0 0 1em;
+  padding-left: 1.6em;
+}
+
+.mdlite li {
+  margin: 0.3em 0;
+}
+
+.mdlite li > ul,
+.mdlite li > ol {
+  margin-bottom: 0.3em;
+}
+
+.mdlite blockquote {
+  margin: 0 0 1.2em;
+  padding: 2px 0 2px 16px;
+  border-left: 3px solid #3d3d4d;
+  color: #c2c2d0;
+}
+
+.mdlite hr {
+  border: 0;
+  border-top: 1px solid #26262f;
+  margin: 2em 0;
+}
+
+.mdlite table {
+  border-collapse: collapse;
+  margin: 0 0 1.2em;
+  font-size: 13.5px;
+  display: block;
+  overflow-x: auto;
+}
+
+.mdlite th,
+.mdlite td {
+  border: 1px solid #2a2a36;
+  padding: 6px 12px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.mdlite th {
+  background: #1a1a22;
+  color: #f0f0f6;
+  font-weight: 600;
+}
+
+.mdlite tbody tr:nth-child(even) {
+  background: #14141b;
+}

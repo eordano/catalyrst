@@ -67,9 +67,9 @@ fn openapi_spec() -> Value {
                     },
                     "responses": {
                         "200": { "description": "Uploaded image with its metadata", "content": { "application/json": { "schema": ref_to("UploadResponse") } } },
-                        "400": { "description": "Bad Request", "content": { "application/json": { "schema": ref_to("ResponseError") } } },
-                        "403": { "description": "Forbidden", "content": { "application/json": { "schema": ref_to("ForbiddenError") } } },
-                        "500": { "description": "Internal Server Error", "content": { "application/json": { "schema": ref_to("ResponseError") } } }
+                        "400": { "description": "Bad Request", "content": { "application/json": { "schema": ref_to("ApiErrorBody") } } },
+                        "403": { "description": "Forbidden", "content": { "application/json": { "schema": ref_to("ApiErrorBody") } } },
+                        "500": { "description": "Internal Server Error", "content": { "application/json": { "schema": ref_to("ApiErrorBody") } } }
                     }
                 }
             },
@@ -341,22 +341,12 @@ fn openapi_spec() -> Value {
                         "maxImages": { "type": "integer", "format": "int64", "minimum": 0 }
                     }
                 },
-                "ForbiddenReason": {
-                    "type": "string",
-                    "enum": ["maxLimitReached"]
-                },
-                "ForbiddenError": {
+                "ApiErrorBody": {
                     "type": "object",
-                    "required": ["reason", "message"],
+                    "required": ["ok", "error", "message"],
                     "properties": {
-                        "reason": ref_to("ForbiddenReason"),
-                        "message": { "type": "string" }
-                    }
-                },
-                "ResponseError": {
-                    "type": "object",
-                    "required": ["message"],
-                    "properties": {
+                        "ok": { "type": "boolean", "enum": [false] },
+                        "error": { "type": "string" },
                         "message": { "type": "string" }
                     }
                 }

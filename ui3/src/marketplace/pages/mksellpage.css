@@ -1,0 +1,255 @@
+.mksellpage {
+  min-height: 100%;
+  box-sizing: border-box;
+  padding: 0 24px 64px;
+  --undefined-bg: var(--lm-bg);
+  --undefined-surface: var(--lm-surface);
+  --undefined-ink: var(--lm-ink);
+  --undefined-ink-2: var(--lm-ink-2);
+  --undefined-ink-3: var(--lm-ink-3);
+  --undefined-line: var(--lm-line);
+  --undefined-field-bg: var(--lm-field-bg);
+  --undefined-danger: var(--error);
+  --undefined-warn-bg: color-mix(in srgb, var(--warning) 16%, transparent);
+  --undefined-warn-line: var(--warning);
+  --undefined-warn-ink: var(--warning);
+  --mksell-cancel-bg: var(--fill-3);
+  --mksell-cancel-bg-hover: var(--fill-4);
+  background: var(--undefined-bg);
+  color: var(--undefined-ink);
+}
+
+.mksellpage__page {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 36px 40px 48px;
+}
+
+.mksellpage__back {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 24px 0 56px 2px;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  font: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--undefined-ink-2);
+  padding: 0;
+}
+.mksellpage__back:hover { color: var(--brand); }
+.mksellpage__back svg { display: block; }
+
+.mksellpage__row {
+  display: flex;
+  align-items: flex-start;
+}
+
+.mksellpage__left {
+  flex: 0.75 1 auto;
+  display: flex;
+  justify-content: flex-end;
+  margin-right: 80px;
+}
+.mksellpage__right { flex: 1.25 1 auto; min-width: 0; }
+
+.mksellpage__title {
+  margin: 0 0 8px;
+  font-size: 30px;
+  line-height: 1.15;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--undefined-ink);
+}
+.mksellpage__subtitle {
+  margin: 0 0 32px;
+  font-size: 16px;
+  line-height: 1.5;
+  color: var(--undefined-ink-3);
+}
+.mksellpage__subtitle b { color: var(--undefined-ink); font-weight: 700; }
+
+.mksellpage__fields {
+  max-width: 420px;
+  margin-bottom: 20px;
+}
+.mksellpage__field { margin-bottom: 18px; }
+.mksellpage__field:last-child { margin-bottom: 0; }
+.mksellpage__label {
+  display: block;
+  margin-bottom: 7px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--undefined-ink-2);
+}
+
+.mksellpage__inputbox {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  box-sizing: border-box;
+  height: 46px;
+  padding: 0 14px;
+  border: 1px solid var(--undefined-line);
+  border-radius: var(--r-control);
+  background: var(--undefined-field-bg);
+  transition: border-color 0.12s ease, box-shadow 0.12s ease;
+}
+.mksellpage__inputbox:focus-within {
+  border-color: var(--brand);
+  box-shadow: 0 0 0 3px rgba(255, 45, 85, 0.14);
+}
+.mksellpage__inputbox.is-error { border-color: var(--undefined-danger); }
+.mksellpage__inputbox.is-error:focus-within { box-shadow: 0 0 0 3px rgba(255, 36, 36, 0.14); }
+.mksellpage__mana {
+  display: inline-flex;
+  flex: 0 0 auto;
+  color: var(--brand);
+}
+.mksellpage__input {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: 0;
+  background: none;
+  outline: none;
+  font: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--undefined-ink);
+}
+.mksellpage__input::placeholder { color: #b3afba; font-weight: 500; }
+.mksellpage__input[type="date"] { font-weight: 600; }
+.mksellpage__msg {
+  margin: 7px 0 0;
+  font-size: 12.5px;
+  color: var(--undefined-danger);
+}
+
+.mksellpage__buttons {
+  display: flex;
+  gap: 14px;
+}
+.mksellpage__buttons .btn {
+  height: 44px;
+  padding: 0 26px;
+  font-size: 15px;
+  border-radius: 6px;
+}
+.mksellpage__cancel {
+  background: var(--mksell-cancel-bg);
+  color: var(--undefined-ink-2);
+}
+.mksellpage__cancel:not(:disabled):hover { background: var(--mksell-cancel-bg-hover); }
+
+.mksellpage__cancelorder {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  width: 500px;
+  max-width: 100%;
+}
+.mksellpage__cancelorder .btn {
+  height: 44px;
+  padding: 0 26px;
+  font-size: 15px;
+  border-radius: 6px;
+  align-self: flex-start;
+}
+.mksellpage__banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 14px 16px;
+  border-radius: var(--r-control);
+  background: var(--undefined-warn-bg);
+  border: 1px solid var(--undefined-warn-line);
+  color: var(--undefined-warn-ink);
+  font-size: 14px;
+  line-height: 1.45;
+  font-weight: 600;
+}
+.mksellpage__banner svg { flex: 0 0 auto; margin-top: 1px; }
+
+.mksellpage__confirm { color: var(--undefined-ink); }
+.mksellpage__confirmhead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: -4px 0 16px;
+}
+.mksellpage__confirmtitle {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+}
+.mksellpage__close {
+  border: 0;
+  background: none;
+  cursor: pointer;
+  color: var(--undefined-ink-3);
+  padding: 4px;
+  line-height: 0;
+  border-radius: 8px;
+}
+.mksellpage__close:hover { background: var(--panel-2); color: var(--undefined-ink); }
+.mksellpage__confirmbody {
+  font-size: 15px;
+  line-height: 1.55;
+  color: var(--undefined-ink-2);
+  margin-bottom: 18px;
+}
+.mksellpage__confirmbody b { color: var(--undefined-ink); }
+.mksellpage__confirmbody .mksellpage__amount {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: 700;
+  color: var(--undefined-ink);
+}
+.mksellpage__confirmbody .mksellpage__amount svg { color: var(--brand); }
+.mksellpage__warn { color: var(--undefined-danger); font-weight: 700; margin: 10px 0; }
+.mksellpage__confirmlabel {
+  display: block;
+  margin: 4px 0 7px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--undefined-ink-2);
+}
+.mksellpage__errmsg {
+  margin: 14px 0 0;
+  padding: 10px 12px;
+  border-radius: var(--r-control);
+  background: color-mix(in srgb, var(--error) 16%, transparent);
+  border: 1px solid var(--error);
+  color: var(--undefined-danger);
+  font-size: 13px;
+  font-weight: 600;
+}
+.mksellpage__errmsg strong { display: block; margin-bottom: 2px; }
+.mksellpage__confirmactions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 24px;
+}
+.mksellpage__confirmactions .btn { border-radius: 6px; }
+
+.mksellpage__modalcard {
+  background: var(--undefined-surface);
+  border: 1px solid var(--undefined-line);
+  color: var(--undefined-ink);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.28);
+}
+
+@media (max-width: 768px) {
+  .mksellpage__page { padding: 24px 18px 36px; }
+  .mksellpage__row { flex-direction: column; align-items: stretch; gap: 28px; }
+  .mksellpage__left { justify-content: center; margin-right: 0; }
+  .mksellpage__fields { max-width: 100%; }
+  .mksellpage__buttons { flex-direction: column-reverse; }
+  .mksellpage__cancelorder { width: 100%; }
+  .mksellpage__back { margin: 12px 0 28px; }
+}

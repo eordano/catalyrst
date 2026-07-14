@@ -1,0 +1,93 @@
+{
+  "_source": "catalyrst-comms GET /scene-bans?place_id=&limit=&offset= (handlers/scene_bans.rs list_bans). That route is signed-fetch gated (SCENE_SIGNER=\"decentraland-kernel-scene\") and is_scene_owner_or_admin gated, so it 404s/401s on the public catalyst edge and cannot be read anonymously from SSR — hence this fixture. The `places` rows the operator can moderate are anchored on LIVE https://catalyst.example.com/places/api/places?limit=8&order_by=most_active (200) so place_id / title / base_position / image are real. The banned-address list per place mirrors the list_bans envelope { results:[{bannedAddress,name}], total, page, pages, limit }; bannedAddress values are synthetic 0x wallets (no real ban records are public) and `name` is the DCL NAME resolved by names.get_names_from_addresses (empty string when unclaimed). Ban/unban commits are SIMULATED.",
+  "_fetched_at": "2026-06-24",
+  "_endpoints": {
+    "list": "GET /scene-bans?place_id=<id>&limit=<n>&offset=<n>  (signed-fetch: decentraland-kernel-scene)",
+    "ban": "POST /scene-bans { place_id, banned_address }  (is_scene_owner_or_admin -> 403 anon) [SIMULATED]",
+    "unban": "DELETE /scene-bans?place_id=<id>&banned_address=<addr>  (is_scene_owner_or_admin -> 403 anon) [SIMULATED]"
+  },
+  "default_owner": "0x9e1d8a3b27f5c640e1aa07b2d3c9f4e8a61b7c20",
+  "places": [
+    {
+      "id": "f888b899-c509-44d1-af21-717a4cef654e",
+      "title": "Antrom RPG (Dice Masters)",
+      "base_position": "144,-7",
+      "parcels": 100,
+      "contact_name": "Matt",
+      "image": "https://peer-eu1.decentraland.org/content/contents/bafybeihs4i7lszmmhx5jp5dqp4md4zbtih6hzmf5kjkjhiexs2zr2mkihu",
+      "user_count": 4
+    },
+    {
+      "id": "59cfc6be-d101-47df-aff7-b20067b7b645",
+      "title": "WonderMine Crafting Game DCL SDK7",
+      "base_position": "-29,55",
+      "parcels": 40,
+      "contact_name": "WonderZone",
+      "image": "https://peer.decentraland.org/content/contents/bafybeia3tkxl35trqzbbxn6pcsi4o7rp7or47tssmapp34pjuihkgu52ua",
+      "user_count": 3
+    },
+    {
+      "id": "3fd69792-b3e1-49c3-8476-482cd42c86d8",
+      "title": "Meta GamiMall",
+      "base_position": "1,95",
+      "parcels": 30,
+      "contact_name": "MetaDoge",
+      "image": "https://peer-eu1.decentraland.org/content/contents/bafkreiczuewg3pfx3kwc6tmtnzm6qfdr5in7kuux5cjnrfy3owrlk5ejyi",
+      "user_count": 2
+    },
+    {
+      "id": "467c89c4-3ca1-4a39-8cb4-851b7c801d49",
+      "title": "Old McTiger's Farm",
+      "base_position": "62,127",
+      "parcels": 9,
+      "contact_name": "METATIGER",
+      "image": "https://peer-eu1.decentraland.org/content/contents/bafkreidy3mizvvktaoqclu6fhvtbum3oz2ip5qg6brf3wo4tqem6nzjley",
+      "user_count": 2
+    }
+  ],
+  "bans": {
+    "f888b899-c509-44d1-af21-717a4cef654e": {
+      "limit": 100,
+      "page": 1,
+      "pages": 1,
+      "total": 7,
+      "results": [
+        { "bannedAddress": "0x4a1f7c2e90b35d8146a0c7e29f51d83b06a9e417", "name": "griefer.dcl" },
+        { "bannedAddress": "0xb70e2c9d4138a65f0e9a3c71f284d50b6e1a93c8", "name": "" },
+        { "bannedAddress": "0x18c3e09a7b2d465f80a1e4c39d76b502f8a9e163", "name": "spammer42" },
+        { "bannedAddress": "0x6e2a18d0c9b347f5e01a8d63c97f24b05e9a3d71", "name": "" },
+        { "bannedAddress": "0xa39f06c8e1d245b790e3a1c6f48d27b05e9a8f13", "name": "scalper.dcl" },
+        { "bannedAddress": "0x2c8b71f0a93d465e801e4a2c7f96d35b0e9a1d84", "name": "" },
+        { "bannedAddress": "0x5d10a8f3c2e947b6091e3a7c84d20b56f9a3e017", "name": "adbot" }
+      ]
+    },
+    "59cfc6be-d101-47df-aff7-b20067b7b645": {
+      "limit": 100,
+      "page": 1,
+      "pages": 1,
+      "total": 3,
+      "results": [
+        { "bannedAddress": "0x83f0a91c5d2e647b8f10a3c7e29d45b06f1a8e93", "name": "" },
+        { "bannedAddress": "0x1a7c93e02b8d465f9013a6c2e74f80d5b9a3e168", "name": "exploiter.dcl" },
+        { "bannedAddress": "0x47e2b08d9a3c165f0b8e4a1c7d92f306e5a9b740", "name": "" }
+      ]
+    },
+    "3fd69792-b3e1-49c3-8476-482cd42c86d8": {
+      "limit": 100,
+      "page": 1,
+      "pages": 1,
+      "total": 0,
+      "results": []
+    },
+    "467c89c4-3ca1-4a39-8cb4-851b7c801d49": {
+      "limit": 100,
+      "page": 1,
+      "pages": 1,
+      "total": 2,
+      "results": [
+        { "bannedAddress": "0x90e7c4a13b6d28f5019e3a7c41d80b62f5a9e034", "name": "harasser" },
+        { "bannedAddress": "0x12c8b7a04e6f93d2510a8c7e3b94f06d2a8e15c4", "name": "" }
+      ]
+    }
+  }
+}

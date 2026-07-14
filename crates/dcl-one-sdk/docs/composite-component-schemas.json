@@ -1,9 +1,9 @@
 {
   "source": "@dcl/ecs dist-cjs engine component definitions (schema.jsonSchema)",
-  "ecsVersion": "7.22.6-25007982108.commit-83012ab",
-  "generatedAt": "2026-07-06T21:52:28.500Z",
+  "ecsVersion": "7.24.5",
+  "generatedAt": "2026-07-20T10:21:14.144Z",
   "registrationErrors": [],
-  "componentCount": 74,
+  "componentCount": 65,
   "components": [
     {
       "name": "composite::root",
@@ -172,6 +172,18 @@
       }
     },
     {
+      "name": "core::AudioAnalysis",
+      "componentId": 1212,
+      "componentType": 0,
+      "inStaticTable": true,
+      "jsonSchema": {
+        "type": "object",
+        "properties": {},
+        "serializationType": "protocol-buffer",
+        "protocolBuffer": "PBAudioAnalysis"
+      }
+    },
+    {
       "name": "core::AudioEvent",
       "componentId": 1105,
       "componentType": 1,
@@ -280,30 +292,6 @@
       }
     },
     {
-      "name": "core::AvatarMovement",
-      "componentId": 1501,
-      "componentType": 0,
-      "inStaticTable": true,
-      "jsonSchema": {
-        "type": "object",
-        "properties": {},
-        "serializationType": "protocol-buffer",
-        "protocolBuffer": "PBAvatarMovement"
-      }
-    },
-    {
-      "name": "core::AvatarMovementInfo",
-      "componentId": 1500,
-      "componentType": 0,
-      "inStaticTable": true,
-      "jsonSchema": {
-        "type": "object",
-        "properties": {},
-        "serializationType": "protocol-buffer",
-        "protocolBuffer": "PBAvatarMovementInfo"
-      }
-    },
-    {
       "name": "core::AvatarShape",
       "componentId": 1080,
       "componentType": 0,
@@ -325,30 +313,6 @@
         "properties": {},
         "serializationType": "protocol-buffer",
         "protocolBuffer": "PBBillboard"
-      }
-    },
-    {
-      "name": "core::CameraLayer",
-      "componentId": 1503,
-      "componentType": 0,
-      "inStaticTable": true,
-      "jsonSchema": {
-        "type": "object",
-        "properties": {},
-        "serializationType": "protocol-buffer",
-        "protocolBuffer": "PBCameraLayer"
-      }
-    },
-    {
-      "name": "core::CameraLayers",
-      "componentId": 1208,
-      "componentType": 0,
-      "inStaticTable": true,
-      "jsonSchema": {
-        "type": "object",
-        "properties": {},
-        "serializationType": "protocol-buffer",
-        "protocolBuffer": "PBCameraLayers"
       }
     },
     {
@@ -388,18 +352,6 @@
       }
     },
     {
-      "name": "core::GlobalLight",
-      "componentId": 1206,
-      "componentType": 0,
-      "inStaticTable": true,
-      "jsonSchema": {
-        "type": "object",
-        "properties": {},
-        "serializationType": "protocol-buffer",
-        "protocolBuffer": "PBGlobalLight"
-      }
-    },
-    {
       "name": "core::GltfContainer",
       "componentId": 1041,
       "componentType": 0,
@@ -424,18 +376,6 @@
       }
     },
     {
-      "name": "core::GltfNode",
-      "componentId": 1200,
-      "componentType": 0,
-      "inStaticTable": true,
-      "jsonSchema": {
-        "type": "object",
-        "properties": {},
-        "serializationType": "protocol-buffer",
-        "protocolBuffer": "PBGltfNode"
-      }
-    },
-    {
       "name": "core::GltfNodeModifiers",
       "componentId": 1099,
       "componentType": 0,
@@ -445,18 +385,6 @@
         "properties": {},
         "serializationType": "protocol-buffer",
         "protocolBuffer": "PBGltfNodeModifiers"
-      }
-    },
-    {
-      "name": "core::GltfNodeState",
-      "componentId": 1201,
-      "componentType": 0,
-      "inStaticTable": true,
-      "jsonSchema": {
-        "type": "object",
-        "properties": {},
-        "serializationType": "protocol-buffer",
-        "protocolBuffer": "PBGltfNodeState"
       }
     },
     {
@@ -700,18 +628,6 @@
       }
     },
     {
-      "name": "core::TextureCamera",
-      "componentId": 1207,
-      "componentType": 0,
-      "inStaticTable": true,
-      "jsonSchema": {
-        "type": "object",
-        "properties": {},
-        "serializationType": "protocol-buffer",
-        "protocolBuffer": "PBTextureCamera"
-      }
-    },
-    {
       "name": "core::Transform",
       "componentId": 1,
       "componentType": 0,
@@ -844,18 +760,6 @@
       }
     },
     {
-      "name": "core::UiCanvas",
-      "componentId": 1203,
-      "componentType": 0,
-      "inStaticTable": true,
-      "jsonSchema": {
-        "type": "object",
-        "properties": {},
-        "serializationType": "protocol-buffer",
-        "protocolBuffer": "PBUiCanvas"
-      }
-    },
-    {
       "name": "core::UiCanvasInformation",
       "componentId": 1054,
       "componentType": 0,
@@ -913,18 +817,6 @@
         "properties": {},
         "serializationType": "protocol-buffer",
         "protocolBuffer": "PBUiInputResult"
-      }
-    },
-    {
-      "name": "core::UiScrollResult",
-      "componentId": 1202,
-      "componentType": 0,
-      "inStaticTable": true,
-      "jsonSchema": {
-        "type": "object",
-        "properties": {},
-        "serializationType": "protocol-buffer",
-        "protocolBuffer": "PBUiScrollResult"
       }
     },
     {
