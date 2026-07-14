@@ -6,21 +6,24 @@ CLI actually uses: `@dcl/sdk` (with `@dcl/ecs`, `@dcl/react-ecs`, `@dcl/js-runti
 `@dcl/ecs-math` and their runtime deps) plus `typescript` for the type check. It is
 pure JS — no platform binaries — so one blob serves linux, macOS and Windows.
 
-The current blob is a 7.24.4 base with `@dcl/sdk`, `@dcl/ecs`, `@dcl/react-ecs` and
-`@dcl/js-runtime` overlaid from a js-sdk-toolchain build of main + PRs #1450
-(single tree-shakeable ecs in scene bundles), #1451 (dependency slimming) and
-#1452 (built-in utf-8 codec, no 549 KB `text-encoding`). The overlaid packages are
-version-stamped `7.24.4` so the scaffold manifest converges. A later full
-`npm install` in a scene replaces them with the registry 7.24.4 builds (registry
-integrity wins) — offline scenes keep the patched set; npm-flow scenes behave like
-the released ecosystem until the PRs ship upstream.
+The current blob is a pure registry install of the released 7.24.5 toolchain — no
+overlays. #1450 (single tree-shakeable ecs) shipped upstream, and the released sdk
+now provides the `@dcl/sdk/text-codec` module that published `@dcl/asset-packs`
+imports, so offline and npm-flow scenes finally see the same packages. The one
+regression vs the previous overlaid blob (7.24.4 + PRs #1450/#1451/#1452): the
+549 KB `text-encoding` polyfill is back in the tree until #1452 (built-in utf-8
+codec) merges upstream — the overlay recipe in step 3 below is the escape hatch
+if that wait gets long.
 
 ## Regenerating
 
 1. Empty dir with a `package.json` whose `devDependencies` are copied verbatim from
    `src/templates/init/scene/package.json`, plus `ethers` (imported by
    `@dcl/sdk/ethereum-provider` but undeclared in its manifest).
-2. `npm install --ignore-scripts --no-audit --no-fund`
+2. `npm install --ignore-scripts --no-audit --no-fund` — on hosts where npm is
+   policy-blocked, `corepack pnpm install --ignore-scripts --node-linker=hoisted`
+   produces the same flat script-less tree (a regen used this; it
+   refreshed ethers 6.13.4 → 6.17.0 and ens-normalize 1.10.1 → 1.11.1).
 3. Optionally overlay toolchain packages: `npm pack` each of
    `packages/@dcl/{sdk,ecs,react-ecs,js-runtime}` in the toolchain worktree,
    extract each tarball over `node_modules/@dcl/<name>`, then rewrite the four

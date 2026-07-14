@@ -6,7 +6,7 @@ use catalyrst_scene_state::{api_router, build_state, Config};
 
 const ENV_DOCS: &[(&str, &str)] = &[
     ("HTTP_SERVER_HOST", "bind address (default 127.0.0.1)"),
-    ("HTTP_SERVER_PORT", "listen port (default 5153)"),
+    ("HTTP_SERVER_PORT", "listen port (default 5209)"),
     (
         "LOCAL_SCENE_PATH",
         "optional — path to a local scene to serve",

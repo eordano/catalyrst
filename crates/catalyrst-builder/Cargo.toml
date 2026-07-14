@@ -1,6 +1,6 @@
 [package]
 name = "catalyrst-builder"
-version = "0.9.10"
+version = "0.14.3"
 edition = "2021"
 description = "Rust port of decentraland/builder-server (builder-api.decentraland.org): collection items, content redirect, newsletter"
 
@@ -14,7 +14,6 @@ catalyrst-crypto = { workspace = true }
 catalyrst-envcfg = { workspace = true }
 tokio = { workspace = true }
 axum = { workspace = true }
-tower = { workspace = true }
 tower-http = { workspace = true }
 reqwest = { workspace = true }
 sqlx = { workspace = true, features = ["uuid"] }
@@ -28,4 +27,4 @@ anyhow = { workspace = true }
 uuid = { workspace = true }
 
 [dev-dependencies]
-ethers-signers = { workspace = true }
+alloy = { workspace = true }

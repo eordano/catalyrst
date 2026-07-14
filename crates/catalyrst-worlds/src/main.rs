@@ -26,11 +26,11 @@ const ENV_DOCS: &[(&str, &str)] = &[
     ("GLOBAL_SCENES_URN", "optional — global scenes URN"),
     (
         "CONTENT_PUBLIC_URL",
-        "catalyst content public URL (default https://peer.decentraland.org/content)",
+        "catalyst content public URL (REQUIRED; no default)",
     ),
     (
         "LAMBDAS_PUBLIC_URL",
-        "catalyst lambdas public URL (default https://peer.decentraland.org/lambdas)",
+        "catalyst lambdas public URL (REQUIRED; no default)",
     ),
     (
         "LIVEKIT_HOST",
@@ -56,17 +56,14 @@ const ENV_DOCS: &[(&str, &str)] = &[
         "LIVEKIT_WEBHOOK_KEY",
         "optional — verifies LiveKit webhook signatures when set",
     ),
-    (
-        "MAX_USERS_PER_WORLD",
-        "max users per world (default 100)",
-    ),
+    ("MAX_USERS_PER_WORLD", "max users per world (default 100)"),
     (
         "WORLDS_CONTENT_DIR",
         "local contents directory (default ./data/worlds/contents)",
     ),
     (
         "CONTENTS_UPSTREAM_URL",
-        "upstream for /contents proxy reads (default https://worlds-content-server.decentraland.org)",
+        "upstream for /contents proxy reads (unset serves 404 on local misses; no default)",
     ),
     (
         "COMMS_GATEKEEPER_URL",
@@ -85,6 +82,22 @@ const ENV_DOCS: &[(&str, &str)] = &[
     (
         "MAX_IN_FLIGHT_UPLOAD_BYTES",
         "max in-flight upload bytes (default 4294967296)",
+    ),
+    (
+        "MAX_CONCURRENT_UPLOADS",
+        "max simultaneous multipart uploads (default 40)",
+    ),
+    (
+        "MAX_IN_FLIGHT_UPLOAD_FILES",
+        "max aggregate buffered upload files (default 40000)",
+    ),
+    (
+        "MULTIPART_UPLOAD_TIMEOUT_MS",
+        "deadline for receiving+parsing a multipart body (default 300000)",
+    ),
+    (
+        "DEPLOYMENT_PROCESSING_TIMEOUT_MS",
+        "deadline for post-body deployment processing (default 300000)",
     ),
     (
         "RUST_LOG",
@@ -112,7 +125,6 @@ async fn main() -> Result<()> {
 
     let app = Router::new()
         .route("/ping", get(handlers::status::ping))
-        .route("/status", get(handlers::status::status))
         .route("/health", get(handlers::status::health))
         .merge(api_router())
         .layer(TraceLayer::new_for_http())

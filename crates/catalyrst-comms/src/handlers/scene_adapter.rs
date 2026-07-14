@@ -7,7 +7,7 @@ use axum::Json;
 use serde::Deserialize;
 use serde_json::Value;
 
-use crate::auth_chain::{try_extract_signer, verify_signed_fetch};
+use crate::auth_chain::{require_signer, verify_signed_fetch};
 use crate::extract::{device_identifier, get_request_ip};
 use crate::http::{auth_error, forbidden, unauthorized, ApiError};
 use crate::livekit::{
@@ -20,7 +20,6 @@ use crate::AppState;
 pub struct SceneAdapterRequest {
     #[serde(rename = "sceneId")]
     pub scene_id: Option<String>,
-    pub identity: Option<String>,
     pub parcel: Option<String>,
     #[serde(rename = "realmName")]
     pub realm_name: Option<String>,
@@ -118,7 +117,7 @@ pub async fn get_scene_adapter(
         .map_err(|e| auth_error(e.status, e.message))?;
     let body: SceneAdapterRequest = serde_json::from_slice(&raw_body).unwrap_or_default();
 
-    let identity = sf.signer.to_lowercase();
+    let identity = sf.signer.as_str().to_string();
 
     let realm_name = meta_str(&sf.metadata, "realmName")
         .or_else(|| {
@@ -184,12 +183,16 @@ pub async fn get_scene_adapter(
         scene_room_name(resolved_scene_id.as_str())
     };
 
+    let mut grants = VideoGrants::join(&room);
+    grants.can_update_own_metadata = false;
+
     let token = AccessToken::new(
         &state.livekit_api_key,
         &state.livekit_api_secret,
         &identity,
-        VideoGrants::join(&room),
+        grants,
     )
+    .with_metadata(serde_json::json!({ "isGuest": sf.is_guest }).to_string())
     .with_ttl(Duration::from_secs(state.livekit_token_ttl_secs))
     .to_jwt()
     .map_err(|e| ApiError::internal(format!("livekit token: {e}")))?;
@@ -206,11 +209,10 @@ pub async fn get_server_scene_adapter(
     headers: HeaderMap,
     Json(body): Json<SceneAdapterRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let signer = try_extract_signer(&headers, "post", "/get-server-scene-adapter");
-    let identity = signer
-        .or(body.identity.clone())
-        .ok_or_else(|| unauthorized("missing identity (no auth chain, no body.identity)"))?
-        .to_lowercase();
+    let identity = require_signer(&headers, "post", "/get-server-scene-adapter")
+        .map_err(|e| unauthorized(format!("Access denied, invalid signed-fetch request: {e}")))?
+        .as_str()
+        .to_string();
 
     match state.authoritative_server_address.as_deref() {
         Some(expected) if identity == expected.to_lowercase() => {}

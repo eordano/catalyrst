@@ -20,6 +20,9 @@ pub async fn telemetry_issue_state(session: AdminSession, Json(body): Json<Value
 }
 
 pub async fn telemetry_sql(session: AdminSession, Json(body): Json<Value>) -> Response {
+    let Some(token) = env_token(TELEMETRY_TOKEN) else {
+        return token_missing("telemetry");
+    };
     proxy_audited_global(
         &session.address,
         "telemetry.sql",
@@ -29,7 +32,7 @@ pub async fn telemetry_sql(session: AdminSession, Json(body): Json<Value>) -> Re
         "telemetry",
         "/dash/sql",
         Some(body),
-        None,
+        Some(&token),
     )
     .await
 }

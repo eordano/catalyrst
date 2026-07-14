@@ -99,7 +99,12 @@ pub async fn build(opts: &BuildOptions) -> Result<Built> {
         ux::fmt_elapsed(started.elapsed())
     ));
 
-    split::write_loader_stub(&outfile, &sdk_rel, &scene_rel)?;
+    split::write_loader_stub(
+        &outfile,
+        &sdk_rel,
+        &scene_rel,
+        generated.max_composite_entity,
+    )?;
     tracing::info!("loader stub saved {}", outfile.display());
     steps.done(format!(
         "Loader stub saved {}",

@@ -86,6 +86,24 @@ Gated on `require_admin_bearer` (`handlers/admin.rs`).
 |--------|----------|---------------------------------------------------------------------------|
 | GET    | `/ping`  | catalyrst convention; matches catalyrst-market `/ping` for smoke testing  |
 
+## Lists (`lists_router()`, upstream `dcl-lists.decentraland.org`)
+
+Absorbed from the retired catalyrst-lists crate. Served by `catalyrst-explore` alongside
+`api_router()` (not mounted by the standalone catalyrst-places binary). Backing store: the same
+`places_events` reader pool, tables `lists_poi` / `lists_banned_name`, seeded from the live
+upstream by `deploy/sync-lists.sh` (daily via `deploy/lists-daily.timer`); schema in
+`migrations/0001_lists.sql`. Both endpoints return the bare `{"data": Vec<String>}` envelope the
+explorer + marketplace expect (no `ok` wrapper, unlike the `/api` surface); an unseeded table
+serves an empty list.
+
+| Method | Path            | Status | Notes                                                                                                  |
+|--------|-----------------|--------|--------------------------------------------------------------------------------------------------------|
+| POST   | `/pois`         | DONE   | PRIMARY explorer route (`DecentralandUrl.POI`). Empty body -> `{"data": ["x,y", ...]}`. Unity throws on null `.data`. |
+| POST   | `/banned-names` | DONE   | Not called by explorer; consumed by marketplace-server / catalyrst-market to filter ENS listings. Empty body -> `{"data": [...]}`. |
+
+`/pois` sorted by `coord`, `/banned-names` by `name`. Curation (write) endpoints deferred as
+before; the L2 POI contract is not read on-chain here.
+
 ## Totals
 
 - 32 routes registered upstream (30 under `/api`, 2 under `/places`)

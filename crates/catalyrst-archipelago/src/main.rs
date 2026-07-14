@@ -14,7 +14,7 @@ const ENV_DOCS: &[(&str, &str)] = &[
     ),
     (
         "ARCHIPELAGO_REQUIRE_AUTH",
-        "1/true — require a signed challenge on websocket connect (overrides config file)",
+        "default 1 — a signed challenge is required; 0/false/no accepts unsigned POST /heartbeat presence writes for any address (development only, overrides config file)",
     ),
     (
         "LIVEKIT_API_KEY",
@@ -31,7 +31,7 @@ const ENV_DOCS: &[(&str, &str)] = &[
     ),
     (
         "DENY_LIST_URL",
-        "denylist JSON URL (default https://config.decentraland.org/denylist.json; empty disables)",
+        "denylist JSON URL (unset/empty disables the denylist; no default)",
     ),
     ("ARCHIPELAGO_NODE_ID", "gossip node id"),
     (
@@ -53,7 +53,7 @@ const ENV_DOCS: &[(&str, &str)] = &[
     ("POSTGRES_PORT", "content DB port (default 6432)"),
     (
         "CONTENT_BASE_URL",
-        "content server base URL (default https://peer.decentraland.org/content)",
+        "content server base URL (default http://127.0.0.1:5141)",
     ),
     ("COMMIT_HASH", "build commit reported by status endpoints"),
     (

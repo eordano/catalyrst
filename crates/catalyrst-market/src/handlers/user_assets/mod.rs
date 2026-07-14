@@ -27,7 +27,8 @@ pub struct PaginatedAssetsBody<T> {
     pub limit: i64,
     #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub total: i64,
-    #[serde(rename = "totalItems", skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "totalItems")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(type = "number", optional))]
     pub total_items: Option<i64>,
 }

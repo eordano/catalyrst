@@ -17,7 +17,7 @@ const ENV_HELP: &str = "environment variables:
   PRESENCE_PG_COMPONENT_PSQL_CONNECTION_STRING  required — presence Postgres connection string
   ARCHIPELAGO_URL                               archipelago base URL (default http://127.0.0.1:5139)
   COMMS_URL                                     comms base URL (default http://127.0.0.1:5138)
-  WORLDS_SERVER_URL                             worlds content server (default https://worlds-content-server.decentraland.org)
+  WORLDS_SERVER_URL                             worlds content server (default http://127.0.0.1:5142)
   PRESENCE_GENESIS_REALM                        genesis realm name (default main)
   PRESENCE_SNAPSHOT_INTERVAL_SECS               snapshot interval in seconds for `run` (default 300)
   RUST_LOG                                      tracing filter (default catalyrst_presence=info,tower_http=info)";

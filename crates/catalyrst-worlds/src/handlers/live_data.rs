@@ -5,6 +5,14 @@ use serde_json::{json, Value};
 
 use crate::AppState;
 
+#[utoipa::path(
+    get,
+    path = "/live-data",
+    tag = "status",
+    responses(
+        (status = 200, body = serde_json::Value)
+    )
+)]
 pub async fn live_data(State(state): State<AppState>) -> Json<Value> {
     let counts = state.presence.world_counts();
     let total: i64 = counts.iter().map(|(_, c)| c).sum();

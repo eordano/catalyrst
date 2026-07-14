@@ -1,6 +1,3 @@
-// Port of upstream src/utils/storage-delegation.ts (ef2939b): world-scoped
-// authoritative storage delegations carried in the x-authoritative-scope header.
-
 use chrono::{DateTime, Utc};
 
 pub const AUTHORITATIVE_SCOPE_HEADER: &str = "x-authoritative-scope";
@@ -34,8 +31,6 @@ fn parse_claim(payload: &str) -> Option<ParsedClaim> {
         return None;
     }
 
-    // Require EXACTLY the known field lines, each present once — no unknown, extra,
-    // or duplicate lines — so minter/verifier format drift fails closed.
     let mut values: [Option<&str>; CLAIM_FIELDS.len()] = [None; CLAIM_FIELDS.len()];
     for line in lines {
         let idx = CLAIM_FIELDS.iter().position(|p| line.starts_with(p))?;
@@ -107,8 +102,6 @@ fn verify_storage_delegation_at(
         return Err("delegation expired");
     }
 
-    // The claim must be personally signed (EOA; EIP-1654 contract wallets are
-    // intentionally unsupported) by a trusted authoritative address.
     let recovered = catalyrst_crypto::recover::recover_address(payload.as_bytes(), signature)
         .map_err(|_| "claim not signed by a trusted authoritative address")?;
     if target

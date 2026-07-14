@@ -32,19 +32,19 @@ const ENV_DOCS: &[(&str, &str)] = &[
     ),
     (
         "RPC_ENDPOINT_ETH",
-        "EIP-1654 signature-validation RPC (default https://rpc.decentraland.org/mainnet)",
+        "EIP-1654 signature-validation RPC (unset rejects contract-wallet signatures; no default)",
     ),
     (
         "WORLDS_CONTENT_SERVER_URL",
-        "worlds content server (default https://worlds-content-server.decentraland.org)",
+        "worlds content server (default http://127.0.0.1:5142)",
     ),
     (
         "LAMBDAS_URL",
-        "catalyst lambdas (default https://peer.decentraland.org/lambdas)",
+        "catalyst lambdas (REQUIRED; no default)",
     ),
     (
         "PLACES_URL",
-        "places API (default https://places.decentraland.org)",
+        "places API (default http://127.0.0.1:5134)",
     ),
     (
         "PLACES_CACHE_TTL_SECONDS",

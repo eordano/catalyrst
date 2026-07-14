@@ -166,16 +166,32 @@ in
       '';
     };
 
+    ethRpcUrl = lib.mkOption {
+      type = lib.types.str;
+      example = "http://127.0.0.1:8545";
+      description = ''
+        HTTPS RPC endpoint used for EIP-1654 write validation. No default:
+        the previous one was Decentraland's production RPC gateway.
+      '';
+    };
+
+    commsGatekeeperUrl = lib.mkOption {
+      type = lib.types.str;
+      example = "http://127.0.0.1:5138";
+      description = ''
+        Comms gatekeeper base URL for the archipelago workers. No default:
+        the previous one was the production gatekeeper.
+      '';
+    };
+
     syncSource = lib.mkOption {
       type = lib.types.listOf lib.types.str;
-      default = [
-        "https://peer.decentraland.org/content"
-        "https://peer-eu1.decentraland.org/content"
-        "https://peer.dclnodes.io/content"
-        "https://peer.uadevops.com/content"
-        "https://peer.melonwave.com/content"
-      ];
-      description = "Peer URLs catalyrst pulls deployments from. Joined with ',' into SYNC_SOURCE.";
+      default = [ ];
+      description = ''
+        Peer URLs catalyrst pulls deployments from, joined with ',' into
+        SYNC_SOURCE. Empty by default: this list used to name the public
+        Genesis City peers, so a stock deployment synced from production.
+      '';
     };
 
     cloudflareFronted = lib.mkOption {
@@ -313,6 +329,14 @@ in
             extraConfig = ''
               internal;
               alias ${cfg.contentStorageRoot}/contents/;
+              # X-Accel-Redirect drops the upstream response headers and nginx's static
+              # module would generate its default mtime-size ETag, breaking parity with
+              # the TS catalyst whose ETag is the quoted content CID. Disable the auto
+              # ETag and re-emit the app's headers (kept in $upstream_http_* across the
+              # internal redirect).
+              etag off;
+              add_header ETag $upstream_http_etag always;
+              add_header Access-Control-Expose-Headers $upstream_http_access_control_expose_headers always;
               add_header Cache-Control "public, max-age=31536000, immutable" always;
               add_header X-Content-Type-Options "nosniff" always;
               sendfile on;
@@ -458,7 +482,7 @@ in
           ENABLE_DEPLOYMENTS = lib.boolToString cfg.enableDeployments;
           THIRD_PARTY_ROOT_SOURCE = "squid";
           IGNORE_BLOCKCHAIN_ACCESS_CHECKS = "false";
-          ETH_RPC_URL = "https://rpc.decentraland.org/mainnet";
+          ETH_RPC_URL = cfg.ethRpcUrl;
           CONCURRENT_SYNC_DOWNLOADS = "1500";
           SYNC_SOURCE = lib.concatStringsSep "," cfg.syncSource;
         };
@@ -885,7 +909,7 @@ in
           CHECK_HEARTBEAT_INTERVAL = "60000";
           LIVEKIT_HOST = "wss://livekit.${cfg.domain}";
           LIVEKIT_ISLAND_SIZE = "50";
-          COMMS_GATEKEEPER_URL = "https://comms-gatekeeper.decentraland.org";
+          COMMS_GATEKEEPER_URL = cfg.commsGatekeeperUrl;
         };
         serviceConfig = noPgSandbox // {
           LoadCredential = "livekit-env:/var/lib/secrets/livekit-api.env";
@@ -913,7 +937,7 @@ in
           HTTP_SERVER_PORT = "5001"; HTTP_SERVER_HOST = "127.0.0.1";
           NATS_URL = "nats://127.0.0.1:5222";
           ETH_NETWORK = "mainnet";
-          COMMS_GATEKEEPER_URL = "https://comms-gatekeeper.decentraland.org";
+          COMMS_GATEKEEPER_URL = cfg.commsGatekeeperUrl;
         };
         serviceConfig = noPgSandbox // {
           ExecStart = "${cfg.commsPackages.archipelago-workers}/bin/archipelago-ws-connector";
@@ -956,6 +980,10 @@ in
         environment = {
           RUST_LOG = "info";
           PULSE_BIND = "0.0.0.0:7777";
+          # Must stay equal to the `pulse` scrape target below: pulse refuses to start if it
+          # cannot bind this, so a mismatch is a boot failure rather than a silent 0 for
+          # up{job="pulse"} poisoning the shared ServiceDown alert.
+          PULSE_METRICS_BIND = "127.0.0.1:5005";
         };
         serviceConfig = noPgSandbox // {
           ExecStart = "${cfg.commsPackages.pulse}/bin/catalyrst-pulse";
@@ -963,7 +991,7 @@ in
           MemoryHigh = "4G";
           MemoryMax = "6G";
           TasksMax = 512;
-          SocketBindAllow = [ "udp:7777" ];
+          SocketBindAllow = [ "udp:7777" "tcp:5005" ];
           SocketBindDeny = "any";
         };
       };

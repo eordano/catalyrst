@@ -33,14 +33,18 @@ impl IngestControl {
     }
 
     pub fn admit(&self, project: &str) -> bool {
-        if !self.enabled.load(Ordering::Relaxed) {
-            return false;
+        self.admit_n(project, 1) > 0
+    }
+
+    pub fn admit_n(&self, project: &str, count: usize) -> usize {
+        if count == 0 || !self.enabled.load(Ordering::Relaxed) {
+            return 0;
         }
         let limit = {
             let q = self.quotas.read().unwrap();
             match q.get(project) {
                 Some(&l) => l,
-                None => return true,
+                None => return count,
             }
         };
         let today = today_utc();
@@ -55,13 +59,13 @@ impl IngestControl {
                 }
             }
         }
+        let requested = i64::try_from(count).unwrap_or(i64::MAX);
         let mut counters = self.counters.write().unwrap();
         let used = counters.entry(project.to_string()).or_insert(0);
-        if *used >= limit {
-            return false;
-        }
-        *used += 1;
-        true
+        let remaining = (limit - *used).max(0);
+        let granted = remaining.min(requested);
+        *used += granted;
+        granted as usize
     }
 }
 
@@ -143,7 +147,34 @@ pub async fn build_state(cfg: &Config) -> Result<AppState> {
     }))
 }
 
-pub fn api_router() -> Router<AppState> {
+async fn require_telemetry_admin(
+    axum::extract::State(state): axum::extract::State<AppState>,
+    headers: axum::http::HeaderMap,
+    request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    use axum::response::IntoResponse;
+    if let Err(rejection) = handlers::admin::authorize(&state, &headers) {
+        return rejection.into_response();
+    }
+    next.run(request).await
+}
+
+fn gated_reads(state: AppState) -> Router<AppState> {
+    Router::new()
+        .route("/dash/events", get(handlers::dashboard::events))
+        .route("/dash/event/{id}", get(handlers::dashboard::event_detail))
+        .route("/dash/stats", get(handlers::dashboard::stats))
+        .route("/dash/sql", post(handlers::dashboard::sql_query))
+        .route("/dash/story/{id}", get(handlers::dashboard::story))
+        .route("/dash/session/{id}", get(handlers::dashboard::session))
+        .route_layer(axum::middleware::from_fn_with_state(
+            state,
+            require_telemetry_admin,
+        ))
+}
+
+pub fn api_router(state: AppState) -> Router<AppState> {
     Router::new()
         .route("/", get(handlers::ssr::page))
         .route("/events", get(handlers::ssr::page))
@@ -156,17 +187,12 @@ pub fn api_router() -> Router<AppState> {
         .route("/flags", get(handlers::ssr::page))
         .route("/sql", get(handlers::ssr::page))
         .route("/session/{id}", get(handlers::ssr::page))
-        .route("/dash/events", get(handlers::dashboard::events))
-        .route("/dash/event/{id}", get(handlers::dashboard::event_detail))
-        .route("/dash/stats", get(handlers::dashboard::stats))
         .route("/dash/metrics", get(handlers::dashboard::metrics))
         .route("/dash/health", get(handlers::dashboard::health))
         .route("/dash/funnel", get(handlers::dashboard::funnel))
         .route("/dash/breakdown", get(handlers::dashboard::breakdown))
         .route("/dash/flags", get(handlers::dashboard::flags))
-        .route("/dash/sql", post(handlers::dashboard::sql_query))
-        .route("/dash/story/{id}", get(handlers::dashboard::story))
-        .route("/dash/session/{id}", get(handlers::dashboard::session))
+        .merge(gated_reads(state))
         .route(
             "/dash/issue/state",
             post(handlers::dashboard::set_issue_state),
@@ -179,6 +205,7 @@ pub fn api_router() -> Router<AppState> {
             "/dash/experiment",
             post(handlers::dashboard::experiment_set),
         )
+        .route("/dash/flag", post(handlers::dashboard::flag_set))
         .route("/dash/admin/purge", post(handlers::admin::purge))
         .route("/dash/admin/ingest", post(handlers::admin::ingest_toggle))
         .route("/dash/admin/quota", post(handlers::admin::quota))

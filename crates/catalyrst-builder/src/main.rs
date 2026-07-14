@@ -21,7 +21,7 @@ const ENV_DOCS: &[(&str, &str)] = &[
     ),
     (
         "BUILDER_CONTENT_BUCKET_URL",
-        "item content bucket base URL (default https://builder-items.decentraland.org)",
+        "item content bucket base URL (REQUIRED; no default)",
     ),
     (
         "BUILDER_ADMIN_ADDRESSES",

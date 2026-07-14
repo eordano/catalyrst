@@ -67,7 +67,8 @@ pub(crate) struct PointerChangeDelta<'a> {
     pub(crate) pointers: &'a Vec<String>,
     #[serde(rename = "entityTimestamp")]
     pub(crate) entity_timestamp: i64,
-    pub(crate) metadata: &'a Value,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) metadata: Option<&'a Value>,
     #[serde(rename = "deployerAddress")]
     pub(crate) deployer_address: &'a str,
     pub(crate) version: &'a str,

@@ -75,7 +75,7 @@ pub(super) fn validate_idempotency_key(raw: &Option<String>) -> Result<Option<St
 
 pub(super) fn normalize_address(raw: &str) -> Result<String, ApiError> {
     let a = raw.trim().to_lowercase();
-    let ok = a.len() == 42 && a.starts_with("0x") && a[2..].bytes().all(|b| b.is_ascii_hexdigit());
+    let ok = catalyrst_types::is_eth_address(&a);
     if ok {
         Ok(a)
     } else {
@@ -107,39 +107,6 @@ pub(crate) fn validate_positive_amount(raw: &str) -> Result<String, ApiError> {
         return Err(ApiError::bad_request("amount must be a positive number"));
     }
     Ok(s.to_string())
-}
-
-pub(super) fn validate_max_mana(raw: &str) -> Result<String, ApiError> {
-    let s = raw.trim();
-    if s.is_empty() || s.len() > 78 {
-        return Err(ApiError::bad_request("invalid maxMana"));
-    }
-    let mut seen_dot = false;
-    let mut any_digit = false;
-    for c in s.chars() {
-        match c {
-            '0'..='9' => any_digit = true,
-            '.' if !seen_dot => seen_dot = true,
-            _ => return Err(ApiError::bad_request("invalid maxMana")),
-        }
-    }
-    if !any_digit {
-        return Err(ApiError::bad_request("invalid maxMana"));
-    }
-    Ok(s.to_string())
-}
-
-const VALID_SEASON_STATES: [&str; 3] = ["NOT_STARTED", "IN_PROGRESS", "FINISHED"];
-
-pub(super) fn validate_season_state(raw: &str) -> Result<String, ApiError> {
-    let s = raw.trim().to_uppercase();
-    if VALID_SEASON_STATES.contains(&s.as_str()) {
-        Ok(s)
-    } else {
-        Err(ApiError::bad_request(
-            "state must be NOT_STARTED, IN_PROGRESS, or FINISHED",
-        ))
-    }
 }
 
 pub(super) fn validated_reason(reason: &Option<String>) -> Result<Option<String>, ApiError> {
@@ -291,12 +258,6 @@ mod tests {
         assert_eq!(admin_actor(&h), None);
         h.insert("x-catalyrst-admin", HeaderValue::from_static("  alice  "));
         assert_eq!(admin_actor(&h).as_deref(), Some("alice"));
-    }
-
-    #[test]
-    fn validates_season_state() {
-        assert_eq!(validate_season_state("in_progress").unwrap(), "IN_PROGRESS");
-        assert!(validate_season_state("BOGUS").is_err());
     }
 
     #[test]

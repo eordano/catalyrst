@@ -4,6 +4,7 @@ use crate::livekit::{
     build_adapter_url, community_id_from_room_name, private_voice_chat_room_name, AccessToken,
     VideoGrants, TRACK_SOURCE_MICROPHONE,
 };
+use crate::util::now_ms;
 use crate::voice_db::{DeleteRoomError, VoiceChatUserStatus};
 use crate::AppState;
 
@@ -510,14 +511,6 @@ pub async fn expire_community_voice_chats(state: &AppState) -> Result<(), crate:
         publish_community_streaming_ended_event(state, room_name, participant_count).await;
     }
     Ok(())
-}
-
-fn now_ms() -> i64 {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or(0)
 }
 
 pub fn spawn_expiration_job(state: AppState) {

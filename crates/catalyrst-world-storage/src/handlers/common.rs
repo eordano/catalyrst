@@ -15,15 +15,10 @@ use crate::storage::StorageEntry;
 pub const MAX_LIMIT: i64 = 100;
 pub const CONFIRM_DELETE_ALL_HEADER: &str = "x-confirm-delete-all";
 
-// Matches the varchar(255) columns of every storage table.
 pub const MAX_KEY_LENGTH: usize = 255;
 
-// Slack added on top of the per-value limit for the JSON request envelope.
 pub const BODY_ENVELOPE_SLACK_BYTES: i64 = 1024;
 
-// Keys are stored in varchar(255) columns; without this check an oversized key passes
-// limits validation and then fails the INSERT with a 500. Postgres counts varchar
-// length in code points.
 pub fn validate_key(key: &str) -> Result<(), ApiError> {
     if key.is_empty() || (key.len() > MAX_KEY_LENGTH && key.chars().count() > MAX_KEY_LENGTH) {
         return Err(ApiError::bad_request(format!(
@@ -33,9 +28,6 @@ pub fn validate_key(key: &str) -> Result<(), ApiError> {
     Ok(())
 }
 
-// Rejects oversized bodies via the declared Content-Length before anything buffers or
-// parses them (hyper enforces that a fixed-length body does not exceed the declared
-// length, so the header is a trusted upper bound; chunked bodies have none → 411).
 pub fn check_content_length(headers: &HeaderMap, max_value_size: i64) -> Result<(), ApiError> {
     let content_length = headers
         .get(axum::http::header::CONTENT_LENGTH)
@@ -56,10 +48,6 @@ pub fn check_content_length(headers: &HeaderMap, max_value_size: i64) -> Result<
     Ok(())
 }
 
-// Postgres jsonb cannot store NUL characters and rejects them with an internal error.
-// serde_json always encodes a NUL as the six characters `\u0000`, so the serialized
-// text is scanned for that escape preceded by an even number of backslashes (an odd
-// count means the backslash itself is escaped text, e.g. the literal string "\\u0000").
 pub fn reject_nul_characters(serialized: &str) -> Result<(), ApiError> {
     let bytes = serialized.as_bytes();
     let needle = b"\\u0000";
@@ -161,13 +149,8 @@ pub fn normalize_player(address: &str) -> Result<String, ApiError> {
     Ok(t.to_ascii_lowercase())
 }
 
-pub fn is_eth_address(s: &str) -> bool {
-    s.len() == 42 && s.starts_with("0x") && s[2..].chars().all(|c| c.is_ascii_hexdigit())
-}
+pub use catalyrst_types::is_eth_address;
 
-// A response whose body is already-serialized JSON text, sent verbatim: values read
-// as `value::text` (or serialized once at validation) are spliced straight into the
-// body, so the response layer never re-encodes stored payloads.
 #[derive(Debug)]
 pub struct RawJson(pub String);
 
@@ -185,8 +168,6 @@ pub fn raw_value_response(serialized: &str) -> RawJson {
     RawJson(format!("{{\"value\":{serialized}}}"))
 }
 
-// Splices each row's value text verbatim into the page; only the (small) keys are
-// escaped. limit/offset/total are validated integers, safe to interpolate.
 pub fn raw_paginated_response(
     entries: &[StorageEntry],
     limit: i64,
@@ -260,11 +241,9 @@ mod tests {
             Err(ApiError::BadRequest(_))
         ));
 
-        // The literal text backslash-u0000 (backslash, u, zeros) is fine: serialized it is \\u0000.
         let literal_text = serde_json::to_string(&json!({ "a": "\\u0000" })).unwrap();
         assert!(reject_nul_characters(&literal_text).is_ok());
 
-        // A literal backslash followed by an actual NUL still contains a NUL.
         let backslash_then_nul = serde_json::to_string(&json!({ "a": "\\\u{0}" })).unwrap();
         assert!(reject_nul_characters(&backslash_then_nul).is_err());
 
@@ -374,8 +353,6 @@ mod tests {
         ]
     }
 
-    // The spliced body must be byte-identical to what the decoded path
-    // (parse + Json(json!({...}))) would have produced for serde-canonical value text.
     #[test]
     fn raw_value_splice_is_byte_identical_to_the_decoded_path() {
         for v in gnarly_values() {
@@ -418,8 +395,6 @@ mod tests {
         );
     }
 
-    // Postgres emits jsonb text with its own spacing ("{"a": 1}"); the splice must pass
-    // it through verbatim and still form a valid, semantically identical response.
     #[test]
     fn raw_value_splice_passes_postgres_spaced_text_verbatim() {
         let pg_text = "{\"a\": 1, \"b\": [1, 2]}";

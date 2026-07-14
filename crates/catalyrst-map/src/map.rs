@@ -127,10 +127,6 @@ impl MapComponent {
         }
     }
 
-    pub fn rentals_enabled(&self) -> bool {
-        self.rentals.is_some()
-    }
-
     pub fn cached_tiles_response(&self, key: &str) -> Option<Arc<Vec<u8>>> {
         let last = self.last_updated_at();
         let cache = self.tiles_cache.read();

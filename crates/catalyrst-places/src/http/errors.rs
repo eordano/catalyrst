@@ -1,7 +1,7 @@
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::Json;
-use serde_json::json;
+use catalyrst_types::ApiErrorBody;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -53,32 +53,22 @@ const FED_ADR_URL: &str = "./docs/federation/places.md";
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
-        let (code, message, extra) = match &self {
-            ApiError::BadRequest(m) => (400u16, m.clone(), None),
-            ApiError::NotFound(m) => (404, m.clone(), None),
-            ApiError::Unauthorized(m) => (401, m.clone(), None),
-            ApiError::Forbidden(m) => (403, m.clone(), None),
-            ApiError::NotImplemented(m) => (
-                501,
-                m.clone(),
-                Some(json!({ "federation_adr": FED_ADR_URL })),
-            ),
-            ApiError::ServiceUnavailable(m) => (
-                503,
-                m.clone(),
-                Some(json!({ "federation_adr": FED_ADR_URL })),
-            ),
+        let (code, message, adr) = match &self {
+            ApiError::BadRequest(m) => (400u16, m.clone(), false),
+            ApiError::NotFound(m) => (404, m.clone(), false),
+            ApiError::Unauthorized(m) => (401, m.clone(), false),
+            ApiError::Forbidden(m) => (403, m.clone(), false),
+            ApiError::NotImplemented(m) => (501, m.clone(), true),
+            ApiError::ServiceUnavailable(m) => (503, m.clone(), true),
             ApiError::Database(e) => {
                 tracing::error!(error = %e, "sqlx error");
-                (500, "database error".to_string(), None)
+                (500, "database error".to_string(), false)
             }
         };
         let status = StatusCode::from_u16(code).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
-        let mut body = json!({ "ok": false, "message": message });
-        if let Some(extra) = extra {
-            for (k, v) in extra.as_object().unwrap() {
-                body[k] = v.clone();
-            }
+        let mut body = ApiErrorBody::new(message);
+        if adr {
+            body = body.with_federation_adr(FED_ADR_URL);
         }
         (status, Json(body)).into_response()
     }

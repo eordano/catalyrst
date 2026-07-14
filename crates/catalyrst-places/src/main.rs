@@ -40,11 +40,11 @@ const ENV_DOCS: &[(&str, &str)] = &[
     ),
     (
         "COMMS_GATEKEEPER_URL",
-        "comms gatekeeper base URL (default https://comms-gatekeeper.decentraland.zone)",
+        "comms gatekeeper base URL (default http://127.0.0.1:5138)",
     ),
     (
         "EVENTS_API_URL",
-        "events API base URL (default https://events.decentraland.zone/api)",
+        "events API base URL (default http://127.0.0.1:5135)",
     ),
     (
         "PRESENCE_URL",

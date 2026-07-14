@@ -1,10 +1,5 @@
-use std::future::Future;
-use std::pin::Pin;
-
 use sqlx::postgres::{PgConnectOptions, PgPool, PgPoolOptions};
-use sqlx::{Executor, Postgres, Transaction};
 use thiserror::Error;
-use tracing::{error, info};
 
 pub struct DatabaseConfig {
     pub host: String,
@@ -87,50 +82,8 @@ impl Database {
         Ok(Self { pool })
     }
 
-    pub fn from_pool(pool: PgPool) -> Self {
-        Self { pool }
-    }
-
     pub fn pool(&self) -> &PgPool {
         &self.pool
-    }
-
-    pub async fn verify(&self) -> Result<(), DatabaseError> {
-        let mut conn = self
-            .pool
-            .acquire()
-            .await
-            .map_err(DatabaseError::ConnectionFailed)?;
-        conn.execute("SELECT 1")
-            .await
-            .map_err(DatabaseError::ConnectionFailed)?;
-        Ok(())
-    }
-
-    pub async fn begin(&self) -> Result<Transaction<'_, Postgres>, DatabaseError> {
-        Ok(self.pool.begin().await?)
-    }
-
-    pub async fn transaction<F, T>(&self, f: F) -> Result<T, DatabaseError>
-    where
-        F: for<'c> FnOnce(
-            &'c mut Transaction<'_, Postgres>,
-        )
-            -> Pin<Box<dyn Future<Output = Result<T, DatabaseError>> + Send + 'c>>,
-        T: Send,
-    {
-        let mut tx = self.pool.begin().await?;
-        let val = f(&mut tx).await.map_err(|e| {
-            error!("Transaction failed: {e}");
-            e
-        })?;
-        tx.commit().await?;
-        Ok(val)
-    }
-
-    pub async fn close(&self) {
-        info!("Draining database connections");
-        self.pool.close().await;
     }
 }
 

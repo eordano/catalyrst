@@ -44,7 +44,17 @@ fn build_payload(method: &str, path: &str, timestamp: &str, metadata: &str) -> S
 
 fn signed_fetch_path<'a>(headers: &HeaderMap, fallback: &'a str) -> std::borrow::Cow<'a, str> {
     match headers.get("x-original-path").and_then(|v| v.to_str().ok()) {
-        Some(raw) => std::borrow::Cow::Owned(raw.split('?').next().unwrap_or(raw).to_string()),
+        Some(raw) => {
+            let stripped = raw.split('?').next().unwrap_or(raw);
+            // x-original-path is only trustworthy as the route path behind a
+            // proxy prefix; a value that is not a suffix of the actual route is
+            // a forged client header and must not rebind the signature.
+            if stripped.ends_with(fallback) {
+                std::borrow::Cow::Owned(stripped.to_string())
+            } else {
+                std::borrow::Cow::Borrowed(fallback)
+            }
+        }
         None => std::borrow::Cow::Borrowed(fallback),
     }
 }

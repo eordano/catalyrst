@@ -2,17 +2,12 @@
 // passthrough. Set CATALYRST_WORLD_STORAGE_TEST_PG to a postgres URL to run;
 // each test works in a throwaway schema and drops it on the way out.
 
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::Duration;
-
+use catalyrst_contract_gate::pg::ScratchSchema;
 use catalyrst_world_storage::config::{NamespaceLimits, StorageCacheConfig};
 use catalyrst_world_storage::handlers::common::raw_paginated_response;
 use catalyrst_world_storage::storage::Storage;
 use serde_json::{json, Value};
-use sqlx::postgres::PgPoolOptions;
 use sqlx::{PgPool, Row};
-
-static COUNTER: AtomicU64 = AtomicU64::new(0);
 
 const WORLD: &str = "test.dcl.eth";
 const PLACE: &str = "11111111-1111-1111-1111-111111111111";
@@ -33,57 +28,13 @@ fn cache_cfg(enabled: bool) -> StorageCacheConfig {
     }
 }
 
-fn unique_schema() -> String {
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
-    let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-    format!("test_wstorage_{}_{}_{}", std::process::id(), nanos, n)
-}
-
-async fn setup_db() -> Option<(PgPool, String, String)> {
-    let url = std::env::var("CATALYRST_WORLD_STORAGE_TEST_PG").ok()?;
-    let admin = PgPoolOptions::new()
-        .max_connections(2)
-        .acquire_timeout(Duration::from_secs(5))
-        .connect(&url)
-        .await
-        .ok()?;
-    let schema = unique_schema();
-    sqlx::query(sqlx::AssertSqlSafe(format!("CREATE SCHEMA {}", schema)))
-        .execute(&admin)
-        .await
-        .ok()?;
-    let suffixed = format!("{}?options=-c%20search_path%3D{}", url, schema);
-    let pool = PgPoolOptions::new()
-        .max_connections(4)
-        .acquire_timeout(Duration::from_secs(5))
-        .connect(&suffixed)
-        .await
-        .ok()?;
-
+async fn setup_db() -> Option<ScratchSchema> {
+    let scratch = ScratchSchema::create("CATALYRST_WORLD_STORAGE_TEST_PG", "cg_wstorage").await?;
     sqlx::migrate!("./migrations")
-        .run(&pool)
+        .run(&scratch.pool)
         .await
         .expect("migrations apply");
-
-    Some((pool, schema, url))
-}
-
-async fn cleanup(admin_url: &str, schema: &str) {
-    if let Ok(admin) = PgPoolOptions::new()
-        .max_connections(1)
-        .connect(admin_url)
-        .await
-    {
-        let _ = sqlx::query(sqlx::AssertSqlSafe(format!(
-            "DROP SCHEMA {} CASCADE",
-            schema
-        )))
-        .execute(&admin)
-        .await;
-    }
+    Some(scratch)
 }
 
 fn ser(v: &Value) -> String {
@@ -137,10 +88,10 @@ async fn sneaky_player_update(pool: &PgPool, player: &str, key: &str, value: &Va
 
 #[tokio::test]
 async fn world_single_key_cache_hit_miss_and_write_invalidation() {
-    let Some((pool, schema, admin_url)) = setup_db().await else {
-        eprintln!("skipping world_single_key_cache_hit_miss_and_write_invalidation: set CATALYRST_WORLD_STORAGE_TEST_PG to run");
+    let Some(scratch) = setup_db().await else {
         return;
     };
+    let pool = scratch.pool.clone();
     let storage = Storage::new(pool.clone(), cache_cfg(true));
 
     assert!(storage
@@ -184,15 +135,15 @@ async fn world_single_key_cache_hit_miss_and_write_invalidation() {
         "a delete must invalidate the cached value"
     );
 
-    cleanup(&admin_url, &schema).await;
+    scratch.drop().await;
 }
 
 #[tokio::test]
 async fn player_single_key_cache_hit_miss_and_write_invalidation() {
-    let Some((pool, schema, admin_url)) = setup_db().await else {
-        eprintln!("skipping player_single_key_cache_hit_miss_and_write_invalidation: set CATALYRST_WORLD_STORAGE_TEST_PG to run");
+    let Some(scratch) = setup_db().await else {
         return;
     };
+    let pool = scratch.pool.clone();
     let storage = Storage::new(pool.clone(), cache_cfg(true));
 
     storage
@@ -238,17 +189,15 @@ async fn player_single_key_cache_hit_miss_and_write_invalidation() {
         .unwrap()
         .is_none());
 
-    cleanup(&admin_url, &schema).await;
+    scratch.drop().await;
 }
 
 #[tokio::test]
 async fn delete_all_paths_invalidate_their_scope() {
-    let Some((pool, schema, admin_url)) = setup_db().await else {
-        eprintln!(
-            "skipping delete_all_paths_invalidate_their_scope: set CATALYRST_WORLD_STORAGE_TEST_PG to run"
-        );
+    let Some(scratch) = setup_db().await else {
         return;
     };
+    let pool = scratch.pool.clone();
     let storage = Storage::new(pool.clone(), cache_cfg(true));
 
     for key in ["k1", "k2"] {
@@ -317,17 +266,15 @@ async fn delete_all_paths_invalidate_their_scope() {
         "scene-wide player clear must drop every cached player value"
     );
 
-    cleanup(&admin_url, &schema).await;
+    scratch.drop().await;
 }
 
 #[tokio::test]
 async fn disabled_cache_reads_always_hit_the_database() {
-    let Some((pool, schema, admin_url)) = setup_db().await else {
-        eprintln!(
-            "skipping disabled_cache_reads_always_hit_the_database: set CATALYRST_WORLD_STORAGE_TEST_PG to run"
-        );
+    let Some(scratch) = setup_db().await else {
         return;
     };
+    let pool = scratch.pool.clone();
     let storage = Storage::new(pool.clone(), cache_cfg(false));
 
     storage
@@ -339,17 +286,15 @@ async fn disabled_cache_reads_always_hit_the_database() {
     let read = storage.world_get(WORLD, PLACE, "k").await.unwrap().unwrap();
     assert_eq!(&*read, "2", "with the cache disabled every read is fresh");
 
-    cleanup(&admin_url, &schema).await;
+    scratch.drop().await;
 }
 
 #[tokio::test]
 async fn values_pass_through_byte_identical_to_postgres_text() {
-    let Some((pool, schema, admin_url)) = setup_db().await else {
-        eprintln!(
-            "skipping values_pass_through_byte_identical_to_postgres_text: set CATALYRST_WORLD_STORAGE_TEST_PG to run"
-        );
+    let Some(scratch) = setup_db().await else {
         return;
     };
+    let pool = scratch.pool.clone();
     let storage = Storage::new(pool.clone(), cache_cfg(true));
 
     let values = [
@@ -373,17 +318,15 @@ async fn values_pass_through_byte_identical_to_postgres_text() {
         assert_eq!(&serde_json::from_str::<Value>(&got).unwrap(), v);
     }
 
-    cleanup(&admin_url, &schema).await;
+    scratch.drop().await;
 }
 
 #[tokio::test]
 async fn list_page_splices_row_text_verbatim() {
-    let Some((pool, schema, admin_url)) = setup_db().await else {
-        eprintln!(
-            "skipping list_page_splices_row_text_verbatim: set CATALYRST_WORLD_STORAGE_TEST_PG to run"
-        );
+    let Some(scratch) = setup_db().await else {
         return;
     };
+    let pool = scratch.pool.clone();
     let storage = Storage::new(pool.clone(), cache_cfg(true));
 
     let rows = [
@@ -435,5 +378,5 @@ async fn list_page_splices_row_text_verbatim() {
         serde_json::from_str(&raw_paginated_response(&player_entries, 100, 0, 3).0).unwrap();
     assert_eq!(player_body["data"], json!(expected_data));
 
-    cleanup(&admin_url, &schema).await;
+    scratch.drop().await;
 }

@@ -123,7 +123,7 @@ pub async fn mana_topup(
     let idem = topup_idempotency_key(&tx_hash);
 
     if let Some(prior) = state.credits.find_grant_by_idempotency_key(&idem).await? {
-        if prior.address.to_lowercase() != signer.to_lowercase() {
+        if prior.address.to_lowercase() != signer.as_str() {
             return Err(ApiError::forbidden(
                 "this transaction already granted Credits to a different wallet",
             ));
@@ -151,7 +151,7 @@ pub async fn mana_topup(
     )
     .await?;
 
-    let value_wei = match decide(verification, &signer)? {
+    let value_wei = match decide(verification, signer.as_str())? {
         TopupDecision::Pending => {
             return Ok((StatusCode::ACCEPTED, Json(json!({ "status": "pending" }))).into_response());
         }
@@ -175,7 +175,7 @@ pub async fn mana_topup(
     let outcome = state
         .credits
         .admin_grant_credits(
-            &signer,
+            signer.as_str(),
             &credits,
             "purchase",
             Some("MANA top-up"),

@@ -2,6 +2,7 @@ use axum::extract::{Path, Query, State};
 use axum::http::HeaderMap;
 use axum::Json;
 use base64::Engine;
+use catalyrst_types::is_eth_address;
 use serde::Deserialize;
 use serde_json::json;
 
@@ -33,14 +34,32 @@ fn b64(bytes: &[u8]) -> String {
     base64::engine::general_purpose::STANDARD.encode(bytes)
 }
 
-fn is_eth_address(addr: &str) -> bool {
-    addr.len() == 42 && addr.starts_with("0x") && addr[2..].chars().all(|c| c.is_ascii_hexdigit())
-}
-
 fn auth(headers: &HeaderMap, method: &str, path: &str) -> Result<String, ApiError> {
     require_signer(headers, method, path)
-        .map(|s| s.to_lowercase())
+        .map(|s| s.as_str().to_string())
         .map_err(|e| unauthorized(format!("invalid identity: {e}")))
+}
+
+fn authorized_community_binding(
+    state: &AppState,
+    headers: &HeaderMap,
+    requested: Option<&str>,
+) -> Result<Option<String>, ApiError> {
+    let Some(requested) = requested.map(str::trim).filter(|s| !s.is_empty()) else {
+        return Ok(None);
+    };
+    let presented_service_token = state
+        .gatekeeper_auth_token
+        .as_deref()
+        .zip(crate::moderator::bearer_token(headers))
+        .map(|(expected, token)| crate::moderator::timing_safe_eq(&token, expected))
+        .unwrap_or(false);
+    if !presented_service_token {
+        return Err(forbidden(
+            "a wallet signature cannot prove community membership; community-scoped groups may only be created with the platform service token",
+        ));
+    }
+    Ok(Some(requested.to_string()))
 }
 
 async fn is_member(state: &AppState, group_id: &str, wallet: &str) -> Result<bool, ApiError> {
@@ -139,9 +158,10 @@ pub async fn claim_key_package(
             "ciphersuite": cs,
             "key_package": b64(&kp),
         }))),
-        None => Err(ApiError::schema(
+        None => Err(ApiError::labeled(
             404,
-            json!({ "error": "no key package available", "owner": owner, "last_resort": false }),
+            "no key package available",
+            format!("no key package available for {owner}"),
         )),
     }
 }
@@ -210,6 +230,8 @@ pub async fn create_group(
         return Err(bad_request("a 'dm' group must have exactly two members"));
     }
 
+    let community_id = authorized_community_binding(&state, &headers, b.community_id.as_deref())?;
+
     let epoch_author = std::env::var("FED_PEER_ID").unwrap_or_else(|_| "local".to_string());
 
     let mut tx = state.pool.begin().await?;
@@ -221,7 +243,7 @@ pub async fn create_group(
     .bind(&group_id)
     .bind(&creator)
     .bind(&b.group_kind)
-    .bind(&b.community_id)
+    .bind(&community_id)
     .bind(&epoch_author)
     .bind(mls::PINNED_CIPHERSUITE_ID as i32)
     .execute(&mut *tx)
@@ -322,25 +344,21 @@ pub async fn submit_commit(
 
     let our_peer = std::env::var("FED_PEER_ID").unwrap_or_else(|_| "local".to_string());
     if epoch_author != our_peer {
-        return Err(ApiError::schema(
+        return Err(ApiError::labeled(
             409,
-            json!({
-                "error": "wrong epoch author",
-                "message": "submit epoch-advancing commits to the group's epoch-author catalyst",
-                "epoch_author": epoch_author,
-            }),
+            "wrong epoch author",
+            format!("submit epoch-advancing commits to the group's epoch-author catalyst ({epoch_author})"),
         ));
     }
 
     if b.epoch != current_epoch + 1 {
-        return Err(ApiError::schema(
+        return Err(ApiError::labeled(
             409,
-            json!({
-                "error": "epoch conflict",
-                "message": "commit epoch must be current_epoch + 1",
-                "current_epoch": current_epoch,
-                "submitted_epoch": b.epoch,
-            }),
+            "epoch conflict",
+            format!(
+                "commit epoch must be current_epoch + 1 (current_epoch={current_epoch}, submitted_epoch={})",
+                b.epoch
+            ),
         ));
     }
 
@@ -515,14 +533,13 @@ pub async fn send_message(
     }
 
     if routing.epoch as i64 > current_epoch {
-        return Err(ApiError::schema(
+        return Err(ApiError::labeled(
             409,
-            json!({
-                "error": "epoch ahead",
-                "message": "message epoch is ahead of the group's current epoch; submit the commit first",
-                "current_epoch": current_epoch,
-                "message_epoch": routing.epoch,
-            }),
+            "epoch ahead",
+            format!(
+                "message epoch is ahead of the group's current epoch; submit the commit first (current_epoch={current_epoch}, message_epoch={})",
+                routing.epoch
+            ),
         ));
     }
 
