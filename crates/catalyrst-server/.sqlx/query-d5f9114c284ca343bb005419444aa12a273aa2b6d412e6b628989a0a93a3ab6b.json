@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        UPDATE deployments AS old\n        SET deleter_deployment = batch.new_id\n        FROM (\n            SELECT d.new_id, d.etype, d.new_eid, d.new_ts,\n                   ARRAY(SELECT json_array_elements_text(d.ptrs_json)) AS ptrs\n            FROM (\n                SELECT unnest($1::int4[]) AS new_id,\n                       unnest($2::text[]) AS etype,\n                       unnest($3::text[]) AS new_eid,\n                       to_timestamp(unnest($4::float8[]) / 1000.0) AS new_ts,\n                       unnest($5::json[]) AS ptrs_json\n            ) d\n        ) AS batch\n        WHERE old.entity_type = batch.etype\n          AND old.entity_pointers && batch.ptrs\n          AND old.deleter_deployment IS NULL\n          AND old.id <> batch.new_id\n          AND (old.entity_timestamp < batch.new_ts\n               OR (old.entity_timestamp = batch.new_ts AND old.entity_id < batch.new_eid))\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int4Array",
+        "TextArray",
+        "TextArray",
+        "Float8Array",
+        "JsonArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "d5f9114c284ca343bb005419444aa12a273aa2b6d412e6b628989a0a93a3ab6b"
+}

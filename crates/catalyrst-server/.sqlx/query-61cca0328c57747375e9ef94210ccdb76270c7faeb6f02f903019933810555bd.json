@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM failed_deployments",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "61cca0328c57747375e9ef94210ccdb76270c7faeb6f02f903019933810555bd"
+}

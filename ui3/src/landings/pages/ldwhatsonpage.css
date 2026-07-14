@@ -1,0 +1,57 @@
+.whatson-route__cats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 24px 20px;
+}
+
+.whatson-route__pill {
+  appearance: none;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.85);
+  border-radius: 999px;
+  padding: 7px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.whatson-route__pill.is-active {
+  background: #ff2d55;
+  border-color: #ff2d55;
+  color: #fff;
+}
+
+.whatson-route__links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 12px 24px 64px;
+}
+
+.whatson-route__link {
+  color: rgba(255, 255, 255, 0.82);
+  font-size: 13px;
+  text-decoration: none;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 8px;
+  padding: 6px 12px;
+}
+
+.whatson-route__link:hover {
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.35);
+}
+
+.whatson-route__empty {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 16px 24px 64px;
+  color: rgba(255, 255, 255, 0.7);
+}

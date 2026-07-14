@@ -1,69 +1,64 @@
 use axum::http::HeaderMap;
-use catalyrst_crypto::verify::verify_auth_chain;
-use catalyrst_crypto::AuthError;
-use catalyrst_types::{AuthLink as CryptoAuthLink, AuthLinkType as CryptoAuthLinkType, EthAddress};
-use thiserror::Error;
 
-pub const AUTH_CHAIN_HEADER_PREFIX: &str = "x-identity-auth-chain-";
+use catalyrst_crypto::signed_fetch;
+use catalyrst_crypto::Signer;
+use catalyrst_types::AuthLinkType;
 
-pub const AUTH_TIMESTAMP_HEADER: &str = "x-identity-timestamp";
+use crate::http::response::ApiError;
 
-pub const AUTH_METADATA_HEADER: &str = "x-identity-metadata";
-
-pub const MAX_AUTH_CHAIN_LINKS: usize = 10;
+pub use catalyrst_crypto::signed_fetch::{
+    build_payload, AuthChain, AuthChainError, AuthLink, AUTH_CHAIN_HEADER_PREFIX,
+    AUTH_METADATA_HEADER, AUTH_TIMESTAMP_HEADER, MAX_AUTH_CHAIN_LINKS,
+};
 
 pub const FIVE_MINUTES: i64 = 5 * 60;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AuthLinkType {
-    Signer,
-    EcdsaPersonalEphemeral,
-    EcdsaPersonalSignedEntity,
+/// Mirrors @dcl/crypto-middleware ≥5.1.0 (marketplace-server #388): the
+/// signed-fetch `verify()` entrypoint rejects, with HTTP 400 and a message
+/// prefixed `Invalid chain metadata: `, any request whose `x-identity-metadata`
+/// JSON carries a `signer` or `intent` that is not canonical — i.e. differs from
+/// its own `trim().to_lowercase()` (mixed case or surrounding whitespace). This
+/// fires before any route-specific validator. A request with no `signer`/`intent`
+/// (or non-JSON metadata) is unaffected.
+///
+/// Why it matters: the signed-fetch client lowercases the payload before signing
+/// but delivers the metadata header with its original casing, so a mixed-case
+/// `signer` produces a signature byte-identical to the canonical spelling's — a
+/// scene-signed request (`Decentraland-Kernel-Scene`) could otherwise slip past a
+/// case-sensitive service gate as if directly user-signed. Returns the full
+/// route-facing 400 message on rejection.
+pub fn check_canonical_metadata(metadata: &str) -> Result<(), String> {
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(metadata) else {
+        return Ok(());
+    };
+    for key in ["signer", "intent"] {
+        if let Some(raw) = value.get(key).and_then(serde_json::Value::as_str) {
+            if raw != raw.trim().to_lowercase() {
+                // Upstream echoes the raw metadata back, truncated at 64 chars.
+                let echo: String = metadata.chars().take(64).collect();
+                return Err(format!("Invalid chain metadata: {echo}"));
+            }
+        }
+    }
+    Ok(())
 }
 
-#[derive(Debug, Clone)]
-pub struct AuthLink {
-    pub kind: AuthLinkType,
-    pub payload: String,
-    pub signature: String,
+/// Header-facing wrapper for [`check_canonical_metadata`]: reads
+/// `x-identity-metadata` (defaulting to `{}`, like the signature path) and
+/// surfaces a 400 `ApiError` on a non-canonical `signer`/`intent`.
+pub fn require_canonical_metadata(headers: &HeaderMap) -> Result<(), ApiError> {
+    let metadata = signed_fetch::header_str(headers, AUTH_METADATA_HEADER).unwrap_or("{}");
+    check_canonical_metadata(metadata).map_err(ApiError::bad_request)
 }
 
-#[derive(Debug, Clone)]
-pub struct AuthChain {
-    pub links: Vec<AuthLink>,
-    pub signer: EthAddress,
+/// Route-facing message per error, matching the upstream marketplace-server
+/// wording (everything not explicitly special-cased is "Invalid Auth Chain").
+pub trait AuthChainErrorExt {
+    fn message(&self) -> String;
 }
 
-#[derive(Debug, Error)]
-pub enum AuthChainError {
-    #[error("Invalid Auth Chain")]
-    MalformedChain { detail: String },
-
-    #[error("Invalid Auth Chain")]
-    InsufficientLinks,
-
-    #[error("Invalid Auth Chain")]
-    MissingTimestamp,
-
-    #[error("Expired signature")]
-    Expired {
-        signed_at: i64,
-        now: i64,
-        window_secs: i64,
-    },
-
-    #[error("Invalid signature")]
-    InvalidSignature(String),
-
-    #[error("Forbidden: address mismatch")]
-    AddressMismatch { expected: String, recovered: String },
-
-    #[error("EIP-1654 not implemented")]
-    EipNotImplemented,
-}
-
-impl AuthChainError {
-    pub fn message(&self) -> String {
+impl AuthChainErrorExt for AuthChainError {
+    fn message(&self) -> String {
         match self {
             AuthChainError::AddressMismatch { .. } => "Forbidden: address mismatch".to_string(),
             AuthChainError::Expired { .. } => "Expired signature".to_string(),
@@ -74,92 +69,31 @@ impl AuthChainError {
     }
 }
 
-pub fn build_payload(method: &str, path: &str, timestamp: &str, metadata: &str) -> String {
-    format!("{}:{}:{}:{}", method, path, timestamp, metadata).to_lowercase()
-}
-
-fn signed_fetch_path<'a>(headers: &HeaderMap, fallback: &'a str) -> std::borrow::Cow<'a, str> {
-    match headers.get("x-original-path").and_then(|v| v.to_str().ok()) {
-        Some(raw) => std::borrow::Cow::Owned(raw.split('?').next().unwrap_or(raw).to_string()),
-        None => std::borrow::Cow::Borrowed(fallback),
+/// market never surfaces ForbiddenSigner: it is folded into InvalidSignature,
+/// preserving the pre-consolidation route behavior (401, not a 400 fallthrough).
+fn normalize(e: AuthChainError) -> AuthChainError {
+    match e {
+        AuthChainError::ForbiddenSigner => AuthChainError::InvalidSignature(e.to_string()),
+        other => other,
     }
 }
 
-fn header_str<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {
-    headers.get(name).and_then(|v| v.to_str().ok())
-}
-
-fn project_link_kind(kt: CryptoAuthLinkType) -> Option<AuthLinkType> {
-    match kt {
-        CryptoAuthLinkType::SIGNER => Some(AuthLinkType::Signer),
-        CryptoAuthLinkType::EcdsaEphemeral => Some(AuthLinkType::EcdsaPersonalEphemeral),
-        CryptoAuthLinkType::EcdsaSignedEntity => Some(AuthLinkType::EcdsaPersonalSignedEntity),
-        CryptoAuthLinkType::EcdsaEip1654Ephemeral
-        | CryptoAuthLinkType::EcdsaEip1654SignedEntity => None,
+fn reject_eip_links(chain: &AuthChain) -> Result<(), AuthChainError> {
+    for link in &chain.links {
+        if matches!(
+            link.kind,
+            AuthLinkType::EcdsaEip1654Ephemeral | AuthLinkType::EcdsaEip1654SignedEntity
+        ) {
+            return Err(AuthChainError::EipNotImplemented);
+        }
     }
+    Ok(())
 }
 
 pub fn extract_auth_chain(headers: &HeaderMap) -> Result<AuthChain, AuthChainError> {
-    let mut links = Vec::new();
-
-    for i in 0..MAX_AUTH_CHAIN_LINKS {
-        let name = format!("{}{}", AUTH_CHAIN_HEADER_PREFIX, i);
-        let Some(raw) = header_str(headers, &name) else {
-            break;
-        };
-
-        let link: CryptoAuthLink = serde_json::from_str(raw).map_err(|e| {
-            let mut detail = e.to_string();
-            if detail.len() > 64 {
-                detail.truncate(64);
-            }
-            AuthChainError::MalformedChain { detail }
-        })?;
-
-        match link.link_type {
-            CryptoAuthLinkType::SIGNER => {
-                if i != 0 {
-                    return Err(AuthChainError::MalformedChain {
-                        detail: format!("SIGNER link at non-zero index {}", i),
-                    });
-                }
-            }
-            _ => {
-                if i == 0 {
-                    return Err(AuthChainError::MalformedChain {
-                        detail: "first link must be SIGNER".to_string(),
-                    });
-                }
-                if link.signature.as_deref().unwrap_or("").is_empty() {
-                    return Err(AuthChainError::MalformedChain {
-                        detail: format!("missing signature on link {}", i),
-                    });
-                }
-            }
-        }
-
-        let kind = project_link_kind(link.link_type).ok_or(AuthChainError::EipNotImplemented)?;
-
-        links.push(AuthLink {
-            kind,
-            payload: link.payload,
-            signature: link.signature.unwrap_or_default(),
-        });
-    }
-
-    let overflow_name = format!("{}{}", AUTH_CHAIN_HEADER_PREFIX, MAX_AUTH_CHAIN_LINKS);
-    if header_str(headers, &overflow_name).is_some() {
-        return Err(AuthChainError::MalformedChain {
-            detail: format!("exceeds max length of {}", MAX_AUTH_CHAIN_LINKS),
-        });
-    }
-
-    if links.len() < 2 {
-        return Err(AuthChainError::InsufficientLinks);
-    }
-
-    let signer = links[0].payload.to_lowercase();
-    Ok(AuthChain { links, signer })
+    let chain = signed_fetch::extract_auth_chain(headers).map_err(normalize)?;
+    reject_eip_links(&chain)?;
+    Ok(chain)
 }
 
 pub fn validate_signature(
@@ -168,65 +102,9 @@ pub fn validate_signature(
     timestamp: &str,
     expiration_secs: i64,
     now: i64,
-) -> Result<EthAddress, AuthChainError> {
-    if let Ok(signed_at_ms) = timestamp.parse::<i64>() {
-        let signed_at = signed_at_ms / 1000;
-        if (now - signed_at).abs() > expiration_secs {
-            return Err(AuthChainError::Expired {
-                signed_at,
-                now,
-                window_secs: expiration_secs,
-            });
-        }
-    }
-
-    let crypto_chain: Vec<CryptoAuthLink> = chain
-        .links
-        .iter()
-        .map(|link| CryptoAuthLink {
-            link_type: match link.kind {
-                AuthLinkType::Signer => CryptoAuthLinkType::SIGNER,
-                AuthLinkType::EcdsaPersonalEphemeral => CryptoAuthLinkType::EcdsaEphemeral,
-                AuthLinkType::EcdsaPersonalSignedEntity => CryptoAuthLinkType::EcdsaSignedEntity,
-            },
-            payload: link.payload.clone(),
-            signature: if link.signature.is_empty() {
-                None
-            } else {
-                Some(link.signature.clone())
-            },
-        })
-        .collect();
-
-    verify_auth_chain(&crypto_chain, payload, Some(now * 1000)).map_err(map_auth_error)?;
-
-    Ok(chain.signer.clone())
-}
-
-fn map_auth_error(err: AuthError) -> AuthChainError {
-    match err {
-        AuthError::MalformedChain(d) => AuthChainError::MalformedChain { detail: d },
-        AuthError::MissingSignature { .. } => AuthChainError::MalformedChain {
-            detail: err.to_string(),
-        },
-        AuthError::RecoveryFailed(d) => AuthChainError::InvalidSignature(d),
-        AuthError::SignerMismatch { .. } => AuthChainError::InvalidSignature(err.to_string()),
-        AuthError::FinalAuthorityMismatch { .. } => {
-            AuthChainError::InvalidSignature(err.to_string())
-        }
-        AuthError::EphemeralExpired {
-            expiration_ms,
-            now_ms,
-        } => AuthChainError::Expired {
-            signed_at: expiration_ms / 1000,
-            now: now_ms / 1000,
-            window_secs: 0,
-        },
-        AuthError::InvalidEphemeralPayload(d) => AuthChainError::MalformedChain { detail: d },
-        AuthError::Eip1654NotImplemented
-        | AuthError::Eip1654ValidationFailed(_)
-        | AuthError::Eip1654Rejected { .. } => AuthChainError::EipNotImplemented,
-    }
+) -> Result<Signer, AuthChainError> {
+    signed_fetch::validate_signature(chain, payload, timestamp, expiration_secs, now)
+        .map_err(normalize)
 }
 
 pub fn verify_with_address(
@@ -236,12 +114,12 @@ pub fn verify_with_address(
     expiration_secs: i64,
     now: i64,
     expected_address: &str,
-) -> Result<EthAddress, AuthChainError> {
+) -> Result<Signer, AuthChainError> {
     let recovered = validate_signature(chain, payload, timestamp, expiration_secs, now)?;
-    if recovered.to_lowercase() != expected_address.to_lowercase() {
+    if recovered.as_str() != expected_address.to_lowercase() {
         return Err(AuthChainError::AddressMismatch {
             expected: expected_address.to_lowercase(),
-            recovered,
+            recovered: recovered.as_str().to_string(),
         });
     }
     Ok(recovered)
@@ -251,17 +129,60 @@ pub fn require_signer(
     headers: &HeaderMap,
     method: &str,
     path: &str,
-) -> Result<EthAddress, AuthChainError> {
-    let path = signed_fetch_path(headers, path);
+) -> Result<Signer, AuthChainError> {
+    let path = signed_fetch::signed_fetch_path(headers, path);
     let path = path.as_ref();
     let chain = extract_auth_chain(headers)?;
-    let ts = header_str(headers, AUTH_TIMESTAMP_HEADER)
+    let ts = signed_fetch::header_str(headers, AUTH_TIMESTAMP_HEADER)
         .ok_or(AuthChainError::MissingTimestamp)?
         .to_string();
-    let metadata = header_str(headers, AUTH_METADATA_HEADER)
+    let metadata = signed_fetch::header_str(headers, AUTH_METADATA_HEADER)
         .unwrap_or("{}")
         .to_string();
     let payload = build_payload(method, path, &ts, &metadata);
     let now = chrono::Utc::now().timestamp();
     validate_signature(&chain, &payload, &ts, FIVE_MINUTES, now)
+}
+
+#[cfg(test)]
+mod canonical_metadata_tests {
+    use super::check_canonical_metadata;
+
+    /// The rejection matrix documented by marketplace-server's
+    /// `signed-fetch-authentication.spec.ts`: a mixed-case or whitespace-padded
+    /// `signer`/`intent` is rejected before service authorization.
+    #[test]
+    fn rejects_non_canonical_signer_and_intent() {
+        for meta in [
+            r#"{"signer":"Dcl:Marketplace","intent":"dcl:marketplace:add-pick"}"#,
+            r#"{"signer":" dcl:marketplace","intent":"dcl:marketplace:add-pick"}"#,
+            r#"{"signer":"dcl:marketplace","intent":"Dcl:Marketplace:Add-Pick"}"#,
+            r#"{"signer":"dcl:marketplace","intent":"dcl:marketplace:add-pick "}"#,
+            // The exploit this closes: a mixed-case kernel-scene signer.
+            r#"{"origin":"https://play.decentraland.org","signer":"Decentraland-Kernel-Scene"}"#,
+        ] {
+            let err = check_canonical_metadata(meta).expect_err(meta);
+            assert!(
+                err.starts_with("Invalid chain metadata: "),
+                "message must match upstream prefix, got: {err}"
+            );
+        }
+    }
+
+    #[test]
+    fn accepts_canonical_and_absent_metadata() {
+        // Canonical signer + intent.
+        assert!(check_canonical_metadata(
+            r#"{"signer":"dcl:marketplace","intent":"dcl:marketplace:add-pick"}"#
+        )
+        .is_ok());
+        // The canonical kernel-scene spelling is not a canonicalization failure
+        // (the scene-signer policy is a separate, route-level concern).
+        assert!(check_canonical_metadata(r#"{"signer":"decentraland-kernel-scene"}"#).is_ok());
+        // No signer at all is unaffected.
+        assert!(check_canonical_metadata(r#"{"intent":"dcl:marketplace:remove-pick"}"#).is_ok());
+        assert!(check_canonical_metadata("{}").is_ok());
+        // Non-JSON metadata is not a canonicalization question here.
+        assert!(check_canonical_metadata("not json").is_ok());
+    }
 }

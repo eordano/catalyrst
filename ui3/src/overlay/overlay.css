@@ -1,0 +1,127 @@
+.ui3-overlay {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+  z-index: 20;
+  color: #fff;
+  font-family: var(--font-sans);
+}
+
+.ui3-overlay__widget {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.ui3-overlay__widget .mm__stage,
+.ui3-overlay__widget .sb__stage,
+.ui3-overlay__widget .nf__stage,
+.ui3-overlay__widget .pw__stage,
+.ui3-overlay__widget .xcs__stage {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  background: none !important;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.ui3-overlay__widget .mm,
+.ui3-overlay__widget .sb,
+.ui3-overlay__widget .nf,
+.ui3-overlay__widget .pw,
+.ui3-overlay__widget .xcs,
+.ui3-overlay__widget .ew,
+.ui3-overlay__widget .nf__rail {
+  pointer-events: auto;
+}
+
+.ui3-overlay__notifications .nf__bare,
+.ui3-overlay__voice .vc--bare,
+.ui3-overlay__portables .sw,
+.ui3-overlay__friends .fr {
+  position: absolute;
+  left: 56px;
+  top: 16px;
+  right: auto;
+  bottom: auto;
+  margin: 0;
+  pointer-events: auto;
+}
+.ui3-overlay__notifications .nf {
+  position: static;
+  left: auto;
+  top: auto;
+  right: auto;
+}
+.ui3-overlay__portables .sw {
+  width: min(360px, calc(100vw - 72px));
+  max-height: calc(100vh - 32px);
+}
+
+.ui3-overlay__skybox .sky__backdrop {
+  position: fixed;
+  inset: 0;
+  justify-content: flex-start;
+  align-items: flex-start;
+  pointer-events: none;
+}
+.ui3-overlay__skybox .sky {
+  margin: 16px 0 0 56px;
+  border-radius: 18px;
+  pointer-events: auto;
+}
+
+.ui3-overlay__connection .xcs {
+  top: auto;
+  bottom: 64px;
+  right: 20px;
+}
+
+.ui3-overlay__connbadge {
+  position: fixed;
+  inset: auto 20px 20px auto;
+  pointer-events: none;
+}
+.ui3-overlay__connbadge .connbadge {
+  pointer-events: auto;
+}
+.connbadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(20, 18, 28, 0.72);
+  cursor: pointer;
+  padding: 0;
+}
+.connbadge:hover {
+  background: rgba(40, 36, 52, 0.9);
+}
+.connbadge__dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 6px currentColor;
+}
+.connbadge--ok {
+  color: var(--online);
+}
+.connbadge--warn {
+  color: var(--warning);
+}
+.connbadge--info {
+  color: var(--info);
+}
+
+.ui3-overlay__profile .pw {
+  left: 52px;
+  right: auto;
+  top: 320px;
+}

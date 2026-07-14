@@ -1,0 +1,121 @@
+.nfx__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--line, rgba(255, 255, 255, 0.1));
+}
+.nfx__titlewrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.nfx__unread {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--brand, #ff2d55);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 18px;
+  text-align: center;
+}
+.nfx__markall {
+  background: none;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 8px;
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 5px 10px;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s, opacity 0.12s;
+}
+.nfx__markall:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.4);
+}
+.nfx__markall:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.nfx__filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 10px 14px 4px;
+}
+.nfx__pill {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid transparent;
+  border-radius: 999px;
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 11px;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+.nfx__pill:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+}
+.nfx__pill.is-active {
+  background: rgba(255, 255, 255, 0.16);
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.32);
+}
+
+.nfx__card {
+  width: 100%;
+  text-align: left;
+  border: none;
+  cursor: pointer;
+  position: relative;
+}
+.nfx__card.is-read {
+  opacity: 0.55;
+}
+.nfx__card.is-read:hover {
+  opacity: 0.75;
+}
+.nfx__dot {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--brand, #ff2d55);
+}
+
+.nfx__empty {
+  padding: 28px 18px;
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 12.5px;
+  text-align: center;
+}
+
+.nfx__rest {
+  position: absolute;
+  left: 64px;
+  top: 16px;
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 13px;
+  z-index: 1;
+}
+.nfx__rest a {
+  color: #fff;
+}
+
+.nfx__failed {
+  padding: 24px 18px;
+  color: rgba(255, 196, 178, 0.95);
+  font-size: 12.5px;
+  line-height: 1.5;
+  text-align: center;
+}

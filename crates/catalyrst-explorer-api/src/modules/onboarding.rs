@@ -155,6 +155,15 @@ impl OnboardingStore {
         let hours = SEQUENCE_HOURS[sequence as usize];
         let threshold = now - Duration::hours(hours);
 
+        let mut max_cp: std::collections::HashMap<&str, i64> =
+            std::collections::HashMap::with_capacity(self.checkpoints.len());
+        for r in &self.checkpoints {
+            max_cp
+                .entry(r.user_id.as_str())
+                .and_modify(|m| *m = (*m).max(r.checkpoint))
+                .or_insert(r.checkpoint);
+        }
+
         self.checkpoints
             .iter()
             .filter_map(|oc| {
@@ -171,10 +180,9 @@ impl OnboardingStore {
                 {
                     return None;
                 }
-                let has_later = self
-                    .checkpoints
-                    .iter()
-                    .any(|later| later.user_id == oc.user_id && later.checkpoint > oc.checkpoint);
+                let has_later = max_cp
+                    .get(oc.user_id.as_str())
+                    .is_some_and(|m| *m > oc.checkpoint);
                 if has_later {
                     return None;
                 }
@@ -516,6 +524,32 @@ mod tests {
         state.mark_nudge_sent("a@b.com", 1, 1);
         assert!(state.pending_nudges(1, t(13 * 3600)).is_empty());
         assert_eq!(state.pending_nudges(2, t(25 * 3600)).len(), 1);
+    }
+
+    #[test]
+    fn pending_nudges_is_linear_not_quadratic() {
+        let mut store = OnboardingStore::default();
+        for i in 0..20_000 {
+            store.checkpoints.push(CheckpointRow {
+                user_id: format!("user-{i:05}"),
+                id_type: "email".into(),
+                email: Some(format!("u{i}@example.com")),
+                wallet: None,
+                checkpoint: 1,
+                reached_at: t(0),
+                completed_at: None,
+                source: None,
+                metadata: None,
+            });
+        }
+        let start = std::time::Instant::now();
+        let nudges = store.pending_nudges(1, t(13 * 3600)); // 13h > 12h threshold; every row survives to has_later
+        let elapsed = start.elapsed();
+        assert_eq!(nudges.len(), 20_000);
+        assert!(
+            elapsed < std::time::Duration::from_millis(500),
+            "pending_nudges took {elapsed:?}"
+        );
     }
 
     #[test]

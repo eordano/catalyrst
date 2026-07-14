@@ -16,15 +16,6 @@ pub fn verify_auth_chain(
     verify_chain_inner(chain, expected_address, now_ms)
 }
 
-pub fn verify_auth_chain_with_validator(
-    chain: &AuthChain,
-    expected_address: &str,
-    now_ms: Option<i64>,
-    _eip1654_validator: Option<&dyn Eip1654Validator>,
-) -> Result<(), AuthError> {
-    verify_chain_inner(chain, expected_address, now_ms)
-}
-
 pub async fn verify_auth_chain_async(
     chain: &AuthChain,
     expected_address: &str,
@@ -256,6 +247,9 @@ fn decode_hex_signature(hex_str: &str) -> Result<Vec<u8>, AuthError> {
     if !hex.len().is_multiple_of(2) {
         return Err(AuthError::RecoveryFailed("Odd-length signature hex".into()));
     }
+    if !hex.is_ascii() {
+        return Err(AuthError::RecoveryFailed("Non-ASCII signature hex".into()));
+    }
     for i in (0..hex.len()).step_by(2) {
         let byte = u8::from_str_radix(&hex[i..i + 2], 16)
             .map_err(|e| AuthError::RecoveryFailed(format!("Hex decode: {}", e)))?;
@@ -392,15 +386,15 @@ mod tests {
 
     #[tokio::test]
     async fn test_real_ecdsa_auth_chain() {
-        use ethers_signers::{LocalWallet, Signer};
+        use alloy::signers::{local::PrivateKeySigner, Signer};
 
-        let root_key: LocalWallet =
+        let root_key: PrivateKeySigner =
             "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
                 .parse()
                 .unwrap();
         let root_address = format!("{:#x}", root_key.address());
 
-        let ephemeral_key: LocalWallet =
+        let ephemeral_key: PrivateKeySigner =
             "59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d"
                 .parse()
                 .unwrap();
@@ -415,7 +409,7 @@ mod tests {
             .sign_message(ephemeral_payload.as_bytes())
             .await
             .unwrap();
-        let ephemeral_sig_hex = format!("0x{}", ephemeral_sig);
+        let ephemeral_sig_hex = ephemeral_sig.to_string();
 
         let entity_payload = "bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi";
 
@@ -423,7 +417,7 @@ mod tests {
             .sign_message(entity_payload.as_bytes())
             .await
             .unwrap();
-        let entity_sig_hex = format!("0x{}", entity_sig);
+        let entity_sig_hex = entity_sig.to_string();
 
         let chain = vec![
             AuthLink {

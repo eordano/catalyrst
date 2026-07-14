@@ -49,7 +49,6 @@ const POINTER_CHANGES_SELECT: &str = r#"
                 date_part('epoch', dep1.entity_timestamp) * 1000 AS entity_timestamp,
                 dep1.deployer_address,
                 dep1.version,
-                NULL::json AS entity_metadata,
                 dep1.auth_chain
             FROM deployments AS dep1
             "#;
@@ -99,7 +98,7 @@ impl Database for LiveDatabase {
                     dep.version,
                     dep.id,
                     COALESCE(
-                        (SELECT json_agg(json_build_object('key', cf.key, 'hash', cf.content_hash))
+                        (SELECT json_agg(json_build_object('key', cf.key, 'hash', cf.content_hash) ORDER BY cf.key)
                          FROM content_files cf WHERE cf.deployment = dep.id),
                         '[]'::json
                     ) AS content_json
@@ -169,7 +168,7 @@ impl Database for LiveDatabase {
                     dep.version,
                     dep.id,
                     COALESCE(
-                        (SELECT json_agg(json_build_object('key', cf.key, 'hash', cf.content_hash))
+                        (SELECT json_agg(json_build_object('key', cf.key, 'hash', cf.content_hash) ORDER BY cf.key)
                          FROM content_files cf WHERE cf.deployment = dep.id),
                         '[]'::json
                     ) AS content_json
@@ -554,17 +553,19 @@ impl Database for LiveDatabase {
         let content_map = if !needs_content || deployment_ids.is_empty() {
             HashMap::new()
         } else {
-            let cf_rows: Vec<(i32, String, String)> = sqlx::query_as(
-                "SELECT deployment, content_hash, key FROM content_files WHERE deployment = ANY($1)"
+            let cf_rows = sqlx::query!(
+                "SELECT deployment, content_hash, key FROM content_files WHERE deployment = ANY($1) ORDER BY deployment, key",
+                &deployment_ids[..]
             )
-            .bind(&deployment_ids)
             .fetch_all(&self.pool)
             .await
             .map_err(|e| DatabaseError::QueryFailed(e.to_string()))?;
 
             let mut map: HashMap<i32, Vec<(String, String)>> = HashMap::new();
-            for (dep_id, hash, key) in cf_rows {
-                map.entry(dep_id).or_default().push((key, hash));
+            for row in cf_rows {
+                map.entry(row.deployment)
+                    .or_default()
+                    .push((row.key, row.content_hash));
             }
             map
         };
@@ -720,7 +721,6 @@ impl Database for LiveDatabase {
             entity_timestamp: f64,
             deployer_address: String,
             version: String,
-            entity_metadata: Option<Value>,
             auth_chain: Value,
         }
 
@@ -758,7 +758,6 @@ impl Database for LiveDatabase {
             rows
         };
 
-        const NULL_METADATA: Value = Value::Null;
         let deltas: Vec<Value> = rows
             .iter()
             .map(|r| {
@@ -768,11 +767,6 @@ impl Database for LiveDatabase {
                     entity_id: &r.entity_id,
                     pointers: &r.entity_pointers,
                     entity_timestamp: r.entity_timestamp as i64,
-                    metadata: r
-                        .entity_metadata
-                        .as_ref()
-                        .and_then(|m| m.get("v"))
-                        .unwrap_or(&NULL_METADATA),
                     deployer_address: &r.deployer_address,
                     version: &r.version,
                     auth_chain: &r.auth_chain,
@@ -849,25 +843,25 @@ impl Database for LiveDatabase {
         _entity_type: &str,
         entity_id: &str,
     ) -> Result<Option<Value>, DatabaseError> {
-        #[derive(sqlx::FromRow)]
         struct AuditRow {
             version: String,
             auth_chain: Value,
             local_timestamp: f64,
         }
 
-        let row: Option<AuditRow> = sqlx::query_as(
+        let row: Option<AuditRow> = sqlx::query_as!(
+            AuditRow,
             r#"
             SELECT
                 version,
                 auth_chain,
-                date_part('epoch', local_timestamp) * 1000 AS local_timestamp
+                date_part('epoch', local_timestamp) * 1000 AS "local_timestamp!"
             FROM deployments
             WHERE entity_id = $1
             LIMIT 1
             "#,
+            entity_id
         )
-        .bind(entity_id)
         .fetch_optional(&self.pool)
         .await
         .map_err(|e| DatabaseError::QueryFailed(e.to_string()))?;
@@ -881,13 +875,21 @@ impl Database for LiveDatabase {
             local_timestamp: i64,
         }
 
+        let provenance = catalyrst_server::land_publish::local_provenance(&self.pool, entity_id)
+            .await
+            .map_err(|e| DatabaseError::QueryFailed(e.to_string()))?;
+
         Ok(row.map(|r| {
-            serde_json::to_value(&AuditInfoDetail {
+            let mut value = serde_json::to_value(&AuditInfoDetail {
                 version: r.version,
                 auth_chain: r.auth_chain,
                 local_timestamp: r.local_timestamp as i64,
             })
-            .unwrap_or_default()
+            .unwrap_or_default();
+            if let Some(local) = provenance {
+                value["localProvenance"] = local;
+            }
+            value
         }))
     }
 
@@ -899,16 +901,18 @@ impl Database for LiveDatabase {
     }
 
     async fn clear_failed_deployment(&self, entity_id: &str) -> Result<u64, DatabaseError> {
-        let res = sqlx::query("DELETE FROM failed_deployments WHERE entity_id = $1")
-            .bind(entity_id)
-            .execute(&self.pool)
-            .await
-            .map_err(|e| DatabaseError::QueryFailed(e.to_string()))?;
+        let res = sqlx::query!(
+            "DELETE FROM failed_deployments WHERE entity_id = $1",
+            entity_id
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(|e| DatabaseError::QueryFailed(e.to_string()))?;
         Ok(res.rows_affected())
     }
 
     async fn clear_all_failed_deployments(&self) -> Result<u64, DatabaseError> {
-        let res = sqlx::query("DELETE FROM failed_deployments")
+        let res = sqlx::query!("DELETE FROM failed_deployments")
             .execute(&self.pool)
             .await
             .map_err(|e| DatabaseError::QueryFailed(e.to_string()))?;
@@ -920,9 +924,12 @@ impl Database for LiveDatabase {
 mod tests {
     use super::POINTER_CHANGES_SELECT;
 
+    // Upstream catalyst (#1947) passes includeMetadata=false for /pointer-changes: deltas
+    // never read entity_metadata, so the large TOAST JSON must not be fetched per row on
+    // this continuously cluster-polled endpoint. Pin that the column stays off the query.
     #[test]
-    fn pointer_changes_projects_null_metadata() {
-        assert!(POINTER_CHANGES_SELECT.contains("NULL::json AS entity_metadata"));
-        assert!(!POINTER_CHANGES_SELECT.contains("dep1.entity_metadata"));
+    fn pointer_changes_does_not_select_entity_metadata() {
+        assert!(!POINTER_CHANGES_SELECT.contains("entity_metadata"));
+        assert!(POINTER_CHANGES_SELECT.contains("dep1.auth_chain"));
     }
 }

@@ -17,6 +17,15 @@ pub struct IndexQuery {
     pub offset: Option<i64>,
 }
 
+#[utoipa::path(
+    get,
+    path = "/index",
+    tag = "worlds",
+    responses(
+        (status = 200, body = serde_json::Value),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn get_index(
     State(state): State<AppState>,
     Query(q): Query<IndexQuery>,

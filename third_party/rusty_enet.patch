@@ -1,0 +1,18 @@
+Patch applied to the vendored copy in third_party/rusty_enet/ (crates.io rusty_enet 0.4.0).
+
+Aligns the ENet protocol header-flag constants with the "decentraland-pulse" ENet variant that
+the C# Pulse server and the bevy-explorer PR #919 native client speak (robtfm/rusty_enet branch
+decentraland-pulse). Without this, packet headers are mutually misparsed and no native-ENet peer
+can connect. The WebTransport path is unaffected (it does not use these flags).
+
+--- a/src/c/protocol.rs
++++ b/src/c/protocol.rs
+@@ -52,9 +52,9 @@
+ // ENet protocol header flags. The decentraland-pulse variant moves SENT_TIME from bit 15 to
+ // bit 14 and drops COMPRESSED entirely (there is no range coder); FLAG_MASK narrows to match.
+-pub(crate) const ENET_PROTOCOL_HEADER_FLAG_MASK: _ENetProtocolFlag = 49152;
+-pub(crate) const ENET_PROTOCOL_HEADER_FLAG_SENT_TIME: _ENetProtocolFlag = 32768;
+-pub(crate) const ENET_PROTOCOL_HEADER_FLAG_COMPRESSED: _ENetProtocolFlag = 16384;
++pub(crate) const ENET_PROTOCOL_HEADER_FLAG_MASK: _ENetProtocolFlag = 16384;
++pub(crate) const ENET_PROTOCOL_HEADER_FLAG_SENT_TIME: _ENetProtocolFlag = 16384;
++pub(crate) const ENET_PROTOCOL_HEADER_FLAG_COMPRESSED: _ENetProtocolFlag = 0;

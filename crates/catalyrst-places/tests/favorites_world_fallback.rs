@@ -1,7 +1,4 @@
-use std::time::Duration;
-
-use rand::RngExt;
-use sqlx::postgres::PgPoolOptions;
+use catalyrst_contract_gate::pg::ScratchSchema;
 use sqlx::PgPool;
 
 use catalyrst_places::handlers::federation::lookup_entity;
@@ -11,53 +8,13 @@ const PLACE_UUID: &str = "123e4567-e89b-12d3-a456-426614174000";
 const MISSING_UUID: &str = "00000000-0000-0000-0000-000000000000";
 const WORLD_NAME: &str = "my-world.dcl.eth";
 
-fn pg_url() -> Option<String> {
-    std::env::var("CATALYRST_PLACES_TEST_PG")
-        .ok()
-        .or_else(|| Some("postgres://postgres:postgres@127.0.0.1:5432/places".into()))
-}
-
-fn unique_schema() -> String {
-    let b: [u8; 8] = rand::rng().random();
-    format!("test_fav_fallback_{}", hex::encode(b))
-}
-
-async fn setup() -> Option<(PgPool, String, String)> {
-    let url = pg_url()?;
-    let admin = PgPoolOptions::new()
-        .max_connections(1)
-        .acquire_timeout(Duration::from_secs(5))
-        .connect(&url)
-        .await
-        .ok()?;
-    let schema = unique_schema();
-    sqlx::query(sqlx::AssertSqlSafe(format!("CREATE SCHEMA {}", schema)))
-        .execute(&admin)
-        .await
-        .ok()?;
-    let suffixed = format!("{}?options=-c%20search_path%3D{}", url, schema);
-    let pool = PgPoolOptions::new()
-        .max_connections(4)
-        .acquire_timeout(Duration::from_secs(5))
-        .connect(&suffixed)
-        .await
-        .ok()?;
-    Some((pool, schema, url))
-}
-
-async fn cleanup(admin_url: &str, schema: &str) {
-    if let Ok(admin) = PgPoolOptions::new()
-        .max_connections(1)
-        .connect(admin_url)
-        .await
-    {
-        let _ = sqlx::query(sqlx::AssertSqlSafe(format!(
-            "DROP SCHEMA {} CASCADE",
-            schema
-        )))
-        .execute(&admin)
-        .await;
-    }
+async fn setup() -> Option<ScratchSchema> {
+    ScratchSchema::create_or_default(
+        "CATALYRST_PLACES_TEST_PG",
+        "postgres://postgres:postgres@127.0.0.1:5432/places",
+        "cg_places_favfallback",
+    )
+    .await
 }
 
 async fn create_place_table(pool: &PgPool) {
@@ -84,6 +41,16 @@ async fn create_place_table(pool: &PgPool) {
     .execute(pool)
     .await
     .expect("create place table");
+
+    sqlx::raw_sql(include_str!("../migrations/0002_place_indexed.sql"))
+        .execute(pool)
+        .await
+        .expect("create place_indexed");
+
+    sqlx::raw_sql(include_str!("../migrations/0003_place_world_name.sql"))
+        .execute(pool)
+        .await
+        .expect("promote world_name");
 }
 
 async fn seed(pool: &PgPool, id: &str, raw: serde_json::Value) {
@@ -98,12 +65,10 @@ async fn seed(pool: &PgPool, id: &str, raw: serde_json::Value) {
 
 #[tokio::test]
 async fn places_route_falls_back_to_world_for_legacy_world_name() {
-    let Some((pool, schema, admin_url)) = setup().await else {
-        eprintln!(
-            "skipping places_route_falls_back_to_world_for_legacy_world_name: no postgres reachable"
-        );
+    let Some(scratch) = setup().await else {
         return;
     };
+    let pool = scratch.pool.clone();
     create_place_table(&pool).await;
 
     seed(&pool, PLACE_UUID, serde_json::json!({})).await;
@@ -160,5 +125,5 @@ async fn places_route_falls_back_to_world_for_legacy_world_name() {
         Some("world-entity-1")
     );
 
-    cleanup(&admin_url, &schema).await;
+    scratch.drop().await;
 }

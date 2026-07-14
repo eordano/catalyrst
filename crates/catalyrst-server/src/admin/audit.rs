@@ -42,17 +42,17 @@ pub async fn record(
         return;
     };
 
-    let res = sqlx::query(
+    let res = sqlx::query!(
         r#"
         INSERT INTO admin_audit (admin_address, action, target, detail, result)
         VALUES ($1, $2, $3, $4, $5)
         "#,
+        admin_addr,
+        action,
+        target,
+        detail,
+        result
     )
-    .bind(admin_addr)
-    .bind(action)
-    .bind(target)
-    .bind(detail)
-    .bind(result)
     .execute(pool)
     .await;
 
