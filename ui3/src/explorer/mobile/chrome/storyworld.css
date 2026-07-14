@@ -1,0 +1,14 @@
+.mstory {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  font-family: var(--font-sans);
+}
+
+.mstory__world {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(58% 40% at 54% 30%, rgba(255, 196, 130, .35) 0%, rgba(255, 196, 130, 0) 62%),
+    linear-gradient(180deg, #2b3f6b 0%, #4c5f8f 38%, #8c7a63 52%, #3b4a2c 60%, #1b2415 100%);
+}

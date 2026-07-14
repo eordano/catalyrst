@@ -5,6 +5,17 @@ use serde_json::{json, Value};
 use crate::http::ApiError;
 use crate::AppState;
 
+#[utoipa::path(
+    get,
+    path = "/wallet/{wallet}/connected-world",
+    tag = "wallet",
+    params(("wallet" = String, Path)),
+    responses(
+        (status = 200, body = serde_json::Value),
+        (status = 404, body = catalyrst_types::ApiErrorBody),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn connected_world(
     State(state): State<AppState>,
     Path(wallet): Path<String>,

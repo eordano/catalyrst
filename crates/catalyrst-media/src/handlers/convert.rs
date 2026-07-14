@@ -26,6 +26,10 @@ fn ip_blocked(ip: IpAddr) -> bool {
                 || v4.is_multicast()
                 || v4.is_documentation()
                 || v4.octets()[0] == 0
+                || {
+                    let o = v4.octets();
+                    o[0] == 100 && (o[1] & 0xc0) == 0x40
+                }
         }
         IpAddr::V6(v6) => {
             if let Some(mapped) = v6.to_ipv4_mapped() {
@@ -79,7 +83,7 @@ pub async fn convert(State(state): State<AppState>, Query(p): Query<ConvertParam
     };
 
     let mut hops = 0;
-    let upstream = loop {
+    let mut upstream = loop {
         let Some(pinned) = resolve_pinned(&current).await else {
             return (StatusCode::FORBIDDEN, "url host is not publicly routable").into_response();
         };
@@ -137,19 +141,25 @@ pub async fn convert(State(state): State<AppState>, Query(p): Query<ConvertParam
         }
     }
 
-    let bytes = match upstream.bytes().await {
-        Ok(b) if b.len() <= MAX_BODY_BYTES => b,
-        Ok(_) => return (StatusCode::PAYLOAD_TOO_LARGE, "source too large").into_response(),
-        Err(e) => {
-            return (
-                StatusCode::BAD_GATEWAY,
-                format!("upstream read failed: {e}"),
-            )
-                .into_response()
+    let mut body: Vec<u8> = Vec::new();
+    loop {
+        match upstream.chunk().await {
+            Ok(Some(chunk)) => {
+                if body.len() + chunk.len() > MAX_BODY_BYTES {
+                    return (StatusCode::PAYLOAD_TOO_LARGE, "source too large").into_response();
+                }
+                body.extend_from_slice(&chunk);
+            }
+            Ok(None) => break,
+            Err(e) => {
+                return (
+                    StatusCode::BAD_GATEWAY,
+                    format!("upstream read failed: {e}"),
+                )
+                    .into_response()
+            }
         }
-    };
-
-    let body = bytes.to_vec();
+    }
 
     if status.is_success() {
         state.convert_cache_put(&p.url, status.as_u16(), &content_type, &body);

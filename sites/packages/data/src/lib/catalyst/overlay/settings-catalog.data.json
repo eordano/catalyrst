@@ -1,0 +1,109 @@
+{
+  "_source": {
+    "note": "SIMULATED — client settings are engine/local-only. There is NO Catalyst endpoint: a scan of catalyrst (governance/presence/price + the explorer-api lambdas) confirms no settings route, and the real client persists these to disk/local store, never the server. The UI inventory + default values below are derived faithfully from the ui3 SettingsView composition (which itself mirrors the Decentraland unity-explorer SettingsView prefab strings).",
+    "ui3_settings": "https://catalyst.example.com (ui3) app/pages/Settings.jsx — Graphics/Sounds/Chat groups + defaults.",
+    "ui3_controls": "https://catalyst.example.com (ui3) app/islands/Controls.jsx — Controls (Mouse sensitivity, Head Sync, Point At) group + defaults.",
+    "upstream_attempted": "github.com/decentraland/unity-explorer SettingsView/SettingsAsset — 404 (Unity prefab/.asset files are not in the public raw tree); inventory derived from ui3 SettingsView strings as the spec directs.",
+    "persistence": "Client-side only: localStorage key `dcl:settings` and window.dclBridge.setSetting(section, key, value). No server write.",
+    "fetchedAt": "2026-06-23"
+  },
+  "storageKey": "dcl:settings",
+  "tabs": [
+    { "id": "graphics", "label": "Graphics" },
+    { "id": "sounds", "label": "Sounds" },
+    { "id": "controls", "label": "Controls" },
+    { "id": "chat", "label": "Chat" }
+  ],
+  "sections": {
+    "graphics": [
+      {
+        "title": "General",
+        "modules": [
+          { "key": "graphicsPreset", "kind": "dropdown", "title": "Graphics Preset", "options": ["Low", "Medium", "High", "Custom"], "default": "Custom" }
+        ]
+      },
+      {
+        "title": "Display",
+        "modules": [
+          { "key": "resolution", "kind": "dropdown", "title": "Resolution", "options": ["1280x720", "1920x1080", "2560x1440", "3840x2160"], "default": "3840x2160" },
+          { "key": "resolutionScale", "kind": "slider", "title": "Resolution Scale", "default": 120, "min": 50, "max": 200, "unit": "%" },
+          { "key": "fullscreen", "kind": "toggle", "title": "Fullscreen", "default": false },
+          { "key": "fpsLimit", "kind": "dropdown", "title": "FPS Limit", "options": ["30", "60", "120", "144", "Unlimited"], "default": "144" },
+          { "key": "vsync", "kind": "toggle", "title": "VSync", "default": true }
+        ]
+      },
+      {
+        "title": "Post Processing",
+        "modules": [
+          { "key": "msaa", "kind": "dropdown", "title": "MSAA", "options": ["Off", "X2", "X4", "X8"], "default": "X8" },
+          { "key": "hdr", "kind": "toggle", "title": "HDR", "default": true },
+          { "key": "bloom", "kind": "toggle", "title": "Bloom", "default": true },
+          { "key": "avatarOutline", "kind": "toggle", "title": "Avatar Outline", "default": true }
+        ]
+      },
+      {
+        "title": "Landscape and Foilage",
+        "modules": [
+          { "key": "detailDensity", "kind": "slider", "title": "Detail density", "default": 60, "min": 0, "max": 100, "unit": "%" },
+          { "key": "drawDistance", "kind": "slider", "title": "Draw distance", "default": 80, "min": 0, "max": 100, "unit": "%" }
+        ]
+      },
+      {
+        "title": "Shadows",
+        "modules": [
+          { "key": "shadowQuality", "kind": "dropdown", "title": "Shadow quality", "options": ["Off", "Low", "Medium", "High"], "default": "Medium" },
+          { "key": "shadowDistance", "kind": "slider", "title": "Shadow distance", "default": 70, "min": 0, "max": 100, "unit": "%" }
+        ]
+      }
+    ],
+    "sounds": [
+      {
+        "title": "Volume",
+        "modules": [
+          { "key": "masterVolume", "kind": "slider", "title": "Master volume", "default": 90, "min": 0, "max": 100, "unit": "%" },
+          { "key": "musicVolume", "kind": "slider", "title": "Music", "default": 75, "min": 0, "max": 100, "unit": "%" },
+          { "key": "worldVolume", "kind": "slider", "title": "World sounds", "default": 80, "min": 0, "max": 100, "unit": "%" },
+          { "key": "avatarVolume", "kind": "slider", "title": "Avatar sounds", "default": 80, "min": 0, "max": 100, "unit": "%" },
+          { "key": "uiVolume", "kind": "slider", "title": "UI sounds", "default": 60, "min": 0, "max": 100, "unit": "%" }
+        ]
+      },
+      {
+        "title": "Voice Chat & Streams",
+        "modules": [
+          { "key": "voiceVolume", "kind": "slider", "title": "Voice chat volume", "default": 85, "min": 0, "max": 100, "unit": "%" },
+          { "key": "muteMicBackground", "kind": "toggle", "title": "Mute mic in background", "default": true },
+          { "key": "playSceneStream", "kind": "toggle", "title": "Play current scene stream", "default": false }
+        ]
+      }
+    ],
+    "controls": [
+      {
+        "title": "Mouse",
+        "modules": [
+          { "key": "horizontalSensitivity", "kind": "slider", "title": "Horizontal sensitivity", "default": 50, "min": 0, "max": 100, "unit": "%" },
+          { "key": "verticalSensitivity", "kind": "slider", "title": "Vertical sensitivity", "default": 50, "min": 0, "max": 100, "unit": "%" },
+          { "key": "headSync", "kind": "toggle", "title": "Head Sync", "default": true },
+          { "key": "inputDevice", "kind": "dropdown", "title": "Input device", "options": ["Keyboard & Mouse", "Gamepad"], "default": "Keyboard & Mouse" }
+        ]
+      },
+      {
+        "title": "Point At",
+        "modules": [
+          { "key": "pointAtMarker", "kind": "dropdown", "title": "Point-at marker", "options": ["Everyone", "Friends", "Off"], "default": "Everyone" }
+        ]
+      }
+    ],
+    "chat": [
+      {
+        "title": "General",
+        "modules": [
+          { "key": "chatSounds", "kind": "dropdown", "title": "Chat sounds", "options": ["All", "Mentions only", "Off"], "default": "All" },
+          { "key": "chatReactions", "kind": "toggle", "title": "Chat reactions", "default": true },
+          { "key": "chatPrivacy", "kind": "dropdown", "title": "Chat privacy", "options": ["Everyone", "Friends", "Nobody"], "default": "Friends" },
+          { "key": "hideBlocked", "kind": "toggle", "title": "Hide blocked users", "default": true },
+          { "key": "chatTranslation", "kind": "toggle", "title": "Chat translation", "default": false }
+        ]
+      }
+    ]
+  }
+}

@@ -1,14 +1,19 @@
 [package]
 name = "catalyrst-map"
-version = "0.9.10"
+version = "0.16.4"
 edition = "2021"
 description = "Rust port of decentraland/atlas-server (api.decentraland.org map tiles + map.png renderer), sourced from the shared marketplace_squid DB"
+
+[package.metadata.generated]
+gate = "sites/scripts/gen-ts-check.sh"
+ts-bindings = "ui3/src/generated/catalyst/map"
 
 [[bin]]
 name = "catalyrst-map"
 path = "src/main.rs"
 
 [dependencies]
+catalyrst-db = { workspace = true }
 tokio = { workspace = true }
 axum = { workspace = true }
 tower-http = { workspace = true }
@@ -24,3 +29,7 @@ parking_lot = { workspace = true }
 reqwest = { workspace = true }
 tiny-skia = "0.12"
 lru = "0.18"
+ts-rs = { workspace = true, optional = true }
+
+[features]
+ts = ["dep:ts-rs"]

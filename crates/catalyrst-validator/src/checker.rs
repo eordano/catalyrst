@@ -4,82 +4,6 @@ use crate::error::{PermissionResult, ValidationResponse};
 use crate::types::*;
 
 #[async_trait]
-pub trait L1Checker: Send + Sync {
-    async fn check_land(
-        &self,
-        eth_address: &str,
-        parcels: &[(i32, i32)],
-        block: u64,
-    ) -> Result<Vec<bool>, crate::error::ValidatorError>;
-
-    async fn check_names(
-        &self,
-        eth_address: &str,
-        names: &[String],
-        block: u64,
-    ) -> Result<Vec<bool>, crate::error::ValidatorError>;
-}
-
-#[async_trait]
-pub trait L2Checker: Send + Sync {
-    async fn validate_wearables(
-        &self,
-        eth_address: &str,
-        contract_address: &str,
-        asset_id: &str,
-        hashes: &[String],
-        block: u64,
-    ) -> Result<bool, crate::error::ValidatorError>;
-
-    async fn validate_third_party(
-        &self,
-        tp_id: &str,
-        root: &[u8],
-        block: u64,
-    ) -> Result<bool, crate::error::ValidatorError>;
-}
-
-#[async_trait]
-pub trait ItemChecker: Send + Sync {
-    async fn check_items(
-        &self,
-        eth_address: &str,
-        items: &[String],
-        block: u64,
-    ) -> Result<Vec<bool>, crate::error::ValidatorError>;
-}
-
-#[async_trait]
-pub trait ThirdPartyItemChecker: Send + Sync {
-    async fn check_third_party_items(
-        &self,
-        eth_address: &str,
-        item_urns: &[String],
-        block: u64,
-    ) -> Result<Vec<bool>, crate::error::ValidatorError>;
-}
-
-#[async_trait]
-pub trait NamesOwnership: Send + Sync {
-    async fn owns_names_at_timestamp(
-        &self,
-        eth_address: &str,
-        names: &[String],
-        timestamp: Timestamp,
-    ) -> Result<PermissionResult, crate::error::ValidatorError>;
-}
-
-#[async_trait]
-pub trait ItemsOwnership: Send + Sync {
-    async fn owns_items_at_timestamp(
-        &self,
-        eth_address: &str,
-        urns: &[String],
-        timestamp: Timestamp,
-    ) -> Result<PermissionResult, crate::error::ValidatorError>;
-}
-
-#[async_trait]
 pub trait BlockchainChecker: Send + Sync {
     async fn find_blocks_for_timestamp(
         &self,
@@ -235,6 +159,12 @@ pub async fn validate_profile_access(
              are different (pointer:{pointer} signer: {})",
             deployer_address.to_lowercase()
         ));
+    }
+
+    let identity =
+        validate_profile_identity_fields(entity.metadata.as_ref(), entity.timestamp, &pointer);
+    if !identity.is_ok() {
+        return identity;
     }
 
     if entity.timestamp >= adr_timestamps::ADR_75 {
@@ -627,7 +557,41 @@ fn is_old_emote(s: &str) -> bool {
 }
 
 fn is_valid_eth_address(s: &str) -> bool {
-    s.len() == 42 && s.starts_with("0x") && s[2..].chars().all(|c| c.is_ascii_hexdigit())
+    catalyrst_types::is_eth_address(s)
+}
+
+fn validate_profile_identity_fields(
+    metadata: Option<&serde_json::Value>,
+    timestamp: Timestamp,
+    pointer: &str,
+) -> ValidationResponse {
+    if timestamp < adr_timestamps::PROFILE_IDENTITY {
+        return ValidationResponse::Ok;
+    }
+
+    let avatars = metadata
+        .and_then(|m| m.get("avatars"))
+        .and_then(|a| a.as_array());
+    if let Some(avatars) = avatars {
+        for avatar in avatars {
+            for field in ["ethAddress", "userId"] {
+                if let Some(value) = avatar.get(field).and_then(|v| v.as_str()) {
+                    if value.is_empty() {
+                        continue;
+                    }
+                    let value = value.to_lowercase();
+                    if value != pointer {
+                        return ValidationResponse::fail(format!(
+                            "The avatar {field} must match the profile pointer \
+                             (pointer:{pointer} {field}:{value})."
+                        ));
+                    }
+                }
+            }
+        }
+    }
+
+    ValidationResponse::Ok
 }
 
 fn extract_claimed_names(metadata: &serde_json::Value) -> Vec<String> {
@@ -855,5 +819,77 @@ mod tests {
         });
         let names = extract_claimed_names(&metadata);
         assert_eq!(names, vec!["TestName"]);
+    }
+
+    const POINTER: &str = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const OTHER: &str = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+
+    fn identity_metadata(eth_address: Option<&str>, user_id: Option<&str>) -> serde_json::Value {
+        let mut avatar = serde_json::json!({ "name": "x", "avatar": { "wearables": [] } });
+        if let Some(v) = eth_address {
+            avatar["ethAddress"] = serde_json::json!(v);
+        }
+        if let Some(v) = user_id {
+            avatar["userId"] = serde_json::json!(v);
+        }
+        serde_json::json!({ "avatars": [avatar] })
+    }
+
+    #[test]
+    fn profile_identity_matching_or_absent_fields_pass() {
+        let mixed_case = POINTER.to_uppercase().replace("0X", "0x");
+        for metadata in [
+            identity_metadata(Some(POINTER), Some(POINTER)),
+            identity_metadata(Some(mixed_case.as_str()), None),
+            identity_metadata(None, None),
+            identity_metadata(Some(""), Some("")),
+        ] {
+            assert!(validate_profile_identity_fields(
+                Some(&metadata),
+                adr_timestamps::PROFILE_IDENTITY,
+                POINTER
+            )
+            .is_ok());
+        }
+        assert!(
+            validate_profile_identity_fields(None, adr_timestamps::PROFILE_IDENTITY, POINTER)
+                .is_ok()
+        );
+    }
+
+    #[test]
+    fn profile_identity_mismatch_is_rejected_per_field() {
+        for (metadata, field) in [
+            (identity_metadata(Some(OTHER), Some(POINTER)), "ethAddress"),
+            (identity_metadata(Some(POINTER), Some(OTHER)), "userId"),
+        ] {
+            match validate_profile_identity_fields(
+                Some(&metadata),
+                adr_timestamps::PROFILE_IDENTITY,
+                POINTER,
+            ) {
+                ValidationResponse::Failed { errors } => {
+                    assert_eq!(
+                        errors,
+                        vec![format!(
+                            "The avatar {field} must match the profile pointer \
+                             (pointer:{POINTER} {field}:{OTHER})."
+                        )]
+                    );
+                }
+                other => panic!("mismatched {field} must be rejected, got {other}"),
+            }
+        }
+    }
+
+    #[test]
+    fn profile_identity_gate_exempts_older_deployments() {
+        let metadata = identity_metadata(Some(OTHER), Some(OTHER));
+        assert!(validate_profile_identity_fields(
+            Some(&metadata),
+            adr_timestamps::PROFILE_IDENTITY - 1,
+            POINTER
+        )
+        .is_ok());
     }
 }

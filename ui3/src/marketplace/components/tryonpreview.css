@@ -1,0 +1,52 @@
+.mktryon {
+  position: absolute;
+  inset: 0;
+  display: block;
+}
+.mktryon > div[data-status] {
+  width: 100%;
+  height: 100%;
+}
+.mktryon__loading {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 14px;
+  background: linear-gradient(
+    100deg,
+    rgba(255, 255, 255, 0) 40%,
+    rgba(255, 255, 255, 0.06) 50%,
+    rgba(255, 255, 255, 0) 60%
+  );
+  background-size: 200% 100%;
+  animation: mktryon-shimmer 1.4s linear infinite;
+}
+@keyframes mktryon-shimmer {
+  from { background-position: 120% 0; }
+  to { background-position: -80% 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mktryon__loading { animation: none; }
+}
+.mktryon__error {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: rgba(255, 255, 255, 0.65);
+  font-size: 14px;
+  text-align: center;
+  padding: 0 24px;
+}
+.mktryon__hint {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 12px;
+  text-align: center;
+  color: rgba(255, 255, 255, 0.45);
+  font-size: 12px;
+  pointer-events: none;
+}

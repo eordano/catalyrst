@@ -1,0 +1,249 @@
+{
+  "sid": "00000000-0000-4000-8000-00000000s7ry",
+  "filters": {
+    "tab": "overview",
+    "category": "",
+    "rarity": "",
+    "sortBy": "recently_listed",
+    "search": "",
+    "page": 0
+  },
+  "cards": [
+    {
+      "id": "0x66194b1abcbfbedd83841775404b245c8f9e4183-2",
+      "name": "CCC - Hat - Gray",
+      "collection": "wearable",
+      "price": "1",
+      "credits": null,
+      "rarity": "common",
+      "network": "polygon",
+      "image": "https://catalyst.example.com/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0x66194b1abcbfbedd83841775404b245c8f9e4183:2/thumbnail"
+    },
+    {
+      "id": "0x7ca53130fe63099f15e21022cbbc6b988a8863df-3",
+      "name": "AO2022 - 70s Tennis Shorts",
+      "collection": "wearable",
+      "price": "1",
+      "credits": null,
+      "rarity": "rare",
+      "network": "polygon",
+      "image": "https://catalyst.example.com/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0x7ca53130fe63099f15e21022cbbc6b988a8863df:3/thumbnail"
+    },
+    {
+      "id": "0x7ca53130fe63099f15e21022cbbc6b988a8863df-0",
+      "name": "AO2022 - 70s Tennis Shoes ",
+      "collection": "wearable",
+      "price": "1",
+      "credits": null,
+      "rarity": "rare",
+      "network": "polygon",
+      "image": "https://catalyst.example.com/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0x7ca53130fe63099f15e21022cbbc6b988a8863df:0/thumbnail"
+    },
+    {
+      "id": "0xf7733f9c8b22e2cd8dbd4ca9acd9666a6ab2f092-0",
+      "name": "AO2022 - 80s Tennis Shirt",
+      "collection": "wearable",
+      "price": "1",
+      "credits": null,
+      "rarity": "rare",
+      "network": "polygon",
+      "image": "https://catalyst.example.com/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0xf7733f9c8b22e2cd8dbd4ca9acd9666a6ab2f092:0/thumbnail"
+    },
+    {
+      "id": "0xf7733f9c8b22e2cd8dbd4ca9acd9666a6ab2f092-2",
+      "name": "AO2022 - 80s Tennis Shoes",
+      "collection": "wearable",
+      "price": "1",
+      "credits": null,
+      "rarity": "rare",
+      "network": "polygon",
+      "image": "https://catalyst.example.com/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0xf7733f9c8b22e2cd8dbd4ca9acd9666a6ab2f092:2/thumbnail"
+    },
+    {
+      "id": "0xfc7ac322c93c990016c3bac209ac6dc3341dfa73-2",
+      "name": "AO2022 - 90s Tennis Shirt",
+      "collection": "wearable",
+      "price": "1",
+      "credits": null,
+      "rarity": "rare",
+      "network": "polygon",
+      "image": "https://catalyst.example.com/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0xfc7ac322c93c990016c3bac209ac6dc3341dfa73:2/thumbnail"
+    },
+    {
+      "id": "0xfc7ac322c93c990016c3bac209ac6dc3341dfa73-0",
+      "name": "AO2022 - 90s Tennis Shoes",
+      "collection": "wearable",
+      "price": "1",
+      "credits": null,
+      "rarity": "rare",
+      "network": "polygon",
+      "image": "https://catalyst.example.com/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0xfc7ac322c93c990016c3bac209ac6dc3341dfa73:0/thumbnail"
+    },
+    {
+      "id": "0x2446291de7975872a93ecbdaaf229156362300f1-0",
+      "name": "AO2022 - 00s Dress",
+      "collection": "wearable",
+      "price": "1",
+      "credits": null,
+      "rarity": "rare",
+      "network": "polygon",
+      "image": "https://catalyst.example.com/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0x2446291de7975872a93ecbdaaf229156362300f1:0/thumbnail"
+    },
+    {
+      "id": "0x2446291de7975872a93ecbdaaf229156362300f1-1",
+      "name": "AO2022 - 00s Tennis Shorts",
+      "collection": "wearable",
+      "price": "1",
+      "credits": null,
+      "rarity": "rare",
+      "network": "polygon",
+      "image": "https://catalyst.example.com/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0x2446291de7975872a93ecbdaaf229156362300f1:1/thumbnail"
+    },
+    {
+      "id": "0x2446291de7975872a93ecbdaaf229156362300f1-2",
+      "name": "AO2022 - 00s Tennis Shirt",
+      "collection": "wearable",
+      "price": "1",
+      "credits": null,
+      "rarity": "rare",
+      "network": "polygon",
+      "image": "https://catalyst.example.com/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0x2446291de7975872a93ecbdaaf229156362300f1:2/thumbnail"
+    },
+    {
+      "id": "0x2446291de7975872a93ecbdaaf229156362300f1-3",
+      "name": "AO2022 - 00s Tennis Shoes",
+      "collection": "wearable",
+      "price": "1",
+      "credits": null,
+      "rarity": "rare",
+      "network": "polygon",
+      "image": "https://catalyst.example.com/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0x2446291de7975872a93ecbdaaf229156362300f1:3/thumbnail"
+    },
+    {
+      "id": "0x0e075b87aad63920bdb5a0d4a07b2e026d106462-0",
+      "name": "AO2022 - 10s Tennis Shorts",
+      "collection": "wearable",
+      "price": "1",
+      "credits": null,
+      "rarity": "rare",
+      "network": "polygon",
+      "image": "https://catalyst.example.com/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0x0e075b87aad63920bdb5a0d4a07b2e026d106462:0/thumbnail"
+    }
+  ],
+  "topCards": [
+    {
+      "id": "0xf61d27b7899d2641b02c56f4617f2d01f63f7ee5-3",
+      "name": "Illuminated Street Sneakers",
+      "collection": "wearable",
+      "price": "5,000,000,000,000",
+      "credits": null,
+      "rarity": "legendary",
+      "network": "polygon",
+      "image": "https://catalyst.example.com/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0xf61d27b7899d2641b02c56f4617f2d01f63f7ee5:3/thumbnail"
+    },
+    {
+      "id": "0xd14026bf5e455f3487dc57cbff3d408d4c11949f-1",
+      "name": "Golfcraft - Paella",
+      "collection": "wearable",
+      "price": "25",
+      "credits": null,
+      "rarity": "epic",
+      "network": "polygon",
+      "image": "https://catalyst.example.com/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0xd14026bf5e455f3487dc57cbff3d408d4c11949f:1/thumbnail"
+    },
+    {
+      "id": "0xddc05f2ca687ae48d4efc013b41f21284605327e-0",
+      "name": "Citadel Gauntlets",
+      "collection": "wearable",
+      "price": "30,000,000,000",
+      "credits": null,
+      "rarity": "exotic",
+      "network": "polygon",
+      "image": "https://catalyst.example.com/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0xddc05f2ca687ae48d4efc013b41f21284605327e:0/thumbnail"
+    },
+    {
+      "id": "0x89841f4ca30b48d5a7574f02b3d84049fe4b4d7b-1",
+      "name": "Ballet Jump In The Air",
+      "collection": "emote",
+      "price": "10,000,000,000",
+      "credits": null,
+      "rarity": "rare",
+      "network": "polygon",
+      "image": "https://catalyst.example.com/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0x89841f4ca30b48d5a7574f02b3d84049fe4b4d7b:1/thumbnail"
+    },
+    {
+      "id": "0x2c363fb15c0f98e26add137dcacf24463915095b-2",
+      "name": "Crypto Chicks Sunglasses",
+      "collection": "wearable",
+      "price": "10,000,000,000",
+      "credits": null,
+      "rarity": "common",
+      "network": "polygon",
+      "image": "https://catalyst.example.com/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0x2c363fb15c0f98e26add137dcacf24463915095b:2/thumbnail"
+    },
+    {
+      "id": "0x89841f4ca30b48d5a7574f02b3d84049fe4b4d7b-0",
+      "name": "Wings Of New Beauty",
+      "collection": "wearable",
+      "price": "1,000,000,000",
+      "credits": null,
+      "rarity": "rare",
+      "network": "polygon",
+      "image": "https://catalyst.example.com/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0x89841f4ca30b48d5a7574f02b3d84049fe4b4d7b:0/thumbnail"
+    }
+  ],
+  "trendingCards": [
+    {
+      "id": "0xc78d22b25514ebef5cdb34ccc4bf85f28c30f8c4-0",
+      "name": "ENO T-Shirt",
+      "collection": "wearable",
+      "price": "0.9",
+      "credits": null,
+      "rarity": "epic",
+      "network": "polygon",
+      "image": "https://catalyst.example.com/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0xc78d22b25514ebef5cdb34ccc4bf85f28c30f8c4:0/thumbnail"
+    },
+    {
+      "id": "0xd14026bf5e455f3487dc57cbff3d408d4c11949f-0",
+      "name": "Golfcraft - Eating Paella",
+      "collection": "emote",
+      "price": "0.14",
+      "credits": null,
+      "rarity": "common",
+      "network": "polygon",
+      "image": "https://catalyst.example.com/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0xd14026bf5e455f3487dc57cbff3d408d4c11949f:0/thumbnail"
+    },
+    {
+      "id": "0xb53081d7db78456eb436702c2f50a90436c8633f-0",
+      "name": "Macarena",
+      "collection": "emote",
+      "price": "0.55",
+      "credits": null,
+      "rarity": "common",
+      "network": "polygon",
+      "image": "https://catalyst.example.com/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0xb53081d7db78456eb436702c2f50a90436c8633f:0/thumbnail"
+    },
+    {
+      "id": "0x875ca7967ef77d3686e1a47263d45282e8d64765-0",
+      "name": "LBank Exoskeleton",
+      "collection": "wearable",
+      "price": "0.34",
+      "credits": null,
+      "rarity": "common",
+      "network": "polygon",
+      "image": "https://catalyst.example.com/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0x875ca7967ef77d3686e1a47263d45282e8d64765:0/thumbnail"
+    },
+    {
+      "id": "0x0bf8870be2d6cd80c814b70738e8d0648fe0f86f-2",
+      "name": "KOKO KRUNCH Sweater Rare",
+      "collection": "wearable",
+      "price": "0.13",
+      "credits": null,
+      "rarity": "rare",
+      "network": "polygon",
+      "image": "https://catalyst.example.com/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0x0bf8870be2d6cd80c814b70738e8d0648fe0f86f:2/thumbnail"
+    }
+  ],
+  "total": 7409,
+  "fallback": false
+}

@@ -1,0 +1,47 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                version,\n                auth_chain,\n                date_part('epoch', local_timestamp) * 1000 AS \"local_timestamp!\"\n            FROM deployments\n            WHERE entity_id = $1\n            LIMIT 1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "version",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "deployments",
+            "name": "version"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "auth_chain",
+        "type_info": "Json",
+        "origin": {
+          "Table": {
+            "table": "deployments",
+            "name": "auth_chain"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "local_timestamp!",
+        "type_info": "Float8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      null
+    ]
+  },
+  "hash": "fd0cb058b88034f2f439a46ae706c5a360c9fa4ac3bc96754a2a185f63eb6a8c"
+}

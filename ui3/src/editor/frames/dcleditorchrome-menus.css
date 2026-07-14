@@ -1,0 +1,80 @@
+.eui-menu {
+
+position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  min-width: 224px;
+  background: var(--surface);
+  border: 1px solid var(--divider);
+  border-radius: var(--r-card);
+  padding: 5px;
+  z-index: var(--z-overlay);
+  box-shadow: var(--shadow-float);
+  animation: eui-pop 0.14s cubic-bezier(0.2, 0.9, 0.3, 1) both;
+  transform-origin: top right;
+}
+.eui-ctx {
+  position: fixed;
+  min-width: 208px;
+  z-index: var(--z-dialog);
+  pointer-events: auto;
+  animation: eui-pop 0.12s cubic-bezier(0.2, 0.9, 0.3, 1) both;
+  transform-origin: top left;
+}
+.eui-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  height: 30px;
+  padding: 0 9px;
+  border-radius: var(--r-control);
+  border: none;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+  text-align: left;
+}
+.eui-menu-item:hover {
+  background: var(--hover);
+}
+.eui-menu-item.danger {
+  color: var(--error);
+}
+.eui-menu-item.danger:hover {
+  background: var(--error-hover);
+}
+.eui-menu-item .hint {
+  margin-left: auto;
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+.eui-menu-item svg {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  color: var(--text-2);
+}
+.eui-menu-item.danger svg {
+  color: var(--error);
+}
+.eui-menu-label {
+  height: 26px;
+  display: flex;
+  align-items: flex-end;
+  padding: 0 9px 5px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 500;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+.eui-menu-sep {
+  height: 1px;
+  background: var(--divider-soft);
+  margin: 5px 9px;
+}

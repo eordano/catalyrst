@@ -6,7 +6,10 @@ use std::path::{Path, PathBuf};
 pub struct Generated {
     pub dir: PathBuf,
     pub entrypoint: PathBuf,
+    pub max_composite_entity: u32,
 }
+
+const COMPOSITE_FILE_MAX_BYTES: u64 = 16 * 1024 * 1024;
 
 fn write_error(path: &Path, e: std::io::Error) -> anyhow::Error {
     UserError::new(
@@ -40,9 +43,15 @@ pub fn generate(
     };
     std::fs::write(&entry_path, content).map_err(|e| write_error(&entry_path, e))?;
 
+    let max_composite_entity = if ignore_composite {
+        0
+    } else {
+        scan_max_composite_entity(&project.root)
+    };
     Ok(Generated {
         dir,
         entrypoint: entry_path,
+        max_composite_entity,
     })
 }
 
@@ -53,7 +62,7 @@ fn entrypoint_code(safe_entry: &str, editor_scene: bool, split: bool) -> String 
         ""
     };
     let editor_block = if editor_scene {
-        "\nimport { syncEntity } from '@dcl/sdk/network'\nimport players from '@dcl/sdk/players'\nimport { initAssetPacks, setSyncEntity } from '@dcl/asset-packs/dist/scene-entrypoint'\ninitAssetPacks(engine, { syncEntity }, players)\n"
+        "\nimport { syncEntity } from '@dcl/sdk/network'\nimport players from '@dcl/sdk/players'\nimport { initAssetPacks } from '@dcl/asset-packs/dist/scene-entrypoint'\ninitAssetPacks(engine, { syncEntity }, players)\n"
             .to_string()
     } else {
         "false".to_string()
@@ -114,11 +123,15 @@ fn walk_composites(dir: &Path, out: &mut Vec<PathBuf>) {
             if !name.starts_with('.') && !matches!(name.as_str(), "node_modules" | "bin" | "dist") {
                 walk_composites(&path, out);
             }
-        } else if name.ends_with(".composite")
-            && !name.starts_with('.')
-            && path.metadata().map(|m| m.len()).unwrap_or(0) < 16_000_000
-        {
-            out.push(path);
+        } else if name.ends_with(".composite") && !name.starts_with('.') {
+            if path.metadata().map(|m| m.len()).unwrap_or(0) > COMPOSITE_FILE_MAX_BYTES {
+                tracing::warn!(
+                    "composite '{}' exceeds the {COMPOSITE_FILE_MAX_BYTES}-byte cap; refusing to parse",
+                    path.display()
+                );
+            } else {
+                out.push(path);
+            }
         }
     }
 }
@@ -133,12 +146,28 @@ fn write_all_composites(project: &Project, dir: &Path, ignore: bool) -> Result<(
                 .unwrap_or(&path)
                 .to_string_lossy()
                 .replace('\\', "/");
+            if rel != "main.composite" {
+                continue;
+            }
             let normalized = std::fs::read_to_string(&path)
                 .map_err(anyhow::Error::from)
                 .and_then(|raw| normalizer.normalize(&raw));
             match normalized {
                 Ok(json) => lines.push(format!("'{rel}':{json}")),
-                Err(err) => tracing::warn!("composite '{rel}' skipped: {err:#}"),
+                // Not a warning: everything placed in the Creator Hub lives in
+                // this file, so skipping it emits an empty compositeFromLoader
+                // and the scene builds green, deploys, and renders as bare
+                // ground. Failing here is the only way the author finds out
+                // before players do.
+                Err(err) => {
+                    return Err(UserError::new(
+                        format!("{rel} could not be loaded, so the scene would build with no content from the editor"),
+                        TrySteps::one(format!("fix {rel} — the underlying error is below"))
+                            .and("or build without it on purpose: dcl-one-sdk build --ignoreComposite"),
+                    )
+                    .why(format!("{err:#}"))
+                    .into());
+                }
             }
         }
     }
@@ -148,23 +177,63 @@ fn write_all_composites(project: &Project, dir: &Path, ignore: bool) -> Result<(
     Ok(())
 }
 
-fn write_script_utils(project: &Project, dir: &Path) -> Result<()> {
-    let runtime = project
+pub fn scan_max_composite_entity(root: &Path) -> u32 {
+    let mut max = 0u32;
+    for path in find_composites(root) {
+        let Ok(raw) = std::fs::read(&path) else {
+            continue;
+        };
+        let Ok(json) = serde_json::from_slice::<serde_json::Value>(&raw) else {
+            continue;
+        };
+        let comps = json
+            .get("components")
+            .and_then(|c| c.as_array())
+            .map(Vec::as_slice)
+            .unwrap_or(&[]);
+        for comp in comps {
+            let Some(data) = comp.get("data").and_then(|d| d.as_object()) else {
+                continue;
+            };
+            for key in data.keys() {
+                if let Ok(id) = key.parse::<u64>() {
+                    max = max.max((id & 0xffff) as u32);
+                }
+            }
+        }
+    }
+    max
+}
+
+/// The `~sdk/script-utils` no-op: what a scene *without* the smart-item runtime
+/// links against. The generated entrypoint calls `_initializeScripts`
+/// unconditionally, so the symbol has to exist either way.
+pub const SCRIPT_UTILS_STUB: &str = "export function _initializeScripts(_engine) {}\nexport function getScriptInstance() { return null }\nexport function getScriptInstancesByPath() { return [] }\nexport function getAllScriptInstances() { return [] }\nexport function callScriptMethod() {}\n";
+
+/// The real `~sdk/script-utils`: `@dcl/sdk-commands`' compiled smart-item script
+/// runtime, de-CommonJS'd so rolldown can bundle it as an ES module.
+///
+/// `None` unless *both* `@dcl/asset-packs` and `@dcl/sdk-commands` are on disk
+/// — that is the npm flow. The vendored blob ships neither as source: it ships
+/// this same transformed code already bundled into the prebuilt smart-item
+/// chunk, which is why `prebuilt::build_chunks` calls this function directly at
+/// blob-build time.
+pub fn script_utils_source(project: &Project) -> Option<String> {
+    let code = project
         .node_module("@dcl/asset-packs")
         .and_then(|_| project.node_module("@dcl/sdk-commands/dist/logic/runtime-script.js"))
-        .and_then(|p| std::fs::read_to_string(p).ok())
-        .map(|code| {
-            rewrite_requires(&strip_cjs(&code.replace(
-                "@dcl/inspector/node_modules/@dcl/asset-packs",
-                "@dcl/asset-packs",
-            )))
-        });
-    let content = match runtime {
-        Some(code) => format!(
-            "{code}\n\nexport function _initializeScripts(engine) {{\n  const scriptsArray = []\n  return runScripts(engine, scriptsArray)\n}}\n\nexport {{ getScriptInstance, getScriptInstancesByPath, getAllScriptInstances, callScriptMethod }}\n"
-        ),
-        None => "export function _initializeScripts(_engine) {}\nexport function getScriptInstance() { return null }\nexport function getScriptInstancesByPath() { return [] }\nexport function getAllScriptInstances() { return [] }\nexport function callScriptMethod() {}\n".to_string(),
-    };
+        .and_then(|p| std::fs::read_to_string(p).ok())?;
+    let runtime = rewrite_requires(&strip_cjs(&code.replace(
+        "@dcl/inspector/node_modules/@dcl/asset-packs",
+        "@dcl/asset-packs",
+    )));
+    Some(format!(
+        "{runtime}\n\nexport function _initializeScripts(engine) {{\n  const scriptsArray = []\n  return runScripts(engine, scriptsArray)\n}}\n\nexport {{ getScriptInstance, getScriptInstancesByPath, getAllScriptInstances, callScriptMethod }}\n"
+    ))
+}
+
+fn write_script_utils(project: &Project, dir: &Path) -> Result<()> {
+    let content = script_utils_source(project).unwrap_or_else(|| SCRIPT_UTILS_STUB.to_string());
     let path = dir.join("script-utils.js");
     std::fs::write(&path, content).map_err(|e| write_error(&path, e))?;
     Ok(())
@@ -265,7 +334,29 @@ fn top_level_require(line: &str) -> Option<(&str, &str)> {
 
 #[cfg(test)]
 mod tests {
-    use super::{rewrite_requires, strip_cjs};
+    use super::{rewrite_requires, scan_max_composite_entity, strip_cjs};
+
+    #[test]
+    fn max_composite_entity_scans_every_parseable_composite() {
+        let dir =
+            std::env::temp_dir().join(format!("dcl-one-sdk-maxentity-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("sub")).unwrap();
+        assert_eq!(scan_max_composite_entity(&dir), 0);
+        std::fs::write(
+            dir.join("main.composite"),
+            r#"{"version":1,"components":[{"name":"core::Transform","data":{"512":{},"600":{}}}]}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("sub/other.composite"),
+            r#"{"version":1,"components":[{"name":"my::Thing","data":{"5170":{}}}]}"#,
+        )
+        .unwrap();
+        std::fs::write(dir.join("sub/broken.composite"), "not json").unwrap();
+        assert_eq!(scan_max_composite_entity(&dir), 5170);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn rewrites_dist_cjs_barrel_require_to_esm_barrel_import() {

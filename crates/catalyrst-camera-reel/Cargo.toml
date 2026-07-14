@@ -1,14 +1,19 @@
 [package]
 name = "catalyrst-camera-reel"
-version = "0.9.10"
+version = "0.16.4"
 edition = "2021"
 description = "Rust port of decentraland/camera-reel-service (camera-reel-service.decentraland.org), content-addressed disk store + places_events DB"
+
+[package.metadata.generated]
+gate = "sites/scripts/gen-ts-check.sh"
+ts-bindings = "ui3/src/generated/catalyst/camera-reel"
 
 [[bin]]
 name = "catalyrst-camera-reel"
 path = "src/main.rs"
 
 [dependencies]
+catalyrst-db = { workspace = true }
 catalyrst-types = { workspace = true }
 catalyrst-crypto = { workspace = true }
 catalyrst-hashing = { workspace = true }
@@ -16,7 +21,6 @@ catalyrst-storage = { workspace = true }
 catalyrst-envcfg = { workspace = true }
 tokio = { workspace = true }
 axum = { workspace = true }
-tower = { workspace = true }
 tower-http = { workspace = true }
 reqwest = { workspace = true }
 sqlx = { workspace = true, features = ["uuid", "migrate"] }
@@ -30,11 +34,12 @@ anyhow = { workspace = true }
 bytes = { workspace = true }
 base64 = { workspace = true }
 uuid = { workspace = true }
-tokio-util = { workspace = true }
-url = { workspace = true }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 moka = { version = "0.12", features = ["future"] }
 ts-rs = { workspace = true, optional = true }
 
 [features]
 ts = ["dep:ts-rs"]
+
+[dev-dependencies]
+catalyrst-testgate = { workspace = true }

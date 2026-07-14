@@ -11,3 +11,9 @@ pub struct DataTotal<T> {
     #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub total: i64,
 }
+
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct MarketErrorBody {
+    pub ok: bool,
+    pub message: String,
+}

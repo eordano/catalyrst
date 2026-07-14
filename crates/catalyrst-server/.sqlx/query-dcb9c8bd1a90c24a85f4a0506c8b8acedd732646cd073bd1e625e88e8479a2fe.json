@@ -1,0 +1,35 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO deployments\n                (deployer_address, version, entity_type, entity_id, entity_metadata,\n                 entity_timestamp, entity_pointers, local_timestamp, auth_chain)\n            VALUES ($1, $2, $3, $4, $5, to_timestamp($6 / 1000.0), $7, now(), $8)\n            ON CONFLICT (entity_id) DO NOTHING\n            RETURNING id\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "deployments",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Json",
+        "Numeric",
+        "TextArray",
+        "Json"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "dcb9c8bd1a90c24a85f4a0506c8b8acedd732646cd073bd1e625e88e8479a2fe"
+}

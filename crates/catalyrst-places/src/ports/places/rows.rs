@@ -2,6 +2,8 @@ use chrono::{DateTime, Utc};
 use serde::Serialize;
 use sqlx::Row;
 
+use crate::sanitize::{sanitize_image_url, sanitize_place_description};
+
 pub(super) const PLACE_COLUMNS: &str = r#"
     id, title, description, raw->>'image' AS image,
     creator_address AS owner,
@@ -23,9 +25,10 @@ pub(super) const PLACE_COLUMNS: &str = r#"
     NULLIF(raw->>'ranking','')::float8 AS ranking,
     raw->>'sdk' AS sdk,
     deployed_at,
-    COALESCE((raw->>'world')::bool, false) AS world,
-    raw->>'world_name' AS world_name,
+    world,
+    world_name,
     raw->>'world_id' AS world_id,
+    raw->>'deployment_id' AS deployment_id,
     COALESCE((raw->>'is_private')::bool, false) AS is_private,
     COALESCE((raw->>'user_favorite')::bool, false) AS user_favorite,
     COALESCE((raw->>'user_like')::bool, false) AS user_like,
@@ -36,7 +39,7 @@ pub(super) const PLACE_COLUMNS: &str = r#"
     NULLIF(raw->>'like_score','')::float8 AS like_score
 "#;
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "places/"))]
 pub struct PlaceRow {
     pub id: String,
@@ -68,6 +71,9 @@ pub struct PlaceRow {
     pub sdk: Option<String>,
     pub creator_address: Option<String>,
     pub world_id: Option<String>,
+    /// Immutable content-entity identifier for this indexed deployment.
+    /// Null for legacy rows awaiting reconciliation (upstream places #856).
+    pub deployment_id: Option<String>,
     #[cfg_attr(feature = "ts", ts(type = "string | null"))]
     pub deployed_at: Option<DateTime<Utc>>,
     pub world: bool,
@@ -181,7 +187,7 @@ impl CategoryTarget {
     }
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
 pub struct ReportRow {
     pub id: i64,
     pub entity_id: Option<String>,
@@ -222,7 +228,7 @@ pub(super) fn row_to_report(r: sqlx::postgres::PgRow) -> ReportRow {
     }
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
 pub struct PoiRow {
     pub position: String,
     pub entity_id: Option<String>,
@@ -249,7 +255,7 @@ pub(super) fn row_to_poi(r: sqlx::postgres::PgRow) -> PoiRow {
     }
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
 pub struct PlaceStatusRow {
     pub id: String,
     pub disabled: bool,
@@ -262,10 +268,16 @@ pub(super) fn row_to_place(r: sqlx::postgres::PgRow) -> PlaceRow {
     PlaceRow {
         id: r.get::<String, _>("id"),
         title: r.try_get::<Option<String>, _>("title").unwrap_or(None),
-        description: r
-            .try_get::<Option<String>, _>("description")
-            .unwrap_or(None),
-        image: r.try_get::<Option<String>, _>("image").unwrap_or(None),
+        description: sanitize_place_description(
+            r.try_get::<Option<String>, _>("description")
+                .unwrap_or(None)
+                .as_deref(),
+        ),
+        image: sanitize_image_url(
+            r.try_get::<Option<String>, _>("image")
+                .unwrap_or(None)
+                .as_deref(),
+        ),
         owner: r.try_get::<Option<String>, _>("owner").unwrap_or(None),
         positions: r.try_get::<Vec<String>, _>("positions").unwrap_or_default(),
         base_position: r.get::<String, _>("base_position"),
@@ -308,6 +320,9 @@ pub(super) fn row_to_place(r: sqlx::postgres::PgRow) -> PlaceRow {
             .try_get::<Option<String>, _>("creator_address")
             .unwrap_or(None),
         world_id: r.try_get::<Option<String>, _>("world_id").unwrap_or(None),
+        deployment_id: r
+            .try_get::<Option<String>, _>("deployment_id")
+            .unwrap_or(None),
         deployed_at: r
             .try_get::<Option<DateTime<Utc>>, _>("deployed_at")
             .unwrap_or(None),

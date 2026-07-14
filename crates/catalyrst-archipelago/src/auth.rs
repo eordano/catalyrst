@@ -162,28 +162,31 @@ mod tests {
                 &vec![],
             )
             .unwrap_err();
-        matches!(err, AuthError::UnknownChallenge);
+        assert!(
+            matches!(err, AuthError::UnknownChallenge),
+            "expected UnknownChallenge, got {err:?}"
+        );
     }
 
     #[test]
     fn redeem_with_valid_signed_chain_succeeds() {
-        use ethers_signers::{LocalWallet, Signer};
+        use alloy::signers::{local::PrivateKeySigner, SignerSync};
 
         let s = ChallengeStore::new(cfg(true));
-        let wallet = LocalWallet::new(&mut ethers_core::rand::thread_rng());
+        let wallet = PrivateKeySigner::random();
         let address = format!("{:#x}", wallet.address());
 
         let challenge = s.issue(&address);
 
-        let hash = ethers_core::utils::hash_message(challenge.as_bytes());
-        let sig = wallet.sign_hash(hash).expect("sign");
+        let hash = alloy::primitives::eip191_hash_message(challenge.as_bytes());
+        let sig = wallet.sign_hash_sync(&hash).expect("sign");
 
         let chain: AuthChain = serde_json::from_value(serde_json::json!([
             { "type": "SIGNER", "payload": address, "signature": "" },
             {
                 "type": "ECDSA_SIGNED_ENTITY",
                 "payload": challenge,
-                "signature": format!("0x{}", sig)
+                "signature": sig.to_string()
             }
         ]))
         .expect("chain json");
@@ -194,23 +197,23 @@ mod tests {
 
     #[test]
     fn redeem_with_wrong_signer_fails() {
-        use ethers_signers::{LocalWallet, Signer};
+        use alloy::signers::{local::PrivateKeySigner, SignerSync};
 
         let s = ChallengeStore::new(cfg(true));
-        let wallet = LocalWallet::new(&mut ethers_core::rand::thread_rng());
-        let impostor = LocalWallet::new(&mut ethers_core::rand::thread_rng());
+        let wallet = PrivateKeySigner::random();
+        let impostor = PrivateKeySigner::random();
         let address = format!("{:#x}", wallet.address());
 
         let challenge = s.issue(&address);
-        let hash = ethers_core::utils::hash_message(challenge.as_bytes());
-        let sig = impostor.sign_hash(hash).expect("sign");
+        let hash = alloy::primitives::eip191_hash_message(challenge.as_bytes());
+        let sig = impostor.sign_hash_sync(&hash).expect("sign");
 
         let chain: AuthChain = serde_json::from_value(serde_json::json!([
             { "type": "SIGNER", "payload": address, "signature": "" },
             {
                 "type": "ECDSA_SIGNED_ENTITY",
                 "payload": challenge,
-                "signature": format!("0x{}", sig)
+                "signature": sig.to_string()
             }
         ]))
         .expect("chain json");

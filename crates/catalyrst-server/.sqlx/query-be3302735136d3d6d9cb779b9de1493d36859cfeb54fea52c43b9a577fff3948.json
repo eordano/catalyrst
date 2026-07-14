@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT pointer FROM active_pointers WHERE entity_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "pointer",
+        "type_info": "Varchar",
+        "origin": {
+          "Table": {
+            "table": "active_pointers",
+            "name": "pointer"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "be3302735136d3d6d9cb779b9de1493d36859cfeb54fea52c43b9a577fff3948"
+}

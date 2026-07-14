@@ -1,7 +1,7 @@
 -- catalyrst-price: the MANA spot-price tables (poll mode).
 --
--- Historically these tables were created out-of-band by the personal umbrella
--- schema (scripts/mana-price-archive-schema.sql) and this crate only ever read
+-- Historically these tables were created out-of-band by an operator-side
+-- archive schema (scripts/mana-price-archive-schema.sql) and this crate read
 -- from `price_snapshots`. Now that catalyrst-price can run its own poller
 -- (PRICE_POLL_ENABLED=true, see src/poller.rs), it owns the spot tables too.
 --
@@ -10,7 +10,7 @@
 --   mana_usd, mana_eth, mana_btc, mana_market_cap_usd, mana_volume_24h_usd,
 --   mana_price_change_24h_pct, source_updated_at, taken_at (filtered on source).
 --
--- IF NOT EXISTS everywhere so this is a no-op when the umbrella schema (or a
+-- IF NOT EXISTS everywhere so this is a no-op when that archive schema (or a
 -- prior run) already created them — the serve path is unchanged.
 
 CREATE TABLE IF NOT EXISTS price_snapshots (

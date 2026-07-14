@@ -1,0 +1,26 @@
+@import "../src/atoms/primitives.css";
+@import "../src/styles.css";
+@import "../src/explorepanel.css";
+@import "../src/touch-targets.css";
+@import "../src/scene-backdrop.css";
+
+html, body, #storybook-root {
+  height: auto;
+  overflow: visible;
+}
+
+.sb-show-main { background: #161518; }
+html.theme-light .sb-show-main { background: #f4f0f8; }
+
+html.theme-light .gv {
+  --gv-ink: #16141a;
+  --gv-muted: #736e7d;
+  --gv-faint: #b9b7be;
+  --gv-line: #dddce0;
+  --gv-line-soft: #ebeaee;
+  --gv-surface: #fff;
+  --gv-page: #f3f2f5;
+  --gv-wash: #f8f7f9;
+  --gv-tint: color-mix(in srgb, var(--brand) 10%, transparent);
+  --shell-nav-shadow: 0 1px 3px rgba(22, 20, 26, 0.05);
+}
