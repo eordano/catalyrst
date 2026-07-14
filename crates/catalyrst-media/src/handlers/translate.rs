@@ -56,6 +56,22 @@ fn resolve_language(detected: String, requested_source: &str) -> String {
     "en".to_string()
 }
 
+fn enforce_limits(char_limit: usize, batch_limit: usize, texts: &[String]) -> Result<(), ApiError> {
+    if texts.len() > batch_limit {
+        return Err(ApiError::bad_request(format!(
+            "batch size ({}) exceeds limit ({batch_limit})",
+            texts.len()
+        )));
+    }
+    let total_chars: usize = texts.iter().map(|t| t.chars().count()).sum();
+    if total_chars > char_limit {
+        return Err(ApiError::bad_request(format!(
+            "request ({total_chars} characters) exceeds text limit ({char_limit})"
+        )));
+    }
+    Ok(())
+}
+
 #[derive(Debug, Serialize)]
 pub struct DetectedLanguageDto {
     pub confidence: f32,
@@ -91,6 +107,11 @@ pub async fn translate(
 ) -> Result<Json<TranslateResponse>, ApiError> {
     match req {
         TranslateRequest::Single(s) => {
+            enforce_limits(
+                state.translate_char_limit,
+                state.translate_batch_limit,
+                std::slice::from_ref(&s.q),
+            )?;
             let items = run(&state, &[s.q], &s.source, &s.target, &s.format).await?;
             let item = items
                 .into_iter()
@@ -111,6 +132,11 @@ pub async fn translate(
                     translated_text: Vec::new(),
                 })));
             }
+            enforce_limits(
+                state.translate_char_limit,
+                state.translate_batch_limit,
+                &b.q,
+            )?;
             let items = run(&state, &b.q, &b.source, &b.target, &b.format).await?;
             if items.len() != b.q.len() {
                 return Err(ApiError::Internal(format!(
@@ -179,17 +205,33 @@ async fn run(
 
     if !miss_indices.is_empty() {
         let miss_texts: Vec<String> = miss_indices.iter().map(|&i| texts[i].clone()).collect();
-        let translated = state
-            .backend
-            .translate(&miss_texts, source, &target, format)
-            .await
-            .map_err(ApiError::Backend)?;
+        let translated = tokio::time::timeout(
+            state.translate_timeout,
+            state
+                .backend
+                .translate(&miss_texts, source, &target, format),
+        )
+        .await
+        .map_err(|_| {
+            let msg = format!(
+                "translation timed out after {}s",
+                state.translate_timeout.as_secs()
+            );
+            tracing::error!(error = %msg, "translation backend error");
+            ApiError::http(502, "translation backend error")
+        })?
+        .map_err(|e| {
+            tracing::error!(error = %e, "translation backend error");
+            ApiError::http(502, "translation backend error")
+        })?;
         if translated.len() != miss_texts.len() {
-            return Err(ApiError::Backend(format!(
+            let msg = format!(
                 "backend returned {} items for {} inputs",
                 translated.len(),
                 miss_texts.len()
-            )));
+            );
+            tracing::error!(error = %msg, "translation backend error");
+            return Err(ApiError::http(502, "translation backend error"));
         }
         let mut to_store: Vec<(Vec<u8>, &TranslatedItem)> = Vec::with_capacity(translated.len());
         for (k, &i) in miss_indices.iter().enumerate() {
@@ -211,4 +253,50 @@ async fn run(
         out.push(item);
     }
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::{DEFAULT_TRANSLATE_BATCH_LIMIT, DEFAULT_TRANSLATE_CHAR_LIMIT};
+
+    fn texts(items: &[&str]) -> Vec<String> {
+        items.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn under_both_limits_passes() {
+        assert!(enforce_limits(5000, 100, &texts(&["hello", "world"])).is_ok());
+    }
+
+    #[test]
+    fn batch_over_limit_is_rejected() {
+        let batch: Vec<String> = (0..3).map(|i| format!("t{i}")).collect();
+        let err = enforce_limits(5000, 2, &batch).unwrap_err();
+        assert!(
+            matches!(err, ApiError::Http { status: 400, message } if message.contains("batch size (3)"))
+        );
+    }
+
+    #[test]
+    fn chars_are_summed_across_the_batch() {
+        let batch = texts(&["aaaa", "bbbb"]);
+        let err = enforce_limits(6, 100, &batch).unwrap_err();
+        assert!(
+            matches!(err, ApiError::Http { status: 400, message } if message.contains("8 characters"))
+        );
+        assert!(enforce_limits(8, 100, &batch).is_ok());
+    }
+
+    #[test]
+    fn chars_counted_as_scalars_not_bytes() {
+        assert!(enforce_limits(4, 100, &texts(&["\u{65e5}\u{672c}\u{8a9e}\u{3060}"])).is_ok());
+        assert!(enforce_limits(3, 100, &texts(&["\u{65e5}\u{672c}\u{8a9e}\u{3060}"])).is_err());
+    }
+
+    #[test]
+    fn defaults_match_libretranslate_shape() {
+        assert_eq!(DEFAULT_TRANSLATE_CHAR_LIMIT, 5000);
+        assert_eq!(DEFAULT_TRANSLATE_BATCH_LIMIT, 100);
+    }
 }

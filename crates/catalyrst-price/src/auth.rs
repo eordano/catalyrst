@@ -23,7 +23,7 @@ fn bearer_token(headers: &HeaderMap) -> Option<String> {
 
 fn check(expected: Option<&str>, presented: Option<&str>) -> bool {
     match (expected, presented) {
-        (Some(expected), Some(token)) => timing_safe_eq(token, expected),
+        (Some(expected), Some(token)) if !expected.is_empty() => timing_safe_eq(token, expected),
         _ => false,
     }
 }
@@ -58,5 +58,36 @@ mod tests {
         assert!(check(Some("s3cret"), Some("s3cret")));
         assert!(!check(Some("s3cret"), Some("wrong")));
         assert!(!check(Some("s3cret"), None));
+    }
+
+    #[test]
+    fn admin_auth_probe_compare_agrees_with_equality() {
+        assert_eq!(
+            timing_safe_eq("s3cr3t-token", "s3cr3t-token"),
+            "s3cr3t-token" == "s3cr3t-token"
+        );
+        assert!(!timing_safe_eq("s3cr3t-token", "s3cr3t-tokeX"));
+        assert!(!timing_safe_eq("s3cr3t-token", "X3cr3t-token"));
+        assert!(!timing_safe_eq("s3cr3t-token", "s3cr3t-token-extra"));
+        assert!(timing_safe_eq("", ""));
+    }
+
+    #[test]
+    fn admin_auth_probe_unset_configured_token_rejects() {
+        assert!(!check(None, Some("anything")));
+        assert!(!check(None, None));
+    }
+
+    #[test]
+    fn admin_auth_probe_empty_configured_token_must_reject() {
+        assert!(!check(Some(""), Some("")));
+        assert!(!check(Some(""), Some("anything")));
+    }
+
+    #[test]
+    fn admin_auth_probe_empty_presented_vs_set_secret_rejects() {
+        assert!(!check(Some("the-real-token"), Some("")));
+        assert!(!check(Some("the-real-token"), None));
+        assert!(check(Some("the-real-token"), Some("the-real-token")));
     }
 }

@@ -1,9 +1,7 @@
-use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, RwLock};
-use std::time::{Duration, Instant};
+use std::sync::Arc;
+use std::time::Duration;
 
-use sqlx::postgres::PgListener;
+use catalyrst_commons::cache::TtlMap;
 use sqlx::PgPool;
 
 use super::catalog::{CatalogFilters, CatalogItem};
@@ -15,17 +13,9 @@ const MAX_ENTRIES: usize = 256;
 type Key = (bool, CatalogFilters);
 type Page = Arc<(Vec<CatalogItem>, i64)>;
 
-struct Entry {
-    generation: u64,
-    at: Instant,
-    page: Page,
-}
-
 pub struct CatalogCache {
     enabled: bool,
-    ttl: Duration,
-    generation: AtomicU64,
-    map: RwLock<HashMap<Key, Entry>>,
+    entries: TtlMap<Key, Page>,
 }
 
 impl CatalogCache {
@@ -40,9 +30,7 @@ impl CatalogCache {
     pub fn new(ttl_secs: u64) -> Self {
         Self {
             enabled: ttl_secs > 0,
-            ttl: Duration::from_secs(ttl_secs.max(1)),
-            generation: AtomicU64::new(0),
-            map: RwLock::new(HashMap::new()),
+            entries: TtlMap::new("market.catalog_pages", Duration::from_secs(ttl_secs.max(1))),
         }
     }
 
@@ -51,44 +39,27 @@ impl CatalogCache {
     }
 
     pub fn bump_generation(&self) {
-        self.generation.fetch_add(1, Ordering::Relaxed);
+        self.entries.bump_generation();
     }
 
     pub fn lookup(&self, key: &Key) -> Option<Page> {
         if !self.enabled {
             return None;
         }
-        let current = self.generation.load(Ordering::Relaxed);
-        let map = self.map.read().ok()?;
-        let entry = map.get(key)?;
-        if entry.generation != current || entry.at.elapsed() >= self.ttl {
-            return None;
-        }
-        Some(Arc::clone(&entry.page))
+        self.entries.get_fresh(key)
     }
 
     pub fn store(&self, key: Key, page: Page) {
         if !self.enabled {
             return;
         }
-        let generation = self.generation.load(Ordering::Relaxed);
-        if let Ok(mut map) = self.map.write() {
-            if map.len() >= MAX_ENTRIES {
-                let ttl = self.ttl;
-                map.retain(|_, e| e.generation == generation && e.at.elapsed() < ttl);
-                if map.len() >= MAX_ENTRIES {
-                    map.clear();
-                }
+        if self.entries.len() >= MAX_ENTRIES {
+            self.entries.retain_fresh();
+            if self.entries.len() >= MAX_ENTRIES {
+                self.entries.clear();
             }
-            map.insert(
-                key,
-                Entry {
-                    generation,
-                    at: Instant::now(),
-                    page,
-                },
-            );
         }
+        self.entries.insert(key, page);
     }
 }
 
@@ -97,37 +68,8 @@ pub fn spawn_invalidation_listener(pool: PgPool, cache: Arc<CatalogCache>) {
         tracing::info!("catalog cache disabled (CATALYRST_MARKET_CATALOG_CACHE_TTL_SECS=0)");
         return;
     }
-    tokio::spawn(async move {
-        loop {
-            match PgListener::connect_with(&pool).await {
-                Ok(mut listener) => {
-                    cache.bump_generation();
-                    if let Err(err) = listener.listen(DIRTY_CHANNEL).await {
-                        tracing::warn!(%err, "catalog cache LISTEN failed; retrying");
-                        tokio::time::sleep(Duration::from_secs(5)).await;
-                        continue;
-                    }
-                    tracing::info!(
-                        channel = DIRTY_CHANNEL,
-                        "catalog cache invalidation listener up"
-                    );
-                    loop {
-                        match listener.recv().await {
-                            Ok(_notification) => cache.bump_generation(),
-                            Err(err) => {
-                                tracing::warn!(%err, "catalog cache listener dropped; reconnecting");
-                                cache.bump_generation();
-                                break;
-                            }
-                        }
-                    }
-                }
-                Err(err) => {
-                    tracing::warn!(%err, "catalog cache listener connect failed; retrying");
-                }
-            }
-            tokio::time::sleep(Duration::from_secs(5)).await;
-        }
+    catalyrst_commons::worker::spawn_invalidation_listener(pool, DIRTY_CHANNEL, move || {
+        cache.bump_generation()
     });
 }
 
@@ -194,7 +136,7 @@ mod tests {
         for i in 0..(MAX_ENTRIES as i64 + 40) {
             c.store(key(Some(i)), page());
         }
-        let len = c.map.read().unwrap().len();
+        let len = c.entries.len();
         assert!(len <= MAX_ENTRIES + 1, "map grew past cap: {len}");
     }
 }

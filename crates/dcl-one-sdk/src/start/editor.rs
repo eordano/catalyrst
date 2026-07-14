@@ -1,17 +1,17 @@
-use super::{
-    data_layer_origin_allowed, forwarded_host, forwarded_prefix, forwarded_proto, AppState,
-};
+use super::http::preview_ws_origin;
+use super::{data_layer_origin_allowed, forwarded_prefix, AppState};
 use crate::data_layer;
 use crate::joinblock;
 use crate::netinfo;
 use axum::{
     extract::{ws::Message, Path as AxPath, Request, State, WebSocketUpgrade},
-    http::{header, HeaderMap, StatusCode},
+    http::{header, HeaderMap, HeaderValue, StatusCode},
     response::{IntoResponse, Redirect, Response},
     Json,
 };
 use futures::{SinkExt, StreamExt};
 use serde_json::json;
+use std::path::Path;
 use std::sync::Arc;
 
 pub(super) async fn mobile_preview(State(st): State<Arc<AppState>>) -> Response {
@@ -23,9 +23,13 @@ pub(super) async fn mobile_preview(State(st): State<Arc<AppState>>) -> Response 
         )
             .into_response();
     };
+    let base = st
+        .first_project()
+        .map(|p| joinblock::base_coords(&p.scene_json))
+        .unwrap_or((0, 0));
     let url = format!(
-        "decentraland://open?preview=http://{ip}:{}&position={}%2C{}",
-        st.port, st.base.0, st.base.1
+        "decentraland://open?preview=http://{ip}:{}&position={},{}",
+        st.port, base.0, base.1
     );
     match joinblock::qr_svg_data_url(&url) {
         Some(qr) => Json(json!({ "ok": true, "data": { "url": url, "qr": qr } })).into_response(),
@@ -43,6 +47,24 @@ fn editor_disabled() -> Response {
         "the visual editor is off \u{2014} restart with: dcl-one-sdk start --data-layer",
     )
         .into_response()
+}
+
+/// The default state: the blob ships the data-layer host and not the 18 MB
+/// editor UI, so `/data-layer` works and only `/inspector/*` does not.
+fn editor_ui_missing() -> Response {
+    (
+        StatusCode::NOT_FOUND,
+        "the data layer is running on /data-layer, but the editor UI (@dcl/inspector) \
+         is not installed \u{2014} npm install --save-dev @dcl/inspector, or set \
+         DCL_ONE_INSPECTOR_DIR=<path-to-an-@dcl/inspector-package>",
+    )
+        .into_response()
+}
+
+/// The inspector's browser bundle, or the response saying why there is none.
+fn ui_dir(st: &AppState) -> Result<&Path, Response> {
+    let dl = st.data_layer.as_ref().ok_or_else(editor_disabled)?;
+    dl.public_dir.as_deref().ok_or_else(editor_ui_missing)
 }
 
 pub(super) async fn data_layer_ws(State(st): State<Arc<AppState>>, req: Request) -> Response {
@@ -128,31 +150,15 @@ pub(super) async fn inspector_redirect(headers: HeaderMap) -> Response {
     Redirect::permanent(&format!("{prefix}/inspector/")).into_response()
 }
 
-fn editor_ws_url(headers: &HeaderMap) -> String {
-    let host = forwarded_host(headers).unwrap_or_else(|| {
-        headers
-            .get(header::HOST)
-            .and_then(|h| h.to_str().ok())
-            .unwrap_or("127.0.0.1")
-            .to_string()
-    });
-    let ws_proto = if forwarded_proto(headers) == "https" {
-        "wss"
-    } else {
-        "ws"
-    };
-    let prefix = forwarded_prefix(headers);
-    format!("{ws_proto}://{host}{prefix}/data-layer")
-}
-
 pub(super) async fn inspector_index(
     State(st): State<Arc<AppState>>,
     headers: HeaderMap,
 ) -> Response {
-    let Some(dl) = &st.data_layer else {
-        return editor_disabled();
+    let public_dir = match ui_dir(&st) {
+        Ok(dir) => dir,
+        Err(resp) => return resp,
     };
-    let index = dl.public_dir.join("index.html");
+    let index = public_dir.join("index.html");
     let html = match tokio::fs::read_to_string(&index).await {
         Ok(html) => html,
         Err(_) => {
@@ -163,7 +169,8 @@ pub(super) async fn inspector_index(
                 .into_response()
         }
     };
-    let config = data_layer::inspector_config_json(&editor_ws_url(&headers));
+    let ws_url = format!("{}/data-layer", preview_ws_origin(&headers));
+    let config = data_layer::inspector_config_json(&ws_url);
     let body = data_layer::inject_config(&html, &config);
     (
         [
@@ -180,34 +187,47 @@ pub(super) async fn inspector_asset(
     AxPath(path): AxPath<String>,
     headers: HeaderMap,
 ) -> Response {
-    let Some(dl) = &st.data_layer else {
-        return editor_disabled();
+    let public_dir = match ui_dir(&st) {
+        Ok(dir) => dir,
+        Err(resp) => return resp,
     };
-    if path.split('/').any(|seg| seg == "..") {
-        return (StatusCode::NOT_FOUND, "not found").into_response();
-    }
     if path.is_empty() || path == "index.html" {
         return inspector_index(State(st.clone()), headers).await;
     }
-    let base = dunce::canonicalize(&dl.public_dir).unwrap_or_else(|_| dl.public_dir.clone());
-    let Ok(full) = dunce::canonicalize(dl.public_dir.join(&path)) else {
+    let Some(asset) = data_layer::resolve_asset(public_dir, &path) else {
         return (StatusCode::NOT_FOUND, "not found").into_response();
     };
-    if !full.starts_with(&base) {
+    let (full, stored_gzipped) = match asset {
+        data_layer::Asset::Plain(p) => (p, false),
+        data_layer::Asset::Gzipped(p) => (p, true),
+    };
+    let Ok(mut bytes) = tokio::fs::read(&full).await else {
         return (StatusCode::NOT_FOUND, "not found").into_response();
+    };
+    let mut out = HeaderMap::new();
+    out.insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static(data_layer::inspector_mime(Path::new(&path))),
+    );
+    out.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
+    if stored_gzipped {
+        out.insert(header::VARY, HeaderValue::from_static("accept-encoding"));
+        let accepted = data_layer::accepts_gzip(
+            headers
+                .get(header::ACCEPT_ENCODING)
+                .and_then(|v| v.to_str().ok()),
+        );
+        if accepted {
+            out.insert(header::CONTENT_ENCODING, HeaderValue::from_static("gzip"));
+        } else {
+            match data_layer::gunzip(&bytes) {
+                Ok(plain) => bytes = plain,
+                Err(e) => {
+                    tracing::warn!("could not decompress {}: {e}", full.display());
+                    return (StatusCode::INTERNAL_SERVER_ERROR, "asset unreadable").into_response();
+                }
+            }
+        }
     }
-    match tokio::fs::read(&full).await {
-        Ok(bytes) => (
-            [
-                (
-                    header::CONTENT_TYPE,
-                    data_layer::inspector_mime(&full).to_string(),
-                ),
-                (header::CACHE_CONTROL, "no-cache".to_string()),
-            ],
-            bytes,
-        )
-            .into_response(),
-        Err(_) => (StatusCode::NOT_FOUND, "not found").into_response(),
-    }
+    (out, bytes).into_response()
 }

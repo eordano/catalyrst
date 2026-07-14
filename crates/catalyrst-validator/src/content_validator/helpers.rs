@@ -135,3 +135,90 @@ fn is_old_emote(s: &str) -> bool {
 pub(super) fn count_urn_segments(urn: &str) -> usize {
     urn.split(':').count()
 }
+
+pub(super) fn is_relative_thumbnail_path(path: &str) -> bool {
+    if path.starts_with('/') || has_uri_scheme(path) {
+        return false;
+    }
+    let trimmed = path.trim_matches(|c: char| c.is_whitespace() || c == '\u{feff}');
+    if trimmed != path || path.chars().any(char::is_control) {
+        return false;
+    }
+    !path.contains(['<', '>', '"'])
+}
+
+fn has_uri_scheme(path: &str) -> bool {
+    let mut chars = path.chars();
+    if !chars.next().is_some_and(|c| c.is_ascii_alphabetic()) {
+        return false;
+    }
+    for c in chars {
+        match c {
+            ':' => return true,
+            c if c.is_ascii_alphanumeric() || matches!(c, '+' | '.' | '-') => {}
+            _ => return false,
+        }
+    }
+    false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_relative_thumbnail_path;
+
+    #[test]
+    fn relative_thumbnail_accepts_plain_relative_paths() {
+        assert!(is_relative_thumbnail_path("thumbnail.png"));
+        assert!(is_relative_thumbnail_path("assets/thumbnail.png"));
+        assert!(is_relative_thumbnail_path("./thumbnail.png"));
+        assert!(is_relative_thumbnail_path("my thumbnail.png"));
+    }
+
+    #[test]
+    fn relative_thumbnail_rejects_uri_schemes() {
+        assert!(!is_relative_thumbnail_path("https://evil.com/x.png"));
+        assert!(!is_relative_thumbnail_path("http://evil.com/x.png"));
+        assert!(!is_relative_thumbnail_path(
+            "data:text/html,<script>1</script>"
+        ));
+        assert!(!is_relative_thumbnail_path("javascript:alert(1)"));
+        assert!(!is_relative_thumbnail_path("chrome-extension.v2:payload"));
+        assert!(!is_relative_thumbnail_path("C:windows.png"));
+    }
+
+    #[test]
+    fn relative_thumbnail_allows_colon_after_non_scheme_chars() {
+        assert!(is_relative_thumbnail_path("a/b:c.png"));
+    }
+
+    #[test]
+    fn relative_thumbnail_rejects_absolute_and_protocol_relative() {
+        assert!(!is_relative_thumbnail_path("/etc/passwd"));
+        assert!(!is_relative_thumbnail_path("//evil.com/x.png"));
+    }
+
+    #[test]
+    fn relative_thumbnail_rejects_surrounding_whitespace_and_controls() {
+        assert!(!is_relative_thumbnail_path(" thumbnail.png"));
+        assert!(!is_relative_thumbnail_path("thumbnail.png "));
+        assert!(!is_relative_thumbnail_path("thumbnail.png\n"));
+        assert!(!is_relative_thumbnail_path("thumb\u{0}nail.png"));
+        assert!(!is_relative_thumbnail_path("thumb\u{1b}nail.png"));
+        assert!(!is_relative_thumbnail_path("\u{feff}thumbnail.png"));
+    }
+
+    #[test]
+    fn relative_thumbnail_rejects_html_breakout_characters() {
+        assert!(!is_relative_thumbnail_path(
+            "x\"><script>alert(1)</script>.png"
+        ));
+        assert!(!is_relative_thumbnail_path("a<b.png"));
+        assert!(!is_relative_thumbnail_path("a>b.png"));
+        assert!(!is_relative_thumbnail_path("a\"b.png"));
+    }
+
+    #[test]
+    fn relative_thumbnail_accepts_empty() {
+        assert!(is_relative_thumbnail_path(""));
+    }
+}

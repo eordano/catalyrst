@@ -99,7 +99,8 @@ pub async fn post_user_ban(
         &format!("/users/{address}/bans"),
         ModeratorMode::Write,
         q.moderator.as_deref(),
-    )?;
+    )
+    .await?;
 
     let content_type = headers.get(CONTENT_TYPE).and_then(|v| v.to_str().ok());
     let body: BanPlayerBody = validate_body(content_type, &body_bytes)?;
@@ -168,7 +169,8 @@ pub async fn delete_user_ban(
         &format!("/users/{address}/bans"),
         ModeratorMode::Write,
         q.moderator.as_deref(),
-    )?;
+    )
+    .await?;
 
     state
         .user_bans
@@ -196,7 +198,8 @@ pub async fn get_user_warnings(
         &format!("/users/{address}/warnings"),
         ModeratorMode::Read,
         None,
-    )?;
+    )
+    .await?;
 
     let warnings = state.user_bans.get_warnings(&address).await?;
     let data = serde_json::to_value(warnings).unwrap_or(serde_json::Value::Array(vec![]));
@@ -217,7 +220,8 @@ pub async fn post_user_warning(
         &format!("/users/{address}/warnings"),
         ModeratorMode::Write,
         q.moderator.as_deref(),
-    )?;
+    )
+    .await?;
 
     let content_type = headers.get(CONTENT_TYPE).and_then(|v| v.to_str().ok());
     let body: WarnPlayerBody = validate_body(content_type, &body_bytes)?;
@@ -242,7 +246,7 @@ pub async fn list_all_bans(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    authorize_moderator(&state, &headers, "get", "/bans", ModeratorMode::Read, None)?;
+    authorize_moderator(&state, &headers, "get", "/bans", ModeratorMode::Read, None).await?;
 
     let bans = state.user_bans.get_active_bans().await?;
     let data = serde_json::to_value(bans).unwrap_or(serde_json::Value::Array(vec![]));
@@ -271,27 +275,32 @@ mod tests {
         assert!(v.get("banned").is_none());
     }
 
+    fn device_ban(at: chrono::DateTime<Utc>) -> UserBan {
+        UserBan {
+            id: "00000000-0000-0000-0000-000000000001".into(),
+            banned_address: "0xabc".into(),
+            banned_by: "0xdef".into(),
+            reason: "spam".into(),
+            custom_message: None,
+            banned_device_id: Some("dev-1".into()),
+            banned_at: at,
+            expires_at: None,
+            lifted_at: None,
+            lifted_by: None,
+            created_at: at,
+        }
+    }
+
     #[test]
     fn banned_envelope_has_nested_ban_with_camelcase_fields() {
         let at = Utc.timestamp_opt(1_718_900_000, 0).unwrap();
         let v = envelope(BanStatus {
             is_banned: true,
-            ban: Some(UserBan {
-                id: "00000000-0000-0000-0000-000000000001".into(),
-                banned_address: "0xabc".into(),
-                banned_by: "0xdef".into(),
-                reason: "spam".into(),
-                custom_message: None,
-                banned_device_id: None,
-                banned_at: at,
-                expires_at: None,
-                lifted_at: None,
-                lifted_by: None,
-                created_at: at,
-            }),
+            ban: Some(device_ban(at).into()),
         });
         assert_eq!(v["data"]["isBanned"], true);
         let ban = &v["data"]["ban"];
+        assert!(ban.get("bannedDeviceId").is_none());
         assert_eq!(ban["id"], "00000000-0000-0000-0000-000000000001");
         assert_eq!(ban["bannedAddress"], "0xabc");
         assert_eq!(ban["bannedBy"], "0xdef");
@@ -302,5 +311,19 @@ mod tests {
         assert!(ban["liftedAt"].is_null());
         assert!(ban["liftedBy"].is_null());
         assert_eq!(ban["createdAt"], "2024-06-20T16:13:20.000Z");
+    }
+
+    #[test]
+    fn the_moderator_list_envelope_keeps_the_device_id_the_public_route_strips() {
+        let at = Utc.timestamp_opt(1_718_900_000, 0).unwrap();
+        let data = serde_json::to_value(vec![device_ban(at)]).unwrap();
+        let v = serde_json::json!({ "data": data });
+        assert_eq!(v["data"][0]["bannedDeviceId"], "dev-1");
+
+        let public = envelope(BanStatus {
+            is_banned: true,
+            ban: Some(device_ban(at).into()),
+        });
+        assert!(public["data"]["ban"].get("bannedDeviceId").is_none());
     }
 }

@@ -1,9 +1,12 @@
 use alloy::primitives::{Address, U256};
 use anyhow::{anyhow, Context, Result};
-use catalyrst_envcfg::{get_int, get_port, get_u64, required};
+use catalyrst_envcfg::{get_int, get_port, get_u64, required, required_endpoint};
 use std::env;
 
-use crate::ports::oracle::MANA_USD_AGGREGATOR_POLYGON;
+use crate::ports::oracle::{
+    exceeds_onchain_stale_tolerance, MANA_USD_AGGREGATOR_POLYGON,
+    ONCHAIN_MANA_USD_STALE_TOLERANCE_SECS,
+};
 
 pub struct Config {
     pub http_host: String,
@@ -35,6 +38,9 @@ pub struct Config {
 
     pub meta_tx_broadcast_enabled: bool,
     pub relayer_private_key: Option<String>,
+
+    pub transactions_upstream_url: Option<String>,
+    pub transactions_upstream_timeout_ms: u64,
 
     pub admin_token: Option<String>,
 
@@ -69,9 +75,7 @@ impl Config {
             min_sale_value_in_wei: env::var("MIN_SALE_VALUE_IN_WEI")
                 .unwrap_or_else(|_| "1000000000000000000".to_string()),
             max_transactions_per_day: get_int("MAX_TRANSACTIONS_PER_DAY", 10)?,
-            contract_addresses_url: env::var("CONTRACT_ADDRESSES_URL").unwrap_or_else(|_| {
-                "https://contracts.decentraland.org/addresses.json".to_string()
-            }),
+            contract_addresses_url: required_endpoint("CONTRACT_ADDRESSES_URL")?,
             contract_addresses_chain_key: env::var("CONTRACT_ADDRESSES_CHAIN_KEY")
                 .unwrap_or_else(|_| "matic".to_string()),
             collections_chain_id: get_u64("COLLECTIONS_CHAIN_ID", 137)?,
@@ -96,6 +100,12 @@ impl Config {
 
             meta_tx_broadcast_enabled: get_bool("META_TX_BROADCAST_ENABLED", false)?,
             relayer_private_key: opt("RELAYER_PRIVATE_KEY"),
+
+            transactions_upstream_url: opt("TRANSACTIONS_UPSTREAM_URL"),
+            transactions_upstream_timeout_ms: get_u64(
+                "TRANSACTIONS_UPSTREAM_TIMEOUT_MS",
+                crate::ports::upstream::DEFAULT_UPSTREAM_TIMEOUT_MS,
+            )?,
 
             admin_token: opt("CATALYRST_ECONOMY_ADMIN_TOKEN"),
 
@@ -130,6 +140,15 @@ impl Config {
             cfg.admin_token.as_deref(),
             "CATALYRST_ECONOMY_ADMIN_TOKEN",
         )?;
+        if exceeds_onchain_stale_tolerance(cfg.usd_pegged_oracle_max_age_secs) {
+            tracing::warn!(
+                max_age_secs = cfg.usd_pegged_oracle_max_age_secs,
+                onchain_tolerance_secs = ONCHAIN_MANA_USD_STALE_TOLERANCE_SECS,
+                "USD_PEGGED_ORACLE_MAX_AGE_SECS is looser than the deployed marketplace \
+                 manaUsdAggregatorTolerance; the chain refuses at execution what this bound \
+                 accepts, so keep the local max age at or below the on-chain tolerance"
+            );
+        }
         Ok(cfg)
     }
 
@@ -143,6 +162,36 @@ impl Config {
             .as_deref()
             .map(|s| !s.is_empty())
             .unwrap_or(false)
+    }
+
+    pub fn has_direct_broadcast(&self) -> bool {
+        let has = |o: &Option<String>| o.as_deref().map(|s| !s.is_empty()).unwrap_or(false);
+        self.meta_tx_broadcast_enabled && has(&self.relayer_private_key) && self.has_rpc()
+    }
+
+    pub fn has_upstream_forward(&self) -> bool {
+        self.transactions_upstream_url
+            .as_deref()
+            .map(|s| !s.is_empty())
+            .unwrap_or(false)
+    }
+
+    /// Locally-provisioned relayers win over the upstream forward: the upstream
+    /// is the fallback broadcast path for nodes without real relayer creds.
+    pub fn relay_mode(&self) -> &'static str {
+        if self.has_relayer() {
+            "oz"
+        } else if self.has_direct_broadcast() {
+            "direct"
+        } else if self.has_upstream_forward() {
+            "upstream"
+        } else {
+            "none"
+        }
+    }
+
+    pub fn can_relay(&self) -> bool {
+        self.relay_mode() != "none"
     }
 }
 

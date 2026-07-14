@@ -1,5 +1,4 @@
 use anyhow::{anyhow, Context, Result};
-use futures::StreamExt;
 use serde::Deserialize;
 
 pub async fn from_local(path: &str) -> Result<String> {
@@ -15,8 +14,6 @@ pub struct WorldScene {
 
     pub static_crdt: Vec<u8>,
 
-    // metadata.scene.base of the deployed entity — what world-storage derives as
-    // the scene's parcel, so it is what storage delegations get scoped to.
     pub base_parcel: String,
 }
 
@@ -57,29 +54,9 @@ struct ContentEntry {
     hash: String,
 }
 
-pub(crate) async fn read_body_capped(resp: reqwest::Response, max_bytes: usize) -> Result<Vec<u8>> {
-    if let Some(len) = resp.content_length() {
-        if len > max_bytes as u64 {
-            return Err(anyhow!(
-                "response body advertises {len} bytes, over the {max_bytes} byte cap"
-            ));
-        }
-    }
-    let mut buf: Vec<u8> = Vec::new();
-    let mut stream = resp.bytes_stream();
-    while let Some(chunk) = stream.next().await {
-        let chunk = chunk?;
-        if buf.len().saturating_add(chunk.len()) > max_bytes {
-            return Err(anyhow!("response body exceeds the {max_bytes} byte cap"));
-        }
-        buf.extend_from_slice(&chunk);
-    }
-    Ok(buf)
-}
-
 async fn get_capped(client: &reqwest::Client, url: String, max_bytes: usize) -> Result<Vec<u8>> {
     let resp = client.get(&url).send().await?.error_for_status()?;
-    read_body_capped(resp, max_bytes)
+    catalyrst_commons::http::read_body_capped(resp, max_bytes)
         .await
         .with_context(|| format!("fetch {url}"))
 }
@@ -134,7 +111,6 @@ pub async fn from_world(
     let code_bytes = get_capped(client, format!("{base_url}{}", entry.hash), max_body_bytes)
         .await
         .context("fetch scene code")?;
-    // leading BOM stripped for parity with the reqwest .text() decode this replaced
     let code = String::from_utf8_lossy(
         code_bytes
             .strip_prefix(b"\xef\xbb\xbf".as_slice())

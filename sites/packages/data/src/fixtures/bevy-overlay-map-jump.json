@@ -1,0 +1,375 @@
+{
+  "_source": "https://catalyst.example.com/places/api/places?limit=24 (live 200; same surface as /places). Map tile raster is GPU/engine-only \u2014 catalyst /v1/tiles and /v2/tiles both 404 on the public edge \u2014 so pins render over the ui3 CSS parcel-grid placeholder. Pin rows below are raw catalyst place fields (re-projected by lib/catalyst/map-jump.ts rowToPin) so the fixture and live read stay identical.",
+  "_fetched_at": "2026-06-23",
+  "pins": [
+    {
+      "id": "830d885b-52f3-4c91-9151-9c8ec40aab63",
+      "title": "Audio Hot Lab",
+      "base_position": "-98,-95",
+      "categories": [
+        "music"
+      ],
+      "user_count": 0,
+      "like_rate": 1.0,
+      "contact_name": "SilvioDeCandia",
+      "owner": null,
+      "highlighted": false,
+      "world": false,
+      "world_name": null
+    },
+    {
+      "id": "3ca25728-5b41-48f6-8e24-5cb0e3f2bb5d",
+      "title": "Genesis Plaza",
+      "base_position": "-3,-2",
+      "categories": [
+        "poi"
+      ],
+      "user_count": 15,
+      "like_rate": 1.0,
+      "contact_name": "Decentraland Foundation",
+      "owner": null,
+      "highlighted": true,
+      "world": false,
+      "world_name": null
+    },
+    {
+      "id": "266b2654-24f8-4a05-8c9e-d4a8a2c0f7c8",
+      "title": "Rishi's Palace",
+      "base_position": "22,-75",
+      "categories": [],
+      "user_count": 0,
+      "like_rate": 0.9655172,
+      "contact_name": "Dhingia Builds",
+      "owner": "dhingia builds                            ",
+      "highlighted": false,
+      "world": false,
+      "world_name": null
+    },
+    {
+      "id": "5765679e-534d-47d6-91b5-f80857b4a46f",
+      "title": "RAGE CLUB",
+      "base_position": "148,50",
+      "categories": [
+        "music"
+      ],
+      "user_count": 0,
+      "like_rate": 1.0,
+      "contact_name": "Multiz.Agency",
+      "owner": null,
+      "highlighted": false,
+      "world": false,
+      "world_name": null
+    },
+    {
+      "id": "8f38ed26-447f-49ba-bcbb-76917e2119b4",
+      "title": "Dollhouse",
+      "base_position": "-103,-97",
+      "categories": [
+        "social",
+        "poi"
+      ],
+      "user_count": 0,
+      "like_rate": 0.8873239,
+      "contact_name": "SDK",
+      "owner": null,
+      "highlighted": false,
+      "world": false,
+      "world_name": null
+    },
+    {
+      "id": "b9a9d69b-33a6-47b5-9e2d-e3d708b2a8b2",
+      "title": "La Cantina Village",
+      "base_position": "-150,91",
+      "categories": [
+        "art",
+        "social",
+        "education",
+        "poi"
+      ],
+      "user_count": 0,
+      "like_rate": 1.0,
+      "contact_name": "Canessa",
+      "owner": "0xd6eff8f07caf3443a1178407d3de4129149d6ef6",
+      "highlighted": false,
+      "world": false,
+      "world_name": null
+    },
+    {
+      "id": "e3611a79-e866-4518-b796-888ae14ab9a0",
+      "title": "ABC Clubhouse",
+      "base_position": "-31,-27",
+      "categories": [
+        "social",
+        "poi"
+      ],
+      "user_count": 0,
+      "like_rate": 0.9302326,
+      "contact_name": "BillyTeacoin",
+      "owner": "0x09bc69a986e1b37fb01ef36124f4c2e14fa0ab6b",
+      "highlighted": false,
+      "world": false,
+      "world_name": null
+    },
+    {
+      "id": "7ab83e03-44d9-4df5-9040-149b418f0461",
+      "title": "TRU moved to Spottieland",
+      "base_position": "26,-118",
+      "categories": [],
+      "user_count": 0,
+      "like_rate": 0.88,
+      "contact_name": "UniKorn",
+      "owner": "tru                                       ",
+      "highlighted": false,
+      "world": false,
+      "world_name": null
+    },
+    {
+      "id": "77ab222a-6fc8-479d-9a79-dbff006a0e7d",
+      "title": "METATRIBE 4EVER",
+      "base_position": "110,44",
+      "categories": [
+        "art"
+      ],
+      "user_count": 0,
+      "like_rate": 0.93333334,
+      "contact_name": "MGD",
+      "owner": null,
+      "highlighted": false,
+      "world": false,
+      "world_name": null
+    },
+    {
+      "id": "c9cd9477-1749-4408-9b1a-26e1b8646e88",
+      "title": "The Inn",
+      "base_position": "137,-3",
+      "categories": [
+        "poi",
+        "music",
+        "social"
+      ],
+      "user_count": 0,
+      "like_rate": 0.9111111,
+      "contact_name": "SDK",
+      "owner": null,
+      "highlighted": false,
+      "world": false,
+      "world_name": null
+    },
+    {
+      "id": "a6da04cb-1fad-4743-9dc5-f620489a7051",
+      "title": "gallery",
+      "base_position": "78,-105",
+      "categories": [
+        "music",
+        "poi"
+      ],
+      "user_count": 0,
+      "like_rate": 0.9310345,
+      "contact_name": "crypt0m1notaur",
+      "owner": null,
+      "highlighted": false,
+      "world": false,
+      "world_name": null
+    },
+    {
+      "id": "f888b899-c509-44d1-af21-717a4cef654e",
+      "title": "Antrom RPG (Dice Masters)",
+      "base_position": "144,-7",
+      "categories": [
+        "featured",
+        "poi",
+        "game"
+      ],
+      "user_count": 7,
+      "like_rate": 0.86538464,
+      "contact_name": "Matt",
+      "owner": null,
+      "highlighted": true,
+      "world": false,
+      "world_name": null
+    },
+    {
+      "id": "e34efd16-a8cc-45e0-b096-3d2e1db79415",
+      "title": "Empty",
+      "base_position": "75,60",
+      "categories": [],
+      "user_count": 0,
+      "like_rate": 0.9142857,
+      "contact_name": null,
+      "owner": null,
+      "highlighted": false,
+      "world": false,
+      "world_name": null
+    },
+    {
+      "id": "45ad08d6-4bc7-40fd-8a78-faef87325c84",
+      "title": "Dhingia Club | Unmonday",
+      "base_position": "14,-135",
+      "categories": [
+        "music",
+        "social",
+        "fashion",
+        "poi"
+      ],
+      "user_count": 0,
+      "like_rate": 0.9047619,
+      "contact_name": "Dhingia Builds",
+      "owner": null,
+      "highlighted": false,
+      "world": false,
+      "world_name": null
+    },
+    {
+      "id": "999335b9-3251-4390-b2a2-b96ed053fbd5",
+      "title": "Rapture Art Gallery",
+      "base_position": "-88,-66",
+      "categories": [
+        "art"
+      ],
+      "user_count": 0,
+      "like_rate": 1.0,
+      "contact_name": "VonMises by LowPolyModels",
+      "owner": null,
+      "highlighted": false,
+      "world": false,
+      "world_name": null
+    },
+    {
+      "id": "279d6c5b-2cd0-4b00-bec2-ae615543a1f8",
+      "title": "Xeta's Rare Wearable Museum",
+      "base_position": "25,74",
+      "categories": [
+        "crypto",
+        "education",
+        "art"
+      ],
+      "user_count": 0,
+      "like_rate": 1.0,
+      "contact_name": "Xeta + Morph",
+      "owner": null,
+      "highlighted": false,
+      "world": false,
+      "world_name": null
+    },
+    {
+      "id": "3fd69792-b3e1-49c3-8476-482cd42c86d8",
+      "title": "Meta GamiMall",
+      "base_position": "1,95",
+      "categories": [
+        "game",
+        "shop",
+        "social",
+        "poi"
+      ],
+      "user_count": 1,
+      "like_rate": 0.9259259,
+      "contact_name": "MetaDoge",
+      "owner": "0x797066a17f83425c1b4c7a8cca52d19095520a52",
+      "highlighted": false,
+      "world": false,
+      "world_name": null
+    },
+    {
+      "id": "fdd1ab42-0c2e-40eb-a937-b094874dad95",
+      "title": "100Avatars Garden",
+      "base_position": "-55,-121",
+      "categories": [],
+      "user_count": 0,
+      "like_rate": 0.8888889,
+      "contact_name": "Polygonal Mind",
+      "owner": "eth address                               ",
+      "highlighted": false,
+      "world": false,
+      "world_name": null
+    },
+    {
+      "id": "46487db7-051d-4fcc-a36e-624305e8b05c",
+      "title": "Franky's Tavern",
+      "base_position": "-66,-114",
+      "categories": [
+        "music",
+        "social"
+      ],
+      "user_count": 0,
+      "like_rate": 0.9230769,
+      "contact_name": "juxton",
+      "owner": "0xd4f20b86ab05e5e91cecfefe874657b0f7bfc87d",
+      "highlighted": false,
+      "world": false,
+      "world_name": null
+    },
+    {
+      "id": "df73905e-5b52-4de6-889d-924dd04e2b1e",
+      "title": "Dhingia Builds HQ",
+      "base_position": "-100,37",
+      "categories": [],
+      "user_count": 0,
+      "like_rate": 0.9,
+      "contact_name": "Mr Dhingia",
+      "owner": null,
+      "highlighted": false,
+      "world": false,
+      "world_name": null
+    },
+    {
+      "id": "0b728618-b24b-43ad-9553-9c91dad807c5",
+      "title": "MetaTokyo",
+      "base_position": "-141,-8",
+      "categories": [],
+      "user_count": 0,
+      "like_rate": 1.0,
+      "contact_name": "MetaTokyo",
+      "owner": null,
+      "highlighted": false,
+      "world": false,
+      "world_name": null
+    },
+    {
+      "id": "a2aa73f9-9a16-4a95-9e7c-44f9701c29b4",
+      "title": "Low Poly Models HQ",
+      "base_position": "72,-24",
+      "categories": [],
+      "user_count": 0,
+      "like_rate": 0.92,
+      "contact_name": "Low Poly Models World",
+      "owner": "kj                                        ",
+      "highlighted": false,
+      "world": false,
+      "world_name": null
+    },
+    {
+      "id": "fbbc9a64-4d74-4932-90e3-314ea8ca49f2",
+      "title": "Make's Stack 2.6.2F",
+      "base_position": "-22,136",
+      "categories": [
+        "music",
+        "social",
+        "poi"
+      ],
+      "user_count": 0,
+      "like_rate": 0.90625,
+      "contact_name": "Make / Low poly models",
+      "owner": "0x755faf85277b848ed6a290c268e95e7b510ac8ff",
+      "highlighted": false,
+      "world": false,
+      "world_name": null
+    },
+    {
+      "id": "e566b863-ac38-4123-ad34-413dac5b63fb",
+      "title": "Chiegoll",
+      "base_position": "104,52",
+      "categories": [
+        "social",
+        "music",
+        "art"
+      ],
+      "user_count": 0,
+      "like_rate": 0.9411765,
+      "contact_name": "Chiegoll",
+      "owner": null,
+      "highlighted": false,
+      "world": false,
+      "world_name": null
+    }
+  ]
+}

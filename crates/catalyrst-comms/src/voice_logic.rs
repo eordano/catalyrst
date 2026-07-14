@@ -1,9 +1,10 @@
 use std::collections::BTreeMap;
 
 use crate::livekit::{
-    build_adapter_url, community_id_from_room_name, private_voice_chat_room_name, AccessToken,
-    VideoGrants, TRACK_SOURCE_MICROPHONE,
+    build_adapter_url, community_id_from_room_name, join_grants, private_voice_chat_room_name,
+    AccessToken,
 };
+use crate::util::now_ms;
 use crate::voice_db::{DeleteRoomError, VoiceChatUserStatus};
 use crate::AppState;
 
@@ -90,11 +91,10 @@ pub async fn get_private_voice_chat_room_credentials(
 
     let mut out: BTreeMap<String, serde_json::Value> = BTreeMap::new();
     for addr in user_addresses {
-        let mut grants = VideoGrants::join(&room_name);
+        let mut grants = join_grants(&room_name);
         grants.can_publish = true;
         grants.can_subscribe = true;
         grants.can_update_own_metadata = false;
-        grants.can_publish_sources = Some(vec![TRACK_SOURCE_MICROPHONE.to_string()]);
 
         let token = AccessToken::new(
             &state.livekit_api_key,
@@ -512,28 +512,28 @@ pub async fn expire_community_voice_chats(state: &AppState) -> Result<(), crate:
     Ok(())
 }
 
-fn now_ms() -> i64 {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or(0)
-}
-
-pub fn spawn_expiration_job(state: AppState) {
-    tokio::spawn(async move {
-        let mut ticker = tokio::time::interval(std::time::Duration::from_secs(60));
-        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-        loop {
-            ticker.tick().await;
-            if let Err(e) = expire_private_voice_chats(&state).await {
-                tracing::warn!(error = %e, "private voice chat expiration job failed");
+pub fn spawn_expiration_job(
+    state: AppState,
+    shutdown: tokio_util::sync::CancellationToken,
+) -> tokio::task::JoinHandle<()> {
+    catalyrst_commons::worker::spawn_periodic(
+        "comms-voice-expiration",
+        std::time::Duration::from_secs(60),
+        catalyrst_commons::worker::PeriodicCfg::default(),
+        shutdown,
+        move || {
+            let state = state.clone();
+            async move {
+                if let Err(e) = expire_private_voice_chats(&state).await {
+                    tracing::warn!(error = %e, "private voice chat expiration job failed");
+                }
+                if let Err(e) = expire_community_voice_chats(&state).await {
+                    tracing::warn!(error = %e, "community voice chat expiration job failed");
+                }
+                Ok::<(), crate::http::ApiError>(())
             }
-            if let Err(e) = expire_community_voice_chats(&state).await {
-                tracing::warn!(error = %e, "community voice chat expiration job failed");
-            }
-        }
-    });
+        },
+    )
 }
 
 #[cfg(test)]

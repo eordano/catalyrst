@@ -1,12 +1,25 @@
 use crate::ux::{TrySteps, UserError};
 use anyhow::{Context, Result};
 use serde_json::Value;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 #[derive(Clone, Debug)]
 pub struct Project {
     pub root: PathBuf,
     pub scene_json: Value,
+}
+
+/// `.dcl-one/`, created with its own `.gitignore` so no scene-level ignore
+/// file has to list it.
+pub fn work_dir(root: &Path) -> std::io::Result<PathBuf> {
+    let dir = root.join(".dcl-one");
+    std::fs::create_dir_all(&dir)?;
+    let ignore = dir.join(".gitignore");
+    if !ignore.exists() {
+        std::fs::write(&ignore, "*\n")?;
+    }
+    Ok(dir)
 }
 
 impl Project {
@@ -140,22 +153,34 @@ impl Project {
     }
 
     pub fn require_node_module(&self, rel: &str) -> Result<PathBuf> {
-        match self.node_module(rel) {
-            Some(p) => Ok(p),
-            None => Err(UserError::new(
-                format!("{rel} is not installed in this scene"),
-                TrySteps::one("run dcl-one-sdk init --node-modules-only to restore the vendored node_modules (or npm install)"),
-            )
-            .why(format!(
-                "{} does not exist",
-                self.root.join("node_modules").join(rel).display()
-            ))
-            .into()),
+        let p = self.root.join("node_modules").join(rel);
+        if p.exists() {
+            return Ok(p);
         }
+        Err(UserError::new(
+            format!("{rel} is not installed in this scene"),
+            TrySteps::one("run dcl-one-sdk init --node-modules-only to restore the vendored node_modules (or npm install)"),
+        )
+        .why(format!("{} does not exist", p.display()))
+        .into())
     }
 
     pub fn is_editor_scene(&self) -> bool {
-        self.root.join("assets/scene/main.composite").exists()
+        let Ok(raw) = std::fs::read(self.root.join("assets/scene/main.composite")) else {
+            return false;
+        };
+        let Ok(json) = serde_json::from_slice::<Value>(&raw) else {
+            return false;
+        };
+        json.get("components")
+            .and_then(|c| c.as_array())
+            .is_some_and(|comps| {
+                comps.iter().any(|c| {
+                    c.get("name").and_then(|n| n.as_str()).is_some_and(|n| {
+                        n.starts_with("asset-packs::") && n != "asset-packs::Script"
+                    })
+                })
+            })
     }
 
     pub fn tsconfig(&self) -> Result<PathBuf> {
@@ -183,7 +208,7 @@ pub fn min_cli_warning(root: &Path) -> Option<String> {
     let tracked = parse_semver(TRACKED_MIN_CLI)?;
     if min > tracked {
         Some(format!(
-            "this project asks for CLI version >= {declared}, newer than the {TRACKED_MIN_CLI} level dcl-one-sdk tracks (@dcl/sdk-commands 7.22.6) \u{2014} if a command misbehaves, cross-check with npx @dcl/sdk-commands"
+            "this project asks for CLI version >= {declared}, newer than the {TRACKED_MIN_CLI} level dcl-one-sdk tracks (@dcl/sdk-commands 7.27.0) \u{2014} if a command misbehaves, cross-check with npx @dcl/sdk-commands"
         ))
     } else {
         None
@@ -228,58 +253,281 @@ pub fn machine_id() -> String {
         .unwrap_or_else(|| "dcl-one".to_string())
 }
 
-pub fn b64_hash(path_str: &str, machine: &str) -> String {
+/// A project root as an opaque, stable id: the root is the only part of a path
+/// that has to be hidden (the rest is public in every entity's `content[].file`).
+/// Machine-scoped, so two machines previewing the same folder never mint the
+/// same id.
+pub fn root_tag(root: &Path, machine: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let mut digest = Sha256::new();
+    digest.update(root.display().to_string().as_bytes());
+    digest.update(b"-");
+    digest.update(machine.as_bytes());
+    digest
+        .finalize()
+        .iter()
+        .take(8)
+        .map(|b| format!("{b:02x}"))
+        .collect()
+}
+
+/// The nearest ancestor holding a scene.json. A guess costing a `stat` per
+/// ancestor, and one that can mistake a nested `scene.json` for the root the
+/// file is served under: a caller that knows the project must use
+/// [`b64_hash_in_root`] instead.
+fn project_root_of(path: &Path) -> Option<&Path> {
+    path.ancestors().find(|a| a.join("scene.json").is_file())
+}
+
+/// [`b64_hash`] for a caller that already holds the project's [`root_tag`]:
+/// the payload is byte-for-byte what [`b64_hash`] builds for the same file, so
+/// hashes minted through either door resolve identically. `rel` is not
+/// validated — minting is not authorization; the read side treats every
+/// relative half as attacker-supplied (see [`b64_unhash`] and the
+/// canonicalize-and-contain check in `start::http::contents`).
+pub fn b64_hash_in_root(root_tag: &str, rel: &str) -> String {
     use base64::Engine;
-    let unique = format!("{path_str}-{machine}");
+    let unique = format!("{root_tag}/{}", rel.replace('\\', "/"));
     format!(
         "b64-{}",
         base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(unique.as_bytes())
     )
 }
 
-pub fn b64_unhash(hash: &str, machine: &str) -> Option<String> {
+/// [`b64_content_hash`] for a caller that already knows the root — see
+/// [`b64_hash_in_root`]. `abs` is only read for the digest; the identity half
+/// comes from `root_tag` and `rel`.
+pub fn b64_content_hash_in_root(root_tag: &str, rel: &str, abs: &Path) -> String {
+    with_content_tag(b64_hash_in_root(root_tag, rel), abs)
+}
+
+/// `base` plus the file's digest; an unreadable file keeps the path-only hash,
+/// since the request for it is going to fail anyway.
+fn with_content_tag(base: String, abs: &Path) -> String {
+    match content_tag(abs) {
+        Some(tag) => format!("{base}{CONTENT_TAG}{tag}"),
+        None => base,
+    }
+}
+
+/// The identity of a path in a preview: reversible, so `/content/contents/{hash}`
+/// finds the file again without a side table (real files go through
+/// [`b64_content_hash`]). The payload is `{root tag}/{path inside the project}`,
+/// never the absolute path: the pages carrying these hashes are unauthenticated
+/// and reachable over the LAN or a tunnel, and base64 is not concealment. A path
+/// under no project root is tagged whole with no relative part, so no root can
+/// match it and it 404s rather than travelling in the clear.
+pub fn b64_hash(path_str: &str, machine: &str) -> String {
+    let path = Path::new(path_str);
+    match project_root_of(path) {
+        Some(root) => b64_hash_in_root(
+            &root_tag(root, machine),
+            &path.strip_prefix(root).unwrap_or(path).to_string_lossy(),
+        ),
+        None => b64_hash_in_root(&root_tag(path, machine), ""),
+    }
+}
+
+/// Separates the path part of a hash from its content tag. Not in the base64url
+/// alphabet, so splitting on it can never cut into the encoded path, and an
+/// untagged hash still decodes.
+const CONTENT_TAG: char = '.';
+
+/// [`b64_hash`] plus a digest of the file's bytes: content addressing on the
+/// WRITE side only. An edit always changes the name, so a client refetches just
+/// that asset instead of dropping its whole cache on reload; but the name does
+/// not pin the bytes — `/content/contents/{hash}` resolves on
+/// [`hash_path_part`] alone, so a superseded digest is answered 200 with what
+/// the file holds NOW (old versions are not kept, and failing would break a
+/// fetch in flight). Pinned by
+/// `start::http::tests::a_stale_digest_serves_the_current_bytes`.
+pub fn b64_content_hash(abs_path: &str, machine: &str) -> String {
+    with_content_tag(b64_hash(abs_path, machine), Path::new(abs_path))
+}
+
+/// How old an mtime has to be before (mtime, len) is a safe cache key. Filesystem
+/// mtime granularity runs as coarse as 2s (FAT, older NFS), so two same-length
+/// writes inside one tick are indistinguishable — the make/rsync guard.
+const MTIME_SETTLED: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// A short digest of a file, memoised on (mtime, len) because the content
+/// mapping is rebuilt on every entity request. A file touched within
+/// [`MTIME_SETTLED`] is hashed every time: its stamp cannot yet tell one edit
+/// from the next, and a stale tag would be cached under it forever.
+fn content_tag(path: &Path) -> Option<String> {
+    use sha2::{Digest, Sha256};
+    type Stamp = (std::time::SystemTime, u64);
+    static SEEN: std::sync::OnceLock<std::sync::Mutex<HashMap<PathBuf, (Stamp, String)>>> =
+        std::sync::OnceLock::new();
+    let cache = SEEN.get_or_init(Default::default);
+    let lock = || {
+        cache
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    };
+
+    let meta = std::fs::metadata(path).ok()?;
+    if !meta.is_file() {
+        return None;
+    }
+    let modified = meta.modified().ok()?;
+    let stamp = (modified, meta.len());
+    if let Some((seen, tag)) = lock().get(path) {
+        if *seen == stamp {
+            return Some(tag.clone());
+        }
+    }
+    let bytes = std::fs::read(path).ok()?;
+    let tag: String = Sha256::digest(&bytes)
+        .iter()
+        .take(6)
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    let settled = std::time::SystemTime::now()
+        .duration_since(modified)
+        .is_ok_and(|age| age >= MTIME_SETTLED);
+    if settled {
+        lock().insert(path.to_path_buf(), (stamp, tag.clone()));
+    }
+    Some(tag)
+}
+
+/// Bounded parallel map, input order preserved; the cap of 32 is upstream's
+/// project-walk concurrency (js-sdk-toolchain b7a44a20).
+pub(crate) fn parallel_map<T, U>(items: &[T], f: impl Fn(&T) -> U + Sync) -> Vec<U>
+where
+    T: Sync,
+    U: Send,
+{
+    let workers = std::thread::available_parallelism()
+        .map(|n| n.get() * 2)
+        .unwrap_or(8)
+        .clamp(1, 32)
+        .min(items.len().max(1));
+    if workers <= 1 {
+        return items.iter().map(f).collect();
+    }
+    let next = std::sync::atomic::AtomicUsize::new(0);
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::scope(|s| {
+        let (next, f) = (&next, &f);
+        for _ in 0..workers {
+            let tx = tx.clone();
+            s.spawn(move || loop {
+                let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                let Some(item) = items.get(i) else { break };
+                let _ = tx.send((i, f(item)));
+            });
+        }
+    });
+    drop(tx);
+    let mut slots: Vec<Option<U>> = std::iter::repeat_with(|| None).take(items.len()).collect();
+    for (i, v) in rx {
+        slots[i] = Some(v);
+    }
+    slots
+        .into_iter()
+        .map(|v| v.expect("every index mapped"))
+        .collect()
+}
+
+/// The part of a hash that identifies WHICH file, not which version: the only
+/// part the read side compares on (see [`b64_content_hash`]).
+pub fn hash_path_part(hash: &str) -> &str {
+    hash.rsplit_once(CONTENT_TAG).map_or(hash, |(path, _)| path)
+}
+
+/// Splits a hash back into its [`root_tag`] and the path inside that root. The
+/// relative half is attacker-controlled (anyone can mint a hash for a tag they
+/// read off the page) and must not be joined to a root unchecked.
+pub fn b64_unhash(hash: &str) -> Option<(String, String)> {
     use base64::Engine;
     let b = hash.strip_prefix("b64-")?;
+    let b = hash_path_part(b);
     let normalized = b.trim_end_matches('=').replace('+', "-").replace('/', "_");
     let decoded = base64::engine::general_purpose::URL_SAFE_NO_PAD
         .decode(normalized.as_bytes())
         .ok()?;
     let s = String::from_utf8(decoded).ok()?;
-    s.strip_suffix(&format!("-{machine}")).map(str::to_string)
+    let (tag, rel) = s.split_once('/')?;
+    Some((tag.to_string(), rel.to_string()))
+}
+
+/// A scratch directory for tests, removed on drop.
+#[cfg(test)]
+pub(crate) struct Tmp(pub PathBuf);
+
+#[cfg(test)]
+impl Tmp {
+    pub fn new(tag: &str) -> Self {
+        let dir = std::env::temp_dir().join(format!("dcl-one-sdk-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        Tmp(dir)
+    }
+
+    pub fn write(&self, rel: &str, contents: impl AsRef<[u8]>) {
+        let p = self.0.join(rel);
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        std::fs::write(p, contents).unwrap();
+    }
+}
+
+#[cfg(test)]
+impl Drop for Tmp {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    struct Tmp(PathBuf);
-
-    impl Tmp {
-        fn new(tag: &str) -> Self {
-            let dir = std::env::temp_dir()
-                .join(format!("dcl-one-sdk-mincli-{tag}-{}", std::process::id()));
-            let _ = std::fs::remove_dir_all(&dir);
-            std::fs::create_dir_all(&dir).unwrap();
-            Tmp(dir)
-        }
-
-        fn write(&self, rel: &str, contents: &str) {
-            let p = self.0.join(rel);
-            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
-            std::fs::write(p, contents).unwrap();
-        }
-    }
-
-    impl Drop for Tmp {
-        fn drop(&mut self) {
-            let _ = std::fs::remove_dir_all(&self.0);
-        }
+    #[test]
+    fn the_work_dir_carries_its_own_gitignore() {
+        let tmp = Tmp::new("workdir");
+        let dir = work_dir(&tmp.0).unwrap();
+        assert_eq!(dir, tmp.0.join(".dcl-one"));
+        assert_eq!(
+            std::fs::read_to_string(dir.join(".gitignore")).unwrap(),
+            "*\n"
+        );
+        std::fs::write(dir.join(".gitignore"), "*\n!deploy-target\n").unwrap();
+        work_dir(&tmp.0).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(dir.join(".gitignore")).unwrap(),
+            "*\n!deploy-target\n",
+            "a second visit rewrites nothing"
+        );
     }
 
     #[test]
     fn no_package_json_is_silent() {
         let t = Tmp::new("none");
         assert_eq!(min_cli_warning(&t.0), None);
+    }
+
+    #[test]
+    fn editor_scene_requires_a_runtime_asset_packs_component() {
+        let t = Tmp::new("editorscene");
+        let project = |root: &Path| Project {
+            root: root.to_path_buf(),
+            scene_json: serde_json::json!({}),
+        };
+        assert!(!project(&t.0).is_editor_scene());
+        t.write("assets/scene/main.composite", "not json");
+        assert!(!project(&t.0).is_editor_scene());
+        t.write(
+            "assets/scene/main.composite",
+            r#"{"version":1,"components":[{"name":"asset-packs::Script","data":{}},{"name":"core::Transform","data":{}}]}"#,
+        );
+        assert!(!project(&t.0).is_editor_scene());
+        t.write(
+            "assets/scene/main.composite",
+            r#"{"version":1,"components":[{"name":"asset-packs::Actions","data":{}}]}"#,
+        );
+        assert!(project(&t.0).is_editor_scene());
     }
 
     #[test]
@@ -326,6 +574,127 @@ mod tests {
     }
 
     #[test]
+    fn a_hash_carries_the_path_inside_the_project_never_the_path_on_disk() {
+        let t = Tmp::new("roothash");
+        t.write("scene.json", "{}");
+        t.write("assets/tree.glb", "glb");
+        let root = t.0.clone();
+        let hash = b64_content_hash(&root.join("assets/tree.glb").display().to_string(), "m");
+
+        let (tag, rel) = b64_unhash(&hash).unwrap();
+        assert_eq!(tag, root_tag(&root, "m"));
+        assert_eq!(rel, "assets/tree.glb");
+        assert!(
+            !format!("{tag}/{rel}").contains(root.to_str().unwrap()),
+            "the decoded hash still spells out where the scene lives"
+        );
+
+        assert_eq!(
+            b64_unhash(&b64_hash(&root.display().to_string(), "m")).unwrap(),
+            (root_tag(&root, "m"), String::new()),
+            "the scene entity id must decode to its root and an empty path"
+        );
+        assert_ne!(root_tag(&root, "m"), root_tag(&root, "other-machine"));
+        assert_ne!(root_tag(&root, "m"), root_tag(&root.join("nested"), "m"));
+        assert_eq!(b64_unhash("QmSomeIpfsHash"), None);
+    }
+
+    #[test]
+    fn a_caller_that_knows_the_root_mints_the_same_hash_without_looking_for_one() {
+        let t = Tmp::new("knownroot");
+        t.write("scene.json", "{}");
+        t.write("assets/tree.glb", "glb");
+        let root = t.0.clone();
+        let abs = root.join("assets/tree.glb");
+        let tag = root_tag(&root, "m");
+
+        assert_eq!(
+            b64_content_hash_in_root(&tag, "assets/tree.glb", &abs),
+            b64_content_hash(&abs.display().to_string(), "m"),
+            "the two doors onto a file's hash have to agree, or a client asks \
+             for a name the entity never advertised"
+        );
+        assert_eq!(
+            b64_hash_in_root(&tag, ""),
+            b64_hash(&root.display().to_string(), "m"),
+            "the scene entity id is the root's tag with an empty path"
+        );
+        assert_eq!(
+            b64_unhash(&b64_hash_in_root(&tag, "assets/tree.glb")).unwrap(),
+            (tag.clone(), "assets/tree.glb".to_string())
+        );
+        assert_eq!(
+            b64_hash_in_root(&tag, "assets\\tree.glb"),
+            b64_hash_in_root(&tag, "assets/tree.glb"),
+            "a windows separator must normalise the same way it does when the \
+             root is discovered"
+        );
+
+        t.write("sub/scene.json", "{}");
+        t.write("sub/model.glb", "glb");
+        let nested = root.join("sub/model.glb");
+        assert_eq!(
+            b64_unhash(&b64_hash(&nested.display().to_string(), "m")).unwrap(),
+            (root_tag(&root.join("sub"), "m"), "model.glb".to_string()),
+            "the path-only door guesses the nearest scene.json"
+        );
+        assert_eq!(
+            b64_unhash(&b64_hash_in_root(&tag, "sub/model.glb")).unwrap(),
+            (tag, "sub/model.glb".to_string())
+        );
+    }
+
+    fn set_mtime(p: &Path, ts: std::time::SystemTime) {
+        std::fs::File::options()
+            .write(true)
+            .open(p)
+            .unwrap()
+            .set_times(std::fs::FileTimes::new().set_modified(ts))
+            .unwrap();
+    }
+
+    #[test]
+    fn a_same_length_edit_inside_one_mtime_tick_still_changes_the_content_tag() {
+        let t = Tmp::new("tagtick");
+        let p = t.0.join("main.composite");
+        let abs = p.display().to_string();
+        std::fs::write(&p, r#"{"n":1}"#).unwrap();
+        let first = b64_content_hash(&abs, "m");
+
+        let tick = std::fs::metadata(&p).unwrap().modified().unwrap();
+        std::fs::write(&p, r#"{"n":2}"#).unwrap();
+        set_mtime(&p, tick);
+        assert_eq!(std::fs::metadata(&p).unwrap().modified().unwrap(), tick);
+        assert_eq!(std::fs::metadata(&p).unwrap().len(), 7);
+
+        let second = b64_content_hash(&abs, "m");
+        assert_ne!(
+            first, second,
+            "a second edit of the same length in the same mtime tick kept the old tag"
+        );
+        assert_eq!(hash_path_part(&first), hash_path_part(&second));
+    }
+
+    #[test]
+    fn a_settled_mtime_is_still_memoised() {
+        let t = Tmp::new("tagmemo");
+        let p = t.0.join("tree.glb");
+        let abs = p.display().to_string();
+        let old = std::time::SystemTime::now() - std::time::Duration::from_secs(600);
+        std::fs::write(&p, "aaaa").unwrap();
+        set_mtime(&p, old);
+        let first = b64_content_hash(&abs, "m");
+
+        std::fs::write(&p, "bbbb").unwrap();
+        set_mtime(&p, old);
+        assert_eq!(
+            first,
+            b64_content_hash(&abs, "m"),
+            "the memo is gone: every entity request would re-read the whole scene"
+        );
+    }
+
+    #[test]
     fn semver_compare_is_numeric_not_lexical() {
         assert!(parse_semver("3.9.0").unwrap() < parse_semver("3.14.1").unwrap());
         assert!(parse_semver("10.0.0").unwrap() > parse_semver("9.9.9").unwrap());
@@ -333,5 +702,16 @@ mod tests {
             parse_semver("7.22.6-25007982108.commit-83012ab").unwrap(),
             (7, 22, 6)
         );
+    }
+
+    /// More items than the worker cap, so the work-stealing index actually
+    /// wraps threads; order must still be the input's.
+    #[test]
+    fn parallel_map_preserves_order_and_covers_every_item() {
+        let items: Vec<usize> = (0..257).collect();
+        let expected: Vec<usize> = items.iter().map(|n| n * 2).collect();
+        assert_eq!(parallel_map(&items, |n| n * 2), expected);
+        assert!(parallel_map(&Vec::<usize>::new(), |n| *n).is_empty());
+        assert_eq!(parallel_map(&[7usize], |n| n + 1), vec![8]);
     }
 }

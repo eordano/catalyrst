@@ -1,5 +1,6 @@
 pub mod attendees;
 pub mod categories;
+pub mod event_writes;
 pub mod events;
 pub mod federation;
 pub mod ping;
@@ -8,3 +9,4 @@ pub mod profile_settings;
 pub mod profile_subscription;
 pub mod schedules;
 pub mod sitemap;
+pub mod v1;

@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE deployments older\n            SET deleter_deployment = newer.id\n            FROM deployments newer\n            WHERE older.deleter_deployment IS NULL\n              AND newer.entity_type = older.entity_type\n              AND newer.entity_id != older.entity_id\n              AND newer.entity_pointers && older.entity_pointers\n              AND newer.deleter_deployment IS NULL\n              AND (newer.entity_timestamp > older.entity_timestamp\n                   OR (newer.entity_timestamp = older.entity_timestamp\n                       AND newer.entity_id > older.entity_id))\n              AND NOT EXISTS (\n                  SELECT 1 FROM deployments mid\n                  WHERE mid.entity_type = older.entity_type\n                    AND mid.entity_id != older.entity_id\n                    AND mid.entity_id != newer.entity_id\n                    AND mid.entity_pointers && older.entity_pointers\n                    AND mid.deleter_deployment IS NULL\n                    AND (mid.entity_timestamp > older.entity_timestamp\n                         OR (mid.entity_timestamp = older.entity_timestamp\n                             AND mid.entity_id > older.entity_id))\n                    AND (mid.entity_timestamp < newer.entity_timestamp\n                         OR (mid.entity_timestamp = newer.entity_timestamp\n                             AND mid.entity_id < newer.entity_id))\n              )\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "b56d48e8a69b36cab4342c9f2e63e0f5b7e5b03daf1d8435015e4f7b8ece1ef7"
+}

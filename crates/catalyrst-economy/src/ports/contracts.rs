@@ -1,6 +1,6 @@
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
-use parking_lot::Mutex;
+use catalyrst_commons::cache::TtlCell;
 use serde_json::Value;
 use sqlx::PgPool;
 
@@ -13,12 +13,7 @@ pub struct ContractsComponent {
     addresses_url: String,
     chain_key: String,
     ttl: Duration,
-    cache: Mutex<WhitelistCache>,
-}
-
-struct WhitelistCache {
-    addresses: Vec<String>,
-    fetched_at: Option<Instant>,
+    cache: TtlCell<Vec<String>>,
 }
 
 fn whitelist_accept_header() -> (&'static str, &'static str) {
@@ -40,10 +35,7 @@ impl ContractsComponent {
             addresses_url,
             chain_key,
             ttl,
-            cache: Mutex::new(WhitelistCache {
-                addresses: Vec::new(),
-                fetched_at: None,
-            }),
+            cache: TtlCell::new("economy-address-whitelist"),
         }
     }
 
@@ -70,29 +62,25 @@ impl ContractsComponent {
 
     pub async fn is_whitelisted(&self, address: &str) -> Result<bool, ApiError> {
         let addr = address.to_lowercase();
-        let needs_refresh = {
-            let c = self.cache.lock();
-            c.addresses.is_empty() || c.fetched_at.map(|t| t.elapsed() > self.ttl).unwrap_or(true)
+        let fresh = self.cache.get(self.ttl).await.filter(|a| !a.is_empty());
+        let addresses = match fresh {
+            Some(addresses) => addresses,
+            None => match self.fetch_whitelist().await {
+                Ok(addresses) => {
+                    self.cache.set(addresses.clone()).await;
+                    addresses
+                }
+                Err(e) => match self.cache.last().await.filter(|a| !a.is_empty()) {
+                    Some(stale) => {
+                        tracing::warn!(error = %e, "addresses.json refresh failed, serving stale cache");
+                        stale
+                    }
+                    None => return Err(e),
+                },
+            },
         };
 
-        if needs_refresh {
-            match self.fetch_whitelist().await {
-                Ok(addresses) => {
-                    let mut c = self.cache.lock();
-                    c.addresses = addresses;
-                    c.fetched_at = Some(Instant::now());
-                }
-                Err(e) => {
-                    let have_cache = !self.cache.lock().addresses.is_empty();
-                    if !have_cache {
-                        return Err(e);
-                    }
-                    tracing::warn!(error = %e, "addresses.json refresh failed, serving stale cache");
-                }
-            }
-        }
-
-        Ok(self.cache.lock().addresses.iter().any(|a| a == &addr))
+        Ok(addresses.iter().any(|a| a == &addr))
     }
 
     async fn fetch_whitelist(&self) -> Result<Vec<String>, ApiError> {

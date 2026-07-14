@@ -16,6 +16,12 @@ pub struct PaymentIntent {
     pub client_secret: String,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+pub struct CheckoutSession {
+    pub id: String,
+    pub url: String,
+}
+
 #[derive(Clone)]
 pub struct StripeClient {
     secret: String,
@@ -77,6 +83,68 @@ impl StripeClient {
             .await
             .map_err(|e| ApiError::Internal(format!("stripe response parse failed: {e}")))?;
         Ok(pi)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub async fn create_checkout_session(
+        &self,
+        currency: &str,
+        unit_amount_cents: i64,
+        product_name: &str,
+        success_url: &str,
+        cancel_url: &str,
+        address: &str,
+        sku: &str,
+        credits: &str,
+        order_id: &str,
+        idempotency_key: &str,
+    ) -> Result<CheckoutSession, ApiError> {
+        let unit_amount = unit_amount_cents.to_string();
+        let params = [
+            ("mode", "payment"),
+            ("line_items[0][price_data][currency]", currency),
+            (
+                "line_items[0][price_data][unit_amount]",
+                unit_amount.as_str(),
+            ),
+            (
+                "line_items[0][price_data][product_data][name]",
+                product_name,
+            ),
+            ("line_items[0][quantity]", "1"),
+            ("success_url", success_url),
+            ("cancel_url", cancel_url),
+            ("metadata[address]", address),
+            ("metadata[sku]", sku),
+            ("metadata[credits]", credits),
+            ("metadata[orderId]", order_id),
+        ];
+
+        let url = format!("{}/v1/checkout/sessions", self.base_url);
+        let resp = self
+            .client
+            .post(&url)
+            .bearer_auth(&self.secret)
+            .header("Idempotency-Key", idempotency_key)
+            .form(&params)
+            .send()
+            .await
+            .map_err(|e| ApiError::bad_gateway(format!("stripe request failed: {e}")))?;
+
+        if !resp.status().is_success() {
+            let status = resp.status().as_u16();
+            let body = resp.text().await.unwrap_or_default();
+            tracing::error!(status, body = %truncate(&body, 500), "stripe checkout session create failed");
+            return Err(ApiError::bad_gateway(format!(
+                "stripe returned status {status}"
+            )));
+        }
+
+        let session: CheckoutSession = resp
+            .json()
+            .await
+            .map_err(|e| ApiError::bad_gateway(format!("stripe response parse failed: {e}")))?;
+        Ok(session)
     }
 }
 

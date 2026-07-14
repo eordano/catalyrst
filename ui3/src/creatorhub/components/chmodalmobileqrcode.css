@@ -1,0 +1,97 @@
+.chqr__title {
+  margin: 0 32px 4px;
+  font-size: 22px;
+  line-height: 1.4;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-align: center;
+  color: var(--text);
+}
+
+.chqr__subtitle {
+  margin: 0;
+  text-align: center;
+  color: var(--ink-6);
+  font-size: 15px;
+  line-height: 1.6;
+  font-weight: 400;
+}
+
+.chqr__content {
+  padding-top: 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.chqr__qrcontainer {
+  margin-bottom: 16px;
+  padding: 16px;
+  background-color: #fff;
+  border-radius: var(--r-control);
+}
+.chqr__qrimage {
+  width: 200px;
+  height: 200px;
+  display: block;
+}
+
+.chqr__url {
+  color: var(--ink-6);
+  word-break: break-all;
+  font-size: 12px;
+  text-align: center;
+  margin-bottom: 16px;
+}
+
+.chqr__sessions {
+  width: 100%;
+  margin-bottom: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: center;
+}
+
+.chqr__status--waiting {
+  color: var(--ink-6);
+  font-size: 12px;
+  animation: chqr-pulse 2s ease-in-out infinite;
+}
+@keyframes chqr-pulse {
+  0%,
+  100% {
+    opacity: 0.5;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.chqr__session {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.chqr__badge {
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-weight: 600;
+}
+.chqr__badge--connected {
+  background-color: var(--success);
+  color: #000;
+}
+
+.chqr__messages {
+  color: var(--ink-6);
+}
+
+.chqr__disclaimer {
+  color: var(--ink-6);
+  font-size: 12px;
+  text-align: center;
+  font-style: italic;
+}

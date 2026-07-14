@@ -73,13 +73,15 @@ impl RenderQueue {
             };
         }
 
-        let outcome = self.do_render(entity).await;
-        {
-            let mut map = self.inner.inflight.lock().unwrap();
-            map.remove(entity);
-        }
+        let mut guard = InflightGuard {
+            inner: Arc::clone(&self.inner),
+            entity: entity.to_string(),
+            tx,
+            outcome: None,
+        };
 
-        let _ = tx.send(outcome.clone());
+        let outcome = self.do_render(entity).await;
+        guard.outcome = Some(outcome.clone());
         outcome
     }
 
@@ -162,5 +164,30 @@ impl RenderQueue {
 
         let _ = tokio::fs::remove_dir_all(&workdir).await;
         outcome
+    }
+}
+
+struct InflightGuard {
+    inner: Arc<Inner>,
+    entity: String,
+    tx: broadcast::Sender<RenderOutcome>,
+    outcome: Option<RenderOutcome>,
+}
+
+impl Drop for InflightGuard {
+    fn drop(&mut self) {
+        {
+            let mut map = self
+                .inner
+                .inflight
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            map.remove(&self.entity);
+        }
+        let outcome = self
+            .outcome
+            .take()
+            .unwrap_or_else(|| RenderOutcome::Failed("render task aborted".into()));
+        let _ = self.tx.send(outcome);
     }
 }

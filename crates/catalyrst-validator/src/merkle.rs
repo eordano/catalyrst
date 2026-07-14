@@ -1,11 +1,11 @@
-use ethers_core::utils::keccak256;
+use alloy_primitives::keccak256;
 
 pub fn to_node(index: u64, content_hash: &str) -> [u8; 32] {
     let mut packed = Vec::with_capacity(32 + content_hash.len());
     packed.extend_from_slice(&[0u8; 24]);
     packed.extend_from_slice(&index.to_be_bytes());
     packed.extend_from_slice(content_hash.as_bytes());
-    keccak256(packed)
+    keccak256(packed).0
 }
 
 pub fn combined_hash(first: [u8; 32], second: [u8; 32]) -> [u8; 32] {
@@ -17,7 +17,7 @@ pub fn combined_hash(first: [u8; 32], second: [u8; 32]) -> [u8; 32] {
     let mut buf = [0u8; 64];
     buf[..32].copy_from_slice(&lo);
     buf[32..].copy_from_slice(&hi);
-    keccak256(buf)
+    keccak256(buf).0
 }
 
 pub fn generate_root(index: u64, content_hash: &str, proof: &[[u8; 32]]) -> [u8; 32] {

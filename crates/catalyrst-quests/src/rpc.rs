@@ -7,8 +7,8 @@ use anyhow::{anyhow, Result};
 use axum::extract::ws::{CloseFrame, Message, WebSocket, WebSocketUpgrade};
 use axum::extract::State;
 use axum::response::IntoResponse;
+use catalyrst_drpc::server::{RpcServer, ServerEventsSender};
 use chrono::Utc;
-use dcl_rpc::server::{RpcServer, ServerEventsSender};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::OnceCell;
@@ -95,8 +95,9 @@ impl RpcRuntime {
         let now_secs = Utc::now().timestamp();
 
         let signer = verify_handshake(&text, "get", "/", FIVE_MINUTES_SECS, now_secs)
+            .await
             .map_err(|e| anyhow!("handshake: {e}"))?;
-        Ok(signer)
+        Ok(signer.as_str().to_string())
     }
 }
 

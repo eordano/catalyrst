@@ -1,6 +1,6 @@
+use alloy::primitives::keccak256;
+use alloy::signers::{local::PrivateKeySigner, Signer};
 use chrono::{Duration, Utc};
-use ethers_core::utils::keccak256;
-use ethers_signers::{LocalWallet, Signer};
 
 #[tokio::main]
 async fn main() {
@@ -13,10 +13,11 @@ async fn main() {
         .expect("set LANDILER_ROOT_KEY=<64 hex chars> (the stable root private key)");
     let root_bytes = hex::decode(root_hex.trim().trim_start_matches("0x"))
         .expect("LANDILER_ROOT_KEY must be hex");
-    let root = LocalWallet::from_bytes(&root_bytes).expect("invalid root key");
+    let root = PrivateKeySigner::from_slice(&root_bytes).expect("invalid root key");
 
     let eph_bytes = keccak256(&root_bytes);
-    let ephemeral = LocalWallet::from_bytes(&eph_bytes).expect("invalid ephemeral key");
+    let ephemeral =
+        PrivateKeySigner::from_slice(eph_bytes.as_slice()).expect("invalid ephemeral key");
 
     let root_address = format!("{:#x}", root.address());
     let ephemeral_address = format!("{:#x}", ephemeral.address());
@@ -39,9 +40,9 @@ async fn main() {
 
     let link0 = serde_json::json!({"type":"SIGNER","payload":root_address,"signature":""});
     let link1 = serde_json::json!({
-        "type":"ECDSA_EPHEMERAL","payload":ephemeral_payload,"signature":format!("0x{ephemeral_sig}")});
+        "type":"ECDSA_EPHEMERAL","payload":ephemeral_payload,"signature":ephemeral_sig.to_string()});
     let link2 = serde_json::json!({
-        "type":"ECDSA_SIGNED_ENTITY","payload":signed_fetch_payload,"signature":format!("0x{entity_sig}")});
+        "type":"ECDSA_SIGNED_ENTITY","payload":signed_fetch_payload,"signature":entity_sig.to_string()});
 
     println!("ADDR={root_address}");
     println!("TS={timestamp}");

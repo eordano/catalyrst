@@ -1,0 +1,154 @@
+{
+  "_source": "Cross-service moderation aggregate for the ADMIN persona. The three surfaces and their queue/decision contracts are REAL catalyrst endpoints; the COUNTS below are a faithful synthetic snapshot because every admin read is bearer-gated (fail-closed) for an anonymous browser session. (1) PLACES reports: catalyrst-places GET /api/reports (handlers/admin.rs get_reports -> count_reports + list_reports), admin-bearer gated via require_admin_bearer (403 when PLACES_ADMIN_AUTH_TOKEN unset). Report status enum = open|resolved|dismissed|actioned (PATCH /api/reports/{id} ReportPatch ALLOWED set, handlers/admin.rs); rows = ReportRow {id, entity_id, reporter, status, resolution, resolved_by, resolved_at, created_at} (ports/places.rs). (2) COMMUNITIES: catalyrst-communities GET /v1/admin/communities (handlers/admin.rs list_communities, require_admin) with status=all|active|suspended|inactive over CommunityForModeration {id, name, ownerAddress, active, unlisted, createdAt, membersCount}; the suspension backlog read is GET /v1/moderation/communities (ports/moderation.rs ModerationComponent::all). Suspend/unsuspend = POST /v1/admin/communities/{id}/suspend|unsuspend. (3) EVENTS: catalyrst-events GET /events/api/events?list=all (handlers/events.rs get_event_list) returns approved/rejected/highlighted flags; bucketOf (app/lib/catalyst/whatson-admin.ts) maps {highlighted->featured, approved&&!rejected->approved, else->pending}. The anonymous list returns approved-only, so APPROVED-bucket counts can be derived live; pending/rejected are synthesized here. Upstream report-reason taxonomy mirrors decentraland/places-related moderation; community moderation states mirror decentraland communities (active/suspended/unlisted). Decision-rate + time-to-decision come from catalyrst-telemetry instrumentation of the three moderation wizards (admin_place_moderation_committed / admin_community_suspension_committed / whatson_event_moderated), read back via Metabase over the telemetry store \u2014 those events are the source of the 7d/30d decision counts, approval/dismissal split, and median SLA below.",
+  "_notes": "Loader reads LIVE approved-event count from GET /events/api/events?list=all where reachable (it is anonymous-public) and falls back to the events bucket below on transport failure. Places + communities counts are always fixture (admin-gated). 'range' selects the 7d vs 30d decision window; queue depths are point-in-time (range-independent). SLA = time from report/submission created_at to resolved_at/moderated_at, in hours; medianSlaHours is the p50 across decisions in the window. The dashboard is READ-ONLY (no wizard); KPI cards deep-link into the matching moderation surface.",
+  "generatedAt": "2026-06-24T00:00:00Z",
+  "surfaces": [
+    {
+      "key": "places",
+      "label": "Places reports",
+      "service": "catalyrst-places",
+      "listEndpoint": "GET /api/reports?status=open",
+      "deepLink": "/admin/places-moderation",
+      "queue": {
+        "open": 23,
+        "resolved": 184,
+        "dismissed": 57,
+        "actioned": 92
+      },
+      "openDepth": 23
+    },
+    {
+      "key": "communities",
+      "label": "Communities",
+      "service": "catalyrst-communities",
+      "listEndpoint": "GET /v1/admin/communities?status=suspended + /v1/moderation/communities",
+      "deepLink": "/admin/communities-moderation",
+      "queue": {
+        "active": 412,
+        "suspended": 9,
+        "inactive": 38,
+        "backlog": 14
+      },
+      "openDepth": 14
+    },
+    {
+      "key": "events",
+      "label": "What's On events",
+      "service": "catalyrst-events",
+      "listEndpoint": "GET /events/api/events?list=all (bucketOf)",
+      "deepLink": "/landings/whatson-admin",
+      "queue": {
+        "pending": 31,
+        "approved": 268,
+        "rejected": 47,
+        "featured": 12
+      },
+      "openDepth": 31
+    }
+  ],
+  "decisions": {
+    "7d": {
+      "places": {
+        "approved": 0,
+        "resolved": 41,
+        "dismissed": 12,
+        "actioned": 19,
+        "total": 72,
+        "medianSlaHours": 8.5
+      },
+      "communities": {
+        "suspended": 3,
+        "unsuspended": 1,
+        "dismissed": 5,
+        "total": 9,
+        "medianSlaHours": 14.2
+      },
+      "events": {
+        "approved": 88,
+        "rejected": 14,
+        "featured": 4,
+        "total": 106,
+        "medianSlaHours": 3.1
+      }
+    },
+    "30d": {
+      "places": {
+        "approved": 0,
+        "resolved": 167,
+        "dismissed": 54,
+        "actioned": 88,
+        "total": 309,
+        "medianSlaHours": 11.0
+      },
+      "communities": {
+        "suspended": 11,
+        "unsuspended": 4,
+        "dismissed": 23,
+        "total": 38,
+        "medianSlaHours": 18.7
+      },
+      "events": {
+        "approved": 351,
+        "rejected": 63,
+        "featured": 19,
+        "total": 433,
+        "medianSlaHours": 4.4
+      }
+    }
+  },
+  "trend": {
+    "places": [
+      31,
+      29,
+      33,
+      28,
+      26,
+      24,
+      23
+    ],
+    "communities": [
+      11,
+      13,
+      12,
+      15,
+      16,
+      14,
+      14
+    ],
+    "events": [
+      44,
+      39,
+      41,
+      37,
+      35,
+      33,
+      31
+    ]
+  },
+  "trendLabels": [
+    "Jun 18",
+    "Jun 19",
+    "Jun 20",
+    "Jun 21",
+    "Jun 22",
+    "Jun 23",
+    "Jun 24"
+  ],
+  "funnel": {
+    "places": {
+      "reported": 356,
+      "reviewed": 333,
+      "resolvedOrActioned": 259
+    },
+    "communities": {
+      "reported": 52,
+      "reviewed": 45,
+      "resolvedOrActioned": 15
+    },
+    "events": {
+      "reported": 464,
+      "reviewed": 433,
+      "resolvedOrActioned": 370
+    }
+  }
+}

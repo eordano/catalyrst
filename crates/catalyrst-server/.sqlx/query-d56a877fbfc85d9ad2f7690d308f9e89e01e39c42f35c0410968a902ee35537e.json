@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE deployments SET deleter_deployment = NULL WHERE deleter_deployment = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "d56a877fbfc85d9ad2f7690d308f9e89e01e39c42f35c0410968a902ee35537e"
+}

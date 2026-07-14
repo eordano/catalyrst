@@ -4,7 +4,7 @@ pub(super) const CATALOG: &[Group] = &[
     Group {
         key: "content",
         title: "Content core",
-        bundle: "catalyrst-live · :5141",
+        bundle: "catalyrst-live \u{B7} :5141",
         multi: false,
         detail: &[
             ("About", "/about"),
@@ -38,7 +38,7 @@ pub(super) const CATALOG: &[Group] = &[
     Group {
         key: "explore",
         title: "Explore",
-        bundle: "catalyrst-explore · :5143",
+        bundle: "catalyrst-explore \u{B7} :5143",
         multi: true,
         detail: &[
             ("Bundle health", "/health"),
@@ -74,7 +74,7 @@ pub(super) const CATALOG: &[Group] = &[
                 name: "Worlds",
                 member: "worlds",
                 reference: "worlds-content-server",
-                desc: "World realms — about, permissions & comms",
+                desc: "World realms \u{2014} about, permissions & comms",
                 path: "/worlds",
             },
             Svc {
@@ -96,7 +96,7 @@ pub(super) const CATALOG: &[Group] = &[
     Group {
         key: "create",
         title: "Create",
-        bundle: "catalyrst-create · :5144",
+        bundle: "catalyrst-create \u{B7} :5144",
         multi: true,
         detail: &[
             ("Bundle health", "/health"),
@@ -130,7 +130,7 @@ pub(super) const CATALOG: &[Group] = &[
     Group {
         key: "social",
         title: "Social",
-        bundle: "catalyrst-social · :5145",
+        bundle: "catalyrst-social \u{B7} :5145",
         multi: true,
         detail: &[("Bundle health", "/health"), ("Comms status", "/status")],
         services: &[
@@ -174,7 +174,7 @@ pub(super) const CATALOG: &[Group] = &[
     Group {
         key: "data",
         title: "Data",
-        bundle: "catalyrst-data · :5146",
+        bundle: "catalyrst-data \u{B7} :5146",
         multi: true,
         detail: &[("Bundle health", "/health")],
         services: &[
@@ -218,7 +218,7 @@ pub(super) const CATALOG: &[Group] = &[
     Group {
         key: "ab-cdn",
         title: "Asset bundle CDN",
-        bundle: "catalyrst-abgen · :5147",
+        bundle: "abgen \u{B7} :5147 (upstream decentraland/abgen)",
         multi: false,
         detail: &[("Health", "/health")],
         services: &[Svc {
@@ -232,21 +232,21 @@ pub(super) const CATALOG: &[Group] = &[
     Group {
         key: "social-rpc",
         title: "Social RPC",
-        bundle: "catalyrst-social-rpc · :5148",
+        bundle: "catalyrst-social-rpc \u{B7} :5148",
         multi: false,
         detail: &[("Health", "/health"), ("Info", "/info")],
         services: &[Svc {
             name: "Friends & voice",
             member: "",
             reference: "social-service-ea",
-            desc: "dcl-rpc WebSocket — friends, presence, blocks, mutes & voice",
+            desc: "dcl-rpc WebSocket \u{2014} friends, presence, blocks, mutes & voice",
             path: "",
         }],
     },
     Group {
         key: "scene-state",
         title: "Scene state",
-        bundle: "catalyrst-scene-state · :5153",
+        bundle: "catalyrst-scene-state \u{B7} :5153",
         multi: false,
         detail: &[("Status", "/status")],
         services: &[Svc {
@@ -260,21 +260,21 @@ pub(super) const CATALOG: &[Group] = &[
     Group {
         key: "profile-images",
         title: "Profile images",
-        bundle: "catalyrst-profile-images · :5154",
+        bundle: "catalyrst-profile-images \u{B7} :5161",
         multi: false,
         detail: &[("Health", "/health")],
         services: &[Svc {
             name: "Avatar thumbnails",
             member: "",
             reference: "profile-images",
-            desc: "Headless-godot avatar render with disk cache",
+            desc: "Godot avatar render on a throwaway display, with disk cache",
             path: "",
         }],
     },
     Group {
         key: "explorer-api",
         title: "Explorer API",
-        bundle: "catalyrst-explorer-api · :5137",
+        bundle: "catalyrst-explorer-api \u{B7} :5137",
         multi: false,
         detail: &[("Health", "/health"), ("Auth health", "/auth/health/live")],
         services: &[
@@ -288,7 +288,7 @@ pub(super) const CATALOG: &[Group] = &[
             Svc {
                 name: "Auth & flags",
                 member: "",
-                reference: "auth-api · feature-flags",
+                reference: "auth-api \u{B7} feature-flags",
                 desc: "Auth API, blocklist, builder-api & feature flags",
                 path: "",
             },

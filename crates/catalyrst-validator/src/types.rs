@@ -72,16 +72,6 @@ pub struct BlockInformation {
     pub block_five_min_before: Option<u64>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum ContractType {
-    #[serde(rename = "erc721")]
-    Erc721,
-    #[serde(rename = "erc1155")]
-    Erc1155,
-    Unknown,
-}
-
 pub const L1_NETWORKS: &[&str] = &["mainnet", "kovan", "rinkeby", "goerli", "sepolia"];
 
 pub const L2_NETWORKS: &[&str] = &["matic", "mumbai", "amoy"];
@@ -131,6 +121,8 @@ pub mod adr_timestamps {
     pub const ADR_290_OPTIONAL: Timestamp = 1_762_743_600_000;
 
     pub const ADR_290_REJECTED: Timestamp = ADR_290_OPTIONAL + 3 * 30 * 24 * 60 * 60 * 1000;
+
+    pub const PROFILE_IDENTITY: Timestamp = 1_786_579_200_000;
 
     pub const LEGACY_CONTENT_MIGRATION: Timestamp = 1_582_167_600_000;
 }

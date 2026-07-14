@@ -21,7 +21,7 @@ pub async fn balance(
 ) -> Result<Json<BalanceOut>, ApiError> {
     let wallet = wallet_id.to_lowercase();
     let path = format!("/wallet/{}/balance", wallet_id);
-    let signer = signer_from(&headers, "get", &path)?;
+    let signer = signer_from(&headers, "get", &path).await?;
 
     if signer != wallet {
         return Err(ApiError::forbidden("walletId does not match signer"));

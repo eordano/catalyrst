@@ -1,0 +1,24 @@
+.nshome {
+  display: flex;
+  flex-direction: column;
+  background: var(--lm-bg);
+  color: var(--lm-ink);
+  min-height: 100%;
+}
+.nshome__body {
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+  width: 100%;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 28px 24px 48px;
+}
+.nshome__banners {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+@media (max-width: 720px) {
+  .nshome__banners { grid-template-columns: 1fr; }
+}

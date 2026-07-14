@@ -1,13 +1,13 @@
 # catalyrst-places - Route inventory
 
 Upstream source: `decentraland/places` (`src/server.ts` mounts each entity
-router under `/api`, and `socialRoutes` under `/places`). Legend: `GET` =
-ported, reads the archive `places_events` DB; `STUB` = read depending on
-cross-service surfaces absent from the archive (`place_categories`,
-`place_positions`, `worlds`, `destinations`, `hot_scenes`, etc.), returns
-the upstream empty-shape envelope; `FED` = write verifying a `Signed<T>`
-federation envelope (`handlers/federation.rs`), replay-checked, persisted
-locally, gossiped to peers; `ADMIN` = write gated on `require_admin_bearer`
+router under `/api`, `socialRoutes` under `/places`). Legend: `GET` = ported,
+reads the archive `places_events` DB; `STUB` = read depending on cross-service
+surfaces absent from the archive (`place_categories`, `place_positions`,
+`worlds`, `destinations`, `hot_scenes`, etc.), returns the upstream
+empty-shape envelope; `FED` = write verifying a `Signed<T>` federation
+envelope (`handlers/federation.rs`), replay-checked, persisted locally,
+gossiped to peers; `ADMIN` = write gated on `require_admin_bearer`
 (`handlers/admin.rs`), not in upstream.
 
 ## Mounted under `/api/`
@@ -85,6 +85,25 @@ Gated on `require_admin_bearer` (`handlers/admin.rs`).
 | Method | Path     | Notes                                                                     |
 |--------|----------|---------------------------------------------------------------------------|
 | GET    | `/ping`  | catalyrst convention; matches catalyrst-market `/ping` for smoke testing  |
+
+## Lists (`lists_router()`, upstream `dcl-lists.decentraland.org`)
+
+Absorbed from the retired catalyrst-lists crate. Served by `catalyrst-explore`
+alongside `api_router()` (not mounted by the standalone catalyrst-places
+binary). Backing store: the same `places_events` reader pool, tables
+`lists_poi` / `lists_banned_name`, seeded from the live upstream by
+`deploy/sync-lists.sh` (daily via `deploy/lists-daily.timer`); schema in
+`migrations/0001_lists.sql`. Both endpoints return the bare
+`{"data": Vec<String>}` envelope explorer + marketplace expect (no `ok`
+wrapper, unlike the `/api` surface); an unseeded table serves an empty list.
+
+| Method | Path            | Status | Notes                                                                                                  |
+|--------|-----------------|--------|--------------------------------------------------------------------------------------------------------|
+| POST   | `/pois`         | DONE   | PRIMARY explorer route (`DecentralandUrl.POI`). Empty body -> `{"data": ["x,y", ...]}`. Unity throws on null `.data`. |
+| POST   | `/banned-names` | DONE   | Not called by explorer; consumed by marketplace-server / catalyrst-market to filter ENS listings. Empty body -> `{"data": [...]}`. |
+
+`/pois` sorted by `coord`, `/banned-names` by `name`. Curation (write) endpoints deferred as
+before; the L2 POI contract is not read on-chain here.
 
 ## Totals
 

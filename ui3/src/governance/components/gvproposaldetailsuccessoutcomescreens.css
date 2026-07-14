@@ -1,0 +1,211 @@
+.gpsuc {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal);
+  display: flex;
+  padding: 24px;
+  overflow: auto;
+  background: rgba(0, 0, 0, 0.85);
+  animation: u-fade-in 0.3s linear;
+}
+.gpsuc__card {
+  position: relative;
+  margin: auto;
+  width: 360px;
+  max-width: 100%;
+  max-height: calc(100dvh - 48px);
+  overflow-y: auto;
+  background: var(--gv-surface);
+  border-radius: 8px;
+  padding: 24px;
+  color: var(--gv-ink);
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.4), 0 0 0 1px var(--gv-line);
+  outline: none;
+}
+
+.gpsuc__close {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  background: transparent;
+  border-radius: 999px;
+  color: var(--gv-faint);
+  cursor: pointer;
+}
+.gpsuc__close:hover { color: var(--gv-ink); background: var(--gv-page); }
+
+.gpsuc__title {
+  margin-bottom: 32px;
+  text-align: center;
+}
+.gpsuc__heading {
+  margin: 0 0 0.5rem;
+  font-size: 23px;
+  line-height: 1.28;
+  font-weight: 700;
+  color: var(--gv-ink);
+}
+.gpsuc__lead {
+  margin: 0;
+  font-size: 17px;
+  line-height: 26px;
+  color: var(--gv-ink);
+}
+.gpsuc__lead + .gpsuc__lead { margin-top: 0; }
+.gpsuc__sub {
+  margin: 0;
+  font-size: 17px;
+  line-height: 26px;
+  color: var(--gv-ink);
+}
+
+.gpsuc__banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  position: relative;
+  padding: 16px 20px;
+  margin-bottom: 22px;
+  border-radius: 12px;
+  outline: 1px solid var(--gv-line-soft);
+}
+.gpsuc__banner-desc { max-width: 270px; }
+.gpsuc__banner-title {
+  margin: 0 0 0;
+  font-size: 17px;
+  line-height: 26px;
+  font-weight: 600;
+  color: var(--gv-ink);
+}
+.gpsuc__banner-text {
+  margin: 0;
+  font-size: 15px;
+  line-height: 24px;
+  color: var(--gv-ink);
+}
+
+.gpsuc__banner--forum { background-color: rgba(255, 45, 85, 0.2); }
+.gpsuc__banner--discord { background-color: rgba(88, 101, 242, 0.3); }
+.gpsuc__banner--copy { background-color: #cdf1b8; }
+.gpsuc__banner--copy .gpsuc__banner-title,
+.gpsuc__banner--copy .gpsuc__banner-text { color: #161518; }
+
+.gpsuc__banner-btn {
+  position: relative;
+  width: auto;
+  min-width: auto;
+  padding: 7px 8px;
+  margin-left: 10px;
+  flex: 0 0 auto;
+  border: 0;
+  border-radius: 8px;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  text-decoration: none;
+}
+.gpsuc__banner-btn--forum { background-color: var(--brand-cta, #d80029); }
+.gpsuc__banner-btn--discord { background-color: #5865f2; }
+.gpsuc__banner-btn--copy { background-color: #1b7d49; }
+.gpsuc__banner-btn:hover { filter: brightness(1.06); }
+
+.gpsuc__actions { margin-top: 8px; width: 100%; }
+.gpsuc__dismiss {
+  display: block;
+  width: 100%;
+  padding: 13px 16px;
+  border-radius: 8px;
+  background-color: var(--gv-surface);
+  border: 1px solid var(--gv-line);
+  color: var(--gv-ink);
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.gpsuc__dismiss:hover { background-color: var(--gv-page); }
+
+.gpsuc__pending {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+.gpsuc__pending-icon { margin-bottom: 0; }
+.gpsuc__pending-title {
+  margin: 0;
+  font-size: 20px;
+  line-height: 28px;
+  font-weight: 600;
+  color: var(--gv-ink);
+}
+.gpsuc__pending-desc {
+  margin: 10px 0 0;
+  font-size: 15px;
+  line-height: 24px;
+  color: var(--gv-ink);
+}
+.gpsuc__pending-btn {
+  margin-top: 14px;
+  margin-bottom: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 220px;
+  padding: 13px 24px;
+  border: 0;
+  border-radius: 8px;
+  background-color: var(--brand-cta, #d80029);
+  color: #fff;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: none;
+}
+.gpsuc__pending-btn:hover { background-color: var(--brand-hover); }
+.gpsuc__pending-btn[aria-disabled="true"] {
+  opacity: 0.5;
+  pointer-events: none;
+}
+.gpsuc__pending-helper {
+  margin: 0;
+  font-size: 13px;
+  line-height: 18px;
+  color: var(--gv-muted);
+}
+
+.gpsuc__picker {
+  position: fixed;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: calc(var(--z-modal) + 1);
+  display: flex;
+  gap: 6px;
+  padding: 6px;
+  background: var(--gv-surface);
+  border: 1px solid var(--gv-line);
+  border-radius: 999px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
+}
+.gpsuc__picker button {
+  border: 0;
+  background: transparent;
+  color: var(--gv-muted);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px 12px;
+  border-radius: 999px;
+  cursor: pointer;
+}
+.gpsuc__picker button.is-active {
+  background: var(--brand);
+  color: #fff;
+}

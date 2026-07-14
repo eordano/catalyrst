@@ -35,16 +35,13 @@ fn client_msg(inner: client_message::Message) -> Vec<u8> {
 }
 
 fn valid_state(parcel: i32) -> PlayerState {
-    PlayerState {
+    let mut state = PlayerState {
         parcel_index: parcel,
-        position: Some(Vector3 {
-            x: 8.0,
-            y: 0.0,
-            z: 8.0,
-        }),
-        velocity: Some(Vector3::default()),
         ..Default::default()
-    }
+    };
+    state.set_position_x_f(8.0);
+    state.set_position_z_f(8.0);
+    state
 }
 
 fn authed(srv: &mut PulseServer, peer: u32, wallet: &str) {
@@ -95,25 +92,31 @@ fn authenticated_input_publishes_snapshot_with_real_sequence() {
     assert_eq!(srv.board.last_seq(7), 1);
 }
 
+fn teleport_request(parcel: i32, realm: &str) -> TeleportRequest {
+    let mut req = TeleportRequest {
+        parcel_index: parcel,
+        realm: realm.into(),
+        ..Default::default()
+    };
+    req.set_position_x_f(8.0);
+    req.set_position_z_f(8.0);
+    req
+}
+
 #[test]
 fn teleport_seeds_realm_and_position() {
     let mut srv = PulseServer::new();
     authed(&mut srv, 3, "0xabc");
-    let bytes = client_msg(client_message::Message::Teleport(TeleportRequest {
-        parcel_index: 0,
-        position: Some(Vector3 {
-            x: 8.0,
-            y: 0.0,
-            z: 8.0,
-        }),
-        realm: "realm-a".into(),
-    }));
+    let req = teleport_request(0, "realm-a");
+    let expected_x = req.position_x;
+    let bytes = client_msg(client_message::Message::Teleport(req));
     assert_eq!(
         srv.dispatch(3, channel::RELIABLE, &bytes, 0, 50),
         Action::Applied
     );
     let snap = srv.board.try_read(3).unwrap();
     assert_eq!(snap.realm.as_deref(), Some("realm-a"));
+    assert_eq!(snap.position_x, expected_x, "raw code stored verbatim");
     assert!(snap.is_teleport);
     assert_eq!(snap.last_teleport_seq, snap.seq);
 }
@@ -122,15 +125,7 @@ fn teleport_seeds_realm_and_position() {
 fn teleport_with_empty_realm_is_rejected() {
     let mut srv = PulseServer::new();
     authed(&mut srv, 3, "0xabc");
-    let bytes = client_msg(client_message::Message::Teleport(TeleportRequest {
-        parcel_index: 0,
-        position: Some(Vector3 {
-            x: 8.0,
-            y: 0.0,
-            z: 8.0,
-        }),
-        realm: "".into(),
-    }));
+    let bytes = client_msg(client_message::Message::Teleport(teleport_request(0, "")));
     assert_eq!(
         srv.dispatch(3, channel::RELIABLE, &bytes, 0, 50),
         Action::Ignore
@@ -139,6 +134,109 @@ fn teleport_with_empty_realm_is_rejected() {
         srv.board.try_read(3).is_none(),
         "rejected teleport publishes nothing"
     );
+}
+
+#[test]
+fn teleport_with_overlong_realm_is_rejected() {
+    let mut srv = PulseServer::new();
+    srv.max_realm_length = 4;
+    authed(&mut srv, 3, "0xabc");
+    let bytes = client_msg(client_message::Message::Teleport(teleport_request(
+        0, "abcd",
+    )));
+    assert_eq!(
+        srv.dispatch(3, channel::RELIABLE, &bytes, 0, 50),
+        Action::Applied
+    );
+    let snap = srv.board.try_read(3).unwrap();
+    assert_eq!(snap.realm.as_deref(), Some("abcd"));
+
+    let bytes = client_msg(client_message::Message::Teleport(teleport_request(
+        0, "abcde",
+    )));
+    assert_eq!(
+        srv.dispatch(3, channel::RELIABLE, &bytes, 0, 60),
+        Action::Reject {
+            reply: None,
+            reason: DisconnectReason::InvalidTeleportField
+        }
+    );
+    let snap = srv.board.try_read(3).unwrap();
+    assert_eq!(
+        snap.realm.as_deref(),
+        Some("abcd"),
+        "rejected teleport publishes nothing"
+    );
+}
+
+#[test]
+fn teleport_with_out_of_range_code_is_rejected() {
+    let mut srv = PulseServer::new();
+    authed(&mut srv, 3, "0xabc");
+    let mut req = teleport_request(0, "realm-a");
+    req.position_y = 8192;
+    let bytes = client_msg(client_message::Message::Teleport(req));
+    assert_eq!(
+        srv.dispatch(3, channel::RELIABLE, &bytes, 0, 50),
+        Action::Ignore
+    );
+    assert!(srv.board.try_read(3).is_none());
+}
+
+#[test]
+fn teleport_request_caps_boundaries() {
+    let encoder = ParcelEncoder::new(ParcelEncoderOptions::default());
+    type Set = fn(&mut TeleportRequest, u32);
+    let cases: [(&str, u32, Set); 3] = [
+        ("position_x", 255, |r, v| r.position_x = v),
+        ("position_y", 8191, |r, v| r.position_y = v),
+        ("position_z", 255, |r, v| r.position_z = v),
+    ];
+    for (name, cap, set) in cases {
+        let mut req = teleport_request(0, "realm-a");
+        set(&mut req, cap);
+        assert!(validate::teleport(&req, &encoder), "{name} at cap accepted");
+        set(&mut req, cap + 1);
+        assert!(
+            !validate::teleport(&req, &encoder),
+            "{name} above cap rejected"
+        );
+    }
+}
+
+#[test]
+fn player_state_caps_boundaries() {
+    let encoder = ParcelEncoder::new(ParcelEncoderOptions::default());
+    type Set = fn(&mut PlayerState, u32);
+    let cases: [(&str, u32, Set); 14] = [
+        ("position_x", 255, |s, v| s.position_x = v),
+        ("position_y", 8191, |s, v| s.position_y = v),
+        ("position_z", 255, |s, v| s.position_z = v),
+        ("velocity_x", 255, |s, v| s.velocity_x = v),
+        ("velocity_y", 255, |s, v| s.velocity_y = v),
+        ("velocity_z", 255, |s, v| s.velocity_z = v),
+        ("rotation_y", 127, |s, v| s.rotation_y = v),
+        ("movement_blend", 31, |s, v| s.movement_blend = v),
+        ("slide_blend", 15, |s, v| s.slide_blend = v),
+        ("head_yaw", 127, |s, v| s.head_yaw = Some(v)),
+        ("head_pitch", 127, |s, v| s.head_pitch = Some(v)),
+        ("point_at_x", 131071, |s, v| s.point_at_x = Some(v)),
+        ("point_at_y", 127, |s, v| s.point_at_y = Some(v)),
+        ("point_at_z", 131071, |s, v| s.point_at_z = Some(v)),
+    ];
+    for (name, cap, set) in cases {
+        let mut state = valid_state(0);
+        set(&mut state, cap);
+        assert!(
+            validate::player_state(&state, &encoder),
+            "{name} at cap accepted"
+        );
+        set(&mut state, cap + 1);
+        assert!(
+            !validate::player_state(&state, &encoder),
+            "{name} above cap rejected"
+        );
+    }
 }
 
 #[test]
@@ -194,6 +292,7 @@ fn bad_handshake_replies_with_failure() {
             auth_chain: b"not json".to_vec(),
             profile_version: 0,
             initial_state: None,
+            protocol_features: 0,
         },
     ));
     match srv.dispatch(1, channel::RELIABLE, &bytes, 1000, 0) {
@@ -209,16 +308,17 @@ fn bad_handshake_replies_with_failure() {
 
 async fn signed_handshake_request() -> (Vec<u8>, String, i64) {
     use crate::handshake::build_signed_fetch_payload;
+    use alloy::signers::{local::PrivateKeySigner, Signer};
     use catalyrst_types::{AuthLink, AuthLinkType};
-    use ethers_signers::{LocalWallet, Signer};
 
-    let root: LocalWallet = "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
+    let root: PrivateKeySigner = "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
         .parse()
         .unwrap();
     let root_addr = format!("{:#x}", root.address());
-    let ephemeral: LocalWallet = "59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d"
-        .parse()
-        .unwrap();
+    let ephemeral: PrivateKeySigner =
+        "59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d"
+            .parse()
+            .unwrap();
     let eph_addr = format!("{:#x}", ephemeral.address());
 
     let ts = "1700000000000";
@@ -229,17 +329,16 @@ async fn signed_handshake_request() -> (Vec<u8>, String, i64) {
     let eph_payload = format!(
         "Decentraland Login\nEphemeral address: {eph_addr}\nExpiration: 2099-01-01T00:00:00.000Z"
     );
-    let eph_sig = format!(
-        "0x{}",
-        root.sign_message(eph_payload.as_bytes()).await.unwrap()
-    );
-    let final_sig = format!(
-        "0x{}",
-        ephemeral
-            .sign_message(connect_payload.as_bytes())
-            .await
-            .unwrap()
-    );
+    let eph_sig = root
+        .sign_message(eph_payload.as_bytes())
+        .await
+        .unwrap()
+        .to_string();
+    let final_sig = ephemeral
+        .sign_message(connect_payload.as_bytes())
+        .await
+        .unwrap()
+        .to_string();
 
     let chain = [
         AuthLink {
@@ -281,6 +380,7 @@ async fn signed_handshake_request() -> (Vec<u8>, String, i64) {
             auth_chain: bag.into_bytes(),
             profile_version: 0,
             initial_state: None,
+            protocol_features: 0,
         },
     ));
     (bytes, root_addr.to_lowercase(), now_ms)
@@ -347,11 +447,7 @@ async fn handshake_with_malformed_initial_state_is_rejected() {
     let (base, _wallet, now_ms) = signed_handshake_request().await;
 
     let mut bad = valid_state(7);
-    bad.position = Some(Vector3 {
-        x: f32::NAN,
-        y: 0.0,
-        z: 0.0,
-    });
+    bad.position_y = 8192;
     let init = PlayerInitialState {
         state: Some(bad),
         realm: "realm-a".into(),
@@ -376,11 +472,11 @@ async fn handshake_with_malformed_initial_state_is_rejected() {
 }
 
 #[test]
-fn input_with_nan_float_is_rejected() {
+fn input_with_out_of_range_code_is_rejected() {
     let mut srv = PulseServer::new();
     authed(&mut srv, 7, "0xabc");
     let mut state = valid_state(3);
-    state.rotation_y = f32::INFINITY;
+    state.rotation_y = 128;
     let bytes = client_msg(client_message::Message::Input(PlayerStateInput {
         state: Some(state),
     }));
@@ -391,23 +487,6 @@ fn input_with_nan_float_is_rejected() {
     assert!(
         srv.board.try_read(7).is_none(),
         "rejected input publishes nothing"
-    );
-}
-
-#[test]
-fn input_without_position_is_rejected() {
-    let mut srv = PulseServer::new();
-    authed(&mut srv, 7, "0xabc");
-
-    let bytes = client_msg(client_message::Message::Input(PlayerStateInput {
-        state: Some(PlayerState {
-            parcel_index: 3,
-            ..Default::default()
-        }),
-    }));
-    assert_eq!(
-        srv.dispatch(7, channel::UNRELIABLE_SEQUENCED, &bytes, 0, 100),
-        Action::Ignore
     );
 }
 
@@ -423,9 +502,11 @@ async fn valid_handshake_authenticates_and_binds_wallet() {
             wallet: w,
             duplicate_of,
             initial_state,
+            features,
         } => {
             assert_eq!(w, wallet);
             assert_eq!(duplicate_of, None);
+            assert_eq!(features, 0, "nothing offered negotiates the baseline");
             assert!(
                 initial_state.is_none(),
                 "no initial state in this handshake"
@@ -440,6 +521,40 @@ async fn valid_handshake_authenticates_and_binds_wallet() {
     srv.board.set_active(1);
     assert!(srv.is_authenticated(1));
     assert_eq!(srv.identity.peer_by_wallet(&wallet), Some(1));
+}
+
+#[tokio::test]
+async fn handshake_negotiates_features_masking_unknown_bits() {
+    use crate::server::{FEATURE_DELTA_BATCH, SERVER_FEATURES};
+
+    async fn negotiate(offered: u32) -> u32 {
+        let mut srv = PulseServer::new();
+        srv.peers
+            .insert(1, PeerState::new(PeerConnectionState::PendingAuth, 0));
+        let (base, _wallet, now_ms) = signed_handshake_request().await;
+        let mut msg = ClientMessage::decode(&base[..]).unwrap();
+        if let Some(client_message::Message::Handshake(h)) = msg.message.as_mut() {
+            h.protocol_features = offered;
+        }
+        match srv.dispatch(1, channel::RELIABLE, &msg.encode_to_vec(), now_ms, 0) {
+            Action::Authenticated { features, .. } => features,
+            other => panic!("expected Authenticated, got {other:?}"),
+        }
+    }
+
+    assert_eq!(negotiate(FEATURE_DELTA_BATCH).await, FEATURE_DELTA_BATCH);
+    assert_eq!(negotiate(0).await, 0);
+    assert_eq!(negotiate(0xFFFF_FFFF).await, SERVER_FEATURES);
+    assert_eq!(
+        negotiate(FEATURE_DELTA_BATCH | 1 << 31).await,
+        FEATURE_DELTA_BATCH,
+        "unknown bits are masked off, the peer still authenticates"
+    );
+    let Some(server_message::Message::Handshake(resp)) = handshake_response(true, None).message
+    else {
+        panic!("handshake_response must wrap a HandshakeResponse");
+    };
+    assert_eq!(resp.protocol_features, SERVER_FEATURES);
 }
 
 #[tokio::test]
@@ -542,6 +657,7 @@ async fn handshake_attempts_are_throttled() {
             auth_chain: b"not json".to_vec(),
             profile_version: 0,
             initial_state: None,
+            protocol_features: 0,
         },
     ));
 
@@ -653,3 +769,94 @@ async fn handshake_initial_state_emote_cap_is_enforced() {
     }
     assert!(!srv.is_authenticated(1));
 }
+
+#[tokio::test]
+async fn handshake_initial_state_rejects_overlong_realm() {
+    let (base, _wallet, now_ms) = signed_handshake_request().await;
+    let init_with_realm = |realm: &str| {
+        with_initial_state(
+            &base,
+            Some(PlayerInitialState {
+                state: Some(valid_state(7)),
+                realm: realm.into(),
+                ..Default::default()
+            }),
+        )
+    };
+
+    let mut srv = PulseServer::new();
+    srv.max_realm_length = 4;
+    srv.peers
+        .insert(1, PeerState::new(PeerConnectionState::PendingAuth, 0));
+    match srv.dispatch(1, channel::RELIABLE, &init_with_realm("abcd"), now_ms, 0) {
+        Action::Authenticated { .. } => {}
+        other => panic!("expected Authenticated, got {other:?}"),
+    }
+
+    let mut srv = PulseServer::new();
+    srv.max_realm_length = 4;
+    srv.peers
+        .insert(1, PeerState::new(PeerConnectionState::PendingAuth, 0));
+    match srv.dispatch(1, channel::RELIABLE, &init_with_realm("abcde"), now_ms, 0) {
+        Action::Reject { reason, .. } => {
+            assert_eq!(reason, DisconnectReason::InvalidHandshakeField);
+        }
+        other => panic!("expected Reject(InvalidHandshakeField), got {other:?}"),
+    }
+    assert!(!srv.is_authenticated(1));
+}
+
+#[test]
+fn wt_flood_at_budget_does_not_starve_enet_admission() {
+    use crate::hardening::AdmitResult;
+    let mut srv = PulseServer::new();
+    let wt_base = ENET_CAPACITY as u32;
+
+    for i in 0..DEFAULT_PRE_AUTH_BUDGET_WT as u32 {
+        let peer = wt_base + i;
+        let ip = format!("10.{}.{}.1", i / 256, i % 256);
+        assert_eq!(srv.pre_auth_for(peer).try_admit(peer, &ip), AdmitResult::Ok);
+    }
+    assert_eq!(srv.pre_auth_wt.in_flight(), DEFAULT_PRE_AUTH_BUDGET_WT);
+
+    let extra = wt_base + DEFAULT_PRE_AUTH_BUDGET_WT as u32;
+    assert_eq!(
+        srv.pre_auth_for(extra).try_admit(extra, "10.255.255.1"),
+        AdmitResult::BudgetExhausted
+    );
+
+    assert_eq!(srv.pre_auth_for(7).try_admit(7, "1.2.3.4"), AdmitResult::Ok);
+    assert_eq!(srv.pre_auth_enet.in_flight(), 1);
+}
+
+#[test]
+fn pre_auth_release_credits_the_admitting_transport() {
+    use crate::hardening::AdmitResult;
+    let mut srv = PulseServer::new();
+    let enet = 3u32;
+    let wt = ENET_CAPACITY as u32 + 1;
+
+    assert_eq!(
+        srv.pre_auth_for(enet).try_admit(enet, "1.1.1.1"),
+        AdmitResult::Ok
+    );
+    assert_eq!(
+        srv.pre_auth_for(wt).try_admit(wt, "2.2.2.2"),
+        AdmitResult::Ok
+    );
+    assert_eq!(srv.pre_auth_enet.in_flight(), 1);
+    assert_eq!(srv.pre_auth_wt.in_flight(), 1);
+
+    srv.pre_auth_for(wt).release_on_disconnect(wt);
+    assert_eq!(srv.pre_auth_wt.in_flight(), 0);
+    assert_eq!(
+        srv.pre_auth_enet.in_flight(),
+        1,
+        "enet budget untouched by a WT release"
+    );
+
+    srv.pre_auth_for(enet).release_on_promotion(enet);
+    assert_eq!(srv.pre_auth_enet.in_flight(), 0);
+}
+
+mod scene_listener;

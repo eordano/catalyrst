@@ -1,23 +1,20 @@
-use axum::extract::State;
+use axum::extract::{FromRequestParts, State};
+use axum::http::request::Parts;
 use axum::http::HeaderMap;
 use axum::Json;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
+use catalyrst_authenticated_principal::{
+    establish_platform_service_identity_by_comparing_presented_shared_secret,
+    AuthorityNotEstablished,
+};
+
 use crate::admin::SignerPreference;
 use crate::http::errors::ApiError;
 use crate::AppState;
 
-fn timing_safe_eq(a: &str, b: &str) -> bool {
-    if a.len() != b.len() {
-        return false;
-    }
-    let mut diff = 0u8;
-    for (x, y) in a.bytes().zip(b.bytes()) {
-        diff |= x ^ y;
-    }
-    diff == 0
-}
+const ADMIN_TOKEN_ENV: &str = "CATALYRST_ECONOMY_ADMIN_TOKEN";
 
 fn bearer_token(headers: &HeaderMap) -> Option<String> {
     headers
@@ -52,16 +49,32 @@ pub(crate) fn require_admin(state: &AppState, headers: &HeaderMap) -> Result<(),
 }
 
 fn check_bearer(expected: Option<&str>, presented: Option<&str>) -> Result<(), ApiError> {
-    let Some(expected) = expected else {
-        return Err(ApiError::Forbidden(
+    match establish_platform_service_identity_by_comparing_presented_shared_secret(
+        ADMIN_TOKEN_ENV,
+        expected,
+        presented,
+    ) {
+        Ok(_) => Ok(()),
+        Err(AuthorityNotEstablished::CredentialNotConfigured { .. }) => Err(ApiError::Forbidden(
             "Admin controls are disabled (CATALYRST_ECONOMY_ADMIN_TOKEN is unset).".into(),
-        ));
-    };
-    match presented {
-        Some(token) if timing_safe_eq(token, expected) => Ok(()),
-        _ => Err(ApiError::Forbidden(
+        )),
+        Err(_) => Err(ApiError::Forbidden(
             "Invalid or missing admin bearer token.".into(),
         )),
+    }
+}
+
+pub struct RequireAdmin(());
+
+impl FromRequestParts<AppState> for RequireAdmin {
+    type Rejection = ApiError;
+
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &AppState,
+    ) -> Result<Self, Self::Rejection> {
+        require_admin(state, &parts.headers)?;
+        Ok(RequireAdmin(()))
     }
 }
 
@@ -74,15 +87,15 @@ fn status_json(state: &AppState) -> Value {
         "provisioned": {
             "oz": state.transaction.has_oz_relayer(),
             "direct": state.transaction.has_direct_signer(),
+            "upstream": state.transaction.has_upstream_forwarder(),
         },
     })
 }
 
 pub async fn relayer_status(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    _admin: RequireAdmin,
 ) -> Result<Json<Value>, ApiError> {
-    require_admin(&state, &headers)?;
     Ok(Json(status_json(&state)))
 }
 
@@ -93,10 +106,10 @@ pub struct ToggleBody {
 
 pub async fn relayer_toggle(
     State(state): State<AppState>,
+    _admin: RequireAdmin,
     headers: HeaderMap,
     body: Result<Json<ToggleBody>, axum::extract::rejection::JsonRejection>,
 ) -> Result<Json<Value>, ApiError> {
-    require_admin(&state, &headers)?;
     let actor = audit_actor(&headers);
     let Json(body) = body.map_err(|e| ApiError::MalformedBody(e.body_text()))?;
     let previous = state.runtime.relayer_enabled();
@@ -120,10 +133,10 @@ pub struct SignerBody {
 
 pub async fn relayer_signer(
     State(state): State<AppState>,
+    _admin: RequireAdmin,
     headers: HeaderMap,
     body: Result<Json<SignerBody>, axum::extract::rejection::JsonRejection>,
 ) -> Result<Json<Value>, ApiError> {
-    require_admin(&state, &headers)?;
     let actor = audit_actor(&headers);
     let Json(body) = body.map_err(|e| ApiError::MalformedBody(e.body_text()))?;
     let previous = state.runtime.signer_preference();
@@ -155,6 +168,16 @@ mod tests {
     }
 
     #[test]
+    fn unset_token_names_the_env_var() {
+        let err = check_bearer(None, Some("anything")).unwrap_err();
+        assert!(matches!(
+            err,
+            ApiError::Forbidden(m)
+                if m == "Admin controls are disabled (CATALYRST_ECONOMY_ADMIN_TOKEN is unset)."
+        ));
+    }
+
+    #[test]
     fn missing_or_wrong_bearer_is_forbidden() {
         assert!(forbidden(check_bearer(Some("secret"), None)));
         assert!(forbidden(check_bearer(Some("secret"), Some("wrong"))));
@@ -163,6 +186,12 @@ mod tests {
             Some("secret"),
             Some("secretsecret")
         )));
+
+        let err = check_bearer(Some("secret"), Some("wrong")).unwrap_err();
+        assert!(matches!(
+            err,
+            ApiError::Forbidden(m) if m == "Invalid or missing admin bearer token."
+        ));
     }
 
     #[test]

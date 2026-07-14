@@ -1,0 +1,43 @@
+{
+  "_source": "Static pitch-proposal form config (formerly the non-account fields of the dropped fixture). copy/sample verbatim from decentraland/governance-ui intl/en.json page.submit_pitch.* and newProposalPitchScheme; submissionThresholdVp from decentraland/governance SUBMISSION_THRESHOLD_PITCH (GATSBY_SUBMISSION_THRESHOLD_PITCH, defaults to 100). This is NOT a Catalyst read \u2014 governance runs on Snapshot + Aragon externally and exposes NO createProposal write reachable from this app, so the final submission is SIMULATED, and VP scoring has no catalyrst endpoint (a connected wallet is treated eligible client-side).",
+  "submissionThresholdVp": 100,
+  "votingPowerToPassVp": 2000000,
+  "copy": {
+    "title": "Pitch proposal",
+    "description": "Pitch proposals are the first step towards validating whether an idea is worth pursuing as a Project Tender and securing funds and bids from external teams to execute it.",
+    "vpNotice": "This action requires at least 100 VP. Buy MANA to get VP, or run for delegate.",
+    "initiativeNameLabel": "Initiative name",
+    "initiativeNamePostLabel": "This is what will be displayed on the Proposals Feed",
+    "fields": {
+      "problem_statement": {
+        "label": "Problem statement",
+        "detail": "Please explain the problem this initiative would solve in using simple words",
+        "placeholder": "Describe the problem this initiative would solve\u2026"
+      },
+      "proposed_solution": {
+        "label": "Proposed solution",
+        "detail": "Please explain how you would think this problem should be approached using simple words",
+        "placeholder": "Describe how this problem should be approached\u2026"
+      },
+      "target_audience": {
+        "label": "Target audience",
+        "detail": "Please describe the intended user of the proposed solution: their needs, concerns, motivations, etc.",
+        "placeholder": "Describe the intended user of the proposed solution\u2026"
+      },
+      "relevance": {
+        "label": "Why is this relevant now?",
+        "detail": "Please explain why the Decentraland DAO should be spending money on this project. Specify market conditions, competitors, new technical developments, and any other relevant factors you consider",
+        "placeholder": "Explain why the DAO should spend money on this now\u2026"
+      }
+    },
+    "coAuthorLabel": "Co-authors",
+    "coAuthorDescription": "Add the addresses of any co-authors who contributed to this proposal."
+  },
+  "sample": {
+    "initiative_name": "DAO-funded mobile companion app",
+    "problem_statement": "Decentraland is desktop-first and there is no first-party way for community members to stay connected to events, governance and friends while away from their PC. New users who hear about an event have no lightweight way to RSVP, get reminders or jump in quickly, so we lose engagement between sessions.",
+    "proposed_solution": "Fund a small external team to ship a read-first mobile companion: an events feed with RSVP and reminders, a governance feed with proposal summaries and delegate-aware vote nudges, and friend presence. It would reuse the existing Catalyst and events APIs, so no new on-chain surface is required for v1.",
+    "target_audience": "Active Decentraland community members and DAO voters who already attend events and follow governance but currently miss timely updates when they are away from their desktop client. Secondary audience: curious newcomers who heard about an event and want a low-friction way to engage before installing the full client.",
+    "relevance": "Mobile engagement is where competing virtual-world and social platforms capture attention between sessions, and the DAO has repeatedly flagged retention as a priority. Shipping a focused companion now \u2014 ahead of the next events season \u2014 keeps the community engaged across devices and creates a foundation a future Tender can extend with deeper features."
+  }
+}

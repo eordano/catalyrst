@@ -2,6 +2,10 @@ use crate::db::{Db, DbError};
 use crate::proto::EventRequest;
 use crate::proto::{Action, Event, ProtocolMessage};
 use crate::state::{get_state, is_completed, QuestGraph};
+use catalyrst_commons::http::{http_client, is_safe_http_url, HttpClientCfg};
+use futures::StreamExt;
+use std::sync::OnceLock;
+use std::time::Duration;
 use uuid::Uuid;
 
 #[derive(Debug, thiserror::Error)]
@@ -123,6 +127,40 @@ pub async fn give_rewards_to_user(db: &Db, quest_id: &str, user_address: &str) {
     }
 }
 
+const REWARDS_HOOK_TIMEOUT: Duration = Duration::from_secs(10);
+const REWARDS_HOOK_MAX_BODY_BYTES: usize = 64 * 1024;
+
+fn rewards_hook_client() -> &'static reqwest::Client {
+    static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+    CLIENT.get_or_init(|| {
+        http_client(
+            "quests-rewards-hook",
+            &HttpClientCfg::default().with_total_timeout(REWARDS_HOOK_TIMEOUT),
+        )
+    })
+}
+
+async fn read_rewards_hook_body(
+    response: reqwest::Response,
+    max_bytes: usize,
+) -> Result<Vec<u8>, String> {
+    if let Some(len) = response.content_length() {
+        if len > max_bytes as u64 {
+            return Err("Rewards hook response too large".to_string());
+        }
+    }
+    let mut buf: Vec<u8> = Vec::new();
+    let mut stream = response.bytes_stream();
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|_| "Couldn't read rewards hook response".to_string())?;
+        if buf.len().saturating_add(chunk.len()) > max_bytes {
+            return Err("Rewards hook response too large".to_string());
+        }
+        buf.extend_from_slice(&chunk);
+    }
+    Ok(buf)
+}
+
 async fn call_rewards_hook(
     url: &str,
     body: Option<serde_json::Value>,
@@ -130,7 +168,10 @@ async fn call_rewards_hook(
     user_address: &str,
 ) -> Result<bool, String> {
     let url_parsed = rewards_parser(url, quest_id, user_address);
-    let mut client = reqwest::Client::new().post(&url_parsed);
+    if !is_safe_http_url(&url_parsed) {
+        return Err("Rewards hook url is not safe to call".to_string());
+    }
+    let mut client = rewards_hook_client().post(&url_parsed);
 
     if let Some(serde_json::Value::Object(map)) = body {
         let parsed: serde_json::Map<String, serde_json::Value> = map
@@ -152,9 +193,8 @@ async fn call_rewards_hook(
         .send()
         .await
         .map_err(|_| "Couldn't call rewards hook".to_string())?;
-    let parsed = response
-        .json::<RewardsHookResponse>()
-        .await
+    let body_bytes = read_rewards_hook_body(response, REWARDS_HOOK_MAX_BODY_BYTES).await?;
+    let parsed: RewardsHookResponse = serde_json::from_slice(&body_bytes)
         .map_err(|_| "Couldn't decode rewards hook response".to_string())?;
     Ok(parsed.ok)
 }

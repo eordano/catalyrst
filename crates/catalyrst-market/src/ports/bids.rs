@@ -59,28 +59,32 @@ pub struct Bid {
     #[serde(rename = "expiresAt")]
     #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub expires_at: i64,
-    #[serde(rename = "tokenId", skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "tokenId")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub token_id: Option<String>,
-    #[serde(rename = "itemId", skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "itemId")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub item_id: Option<String>,
-    #[serde(rename = "tradeId", skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "tradeId")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub trade_id: Option<String>,
-    #[serde(
-        rename = "tradeContractAddress",
-        skip_serializing_if = "Option::is_none"
-    )]
+    #[serde(rename = "tradeContractAddress")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub trade_contract_address: Option<String>,
-    #[serde(rename = "bidAddress", skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "bidAddress")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub bid_address: Option<String>,
-    #[serde(rename = "blockchainId", skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "blockchainId")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub blockchain_id: Option<String>,
-    #[serde(rename = "blockNumber", skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "blockNumber")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub block_number: Option<String>,
 }

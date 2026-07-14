@@ -19,6 +19,39 @@ pub fn rarity_rank(rarity: &str) -> i64 {
         .unwrap_or(-1)
 }
 
+/// Shared by the per-owner explorer endpoint and the global catalog so the two
+/// cannot drift into separate dialects of the same filter. The wording is the
+/// explorer's, which is the surface clients already parse.
+pub fn validate_rarity(rarity: &str) -> Result<(), String> {
+    if SORTED_RARITIES.contains(&rarity) {
+        Ok(())
+    } else {
+        Err(format!("Invalid rarity requested: '{rarity}'."))
+    }
+}
+
+pub const SORT_FIELDS: &[&str] = &["rarity", "name", "date"];
+
+/// `name` reads most naturally ascending; rarity and date most-valuable/newest
+/// first. Callers that disagree pass `direction` explicitly.
+pub fn default_sort_direction(sort: &str) -> &'static str {
+    if sort == "name" {
+        "ASC"
+    } else {
+        "DESC"
+    }
+}
+
+pub fn validate_sort(sort: &str, direction: &str) -> Result<(), String> {
+    if SORT_FIELDS.contains(&sort) && matches!(direction, "ASC" | "DESC") {
+        Ok(())
+    } else {
+        Err(format!(
+            "Invalid sorting requested: '{sort} {direction}'. Valid options are '[rarity, name, date] [ASC, DESC]'."
+        ))
+    }
+}
+
 pub fn content_url(entity: &Value, file_name: &str, content_public_url: &str) -> Option<String> {
     let hash = entity
         .get("content")

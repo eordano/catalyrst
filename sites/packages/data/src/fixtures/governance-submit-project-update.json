@@ -1,0 +1,121 @@
+{
+  "_source": "https://governance.decentraland.org/api/updates?project_id=b783aa8f-ebf2-4792-b3eb-8dfccf369dfb (LIVE upstream decentraland/governance API, fetched 2026-06-23); project record from https://governance.decentraland.org/api/projects; model shapes verified against decentraland/governance@master src/entities/Updates/types.ts (UpdateGeneralSection, ProjectHealth, FinancialRecordCateogry, GeneralUpdateSectionSchema maxLengths)",
+  "project": {
+    "id": "b783aa8f-ebf2-4792-b3eb-8dfccf369dfb",
+    "proposal_id": "8ce24f4d-ed98-421b-a04e-dd71876bf9a2",
+    "title": "Protocol Squad - Alternative Explorers (Desktop, Mobile & VR)",
+    "type": "grant",
+    "status": "finished",
+    "category": "Platform",
+    "tier": "Higher Tier",
+    "size": 226500,
+    "author": "0x83f9192d59b393c8789b55d446e5d4a77075c820"
+  },
+  "funding": {
+    "token": "DAI",
+    "total": 226500,
+    "totalLabel": "$226,500",
+    "vested": 226500,
+    "vestedLabel": "$226,500",
+    "released": 226500,
+    "releasedLabel": "$226,500",
+    "releasable": 0,
+    "releasableLabel": "$0",
+    "vestingStartAt": "2024-11-01T00:00:00.000Z",
+    "vestingFinishAt": "2025-05-02T12:00:00.000Z",
+    "address": "0x83428c691d844ecb707d28aeb7727f8faaa2ee56",
+    "releasedSinceLastUpdate": 226500,
+    "releasedSinceLastUpdateLabel": "$226,500",
+    "txCountSinceLastUpdate": 6
+  },
+  "generalSection": {
+    "healthOptions": [
+      {
+        "id": "onTrack",
+        "label": "On Track"
+      },
+      {
+        "id": "atRisk",
+        "label": "At Risk"
+      },
+      {
+        "id": "offTrack",
+        "label": "Off Track"
+      }
+    ],
+    "fields": [
+      {
+        "key": "introduction",
+        "label": "Introduction",
+        "limit": 500,
+        "required": true
+      },
+      {
+        "key": "highlights",
+        "label": "Highlights",
+        "limit": 3500,
+        "required": true
+      },
+      {
+        "key": "blockers",
+        "label": "Blockers",
+        "limit": 3500,
+        "required": true
+      },
+      {
+        "key": "next_steps",
+        "label": "Next Steps",
+        "limit": 3500,
+        "required": true
+      },
+      {
+        "key": "additional_notes",
+        "label": "Additional notes and links",
+        "limit": 3500,
+        "required": false
+      }
+    ]
+  },
+  "financialSection": {
+    "csvHeader": "category,description,token,amount,receiver,link",
+    "recordCategories": [
+      "Team Compensation",
+      "Tools & Services",
+      "Contractors",
+      "Marketing",
+      "Other"
+    ]
+  },
+  "priorUpdates": [
+    {
+      "id": "f03b76f1-2314-4eb6-a6bd-06f23848d42b",
+      "health": "onTrack",
+      "introduction": "Welcome to the sixth and last grant update. This team has the primary goal of developing an explorer version using two different technologies:\n- Bevy targeting to Desktop: featuring experimental and developer features to enhance the creator's possibilities\n- Godot targeting to Mobile and VR: pointing to have a reliable and production-ready explorer.\n\nThis post is the typical one, but we've elaborated a forum post with more readable and understable information, the link is in the links section.",
+      "highlights": "### Bevy (Desktop)\n - **Rendering & World View**:\n    - **Depth-of-field distant imposters**: seamlessly blends baked imposters with live parcels.\n    - Imposters optional ZIP bundling and hot-download support.\n    - Configurable GPU bytes-per-frame + antialias defaults.\n- **Camera & Visual Tools**:\n    - `TextureCamera` + `CameraLayer` routing finalised.\n    - Scenes can now render \u201clive security cams\u201d, mirrors, and picture-in-picture UI.\n- **System-UI APIs**:\n    - New runtime calls: `reloadUI`, `hideUI`, `listScenes`, `getHome`, `setHome`, `getRealmProvider`, `systemActionStream`, `chatSend",
+      "blockers": "Without blockers",
+      "next_steps": "1. **Merge Backpack \u2192 Outfits** with Catalyst persistence.  \n2. **Satellite Map 1.1** \u2014 multi-res tiles, clustering, and larger info cards.  \n3. **VR Beta** \u2014 polish jet-pack demo, Quest store submission, performance profiling.  \n4. **Photo/Share Panel** and additional system-UI APIs (permissions, notifications).  \n5. Continue upstreaming fixes to Bevy & Godot, and cultivating external contributor",
+      "status": "late",
+      "completion_date": "2025-05-12T11:42:28.600Z"
+    },
+    {
+      "id": "2fa7c6ab-e0f3-4a58-baed-25e14dacf572",
+      "health": "onTrack",
+      "introduction": "Welcome to the fifth grant update. This team has the primary goal of developing an explorer version using two different technologies:\n- Bevy targeting to Desktop: featuring experimental and developer features to enhance the creator's possibilities\n- Godot targeting to Mobile and VR: pointing to have a reliable and production-ready explorer.",
+      "highlights": "In March, we improved the UI API for Bevy, allowing huge progress in the Bevy Scene UI and also the generation of imposters on the server side. We refactored the UI in Godot to support Portrait mode, enabled the asset optimization pipeline for Worlds, and submitted a try to the Apple Store for review. We left all the details below. \n\n### Bevy (Desktop)\n**Features**\n- Server-side imposters\n- Add `--content-server` command line arg for forcing a specific content server\n  - Set imposter realm base to be about url instead of content server\n  - Optionally generate zip files when creating imposters\n",
+      "blockers": " ",
+      "next_steps": "We will be working on:\n- Update to **Godot 4.4.1** (Godot Core)\n- VR update (Godot Core)\n- Upgrade iOS SDK to **version 18** (Godot Core)\n- Sensitive settings for input bindings (Bevy Core)\n- Extend Bevy UI API functionality (Bevy Core)\n- Polish Server-side imposters (Bevy Core)\n- Backpack system for wearables: emote visualization, equip emote, sort by (UI Scene, Bevy)\n- Set home (widget scene inf",
+      "status": "late",
+      "completion_date": "2025-04-02T12:09:45.904Z"
+    },
+    {
+      "id": "693b14cc-09b8-4e1d-b73b-8b2e33bbe16f",
+      "health": "onTrack",
+      "introduction": "Welcome to the fourth grant update. This team has the primary goal of developing an explorer version using two different technologies:\n- Bevy targeting to Desktop: featuring experimental and developer features to enhance the creator's possibilities\n- Godot targeting to Mobile and VR: pointing to have a reliable and production-ready explorer.",
+      "highlights": "In February, we implemented the Foundation approach for communications in the Bevy Explorer to test and evaluate documentation limitations. Additionally, we completed the first iteration of asset optimization for Mobile and VR in Godot. Lastly, we've made significant progress on the Backpack UI Scene for Bevy Explorer. All the details are provided below.\n\n## Bevy (Desktop)\n**Features**\n- switch to native tls to avoid windows certificate issues\n- update comms to allow communication with explorer alpha client\n  - code / decode MovementCompressed messages\n    - use velocity and falling data from ",
+      "blockers": " ",
+      "next_steps": "We will be working on:\n- Finish Backpack integration in (UI Scene, Bevy)\n- Improve avatar animation map (Godot)\n- Test asset pipeline in Mobile (Godot)\n- Spike in UI Landscape/Portrait (Godot)\n- Implementing imposters pipeline generation (Bevy) \n- (Experimental SDK feature) Local storage (Bevy)\n  - add local storage for scenes\n  - todo: allow user to clear, manage size limits, key from realm/parce",
+      "status": "late",
+      "completion_date": "2025-03-02T21:51:21.031Z"
+    }
+  ]
+}

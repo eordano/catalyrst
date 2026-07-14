@@ -1,0 +1,225 @@
+{
+  "sid": "story-sid",
+  "tab": "collections",
+  "address": "0x00000000000000000000000000000000000d0c5e",
+  "source": "live",
+  "fallback": false,
+  "ownedCards": [
+    {
+      "id": "0x7f4607e8e286737a90ef391e78b1785796de2a2b-28",
+      "name": "Uncle Sam's Top Hat",
+      "collection": "hat",
+      "price": "12",
+      "rarity": "epic",
+      "network": "polygon",
+      "image": "https://catalyst.example.com/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0x7f4607e8e286737a90ef391e78b1785796de2a2b:0/thumbnail"
+    },
+    {
+      "id": "0x0000000000000000000000000000000000000c01-1",
+      "name": "Free as Air",
+      "collection": "upper_body",
+      "price": null,
+      "rarity": "epic",
+      "network": "polygon",
+      "image": "https://catalyst.example.com/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0x0000000000000000000000000000000000000c01:0/thumbnail"
+    },
+    {
+      "id": "0x0000000000000000000000000000000000000c02-1",
+      "name": "Lights of Harbor",
+      "collection": "hands_wear",
+      "price": null,
+      "rarity": "epic",
+      "network": "polygon",
+      "image": "https://catalyst.example.com/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0x0000000000000000000000000000000000000c02:0/thumbnail"
+    },
+    {
+      "id": "0xf3db9b37b791890443a15cd16423f4e35c82d513-88",
+      "name": "Pride Bucket Hat",
+      "collection": "hat",
+      "price": null,
+      "rarity": "rare",
+      "network": "polygon",
+      "image": "https://catalyst.example.com/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0xf3db9b37b791890443a15cd16423f4e35c82d513:0/thumbnail"
+    },
+    {
+      "id": "0xfa97672f146b7a47f0791b7087cf3270d6f847ac-16",
+      "name": "Donald Dump",
+      "collection": "helmet",
+      "price": null,
+      "rarity": "legendary",
+      "network": "polygon",
+      "image": "https://catalyst.example.com/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0xfa97672f146b7a47f0791b7087cf3270d6f847ac:0/thumbnail"
+    },
+    {
+      "id": "0x2c958cbd5c73cbfcd389e4e08d0f45a367937d0f-98",
+      "name": "Dollar Pump President ",
+      "collection": "upper_body",
+      "price": "40",
+      "rarity": "legendary",
+      "network": "polygon",
+      "image": "https://catalyst.example.com/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0x2c958cbd5c73cbfcd389e4e08d0f45a367937d0f:0/thumbnail"
+    },
+    {
+      "id": "0xbdf24869d59f36e3c1b312181b08f7f623d79441-51",
+      "name": "DCL Kickoff Jersey",
+      "collection": "upper_body",
+      "price": null,
+      "rarity": "rare",
+      "network": "polygon",
+      "image": "https://catalyst.example.com/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0xbdf24869d59f36e3c1b312181b08f7f623d79441:0/thumbnail"
+    },
+    {
+      "id": "0xbdf24869d59f36e3c1b312181b08f7f623d79441-1",
+      "name": "DCL Kickoff Jersey",
+      "collection": "upper_body",
+      "price": null,
+      "rarity": "rare",
+      "network": "polygon",
+      "image": "https://catalyst.example.com/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0xbdf24869d59f36e3c1b312181b08f7f623d79441:0/thumbnail"
+    }
+  ],
+  "ownedTotal": 1656,
+  "names": [
+    {
+      "name": "moonlounge",
+      "price": null
+    },
+    {
+      "name": "METASPARK",
+      "price": null
+    },
+    {
+      "name": "SketchMan",
+      "price": null
+    },
+    {
+      "name": "clubaurora",
+      "price": null
+    },
+    {
+      "name": "Comet",
+      "price": null
+    },
+    {
+      "name": "graymorrow",
+      "price": null
+    },
+    {
+      "name": "FoxesDen",
+      "price": null
+    },
+    {
+      "name": "FoxFarm",
+      "price": null
+    },
+    {
+      "name": "STARBEANS",
+      "price": null
+    },
+    {
+      "name": "Z80",
+      "price": null
+    },
+    {
+      "name": "SAMPLEFOX",
+      "price": null
+    },
+    {
+      "name": "demoworld",
+      "price": null
+    },
+    {
+      "name": "Lagoon",
+      "price": null
+    },
+    {
+      "name": "PonyDealer",
+      "price": null
+    },
+    {
+      "name": "Everhollow",
+      "price": null
+    }
+  ],
+  "namesTotal": 15,
+  "onSaleRows": [],
+  "onSaleTotal": 0,
+  "collections": [
+    {
+      "contractAddress": "0x0000000000000000000000000000000000000c01",
+      "name": "SAMPLEFOX Free as Air",
+      "size": 1,
+      "isOnSale": false,
+      "tiles": [
+        "epic"
+      ]
+    },
+    {
+      "contractAddress": "0x0000000000000000000000000000000000000c02",
+      "name": "SAMPLEFOX Harbor",
+      "size": 1,
+      "isOnSale": false,
+      "tiles": [
+        "epic"
+      ]
+    },
+    {
+      "contractAddress": "0x0000000000000000000000000000000000000c06",
+      "name": "SAMPLEFOX Raveglider",
+      "size": 3,
+      "isOnSale": false,
+      "tiles": [
+        "epic",
+        "legendary",
+        "exotic"
+      ]
+    },
+    {
+      "contractAddress": "0x0000000000000000000000000000000000000c07",
+      "name": "SAMPLEFOX Heart Thrower",
+      "size": 1,
+      "isOnSale": false,
+      "tiles": [
+        "legendary"
+      ]
+    },
+    {
+      "contractAddress": "0x0000000000000000000000000000000000000c08",
+      "name": "SAMPLEFOX FX Devices",
+      "size": 2,
+      "isOnSale": false,
+      "tiles": [
+        "legendary",
+        "legendary"
+      ]
+    },
+    {
+      "contractAddress": "0x0000000000000000000000000000000000000c09",
+      "name": "SAMPLEFOX Stable Fox",
+      "size": 1,
+      "isOnSale": false,
+      "tiles": [
+        "unique"
+      ]
+    },
+    {
+      "contractAddress": "0x0000000000000000000000000000000000000c03",
+      "name": "SAMPLEFOX Hoodie",
+      "size": 1,
+      "isOnSale": false,
+      "tiles": [
+        "epic"
+      ]
+    },
+    {
+      "contractAddress": "0x0000000000000000000000000000000000000c04",
+      "name": "SAMPLEFOX Winter Hat",
+      "size": 1,
+      "isOnSale": false,
+      "tiles": [
+        "epic"
+      ]
+    }
+  ],
+  "collectionsTotal": 36
+}

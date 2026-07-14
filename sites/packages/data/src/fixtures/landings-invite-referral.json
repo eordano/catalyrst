@@ -1,0 +1,47 @@
+{
+  "_source": "https://raw.githubusercontent.com/decentraland/schemas/main/src/platform/events/referral.ts (decentraland/schemas REFERRAL event metadata) + https://raw.githubusercontent.com/decentraland/unity-explorer/main/Explorer/Assets/DCL/NotificationsBus/NotificationTypes/ReferralNotification.cs (ReferralNotificationMetadata) + https://raw.githubusercontent.com/decentraland/schemas/main/src/platform/profile/avatar.ts (Avatar: name/ethAddress/hasClaimedName/nameColor). Tier ladder mirrors ui3 StProfileReferralRewardsTab TIERS (ReferralJourney/constants.ts). Fetched public, no auth, on 2026-06-23.",
+  "_notes": "The live catalyrst-credits crate (catalyrst-credits/src/lib.rs) exposes /credits/seasons and /credits/users/{wallet}/progress, both auth-chain gated (signer_from), so the public SSR site cannot mint the signature and falls back to this fixture. There is no public referral-progress route on the crate yet; the referral state below is derived faithfully from the schemas REFERRAL metadata shape (tier/invitedUsers/rarity) and the ui3 TIERS ladder. The referrer profile is the Profile/lambdas Avatar shape (resolveReferrerProfile -> /lambdas/profiles/{address}). The referral attribution WRITE (binding the visitor session to this referrer) is SIMULATED in the route loader: it computes the attribution payload and emits the lp_invite_referrer_resolved event but performs no on-chain or backend write.",
+  "referrer": {
+    "userId": "0x8a3b2f19c4e7d05a6b1f9e2c3d4a5b6c7d8e9f01",
+    "ethAddress": "0x8a3b2f19c4e7d05a6b1f9e2c3d4a5b6c7d8e9f01",
+    "name": "MetaPioneer",
+    "hasClaimedName": true,
+    "nameColor": "#FF8362",
+    "snapshotFace256": "https://peer.decentraland.org/content/contents/bafybeireferrerfaceplaceholder"
+  },
+  "referral": {
+    "invitedUsers": 22,
+    "invitedUsersAccepted": 22,
+    "currentTier": 4,
+    "nextTier": 5,
+    "tiers": [
+      { "tier": 1, "invitesAccepted": 5, "rarity": "epic", "description": "RainbowWave Jeans + Community Recruiter Starter Badge" },
+      { "tier": 2, "invitesAccepted": 10, "rarity": "epic", "description": "Good Vibes Letterman + Community Recruiter Bronze Badge" },
+      { "tier": 3, "invitesAccepted": 20, "rarity": "legendary", "description": "Signal Surge Gloves" },
+      { "tier": 4, "invitesAccepted": 25, "rarity": "legendary", "description": "Postman Emote + Community Recruiter Silver Badge" },
+      { "tier": 5, "invitesAccepted": 30, "rarity": "exotic", "description": "Afterglow Kicks" },
+      { "tier": 6, "invitesAccepted": 50, "rarity": "exotic", "description": "Spunky MopTop + Community Recruiter Gold Badge" },
+      { "tier": 7, "invitesAccepted": 60, "rarity": "mythic", "description": "Volty Vibes Shoulder Companion" },
+      { "tier": 8, "invitesAccepted": 75, "rarity": "mythic", "description": "Monocycle Emote + Community Recruiter Platinum Badge" },
+      { "tier": 9, "invitesAccepted": 100, "rarity": "SWAG", "description": "IRL Swag Pack + In-World Wearable + Community Recruiter Diamond Badge" }
+    ]
+  },
+  "faqs": [
+    {
+      "q": "What is Decentraland?",
+      "a": "Decentraland is a community-driven virtual world where you can connect, explore, and create. Built on the Unity engine, Decentraland streams and renders a vast, continuous environment filled with diverse, user-generated content. As you explore this immersive landscape, you encounter new creations daily, from games and puzzles to scenes and artworks, all crafted by Decentraland's vibrant community of creators."
+    },
+    {
+      "q": "How do I enter Decentraland?",
+      "a": "Download and install the client, create your account (a standard web3 wallet such as Metamask, or a Social account like Google, Discord, X, or Apple), customize your avatar, and explore. After a quick tutorial, Decentraland is yours to explore."
+    },
+    {
+      "q": "Do I need cryptocurrency or a digital wallet to use Decentraland?",
+      "a": "You do not need to own cryptocurrency to enjoy Decentraland as it is free to use. If you sign in with a Social account, a digital wallet is created for you behind the scenes."
+    },
+    {
+      "q": "How does the invite reward work?",
+      "a": "Share your referral link with friends. Invitees must be new to Decentraland and must jump in-world on 3 separate days to count toward your reward goals. As accepted invites stack up, you unlock exclusive wearables, emotes and badges along a 9-tier ladder, all the way to an IRL Swag Pack."
+    }
+  ]
+}

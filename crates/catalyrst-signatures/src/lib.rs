@@ -30,18 +30,10 @@ pub struct AppStateInner {
 pub type AppState = Arc<AppStateInner>;
 
 pub async fn build_state(cfg: Config) -> Result<AppState> {
-    let opts = PgConnectOptions::from_str(&cfg.database_url)
-        .context("invalid SIGNATURES_PG_CONNECTION_STRING")?
-        .options([
-            ("statement_timeout", "60000"),
-            ("idle_in_transaction_session_timeout", "30000"),
-        ]);
-    let pool = PgPoolOptions::new()
-        .max_connections(10)
-        .idle_timeout(Duration::from_secs(30))
-        .connect_with(opts)
-        .await
-        .context("failed to connect signatures pool")?;
+    let pool =
+        catalyrst_db::connect_pool(&cfg.database_url, &catalyrst_db::PoolSettings::default())
+            .await
+            .context("failed to connect signatures pool")?;
 
     sqlx::migrate!("./migrations")
         .run(&pool)

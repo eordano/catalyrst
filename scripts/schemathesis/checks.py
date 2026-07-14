@@ -1,7 +1,9 @@
 """Custom schemathesis checks for catalyrst.
 
 Loaded by run.sh via SCHEMATHESIS_HOOKS=checks. Each @schemathesis.check
-function receives (response, case) and must raise AssertionError to fail.
+function receives (ctx, response, case) and must raise AssertionError to fail.
+(schemathesis >=3.20 passes a leading CheckContext; older 2-arg signatures
+silently error out as "E" on every operation.)
 The default `response_schema_conformance` check is re-registered here as a
 no-op alias so we have a single, explicit place to enumerate what we enforce.
 """
@@ -17,7 +19,7 @@ from schemathesis.checks import (
 
 
 @schemathesis.check
-def not_a_server_error(response: Any, case: Any) -> None:
+def not_a_server_error(ctx: Any, response: Any, case: Any) -> None:
     """Fail on any 5xx response that isn't explicitly documented in the spec.
 
     schemathesis ships a similar default, but we register it explicitly so the
@@ -45,17 +47,17 @@ def not_a_server_error(response: Any, case: Any) -> None:
 
 
 @schemathesis.check
-def response_schema_conformance(response: Any, case: Any) -> None:
+def response_schema_conformance(ctx: Any, response: Any, case: Any) -> None:
     """Re-export the built-in response/schema conformance check.
 
     Delegates to schemathesis' default implementation. Listed here so the
     set of enforced checks is discoverable from one file.
     """
-    _default_response_schema_conformance(response, case)
+    _default_response_schema_conformance(ctx, response, case)
 
 
 @schemathesis.check
-def cors_headers_present(response: Any, case: Any) -> None:
+def cors_headers_present(ctx: Any, response: Any, case: Any) -> None:
     """If the request had an Origin header, the response must echo
     Access-Control-Allow-Origin (either the origin or '*').
     """
@@ -89,7 +91,7 @@ def cors_headers_present(response: Any, case: Any) -> None:
 
 
 @schemathesis.check
-def error_body_shape(response: Any, case: Any) -> None:
+def error_body_shape(ctx: Any, response: Any, case: Any) -> None:
     """Non-2xx responses must have body `{"error": str, "message"?: str}`
     per the catalyrst error contract. Empty bodies (e.g. 204, HEAD) are
     skipped, as are non-JSON content types.

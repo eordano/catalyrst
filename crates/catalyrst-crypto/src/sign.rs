@@ -1,6 +1,5 @@
-use ethers_core::k256::ecdsa::SigningKey;
-use ethers_core::types::{Signature, H160, U256};
-use ethers_core::utils::{hash_message, secret_key_to_address};
+use alloy_primitives::{eip191_hash_message, Address, Signature, U256};
+use k256::ecdsa::SigningKey;
 use serde_json::{json, Value};
 use thiserror::Error;
 
@@ -15,7 +14,7 @@ pub enum SignError {
 
 pub struct Wallet {
     key: SigningKey,
-    address: H160,
+    address: Address,
 }
 
 impl Wallet {
@@ -31,7 +30,7 @@ impl Wallet {
         }
         let key = SigningKey::from_slice(&bytes)
             .map_err(|e| SignError::InvalidPrivateKey(e.to_string()))?;
-        let address = secret_key_to_address(&key);
+        let address = Address::from_public_key(key.verifying_key());
         Ok(Wallet { key, address })
     }
 
@@ -40,17 +39,17 @@ impl Wallet {
     }
 
     pub fn sign_message(&self, message: &[u8]) -> Result<String, SignError> {
-        let hash = hash_message(message);
+        let hash = eip191_hash_message(message);
         let (sig, recovery_id) = self
             .key
-            .sign_prehash_recoverable(hash.as_ref())
+            .sign_prehash_recoverable(hash.as_slice())
             .map_err(|e| SignError::SigningFailed(e.to_string()))?;
-        let signature = Signature {
-            r: U256::from_big_endian(&sig.r().to_bytes()),
-            s: U256::from_big_endian(&sig.s().to_bytes()),
-            v: u8::from(recovery_id) as u64 + 27,
-        };
-        Ok(format!("0x{signature}"))
+        let signature = Signature::new(
+            U256::from_be_slice(&sig.r().to_bytes()),
+            U256::from_be_slice(&sig.s().to_bytes()),
+            recovery_id.is_y_odd(),
+        );
+        Ok(signature.to_string())
     }
 }
 

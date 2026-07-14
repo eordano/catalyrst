@@ -7,6 +7,17 @@ use crate::AppState;
 
 const MAX_POINTERS: usize = 50;
 
+#[utoipa::path(
+    post,
+    path = "/entities/active",
+    tag = "entities",
+    request_body = serde_json::Value,
+    responses(
+        (status = 200, body = Vec<serde_json::Value>),
+        (status = 400, body = catalyrst_types::ApiErrorBody),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn active_entities(
     State(state): State<AppState>,
     body: Bytes,

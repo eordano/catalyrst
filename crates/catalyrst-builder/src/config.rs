@@ -1,5 +1,5 @@
 use anyhow::Result;
-use catalyrst_envcfg::{get_port, required};
+use catalyrst_envcfg::{get_port, required, required_endpoint};
 use std::env;
 
 pub struct Config {
@@ -31,8 +31,7 @@ impl Config {
             marketplace_database_url: env::var("BUILDER_MARKETPLACE_PG_CONNECTION_STRING")
                 .ok()
                 .filter(|s| !s.is_empty()),
-            content_bucket_url: env::var("BUILDER_CONTENT_BUCKET_URL")
-                .unwrap_or_else(|_| "https://builder-items.decentraland.org".to_string()),
+            content_bucket_url: required_endpoint("BUILDER_CONTENT_BUCKET_URL")?,
             admin_addresses,
             newsletter_service_url: env::var("NEWSLETTER_SERVICE_URL")
                 .ok()

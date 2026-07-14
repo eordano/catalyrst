@@ -1,0 +1,90 @@
+{
+  "generatedFrom": {
+    "sdkSkills": "~/one/github.com-decentraland/sdk-skills",
+    "workspace": "~/one/catalyrst/deploy/copilot/workspace",
+    "readAt": "2026-08-21",
+    "note": "name and description are each skill's own frontmatter; dates are git log --follow on the skill directory. Skills outside a git checkout ship without dates rather than with guessed ones."
+  },
+  "skills": [
+    {
+      "name": "pre-prod-gdd",
+      "description": "Turn a Decentraland experience idea \u2014 vague, half-written, or already documented \u2014 into a Creator Success proposal (shortGDD.md) that survives review, by interviewing the design owner one question at a time and parking every untestable claim as a falsifiable hypothesis. This is the document door into a design \u2014 iterate through the document, while /pre-prod-proto iterates through building. Covers the five entry states: adapt an existing GDD to the program format, solidify a vague idea, pick up parked hypotheses, revise a proposal after reviewer feedback, or harvest a built scene's repo into the document. Use when someone is writing, adapting, scoring or revising a Creator Success / DCL funding proposal, a shortGDD, a concept one-pager or a pitch deck for a Decentraland World; when they ask why a proposal would fail review; or when a design claim about retention, core loop, first 10 seconds, social design, mobile touch or scope needs to be pressure-tested. Pairs with /pre-prod-proto, which tests the hypotheses this skill parks.",
+      "dir": "copilot workspace .opencode/skills/pre-prod-gdd",
+      "firstCommit": null,
+      "lastCommit": null,
+      "source": "pre-prod"
+    },
+    {
+      "name": "pre-prod-proto",
+      "description": "Run one Decentraland experiment end to end \u2014 pick the riskiest hypothesis with the cheapest killing test out of a shortGDD Hypothesis Log, write a brief with a pre-registered criterion and an owner-testable kill-check, build the greybox scene in SDK7, get it smoke-checked and tested (owner self-test is the v0 default), then write the verdict back into the log and into the section that made the claim. One experiment per invocation. This is the building door into a design \u2014 iterate through building, while /pre-prod-gdd iterates through the document \u2014 and it can start from nothing \u2014 one build, one question, no document required. This is not a \"build me a prototype\" assistant \u2014 the deliverable is a result that is allowed to come back negative. Use when someone wants to find out whether a mechanic is actually fun, settle or kill a parked hypothesis, greybox a core loop in SDK7, plan or run a playtest, decide whether a claim settles by arithmetic, a desktop Explorer build or a mobile check, or record a playtest verdict. Pairs with /pre-prod-gdd, which parks the hypotheses this skill kills.",
+      "dir": "copilot workspace .opencode/skills/pre-prod-proto",
+      "firstCommit": null,
+      "lastCommit": null,
+      "source": "pre-prod"
+    },
+    {
+      "name": "/brief",
+      "description": "Draft a design brief from a stored exchange ask \u2014 the program's demand shelf, not an invented idea.",
+      "dir": "copilot workspace .opencode/commands/brief.md",
+      "firstCommit": null,
+      "lastCommit": null,
+      "source": "command"
+    },
+    {
+      "name": "/evidence",
+      "description": "Read a scene's measured outcomes \u2014 bench checks, hypothesis states, signals, demand \u2014 before revising its doc.",
+      "dir": "copilot workspace .opencode/commands/evidence.md",
+      "firstCommit": null,
+      "lastCommit": null,
+      "source": "command"
+    },
+    {
+      "name": "/gdd",
+      "description": "Draft a Decentraland shortGDD from a game brief, in the Creator Success pre-production format.",
+      "dir": "copilot workspace .opencode/commands/gdd.md",
+      "firstCommit": null,
+      "lastCommit": null,
+      "source": "command"
+    },
+    {
+      "name": "/pipeline",
+      "description": "Drive the staged design pipeline \u2014 list pipelines, start one, or report status and the next step.",
+      "dir": "copilot workspace .opencode/commands/pipeline.md",
+      "firstCommit": null,
+      "lastCommit": null,
+      "source": "command"
+    },
+    {
+      "name": "/pipeline-draft",
+      "description": "Pipeline step 3 \u2014 compose and emit the full shortGDD from the pipeline artifacts.",
+      "dir": "copilot workspace .opencode/commands/pipeline-draft.md",
+      "firstCommit": null,
+      "lastCommit": null,
+      "source": "command"
+    },
+    {
+      "name": "/pipeline-evidence",
+      "description": "Pipeline step 4 \u2014 reconcile the draft's hypotheses against measured evidence.",
+      "dir": "copilot workspace .opencode/commands/pipeline-evidence.md",
+      "firstCommit": null,
+      "lastCommit": null,
+      "source": "command"
+    },
+    {
+      "name": "/pipeline-intake",
+      "description": "Pipeline step 1 \u2014 capture concept, demand grounding, and hypotheses for a started pipeline.",
+      "dir": "copilot workspace .opencode/commands/pipeline-intake.md",
+      "firstCommit": null,
+      "lastCommit": null,
+      "source": "command"
+    },
+    {
+      "name": "/pipeline-interview",
+      "description": "Pipeline step 2 \u2014 the maker interview, producing the decision log.",
+      "dir": "copilot workspace .opencode/commands/pipeline-interview.md",
+      "firstCommit": null,
+      "lastCommit": null,
+      "source": "command"
+    }
+  ]
+}

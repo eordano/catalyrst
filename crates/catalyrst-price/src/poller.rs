@@ -1,9 +1,13 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
+use anyhow::Context;
+use catalyrst_commons::http::{http_client, HttpClientCfg};
+use catalyrst_commons::worker::{spawn_periodic, Pacing, PeriodicCfg};
 use chrono::{DateTime, TimeZone, Utc};
 use serde::Deserialize;
 use sqlx::postgres::PgPool;
+use tokio_util::sync::CancellationToken;
 
 use crate::config::Config;
 
@@ -110,49 +114,54 @@ async fn insert_snapshot(pool: &PgPool, row: &SnapshotRow) -> Result<i64, sqlx::
     Ok(rec.get::<i64, _>("id"))
 }
 
+async fn run_pass(client: &reqwest::Client, pool: &PgPool, base: &str) -> anyhow::Result<()> {
+    let row = fetch_snapshot(client, base)
+        .await
+        .context("coingecko fetch failed")?;
+    let id = insert_snapshot(pool, &row)
+        .await
+        .context("failed to insert snapshot")?;
+    tracing::info!(
+        snapshot_id = id,
+        mana_usd = ?row.mana_usd,
+        mana_eth = ?row.mana_eth,
+        mana_btc = ?row.mana_btc,
+        mana_matic = ?row.mana_matic,
+        "wrote mana_price snapshot"
+    );
+    Ok(())
+}
+
 pub fn spawn(pool: PgPool, cfg: &Config) {
     let base = cfg.coingecko_url.clone();
     let interval = Duration::from_secs(cfg.price_poll_interval_secs.max(1));
 
-    let client = match reqwest::Client::builder()
-        .user_agent("catalyrst-price/0.1 mana-price-poller")
-        .timeout(Duration::from_secs(60))
-        .build()
-    {
-        Ok(c) => c,
-        Err(e) => {
-            tracing::error!(error = %e, "failed to build poll HTTP client; poll disabled");
-            return;
-        }
-    };
+    let client = http_client(
+        "catalyrst-price-poller",
+        &HttpClientCfg::default()
+            .with_total_timeout(Duration::from_secs(60))
+            .following_redirects(10)
+            .with_user_agent("catalyrst-price/0.1 mana-price-poller"),
+    );
 
-    tokio::spawn(async move {
-        tracing::info!(
-            base = %base,
-            interval_secs = interval.as_secs(),
-            "mana-price poll task starting"
-        );
-        let mut ticker = tokio::time::interval(interval);
-        loop {
-            ticker.tick().await;
-            match fetch_snapshot(&client, &base).await {
-                Ok(row) => match insert_snapshot(&pool, &row).await {
-                    Ok(id) => tracing::info!(
-                        snapshot_id = id,
-                        mana_usd = ?row.mana_usd,
-                        mana_eth = ?row.mana_eth,
-                        mana_btc = ?row.mana_btc,
-                        mana_matic = ?row.mana_matic,
-                        "wrote mana_price snapshot"
-                    ),
-                    Err(e) => tracing::error!(error = %e, "failed to insert snapshot; will retry"),
-                },
-                Err(e) => {
-                    tracing::warn!(error = %e, "coingecko fetch failed; will retry next cycle")
-                }
-            }
-        }
-    });
+    tracing::info!(
+        base = %base,
+        interval_secs = interval.as_secs(),
+        "mana-price poll task starting"
+    );
+
+    spawn_periodic(
+        "mana-price-poll",
+        interval,
+        PeriodicCfg::new(Pacing::Skip),
+        CancellationToken::new(),
+        move || {
+            let client = client.clone();
+            let pool = pool.clone();
+            let base = base.clone();
+            async move { run_pass(&client, &pool, &base).await }
+        },
+    );
 }
 
 #[cfg(test)]

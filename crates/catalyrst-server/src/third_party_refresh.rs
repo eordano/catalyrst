@@ -1,27 +1,39 @@
+use std::sync::Arc;
 use std::time::Duration;
 
+use catalyrst_commons::worker::{spawn_periodic, Pacing, PeriodicCfg};
 use sqlx::PgPool;
-use tracing::{info, warn};
+use tokio_util::sync::CancellationToken;
+use tracing::info;
 
 use catalyrst_validator::tp_subgraph::TpSubgraph;
+
+const WORKER_NAME: &str = "third-party-root-refresh";
 
 pub fn spawn(
     squid_pool: PgPool,
     tp: TpSubgraph,
     interval: Duration,
 ) -> tokio::task::JoinHandle<()> {
-    tokio::spawn(async move {
-        loop {
-            match refresh(&squid_pool, &tp).await {
-                Ok(n) => info!(
+    let tp = Arc::new(tp);
+    spawn_periodic(
+        WORKER_NAME,
+        interval,
+        PeriodicCfg::new(Pacing::SleepAfterWork),
+        CancellationToken::new(),
+        move || {
+            let squid_pool = squid_pool.clone();
+            let tp = tp.clone();
+            async move {
+                let n = refresh(&squid_pool, &tp).await?;
+                info!(
                     count = n,
                     "third-party roots refreshed from registry subgraph"
-                ),
-                Err(e) => warn!(error = %e, "third-party root refresh failed (will retry)"),
+                );
+                Ok::<(), String>(())
             }
-            tokio::time::sleep(interval).await;
-        }
-    })
+        },
+    )
 }
 
 async fn refresh(pool: &PgPool, tp: &TpSubgraph) -> Result<usize, String> {

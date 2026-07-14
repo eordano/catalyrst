@@ -318,34 +318,24 @@ pub(super) fn build_collections_where(b: &mut Builder, f: &CatalogFilters, is_v2
         b.push_sql(" AND items.search_emote_outcome_type IS NULL ");
     }
 
-    let mut first = true;
-    let and_sep = |b: &mut Builder, first: &mut bool| {
-        if !*first {
-            b.push_sql(" AND ");
-        } else {
-            b.push_sql(" AND ");
-            *first = false;
-        }
-    };
-
     if f.category.is_some() {
-        and_sep(b, &mut first);
+        b.push_sql(" AND ");
         build_category_where(b, f);
     }
     if !f.rarities.is_empty() {
-        and_sep(b, &mut first);
+        b.push_sql(" AND ");
         build_rarities_where(b, f);
     }
     if !f.creator.is_empty() {
-        and_sep(b, &mut first);
+        b.push_sql(" AND ");
         build_creator_where(b, f);
     }
     if f.is_sold_out {
-        and_sep(b, &mut first);
+        b.push_sql(" AND ");
         build_is_sold_out_where(b);
     }
     if f.is_on_sale.is_some() {
-        and_sep(b, &mut first);
+        b.push_sql(" AND ");
         if is_v2 {
             build_is_on_sale_with_trades_where(b, f);
         } else {
@@ -353,47 +343,47 @@ pub(super) fn build_collections_where(b: &mut Builder, f: &CatalogFilters, is_v2
         }
     }
     if f.is_wearable_head {
-        and_sep(b, &mut first);
+        b.push_sql(" AND ");
         build_is_wearable_head_where(b);
     }
     if f.is_wearable_accessory {
-        and_sep(b, &mut first);
+        b.push_sql(" AND ");
         build_wearable_accessory_where(b);
     }
     if f.wearable_category.is_some() {
-        and_sep(b, &mut first);
+        b.push_sql(" AND ");
         build_wearable_category_where(b, f);
     }
     if !f.wearable_genders.is_empty() {
-        and_sep(b, &mut first);
+        b.push_sql(" AND ");
         build_wearable_gender_where(b, f);
     }
     if f.emote_category.is_some() {
-        and_sep(b, &mut first);
+        b.push_sql(" AND ");
         build_emote_category_where(b, f);
     }
     if !f.emote_play_mode.is_empty() && f.emote_play_mode.len() < 2 {
-        and_sep(b, &mut first);
+        b.push_sql(" AND ");
         build_emote_play_mode_where(b, f);
     }
     if !f.contract_addresses.is_empty() {
-        and_sep(b, &mut first);
+        b.push_sql(" AND ");
         build_contract_address_where(b, f);
     }
     if f.item_id.as_deref().is_some_and(|s| !s.is_empty()) {
-        and_sep(b, &mut first);
+        b.push_sql(" AND ");
         build_item_id_where(b, f);
     }
     if f.min_price.is_some() {
-        and_sep(b, &mut first);
+        b.push_sql(" AND ");
         build_min_price_where(b, f, is_v2);
     }
     if f.max_price.is_some() {
-        and_sep(b, &mut first);
+        b.push_sql(" AND ");
         build_max_price_where(b, f, is_v2);
     }
     if f.only_listing {
-        and_sep(b, &mut first);
+        b.push_sql(" AND ");
         if is_v2 {
             build_only_listings_with_trades_where(b);
         } else {
@@ -401,7 +391,7 @@ pub(super) fn build_collections_where(b: &mut Builder, f: &CatalogFilters, is_v2
         }
     }
     if f.only_minting {
-        and_sep(b, &mut first);
+        b.push_sql(" AND ");
         if is_v2 {
             build_only_minting_with_trades_where(b);
         } else {
@@ -409,27 +399,27 @@ pub(super) fn build_collections_where(b: &mut Builder, f: &CatalogFilters, is_v2
         }
     }
     if !f.ids.is_empty() {
-        and_sep(b, &mut first);
+        b.push_sql(" AND ");
         build_ids_where(b, f);
     }
     if f.emote_has_sound {
-        and_sep(b, &mut first);
+        b.push_sql(" AND ");
         build_has_sound_where(b);
     }
     if f.emote_has_geometry {
-        and_sep(b, &mut first);
+        b.push_sql(" AND ");
         build_has_geometry_where(b);
     }
     if f.emote_outcome_type.is_some() {
-        and_sep(b, &mut first);
+        b.push_sql(" AND ");
         build_has_outcome_type_where(b);
     }
     if !f.urns.is_empty() {
-        and_sep(b, &mut first);
+        b.push_sql(" AND ");
         build_urns_where(b, f);
     }
     if f.network.is_some() {
-        and_sep(b, &mut first);
+        b.push_sql(" AND ");
         build_network_where(b, f);
     }
     b.push_sql(" ");
@@ -666,86 +656,76 @@ pub(super) fn build_item_level_filters_where(b: &mut Builder, f: &CatalogFilters
     if f.include_social_emotes == Some(false) {
         b.push_sql(" AND items.search_emote_outcome_type IS NULL ");
     }
-    let mut first = true;
-    let and_sep = |b: &mut Builder, first: &mut bool| {
-        if !*first {
-            b.push_sql(" AND ");
-        } else {
-            b.push_sql(" AND ");
-            *first = false;
-        }
-    };
-
     if f.category.is_some() {
-        and_sep(b, &mut first);
+        b.push_sql(" AND ");
         build_category_where(b, f);
     }
     if !f.rarities.is_empty() {
-        and_sep(b, &mut first);
+        b.push_sql(" AND ");
         build_rarities_where(b, f);
     }
     if !f.creator.is_empty() {
-        and_sep(b, &mut first);
+        b.push_sql(" AND ");
         build_creator_where(b, f);
     }
     if f.is_sold_out {
-        and_sep(b, &mut first);
+        b.push_sql(" AND ");
         build_is_sold_out_where(b);
     }
     if f.is_wearable_head {
-        and_sep(b, &mut first);
+        b.push_sql(" AND ");
         build_is_wearable_head_where(b);
     }
     if f.is_wearable_accessory {
-        and_sep(b, &mut first);
+        b.push_sql(" AND ");
         build_wearable_accessory_where(b);
     }
     if f.wearable_category.is_some() {
-        and_sep(b, &mut first);
+        b.push_sql(" AND ");
         build_wearable_category_where(b, f);
     }
     if !f.wearable_genders.is_empty() {
-        and_sep(b, &mut first);
+        b.push_sql(" AND ");
         build_wearable_gender_where(b, f);
     }
     if f.emote_category.is_some() {
-        and_sep(b, &mut first);
+        b.push_sql(" AND ");
         build_emote_category_where(b, f);
     }
     if !f.emote_play_mode.is_empty() && f.emote_play_mode.len() < 2 {
-        and_sep(b, &mut first);
+        b.push_sql(" AND ");
         build_emote_play_mode_where(b, f);
     }
     if !f.contract_addresses.is_empty() {
-        and_sep(b, &mut first);
+        b.push_sql(" AND ");
         build_contract_address_where(b, f);
     }
     if f.item_id.as_deref().is_some_and(|s| !s.is_empty()) {
-        and_sep(b, &mut first);
+        b.push_sql(" AND ");
         build_item_id_where(b, f);
     }
     if !f.ids.is_empty() {
-        and_sep(b, &mut first);
+        b.push_sql(" AND ");
         build_ids_where(b, f);
     }
     if f.emote_has_sound {
-        and_sep(b, &mut first);
+        b.push_sql(" AND ");
         build_has_sound_where(b);
     }
     if f.emote_has_geometry {
-        and_sep(b, &mut first);
+        b.push_sql(" AND ");
         build_has_geometry_where(b);
     }
     if f.emote_outcome_type.is_some() {
-        and_sep(b, &mut first);
+        b.push_sql(" AND ");
         build_has_outcome_type_where(b);
     }
     if !f.urns.is_empty() {
-        and_sep(b, &mut first);
+        b.push_sql(" AND ");
         build_urns_where(b, f);
     }
     if f.network.is_some() {
-        and_sep(b, &mut first);
+        b.push_sql(" AND ");
         build_network_where(b, f);
     }
 }

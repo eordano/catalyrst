@@ -6,20 +6,16 @@ pub mod http;
 
 use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 use axum::routing::{get, post};
 use axum::Router;
-use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use sqlx::PgPool;
 
-use crate::backend::http::HttpBackend;
-use crate::backend::mock::MockBackend;
 use crate::backend::TranslationBackend;
-use crate::config::{BackendKind, Config};
+use crate::config::Config;
 
 pub struct CachedConvert {
     pub at: Instant,
@@ -39,6 +35,13 @@ pub struct AppStateInner {
     pub backend: Arc<dyn TranslationBackend>,
     pub backend_label: &'static str,
     pub fetch_client: reqwest::Client,
+
+    // Abuse bounds for the unauthenticated public /translate (see config.rs).
+    // Carried on the state, not read in main.rs, so the deployed :5145 social
+    // bundle (which builds via build_state) enforces them too.
+    pub translate_char_limit: usize,
+    pub translate_batch_limit: usize,
+    pub translate_timeout: Duration,
 
     pub pinned_clients: Mutex<HashMap<(String, SocketAddr), reqwest::Client>>,
 
@@ -100,33 +103,17 @@ impl AppStateInner {
 pub type AppState = Arc<AppStateInner>;
 
 pub async fn build_state(cfg: &Config) -> Result<AppState> {
-    let opts = PgConnectOptions::from_str(&cfg.database_url)
-        .context("invalid MEDIA_PG_CONNECTION_STRING")?
-        .options([
-            ("statement_timeout", "60000"),
-            ("idle_in_transaction_session_timeout", "30000"),
-        ]);
-    let pool = PgPoolOptions::new()
-        .max_connections(10)
-        .idle_timeout(Duration::from_secs(30))
-        .connect_with(opts)
-        .await
-        .context("failed to connect content pool")?;
+    let pool =
+        catalyrst_db::connect_pool(&cfg.database_url, &catalyrst_db::PoolSettings::default())
+            .await
+            .context("failed to connect content pool")?;
 
     sqlx::migrate!("./migrations")
         .run(&pool)
         .await
         .context("failed to run migrations")?;
 
-    let backend: Arc<dyn TranslationBackend> = match cfg.backend_kind {
-        BackendKind::Mock => Arc::new(MockBackend),
-        BackendKind::Http => Arc::new(HttpBackend::new(
-            cfg.backend_url
-                .clone()
-                .expect("backend url checked in config"),
-            cfg.backend_api_key.clone(),
-        )),
-    };
+    let backend: Arc<dyn TranslationBackend> = backend::build_backend(cfg);
 
     let fetch_client = reqwest::Client::builder()
         .connect_timeout(Duration::from_secs(10))
@@ -141,6 +128,9 @@ pub async fn build_state(cfg: &Config) -> Result<AppState> {
         backend,
         backend_label: cfg.backend_kind.label(),
         fetch_client,
+        translate_char_limit: cfg.translate_char_limit,
+        translate_batch_limit: cfg.translate_batch_limit,
+        translate_timeout: cfg.translate_request_timeout,
         pinned_clients: Mutex::new(HashMap::new()),
         convert_cache: Mutex::new(HashMap::new()),
     }))

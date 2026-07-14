@@ -29,17 +29,17 @@ impl CatalogComponent {
         search_id: &str,
         anon_id: &str,
         is_v2: bool,
-    ) -> Result<(Vec<CatalogItem>, i64), ApiError> {
+    ) -> Result<std::sync::Arc<(Vec<CatalogItem>, i64)>, ApiError> {
         let key = (is_v2, filters.clone());
         if let Some(page) = self.cache.lookup(&key) {
-            return Ok((page.0.clone(), page.1));
+            return Ok(page);
         }
-        let (items, total) = self
-            .fetch_uncached(filters, search_id, anon_id, is_v2)
-            .await?;
-        self.cache
-            .store(key, std::sync::Arc::new((items.clone(), total)));
-        Ok((items, total))
+        let page = std::sync::Arc::new(
+            self.fetch_uncached(filters, search_id, anon_id, is_v2)
+                .await?,
+        );
+        self.cache.store(key, std::sync::Arc::clone(&page));
+        Ok(page)
     }
 
     async fn fetch_uncached(
@@ -125,7 +125,6 @@ impl CatalogComponent {
                 listings_count: r.try_get("listings_count").ok(),
                 owners_count: r.try_get("owners_count").ok(),
                 min_price: r.try_get("min_price").ok(),
-                max_price: r.try_get("max_price").ok(),
             };
             items.push(from_db_row_to_catalog_item(row, network_hint));
         }

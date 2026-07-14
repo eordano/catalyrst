@@ -4,82 +4,6 @@ use crate::error::{PermissionResult, ValidationResponse};
 use crate::types::*;
 
 #[async_trait]
-pub trait L1Checker: Send + Sync {
-    async fn check_land(
-        &self,
-        eth_address: &str,
-        parcels: &[(i32, i32)],
-        block: u64,
-    ) -> Result<Vec<bool>, crate::error::ValidatorError>;
-
-    async fn check_names(
-        &self,
-        eth_address: &str,
-        names: &[String],
-        block: u64,
-    ) -> Result<Vec<bool>, crate::error::ValidatorError>;
-}
-
-#[async_trait]
-pub trait L2Checker: Send + Sync {
-    async fn validate_wearables(
-        &self,
-        eth_address: &str,
-        contract_address: &str,
-        asset_id: &str,
-        hashes: &[String],
-        block: u64,
-    ) -> Result<bool, crate::error::ValidatorError>;
-
-    async fn validate_third_party(
-        &self,
-        tp_id: &str,
-        root: &[u8],
-        block: u64,
-    ) -> Result<bool, crate::error::ValidatorError>;
-}
-
-#[async_trait]
-pub trait ItemChecker: Send + Sync {
-    async fn check_items(
-        &self,
-        eth_address: &str,
-        items: &[String],
-        block: u64,
-    ) -> Result<Vec<bool>, crate::error::ValidatorError>;
-}
-
-#[async_trait]
-pub trait ThirdPartyItemChecker: Send + Sync {
-    async fn check_third_party_items(
-        &self,
-        eth_address: &str,
-        item_urns: &[String],
-        block: u64,
-    ) -> Result<Vec<bool>, crate::error::ValidatorError>;
-}
-
-#[async_trait]
-pub trait NamesOwnership: Send + Sync {
-    async fn owns_names_at_timestamp(
-        &self,
-        eth_address: &str,
-        names: &[String],
-        timestamp: Timestamp,
-    ) -> Result<PermissionResult, crate::error::ValidatorError>;
-}
-
-#[async_trait]
-pub trait ItemsOwnership: Send + Sync {
-    async fn owns_items_at_timestamp(
-        &self,
-        eth_address: &str,
-        urns: &[String],
-        timestamp: Timestamp,
-    ) -> Result<PermissionResult, crate::error::ValidatorError>;
-}
-
-#[async_trait]
 pub trait BlockchainChecker: Send + Sync {
     async fn find_blocks_for_timestamp(
         &self,
@@ -155,18 +79,11 @@ pub async fn validate_scene_access(
 
     let mut parcels: Vec<(i32, i32)> = Vec::new();
     for pointer in pointers {
-        let parts: Vec<&str> = pointer.split(',').collect();
-        if parts.len() != 2 {
-            return ValidationResponse::fail(format!(
-                "Scene pointers should only contain two integers separated by a comma, \
-                 for example (10,10) or (120,-45). Invalid pointer: {pointer}"
-            ));
-        }
-        let x = parts[0].trim().parse::<i32>();
-        let y = parts[1].trim().parse::<i32>();
-        match (x, y) {
-            (Ok(x), Ok(y)) => parcels.push((x, y)),
-            _ => {
+        let parsed = catalyrst_types::pointer::parse_pointer(pointer)
+            .and_then(|(x, y)| Some((i32::try_from(x).ok()?, i32::try_from(y).ok()?)));
+        match parsed {
+            Some(xy) => parcels.push(xy),
+            None => {
                 return ValidationResponse::fail(format!(
                     "Scene pointers should only contain two integers separated by a comma, \
                      for example (10,10) or (120,-45). Invalid pointer: {pointer}"
@@ -235,6 +152,12 @@ pub async fn validate_profile_access(
              are different (pointer:{pointer} signer: {})",
             deployer_address.to_lowercase()
         ));
+    }
+
+    let identity =
+        validate_profile_identity_fields(entity.metadata.as_ref(), entity.timestamp, &pointer);
+    if !identity.is_ok() {
+        return identity;
     }
 
     if entity.timestamp >= adr_timestamps::ADR_75 {
@@ -627,7 +550,41 @@ fn is_old_emote(s: &str) -> bool {
 }
 
 fn is_valid_eth_address(s: &str) -> bool {
-    s.len() == 42 && s.starts_with("0x") && s[2..].chars().all(|c| c.is_ascii_hexdigit())
+    catalyrst_types::is_eth_address(s)
+}
+
+fn validate_profile_identity_fields(
+    metadata: Option<&serde_json::Value>,
+    timestamp: Timestamp,
+    pointer: &str,
+) -> ValidationResponse {
+    if timestamp < adr_timestamps::PROFILE_IDENTITY {
+        return ValidationResponse::Ok;
+    }
+
+    let avatars = metadata
+        .and_then(|m| m.get("avatars"))
+        .and_then(|a| a.as_array());
+    if let Some(avatars) = avatars {
+        for avatar in avatars {
+            for field in ["ethAddress", "userId"] {
+                if let Some(value) = avatar.get(field).and_then(|v| v.as_str()) {
+                    if value.is_empty() {
+                        continue;
+                    }
+                    let value = value.to_lowercase();
+                    if value != pointer {
+                        return ValidationResponse::fail(format!(
+                            "The avatar {field} must match the profile pointer \
+                             (pointer:{pointer} {field}:{value})."
+                        ));
+                    }
+                }
+            }
+        }
+    }
+
+    ValidationResponse::Ok
 }
 
 fn extract_claimed_names(metadata: &serde_json::Value) -> Vec<String> {
@@ -659,7 +616,8 @@ fn extract_profile_item_urns(metadata: &serde_json::Value, timestamp: Timestamp)
                 {
                     for w in wearables {
                         if let Some(urn) = w.as_str() {
-                            if !urn.contains("base-avatars") && !is_old_emote(urn) {
+                            if classify_item_urn(urn) != ItemUrnType::OffChain && !is_old_emote(urn)
+                            {
                                 urns.push(urn.to_string());
                             }
                         }
@@ -675,7 +633,8 @@ fn extract_profile_item_urns(metadata: &serde_json::Value, timestamp: Timestamp)
                 {
                     for emote in emotes {
                         if let Some(urn) = emote.get("urn").and_then(|u| u.as_str()) {
-                            if !is_old_emote(urn) {
+                            if classify_item_urn(urn) != ItemUrnType::OffChain && !is_old_emote(urn)
+                            {
                                 urns.push(urn.to_string());
                             }
                         }
@@ -855,5 +814,150 @@ mod tests {
         });
         let names = extract_claimed_names(&metadata);
         assert_eq!(names, vec!["TestName"]);
+    }
+
+    const POINTER: &str = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const OTHER: &str = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+
+    fn identity_metadata(eth_address: Option<&str>, user_id: Option<&str>) -> serde_json::Value {
+        let mut avatar = serde_json::json!({ "name": "x", "avatar": { "wearables": [] } });
+        if let Some(v) = eth_address {
+            avatar["ethAddress"] = serde_json::json!(v);
+        }
+        if let Some(v) = user_id {
+            avatar["userId"] = serde_json::json!(v);
+        }
+        serde_json::json!({ "avatars": [avatar] })
+    }
+
+    #[test]
+    fn profile_identity_matching_or_absent_fields_pass() {
+        let mixed_case = POINTER.to_uppercase().replace("0X", "0x");
+        for metadata in [
+            identity_metadata(Some(POINTER), Some(POINTER)),
+            identity_metadata(Some(mixed_case.as_str()), None),
+            identity_metadata(None, None),
+            identity_metadata(Some(""), Some("")),
+        ] {
+            assert!(validate_profile_identity_fields(
+                Some(&metadata),
+                adr_timestamps::PROFILE_IDENTITY,
+                POINTER
+            )
+            .is_ok());
+        }
+        assert!(
+            validate_profile_identity_fields(None, adr_timestamps::PROFILE_IDENTITY, POINTER)
+                .is_ok()
+        );
+    }
+
+    #[test]
+    fn profile_identity_mismatch_is_rejected_per_field() {
+        for (metadata, field) in [
+            (identity_metadata(Some(OTHER), Some(POINTER)), "ethAddress"),
+            (identity_metadata(Some(POINTER), Some(OTHER)), "userId"),
+        ] {
+            match validate_profile_identity_fields(
+                Some(&metadata),
+                adr_timestamps::PROFILE_IDENTITY,
+                POINTER,
+            ) {
+                ValidationResponse::Failed { errors } => {
+                    assert_eq!(
+                        errors,
+                        vec![format!(
+                            "The avatar {field} must match the profile pointer \
+                             (pointer:{POINTER} {field}:{OTHER})."
+                        )]
+                    );
+                }
+                other => panic!("mismatched {field} must be rejected, got {other}"),
+            }
+        }
+    }
+
+    #[test]
+    fn profile_identity_gate_exempts_older_deployments() {
+        let metadata = identity_metadata(Some(OTHER), Some(OTHER));
+        assert!(validate_profile_identity_fields(
+            Some(&metadata),
+            adr_timestamps::PROFILE_IDENTITY - 1,
+            POINTER
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn extract_profile_item_urns_excludes_default_off_chain_emotes_and_wearables() {
+        // A fresh/edited avatar carries the default emote wheel and base-avatars
+        // body unless every slot has been replaced with an owned NFT. None of
+        // these off-chain synthetic URNs are real NFTs, so they must never be
+        // handed to the ownership checker (they'd always fail: they don't
+        // exist in the marketplace `nft` table).
+        let metadata = serde_json::json!({
+            "avatars": [
+                {
+                    "name": "TestAvatar",
+                    "avatar": {
+                        "wearables": [
+                            "urn:decentraland:off-chain:base-avatars:BaseMale",
+                            "urn:decentraland:off-chain:base-avatars:eyes_00"
+                        ],
+                        "emotes": [
+                            { "slot": 0, "urn": "urn:decentraland:off-chain:base-emotes:wave" },
+                            { "slot": 1, "urn": "urn:decentraland:off-chain:base-emotes:fistpump" },
+                            { "slot": 2, "urn": "urn:decentraland:off-chain:base-emotes:robot" },
+                            { "slot": 3, "urn": "urn:decentraland:off-chain:base-emotes:raiseHand" },
+                            { "slot": 4, "urn": "urn:decentraland:off-chain:base-emotes:clap" },
+                            { "slot": 5, "urn": "urn:decentraland:off-chain:base-emotes:money" },
+                            { "slot": 6, "urn": "urn:decentraland:off-chain:base-emotes:kiss" },
+                            { "slot": 7, "urn": "urn:decentraland:off-chain:base-emotes:headexplode" },
+                            { "slot": 8, "urn": "urn:decentraland:off-chain:base-emotes:shrug" },
+                            { "slot": 9, "urn": "urn:decentraland:off-chain:base-emotes:handsair" }
+                        ]
+                    }
+                }
+            ]
+        });
+
+        let urns = extract_profile_item_urns(&metadata, 1_700_000_000_000);
+        assert!(
+            urns.is_empty(),
+            "off-chain default wearables/emotes must never reach ownership checks, got {urns:?}"
+        );
+    }
+
+    #[test]
+    fn extract_profile_item_urns_keeps_owned_collection_items() {
+        let metadata = serde_json::json!({
+            "avatars": [
+                {
+                    "name": "TestAvatar",
+                    "avatar": {
+                        "wearables": [
+                            "urn:decentraland:off-chain:base-avatars:BaseMale",
+                            "urn:decentraland:matic:collections-v2:0xabc123:0"
+                        ],
+                        "emotes": [
+                            { "slot": 0, "urn": "urn:decentraland:off-chain:base-emotes:wave" },
+                            {
+                                "slot": 1,
+                                "urn": "urn:decentraland:matic:collections-v2:0xdef456:3"
+                            }
+                        ]
+                    }
+                }
+            ]
+        });
+
+        let urns = extract_profile_item_urns(&metadata, 1_700_000_000_000);
+        assert_eq!(
+            urns,
+            vec![
+                "urn:decentraland:matic:collections-v2:0xabc123:0".to_string(),
+                "urn:decentraland:matic:collections-v2:0xdef456:3".to_string(),
+            ]
+        );
     }
 }

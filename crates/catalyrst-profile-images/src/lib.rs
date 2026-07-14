@@ -29,14 +29,22 @@ pub struct AppStateInner {
 pub type AppState = Arc<AppStateInner>;
 
 pub fn build_state(cfg: &Config) -> AppState {
-    let cache = ImageCache::new(cfg.cache_dir.clone(), cfg.cache_ttl_seconds);
+    let cache = ImageCache::with_budget(
+        cfg.cache_dir.clone(),
+        cfg.cache_ttl_seconds,
+        cfg.cache_max_bytes,
+    );
 
     let render_queue = match (cfg.backend_kind, &cfg.render, &cfg.content_base) {
         (BackendKind::Render, Some(rc), Some(content_base)) => {
             let resolver = ProfileResolver::new(content_base.clone());
             let renderer = GodotRenderer::new(rc.clone());
 
-            let queue_cache = ImageCache::new(cfg.cache_dir.clone(), cfg.cache_ttl_seconds);
+            let queue_cache = ImageCache::with_budget(
+                cfg.cache_dir.clone(),
+                cfg.cache_ttl_seconds,
+                cfg.cache_max_bytes,
+            );
             Some(RenderQueue::new(
                 queue_cache,
                 resolver,

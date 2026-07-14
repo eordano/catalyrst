@@ -41,13 +41,6 @@ impl CatalogSortDirection {
             _ => return None,
         })
     }
-
-    pub fn as_sql(self) -> &'static str {
-        match self {
-            Self::Asc => "asc",
-            Self::Desc => "desc",
-        }
-    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
@@ -82,7 +75,6 @@ pub struct CatalogFilters {
     pub min_price: Option<String>,
     pub urns: Vec<String>,
     pub ids: Vec<String>,
-    pub picked_by: Option<String>,
     pub include_social_emotes: Option<bool>,
 }
 
@@ -131,7 +123,8 @@ pub struct PickStats {
     pub count: i64,
     #[serde(rename = "itemId")]
     pub item_id: String,
-    #[serde(rename = "pickedByUser", skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "pickedByUser")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub picked_by_user: Option<bool>,
 }
@@ -159,6 +152,18 @@ pub struct CatalogItem {
     pub available: i64,
     #[serde(rename = "isOnSale")]
     pub is_on_sale: bool,
+    /// The trade the `price` came from, present iff the price was set by an open
+    /// v3 trade rather than the store minter (see `row_to_catalog_item`). A v3
+    /// trade can be USD-pegged MANA, so `price` may be USD wei; a consumer needs
+    /// this id to resolve the unit and not render dollars with a MANA glyph.
+    /// `/v1/items` already carries it -- omitting it here is what made a USD-pegged
+    /// listing show in the browse grid with a MANA glyph on a figure that is
+    /// dollars (marketplace-server #387). Omitted whenever the store minter set
+    /// the price (even alongside an open trade) or nothing is available.
+    #[serde(rename = "tradeId")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub trade_id: Option<String>,
     pub creator: String,
     #[cfg_attr(feature = "ts", ts(type = "Record<string, unknown>"))]
     pub data: ItemData,
@@ -182,7 +187,8 @@ pub struct CatalogItem {
     #[serde(rename = "soldAt")]
     #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub sold_at: i64,
-    #[serde(rename = "minPrice", skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "minPrice")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub min_price: Option<String>,
     #[serde(rename = "maxListingPrice")]
@@ -225,6 +231,4 @@ pub(super) struct DbRow {
     pub(super) listings_count: Option<i64>,
     pub(super) owners_count: Option<i64>,
     pub(super) min_price: Option<String>,
-    #[allow(dead_code)]
-    pub(super) max_price: Option<String>,
 }

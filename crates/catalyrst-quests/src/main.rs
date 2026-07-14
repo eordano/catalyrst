@@ -2,9 +2,24 @@ use std::sync::Arc;
 
 use catalyrst_quests::{build_router, config, db::Db};
 
+const ENV_DOCS: &[(&str, &str)] = &[
+    ("QUESTS_BIND", "bind address (default 127.0.0.1:5155)"),
+    (
+        "QUESTS_DATABASE_URL",
+        "optional -- quests Postgres connection string (unset = serve empty)",
+    ),
+    (
+        "QUESTS_AUTH_WINDOW_SECS",
+        "signed-fetch auth window in seconds (default 300)",
+    ),
+    ("RUST_LOG", "tracing filter (default catalyrst_quests=info)"),
+];
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    tracing_subscriber::fmt::init();
+    catalyrst_envcfg::handle_standard_args("catalyrst-quests", ENV_DOCS);
+
+    catalyrst_envcfg::init_tracing("catalyrst_quests=info");
 
     let db = match config::database_url() {
         Some(url) => match Db::connect(&url).await {

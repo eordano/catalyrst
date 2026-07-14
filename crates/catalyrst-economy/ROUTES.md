@@ -1,8 +1,12 @@
 # catalyrst-economy routes
 
 Rust port of `decentraland/transactions-server` (transactions-api.decentraland.org). Listens on the
-deployment's assigned port (`5155`; see `umbrella/env/catalyrst-economy.env`). All routes are
-unauthenticated at the HTTP layer - authn/authz lives in the EIP-712 calldata, verified on-chain.
+deployment's assigned port (`5155`; see the deployment's `catalyrst-economy` env file). Routes are
+unauthenticated at the HTTP layer - authn lives in the EIP-712 meta-transaction signature, which this
+service recovers off-chain in `checkData` (rebuilding the digest from the target's own domain separator,
+or an audited domain for the getter-less contracts) before it reserves quota or relays anything. The
+target's on-chain `NativeMetaTransaction` re-checks the same signature at execution; the off-chain
+recovery is what keeps a forged payload from ever consuming a victim's quota or a relayed gas slot.
 
 | Method | Path | Status | Notes |
 |---|---|---|---|
@@ -13,8 +17,11 @@ unauthenticated at the HTTP layer - authn/authz lives in the EIP-712 calldata, v
 
 ## POST /v1/transactions pipeline
 
-`checkData` runs in upstream order: `schema -> gasPrice -> simulate -> salePrice -> contractAddress -> quota`.
+`checkData` runs in upstream order: `schema -> selector -> from/userAddress bind -> self-relay -> contractAddress -> signature -> quota -> salePrice -> gasPrice -> simulate`.
 
+- **from/userAddress bind** decodes `params[1]` and refuses unless `from` equals the `userAddress` signed into the calldata (both overloads), so quota is only ever keyed on the signed address.
+- **self-relay** refuses a `userAddress` equal to this node's own direct-signer EOA (mirrors the upstream `relayerAddresses.size > 0` guard; the OZ relayer's EOAs are not known locally).
+- **signature** recovers the EIP-712 meta-transaction signature and refuses unless it was produced by `userAddress`. The digest is rebuilt from the domain separator the target reports over RPC (`domainSeparator()` / `getDomainSeperator()`, `functionSignature` struct) or, for the getter-less marketplaces/credits managers, from the audited domain (`functionData` struct); a target that offers neither `getNonce` nor a verifiable domain is refused. Needs `RPC_URL`: without it an Oz/Direct route (this node is the relayer) fails closed with 503, while the upstream-forward route defers to the upstream's own verification.
 - **gasPrice / simulate** gated behind `RPC_URL` being set (raw JSON-RPC `eth_gasPrice` / `eth_estimateGas`); gasPrice additionally needs `MAX_GAS_PRICE_ALLOWED_IN_WEI` (mirrors the upstream FF gate).
 - **salePrice** decodes `executeMetaTransaction` -> inner `buy` / `executeOrder` / `placeBid` via alloy `sol!`, compares against `MIN_SALE_VALUE_IN_WEI`. Embedded DCL contract addresses are Polygon mainnet (137).
 - **contractAddress** = collection membership (`squid_marketplace.collection` SQL lookup) OR whitelist (`addresses.json`, TTL-cached in process).
@@ -27,17 +34,17 @@ Marketplace v3 trades priced as `USD_PEGGED_MANA` (assetType 2) carry a **USD am
 Chainlink MANA/USD aggregator when the accept mines (`value * 1e18 / rate`, floor). The
 broker executes these with three guards:
 
-- **Pinned USD amount** — for assetType 2, the body's `priceWei` pins the trade's signed
+- **Pinned USD amount** -- for assetType 2, the body's `priceWei` pins the trade's signed
   USD-wei amount (for assetType 1 it pins the exact MANA amount, unchanged).
-- **Staleness bound** — the broker reads the same aggregator (`latestRoundData`) over the
+- **Staleness bound** -- the broker reads the same aggregator (`latestRoundData`) over the
   relayer RPC just before broadcast and refuses if the round is older than
   `USD_PEGGED_ORACLE_MAX_AGE_SECS` (409).
-- **Slippage bound** — the optional body field `quoteManaWei` carries the listing-time MANA
+- **Slippage bound** -- the optional body field `quoteManaWei` carries the listing-time MANA
   quote; when present, the broker refuses (409) if the execution-time conversion drifted
   more than `USD_PEGGED_SLIPPAGE_BPS` from it. When absent, no slippage bound applies.
 
 **Charge-basis policy:** the ledger is charged the USD amount converted at the
-**execution-time** rate — `broker_purchases.price_wei` records that MANA figure (with
+**execution-time** rate -- `broker_purchases.price_wei` records that MANA figure (with
 `usd_amount_wei` + `mana_usd_rate_wei` kept for audit), and the response reports it as
 `chargeBasisWei` plus a `usdPegged` block (`usdAmountWei`, `manaUsdRateWei`,
 `rateUpdatedAt`). The signed trade goes on-chain untouched (assetType 2, USD value); the
@@ -47,7 +54,7 @@ contract's own 27s aggregator tolerance.
 
 Note: an idempotent replay of a USD-pegged buy re-reads the oracle and re-applies both
 bounds before resuming; if the rate has since moved beyond them the replay is refused
-(409) — retry with a re-quoted `quoteManaWei` to resume (the background reconciler keeps
+(409) -- retry with a re-quoted `quoteManaWei` to resume (the background reconciler keeps
 advancing the on-chain receipt states meanwhile; funds safety does not depend on the
 replay).
 

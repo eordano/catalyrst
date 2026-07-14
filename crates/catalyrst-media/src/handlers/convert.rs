@@ -1,8 +1,7 @@
-use std::net::IpAddr;
-
 use axum::extract::{Query, State};
 use axum::http::{header, HeaderMap, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
+use catalyrst_commons::http::{read_body_capped, resolve_and_pin};
 use serde::Deserialize;
 
 use crate::AppState;
@@ -13,44 +12,6 @@ const MAX_REDIRECTS: usize = 5;
 #[derive(Deserialize)]
 pub struct ConvertParams {
     pub url: String,
-}
-
-fn ip_blocked(ip: IpAddr) -> bool {
-    match ip {
-        IpAddr::V4(v4) => {
-            v4.is_loopback()
-                || v4.is_private()
-                || v4.is_link_local()
-                || v4.is_unspecified()
-                || v4.is_broadcast()
-                || v4.is_multicast()
-                || v4.is_documentation()
-                || v4.octets()[0] == 0
-        }
-        IpAddr::V6(v6) => {
-            if let Some(mapped) = v6.to_ipv4_mapped() {
-                return ip_blocked(IpAddr::V4(mapped));
-            }
-            v6.is_loopback()
-                || v6.is_unspecified()
-                || v6.is_multicast()
-                || (v6.segments()[0] & 0xfe00) == 0xfc00
-                || (v6.segments()[0] & 0xffc0) == 0xfe80
-        }
-    }
-}
-
-async fn resolve_pinned(url: &reqwest::Url) -> Option<std::net::SocketAddr> {
-    let host = url.host_str()?;
-    let port = url.port_or_known_default().unwrap_or(80);
-    if let Ok(ip) = host.parse::<IpAddr>() {
-        return (!ip_blocked(ip)).then_some(std::net::SocketAddr::new(ip, port));
-    }
-    let addrs: Vec<_> = tokio::net::lookup_host((host, port)).await.ok()?.collect();
-    if addrs.is_empty() || addrs.iter().any(|a| ip_blocked(a.ip())) {
-        return None;
-    }
-    Some(addrs[0])
 }
 
 fn build_response(status: StatusCode, content_type: &str, body: Vec<u8>) -> Response {
@@ -80,7 +41,7 @@ pub async fn convert(State(state): State<AppState>, Query(p): Query<ConvertParam
 
     let mut hops = 0;
     let upstream = loop {
-        let Some(pinned) = resolve_pinned(&current).await else {
+        let Some(pinned) = resolve_and_pin(&current).await else {
             return (StatusCode::FORBIDDEN, "url host is not publicly routable").into_response();
         };
         let host = current.host_str().unwrap_or_default().to_string();
@@ -131,25 +92,20 @@ pub async fn convert(State(state): State<AppState>, Query(p): Query<ConvertParam
         .unwrap_or("application/octet-stream")
         .to_string();
 
-    if let Some(len) = upstream.content_length() {
-        if len as usize > MAX_BODY_BYTES {
-            return (StatusCode::PAYLOAD_TOO_LARGE, "source too large").into_response();
-        }
-    }
-
-    let bytes = match upstream.bytes().await {
-        Ok(b) if b.len() <= MAX_BODY_BYTES => b,
-        Ok(_) => return (StatusCode::PAYLOAD_TOO_LARGE, "source too large").into_response(),
+    let body = match read_body_capped(upstream, MAX_BODY_BYTES).await {
+        Ok(body) => body,
         Err(e) => {
-            return (
-                StatusCode::BAD_GATEWAY,
-                format!("upstream read failed: {e}"),
-            )
-                .into_response()
+            return if e.downcast_ref::<reqwest::Error>().is_some() {
+                (
+                    StatusCode::BAD_GATEWAY,
+                    format!("upstream read failed: {e}"),
+                )
+                    .into_response()
+            } else {
+                (StatusCode::PAYLOAD_TOO_LARGE, "source too large").into_response()
+            }
         }
     };
-
-    let body = bytes.to_vec();
 
     if status.is_success() {
         state.convert_cache_put(&p.url, status.as_u16(), &content_type, &body);

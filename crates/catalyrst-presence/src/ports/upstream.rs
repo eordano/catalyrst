@@ -38,6 +38,7 @@ impl UpstreamClient {
 
     async fn get_json(&self, url: &str) -> anyhow::Result<Option<Value>> {
         let mut backoff = Duration::from_secs(2);
+        let mut last_status: Option<u16> = None;
         for attempt in 0..MAX_ATTEMPTS {
             match self.http.get(url).send().await {
                 Ok(resp) => {
@@ -47,6 +48,7 @@ impl UpstreamClient {
                     }
                     if status.as_u16() == 429 || status.is_server_error() {
                         tracing::warn!(%url, code = status.as_u16(), "retrying after error");
+                        last_status = Some(status.as_u16());
                         tokio::time::sleep(backoff).await;
                         backoff = (backoff * 2).min(Duration::from_secs(60));
                         continue;
@@ -72,7 +74,12 @@ impl UpstreamClient {
             }
         }
         tracing::error!(%url, "exhausted retries");
-        Ok(None)
+        anyhow::bail!(
+            "exhausted {MAX_ATTEMPTS} attempts on {url} (last status: {})",
+            last_status
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| "unknown".to_string())
+        );
     }
 
     pub async fn peers(&self) -> anyhow::Result<Value> {

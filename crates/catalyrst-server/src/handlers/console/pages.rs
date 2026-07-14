@@ -29,16 +29,29 @@ pub async fn index(State(state): State<Arc<AppState>>) -> Html<String> {
     };
 
     let mut b = String::new();
+    b.push_str(&comms_banner());
     b.push_str("<div class=\"hero\"><div class=\"wrap\">");
     b.push_str("<h2>A self-hosted <em>Decentraland</em> realm.</h2>");
-    b.push_str("<p>catalyrst is a from-scratch Rust implementation of the Decentraland service plane — content &amp; lambdas, the explorer APIs, the social stack, the creator and marketplace planes, scene-state multiplayer and a federation layer. Everything an explorer talks to, from one workspace.</p>");
+    b.push_str("<p>catalyrst is a from-scratch Rust implementation of the Decentraland service plane \u{2014} content &amp; lambdas, the explorer APIs, the social stack, the creator and marketplace planes, scene-state multiplayer and a federation layer. Everything an explorer talks to, from one workspace.</p>");
     if let Some(base) = realm_base_url(&state) {
+        // The protocol handler, not decentraland.org/play: that page forwards
+        // `realm` only for realms it whitelists and drops it silently otherwise,
+        // so the visitor boots the default Genesis realm instead of this one.
+        // It stays on the page as a labelled fallback because a browser link is
+        // all someone without the launcher installed can click.
+        let deep = catalyrst_types::realm_deep_link(&base, (0, 0));
         let play = format!(
             "https://decentraland.org/play/?realm={}",
             urlencoding::encode(&base)
         );
         b.push_str(&format!(
-            "<div><a class=\"cta\" href=\"{}\" rel=\"noopener\">Open in Decentraland →</a><a class=\"cta ghost\" href=\"/about\">View realm API</a></div>",
+            "<div><a class=\"cta\" href=\"{}\" rel=\"noopener\">Open in Decentraland \u{2192}</a><a class=\"cta ghost\" href=\"/about\">View realm API</a></div>",
+            esc(&deep)
+        ));
+        b.push_str(&format!(
+            "<p style=\"margin-top:12px;font-size:13px\">Link not opening? Paste <code class=\"mono\">{}</code> into your browser's address bar. \
+             The <a href=\"{}\" rel=\"noopener\">decentraland.org</a> launcher page only forwards custom realms it whitelists, so it will not reach this node.</p>",
+            esc(&deep),
             esc(&play)
         ));
     }
@@ -52,6 +65,7 @@ pub async fn index(State(state): State<Arc<AppState>>) -> Html<String> {
         true,
     ));
     b.push_str(&stat("realm", &esc(&realm), true, false));
+    b.push_str(&stat("comms", &comms_pill(), true, false));
     b.push_str(&stat(
         "network",
         &esc(network_name(&state.eth_network)),
@@ -98,7 +112,7 @@ pub async fn index(State(state): State<Arc<AppState>>) -> Html<String> {
     }
 
     b.push_str(&format!(
-        "<section><div class=\"shead\"><h3>Service plane</h3><span class=\"c\">{} bundles · {} services</span></div><div class=\"groups\">",
+        "<section><div class=\"shead\"><h3>Service plane</h3><span class=\"c\">{} bundles \u{B7} {} services</span></div><div class=\"groups\">",
         CATALOG.len(),
         CATALOG.iter().map(|g| g.services.len()).sum::<usize>()
     ));
@@ -174,7 +188,12 @@ pub async fn index(State(state): State<Arc<AppState>>) -> Html<String> {
     b.push_str("</div></section>");
     b.push_str("</div></main>");
 
-    page(&state, &format!("catalyrst — {realm}"), "overview", &b)
+    page(
+        &state,
+        &format!("catalyrst \u{2014} {realm}"),
+        "overview",
+        &b,
+    )
 }
 
 pub async fn admin(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Html<String> {
@@ -212,7 +231,9 @@ pub async fn admin(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Ht
     b.push_str(&stat("AB build queue", &opt_big(a.ab_queue), false, false));
     b.push_str(&stat(
         "comms uptime",
-        &a.uptime_secs.map(fmt_uptime).unwrap_or_else(|| "—".into()),
+        &a.uptime_secs
+            .map(fmt_uptime)
+            .unwrap_or_else(|| "\u{2014}".into()),
         true,
         false,
     ));
@@ -222,7 +243,10 @@ pub async fn admin(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Ht
     let kvs: [(&str, String); 8] = [
         (
             "realm name",
-            state.realm_name.clone().unwrap_or_else(|| "—".into()),
+            state
+                .realm_name
+                .clone()
+                .unwrap_or_else(|| "\u{2014}".into()),
         ),
         ("eth network", state.eth_network.clone()),
         ("mode", mode_str(state.is_read_only()).to_string()),
@@ -236,7 +260,7 @@ pub async fn admin(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Ht
         b.push_str(&format!(
             "<div class=\"kv\"><div class=\"k\">{}</div><div class=\"v\">{}</div></div>",
             esc(k),
-            esc(if v.is_empty() { "—" } else { &v })
+            esc(if v.is_empty() { "\u{2014}" } else { &v })
         ));
     }
     b.push_str("</div></section>");
@@ -293,16 +317,16 @@ pub async fn admin(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Ht
                     let up = gh.members.values().filter(|v| **v).count();
                     format!("{up}/{total} up")
                 })
-                .unwrap_or_else(|| "—".into())
+                .unwrap_or_else(|| "\u{2014}".into())
         } else {
-            "—".into()
+            "\u{2014}".into()
         };
         let probe = if g.key == "content" {
             "local".to_string()
         } else {
             urls.get(g.key)
                 .map(|u| format!("{u}/health"))
-                .unwrap_or_else(|| "—".into())
+                .unwrap_or_else(|| "\u{2014}".into())
         };
         b.push_str(&format!(
             "<tr><td class=\"mono\"><a href=\"/admin/{}\">{}</a></td><td>{}</td><td class=\"mono\">{}</td><td><span class=\"pill\"><span class=\"dot {dc}\"></span>{dt}</span></td><td class=\"mono\">{}</td></tr>",
@@ -318,7 +342,7 @@ pub async fn admin(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Ht
     b.push_str("</section>");
 
     b.push_str("</div></main>");
-    page(&state, "catalyrst — admin", "admin", &b)
+    page(&state, "catalyrst \u{2014} admin", "admin", &b)
 }
 
 pub async fn admin_service(
@@ -329,10 +353,10 @@ pub async fn admin_service(
     use axum::response::IntoResponse;
     let va = viewer_admin(&headers);
     let Some(g) = group_by_key(&key) else {
-        let body = "<main><div class=\"wrap\"><a class=\"back\" href=\"/admin\">← back to admin</a><div class=\"empty\" style=\"padding:60px;color:var(--mut2)\">no such service</div></div></main>";
+        let body = "<main><div class=\"wrap\"><a class=\"back\" href=\"/admin\">\u{2190} back to admin</a><div class=\"empty\" style=\"padding:60px;color:var(--mut2)\">no such service</div></div></main>";
         return (
             axum::http::StatusCode::NOT_FOUND,
-            page(&state, "catalyrst — not found", "admin", body),
+            page(&state, "catalyrst \u{2014} not found", "admin", body),
         )
             .into_response();
     };
@@ -344,7 +368,7 @@ pub async fn admin_service(
 
     let mut b = String::new();
     b.push_str("<main><div class=\"wrap\">");
-    b.push_str("<a class=\"back\" href=\"/admin\">← back to admin</a>");
+    b.push_str("<a class=\"back\" href=\"/admin\">\u{2190} back to admin</a>");
     b.push_str(&format!(
         "<div class=\"shead\"><h3>{}</h3><span class=\"c\">{}</span><span class=\"spacer\" style=\"flex:1\"></span><span class=\"pill\"><span class=\"dot {dc}\"></span>{dt}</span></div>",
         esc(g.title),
@@ -394,7 +418,7 @@ pub async fn admin_service(
         b.push_str("<div class=\"eplist\">");
         for (label, path) in g.detail {
             b.push_str(&format!(
-                "<a class=\"ep\" href=\"{0}{1}\" rel=\"noopener\">{2} · {1}</a>",
+                "<a class=\"ep\" href=\"{0}{1}\" rel=\"noopener\">{2} \u{B7} {1}</a>",
                 esc(base),
                 esc(path),
                 esc(label)
@@ -406,7 +430,7 @@ pub async fn admin_service(
             let body = match fetch_json(&format!("{base}{path}")).await {
                 Some(v) => serde_json::to_string_pretty(&v).unwrap_or_default(),
                 None => match probe_up(&format!("{base}{path}")).await {
-                    true => "(200 OK — non-JSON body)".into(),
+                    true => "(200 OK \u{2014} non-JSON body)".into(),
                     false => "(unreachable)".into(),
                 },
             };
@@ -427,5 +451,48 @@ pub async fn admin_service(
     }
 
     b.push_str("</div></main>");
-    page(&state, &format!("catalyrst — {}", g.title), "admin", &b).into_response()
+    page(
+        &state,
+        &format!("catalyrst \u{2014} {}", g.title),
+        "admin",
+        &b,
+    )
+    .into_response()
+}
+
+/// Named on the page an operator actually opens, because the symptom this
+/// prevents is invisible from the outside: content stays healthy, `/about`
+/// answers, and visitors simply cannot get in.
+fn comms_banner() -> String {
+    let health = crate::handlers::comms_health::comms_health();
+    let Some(down_secs) = health.down_for_secs() else {
+        return String::new();
+    };
+    format!(
+        "<div style=\"background:var(--err);color:#fff;padding:14px 0\"><div class=\"wrap\">\
+         <strong>COMMS DOWN \u{2014} visitors enter single-player.</strong> \
+         {} has not answered for {}. <code class=\"mono\">/about</code> is serving \
+         <code class=\"mono\">fixed-adapter:offline:offline</code> so entry still works; voice and \
+         other players are absent until it recovers. Advertising the real adapter while it is down \
+         would bounce every visitor at the loading screen instead.\
+         </div></div>",
+        esc(health.target()),
+        esc(&fmt_down(down_secs)),
+    )
+}
+
+fn comms_pill() -> String {
+    let health = crate::handlers::comms_health::comms_health();
+    match health.down_for_secs() {
+        None => "<span class=\"pill\"><span class=\"dot ok\"></span>Online</span>".to_string(),
+        Some(_) => "<span class=\"pill\"><span class=\"dot bad\"></span>Down</span>".to_string(),
+    }
+}
+
+fn fmt_down(secs: u64) -> String {
+    match secs {
+        s if s < 60 => format!("{s}s"),
+        s if s < 3600 => format!("{} min", s / 60),
+        s => format!("{} h", s / 3600),
+    }
 }

@@ -1,13 +1,17 @@
 use std::collections::HashSet;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use alloy::signers::{local::PrivateKeySigner, Signer};
+use catalyrst_fed::consumer::{preverify_signed, spawn_gossip_consumer};
 use catalyrst_fed::sig::{domains, Eip712Domain, MAX_SKEW_FUTURE_SECS, MAX_SKEW_PAST_SECS};
 use catalyrst_fed::{
-    check_delegation, GossipEnvelope, RateLimitDecision, RateLimiter, Scope, SessionDelegation,
-    SessionRevocation, Signed, TypedMessage,
+    check_delegation, GossipEnvelope, GossipPublisher, RateLimitDecision, RateLimiter, Scope,
+    SessionDelegation, SessionRevocation, Signed, TypedMessage,
 };
-use ethers_signers::{LocalWallet, Signer};
 use serde::{Deserialize, Serialize};
+use tokio::sync::mpsc;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct PlaceVote {
@@ -24,19 +28,19 @@ impl TypedMessage for PlaceVote {
     }
 }
 
-fn wallet(seed: u8) -> LocalWallet {
+fn wallet(seed: u8) -> PrivateKeySigner {
     let mut key = [0u8; 32];
     key[31] = seed;
     key[0] = 1;
-    LocalWallet::from_bytes(&key).unwrap()
+    PrivateKeySigner::from_slice(&key).unwrap()
 }
 
-fn addr(w: &LocalWallet) -> String {
+fn addr(w: &PrivateKeySigner) -> String {
     format!("{:#x}", w.address())
 }
 
 async fn sign<T: TypedMessage>(
-    w: &LocalWallet,
+    w: &PrivateKeySigner,
     message: T,
     domain: Eip712Domain,
     nonce: [u8; 16],
@@ -50,8 +54,8 @@ async fn sign<T: TypedMessage>(
         signature: String::new(),
     };
     let hash = s.hash();
-    let sig = w.sign_message(hash).await.unwrap();
-    s.signature = format!("0x{}", sig);
+    let sig = w.sign_message(&hash).await.unwrap();
+    s.signature = sig.to_string();
     s
 }
 
@@ -321,4 +325,125 @@ async fn e2e_signed_write_envelope_roundtrip_reverify_apply_dedup() {
         !seen.insert(again.signature_hash),
         "redelivered envelope dedups on signature_hash"
     );
+}
+
+#[tokio::test]
+async fn preverify_signed_accepts_valid_envelope_and_runs_replay_hook() {
+    let w = wallet(21);
+    let t = chrono::Utc::now().timestamp();
+    let signed = sign(
+        &w,
+        PlaceVote {
+            place_id: "p".into(),
+            up: true,
+        },
+        domains::places(),
+        [8u8; 16],
+        t,
+    )
+    .await;
+
+    let recorded: Mutex<Option<(String, [u8; 16], i64)>> = Mutex::new(None);
+    let signer = preverify_signed(&signed, "DecentralandPlaces", |signer, nonce, signed_at| {
+        *recorded.lock().unwrap() = Some((signer, nonce, signed_at));
+        async { Ok::<(), catalyrst_fed::FedError>(()) }
+    })
+    .await
+    .expect("valid envelope must preverify");
+
+    assert!(signer.eq_ignore_ascii_case(&addr(&w)));
+    let (hook_signer, hook_nonce, hook_signed_at) = recorded
+        .lock()
+        .unwrap()
+        .take()
+        .expect("replay hook must run on the happy path");
+    assert!(hook_signer.eq_ignore_ascii_case(&addr(&w)));
+    assert_eq!(hook_nonce, [8u8; 16]);
+    assert_eq!(hook_signed_at, t);
+}
+
+#[tokio::test]
+async fn preverify_signed_rejects_events_domain_on_places_verifier() {
+    let w = wallet(22);
+    let t = chrono::Utc::now().timestamp();
+    let signed = sign(
+        &w,
+        PlaceVote {
+            place_id: "p".into(),
+            up: true,
+        },
+        domains::events(),
+        [9u8; 16],
+        t,
+    )
+    .await;
+
+    let replay_ran = AtomicBool::new(false);
+    let err = preverify_signed(&signed, "DecentralandPlaces", |_, _, _| {
+        replay_ran.store(true, Ordering::SeqCst);
+        async { Ok::<(), catalyrst_fed::FedError>(()) }
+    })
+    .await
+    .expect_err("cross-domain envelope must be rejected");
+
+    assert!(err.contains("domain mismatch"), "{err}");
+    assert!(
+        !replay_ran.load(Ordering::SeqCst),
+        "replay hook must not run for a rejected domain"
+    );
+}
+
+struct InjectedFeed(Mutex<Option<mpsc::Receiver<GossipEnvelope>>>);
+
+#[async_trait::async_trait]
+impl GossipPublisher for InjectedFeed {
+    async fn publish(&self, _env: &GossipEnvelope) -> Result<(), catalyrst_fed::FedError> {
+        Ok(())
+    }
+
+    async fn subscribe(
+        &self,
+        _scope: Scope,
+    ) -> Result<Option<mpsc::Receiver<GossipEnvelope>>, catalyrst_fed::FedError> {
+        Ok(self.0.lock().unwrap().take())
+    }
+}
+
+#[tokio::test]
+async fn consumer_rejects_wrong_scope_envelope_before_dispatch() {
+    let (feed_tx, feed_rx) = mpsc::channel(8);
+    let publisher = Arc::new(InjectedFeed(Mutex::new(Some(feed_rx))));
+    let (dispatched_tx, mut dispatched_rx) = mpsc::channel::<String>(8);
+
+    spawn_gossip_consumer(publisher, Scope::Places, move |env: GossipEnvelope| {
+        let tx = dispatched_tx.clone();
+        async move { tx.send(env.signature_hash).await.map_err(|e| e.to_string()) }
+    })
+    .await;
+
+    let signed = Signed {
+        domain: domains::places(),
+        message: PlaceVote {
+            place_id: "p".into(),
+            up: true,
+        },
+        nonce: [7u8; 16],
+        signed_at: 1_700_000_000,
+        signature: "0x".to_string() + &"00".repeat(65),
+    };
+    let stray =
+        GossipEnvelope::local(Scope::Events, &signed, "stray".into(), "0x1".into()).unwrap();
+    let good = GossipEnvelope::local(Scope::Places, &signed, "good".into(), "0x1".into()).unwrap();
+    feed_tx.send(stray).await.unwrap();
+    feed_tx.send(good).await.unwrap();
+
+    let first = dispatched_rx
+        .recv()
+        .await
+        .expect("in-scope envelope must dispatch");
+    assert_eq!(
+        first, "good",
+        "wrong-scope envelope must never reach dispatch"
+    );
+    assert!(dispatched_rx.try_recv().is_err());
 }

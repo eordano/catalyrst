@@ -1,7 +1,8 @@
 use axum::extract::{Query, State};
 use axum::Json;
-use serde::Deserialize;
-use serde_json::{json, Value};
+use chrono::SecondsFormat;
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 use crate::http::ApiError;
 use crate::ports::worlds::WorldScene;
@@ -17,33 +18,82 @@ pub struct IndexQuery {
     pub offset: Option<i64>,
 }
 
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "worlds/"))]
+#[serde(rename_all = "camelCase")]
+pub struct IndexSceneSummary {
+    pub id: String,
+    pub title: Option<String>,
+    pub description: Option<String>,
+    pub thumbnail: Option<String>,
+    pub pointers: Vec<String>,
+    #[cfg_attr(feature = "ts", ts(type = "string | null"))]
+    pub runtime_version: Option<Value>,
+    #[cfg_attr(feature = "ts", ts(type = "number | null"))]
+    pub timestamp: Option<i64>,
+}
+
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "worlds/"))]
+#[serde(rename_all = "camelCase")]
+pub struct WorldIndexEntry {
+    pub name: String,
+    pub scenes: Vec<IndexSceneSummary>,
+}
+
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "worlds/"))]
+#[serde(rename_all = "camelCase")]
+pub struct IndexResponse {
+    pub data: Vec<WorldIndexEntry>,
+    pub last_updated: String,
+}
+
+#[utoipa::path(
+    get,
+    path = "/index",
+    tag = "worlds",
+    responses(
+        (status = 200, body = IndexResponse),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn get_index(
     State(state): State<AppState>,
     Query(q): Query<IndexQuery>,
-) -> Result<Json<Value>, ApiError> {
+) -> Result<Json<IndexResponse>, ApiError> {
     let base_url = &state.cfg.http_base_url;
 
     let (limit, offset) = bound_index_params(q.limit, q.offset);
 
     let scenes = state.worlds.list_index_scenes(limit, offset).await?;
 
-    let mut data: Vec<Value> = Vec::new();
+    let mut data: Vec<WorldIndexEntry> = Vec::new();
     let mut cur_name: Option<String> = None;
-    let mut cur_scenes: Vec<Value> = Vec::new();
+    let mut cur_scenes: Vec<IndexSceneSummary> = Vec::new();
     for (world_name, scene) in scenes {
         if cur_name.as_deref() != Some(world_name.as_str()) {
             if let Some(name) = cur_name.take() {
-                data.push(json!({ "name": name, "scenes": std::mem::take(&mut cur_scenes) }));
+                data.push(WorldIndexEntry {
+                    name,
+                    scenes: std::mem::take(&mut cur_scenes),
+                });
             }
             cur_name = Some(world_name);
         }
         cur_scenes.push(scene_summary(&scene, base_url));
     }
     if let Some(name) = cur_name.take() {
-        data.push(json!({ "name": name, "scenes": cur_scenes }));
+        data.push(WorldIndexEntry {
+            name,
+            scenes: cur_scenes,
+        });
     }
 
-    Ok(Json(json!({ "data": data })))
+    Ok(Json(IndexResponse {
+        data,
+        last_updated: chrono::Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true),
+    }))
 }
 
 fn bound_index_params(limit: Option<i64>, offset: Option<i64>) -> (i64, i64) {
@@ -55,40 +105,37 @@ fn bound_index_params(limit: Option<i64>, offset: Option<i64>) -> (i64, i64) {
     (limit, offset)
 }
 
-fn scene_summary(scene: &WorldScene, base_url: &str) -> Value {
+fn scene_summary(scene: &WorldScene, base_url: &str) -> IndexSceneSummary {
     let display = scene.entity.get("metadata").and_then(|m| m.get("display"));
     let title = display
         .and_then(|d| d.get("title"))
-        .and_then(|v| v.as_str());
+        .and_then(|v| v.as_str())
+        .map(str::to_string);
     let description = display
         .and_then(|d| d.get("description"))
-        .and_then(|v| v.as_str());
+        .and_then(|v| v.as_str())
+        .map(str::to_string);
     let thumbnail = display
         .and_then(|d| d.get("navmapThumbnail"))
         .and_then(|v| v.as_str())
         .and_then(|file| resolve_content(&scene.entity, file))
         .map(|hash| format!("{}/contents/{}", base_url, hash));
-    let timestamp = scene
-        .entity
-        .get("timestamp")
-        .cloned()
-        .unwrap_or(Value::Null);
+    let timestamp = scene.entity.get("timestamp").and_then(|v| v.as_i64());
     let runtime_version = scene
         .entity
         .get("metadata")
         .and_then(|m| m.get("runtimeVersion"))
-        .cloned()
-        .unwrap_or(Value::Null);
+        .cloned();
 
-    json!({
-        "id": scene.entity_id,
-        "title": title,
-        "description": description,
-        "thumbnail": thumbnail,
-        "pointers": scene.parcels,
-        "runtimeVersion": runtime_version,
-        "timestamp": timestamp,
-    })
+    IndexSceneSummary {
+        id: scene.entity_id.clone(),
+        title,
+        description,
+        thumbnail,
+        pointers: scene.parcels.clone(),
+        runtime_version,
+        timestamp,
+    }
 }
 
 fn resolve_content(entity: &Value, file: &str) -> Option<String> {
@@ -119,8 +166,9 @@ mod tests {
                 }
             }),
             parcels: vec!["0,0".into()],
+            deployer: "0xowner".into(),
         };
-        let body = scene_summary(&scene, "https://worlds.example");
+        let body = serde_json::to_value(scene_summary(&scene, "https://worlds.example")).unwrap();
         assert_eq!(body["runtimeVersion"], json!("7"));
         assert_eq!(body["title"], json!("Hello"));
         assert_eq!(body["id"], json!("bafy-scene"));
@@ -132,8 +180,9 @@ mod tests {
             entity_id: "s".into(),
             entity: json!({ "timestamp": 1, "metadata": { "display": {} } }),
             parcels: vec![],
+            deployer: "0xowner".into(),
         };
-        let body = scene_summary(&scene, "https://x");
+        let body = serde_json::to_value(scene_summary(&scene, "https://x")).unwrap();
         assert!(body["runtimeVersion"].is_null());
     }
 

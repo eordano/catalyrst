@@ -1,0 +1,175 @@
+.eui-asset-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+  gap: 6px;
+  padding: 2px 12px 12px;
+}
+.eui-asset-count {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  padding: 4px 12px 6px;
+}
+.eui-asset-sentinel {
+  grid-column: 1 / -1;
+  height: 8px;
+}
+.eui-asset {
+  border: 1px solid var(--divider-soft);
+  border-radius: var(--r-card);
+  padding: 6px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: center;
+  text-align: center;
+  background: var(--input);
+  min-width: 0;
+  overflow: hidden;
+  transition:
+    border-color var(--eui-fast, 0.12s) var(--eui-ease, ease),
+    transform var(--eui-fast, 0.12s) var(--eui-ease, ease),
+    box-shadow var(--eui-fast, 0.12s) var(--eui-ease, ease);
+}
+.eui-asset:hover {
+  border-color: var(--primary-border);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.28);
+}
+.eui-asset.is-readonly {
+  cursor: default;
+}
+.eui-asset.is-readonly:hover {
+  border-color: var(--divider-soft);
+  transform: none;
+  box-shadow: none;
+}
+.eui-asset img,
+.eui-asset .glyph {
+  width: 100%;
+  height: auto;
+  aspect-ratio: 1 / 1;
+  max-height: 74px;
+  object-fit: contain;
+  border-radius: var(--r-control);
+}
+.eui-asset .name {
+  font-size: 11px;
+  line-height: 1.25;
+  width: 100%;
+  color: var(--text);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-word;
+}
+.eui-asset .pack {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+.eui-asset .thumb {
+  width: 100%;
+  height: auto;
+  aspect-ratio: 1 / 1;
+  max-height: 74px;
+  border-radius: var(--r-control);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(255, 255, 255, 0.82);
+}
+.eui-asset .thumb svg {
+  width: 42%;
+  height: 42%;
+}
+
+.eui-left-resize {
+  position: absolute;
+  top: var(--eui-top-inset, 12px);
+  bottom: var(--eui-bottom-inset, 12px);
+  width: 10px;
+  z-index: 6;
+  cursor: ew-resize;
+  pointer-events: auto;
+}
+.eui-left-resize::after {
+  content: "";
+  position: absolute;
+  left: 4px;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  border-radius: 3px;
+  background: transparent;
+  transition: background 0.12s;
+}
+.eui-left-resize:hover::after {
+  background: var(--primary);
+}
+
+.eui-seg {
+  display: inline-flex;
+  gap: 2px;
+  margin: 8px 12px 2px;
+  padding: 3px;
+  background: var(--input);
+  border-radius: var(--r-control);
+  flex: none;
+  align-self: flex-start;
+}
+.eui-seg-btn {
+  padding: 5px 18px;
+  border: none;
+  background: transparent;
+  color: var(--text-2);
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: var(--r-control);
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+.eui-seg-btn:hover {
+  color: var(--text);
+}
+.eui-seg-btn.active {
+  background: var(--brand-cta, #d80029);
+  color: #fff;
+}
+.eui-asset .glyph {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-3);
+  background: var(--paper-hi);
+}
+.eui-asset .glyph svg {
+  width: 44%;
+  height: 44%;
+}
+.eui-asset-upload {
+  border-style: dashed;
+  cursor: pointer;
+}
+.eui-asset-upload .glyph {
+  background: transparent;
+  color: var(--primary);
+  font-size: 32px;
+  font-weight: 300;
+  line-height: 1;
+}
+.eui-asset-upload:hover {
+  border-color: var(--primary-border);
+}
+.eui-asset-upload:hover .name {
+  color: var(--text);
+}

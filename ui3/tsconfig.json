@@ -1,0 +1,40 @@
+{
+  "compilerOptions": {
+    // `dcl-validate-impl` is the seam the performance-mode build swaps. Types
+    // resolve to the checking implementation always: both implementations
+    // expose the same signatures, so type-checking against either is the same
+    // check, and pointing at `checked` keeps zod's types available here.
+    // No baseUrl: it is deprecated in TS 6 and paths resolve relative to this
+    // file without it.
+    "paths": {
+      "dcl-validate-impl": ["./src/validate/checked.ts"]
+    },
+    "target": "ES2023",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "types": ["vite/client"],
+    "moduleDetection": "force",
+    "useDefineForClassFields": true,
+    "allowJs": true,
+    "checkJs": false,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "forceConsistentCasingInFileNames": true,
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "allowUnreachableCode": false
+  },
+  "include": ["src"]
+}

@@ -1,4 +1,6 @@
-use super::fetch::{sanitize_scene_headers, validate_scene_url, FetchJob, FetchResponse};
+use super::fetch::{
+    build_signed_fetch_headers, sanitize_scene_headers, validate_scene_url, FetchJob, FetchResponse,
+};
 use super::scene_thread::{set_prop, str, HostState};
 
 struct SignedFetchArgs {
@@ -118,10 +120,6 @@ fn resolve_fetch(
 
 const SIGNED_FETCH_METHODS: [&str; 6] = ["GET", "POST", "PUT", "DELETE", "HEAD", "PATCH"];
 
-// The scene only ever sees fetch RESULTS. Key material, the scope header, and
-// the signed identity headers never cross into the isolate (getHeaders stays
-// inert for the same reason: they would be an exfiltratable ~60s-replayable
-// authoritative credential).
 pub(super) fn op_signed_fetch(
     scope: &mut v8::PinScope,
     args: v8::FunctionCallbackArguments,
@@ -198,6 +196,53 @@ pub(super) fn op_signed_fetch(
             &fetch_error(500, "storage worker unavailable"),
         );
     }
+}
+
+fn signed_headers_for(
+    scope: &mut v8::PinScope,
+    args: &v8::FunctionCallbackArguments,
+) -> Vec<(String, String)> {
+    let Ok(req) = parse_signed_fetch_args(scope, args) else {
+        return Vec::new();
+    };
+    if !SIGNED_FETCH_METHODS.contains(&req.method.as_str()) {
+        return Vec::new();
+    }
+    HostState::with(scope, |c| {
+        let h = c.borrow();
+        let Some(ctx) = h.storage.as_ref() else {
+            return Vec::new();
+        };
+        let Ok(url) = validate_scene_url(&req.url, ctx) else {
+            return Vec::new();
+        };
+        let Some(delegation) = ctx.delegation.lock().clone() else {
+            return Vec::new();
+        };
+        build_signed_fetch_headers(&delegation, &req.method, &url).unwrap_or_default()
+    })
+}
+
+pub(super) fn op_get_headers(
+    scope: &mut v8::PinScope,
+    args: v8::FunctionCallbackArguments,
+    mut rv: v8::ReturnValue,
+) {
+    let Some(resolver) = v8::PromiseResolver::new(scope) else {
+        return;
+    };
+    let promise = resolver.get_promise(scope);
+    rv.set(promise.into());
+
+    let headers = signed_headers_for(scope, &args);
+    let result = v8::Object::new(scope);
+    let map = v8::Object::new(scope);
+    for (name, value) in headers {
+        let v = str(scope, &value).into();
+        set_prop(scope, map, &name, v);
+    }
+    set_prop(scope, result, "headers", map.into());
+    resolver.resolve(scope, result.into());
 }
 
 pub(super) fn deliver_fetch_results(scope: &mut v8::PinScope) {

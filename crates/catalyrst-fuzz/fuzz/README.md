@@ -18,7 +18,7 @@ cargo +nightly fuzz run entity_parser
 #   entity_parser         - catalyrst_validator::parse_entity_from_bytes
 #   auth_chain_decode     - serde_json::from_slice::<AuthChain> + is_valid_auth_chain
 #   content_hash_verify   - catalyrst_hashing::{verify_hash, hash_bytes, hash_bytes_v1}
-#   snapshot_parser       - catalyrst_sync::snapshots::parse_snapshot_entities
+#   snapshot_parser       - catalyrst_types::snapshot::parse_snapshot_entities
 #   builder_signed_fetch  - catalyrst_builder signed-fetch header parse +
 #                           curation authorize_admin gate (no panic; garbage
 #                           never authorizes via the signature branch)

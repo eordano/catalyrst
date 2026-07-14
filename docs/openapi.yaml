@@ -7,10 +7,10 @@ info:
     process serves three distinct URL surfaces that mirror the reference TypeScript
     catalyst's behavior:
 
-      * `/content/*` — content server (entities, deployments, snapshots, audit info,
+      * `/content/*` -- content server (entities, deployments, snapshots, audit info,
         pointer changes, raw content blobs).
-      * `/lambdas/*` — lambdas server (profiles, collections, owned items, land, NFTs).
-      * `/about` and `/metrics` — about/health endpoint and Prometheus scrape endpoint.
+      * `/lambdas/*` -- lambdas server (profiles, collections, owned items, land, NFTs).
+      * `/about` and `/metrics` -- about/health endpoint and Prometheus scrape endpoint.
 
     Content routes also mount at the root (`/entities/{type}`, `/snapshots`, ...) for
     legacy clients; this spec documents only the canonical `/content/*` form that
@@ -32,9 +32,9 @@ tags:
   - name: about
     description: Realm + health information consumed by the explorer.
   - name: content
-    description: Content server — entities, deployments, audit info, snapshots, blobs.
+    description: Content server -- entities, deployments, audit info, snapshots, blobs.
   - name: lambdas
-    description: Lambdas server — profiles, collections, owned items, land, NFTs.
+    description: Lambdas server -- profiles, collections, owned items, land, NFTs.
 paths:
   /about:
     get:
@@ -420,7 +420,7 @@ paths:
         Returns the audit record (signer, deployment timestamp, auth chain, etc.)
         for the deployment of the given entity. `type` accepts the plural form
         `scenes` and canonicalizes to `scene`. **Note:** `outfit` and `outfits`
-        are intentionally rejected with 400 for reference parity — outfit
+        are intentionally rejected with 400 for reference parity -- outfit
         audit info is not exposed by catalyst.
       parameters:
         - in: path
@@ -448,6 +448,22 @@ paths:
                     type: integer
                     format: int64
                   overwrittenBy: { type: string, nullable: true }
+                  localProvenance:
+                    type: object
+                    nullable: true
+                    description: |
+                      Present only for entities published directly against this
+                      node's write API (LAND publish on this network) rather than
+                      synced from upstream Genesis City.
+                    properties:
+                      signer: { type: string }
+                      origin: { type: string, example: land-publish }
+                      publishedAt: { type: integer, format: int64 }
+                      tombstonedAt: { type: integer, format: int64, nullable: true }
+                      superseded: { type: boolean }
+                      status:
+                        type: string
+                        enum: [active, superseded, unpublished]
                 additionalProperties: true
         '400':
           description: Unrecognized entity type (includes `outfit`/`outfits`).
@@ -579,6 +595,7 @@ paths:
           content:
             application/json:
               schema: { type: object }
+        '400': { $ref: '#/components/responses/BadRequest' }
 
   /content/contents/{hashId}/active-entities:
     get:
@@ -598,6 +615,11 @@ paths:
               schema:
                 type: array
                 items: { type: object }
+        '404':
+          description: No active entity references that content hash.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorBody' }
 
   /content/failed-deployments:
     get:
@@ -640,6 +662,7 @@ paths:
           schema: { type: string }
       responses:
         '200': { description: Headers only. }
+        '404': { description: No active entity for that pointer. }
 
   /content/queries/items/{pointer}/image:
     get:
@@ -668,6 +691,7 @@ paths:
           schema: { type: string }
       responses:
         '200': { description: Headers only. }
+        '404': { description: No active entity for that pointer. }
 
   /content/queries/erc721/{chainId}/{contract}/{option}:
     get:
@@ -693,6 +717,7 @@ paths:
           content:
             application/json:
               schema: { type: object }
+        '400': { $ref: '#/components/responses/BadRequest' }
         '404': { description: No metadata found. }
 
   /content/queries/erc721/{chainId}/{contract}/{option}/{emission}:
@@ -723,6 +748,7 @@ paths:
           content:
             application/json:
               schema: { type: object }
+        '400': { $ref: '#/components/responses/BadRequest' }
         '404': { description: No metadata found. }
 
   /content/entities:
@@ -762,15 +788,53 @@ paths:
         '400': { $ref: '#/components/responses/BadRequest' }
         '413': { description: Request body exceeded `MAX_DEPLOYMENT_SIZE_BYTES`. }
 
+  /content/scenes/{coord}:
+    delete:
+      tags: [content]
+      summary: Unpublish a locally published LAND scene (write mode only)
+      description: |
+        Owner-signed tombstone for a scene published directly against this
+        node (`localProvenance` in the audit record). Auth is a signed fetch
+        (`x-identity-auth-chain-*` + `x-identity-timestamp` headers, worlds
+        style) followed by the LAND access rule for the addressed parcel
+        (parcel owner, estate owner, or operator/updateOperator/
+        updateManagers/approvedForAll via the land-manager subgraph). The
+        parcel reverts to the newest synced Genesis City deployment covering
+        it, or to nothing. Synced Genesis City entities are never deletable.
+      parameters:
+        - in: path
+          name: coord
+          required: true
+          description: Parcel coordinate `x,y`, e.g. `52,-52`.
+          schema: { type: string }
+      responses:
+        '200':
+          description: Local publish tombstoned; pointers repointed.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  entityId: { type: string }
+                  unpublished: { type: boolean }
+                  parcels:
+                    type: array
+                    items: { type: string }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { description: Missing/invalid/expired signed-fetch auth chain. }
+        '403': { description: Signer has no rights on the parcel. }
+        '404': { description: No locally published scene at that parcel. }
+        '409': { description: A concurrent deployment changed the parcel; retry. }
+
   /lambdas/profiles:
     post:
       tags: [lambdas]
       summary: Batch profile fetch by id
       description: |
         Returns the active profile entities for each id in the body. The `ids`
-        field is **required** — a missing body or missing `ids` field returns
+        field is **required** -- a missing body or missing `ids` field returns
         400. An empty array (`{"ids":[]}`) is allowed and returns `[]`.
-        Honors `If-Modified-Since` (RFC 2822) — if every returned profile's
+        Honors `If-Modified-Since` (RFC 2822) -- if every returned profile's
         `timestamp` is older than the threshold, responds 304.
       requestBody:
         required: true
@@ -869,7 +933,7 @@ paths:
       summary: Wearables owned by a user
       description: |
         Returns the user's owned wearables, grouped by URN. Pagination uses
-        `pageNum`/`pageSize` (default page size 100, max 1000 — sizes above
+        `pageNum`/`pageSize` (default page size 100, max 1000 -- sizes above
         the max are rejected with 400). Supports `category`, `rarity`, `name`
         filters and `orderBy` (`rarity|name|date`) + `direction` sorting.
         `includeDefinitions=true` attaches the wearable definition;
@@ -1166,6 +1230,60 @@ paths:
         '400': { description: Invalid coords or address. }
         '404': { description: Parcel or estate rights not found. }
 
+  /lambdas/users/{address}/parcels/permissions:
+    post:
+      tags: [lambdas]
+      summary: Permission flags for one address on a set of parcels
+      description: |
+        The batch form of the single-parcel permissions route: one round
+        trip answers every parcel in the body (deduplicated, at most 100),
+        through the same validator call the deploy predicate makes. A parcel
+        the index does not know comes back with `permissions: null` -- the
+        batch analogue of the single route's 404.
+      parameters:
+        - in: path
+          name: address
+          required: true
+          schema: { type: string, pattern: '^0x[0-9a-fA-F]{40}$' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [parcels]
+              properties:
+                parcels:
+                  type: array
+                  maxItems: 100
+                  items: { type: string, example: '85,40' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  elements:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        x: { type: integer }
+                        y: { type: integer }
+                        permissions:
+                          type: object
+                          nullable: true
+                          properties:
+                            owner: { type: boolean }
+                            operator: { type: boolean }
+                            updateOperator: { type: boolean }
+                            updateManager: { type: boolean }
+                            approvedForAll: { type: boolean }
+        '400': { description: Invalid coords or address, or over 100 parcels. }
+        '503': { description: No marketplace index is configured on this node. }
+
   /lambdas/parcels/{x}/{y}/operators:
     get:
       tags: [lambdas]
@@ -1238,6 +1356,7 @@ paths:
           content:
             application/json:
               schema: { type: object }
+        '400': { $ref: '#/components/responses/BadRequest' }
 
   /lambdas/collections/emotes:
     get:
@@ -1250,6 +1369,7 @@ paths:
           content:
             application/json:
               schema: { type: object }
+        '400': { $ref: '#/components/responses/BadRequest' }
 
   /lambdas/collections/wearables-by-owner/{owner}:
     get:
@@ -1340,7 +1460,7 @@ paths:
             application/json:
               schema:
                 type: array
-                items: { type: array, items: { type: integer } }
+                items: { type: string, description: 'Parcel coordinates as "x,y".' }
 
   /lambdas/contracts/denylisted-names:
     get:
@@ -1421,7 +1541,7 @@ paths:
       description: |
         Returns the outfit entity for the given address. Note that
         `/content/audit/outfit/...` and `/content/entities/outfit` are
-        intentionally **not** supported (400) — outfits are accessed only
+        intentionally **not** supported (400) -- outfits are accessed only
         through this lambdas endpoint.
       parameters:
         - in: path
@@ -1434,6 +1554,11 @@ paths:
           content:
             application/json:
               schema: { type: object }
+        '404':
+          description: No outfit entity for that address.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorBody' }
 
   /metrics:
     get:
@@ -1452,7 +1577,7 @@ paths:
 components:
   responses:
     BadRequest:
-      description: Bad request — invalid params or body.
+      description: Bad request -- invalid params or body.
       content:
         application/json:
           schema: { $ref: '#/components/schemas/ErrorBody' }
@@ -1475,7 +1600,7 @@ components:
 
     EntityType:
       type: string
-      enum: [scene, profile, wearable, emote, store, outfit]
+      enum: [scene, profile, wearable, emote, store, outfit, outfits]
       description: |
         Canonical entity type. The query/path parsers also accept the trailing-`s`
         plural form (e.g. `scenes`) and canonicalize. Note that `outfit`/`outfits`

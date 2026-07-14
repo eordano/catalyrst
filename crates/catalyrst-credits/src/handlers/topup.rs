@@ -117,13 +117,13 @@ pub async fn mana_topup(
     headers: HeaderMap,
     body: Result<Json<ManaTopupBody>, axum::extract::rejection::JsonRejection>,
 ) -> Result<Response, ApiError> {
-    let signer = signer_from(&headers, "post", "/topup/mana")?;
+    let signer = signer_from(&headers, "post", "/topup/mana").await?;
     let Json(body) = body.map_err(|e| ApiError::bad_request(e.body_text()))?;
     let tx_hash = validate_tx_hash(&body.tx_hash)?;
     let idem = topup_idempotency_key(&tx_hash);
 
     if let Some(prior) = state.credits.find_grant_by_idempotency_key(&idem).await? {
-        if prior.address.to_lowercase() != signer.to_lowercase() {
+        if prior.address.to_lowercase() != signer.as_str() {
             return Err(ApiError::forbidden(
                 "this transaction already granted Credits to a different wallet",
             ));
@@ -151,7 +151,7 @@ pub async fn mana_topup(
     )
     .await?;
 
-    let value_wei = match decide(verification, &signer)? {
+    let value_wei = match decide(verification, signer.as_str())? {
         TopupDecision::Pending => {
             return Ok((StatusCode::ACCEPTED, Json(json!({ "status": "pending" }))).into_response());
         }
@@ -175,7 +175,7 @@ pub async fn mana_topup(
     let outcome = state
         .credits
         .admin_grant_credits(
-            &signer,
+            signer.as_str(),
             &credits,
             "purchase",
             Some("MANA top-up"),

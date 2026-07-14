@@ -1,0 +1,249 @@
+{
+  "sid": "story-sid",
+  "address": "0x00000000000000000000000000000000000d0c5e",
+  "own": false,
+  "tab": "overview",
+  "source": "live",
+  "profileFallback": false,
+  "hasClaimedName": true,
+  "profile": {
+    "address": "0x00000000000000000000000000000000000d0c5e",
+    "name": "SAMPLEFOX",
+    "hasClaimedName": true,
+    "nameColor": "#ffbd40",
+    "mutualCount": 0,
+    "bio": "Hi, I'm SAMPLEFOX, Decentraland's most playful homie and artist. I create wearables for myself and others, like to party and have a passion for virtual Farming in DCL. Visit my parcel at -42,17 or my worlds at \"comet\", \"everhollow\", \"samplefox\", \"moonlounge\", \"lagoon\", \"foxesden\", \"graymorrow\"\u000b\u000bPlease check out my current Game at world \"foxfarm\", just type \"/goto foxfarm\" in chat to play",
+    "accountUrl": "https://catalyst.example.com/shop",
+    "info": [
+      {
+        "key": "country",
+        "label": "Country",
+        "value": "Canada",
+        "icon": "globe"
+      },
+      {
+        "key": "language",
+        "label": "Language",
+        "value": "English",
+        "icon": "translate"
+      },
+      {
+        "key": "pronouns",
+        "label": "Pronouns",
+        "value": "They / Them",
+        "icon": "pronouns"
+      },
+      {
+        "key": "gender",
+        "label": "Gender",
+        "value": "Fox",
+        "icon": "gender"
+      },
+      {
+        "key": "profession",
+        "label": "Profession",
+        "value": "3D Artist",
+        "icon": "games"
+      },
+      {
+        "key": "favorite_hobby",
+        "label": "Favorite hobby",
+        "value": "Modeling, Music",
+        "icon": "heart"
+      }
+    ],
+    "links": [
+      {
+        "title": "My Giveaways",
+        "url": "https://giveaway.example.com"
+      },
+      {
+        "title": "My Homepage",
+        "url": "https://www.example.com"
+      },
+      {
+        "title": "Discord",
+        "url": "https://discord.example.com/users/samplefox"
+      },
+      {
+        "title": "Twitter / X",
+        "url": "https://x.example.com/DCLSAMPLEFOX"
+      }
+    ],
+    "equipped": []
+  },
+  "creations": {
+    "wearables": [
+      {
+        "id": "0x0000000000000000000000000000000000000c01-0",
+        "name": "Free as Air",
+        "creator": "SAMPLEFOX",
+        "price": "17.76",
+        "rarity": "epic",
+        "category": "upper_body",
+        "body": "unisex",
+        "smart": false
+      },
+      {
+        "id": "0x0000000000000000000000000000000000000c02-0",
+        "name": "Lights of Harbor",
+        "creator": "SAMPLEFOX",
+        "price": "17.76",
+        "rarity": "epic",
+        "category": "hands_wear",
+        "body": "unisex",
+        "smart": false
+      },
+      {
+        "id": "0x0000000000000000000000000000000000000c03-0",
+        "name": "SAMPLEFOX Hoodie",
+        "creator": "SAMPLEFOX",
+        "price": "0",
+        "rarity": "epic",
+        "category": "upper_body",
+        "body": "unisex",
+        "smart": false
+      },
+      {
+        "id": "0x0000000000000000000000000000000000000c04-0",
+        "name": "Winter Hat 2025",
+        "creator": "SAMPLEFOX",
+        "price": "10",
+        "rarity": "epic",
+        "category": "hat",
+        "body": "unisex",
+        "smart": false
+      },
+      {
+        "id": "0x0000000000000000000000000000000000000c05-0",
+        "name": "Smiley Tears \ud83d\ude02",
+        "creator": "SAMPLEFOX",
+        "price": "10",
+        "rarity": "epic",
+        "category": "helmet",
+        "body": "unisex",
+        "smart": false
+      },
+      {
+        "id": "0x0000000000000000000000000000000000000c05-1",
+        "name": "Smiley Cool \ud83d\ude0e",
+        "creator": "SAMPLEFOX",
+        "price": "10",
+        "rarity": "epic",
+        "category": "helmet",
+        "body": "unisex",
+        "smart": false
+      },
+      {
+        "id": "0x0000000000000000000000000000000000000c05-2",
+        "name": "Smiley Star \ud83e\udd29",
+        "creator": "SAMPLEFOX",
+        "price": "10",
+        "rarity": "epic",
+        "category": "helmet",
+        "body": "unisex",
+        "smart": false
+      },
+      {
+        "id": "0x0000000000000000000000000000000000000c05-3",
+        "name": "Smiley Love \ud83d\ude0d",
+        "creator": "SAMPLEFOX",
+        "price": "10",
+        "rarity": "epic",
+        "category": "helmet",
+        "body": "unisex",
+        "smart": false
+      }
+    ],
+    "emotes": [
+      {
+        "id": "0x0000000000000000000000000000000000000c06-0",
+        "name": "Raveglider",
+        "creator": "SAMPLEFOX",
+        "price": null,
+        "rarity": "epic",
+        "category": null,
+        "body": null,
+        "smart": false
+      },
+      {
+        "id": "0x0000000000000000000000000000000000000c06-1",
+        "name": "Raveglider DCL",
+        "creator": "SAMPLEFOX",
+        "price": "50",
+        "rarity": "legendary",
+        "category": null,
+        "body": null,
+        "smart": false
+      },
+      {
+        "id": "0x0000000000000000000000000000000000000c06-2",
+        "name": "Raveglider Glitter RGB",
+        "creator": "SAMPLEFOX",
+        "price": null,
+        "rarity": "exotic",
+        "category": null,
+        "body": null,
+        "smart": false
+      },
+      {
+        "id": "0x0000000000000000000000000000000000000c07-0",
+        "name": "Heart Thrower",
+        "creator": "SAMPLEFOX",
+        "price": "1,000,000",
+        "rarity": "legendary",
+        "category": null,
+        "body": null,
+        "smart": false
+      },
+      {
+        "id": "0x0000000000000000000000000000000000000c08-0",
+        "name": "Bouncestep",
+        "creator": "SAMPLEFOX",
+        "price": "60",
+        "rarity": "legendary",
+        "category": null,
+        "body": null,
+        "smart": false
+      },
+      {
+        "id": "0x0000000000000000000000000000000000000c08-1",
+        "name": "Bubblegun",
+        "creator": "SAMPLEFOX",
+        "price": "40",
+        "rarity": "legendary",
+        "category": null,
+        "body": null,
+        "smart": false
+      },
+      {
+        "id": "0x0000000000000000000000000000000000000c09-0",
+        "name": "Foxhorse",
+        "creator": "SAMPLEFOX",
+        "price": null,
+        "rarity": "unique",
+        "category": null,
+        "body": null,
+        "smart": false
+      },
+      {
+        "id": "0x0000000000000000000000000000000000000c0a-0",
+        "name": "Winter Dance",
+        "creator": "SAMPLEFOX",
+        "price": "20",
+        "rarity": "legendary",
+        "category": null,
+        "body": null,
+        "smart": false
+      }
+    ]
+  },
+  "creationsFallback": false,
+  "places": [],
+  "photos": [],
+  "photosFallback": false,
+  "assets": {
+    "wearables": [],
+    "names": []
+  }
+}

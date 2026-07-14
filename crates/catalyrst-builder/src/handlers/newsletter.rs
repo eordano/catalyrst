@@ -1,10 +1,16 @@
 use axum::extract::State;
 use axum::Json;
-use serde::Deserialize;
-use serde_json::{json, Value};
+use serde::{Deserialize, Serialize};
+use serde_json::json;
 
 use crate::http::errors::ApiError;
 use crate::AppState;
+
+#[derive(Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "builder/"))]
+pub struct NewsletterSubscribeOut {
+    pub ok: bool,
+}
 
 #[derive(Debug, Default, Deserialize)]
 pub struct NewsletterBody {
@@ -45,7 +51,7 @@ pub fn is_valid_email(email: &str) -> bool {
 pub async fn post_newsletter(
     State(state): State<AppState>,
     body: Option<Json<NewsletterBody>>,
-) -> Result<Json<Value>, ApiError> {
+) -> Result<Json<NewsletterSubscribeOut>, ApiError> {
     let body = body.map(|Json(b)| b).unwrap_or_default();
     let email = body.email.unwrap_or_default().trim().to_ascii_lowercase();
     let source = body.source.unwrap_or_else(|| "Builder".to_string());
@@ -86,12 +92,20 @@ pub async fn post_newsletter(
         }
     }
 
-    Ok(Json(json!({ "ok": true })))
+    Ok(Json(NewsletterSubscribeOut { ok: true }))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::is_valid_email;
+    use super::{is_valid_email, NewsletterSubscribeOut};
+    use serde_json::json;
+
+    #[test]
+    fn success_body_is_exactly_ok_true_without_data_field() {
+        let v = serde_json::to_value(NewsletterSubscribeOut { ok: true }).unwrap();
+        assert_eq!(v, json!({ "ok": true }));
+        assert!(v.get("data").is_none());
+    }
 
     #[test]
     fn accepts_normal_addresses() {

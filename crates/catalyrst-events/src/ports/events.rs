@@ -3,10 +3,12 @@ use serde_json::Value;
 use sqlx::PgPool;
 
 use crate::http::response::ApiError;
+use crate::sanitize::{sanitize_asset_url, sanitize_event_description, validate_event_url};
 use crate::schemas::EventRecord;
 
 pub struct EventsComponent {
     pool: PgPool,
+    rewrite_domain: Option<String>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -23,13 +25,31 @@ pub struct EventListFilters {
     pub estate_id: Option<String>,
     pub community_id: Option<String>,
     pub places_ids: Vec<String>,
+    // A destination id is a place uuid or a world name: the wire `place_id`
+    // carries either, and a locally written world event names its world in
+    // `server` only, so both spellings are matched.
+    pub destination_ids: Vec<String>,
     pub from: Option<DateTime<Utc>>,
     pub to: Option<DateTime<Utc>>,
     pub search: Option<String>,
     pub user: Option<String>,
     pub rejected: Option<bool>,
+    pub approved: Option<bool>,
+    pub deleted: Option<bool>,
+    pub admin: bool,
     pub only_attendee: bool,
     pub owner: bool,
+    // Upstream lets a signed viewer see their own pending and rejected events
+    // in every list; the flag is the list's opt-in so a plain default filter
+    // still emits the public-only clause.
+    pub include_own: bool,
+    // Upstream hides deleted rows unless an admin opts in with allow_deleted,
+    // and an explicit `deleted` selector still wins over the opt-in.
+    pub include_deleted: bool,
+    // Upstream's moderator tier (the admin bearer or a moderator wallet) sees
+    // pending and rejected events by default; deleted rows and the precise
+    // approved/rejected/deleted selectors stay behind `admin`.
+    pub include_unapproved: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -39,6 +59,7 @@ pub enum EventListType {
     Active,
     Live,
     Upcoming,
+    Relevance,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -66,11 +87,32 @@ struct EventRow {
     coordinates_y: Option<i32>,
     description: Option<String>,
     raw: Value,
+    // Only the list query selects the folded `count(*) OVER()`; every other
+    // EVENT_COLUMNS query omits the column and decodes with total_count = 0.
+    #[sqlx(default)]
+    total_count: i64,
 }
 
 impl EventsComponent {
-    pub fn new(pool: PgPool) -> Self {
-        Self { pool }
+    pub fn new(pool: PgPool, rewrite_domain: Option<String>) -> Self {
+        Self {
+            pool,
+            rewrite_domain,
+        }
+    }
+
+    // Upstream's placeIds carries place uuids and world names alike, and a
+    // world event is keyed by its world: the wire `place_id` matches either
+    // spelling, and a locally written world event names its world in
+    // `server` only, so both are matched.
+    fn destination_clause(ids: &[String], binds: &mut Vec<EventBind>) -> String {
+        let ids: Vec<String> = ids.iter().map(|d| d.to_lowercase()).collect();
+        let p = next_placeholder(binds, EventBind::TextArray(ids));
+        format!(
+            "(lower(raw->>'place_id') = ANY({p}) \
+             OR (COALESCE((raw->>'world')::boolean, false) IS TRUE \
+             AND lower(raw->>'server') = ANY({p})))"
+        )
     }
 
     fn build_where(f: &EventListFilters, binds: &mut Vec<EventBind>) -> String {
@@ -92,7 +134,7 @@ impl EventsComponent {
         }
 
         match f.list {
-            EventListType::All => {}
+            EventListType::All | EventListType::Relevance => {}
             EventListType::Active => {
                 let p = next_placeholder(binds, EventBind::Time(now));
                 sql.push_str(&format!(" AND {nf} > {p}"));
@@ -148,20 +190,21 @@ impl EventsComponent {
             sql.push_str(&format!(" AND ({})", clauses.join(" OR ")));
         }
 
-        let has_places = !f.places_ids.is_empty();
-        let has_community = f.community_id.is_some();
-        if has_places && has_community {
-            let pp = next_placeholder(binds, EventBind::TextArray(f.places_ids.clone()));
-            let pc = next_placeholder(binds, EventBind::Text(f.community_id.clone().unwrap()));
-            sql.push_str(&format!(
-                " AND (raw->>'place_id' = ANY({pp}) OR community_id = {pc})"
-            ));
-        } else if has_places {
-            let pp = next_placeholder(binds, EventBind::TextArray(f.places_ids.clone()));
-            sql.push_str(&format!(" AND raw->>'place_id' = ANY({pp})"));
-        } else if has_community {
-            let pc = next_placeholder(binds, EventBind::Text(f.community_id.clone().unwrap()));
-            sql.push_str(&format!(" AND community_id = {pc}"));
+        let mut by_destination: Vec<String> = Vec::new();
+        if !f.places_ids.is_empty() {
+            by_destination.push(Self::destination_clause(&f.places_ids, binds));
+        }
+        if let Some(c) = &f.community_id {
+            let pc = next_placeholder(binds, EventBind::Text(c.clone()));
+            by_destination.push(format!("community_id = {pc}"));
+        }
+        if !by_destination.is_empty() {
+            sql.push_str(&format!(" AND ({})", by_destination.join(" OR ")));
+        }
+
+        if !f.destination_ids.is_empty() {
+            let clause = Self::destination_clause(&f.destination_ids, binds);
+            sql.push_str(&format!(" AND {clause}"));
         }
 
         if let Some(from) = f.from {
@@ -181,19 +224,35 @@ impl EventsComponent {
             ));
         }
 
-        if !is_owner {
-            match f.rejected {
-                Some(true) => {
+        let own_viewer = f
+            .user
+            .as_deref()
+            .filter(|_| !f.include_unapproved && f.include_own);
+        if let (false, Some(u)) = (is_owner, own_viewer) {
+            let p = next_placeholder(binds, EventBind::Text(u.to_lowercase()));
+            sql.push_str(&format!(
+                " AND ((approved IS TRUE AND COALESCE((raw->>'rejected')::boolean, false) IS FALSE) \
+                 OR lower(user_creator) = {p})"
+            ));
+        } else if !is_owner {
+            match (f.include_unapproved, f.rejected) {
+                (_, Some(true)) => {
                     sql.push_str(" AND COALESCE((raw->>'rejected')::boolean, false) IS TRUE")
                 }
-                Some(false) => {
+                (_, Some(false)) => {
                     sql.push_str(" AND COALESCE((raw->>'rejected')::boolean, false) IS FALSE")
                 }
-                None => sql.push_str(" AND COALESCE((raw->>'rejected')::boolean, false) IS FALSE"),
+                (false, None) => {
+                    sql.push_str(" AND COALESCE((raw->>'rejected')::boolean, false) IS FALSE")
+                }
+                (true, None) => {}
             }
 
-            if !f.approved_visibility() {
-                sql.push_str(" AND approved IS TRUE");
+            match (f.include_unapproved, f.approved) {
+                (_, Some(true)) => sql.push_str(" AND approved IS TRUE"),
+                (_, Some(false)) => sql.push_str(" AND approved IS FALSE"),
+                (false, None) => sql.push_str(" AND approved IS TRUE"),
+                (true, None) => {}
             }
         }
 
@@ -207,7 +266,11 @@ impl EventsComponent {
             }
         }
 
-        sql.push_str(NOT_DELETED_SQL);
+        match (f.admin, f.deleted) {
+            (true, Some(true)) => sql.push_str(DELETED_ONLY_SQL),
+            (true, None) if f.include_deleted => {}
+            _ => sql.push_str(NOT_DELETED_SQL),
+        }
 
         sql
     }
@@ -222,37 +285,7 @@ impl EventsComponent {
         with_total: bool,
     ) -> Result<(Vec<EventRecord>, i64), ApiError> {
         let mut binds: Vec<EventBind> = Vec::new();
-        let where_sql = Self::build_where(f, &mut binds);
-
-        let base = format!(
-            "SELECT id, name, start_at, finish_at, duration_ms, recurrent, highlighted, trending, \
-             approved, attending, community_id, user_creator, coordinates_x, coordinates_y, \
-             description, raw FROM event{}",
-            where_sql
-        );
-
-        let order_clause = if let Some(s) = &f.search {
-            let dir = if matches!(f.order, SortOrder::Asc) {
-                "ASC"
-            } else {
-                "DESC"
-            };
-            let p = next_placeholder(&mut binds, EventBind::Text(to_tsquery(s)));
-            format!(
-                " ORDER BY ts_rank_cd({tsv}, to_tsquery('english', {p})) {dir}",
-                tsv = TEXTSEARCH_EXPR
-            )
-        } else {
-            let order_dir = match f.order {
-                SortOrder::Asc => "ASC",
-                SortOrder::Desc => "DESC",
-            };
-            format!(" ORDER BY {EFF_NEXT_START_SQL} {order_dir} NULLS LAST")
-        };
-
-        let lim_p = next_placeholder(&mut binds, EventBind::Int64(f.limit.max(0)));
-        let off_p = next_placeholder(&mut binds, EventBind::Int64(f.offset.max(0)));
-        let sql = format!("{base}{order_clause} LIMIT {lim_p} OFFSET {off_p}");
+        let sql = build_list_sql(f, with_total, &mut binds);
 
         let mut q = sqlx::query_as::<_, EventRow>(sqlx::AssertSqlSafe(sql));
         for b in &binds {
@@ -265,15 +298,15 @@ impl EventsComponent {
             None => Vec::new(),
         };
 
+        // The window aggregate carries the pre-LIMIT/OFFSET total on every returned row, so a
+        // non-empty page needs no second query. An empty page cannot report it: when the offset
+        // ran past the end (or limit <= 0) the true total is still recoverable only by counting.
         let total = if with_total {
-            let mut cbinds: Vec<EventBind> = Vec::new();
-            let cwhere = Self::build_where(f, &mut cbinds);
-            let count_sql = format!("SELECT count(*) FROM event{}", cwhere);
-            let mut cq = sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(count_sql));
-            for b in &cbinds {
-                cq = bind_one_scalar(cq, b);
+            match rows.first() {
+                Some(r) => r.total_count,
+                None if f.offset > 0 || f.limit <= 0 => self.count_only(f).await,
+                None => 0,
             }
-            cq.fetch_one(&self.pool).await.unwrap_or(0)
         } else {
             0
         };
@@ -281,9 +314,19 @@ impl EventsComponent {
         let user = f.user.as_deref();
         let records = rows
             .into_iter()
-            .map(|r| event_row_to_record(r, user, &local_attending))
+            .map(|r| event_row_to_record(r, user, &local_attending, self.rewrite_domain.as_deref()))
             .collect();
         Ok((records, total))
+    }
+
+    async fn count_only(&self, f: &EventListFilters) -> i64 {
+        let mut cbinds: Vec<EventBind> = Vec::new();
+        let count_sql = count_only_sql(f, &mut cbinds);
+        let mut cq = sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(count_sql));
+        for b in &cbinds {
+            cq = bind_one_scalar(cq, b);
+        }
+        cq.fetch_one(&self.pool).await.unwrap_or(0)
     }
 
     async fn local_attending_set(&self, user: &str) -> Result<Vec<String>, ApiError> {
@@ -298,15 +341,13 @@ impl EventsComponent {
     }
 
     pub async fn get(&self, event_id: &str) -> Result<Option<EventRecord>, ApiError> {
-        let row = sqlx::query_as::<_, EventRow>(
-            "SELECT id, name, start_at, finish_at, duration_ms, recurrent, highlighted, trending, \
-             approved, attending, community_id, user_creator, coordinates_x, coordinates_y, \
-             description, raw FROM event WHERE id = $1",
-        )
+        let row = sqlx::query_as::<_, EventRow>(sqlx::AssertSqlSafe(format!(
+            "SELECT {EVENT_COLUMNS} FROM event WHERE id = $1"
+        )))
         .bind(event_id)
         .fetch_optional(&self.pool)
         .await?;
-        Ok(row.map(|r| event_row_to_record(r, None, &[])))
+        Ok(row.map(|r| event_row_to_record(r, None, &[], self.rewrite_domain.as_deref())))
     }
 
     pub async fn attending(&self, user: &str) -> Result<Vec<EventRecord>, ApiError> {
@@ -318,7 +359,9 @@ impl EventsComponent {
         let all_ids: Vec<String> = rows.iter().map(|r| r.id.clone()).collect();
         Ok(rows
             .into_iter()
-            .map(|r| event_row_to_record(r, Some(&user_lc), &all_ids))
+            .map(|r| {
+                event_row_to_record(r, Some(&user_lc), &all_ids, self.rewrite_domain.as_deref())
+            })
             .collect())
     }
 
@@ -348,21 +391,19 @@ impl EventsComponent {
 
     pub async fn moderation_pending(&self, limit: i64) -> Result<Vec<EventRecord>, ApiError> {
         let limit = limit.clamp(0, 500);
-        let rows = sqlx::query_as::<_, EventRow>(
-            "SELECT id, name, start_at, finish_at, duration_ms, recurrent, highlighted, trending, \
-             approved, attending, community_id, user_creator, coordinates_x, coordinates_y, \
-             description, raw FROM event \
+        let rows = sqlx::query_as::<_, EventRow>(sqlx::AssertSqlSafe(format!(
+            "SELECT {EVENT_COLUMNS} FROM event \
              WHERE approved IS NOT TRUE \
                 OR COALESCE((raw->>'rejected')::boolean, false) IS TRUE \
-             ORDER BY next_start_at DESC NULLS LAST \
-             LIMIT $1",
-        )
+             ORDER BY next_start_at DESC NULLS LAST, id ASC \
+             LIMIT $1"
+        )))
         .bind(limit)
         .fetch_all(&self.pool)
         .await?;
         Ok(rows
             .into_iter()
-            .map(|r| event_row_to_record(r, None, &[]))
+            .map(|r| event_row_to_record(r, None, &[], self.rewrite_domain.as_deref()))
             .collect())
     }
 
@@ -444,12 +485,123 @@ impl EventsComponent {
         let is_owner = owner.as_deref() == Some(signer_lc.as_str());
         Ok((approved && !rejected) || is_owner)
     }
+
+    pub async fn get_raw(
+        &self,
+        event_id: &str,
+    ) -> Result<Option<(Value, Option<String>)>, ApiError> {
+        let row: Option<(Value, Option<String>)> =
+            sqlx::query_as("SELECT raw, user_creator FROM event WHERE id = $1")
+                .bind(event_id)
+                .fetch_optional(&self.pool)
+                .await?;
+        Ok(row)
+    }
+
+    pub async fn write_event(
+        &self,
+        id: &str,
+        raw: &Value,
+        signer: &str,
+    ) -> Result<EventRecord, ApiError> {
+        let name = raw.get("name").and_then(|v| v.as_str()).unwrap_or("");
+        let start_at = raw.get("start_at").and_then(|v| v.as_str());
+        let finish_at = raw.get("finish_at").and_then(|v| v.as_str());
+        let next_start_at = raw.get("next_start_at").and_then(|v| v.as_str());
+        let next_finish_at = raw.get("next_finish_at").and_then(|v| v.as_str());
+        let duration = raw.get("duration").and_then(|v| v.as_i64());
+        let recurrent = raw
+            .get("recurrent")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        let highlighted = raw
+            .get("highlighted")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        let trending = raw
+            .get("trending")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        let approved = raw
+            .get("approved")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        let community_id = raw.get("community_id").and_then(|v| v.as_str());
+        let user_creator = raw.get("user").and_then(|v| v.as_str());
+        let x = raw.get("x").and_then(|v| v.as_i64()).map(|v| v as i32);
+        let y = raw.get("y").and_then(|v| v.as_i64()).map(|v| v as i32);
+        let description = raw.get("description").and_then(|v| v.as_str());
+
+        sqlx::query(EVENT_WRITE_SQL)
+            .bind(id)
+            .bind(name)
+            .bind(start_at)
+            .bind(finish_at)
+            .bind(next_start_at)
+            .bind(next_finish_at)
+            .bind(duration)
+            .bind(recurrent)
+            .bind(highlighted)
+            .bind(trending)
+            .bind(approved)
+            .bind(community_id)
+            .bind(user_creator)
+            .bind(x)
+            .bind(y)
+            .bind(description)
+            .bind(raw)
+            .execute(&self.pool)
+            .await?;
+
+        self.upsert_local(id, signer, raw.clone()).await?;
+
+        self.get(id)
+            .await?
+            .ok_or_else(|| ApiError::internal("event vanished after write"))
+    }
 }
+
+const EVENT_WRITE_SQL: &str = r#"
+    INSERT INTO event
+        (id, name, start_at, finish_at, next_start_at, next_finish_at, duration_ms,
+         recurrent, highlighted, trending, approved, community_id,
+         user_creator, coordinates_x, coordinates_y, description, raw, fetched_at)
+    VALUES
+        ($1, $2, $3::timestamptz, $4::timestamptz, $5::timestamptz, $6::timestamptz, $7,
+         $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, now())
+    ON CONFLICT (id) DO UPDATE SET
+        name           = EXCLUDED.name,
+        start_at       = EXCLUDED.start_at,
+        finish_at      = EXCLUDED.finish_at,
+        next_start_at  = EXCLUDED.next_start_at,
+        next_finish_at = EXCLUDED.next_finish_at,
+        duration_ms    = EXCLUDED.duration_ms,
+        recurrent      = EXCLUDED.recurrent,
+        highlighted    = EXCLUDED.highlighted,
+        trending       = EXCLUDED.trending,
+        approved       = EXCLUDED.approved,
+        community_id   = EXCLUDED.community_id,
+        user_creator   = EXCLUDED.user_creator,
+        coordinates_x  = EXCLUDED.coordinates_x,
+        coordinates_y  = EXCLUDED.coordinates_y,
+        description    = EXCLUDED.description,
+        raw            = EXCLUDED.raw,
+        fetched_at     = now()
+"#;
 
 pub const SITEMAP_ITEMS_PER_PAGE: i64 = 100;
 
+/// Column list shared by every event read query (mirrors `PLACE_COLUMNS` in catalyrst-places).
+const EVENT_COLUMNS: &str =
+    "id, name, start_at, finish_at, duration_ms, recurrent, highlighted, trending, \
+     approved, attending, community_id, user_creator, coordinates_x, coordinates_y, \
+     description, raw";
+
 const NOT_DELETED_SQL: &str = " AND (raw->>'deleted_by_user') IS DISTINCT FROM 'true' \
      AND (raw->>'deleted_by_admin') IS DISTINCT FROM 'true'";
+
+const DELETED_ONLY_SQL: &str = " AND ((raw->>'deleted_by_user') = 'true' \
+     OR (raw->>'deleted_by_admin') = 'true')";
 
 const EFF_NEXT_START_SQL: &str = "COALESCE((SELECT min((d.value #>> '{}')::timestamptz) \
      FROM jsonb_array_elements(COALESCE(raw->'recurrent_dates', '[]'::jsonb)) d \
@@ -464,11 +616,17 @@ const EFF_NEXT_FINISH_SQL: &str = "COALESCE((SELECT min((d.value #>> '{}')::time
          + COALESCE(duration_ms, 0) * interval '1 millisecond', \
      next_finish_at, finish_at)";
 
+fn next_start_order_by(order: SortOrder) -> String {
+    let dir = match order {
+        SortOrder::Asc => "ASC",
+        SortOrder::Desc => "DESC",
+    };
+    format!(" ORDER BY {EFF_NEXT_START_SQL} {dir} NULLS LAST, id ASC")
+}
+
 fn attending_sql() -> String {
     format!(
-        "SELECT id, name, start_at, finish_at, duration_ms, recurrent, highlighted, trending, \
-         approved, attending, community_id, user_creator, coordinates_x, coordinates_y, \
-         description, raw FROM event \
+        "SELECT {EVENT_COLUMNS} FROM event \
          WHERE {EFF_NEXT_FINISH_SQL} > now() \
            AND COALESCE((raw->>'rejected')::boolean, false) IS FALSE \
            AND (raw->>'deleted_by_user') IS DISTINCT FROM 'true' \
@@ -477,7 +635,7 @@ fn attending_sql() -> String {
              id IN (SELECT event_id FROM event_attendance_local WHERE signer = $1 AND action = 'going') \
              OR raw->'latest_attendees' ? $1 \
            ) \
-         ORDER BY {EFF_NEXT_START_SQL} ASC NULLS LAST"
+         ORDER BY {EFF_NEXT_START_SQL} ASC NULLS LAST, id ASC"
     )
 }
 
@@ -516,12 +674,7 @@ fn to_tsquery(input: &str) -> String {
     terms.join(" & ")
 }
 
-impl EventListFilters {
-    fn approved_visibility(&self) -> bool {
-        false
-    }
-}
-
+#[derive(Debug)]
 enum EventBind {
     Text(String),
     Int(i32),
@@ -533,6 +686,46 @@ enum EventBind {
 fn next_placeholder(binds: &mut Vec<EventBind>, bind: EventBind) -> String {
     binds.push(bind);
     format!("${}", binds.len())
+}
+
+/// Assemble the paginated list query. When `with_total`, the pre-LIMIT row count rides along as
+/// `count(*) OVER() AS total_count` -- same semantics as a separate `count(*)` over the same
+/// WHERE, no extra bind parameters, and it changes ONLY the select list.
+fn build_list_sql(f: &EventListFilters, with_total: bool, binds: &mut Vec<EventBind>) -> String {
+    let where_sql = EventsComponent::build_where(f, binds);
+    let extra = if with_total {
+        ", count(*) OVER() AS total_count"
+    } else {
+        ""
+    };
+
+    let order_clause = if let Some(s) = &f.search {
+        let dir = if matches!(f.order, SortOrder::Asc) {
+            "ASC"
+        } else {
+            "DESC"
+        };
+        let p = next_placeholder(binds, EventBind::Text(to_tsquery(s)));
+        format!(
+            " ORDER BY ts_rank_cd({tsv}, to_tsquery('english', {p})) {dir}, id ASC",
+            tsv = TEXTSEARCH_EXPR
+        )
+    } else {
+        next_start_order_by(f.order)
+    };
+
+    let lim_p = next_placeholder(binds, EventBind::Int64(f.limit.max(0)));
+    let off_p = next_placeholder(binds, EventBind::Int64(f.offset.max(0)));
+    format!(
+        "SELECT {EVENT_COLUMNS}{extra} FROM event{where_sql}{order_clause} LIMIT {lim_p} OFFSET {off_p}"
+    )
+}
+
+/// The rare-path count, unchanged from the old two-query design: recovers the true total for an
+/// empty page that ran past the offset.
+fn count_only_sql(f: &EventListFilters, binds: &mut Vec<EventBind>) -> String {
+    let where_sql = EventsComponent::build_where(f, binds);
+    format!("SELECT count(*) FROM event{where_sql}")
 }
 
 fn bind_one<'q>(
@@ -561,18 +754,46 @@ fn bind_one_scalar<'q>(
     }
 }
 
+fn rewrite_asset_host(url: &str, domain: &str) -> Option<String> {
+    let rest = url.strip_prefix("https://")?;
+    let (host, path) = rest.split_once('/')?;
+    let bucket = host.strip_suffix(".decentraland.org")?;
+    bucket
+        .starts_with("events-assets-")
+        .then(|| format!("https://{bucket}.{domain}/{path}"))
+}
+
+fn rewrite_asset_url(url: &str, domain: Option<&str>) -> String {
+    domain
+        .and_then(|d| rewrite_asset_host(url, d))
+        .unwrap_or_else(|| url.to_string())
+}
+
 fn event_row_to_record(
     r: EventRow,
     attending_user: Option<&str>,
     local_attending: &[String],
+    rewrite_domain: Option<&str>,
 ) -> EventRecord {
     let raw = &r.raw;
     let x = r.coordinates_x.unwrap_or(0);
     let y = r.coordinates_y.unwrap_or(0);
-    let image = raw.get("image").and_then(|v| v.as_str()).map(String::from);
-    let image_vertical = raw.get("image_vertical").cloned();
+    let image = raw
+        .get("image")
+        .and_then(|v| v.as_str())
+        .and_then(|s| sanitize_asset_url(s).ok())
+        .map(|s| rewrite_asset_url(&s, rewrite_domain));
+    let image_vertical = raw.get("image_vertical").cloned().and_then(|v| match v {
+        serde_json::Value::String(s) => sanitize_asset_url(&s)
+            .ok()
+            .map(|safe| serde_json::Value::String(rewrite_asset_url(&safe, rewrite_domain))),
+        other => Some(other),
+    });
     let server = raw.get("server").and_then(|v| v.as_str()).map(String::from);
-    let url = raw.get("url").and_then(|v| v.as_str()).map(String::from);
+    let url = raw
+        .get("url")
+        .and_then(|v| v.as_str())
+        .and_then(|s| validate_event_url(s).ok());
     let user = raw
         .get("user")
         .and_then(|v| v.as_str())
@@ -649,11 +870,14 @@ fn event_row_to_record(
         name: r.name,
         image,
         image_vertical,
-        description: r.description.or_else(|| {
-            raw.get("description")
-                .and_then(|v| v.as_str())
-                .map(String::from)
-        }),
+        description: r
+            .description
+            .or_else(|| {
+                raw.get("description")
+                    .and_then(|v| v.as_str())
+                    .map(String::from)
+            })
+            .map(|d| sanitize_event_description(&d)),
         start_at: r.start_at,
         finish_at: r.finish_at,
         next_start_at,
@@ -739,8 +963,30 @@ fn event_row_to_record(
             .and_then(|v| v.as_str())
             .map(String::from),
         community_id: r.community_id,
+        featured_item: raw_str(raw, "featured_item"),
+        created_at: parse_dt(raw.get("created_at")),
+        updated_at: parse_dt(raw.get("updated_at")),
+        approved_by: raw_str(raw, "approved_by"),
+        rejected_by: raw_str(raw, "rejected_by"),
+        rejection_reason: raw_str(raw, "rejection_reason"),
+        deleted_by_user: raw
+            .get("deleted_by_user")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false),
+        deleted_by_admin: raw
+            .get("deleted_by_admin")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false),
+        deleted_by: raw_str(raw, "deleted_by"),
+        deleted_at: parse_dt(raw.get("deleted_at")),
+        deleted_reason: raw_str(raw, "deleted_reason"),
+        previous_place_id: raw_str(raw, "previous_place_id"),
         connected_addresses: None,
     }
+}
+
+fn raw_str(raw: &Value, key: &str) -> Option<String> {
+    raw.get(key).and_then(|v| v.as_str()).map(String::from)
 }
 
 fn parse_dt(v: Option<&Value>) -> Option<DateTime<Utc>> {
@@ -751,263 +997,5 @@ fn parse_dt(v: Option<&Value>) -> Option<DateTime<Utc>> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-
-    const DELETED_USER_CLAUSE: &str = "(raw->>'deleted_by_user') IS DISTINCT FROM 'true'";
-    const DELETED_ADMIN_CLAUSE: &str = "(raw->>'deleted_by_admin') IS DISTINCT FROM 'true'";
-
-    #[test]
-    fn build_where_excludes_soft_deleted_for_every_list_type() {
-        for list in [
-            EventListType::All,
-            EventListType::Active,
-            EventListType::Live,
-            EventListType::Upcoming,
-        ] {
-            let f = EventListFilters {
-                list,
-                ..Default::default()
-            };
-            let mut binds = Vec::new();
-            let sql = EventsComponent::build_where(&f, &mut binds);
-            assert!(
-                sql.contains(DELETED_USER_CLAUSE),
-                "deleted_by_user guard missing for {list:?}: {sql}"
-            );
-            assert!(
-                sql.contains(DELETED_ADMIN_CLAUSE),
-                "deleted_by_admin guard missing for {list:?}: {sql}"
-            );
-        }
-    }
-
-    #[test]
-    fn build_where_appends_soft_delete_guard_last() {
-        let f = EventListFilters {
-            creator: Some("0xABC".into()),
-            community_id: Some("c1".into()),
-            highlighted: Some(true),
-            ..Default::default()
-        };
-        let mut binds = Vec::new();
-        let sql = EventsComponent::build_where(&f, &mut binds);
-        assert!(
-            sql.ends_with(NOT_DELETED_SQL),
-            "soft-delete guard must be the trailing clause: {sql}"
-        );
-    }
-
-    #[test]
-    fn sibling_builders_exclude_soft_deleted() {
-        for sql in [attending_sql(), SITEMAP_SQL.to_string()] {
-            assert!(
-                sql.contains(DELETED_USER_CLAUSE),
-                "missing user guard: {sql}"
-            );
-            assert!(
-                sql.contains(DELETED_ADMIN_CLAUSE),
-                "missing admin guard: {sql}"
-            );
-        }
-    }
-
-    #[test]
-    fn build_where_date_filters_use_recomputed_occurrences() {
-        for list in [
-            EventListType::Active,
-            EventListType::Live,
-            EventListType::Upcoming,
-        ] {
-            let f = EventListFilters {
-                list,
-                ..Default::default()
-            };
-            let mut binds = Vec::new();
-            let sql = EventsComponent::build_where(&f, &mut binds);
-            assert!(
-                sql.contains("recurrent_dates"),
-                "stale snapshot columns must not gate {list:?}: {sql}"
-            );
-        }
-        assert!(attending_sql().contains("recurrent_dates"));
-    }
-
-    fn row_with(raw: Value, start_at: Option<DateTime<Utc>>, duration_ms: Option<i64>) -> EventRow {
-        EventRow {
-            id: "e1".into(),
-            name: "Weekly Show".into(),
-            start_at,
-            finish_at: start_at
-                .map(|s| s + chrono::Duration::milliseconds(duration_ms.unwrap_or(0))),
-            duration_ms,
-            recurrent: true,
-            highlighted: false,
-            trending: false,
-            approved: true,
-            attending: None,
-            community_id: None,
-            user_creator: None,
-            coordinates_x: Some(0),
-            coordinates_y: Some(0),
-            description: None,
-            raw,
-        }
-    }
-
-    #[test]
-    fn record_recomputes_next_occurrence_from_recurrent_dates() {
-        let now = Utc::now();
-        let past = now - chrono::Duration::days(7);
-        let future = now + chrono::Duration::days(1);
-        let raw = json!({
-            "next_start_at": past.to_rfc3339(),
-            "next_finish_at": (past + chrono::Duration::hours(2)).to_rfc3339(),
-            "recurrent_dates": [past.to_rfc3339(), future.to_rfc3339()],
-        });
-        let rec = event_row_to_record(
-            row_with(
-                raw,
-                Some(past - chrono::Duration::days(30)),
-                Some(7_200_000),
-            ),
-            None,
-            &[],
-        );
-        assert_eq!(
-            rec.next_start_at.map(|d| d.timestamp()),
-            Some(future.timestamp())
-        );
-        assert_eq!(
-            rec.next_finish_at.map(|d| d.timestamp()),
-            Some((future + chrono::Duration::hours(2)).timestamp())
-        );
-        assert!(!rec.live);
-    }
-
-    #[test]
-    fn record_marks_current_occurrence_live() {
-        let now = Utc::now();
-        let started = now - chrono::Duration::minutes(30);
-        let raw = json!({ "recurrent_dates": [started.to_rfc3339()] });
-        let rec = event_row_to_record(row_with(raw, Some(started), Some(7_200_000)), None, &[]);
-        assert_eq!(
-            rec.next_start_at.map(|d| d.timestamp()),
-            Some(started.timestamp())
-        );
-        assert!(rec.live);
-    }
-
-    #[test]
-    fn record_falls_back_to_snapshot_when_no_future_occurrence() {
-        let now = Utc::now();
-        let past = now - chrono::Duration::days(7);
-        let raw = json!({
-            "next_start_at": past.to_rfc3339(),
-            "next_finish_at": (past + chrono::Duration::hours(2)).to_rfc3339(),
-            "recurrent_dates": [past.to_rfc3339()],
-        });
-        let rec = event_row_to_record(row_with(raw, Some(past), Some(7_200_000)), None, &[]);
-        assert_eq!(
-            rec.next_start_at.map(|d| d.timestamp()),
-            Some(past.timestamp())
-        );
-        assert!(!rec.live);
-    }
-
-    const APPROVED_CLAUSE: &str = "approved IS TRUE";
-    const REJECTED_FALSE_CLAUSE: &str = "COALESCE((raw->>'rejected')::boolean, false) IS FALSE";
-
-    #[test]
-    fn build_where_owner_scopes_to_user_and_drops_status_filters() {
-        let f = EventListFilters {
-            owner: true,
-            user: Some("0xABC".into()),
-            ..Default::default()
-        };
-        let mut binds = Vec::new();
-        let sql = EventsComponent::build_where(&f, &mut binds);
-        assert!(
-            sql.contains("lower(user_creator) = $1"),
-            "owner listing must key on the auth user: {sql}"
-        );
-        assert!(
-            !sql.contains(APPROVED_CLAUSE),
-            "owner listing must not force approved-only: {sql}"
-        );
-        assert!(
-            !sql.contains(REJECTED_FALSE_CLAUSE),
-            "owner listing must not exclude rejected events: {sql}"
-        );
-        assert!(
-            matches!(binds.first(), Some(EventBind::Text(u)) if u.as_str() == "0xabc"),
-            "auth user must be bound lower-cased"
-        );
-    }
-
-    #[test]
-    fn build_where_owner_overrides_creator() {
-        let f = EventListFilters {
-            owner: true,
-            user: Some("0xabc".into()),
-            creator: Some("0xdef".into()),
-            ..Default::default()
-        };
-        let mut binds = Vec::new();
-        let sql = EventsComponent::build_where(&f, &mut binds);
-        assert_eq!(
-            sql.matches("lower(user_creator)").count(),
-            1,
-            "creator filter must be suppressed under owner: {sql}"
-        );
-        assert!(matches!(binds.first(), Some(EventBind::Text(u)) if u.as_str() == "0xabc"));
-    }
-
-    #[test]
-    fn build_where_non_owner_keeps_status_filters() {
-        let f = EventListFilters {
-            user: Some("0xabc".into()),
-            ..Default::default()
-        };
-        let mut binds = Vec::new();
-        let sql = EventsComponent::build_where(&f, &mut binds);
-        assert!(
-            sql.contains(APPROVED_CLAUSE),
-            "non-owner must force approved: {sql}"
-        );
-        assert!(
-            sql.contains(REJECTED_FALSE_CLAUSE),
-            "non-owner must exclude rejected: {sql}"
-        );
-    }
-
-    #[test]
-    fn build_where_owner_without_user_yields_no_rows() {
-        let f = EventListFilters {
-            owner: true,
-            user: None,
-            ..Default::default()
-        };
-        let mut binds = Vec::new();
-        let sql = EventsComponent::build_where(&f, &mut binds);
-        assert!(
-            sql.contains(" AND FALSE"),
-            "owner-without-user must match nothing: {sql}"
-        );
-    }
-
-    #[test]
-    fn raw_is_soft_deleted_matches_delete_flags() {
-        assert!(raw_is_soft_deleted(&json!({ "deleted_by_user": true })));
-        assert!(raw_is_soft_deleted(&json!({ "deleted_by_admin": true })));
-        assert!(raw_is_soft_deleted(
-            &json!({ "deleted_by_user": false, "deleted_by_admin": true })
-        ));
-        assert!(!raw_is_soft_deleted(
-            &json!({ "deleted_by_user": false, "deleted_by_admin": false })
-        ));
-        assert!(!raw_is_soft_deleted(&json!({})));
-        assert!(!raw_is_soft_deleted(&json!({ "name": "party" })));
-    }
-}
+#[path = "events_tests.rs"]
+mod tests;

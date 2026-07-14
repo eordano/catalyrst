@@ -1,0 +1,21 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT to_regclass('marketplace.usage_grants') IS NOT NULL\n         AND has_table_privilege(current_user, 'marketplace.usage_grants', 'SELECT') AS \"present!\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "present!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "71e40aaf7e6d6537cce3e2e800cc920aa92b9469a1ff4f5bf6d4bcc3bafb6592"
+}

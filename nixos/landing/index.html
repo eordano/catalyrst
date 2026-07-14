@@ -70,20 +70,20 @@ a:hover{color:var(--accent);border-bottom-color:var(--accent)}
 <div class="top">
  <h1><span class="dot ok" id="dot"></span>catalyrst</h1>
  <nav>
-  <a href="/about">/about</a> · <a href="/content/status">/status</a> · <a href="/lambdas/status">/lambdas</a> · <a href="https://decentraland.github.io/catalyst-monitor/" target="_blank" rel="noopener">monitor↗</a>
+  <a href="/about">/about</a> &#xB7; <a href="/content/status">/status</a> &#xB7; <a href="/lambdas/status">/lambdas</a> &#xB7; <a href="https://decentraland.github.io/catalyst-monitor/" target="_blank" rel="noopener">monitor&#x2197;</a>
  </nav>
 </div>
 
 <section class="hero">
- <div class="big text"><span class="lbl" id="syncLbl">Up to date</span><span id="sync">—</span></div>
- <div class="big r"><span class="lbl">Users</span><span id="users">—</span></div>
+ <div class="big text"><span class="lbl" id="syncLbl">Up to date</span><span id="sync">&#x2014;</span></div>
+ <div class="big r"><span class="lbl">Users</span><span id="users">&#x2014;</span></div>
 </section>
 
 <section class="kv">
- <div><b>Content</b><span id="cv">—</span></div>
- <div><b>Lambdas</b><span id="lv">—</span></div>
- <div><b>Archipelago</b><span id="av">—</span></div>
- <div><b>Failed</b><span id="failed">—</span></div>
+ <div><b>Content</b><span id="cv">&#x2014;</span></div>
+ <div><b>Lambdas</b><span id="lv">&#x2014;</span></div>
+ <div><b>Archipelago</b><span id="av">&#x2014;</span></div>
+ <div><b>Failed</b><span id="failed">&#x2014;</span></div>
 </section>
 
 <div class="row"><span class="lbl">Source</span><span class="v">
@@ -135,7 +135,7 @@ a:hover{color:var(--accent);border-bottom-color:var(--accent)}
 </span></div>
 
 <div class="ft">
- <span><a href="https://github.com/eordano/catalyrst" target="_blank" rel="noopener">catalyrst</a> · <span id="lu">—</span> · uptime <span id="ut">—</span></span>
+ <span><a href="https://github.com/eordano/catalyrst" target="_blank" rel="noopener">catalyrst</a> &#xB7; <span id="lu">&#x2014;</span> &#xB7; uptime <span id="ut">&#x2014;</span></span>
 </div>
 
 </div>
@@ -143,11 +143,11 @@ a:hover{color:var(--accent);border-bottom-color:var(--accent)}
 <script>
 (function(){
 var $=function(id){return document.getElementById(id)};
-var set=function(id,v){var el=$(id);if(el)el.textContent=(v==null||v===''?'—':v)};
+var set=function(id,v){var el=$(id);if(el)el.textContent=(v==null||v===''?'&#x2014;':v)};
 var setHTML=function(id,h){var el=$(id);if(el)el.innerHTML=h};
 var boot=Date.now();
 var lastOk=null;
-var lastState='—';
+var lastState='&#x2014;';
 function ut(){
  var s=Math.floor((Date.now()-boot)/1000),d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60),x=s%60;
  var z=function(n){return String(n).padStart(2,'0')};
@@ -156,7 +156,7 @@ function ut(){
   var n=Math.floor((Date.now()-lastOk)/1000);
   setHTML('sync','<b>'+n+'</b>s since last sync');
   set('syncLbl','Up to date');
- }else if(lastState!=='—'){
+ }else if(lastState!=='&#x2014;'){
   set('sync',lastState);
   set('syncLbl','Status');
  }
@@ -169,7 +169,7 @@ async function tick(){
   set('lv',j.lambdas&&j.lambdas.version);
   set('av',j.comms&&j.comms.version);
   set('users',j.comms&&j.comms.usersCount!=null?j.comms.usersCount:0);
-  lastState=(j.content&&j.content.synchronizationStatus)||'—';
+  lastState=(j.content&&j.content.synchronizationStatus)||'&#x2014;';
   lastOk=Date.now();
   var d=$('dot');d.className='dot '+(j.healthy?'ok':'err');
   document.body.classList.remove('stale');
@@ -177,7 +177,7 @@ async function tick(){
  try{
   var rf=await fetch('/content/failed-deployments',{cache:'no-store'});
   var jf=await rf.json();
-  set('failed',Array.isArray(jf)?jf.length:'—');
+  set('failed',Array.isArray(jf)?jf.length:'&#x2014;');
  }catch(e){}
  set('lu',new Date().toISOString().slice(11,19)+'Z');
 }
@@ -193,6 +193,10 @@ function ago(ms){
  if(d<86400000)return Math.floor(d/3600000)+'h ago';
  return Math.floor(d/86400000)+'d ago';
 }
+function deepLink(position){
+ var realm=location.origin;
+ return 'decentraland://realm='+encodeURIComponent(realm)+'&position='+encodeURIComponent(position);
+}
 function fmtItem(d){
  var t=d.entityType,p=(d.pointers||[])[0]||'',m=d.metadata||{},ts=d.localTimestamp||d.auditInfo&&d.auditInfo.localTimestamp||0;
  var aTag,kind=t;
@@ -202,7 +206,10 @@ function fmtItem(d){
  } else if(t==='scene'){
   var title=(m.display&&m.display.title)||m.title||'untitled';
   var base=(m.scene&&m.scene.base)||p;
-  aTag='<a target="_blank" rel="noopener" href="https://decentraland.org/play/?position='+esc(base)+'">'+esc(title)+' ('+esc(base)+')</a>';
+  // This node's realm, via the protocol handler. decentraland.org/play forwards
+  // `realm` only for realms it whitelists, so its link would open the official
+  // Genesis at these coordinates rather than the scene deployed here.
+  aTag='<a rel="noopener" href="'+esc(deepLink(base))+'">'+esc(title)+' ('+esc(base)+')</a>';
  } else if(t==='wearable'||t==='emote'){
   var name2=m.name||'untitled '+t;
   var collAddr=m.collectionAddress||'';

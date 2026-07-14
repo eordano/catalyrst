@@ -58,12 +58,11 @@ fn no_redirect_client() -> &'static reqwest::Client {
     use std::sync::OnceLock;
     static C: OnceLock<reqwest::Client> = OnceLock::new();
     C.get_or_init(|| {
-        reqwest::Client::builder()
-            .user_agent("catalyrst-explorer-api/0.1")
-            .timeout(std::time::Duration::from_secs(15))
-            .redirect(reqwest::redirect::Policy::none())
-            .build()
-            .expect("failed to build no-redirect reqwest client")
+        catalyrst_commons::http::http_client(
+            "builder-proxy",
+            &catalyrst_commons::http::HttpClientCfg::default()
+                .with_total_timeout(std::time::Duration::from_secs(15)),
+        )
     })
 }
 
