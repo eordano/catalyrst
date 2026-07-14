@@ -1,0 +1,53 @@
+/* What the page is, and where a player responds instead — directly under the
+   head, before any number. */
+.fd-response__frame {
+  margin: 0;
+  max-width: var(--measure);
+  font-size: var(--fs-14);
+  line-height: var(--lh-body);
+  color: var(--ink-6);
+}
+
+.fd-response__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+
+.fd-response__line {
+  margin: 0;
+  max-width: var(--measure);
+  font-size: var(--fs-13);
+  line-height: var(--lh-body);
+  color: var(--ink-6);
+}
+
+.fd-response__tools {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+
+.fd-response__tool {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-2);
+  max-width: var(--measure);
+  font-size: var(--fs-13);
+  line-height: var(--lh-body);
+  color: var(--ink-6);
+}
+
+/* The state is this program's reading of what exists here, not a measured
+   verdict — dashed like every other derived chip, and never tinted. */
+.fd-response__toolstate {
+  flex: none;
+  min-width: 64px;
+  justify-content: center;
+}

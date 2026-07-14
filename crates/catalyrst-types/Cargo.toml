@@ -1,6 +1,6 @@
 [package]
 name = "catalyrst-types"
-version = "0.9.10"
+version = "0.18.2"
 edition = "2021"
 description = "Rust port of the Decentraland catalyst content server type definitions"
 
@@ -12,7 +12,11 @@ thiserror = { workspace = true }
 axum = { workspace = true }
 sqlx = { workspace = true, optional = true }
 tracing = { workspace = true }
+flate2 = "1"
+hex = "0.4"
+utoipa = { workspace = true, optional = true }
 
 [features]
 default = ["sqlx"]
 sqlx = ["dep:sqlx"]
+openapi = ["dep:utoipa"]

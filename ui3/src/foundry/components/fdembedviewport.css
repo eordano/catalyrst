@@ -1,0 +1,40 @@
+.fd-embed {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  background: var(--fill-1);
+  overflow: hidden;
+}
+
+.fd-embed--idle {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s-3);
+  padding: var(--s-5);
+  text-align: center;
+}
+
+.fd-embed__pitch {
+  margin: 0;
+  max-width: var(--measure);
+  font-size: var(--fs-13);
+  line-height: var(--lh-body);
+  color: var(--ink-6);
+}
+
+.fd-embed__frame {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+
+@media (max-width: 600px) {
+  .fd-embed {
+    aspect-ratio: 4 / 3;
+  }
+}

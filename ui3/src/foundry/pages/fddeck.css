@@ -1,0 +1,61 @@
+/* The bar marks where the deck's content starts and stops — a quoted passage
+   or one of its own tables. Everything without a bar is site voice. */
+.fd-deck__quote,
+.fd-deck__figure {
+  margin: 0;
+  padding-left: var(--s-4);
+  border-left: 3px solid var(--line);
+}
+
+.fd-deck__quote + .fd-deck__figure,
+.fd-deck__figure + .fd-deck__quote,
+.fd-deck__quote + .fd-deck__quote {
+  margin-top: var(--s-4);
+}
+
+.fd-deck__quote p {
+  margin: 0 0 var(--s-3);
+  max-width: var(--measure);
+  font-size: var(--fs-13);
+  line-height: var(--lh-body);
+  color: var(--ink-85);
+}
+
+.fd-deck__quote p:last-child {
+  margin-bottom: 0;
+}
+
+/* A gap in a quoted run — lines the site does not quote sit here. */
+.fd-deck__omit {
+  color: var(--ink-45);
+  user-select: none;
+}
+
+.fd-deck__figure > .fd-subhead {
+  margin: 0 0 var(--s-2);
+}
+
+.fd-deck__tools {
+  margin: 0;
+  padding-left: var(--s-5);
+  font-size: var(--fs-13);
+  line-height: var(--lh-ui);
+  color: var(--ink-85);
+}
+
+.fd-deck__tools li + li {
+  margin-top: var(--s-2);
+}
+
+.fd-deck__tools .fd-chip {
+  margin-left: var(--s-2);
+}
+
+/* A deep-linked slide says which one it is when the anchor lands. */
+.fd-deck .fd-section:target {
+  scroll-margin-top: var(--s-6);
+}
+
+.fd-deck .fd-section:target .fd-section__title {
+  color: var(--brand-ink);
+}

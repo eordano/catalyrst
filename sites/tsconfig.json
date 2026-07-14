@@ -1,0 +1,48 @@
+{
+  "include": [
+    "**/*.ts",
+    "**/*.tsx",
+    "**/.server/**/*.ts",
+    "**/.server/**/*.tsx",
+    "**/.client/**/*.ts",
+    "**/.client/**/*.tsx",
+    ".react-router/types/**/*",
+    "../ui3/src/overlay/dcl-globals.d.ts",
+    "../ui3/src/editor/code/monaco-modules.d.ts",
+    "../ui3/src/wearable-preview/three-shim.d.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "build",
+    "template-games"
+  ],
+  "compilerOptions": {
+    "lib": ["DOM", "DOM.Iterable", "ES2022"],
+    "types": ["node", "vite/client"],
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "rootDirs": [".", "./.react-router/types"],
+    "paths": {
+      "@ui/*": ["../ui3/src/*"],
+      // The validation seam ui3 owns. Types always resolve to the checking
+      // implementation: both expose the same surface, so either type-checks the
+      // same, and this keeps zod's types reachable.
+      "dcl-validate-impl": ["../ui3/src/validate/checked.ts"],
+      "@core/*": ["./packages/core/src/*"],
+      "@data/*": ["./packages/data/src/*"],
+      "@features/*": ["./packages/features/src/*"],
+      "@routes/*": ["./packages/routes/app/*"]
+    },
+    "esModuleInterop": true,
+    "verbatimModuleSyntax": true,
+    "noEmit": true,
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+    "allowJs": true,
+    "checkJs": false,
+    "strict": true,
+    "isolatedModules": true
+  }
+}

@@ -4,9 +4,6 @@ use std::time::Duration;
 use chrono::{DateTime, Utc};
 use sqlx::PgPool;
 
-pub const DEFAULT_TRADES_SYNC_UPSTREAM_URL: &str =
-    "https://marketplace-api.decentraland.org/v1/trades";
-
 pub const DEFAULT_TRADES_SYNC_INTERVAL_SECS: u64 = 900;
 
 #[derive(Debug, Clone)]
@@ -140,6 +137,22 @@ pub fn parse_detail_assets(detail: &serde_json::Value) -> Result<Vec<UpstreamTra
     Ok(out)
 }
 
+pub async fn known_signatures_among(
+    pool: &PgPool,
+    batch: &[String],
+) -> Result<HashSet<String>, sqlx::Error> {
+    if batch.is_empty() {
+        return Ok(HashSet::new());
+    }
+    let rows = sqlx::query_scalar::<_, String>(
+        "SELECT hashed_signature FROM marketplace.trades WHERE hashed_signature = ANY($1)",
+    )
+    .bind(batch)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows.into_iter().collect())
+}
+
 async fn insert_trade(
     pool: &PgPool,
     head: &UpstreamTradeHead,
@@ -258,14 +271,14 @@ async fn run_sweep(
         .and_then(|d| d.as_array())
         .ok_or("upstream list missing data.data array")?;
 
-    let known: HashSet<String> =
-        sqlx::query_scalar::<_, String>("SELECT hashed_signature FROM marketplace.trades")
-            .fetch_all(pool)
-            .await
-            .map_err(|e| format!("local hashed_signature scan failed: {e}"))?
-            .into_iter()
-            .map(|s| s.to_lowercase())
-            .collect();
+    let parsed: Vec<Result<UpstreamTradeHead, String>> = rows.iter().map(parse_list_row).collect();
+    let batch: Vec<String> = parsed
+        .iter()
+        .filter_map(|r| r.as_ref().ok().map(|h| h.hashed_signature.clone()))
+        .collect();
+    let known = known_signatures_among(pool, &batch)
+        .await
+        .map_err(|e| format!("local hashed_signature scan failed: {e}"))?;
 
     let mut stats = SweepStats {
         fetched: rows.len(),
@@ -275,8 +288,8 @@ async fn run_sweep(
     };
 
     let detail_base = list_url.trim_end_matches('/');
-    for row in rows {
-        let head = match parse_list_row(row) {
+    for parsed_row in parsed {
+        let head = match parsed_row {
             Ok(h) => h,
             Err(e) => {
                 stats.failed += 1;

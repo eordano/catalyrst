@@ -1,0 +1,220 @@
+.fd-ev {
+  display: grid;
+  grid-template-columns: 48px 64px 108px minmax(0, 1fr);
+  gap: var(--s-3);
+  align-items: start;
+  padding: var(--s-2) var(--s-3);
+  padding-left: calc(var(--s-3) + var(--fd-ev-depth, 0) * var(--s-4));
+  border-top: 1px solid var(--line);
+  font-size: var(--fs-13);
+  line-height: var(--lh-ui);
+}
+
+.fd-ev:first-child {
+  border-top: 0;
+}
+
+/* Seekable rows: a stretched button covers the row so one click anywhere on it
+   moves the replay cursor. Text stays selectable above it only where marked. */
+.fd-ev--seek {
+  position: relative;
+  cursor: pointer;
+}
+
+.fd-ev--seek:hover {
+  background: var(--fill-2);
+}
+
+.fd-ev--seek.is-selected {
+  background: color-mix(in srgb, var(--brand) 10%, transparent);
+  border-left: 2px solid var(--brand);
+}
+
+.fd-ev__seek {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.fd-ev__seek:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring-color);
+  outline-offset: calc(-1 * var(--focus-ring-width));
+}
+
+.fd-ev--bracket {
+  background: var(--fill-1);
+}
+
+.fd-ev--bracket.is-open {
+  border-left: 2px solid color-mix(in srgb, var(--warning) 55%, transparent);
+}
+
+.fd-ev__seq,
+.fd-ev__at {
+  font-family: var(--font-mono);
+  font-size: var(--fs-11);
+  line-height: var(--lh-ui);
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-45);
+  white-space: nowrap;
+}
+
+.fd-ev__type {
+  font-family: var(--font-mono);
+  font-size: var(--fs-11);
+  line-height: var(--lh-ui);
+  color: var(--ink-7);
+  white-space: nowrap;
+}
+
+.fd-ev__main {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+  align-items: baseline;
+  min-width: 0;
+}
+
+.fd-ev__body {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+  align-items: baseline;
+  min-width: 0;
+  flex: 1 1 100%;
+}
+
+.fd-ev__line {
+  line-height: var(--lh-ui);
+  color: var(--ink-85);
+}
+
+.fd-ev__reason {
+  font-weight: var(--fw-semibold);
+  color: var(--text);
+}
+
+.fd-ev__name {
+  font-family: var(--font-mono);
+  font-size: var(--fs-12);
+  line-height: var(--lh-ui);
+  color: var(--text);
+}
+
+.fd-ev__callid,
+.fd-ev__chip {
+  padding: 2px 9px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-pill);
+  font-size: var(--fs-11);
+  line-height: var(--lh-ui);
+  color: var(--ink-6);
+  white-space: nowrap;
+}
+
+.fd-ev__detail {
+  color: var(--ink-85);
+}
+
+.fd-ev__why {
+  flex: 1 1 100%;
+  margin: 0;
+  max-width: var(--measure);
+  font-size: var(--fs-12);
+  line-height: var(--lh-body);
+  color: var(--ink-6);
+}
+
+.fd-ev__span {
+  font-family: var(--font-mono);
+  font-size: var(--fs-11);
+  line-height: var(--lh-ui);
+  color: var(--ink-45);
+  white-space: nowrap;
+}
+
+.fd-ev__verdict {
+  padding: 2px 9px;
+  border: 1px solid transparent;
+  border-radius: var(--r-pill);
+  font-size: var(--fs-11);
+  font-weight: var(--fw-bold);
+  line-height: var(--lh-ui);
+  letter-spacing: 0.04em;
+}
+
+.fd-ev__verdict.is-pass {
+  color: var(--success);
+  border-color: color-mix(in srgb, var(--success) 40%, transparent);
+  background: color-mix(in srgb, var(--success) 14%, transparent);
+}
+
+.fd-ev__verdict.is-fail {
+  color: var(--error);
+  border-color: color-mix(in srgb, var(--error) 40%, transparent);
+  background: color-mix(in srgb, var(--error) 14%, transparent);
+}
+
+.fd-ev__pre {
+  flex: 1 1 100%;
+  margin: var(--s-1) 0 0;
+  padding: var(--s-2) var(--s-3);
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--r-control);
+  background: var(--fill-1);
+  font-family: var(--font-mono);
+  font-size: var(--fs-12);
+  line-height: var(--lh-code);
+  color: var(--ink-85);
+  white-space: pre;
+}
+
+.fd-ev__pre--verbatim {
+  background: transparent;
+  border-color: transparent;
+  padding: 0;
+}
+
+.fd-ev__shots {
+  flex: 1 1 100%;
+  margin-top: var(--s-1);
+}
+
+.fd-ev__shotslabel {
+  font-size: var(--fs-11);
+  line-height: var(--lh-ui);
+  color: var(--ink-45);
+}
+
+.fd-ev__shots ul {
+  margin: var(--s-1) 0 0;
+  padding-left: var(--s-4);
+  font-family: var(--font-mono);
+  font-size: var(--fs-12);
+  line-height: var(--lh-code);
+  color: var(--ink-7);
+}
+
+.fd-ev__trunc,
+.fd-ev__omitted {
+  flex: 1 1 100%;
+  margin: var(--s-1) 0 0;
+  font-size: var(--fs-12);
+  line-height: var(--lh-body);
+  color: var(--ink-45);
+}
+
+@media (max-width: 600px) {
+  .fd-ev {
+    grid-template-columns: 40px minmax(0, 1fr);
+  }
+
+  .fd-ev__at,
+  .fd-ev__type {
+    grid-column: 2;
+  }
+}

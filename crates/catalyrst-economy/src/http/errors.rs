@@ -1,7 +1,7 @@
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::Json;
-use serde_json::json;
+use catalyrst_types::ApiErrorBody;
 use thiserror::Error;
 
 pub mod code {
@@ -92,9 +92,27 @@ impl IntoResponse for ApiError {
         };
         let status = StatusCode::from_u16(code_num).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
         let body = match err_code {
-            Some(c) => json!({ "ok": false, "message": message, "code": c }),
-            None => json!({ "ok": false, "message": message }),
+            Some(c) => ApiErrorBody::labeled(c, message),
+            None => ApiErrorBody::new(message),
         };
         (status, Json(body)).into_response()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[tokio::test]
+    async fn error_envelope_wire_shape() {
+        let resp = ApiError::QuotaReached("relay quota reached".to_string()).into_response();
+        assert_eq!(resp.status(), StatusCode::TOO_MANY_REQUESTS);
+        let bytes = axum::body::to_bytes(resp.into_body(), 1024).await.unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(
+            v,
+            json!({ "ok": false, "error": "quota_reached", "message": "relay quota reached" })
+        );
     }
 }

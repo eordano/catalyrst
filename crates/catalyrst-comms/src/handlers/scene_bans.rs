@@ -2,6 +2,7 @@ use axum::extract::{Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use axum::Json;
+use catalyrst_types::{limit_or_max, PaginatedResponse};
 use serde::Deserialize;
 use serde_json::Value;
 
@@ -30,22 +31,17 @@ pub struct BanBody {
 
 const MAX_LIMIT: i64 = 100;
 
-fn pagination(limit: Option<i64>, offset: Option<i64>) -> (i64, i64, i64) {
-    let limit = match limit {
-        Some(l) if l > 0 && l <= MAX_LIMIT => l,
-        _ => MAX_LIMIT,
-    };
-    let offset = offset.filter(|o| *o >= 0).unwrap_or(0);
-    let page = (offset / limit) + 1;
-    (limit, offset, page.max(1))
+fn pagination(limit: Option<i64>, offset: Option<i64>) -> (i64, i64) {
+    (
+        limit_or_max(limit, MAX_LIMIT),
+        offset.filter(|o| *o >= 0).unwrap_or(0),
+    )
 }
 
-fn pages(total: i64, limit: i64) -> i64 {
-    if limit <= 0 {
-        0
-    } else {
-        (total + limit - 1) / limit
-    }
+fn one_based_page<T>(results: Vec<T>, total: i64, limit: i64, offset: i64) -> PaginatedResponse<T> {
+    let mut page = PaginatedResponse::new(results, total, limit, offset);
+    page.page += 1;
+    page
 }
 
 fn listing_key_candidate(meta: &Value) -> Option<String> {
@@ -84,12 +80,13 @@ pub async fn list_bans(
     State(state): State<AppState>,
     headers: HeaderMap,
     Query(q): Query<BanQuery>,
-) -> Result<Json<serde_json::Value>, ApiError> {
+) -> Result<Json<PaginatedResponse<serde_json::Value>>, ApiError> {
     let sf = verify_signed_fetch(&headers, "get", "/scene-bans", &[SCENE_SIGNER])
+        .await
         .map_err(|e| auth_error(e.status, e.message))?;
     let place_id = resolve_listing_place_id(&state, q.place_id, &sf.metadata).await?;
 
-    let (limit, offset, page) = pagination(q.limit, q.offset);
+    let (limit, offset) = pagination(q.limit, q.offset);
     let total = state.scene_bans.count(&place_id).await?;
     let addresses = state
         .scene_bans
@@ -105,38 +102,27 @@ pub async fn list_bans(
         })
         .collect();
 
-    Ok(Json(serde_json::json!({
-        "results": results,
-        "total": total,
-        "page": page,
-        "pages": pages(total, limit),
-        "limit": limit,
-    })))
+    Ok(Json(one_based_page(results, total, limit, offset)))
 }
 
 pub async fn list_ban_addresses(
     State(state): State<AppState>,
     headers: HeaderMap,
     Query(q): Query<BanQuery>,
-) -> Result<Json<serde_json::Value>, ApiError> {
+) -> Result<Json<PaginatedResponse<String>>, ApiError> {
     let sf = verify_signed_fetch(&headers, "get", "/scene-bans/addresses", &[SCENE_SIGNER])
+        .await
         .map_err(|e| auth_error(e.status, e.message))?;
     let place_id = resolve_listing_place_id(&state, q.place_id, &sf.metadata).await?;
 
-    let (limit, offset, page) = pagination(q.limit, q.offset);
+    let (limit, offset) = pagination(q.limit, q.offset);
     let total = state.scene_bans.count(&place_id).await?;
     let addresses = state
         .scene_bans
         .list_addresses_page(&place_id, limit, offset)
         .await?;
 
-    Ok(Json(serde_json::json!({
-        "results": addresses,
-        "total": total,
-        "page": page,
-        "pages": pages(total, limit),
-        "limit": limit,
-    })))
+    Ok(Json(one_based_page(addresses, total, limit, offset)))
 }
 
 pub async fn ensure_target_not_protected(
@@ -168,8 +154,11 @@ pub async fn ban_user(
     Json(body): Json<BanBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     let sf = verify_signed_fetch(&headers, "post", "/scene-bans", &[SCENE_SIGNER])
+        .await
         .map_err(|e| auth_error(e.status, e.message))?;
-    if !crate::scene_perms::is_scene_owner_or_admin(&state, &body.place_id, &sf.signer).await? {
+    if !crate::scene_perms::is_scene_owner_or_admin(&state, &body.place_id, sf.signer.as_str())
+        .await?
+    {
         return Err(crate::http::forbidden(
             "signer is not an owner or admin of this scene",
         ));
@@ -177,7 +166,7 @@ pub async fn ban_user(
     ensure_target_not_protected(&state, &body.place_id, &body.banned_address).await?;
     state
         .scene_bans
-        .ban(&body.place_id, &body.banned_address, &sf.signer)
+        .ban(&body.place_id, &body.banned_address, sf.signer.as_str())
         .await?;
     crate::room_metadata_sync::add_ban(&state, &body.place_id, &body.banned_address).await;
     Ok(StatusCode::NO_CONTENT)
@@ -189,6 +178,7 @@ pub async fn unban_user(
     Query(q): Query<BanQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
     let sf = verify_signed_fetch(&headers, "delete", "/scene-bans", &[SCENE_SIGNER])
+        .await
         .map_err(|e| auth_error(e.status, e.message))?;
     let place_id = q
         .place_id
@@ -196,7 +186,7 @@ pub async fn unban_user(
     let banned_address = q
         .banned_address
         .ok_or_else(|| ApiError::bad_request("missing banned_address query"))?;
-    if !crate::scene_perms::is_scene_owner_or_admin(&state, &place_id, &sf.signer).await? {
+    if !crate::scene_perms::is_scene_owner_or_admin(&state, &place_id, sf.signer.as_str()).await? {
         return Err(crate::http::forbidden(
             "signer is not an owner or admin of this scene",
         ));

@@ -6,7 +6,34 @@ use std::collections::HashMap;
 use super::types::{
     AchievedTier, Assets, BadgeData, BadgeProgress, LatestAchievedBadge, TierCriteria, TierData,
 };
+use crate::config::DEFAULT_ASSET_BASE_URL;
 use crate::http::errors::ApiError;
+
+/// Recursively swaps any string value prefixed with `from` for the same
+/// suffix prefixed with `to`. Walks arbitrarily nested JSON so it doesn't
+/// need to know the `{"2d":{...},"3d":{...}}` shape; empty strings (the
+/// unfilled 3D fields in the seed fixture) never match a non-empty `from`
+/// prefix and pass through unchanged.
+fn rewrite_base(value: &serde_json::Value, from: &str, to: &str) -> serde_json::Value {
+    if from == to {
+        return value.clone();
+    }
+    match value {
+        serde_json::Value::String(s) => match s.strip_prefix(from) {
+            Some(rest) => serde_json::Value::String(format!("{to}{rest}")),
+            None => value.clone(),
+        },
+        serde_json::Value::Object(map) => serde_json::Value::Object(
+            map.iter()
+                .map(|(k, v)| (k.clone(), rewrite_base(v, from, to)))
+                .collect(),
+        ),
+        serde_json::Value::Array(arr) => {
+            serde_json::Value::Array(arr.iter().map(|v| rewrite_base(v, from, to)).collect())
+        }
+        other => other.clone(),
+    }
+}
 
 fn epoch_ms(ts: DateTime<Utc>) -> String {
     ts.timestamp_millis().to_string()
@@ -14,6 +41,7 @@ fn epoch_ms(ts: DateTime<Utc>) -> String {
 
 pub struct BadgesComponent {
     pool: PgPool,
+    public_asset_base_url: String,
 }
 
 struct DefRow {
@@ -33,8 +61,20 @@ struct TierRow {
 }
 
 impl BadgesComponent {
-    pub fn new(pool: PgPool) -> Self {
-        Self { pool }
+    pub fn new(pool: PgPool, public_asset_base_url: String) -> Self {
+        Self {
+            pool,
+            public_asset_base_url,
+        }
+    }
+
+    /// Swaps `DEFAULT_ASSET_BASE_URL` for `self.public_asset_base_url` in every
+    /// string value found anywhere inside an `assets` JSONB blob. DB rows stay
+    /// upstream-parity-faithful (always `badges.decentraland.org`); only the
+    /// HTTP response reflects the deployment's self-hosted asset host. A no-op
+    /// when the two are equal (the default deployment).
+    fn rewrite_assets(&self, assets: Assets) -> Assets {
+        rewrite_base(&assets, DEFAULT_ASSET_BASE_URL, &self.public_asset_base_url)
     }
 
     pub async fn list_categories(&self) -> Result<Vec<String>, ApiError> {
@@ -62,7 +102,7 @@ impl BadgesComponent {
                 description: r.get("description"),
                 category: r.get("category"),
                 is_tier: r.get("is_tier"),
-                assets: r.get("assets"),
+                assets: self.rewrite_assets(r.get("assets")),
             })
             .collect())
     }
@@ -80,7 +120,7 @@ impl BadgesComponent {
             map.entry(badge_id).or_default().push(TierRow {
                 tier_id: r.get("tier_id"),
                 tier_name: r.get("tier_name"),
-                assets: r.get("assets"),
+                assets: self.rewrite_assets(r.get("assets")),
                 criteria_steps: r.get("criteria_steps"),
             });
         }
@@ -88,15 +128,12 @@ impl BadgesComponent {
     }
 
     pub async fn list_tiers(&self, badge_id: &str) -> Result<Vec<TierData>, ApiError> {
-        let exists =
-            sqlx::query("SELECT 1 FROM badge_definitions WHERE id = $1 AND is_tier = true")
-                .bind(badge_id)
-                .fetch_optional(&self.pool)
-                .await?;
+        let exists = sqlx::query("SELECT 1 FROM badge_definitions WHERE id = $1")
+            .bind(badge_id)
+            .fetch_optional(&self.pool)
+            .await?;
         if exists.is_none() {
-            return Err(ApiError::not_found(format!(
-                "no tiered badge found with id: {badge_id}"
-            )));
+            return Err(ApiError::not_found("Badge not found"));
         }
         let rows = sqlx::query(
             "SELECT tier_id, tier_name, description, assets, criteria_steps \
@@ -111,7 +148,7 @@ impl BadgesComponent {
                 tier_id: r.get("tier_id"),
                 tier_name: r.get("tier_name"),
                 description: r.get("description"),
-                assets: r.get("assets"),
+                assets: self.rewrite_assets(r.get("assets")),
                 criteria: TierCriteria {
                     steps: r.get("criteria_steps"),
                 },
@@ -222,7 +259,7 @@ impl BadgesComponent {
                 ts.iter()
                     .map(|(tier_id, at)| AchievedTier {
                         tier_id: tier_id.clone(),
-                        completed_at: Some(epoch_ms(*at)),
+                        completed_at: Some(at.timestamp_millis()),
                     })
                     .collect()
             })
@@ -232,7 +269,7 @@ impl BadgesComponent {
         let last_tier_def = last.and_then(|(tier_id, _)| {
             badge_tiers.and_then(|defs| defs.iter().find(|t| &t.tier_id == tier_id))
         });
-        let last_completed_tier_at = last.map(|(_, at)| epoch_ms(*at));
+        let last_completed_tier_at = last.map(|(_, at)| at.timestamp_millis());
         let last_completed_tier_name = last_tier_def.map(|t| t.tier_name.clone());
         let last_completed_tier_image = last_tier_def.and_then(|t| tier_image(&t.assets));
 
@@ -502,4 +539,53 @@ fn tier_image(assets: &Assets) -> Option<String> {
         .and_then(|d| d.get("normal"))
         .and_then(|v| v.as_str())
         .map(|s| s.to_string())
+}
+
+#[cfg(test)]
+mod rewrite_base_tests {
+    use super::rewrite_base;
+    use serde_json::json;
+
+    #[test]
+    fn swaps_the_host_prefix_on_every_nested_url() {
+        let assets = json!({
+            "2d": {"normal": "https://badges.decentraland.org/assets/open_for_business/2d/normal.png", "hrm": "", "baseColor": ""},
+            "3d": {"normal": "https://badges.decentraland.org/assets/open_for_business/3d/normal.png", "hrm": "", "baseColor": ""}
+        });
+        let rewritten = rewrite_base(
+            &assets,
+            "https://badges.decentraland.org",
+            "https://badges.interconnected.online",
+        );
+        assert_eq!(
+            rewritten["2d"]["normal"],
+            "https://badges.interconnected.online/assets/open_for_business/2d/normal.png"
+        );
+        assert_eq!(
+            rewritten["3d"]["normal"],
+            "https://badges.interconnected.online/assets/open_for_business/3d/normal.png"
+        );
+    }
+
+    #[test]
+    fn leaves_empty_strings_untouched() {
+        let assets = json!({"2d": {"normal": "", "hrm": "", "baseColor": ""}});
+        let rewritten = rewrite_base(
+            &assets,
+            "https://badges.decentraland.org",
+            "https://badges.interconnected.online",
+        );
+        assert_eq!(rewritten, assets);
+    }
+
+    #[test]
+    fn is_a_no_op_when_from_and_to_match() {
+        let assets = json!({"2d": {"normal": "https://badges.decentraland.org/x.png"}});
+        let rewritten = rewrite_base(
+            &assets,
+            "https://badges.decentraland.org",
+            "https://badges.decentraland.org",
+        );
+        assert_eq!(rewritten, assets);
+    }
 }

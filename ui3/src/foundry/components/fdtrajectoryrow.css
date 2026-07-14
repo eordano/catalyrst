@@ -1,0 +1,59 @@
+.fd-traj__idcell {
+  white-space: nowrap;
+}
+
+.fd .fd-traj__link {
+  font-size: var(--fs-13);
+  font-weight: var(--fw-semibold);
+  line-height: var(--lh-ui);
+  color: var(--text);
+  text-decoration-color: color-mix(in srgb, var(--brand) 60%, transparent);
+}
+
+.fd .fd-traj__link:hover {
+  color: var(--brand-ink);
+}
+
+.fd-traj__id {
+  font-family: var(--font-mono);
+  color: var(--ink-45);
+}
+
+.fd-traj__parent {
+  font-family: var(--font-mono);
+}
+
+/* The verdict-shaped states of a finish reason: one chip geometry, colored by
+   what the log recorded. */
+.fd-traj__finish {
+  display: inline-block;
+  padding: 2px 9px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-pill);
+  font-size: var(--fs-11);
+  font-weight: var(--fw-semibold);
+  line-height: var(--lh-ui);
+  color: var(--ink-7);
+  white-space: nowrap;
+}
+
+.fd-traj__finish.is-completed {
+  color: var(--success);
+  border-color: color-mix(in srgb, var(--success) 40%, transparent);
+}
+
+.fd-traj__finish.is-error,
+.fd-traj__finish.is-aborted {
+  color: var(--error);
+  border-color: color-mix(in srgb, var(--error) 40%, transparent);
+}
+
+.fd-traj__finish.is-interrupted,
+.fd-traj__finish.is-max-steps {
+  color: var(--warning);
+  border-color: color-mix(in srgb, var(--warning) 40%, transparent);
+}
+
+.fd-traj__none {
+  color: var(--ink-45);
+}

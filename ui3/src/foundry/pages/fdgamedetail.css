@@ -1,0 +1,80 @@
+/* Stored identifiers (world names, content hashes) wrap inside their fact cell
+   rather than widening the grid column. */
+.fd-gamedetail .fd-facts dd {
+  overflow-wrap: anywhere;
+}
+
+.fd-gamedetail__links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+  margin-top: var(--s-3);
+}
+
+.fd-gamedetail__reports {
+  display: grid;
+  gap: var(--s-3);
+}
+
+.fd-gamedetail__aside {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  align-items: flex-end;
+}
+
+.fd-gamedetail__thumb {
+  display: block;
+  width: 220px;
+  max-width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  border-radius: var(--r-control);
+}
+
+.fd-gamedetail__headchips {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--s-1-5);
+  margin: 0;
+}
+
+.fd-gamedetail__verdictlink {
+  text-decoration: none;
+}
+
+/* Below the chrome's two-column breakpoint the head aside wraps under the
+   title, where right-aligning it reads as a stray column. */
+@media (max-width: 860px) {
+  .fd-gamedetail__aside {
+    align-items: flex-start;
+  }
+
+  .fd-gamedetail__headchips {
+    justify-content: flex-start;
+  }
+}
+
+/* The named checks of the latest run — goals to aim at, states color-coded
+   with the verdict palette; "blocked" is the harness's own gap, not the game. */
+.fd-gamedetail__checks {
+  display: grid;
+  gap: var(--s-2);
+}
+.fd-gamedetail__checklist {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: var(--s-1-5);
+  max-width: var(--measure);
+  line-height: var(--lh-ui);
+}
+.fd-gamedetail__checkstate {
+  font-family: var(--font-mono);
+  font-size: var(--fs-12);
+}
+.fd-gamedetail__checklist .is-passed .fd-gamedetail__checkstate { color: var(--positive, #3fb950); }
+.fd-gamedetail__checklist .is-failed .fd-gamedetail__checkstate { color: var(--negative, #f85149); }
+.fd-gamedetail__checklist .is-blocked .fd-gamedetail__checkstate { color: var(--warning); }

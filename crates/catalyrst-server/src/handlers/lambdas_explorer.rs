@@ -11,8 +11,8 @@ use crate::cache::ResponseCache;
 use crate::errors::bad_request;
 use crate::handlers::definitions::{rarity_rank, SORTED_RARITIES};
 use crate::query_params::{
-    parse_query_string, qs_get_array, qs_get_string, QueryParams,
-    MAX_PAGE_SIZE as SHARED_MAX_PAGE_SIZE,
+    parse_pagination_with, parse_query_string, qs_get_array, qs_get_string, NonPositivePolicy,
+    OversizePolicy, QueryParams, MAX_PAGE_SIZE as SHARED_MAX_PAGE_SIZE,
 };
 use crate::state::AppState;
 
@@ -41,9 +41,7 @@ fn explorer_cache() -> &'static Arc<ResponseCache<ExplorerKey, Value>> {
     })
 }
 
-const DEFAULT_PAGE_SIZE: i64 = 100;
 const MAX_PAGE_SIZE: i64 = SHARED_MAX_PAGE_SIZE as i64;
-const DEFAULT_PAGE_NUM: i64 = 1;
 
 const VALID_COLLECTION_TYPES: [&str; 3] = ["base-wearable", "on-chain", "third-party"];
 
@@ -80,20 +78,13 @@ fn parse_query(
         )));
     }
 
-    let page_size = match get_first("pageSize") {
-        Some(s) => s.parse::<i64>().unwrap_or(DEFAULT_PAGE_SIZE),
-        None => DEFAULT_PAGE_SIZE,
-    };
-    if page_size > MAX_PAGE_SIZE {
-        return Err(bad_request(&format!(
-            "max allowed pageSize is {}",
-            MAX_PAGE_SIZE
-        )));
-    }
-    let page_num = match get_first("pageNum") {
-        Some(s) => s.parse::<i64>().unwrap_or(DEFAULT_PAGE_NUM),
-        None => DEFAULT_PAGE_NUM,
-    };
+    let pagination = parse_pagination_with(
+        &params,
+        MAX_PAGE_SIZE,
+        OversizePolicy::Reject,
+        NonPositivePolicy::PassThrough,
+    )
+    .map_err(|e| bad_request(&e))?;
 
     let name = get_first("name").map(|n| n.to_lowercase());
 
@@ -142,8 +133,8 @@ fn parse_query(
     let trimmed = matches!(get_first("trimmed").as_deref(), Some("true") | Some("1"));
 
     Ok(ExplorerQuery {
-        page_num,
-        page_size,
+        page_num: pagination.page_num,
+        page_size: pagination.page_size,
         name,
         categories,
         rarity,

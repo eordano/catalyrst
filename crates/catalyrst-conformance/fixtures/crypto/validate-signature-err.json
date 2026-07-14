@@ -1,0 +1,4 @@
+{
+  "valid": false,
+  "error": "ERROR: Invalid final authority. Expected: 0xdef. Current 0xabc."
+}

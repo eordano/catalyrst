@@ -1,0 +1,66 @@
+[
+  {
+    "sceneId": "flagtag",
+    "cell": "creator-led-social-competition",
+    "confidence": "evidence-backed",
+    "rationale": "Perpetual 5-min contested-flag rounds; score is server-credited seconds carried (ctf-player-flag-hold-time) — repeat rivalry rounds.",
+    "classifiedAt": "2026-08-16",
+    "basis": "This program's own reading of the game's observable mechanics (deployment-entity description, measured bot manifests, sandbox sims) against the strategy deck's three gaming cells — not a fact the deployment entity carries."
+  },
+  {
+    "sceneId": "slaythesteps",
+    "cell": "creator-led-social-competition",
+    "confidence": "inferred",
+    "rationale": "Turn-taking rounds (notifyTurnStarting) with a vote ballot and a first-class spectator role — compete-for-recognition before an audience.",
+    "classifiedAt": "2026-08-16",
+    "basis": "This program's own reading of the game's observable mechanics (deployment-entity description, measured bot manifests, sandbox sims) against the strategy deck's three gaming cells — not a fact the deployment entity carries."
+  },
+  {
+    "sceneId": "skychaser",
+    "cell": "creator-led-social-competition",
+    "confidence": "inferred",
+    "rationale": "Scored balloon rounds feeding a persistent weekly leaderboard (leaderboardWeekly) — recognition-driven return; no direct PvP verb observed.",
+    "classifiedAt": "2026-08-16",
+    "basis": "This program's own reading of the game's observable mechanics (deployment-entity description, measured bot manifests, sandbox sims) against the strategy deck's three gaming cells — not a fact the deployment entity carries."
+  },
+  {
+    "sceneId": "fastlane",
+    "cell": "creator-led-social-competition",
+    "confidence": "inferred",
+    "rationale": "Turn-ordered lane play (LanePhase) with server-scored frames — score-vs-score rounds; no membership, schedule or roles observed.",
+    "classifiedAt": "2026-08-16",
+    "basis": "This program's own reading of the game's observable mechanics (deployment-entity description, measured bot manifests, sandbox sims) against the strategy deck's three gaming cells — not a fact the deployment entity carries."
+  },
+  {
+    "sceneId": "alienscrapyard",
+    "cell": "collaborative-build-and-play-labs",
+    "confidence": "inferred",
+    "rationale": "Co-op assembly of one shared structure vs the server clock — building is the play; slots are preset and rounds reset (no creator path).",
+    "classifiedAt": "2026-08-16",
+    "basis": "This program's own reading of the game's observable mechanics (deployment-entity description, measured bot manifests, sandbox sims) against the strategy deck's three gaming cells — not a fact the deployment entity carries."
+  },
+  {
+    "sceneId": "cleantheclub",
+    "cell": null,
+    "confidence": "evidence-backed",
+    "rationale": "Co-op timed litter-clearing restores a preset venue state — no rivalry rounds, no membership/routine, no creation-as-play; fits no cell.",
+    "classifiedAt": "2026-08-16",
+    "basis": "This program's own reading of the game's observable mechanics (deployment-entity description, measured bot manifests, sandbox sims) against the strategy deck's three gaming cells — not a fact the deployment entity carries."
+  },
+  {
+    "sceneId": "fortunes",
+    "cell": null,
+    "confidence": "evidence-backed",
+    "rationale": "Two-role peer-elected teller/guest encounter — no rounds, score, membership or building; matches no cell activity system.",
+    "classifiedAt": "2026-08-16",
+    "basis": "This program's own reading of the game's observable mechanics (deployment-entity description, measured bot manifests, sandbox sims) against the strategy deck's three gaming cells — not a fact the deployment entity carries."
+  },
+  {
+    "sceneId": "template-game",
+    "cell": null,
+    "confidence": "evidence-backed",
+    "rationale": "Creator Hub template runtime bundling five solo click-loop mini-games; never deployed — not an activity system any cell tests.",
+    "classifiedAt": "2026-08-16",
+    "basis": "This program's own reading of the game's observable mechanics (deployment-entity description, measured bot manifests, sandbox sims) against the strategy deck's three gaming cells — not a fact the deployment entity carries."
+  }
+]

@@ -1,0 +1,13 @@
+.fd-traj-page__filter {
+  margin: 0;
+}
+
+.fd .fd-traj-page__clear {
+  font-size: var(--fs-12);
+  line-height: var(--lh-ui);
+  color: var(--ink-45);
+}
+
+.fd .fd-traj-page__clear:hover {
+  color: var(--text);
+}

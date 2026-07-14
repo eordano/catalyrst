@@ -13,7 +13,7 @@ pub async fn worlds_list(
     let qs = query_from_obj(&body, &["limit", "offset"]);
     proxy_audited(
         &state,
-        &session.address,
+        session.address(),
         "worlds.list",
         None,
         body.clone(),
@@ -44,7 +44,7 @@ pub async fn worlds_detail(
     }
     proxy_audited(
         &state,
-        &session.address,
+        session.address(),
         "worlds.detail",
         Some(&req.world_name),
         json!({ "world_name": req.world_name }),
@@ -70,7 +70,7 @@ pub async fn worlds_enable(
     }
     proxy_audited(
         &state,
-        &session.address,
+        session.address(),
         "worlds.enable",
         Some(&req.world_name),
         json!({ "world_name": req.world_name }),
@@ -96,7 +96,7 @@ pub async fn worlds_disable(
     }
     proxy_audited(
         &state,
-        &session.address,
+        session.address(),
         "worlds.disable",
         Some(&req.world_name),
         json!({ "world_name": req.world_name }),
@@ -127,7 +127,7 @@ pub async fn worlds_ban_status(
     let qs = query_from_obj(&body, &["address", "parcel"]);
     proxy_audited(
         &state,
-        &session.address,
+        session.address(),
         "worlds.ban-status",
         Some(world_name),
         body.clone(),
@@ -149,7 +149,7 @@ pub async fn worlds_blocked_list(
     };
     proxy_audited(
         &state,
-        &session.address,
+        session.address(),
         "worlds.blocked.list",
         None,
         json!({}),
@@ -181,7 +181,7 @@ pub async fn worlds_blocked_add(
     let wallet = req.wallet.trim().to_lowercase();
     proxy_audited(
         &state,
-        &session.address,
+        session.address(),
         "worlds.blocked.add",
         Some(&wallet),
         json!({ "wallet": wallet }),
@@ -208,7 +208,7 @@ pub async fn worlds_blocked_remove(
     let wallet = req.wallet.trim().to_lowercase();
     proxy_audited(
         &state,
-        &session.address,
+        session.address(),
         "worlds.blocked.remove",
         Some(&wallet),
         json!({ "wallet": wallet }),
@@ -232,7 +232,7 @@ pub async fn worlds_access_log(
     let qs = query_from_obj(&body, &["world", "address", "limit", "offset"]);
     proxy_audited(
         &state,
-        &session.address,
+        session.address(),
         "worlds.access-log",
         None,
         body.clone(),

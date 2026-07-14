@@ -1,0 +1,1768 @@
+{
+  "generatedFrom": {
+    "scenes": "fixtures/foundry-real.json verbatim — the same registry `foundry:import-real` writes, itself read from the worlds mirror (DB `worlds`, :5434) world_scenes rows: entity ids, deployment timestamps, byte sizes and parcel counts",
+    "gdd": "the Slack-imported shortGDD trees (Pixelwars v1, Pixelwars v2 review-pass, Alien Human Zoo, all 2026-08-12); marker counts and hypothesis rows are parsed from the documents, bodies are excerpts of the real markdown",
+    "bench": "fixtures/trajectory-arena-sample.json — the captured stdout of `python3 -m dclbots.arena --seed 7`, reused verbatim so storybook and the database show the same episode; the verdict is that run's exit code",
+    "llm": "the one measured opencode exchange against llm.decent.dev (9623 in / 76 out, cost 0.0009851) — message and session ids were not recorded, so those two fields are placeholders",
+    "skills": "/workspace/sdk-skills SKILL.md frontmatter + git first/last commit dates (6 of them; the copilot page reads the full generated catalog), plus the two pre-production skills",
+    "exchange": "empty on purpose — requests and pledges are visitor writes, and the board starts with none"
+  },
+  "scenes": [
+    {
+      "id": "slaythesteps",
+      "title": "Slay The Steps!",
+      "worldName": "slaythesteps.dcl.eth",
+      "entityId": "bafkreiher2zuatobwrdzanekpbmzzhnwjsn67o3wfggstygssgnrzz6ate",
+      "deployedAt": "2026-04-22T18:22:34.920Z",
+      "sizeBytes": 37195523,
+      "parcels": 4,
+      "repoPath": "~/one/rig/play/slaythesteps",
+      "botManifest": "~/projects/dcl-scene-bots/games/slaythesteps.json",
+      "source": "worlds-mirror",
+      "sourceNote": "worlds mirror row for slaythesteps.dcl.eth, entity bafkreiher2zuatobwrdzanekpbmzzhnwjsn67o3wfggstygssgnrzz6ate",
+      "gddDocId": null
+    },
+    {
+      "id": "cleantheclub",
+      "title": "Clean The Club",
+      "worldName": "cleantheclub.dcl.eth",
+      "entityId": "bafkreicpl6vdpfynuqdu27hyuuo6l2rfz6zgopkkpm5izhprgspmfzbt7a",
+      "deployedAt": "2026-06-12T10:14:01.041Z",
+      "sizeBytes": 43301512,
+      "parcels": 4,
+      "repoPath": "~/one/rig/play/cleantheclub",
+      "botManifest": "~/projects/dcl-scene-bots/games/cleantheclub.json",
+      "source": "worlds-mirror",
+      "sourceNote": "worlds mirror row for cleantheclub.dcl.eth, entity bafkreicpl6vdpfynuqdu27hyuuo6l2rfz6zgopkkpm5izhprgspmfzbt7a",
+      "gddDocId": null
+    },
+    {
+      "id": "fortunes",
+      "title": "Circus_Fortune_Teller",
+      "worldName": "fortunes.dcl.eth",
+      "entityId": "bafkreic2l2jeljzuovxvh2w7dsyimwtqw6qmyu7uiucfvfqy3s4qjjchyi",
+      "deployedAt": "2026-06-15T18:47:22.636Z",
+      "sizeBytes": 46454043,
+      "parcels": 1,
+      "repoPath": "~/one/rig/play/fortunes",
+      "botManifest": "~/projects/dcl-scene-bots/games/fortunes.json",
+      "source": "worlds-mirror",
+      "sourceNote": "worlds mirror row for fortunes.dcl.eth, entity bafkreic2l2jeljzuovxvh2w7dsyimwtqw6qmyu7uiucfvfqy3s4qjjchyi",
+      "gddDocId": null
+    },
+    {
+      "id": "fastlane",
+      "title": "Fastlane Bowling",
+      "worldName": "fastlane.dcl.eth",
+      "entityId": "bafkreiarbcbm6zj6wo2c4irwcbflgla5o7daer2v3i2j5ee3rwzocsyuke",
+      "deployedAt": "2026-06-17T11:35:49.831Z",
+      "sizeBytes": 59405832,
+      "parcels": 35,
+      "repoPath": "~/one/rig/play/fastlane",
+      "botManifest": "~/projects/dcl-scene-bots/games/fastlane.json",
+      "source": "worlds-mirror",
+      "sourceNote": "worlds mirror row for fastlane.dcl.eth, entity bafkreiarbcbm6zj6wo2c4irwcbflgla5o7daer2v3i2j5ee3rwzocsyuke",
+      "gddDocId": null
+    },
+    {
+      "id": "skychaser",
+      "title": "Sky Chaser",
+      "worldName": "skychaser.dcl.eth",
+      "entityId": "bafkreiaonubq277zfe45xb7toibxt47strmmrwpdfla7ybu4dndj7fesi4",
+      "deployedAt": "2026-07-03T14:14:03.632Z",
+      "sizeBytes": 52593299,
+      "parcels": 1024,
+      "repoPath": "~/one/rig/play/skychaser",
+      "botManifest": "~/projects/dcl-scene-bots/games/skychaser.json",
+      "source": "worlds-mirror",
+      "sourceNote": "worlds mirror row for skychaser.dcl.eth, entity bafkreiaonubq277zfe45xb7toibxt47strmmrwpdfla7ybu4dndj7fesi4",
+      "gddDocId": null
+    },
+    {
+      "id": "alienscrapyard",
+      "title": "Alienscrapyard",
+      "worldName": "alienscrapyard.dcl.eth",
+      "entityId": "bafkreidyc4klx36s5kouh5jgb74kkx7za62m7c24z46thl3ggjduiiwuba",
+      "deployedAt": "2026-07-05T13:48:34.630Z",
+      "sizeBytes": 7263450,
+      "parcels": 4,
+      "repoPath": "~/one/rig/play/alienscrapyard",
+      "botManifest": "~/projects/dcl-scene-bots/games/alienscrapyard.json",
+      "source": "worlds-mirror",
+      "sourceNote": "worlds mirror row for alienscrapyard.dcl.eth, entity bafkreidyc4klx36s5kouh5jgb74kkx7za62m7c24z46thl3ggjduiiwuba",
+      "gddDocId": null
+    },
+    {
+      "id": "flagtag",
+      "title": "Flag Tag",
+      "worldName": "flagtag.dcl.eth",
+      "entityId": "bafkreia7terlbe23i2jnf3vezjtun27qw33tcahy4rpu5kfmxt77b5tb4e",
+      "deployedAt": "2026-07-05T19:52:10.768Z",
+      "sizeBytes": 102394774,
+      "parcels": 1024,
+      "repoPath": "~/one/rig/play/flagtag",
+      "botManifest": "~/projects/dcl-scene-bots/games/flagtag.json",
+      "source": "worlds-mirror",
+      "sourceNote": "worlds mirror row for flagtag.dcl.eth, entity bafkreia7terlbe23i2jnf3vezjtun27qw33tcahy4rpu5kfmxt77b5tb4e",
+      "gddDocId": null
+    },
+    {
+      "id": "template-game",
+      "title": "Template game (SDK7 starter)",
+      "worldName": null,
+      "entityId": null,
+      "deployedAt": null,
+      "sizeBytes": null,
+      "parcels": null,
+      "repoPath": "catalyrst/sites/template-games",
+      "botManifest": null,
+      "source": "repo",
+      "sourceNote": "SDK7 starter scene living in this repository at catalyrst/sites/template-games; it has never been deployed to a World, so it has no deployment date, size or parcel count",
+      "gddDocId": null
+    }
+  ],
+  "home": {
+    "badge": "5b1c",
+    "variant": "control",
+    "experimentKey": "foundry-tour-activation",
+    "tourAutoStart": false,
+    "unavailable": false,
+    "stats": {
+      "scenes": 8,
+      "gddDocs": 3,
+      "benchRuns": 0,
+      "lastBenchAt": null,
+      "copilotOnline": true,
+      "tokens": 9699,
+      "personasClaimed": 0,
+      "openRequests": 0,
+      "sessionsOnCalendar": 0
+    },
+    "checks": [
+      {
+        "id": "games",
+        "label": "Games registered",
+        "value": "8",
+        "source": "scene rows imported from the worlds mirror and this repository"
+      },
+      {
+        "id": "bench-pass",
+        "label": "Games with a passing bench run",
+        "value": "0",
+        "source": "bot_report rows ingested from dcl-scene-bots runs (arena sandbox runs excluded)"
+      },
+      {
+        "id": "gdd",
+        "label": "Design docs",
+        "value": "3",
+        "source": "gdd_doc rows imported from Slack threads and the copilot workspace"
+      },
+      {
+        "id": "gdd-open",
+        "label": "Docs with zero [OPEN] sections",
+        "value": "2 of 3",
+        "source": "gdd_doc honesty totals, counted from the documents themselves"
+      },
+      {
+        "id": "tokens",
+        "label": "Copilot tokens spent",
+        "value": "9,699",
+        "source": "llm_usage rows read from the copilot's own per-message accounting"
+      },
+      {
+        "id": "exchange",
+        "label": "Open requests / pledges",
+        "value": "0 / 0",
+        "source": "visitor actions on this site"
+      }
+    ],
+    "deploy": {
+      "count": 7,
+      "range": "April and July 2026"
+    },
+    "facts": {
+      "benchTargets": [],
+      "docsOnDeployed": 0,
+      "copilotDrafted": 0
+    }
+  },
+  "play": {
+    "badge": "5b1c",
+    "unavailable": false,
+    "games": [
+      {
+        "slug": "slaythesteps",
+        "title": "Slay The Steps!",
+        "worldName": "slaythesteps.dcl.eth",
+        "deployedAt": "2026-04-22T18:22:34.920Z",
+        "sizeBytes": 37195523,
+        "parcels": 4,
+        "source": "worlds-mirror",
+        "sourceNote": "worlds mirror row for slaythesteps.dcl.eth, entity bafkreiher2zuatobwrdzanekpbmzzhnwjsn67o3wfggstygssgnrzz6ate",
+        "verdict": null,
+        "benchRuns": 0,
+        "href": "/foundry/play/slaythesteps",
+        "playHref": "https://catalyst.example.com/play/?realm=https%3A%2F%2Fcatalyst.example.com%2Fworld%2Fslaythesteps.dcl.eth&position=0%2C0",
+        "editorHref": "/creator-hub/scene-editor?new=1&from=foundry",
+        "gddHref": null,
+        "note": null
+      },
+      {
+        "slug": "cleantheclub",
+        "title": "Clean The Club",
+        "worldName": "cleantheclub.dcl.eth",
+        "deployedAt": "2026-06-12T10:14:01.041Z",
+        "sizeBytes": 43301512,
+        "parcels": 4,
+        "source": "worlds-mirror",
+        "sourceNote": "worlds mirror row for cleantheclub.dcl.eth, entity bafkreicpl6vdpfynuqdu27hyuuo6l2rfz6zgopkkpm5izhprgspmfzbt7a",
+        "verdict": null,
+        "benchRuns": 0,
+        "href": "/foundry/play/cleantheclub",
+        "playHref": "https://catalyst.example.com/play/?realm=https%3A%2F%2Fcatalyst.example.com%2Fworld%2Fcleantheclub.dcl.eth&position=0%2C0",
+        "editorHref": "/creator-hub/scene-editor?new=1&from=foundry",
+        "gddHref": null,
+        "note": null
+      },
+      {
+        "slug": "fortunes",
+        "title": "Circus_Fortune_Teller",
+        "worldName": "fortunes.dcl.eth",
+        "deployedAt": "2026-06-15T18:47:22.636Z",
+        "sizeBytes": 46454043,
+        "parcels": 1,
+        "source": "worlds-mirror",
+        "sourceNote": "worlds mirror row for fortunes.dcl.eth, entity bafkreic2l2jeljzuovxvh2w7dsyimwtqw6qmyu7uiucfvfqy3s4qjjchyi",
+        "verdict": null,
+        "benchRuns": 0,
+        "href": "/foundry/play/fortunes",
+        "playHref": "https://catalyst.example.com/play/?realm=https%3A%2F%2Fcatalyst.example.com%2Fworld%2Ffortunes.dcl.eth&position=0%2C0",
+        "editorHref": "/creator-hub/scene-editor?new=1&from=foundry",
+        "gddHref": null,
+        "note": null
+      },
+      {
+        "slug": "fastlane",
+        "title": "Fastlane Bowling",
+        "worldName": "fastlane.dcl.eth",
+        "deployedAt": "2026-06-17T11:35:49.831Z",
+        "sizeBytes": 59405832,
+        "parcels": 35,
+        "source": "worlds-mirror",
+        "sourceNote": "worlds mirror row for fastlane.dcl.eth, entity bafkreiarbcbm6zj6wo2c4irwcbflgla5o7daer2v3i2j5ee3rwzocsyuke",
+        "verdict": null,
+        "benchRuns": 0,
+        "href": "/foundry/play/fastlane",
+        "playHref": "https://catalyst.example.com/play/?realm=https%3A%2F%2Fcatalyst.example.com%2Fworld%2Ffastlane.dcl.eth&position=0%2C0",
+        "editorHref": "/creator-hub/scene-editor?new=1&from=foundry",
+        "gddHref": null,
+        "note": null
+      },
+      {
+        "slug": "skychaser",
+        "title": "Sky Chaser",
+        "worldName": "skychaser.dcl.eth",
+        "deployedAt": "2026-07-03T14:14:03.632Z",
+        "sizeBytes": 52593299,
+        "parcels": 1024,
+        "source": "worlds-mirror",
+        "sourceNote": "worlds mirror row for skychaser.dcl.eth, entity bafkreiaonubq277zfe45xb7toibxt47strmmrwpdfla7ybu4dndj7fesi4",
+        "verdict": null,
+        "benchRuns": 0,
+        "href": "/foundry/play/skychaser",
+        "playHref": "https://catalyst.example.com/play/?realm=https%3A%2F%2Fcatalyst.example.com%2Fworld%2Fskychaser.dcl.eth&position=0%2C0",
+        "editorHref": "/creator-hub/scene-editor?new=1&from=foundry",
+        "gddHref": null,
+        "note": null
+      },
+      {
+        "slug": "alienscrapyard",
+        "title": "Alienscrapyard",
+        "worldName": "alienscrapyard.dcl.eth",
+        "deployedAt": "2026-07-05T13:48:34.630Z",
+        "sizeBytes": 7263450,
+        "parcels": 4,
+        "source": "worlds-mirror",
+        "sourceNote": "worlds mirror row for alienscrapyard.dcl.eth, entity bafkreidyc4klx36s5kouh5jgb74kkx7za62m7c24z46thl3ggjduiiwuba",
+        "verdict": null,
+        "benchRuns": 0,
+        "href": "/foundry/play/alienscrapyard",
+        "playHref": "https://catalyst.example.com/play/?realm=https%3A%2F%2Fcatalyst.example.com%2Fworld%2Falienscrapyard.dcl.eth&position=0%2C0",
+        "editorHref": "/creator-hub/scene-editor?new=1&from=foundry",
+        "gddHref": null,
+        "note": null
+      },
+      {
+        "slug": "flagtag",
+        "title": "Flag Tag",
+        "worldName": "flagtag.dcl.eth",
+        "deployedAt": "2026-07-05T19:52:10.768Z",
+        "sizeBytes": 102394774,
+        "parcels": 1024,
+        "source": "worlds-mirror",
+        "sourceNote": "worlds mirror row for flagtag.dcl.eth, entity bafkreia7terlbe23i2jnf3vezjtun27qw33tcahy4rpu5kfmxt77b5tb4e",
+        "verdict": null,
+        "benchRuns": 0,
+        "sandboxRuns": 1,
+        "href": "/foundry/play/flagtag",
+        "playHref": "https://catalyst.example.com/play/?realm=https%3A%2F%2Fcatalyst.example.com%2Fworld%2Fflagtag.dcl.eth&position=0%2C0",
+        "editorHref": "/creator-hub/scene-editor?new=1&from=foundry",
+        "gddHref": null,
+        "note": null
+      },
+      {
+        "slug": "template-game",
+        "title": "Template game (SDK7 starter)",
+        "worldName": null,
+        "deployedAt": null,
+        "sizeBytes": null,
+        "parcels": null,
+        "source": "repo",
+        "sourceNote": "SDK7 starter scene living in this repository at catalyrst/sites/template-games; it has never been deployed to a World, so it has no deployment date, size or parcel count",
+        "verdict": null,
+        "benchRuns": 0,
+        "href": "/foundry/play/template-game",
+        "playHref": null,
+        "editorHref": "/creator-hub/scene-editor?new=1&from=foundry",
+        "gddHref": null,
+        "note": "An SDK7 starter scene living in this repo — open it in the editor."
+      }
+    ]
+  },
+  "game": {
+    "badge": "5b1c",
+    "unavailable": false,
+    "slug": "flagtag",
+    "game": {
+      "slug": "flagtag",
+      "title": "Flag Tag",
+      "worldName": "flagtag.dcl.eth",
+      "deployedAt": "2026-07-05T19:52:10.768Z",
+      "sizeBytes": 102394774,
+      "parcels": 1024,
+      "source": "worlds-mirror",
+      "sourceNote": "worlds mirror row for flagtag.dcl.eth, entity bafkreia7terlbe23i2jnf3vezjtun27qw33tcahy4rpu5kfmxt77b5tb4e",
+      "repoPath": "~/one/rig/play/flagtag",
+      "botManifest": "~/projects/dcl-scene-bots/games/flagtag.json"
+    },
+    "embed": {
+      "url": "https://catalyst.example.com/play/?realm=https%3A%2F%2Fcatalyst.example.com%2Fworld%2Fflagtag.dcl.eth&position=0%2C0",
+      "reachable": false,
+      "probedAt": "2026-08-15T01:30:00.000Z"
+    },
+    "worldHref": "https://catalyst.example.com/play/?realm=https%3A%2F%2Fcatalyst.example.com%2Fworld%2Fflagtag.dcl.eth&position=0%2C0",
+    "editorHref": "/creator-hub/scene-editor?new=1&from=foundry",
+    "gddHref": null,
+    "gdd": null,
+    "reports": [
+      {
+        "id": "br-arena-flagtag-seed7",
+        "slug": "flagtag-arena",
+        "runner": "arena",
+        "realm": null,
+        "ranAt": "2026-08-14T23:29:52.580Z",
+        "verdict": "pass",
+        "checksTotal": null,
+        "checksFailed": null,
+        "missingTools": [],
+        "stubbedTools": [],
+        "networkWrites": null,
+        "shots": 0,
+        "evidencePath": "packages/data/src/fixtures/trajectory-arena-sample.json",
+        "replayHref": "/foundry/console/trajectories/traj-arena-flagtag-seed7",
+        "gameHref": "/foundry/play/flagtag"
+      }
+    ]
+  },
+  "gddList": {
+    "badge": "5b1c",
+    "unavailable": false,
+    "docs": [
+      {
+        "id": "pixelwars-shortgdd-v1",
+        "title": "Pixelwars shortGDD",
+        "kind": "shortgdd",
+        "version": 1,
+        "sceneId": null,
+        "sceneTitle": null,
+        "source": "slack-import",
+        "sourceRef": "https://decentralandteam.slack.com/archives/C0BDDMXGLU8/p1786561616202039",
+        "honesty": {
+          "open": 0,
+          "tbd": 11,
+          "hypothesis": 10,
+          "agentDecided": 14
+        },
+        "hypothesisCounts": {
+          "parked": 12
+        },
+        "createdAt": "2026-08-12T19:06:00.000Z",
+        "updatedAt": "2026-08-12T00:00:00.000Z"
+      },
+      {
+        "id": "pixelwars-shortgdd-v2",
+        "title": "Pixelwars shortGDD",
+        "kind": "shortgdd",
+        "version": 2,
+        "supersedes": "pixelwars-shortgdd-v1",
+        "sceneId": null,
+        "sceneTitle": null,
+        "source": "slack-import",
+        "sourceRef": "https://decentralandteam.slack.com/archives/C0BDDMXGLU8/p1786569035319029",
+        "honesty": {
+          "open": 0,
+          "tbd": 11,
+          "hypothesis": 10,
+          "agentDecided": 12
+        },
+        "hypothesisCounts": {
+          "parked": 12
+        },
+        "createdAt": "2026-08-12T21:10:00.000Z",
+        "updatedAt": "2026-08-12T00:00:00.000Z"
+      },
+      {
+        "id": "alien-human-zoo-shortgdd-v1",
+        "title": "Alien Human Zoo shortGDD",
+        "kind": "shortgdd",
+        "version": 1,
+        "sceneId": null,
+        "sceneTitle": null,
+        "source": "slack-import",
+        "sourceRef": "https://decentralandteam.slack.com/archives/C0BDDMXGLU8/p1786568416552999",
+        "honesty": {
+          "open": 9,
+          "tbd": 3,
+          "hypothesis": 0,
+          "agentDecided": 1
+        },
+        "hypothesisCounts": {},
+        "createdAt": "2026-08-12T21:02:00.000Z",
+        "updatedAt": "2026-08-12T00:00:00.000Z"
+      }
+    ]
+  },
+  "gddDoc": {
+    "badge": "5b1c",
+    "unavailable": false,
+    "doc": {
+      "id": "pixelwars-shortgdd-v1",
+      "title": "Pixelwars shortGDD",
+      "kind": "shortgdd",
+      "sceneId": null,
+      "version": 1,
+      "supersedes": null,
+      "source": "slack-import",
+      "sourceRef": "https://decentralandteam.slack.com/archives/C0BDDMXGLU8/p1786561616202039",
+      "bodyMd": "# Decentraland Experience Proposal\n\n**Creator Success Program — Proposal Template (short GDD)**\n\n| | |\n|---|---|\n| Experience name | Pixelwars |\n| Studio / team name | Luke Escobar (TBD: team/studio name — confirm with owner) |\n| Date | 2026-08-12 |\n| Contact (Discord + email) | TBD: owner's Discord handle + email |\n\n> Adapted from \"Pixelwars Brief\" (Luke Escobar, 2026-08-06) by agent, full-AFK mode. Everything the\n> brief decided is kept as decided. Markers: `[agent-decided]` = chosen on the owner's behalf,\n> pending review · `[HYPOTHESIS]` = a claim only a playtest can settle, parked in Appendix A ·\n> `TBD:` = not known yet, with the plan to find out.\n\nWhat we fund: **social-first, replayable, mobile-ready experiences with clear progression.** Program goal: **more than 20% of new players return within 7 days (D7 retention).**\n\n---\n\n## 0. TL;DR\n\n| | |\n|---|---|\n| **One-line concept** | Team-based turf war in a maze that regenerates every 5-minute round — you paint territory by walking, live in Decentraland today. |\n| **Team & total hours/week** | Luke Escobar (design + SDK7 code) + Stom (optimization); TBD: hours/week per person |\n| **Current status** | **Small vertical slice live in a World: [pixelwars.dcl.eth](https://decentraland.org/jump?realm=pixelwars.dcl.eth&position=5,5)** — V0 runs on desktop, mobile and three.js clients, with multiplayer server, procedural mazes, portals and solo-play bots. [Gameplay video](https://youtu.be/Mocy6Xly7D4) |\n| **Live at end of Week 6** | A player joins at any hour, gets a team, and fights 5-minute turf rounds in a fresh maze with dual team bases, a paint launcher, pickup items and a weekly league board — on desktop and mobile. |\n| **Requested round** | v1 |\n\n---\n\n## 1. The Hook\n\nIt's like Splatoon's Turf War, but the arena is a maze that rebuilds itself every five-minute round — and your feet are the paintbrush: you claim territory just by walking.\n\n---\n\n## 2. First Session — written as \"you\"\n\nYou spawn on your team's base — the floor under your feet is already red, your red. A timer hangs overhead: 4:58. The tiles ahead are blank, and your first step flips one red with a pop. That's the whole tutorial: you walk, the world becomes yours.\n\nA blue trail cuts across your path — someone is repainting your ground. You chase them down and fire your paint launcher; the blob splats them and three tiles at once. They respawn far away at their base, and their trail is yours again. The coverage bar up top shifts: 41% red, 38% blue. A glowing ink canister sits in a contested corridor — you grab it mid-run and your tank refills. You duck through a shimmering portal and pop out across the maze in untouched corridors. Free territory.\n\nThe horn sounds: red took 52%. Your team wins — and the maze tears itself down and rebuilds into a shape nobody has ever walked. New corridors, new portals. The next round is already counting down.\n\nOn the way out you pass the league board at your base: 3rd in this week's league of twenty. It resets Sunday. Two places from promotion.\n\n_[excerpt — the full document ships in fixtures/gdd/pixelwars-shortgdd-v1.md]_\n",
+      "honesty": {
+        "sections": [
+          {
+            "name": "0. TL;DR",
+            "open": 0,
+            "tbd": 1,
+            "hypothesis": 0,
+            "agentDecided": 0
+          },
+          {
+            "name": "1. The Hook",
+            "open": 0,
+            "tbd": 0,
+            "hypothesis": 0,
+            "agentDecided": 0
+          },
+          {
+            "name": "2. First Session — written as \"you\"",
+            "open": 0,
+            "tbd": 0,
+            "hypothesis": 1,
+            "agentDecided": 0
+          },
+          {
+            "name": "3. Core Loop",
+            "open": 0,
+            "tbd": 0,
+            "hypothesis": 2,
+            "agentDecided": 1
+          },
+          {
+            "name": "4. Why Players Come Back",
+            "open": 0,
+            "tbd": 1,
+            "hypothesis": 3,
+            "agentDecided": 6
+          },
+          {
+            "name": "5. Social by Design",
+            "open": 0,
+            "tbd": 1,
+            "hypothesis": 1,
+            "agentDecided": 2
+          },
+          {
+            "name": "6. Mobile-First",
+            "open": 0,
+            "tbd": 1,
+            "hypothesis": 2,
+            "agentDecided": 2
+          },
+          {
+            "name": "7. World, Look & Story",
+            "open": 0,
+            "tbd": 0,
+            "hypothesis": 0,
+            "agentDecided": 0
+          },
+          {
+            "name": "8. Comparables — exactly two",
+            "open": 0,
+            "tbd": 1,
+            "hypothesis": 0,
+            "agentDecided": 1
+          },
+          {
+            "name": "9. Six-Week Plan (v1 scope)",
+            "open": 0,
+            "tbd": 1,
+            "hypothesis": 1,
+            "agentDecided": 0
+          },
+          {
+            "name": "10. Success Criteria — what you will measure",
+            "open": 0,
+            "tbd": 0,
+            "hypothesis": 0,
+            "agentDecided": 2
+          },
+          {
+            "name": "11. Team",
+            "open": 0,
+            "tbd": 4,
+            "hypothesis": 0,
+            "agentDecided": 0
+          },
+          {
+            "name": "12. Deliverables & Declaration",
+            "open": 0,
+            "tbd": 1,
+            "hypothesis": 0,
+            "agentDecided": 0
+          },
+          {
+            "name": "Appendix A — Hypothesis Log",
+            "open": 0,
+            "tbd": 0,
+            "hypothesis": 0,
+            "agentDecided": 0
+          }
+        ],
+        "totals": {
+          "open": 0,
+          "tbd": 11,
+          "hypothesis": 10,
+          "agentDecided": 14
+        }
+      },
+      "hypotheses": [
+        {
+          "id": "H2-01",
+          "stage": "02-core-loop",
+          "slug": "tile-resolution-budget",
+          "status": "parked",
+          "ifThen": "IF the paint grid drops from 2m×2m to 1m×1m (≈4× more tiles), THEN scene load time stays ≤1.5× of V0 and the entity count stays inside SDK7 scene limits.",
+          "test": "arithmetic in the doc first (tile count × entities-per-tile vs current SDK7 limits — look the limits up, do not quote from memory), then a load-time measurement on Stom's refactored branch in desktop Explorer"
+        },
+        {
+          "id": "H2-02",
+          "stage": "02-core-loop",
+          "slug": "hit-registration-latency",
+          "status": "parked",
+          "ifThen": "IF projectile-vs-player hits use client-side prediction (or a raised projectile tick), THEN in a 2-client desktop test ≥90% of visually on-target shots register as hits.",
+          "test": "desktop Explorer, 2 clients side by side, count 20 deliberate on-target shots; the Flagtag projectile system is the porting base"
+        },
+        {
+          "id": "H2-03",
+          "stage": "02-core-loop",
+          "slug": "launcher-vs-walk-balance",
+          "status": "parked",
+          "ifThen": "IF the launcher claims tiles at range but with limited ammo, THEN in playtest rounds walking still accounts for ≥50% of all tiles flipped (kill-check: rounds do not degenerate into pure shooting).",
+          "test": "desktop Explorer round with bots (or 2 players), log the claim source per tile flip"
+        },
+        {
+          "id": "H2-04",
+          "stage": "02-core-loop",
+          "slug": "hide-in-paint-spike",
+          "status": "parked",
+          "ifThen": "IF hiding is assembled from AvatarModifierArea + InputModifier + a raised-tile marker, THEN a timeboxed 3-day spike delivers all three behaviors: avatar invisible, marker tile visible to enemies, un-hide in under ~200ms.",
+          "test": "desktop Explorer greybox spike, hard timebox of 3 days; failure = any of the three behaviors missing at timebox end"
+        },
+        {
+          "id": "H2-05",
+          "stage": "02-core-loop",
+          "slug": "quickmove-jitter-feel",
+          "status": "parked",
+          "ifThen": "IF quick-move fakes locomotion by teleporting the hidden player along own-paint tiles at 2× speed, THEN the owner self-test finds the motion readable and free of disorienting jitter (kill-check: no visible stutter at 2× speed on a straight paint corridor).",
+          "test": "desktop Explorer greybox, owner self-test on one straight corridor, ~1 day on top of H2-04"
+        },
+        {
+          "id": "H2-06",
+          "stage": "02-core-loop",
+          "slug": "touch-aiming",
+          "status": "parked",
+          "ifThen": "IF the launcher fires from a single on-screen action button with an aim-assist cone (no precision aiming), THEN a mobile self-test lands ≥50% of shots on a moving bot at mid range.",
+          "test": "mobile QR pass in Creator Hub once the launcher exists on desktop (~minutes to run, so do it at Week 4 mobile playtest at the latest)"
+        },
+        {
+          "id": "H2-07",
+          "stage": "02-core-loop",
+          "slug": "items-create-fights",
+          "status": "parked",
+          "ifThen": "IF items spawn at contested midfield locations (not near bases), THEN ≥50% of pickups are followed by a player-vs-player or player-vs-bot encounter within 10 seconds.",
+          "test": "desktop Explorer round with bots, log pickup→encounter intervals"
+        },
+        {
+          "id": "H2-08",
+          "stage": "02-core-loop",
+          "slug": "first-ten-seconds",
+          "status": "parked",
+          "ifThen": "IF a player spawns on their team's base facing unclaimed midfield tiles, THEN ≥80% of first-time testers flip their first tile within 10 seconds with no prompt (program gate: 80% playing within 5 seconds — measure both).",
+          "test": "3 first-time testers on the live V0/greybox in desktop Explorer, stopwatch"
+        },
+        {
+          "id": "H3-01",
+          "stage": "03-vertical-slice",
+          "slug": "roles-emerge",
+          "status": "parked",
+          "ifThen": "IF combat and dual bases ship together, THEN in a live playtest with ≥6 players an observer can classify at least half the players into runner / defender / attacker behavior for the majority of a round — without roles being assigned or explained.",
+          "test": "one observed live-World playtest round with ≥6 players (event night is the natural venue), observer tags each player's dominant behavior"
+        },
+        {
+          "id": "H3-02",
+          "stage": "03-vertical-slice",
+          "slug": "weekly-league-return",
+          "status": "parked",
+          "ifThen": "IF weekly small-league standings (~20 players per league) persist per player and reset Sunday 00:00 UTC, visible at the base spawn, THEN ≥20% of week-1 new players return within 7 days (D7 ≥ 20%).",
+          "test": "paper first — check the multiplayer server supports per-player persistence and that a 5-min-round score is comparable; then 2 weeks of live telemetry after v1 ships. Most expensive claim in the log; calibration: industry median D7 is 4–8%, so also record the intermediate bar (≥8%)"
+        },
+        {
+          "id": "H3-03",
+          "stage": "03-vertical-slice",
+          "slug": "session-depth",
+          "status": "parked",
+          "ifThen": "IF the round ends and the maze instantly regenerates into a new layout, THEN the median session includes ≥2 completed rounds (players who finish round 1 start round 2).",
+          "test": "live telemetry on the v1 World, one week of sessions (V0 is already live — instrumenting rounds-per-session there is nearly free and could run before v1)"
+        },
+        {
+          "id": "H3-04",
+          "stage": "03-vertical-slice",
+          "slug": "event-night-concurrency",
+          "status": "parked",
+          "ifThen": "IF a weekly match night (fixed hour, e.g. Friday 20:00 UTC) is announced in-world and on Discord, THEN peak CCU during the event window is ≥3× the weekday median CCU.",
+          "test": "run one announced event on the live World and compare CCU to the weekday baseline (V0 is live — this is testable before v1 ships)"
+        }
+      ],
+      "createdAt": "2026-08-12T19:06:00.000Z",
+      "updatedAt": "2026-08-12T00:00:00.000Z"
+    }
+  },
+  "gddDocs": [
+    {
+      "id": "pixelwars-shortgdd-v1",
+      "title": "Pixelwars shortGDD",
+      "kind": "shortgdd",
+      "sceneId": null,
+      "version": 1,
+      "supersedes": null,
+      "source": "slack-import",
+      "sourceRef": "https://decentralandteam.slack.com/archives/C0BDDMXGLU8/p1786561616202039",
+      "bodyMd": "# Decentraland Experience Proposal\n\n**Creator Success Program — Proposal Template (short GDD)**\n\n| | |\n|---|---|\n| Experience name | Pixelwars |\n| Studio / team name | Luke Escobar (TBD: team/studio name — confirm with owner) |\n| Date | 2026-08-12 |\n| Contact (Discord + email) | TBD: owner's Discord handle + email |\n\n> Adapted from \"Pixelwars Brief\" (Luke Escobar, 2026-08-06) by agent, full-AFK mode. Everything the\n> brief decided is kept as decided. Markers: `[agent-decided]` = chosen on the owner's behalf,\n> pending review · `[HYPOTHESIS]` = a claim only a playtest can settle, parked in Appendix A ·\n> `TBD:` = not known yet, with the plan to find out.\n\nWhat we fund: **social-first, replayable, mobile-ready experiences with clear progression.** Program goal: **more than 20% of new players return within 7 days (D7 retention).**\n\n---\n\n## 0. TL;DR\n\n| | |\n|---|---|\n| **One-line concept** | Team-based turf war in a maze that regenerates every 5-minute round — you paint territory by walking, live in Decentraland today. |\n| **Team & total hours/week** | Luke Escobar (design + SDK7 code) + Stom (optimization); TBD: hours/week per person |\n| **Current status** | **Small vertical slice live in a World: [pixelwars.dcl.eth](https://decentraland.org/jump?realm=pixelwars.dcl.eth&position=5,5)** — V0 runs on desktop, mobile and three.js clients, with multiplayer server, procedural mazes, portals and solo-play bots. [Gameplay video](https://youtu.be/Mocy6Xly7D4) |\n| **Live at end of Week 6** | A player joins at any hour, gets a team, and fights 5-minute turf rounds in a fresh maze with dual team bases, a paint launcher, pickup items and a weekly league board — on desktop and mobile. |\n| **Requested round** | v1 |\n\n---\n\n## 1. The Hook\n\nIt's like Splatoon's Turf War, but the arena is a maze that rebuilds itself every five-minute round — and your feet are the paintbrush: you claim territory just by walking.\n\n---\n\n## 2. First Session — written as \"you\"\n\nYou spawn on your team's base — the floor under your feet is already red, your red. A timer hangs overhead: 4:58. The tiles ahead are blank, and your first step flips one red with a pop. That's the whole tutorial: you walk, the world becomes yours.\n\nA blue trail cuts across your path — someone is repainting your ground. You chase them down and fire your paint launcher; the blob splats them and three tiles at once. They respawn far away at their base, and their trail is yours again. The coverage bar up top shifts: 41% red, 38% blue. A glowing ink canister sits in a contested corridor — you grab it mid-run and your tank refills. You duck through a shimmering portal and pop out across the maze in untouched corridors. Free territory.\n\nThe horn sounds: red took 52%. Your team wins — and the maze tears itself down and rebuilds into a shape nobody has ever walked. New corridors, new portals. The next round is already counting down.\n\nOn the way out you pass the league board at your base: 3rd in this week's league of twenty. It resets Sunday. Two places from promotion.\n\n_[excerpt — the full document ships in fixtures/gdd/pixelwars-shortgdd-v1.md]_\n",
+      "honesty": {
+        "sections": [
+          {
+            "name": "0. TL;DR",
+            "open": 0,
+            "tbd": 1,
+            "hypothesis": 0,
+            "agentDecided": 0
+          },
+          {
+            "name": "1. The Hook",
+            "open": 0,
+            "tbd": 0,
+            "hypothesis": 0,
+            "agentDecided": 0
+          },
+          {
+            "name": "2. First Session — written as \"you\"",
+            "open": 0,
+            "tbd": 0,
+            "hypothesis": 1,
+            "agentDecided": 0
+          },
+          {
+            "name": "3. Core Loop",
+            "open": 0,
+            "tbd": 0,
+            "hypothesis": 2,
+            "agentDecided": 1
+          },
+          {
+            "name": "4. Why Players Come Back",
+            "open": 0,
+            "tbd": 1,
+            "hypothesis": 3,
+            "agentDecided": 6
+          },
+          {
+            "name": "5. Social by Design",
+            "open": 0,
+            "tbd": 1,
+            "hypothesis": 1,
+            "agentDecided": 2
+          },
+          {
+            "name": "6. Mobile-First",
+            "open": 0,
+            "tbd": 1,
+            "hypothesis": 2,
+            "agentDecided": 2
+          },
+          {
+            "name": "7. World, Look & Story",
+            "open": 0,
+            "tbd": 0,
+            "hypothesis": 0,
+            "agentDecided": 0
+          },
+          {
+            "name": "8. Comparables — exactly two",
+            "open": 0,
+            "tbd": 1,
+            "hypothesis": 0,
+            "agentDecided": 1
+          },
+          {
+            "name": "9. Six-Week Plan (v1 scope)",
+            "open": 0,
+            "tbd": 1,
+            "hypothesis": 1,
+            "agentDecided": 0
+          },
+          {
+            "name": "10. Success Criteria — what you will measure",
+            "open": 0,
+            "tbd": 0,
+            "hypothesis": 0,
+            "agentDecided": 2
+          },
+          {
+            "name": "11. Team",
+            "open": 0,
+            "tbd": 4,
+            "hypothesis": 0,
+            "agentDecided": 0
+          },
+          {
+            "name": "12. Deliverables & Declaration",
+            "open": 0,
+            "tbd": 1,
+            "hypothesis": 0,
+            "agentDecided": 0
+          },
+          {
+            "name": "Appendix A — Hypothesis Log",
+            "open": 0,
+            "tbd": 0,
+            "hypothesis": 0,
+            "agentDecided": 0
+          }
+        ],
+        "totals": {
+          "open": 0,
+          "tbd": 11,
+          "hypothesis": 10,
+          "agentDecided": 14
+        }
+      },
+      "hypotheses": [
+        {
+          "id": "H2-01",
+          "stage": "02-core-loop",
+          "slug": "tile-resolution-budget",
+          "status": "parked",
+          "ifThen": "IF the paint grid drops from 2m×2m to 1m×1m (≈4× more tiles), THEN scene load time stays ≤1.5× of V0 and the entity count stays inside SDK7 scene limits.",
+          "test": "arithmetic in the doc first (tile count × entities-per-tile vs current SDK7 limits — look the limits up, do not quote from memory), then a load-time measurement on Stom's refactored branch in desktop Explorer"
+        },
+        {
+          "id": "H2-02",
+          "stage": "02-core-loop",
+          "slug": "hit-registration-latency",
+          "status": "parked",
+          "ifThen": "IF projectile-vs-player hits use client-side prediction (or a raised projectile tick), THEN in a 2-client desktop test ≥90% of visually on-target shots register as hits.",
+          "test": "desktop Explorer, 2 clients side by side, count 20 deliberate on-target shots; the Flagtag projectile system is the porting base"
+        },
+        {
+          "id": "H2-03",
+          "stage": "02-core-loop",
+          "slug": "launcher-vs-walk-balance",
+          "status": "parked",
+          "ifThen": "IF the launcher claims tiles at range but with limited ammo, THEN in playtest rounds walking still accounts for ≥50% of all tiles flipped (kill-check: rounds do not degenerate into pure shooting).",
+          "test": "desktop Explorer round with bots (or 2 players), log the claim source per tile flip"
+        },
+        {
+          "id": "H2-04",
+          "stage": "02-core-loop",
+          "slug": "hide-in-paint-spike",
+          "status": "parked",
+          "ifThen": "IF hiding is assembled from AvatarModifierArea + InputModifier + a raised-tile marker, THEN a timeboxed 3-day spike delivers all three behaviors: avatar invisible, marker tile visible to enemies, un-hide in under ~200ms.",
+          "test": "desktop Explorer greybox spike, hard timebox of 3 days; failure = any of the three behaviors missing at timebox end"
+        },
+        {
+          "id": "H2-05",
+          "stage": "02-core-loop",
+          "slug": "quickmove-jitter-feel",
+          "status": "parked",
+          "ifThen": "IF quick-move fakes locomotion by teleporting the hidden player along own-paint tiles at 2× speed, THEN the owner self-test finds the motion readable and free of disorienting jitter (kill-check: no visible stutter at 2× speed on a straight paint corridor).",
+          "test": "desktop Explorer greybox, owner self-test on one straight corridor, ~1 day on top of H2-04"
+        },
+        {
+          "id": "H2-06",
+          "stage": "02-core-loop",
+          "slug": "touch-aiming",
+          "status": "parked",
+          "ifThen": "IF the launcher fires from a single on-screen action button with an aim-assist cone (no precision aiming), THEN a mobile self-test lands ≥50% of shots on a moving bot at mid range.",
+          "test": "mobile QR pass in Creator Hub once the launcher exists on desktop (~minutes to run, so do it at Week 4 mobile playtest at the latest)"
+        },
+        {
+          "id": "H2-07",
+          "stage": "02-core-loop",
+          "slug": "items-create-fights",
+          "status": "parked",
+          "ifThen": "IF items spawn at contested midfield locations (not near bases), THEN ≥50% of pickups are followed by a player-vs-player or player-vs-bot encounter within 10 seconds.",
+          "test": "desktop Explorer round with bots, log pickup→encounter intervals"
+        },
+        {
+          "id": "H2-08",
+          "stage": "02-core-loop",
+          "slug": "first-ten-seconds",
+          "status": "parked",
+          "ifThen": "IF a player spawns on their team's base facing unclaimed midfield tiles, THEN ≥80% of first-time testers flip their first tile within 10 seconds with no prompt (program gate: 80% playing within 5 seconds — measure both).",
+          "test": "3 first-time testers on the live V0/greybox in desktop Explorer, stopwatch"
+        },
+        {
+          "id": "H3-01",
+          "stage": "03-vertical-slice",
+          "slug": "roles-emerge",
+          "status": "parked",
+          "ifThen": "IF combat and dual bases ship together, THEN in a live playtest with ≥6 players an observer can classify at least half the players into runner / defender / attacker behavior for the majority of a round — without roles being assigned or explained.",
+          "test": "one observed live-World playtest round with ≥6 players (event night is the natural venue), observer tags each player's dominant behavior"
+        },
+        {
+          "id": "H3-02",
+          "stage": "03-vertical-slice",
+          "slug": "weekly-league-return",
+          "status": "parked",
+          "ifThen": "IF weekly small-league standings (~20 players per league) persist per player and reset Sunday 00:00 UTC, visible at the base spawn, THEN ≥20% of week-1 new players return within 7 days (D7 ≥ 20%).",
+          "test": "paper first — check the multiplayer server supports per-player persistence and that a 5-min-round score is comparable; then 2 weeks of live telemetry after v1 ships. Most expensive claim in the log; calibration: industry median D7 is 4–8%, so also record the intermediate bar (≥8%)"
+        },
+        {
+          "id": "H3-03",
+          "stage": "03-vertical-slice",
+          "slug": "session-depth",
+          "status": "parked",
+          "ifThen": "IF the round ends and the maze instantly regenerates into a new layout, THEN the median session includes ≥2 completed rounds (players who finish round 1 start round 2).",
+          "test": "live telemetry on the v1 World, one week of sessions (V0 is already live — instrumenting rounds-per-session there is nearly free and could run before v1)"
+        },
+        {
+          "id": "H3-04",
+          "stage": "03-vertical-slice",
+          "slug": "event-night-concurrency",
+          "status": "parked",
+          "ifThen": "IF a weekly match night (fixed hour, e.g. Friday 20:00 UTC) is announced in-world and on Discord, THEN peak CCU during the event window is ≥3× the weekday median CCU.",
+          "test": "run one announced event on the live World and compare CCU to the weekday baseline (V0 is live — this is testable before v1 ships)"
+        }
+      ],
+      "createdAt": "2026-08-12T19:06:00.000Z",
+      "updatedAt": "2026-08-12T00:00:00.000Z"
+    },
+    {
+      "id": "pixelwars-shortgdd-v2",
+      "title": "Pixelwars shortGDD",
+      "kind": "shortgdd",
+      "sceneId": null,
+      "version": 2,
+      "supersedes": "pixelwars-shortgdd-v1",
+      "source": "slack-import",
+      "sourceRef": "https://decentralandteam.slack.com/archives/C0BDDMXGLU8/p1786569035319029",
+      "bodyMd": "# Decentraland Experience Proposal\n\n**Creator Success Program — Proposal Template (short GDD)**\n\n| | |\n|---|---|\n| Experience name | Pixelwars |\n| Studio / team name | Luke Escobar (TBD: team/studio name — confirm with owner) |\n| Date | 2026-08-12 |\n| Contact (Discord + email) | TBD: owner's Discord handle + email |\n\n> Adapted from \"Pixelwars Brief\" (Luke Escobar, 2026-08-06) by agent, full-AFK mode. Everything the\n> brief decided is kept as decided. Markers: `[agent-decided]` = chosen on the owner's behalf,\n> pending review · `[HYPOTHESIS]` = a claim only a playtest can settle, parked in Appendix A ·\n> `TBD:` = not known yet, with the plan to find out.\n>\n> **Document passes:** ① 2026-08-12 — AFK adaptation of the brief (markers above, `[agent-decided]`) ·\n> ② 2026-08-12 — program-side review merge, everything it touched is tagged **`[review-pass]`** so the\n> owner and the program team can see which iteration each line came from. Pass ② changed §10 to\n> program-assessable criteria (why: decisions.md) and parked every other divergent suggestion in\n> `ideas.md` — no section text was silently rewritten. Pointers sit at §4.3 and §9.\n\nWhat we fund: **social-first, replayable, mobile-ready experiences with clear progression.** Program goal: **more than 20% of new players return within 7 days (D7 retention).**\n\n---\n\n## 0. TL;DR\n\n| | |\n|---|---|\n| **One-line concept** | Team-based turf war in a maze that regenerates every 5-minute round — you paint territory by walking, live in Decentraland today. |\n| **Team & total hours/week** | Luke Escobar (design + SDK7 code) + Stom (optimization); TBD: hours/week per person |\n| **Current status** | **Small vertical slice live in a World: [pixelwars.dcl.eth](https://decentraland.org/jump?realm=pixelwars.dcl.eth&position=5,5)** — V0 runs on desktop, mobile and three.js clients, with multiplayer server, procedural mazes, portals and solo-play bots. [Gameplay video](https://youtu.be/Mocy6Xly7D4) |\n| **Live at end of Week 6** | A player joins at any hour, gets a team, and fights 5-minute turf rounds in a fresh maze with dual team bases, a paint launcher, pickup items and a weekly league board — on desktop and mobile. |\n| **Requested round** | v1 |\n\n---\n\n## 1. The Hook\n\nIt's like Splatoon's Turf War, but the arena is a maze that rebuilds itself every five-minute round — and your feet are the paintbrush: you claim territory just by walking.\n\n---\n\n## 2. First Session — written as \"you\"\n\nYou spawn on your team's base — the floor under your feet is already red, your red. A timer hangs overhead: 4:58. The tiles ahead are blank, and your first step flips one red with a pop. That's the whole tutorial: you walk, the world becomes yours.\n\n_[excerpt — the full document ships in fixtures/gdd/pixelwars-shortgdd-v2-reviewpass.md]_\n",
+      "honesty": {
+        "sections": [
+          {
+            "name": "0. TL;DR",
+            "open": 0,
+            "tbd": 1,
+            "hypothesis": 0,
+            "agentDecided": 0
+          },
+          {
+            "name": "1. The Hook",
+            "open": 0,
+            "tbd": 0,
+            "hypothesis": 0,
+            "agentDecided": 0
+          },
+          {
+            "name": "2. First Session — written as \"you\"",
+            "open": 0,
+            "tbd": 0,
+            "hypothesis": 1,
+            "agentDecided": 0
+          },
+          {
+            "name": "3. Core Loop",
+            "open": 0,
+            "tbd": 0,
+            "hypothesis": 2,
+            "agentDecided": 1
+          },
+          {
+            "name": "4. Why Players Come Back",
+            "open": 0,
+            "tbd": 1,
+            "hypothesis": 3,
+            "agentDecided": 6
+          },
+          {
+            "name": "5. Social by Design",
+            "open": 0,
+            "tbd": 1,
+            "hypothesis": 1,
+            "agentDecided": 2
+          },
+          {
+            "name": "6. Mobile-First",
+            "open": 0,
+            "tbd": 1,
+            "hypothesis": 2,
+            "agentDecided": 2
+          },
+          {
+            "name": "7. World, Look & Story",
+            "open": 0,
+            "tbd": 0,
+            "hypothesis": 0,
+            "agentDecided": 0
+          },
+          {
+            "name": "8. Comparables — exactly two",
+            "open": 0,
+            "tbd": 1,
+            "hypothesis": 0,
+            "agentDecided": 1
+          },
+          {
+            "name": "9. Six-Week Plan (v1 scope)",
+            "open": 0,
+            "tbd": 1,
+            "hypothesis": 1,
+            "agentDecided": 0
+          },
+          {
+            "name": "10. Success Criteria — how v1 will be judged",
+            "open": 0,
+            "tbd": 0,
+            "hypothesis": 0,
+            "agentDecided": 0
+          },
+          {
+            "name": "11. Team",
+            "open": 0,
+            "tbd": 4,
+            "hypothesis": 0,
+            "agentDecided": 0
+          },
+          {
+            "name": "12. Deliverables & Declaration",
+            "open": 0,
+            "tbd": 1,
+            "hypothesis": 0,
+            "agentDecided": 0
+          },
+          {
+            "name": "Appendix A — Hypothesis Log",
+            "open": 0,
+            "tbd": 0,
+            "hypothesis": 0,
+            "agentDecided": 0
+          }
+        ],
+        "totals": {
+          "open": 0,
+          "tbd": 11,
+          "hypothesis": 10,
+          "agentDecided": 12
+        }
+      },
+      "hypotheses": [
+        {
+          "id": "H2-01",
+          "stage": "02-core-loop",
+          "slug": "tile-resolution-budget",
+          "status": "parked",
+          "ifThen": "IF the paint grid drops from 2m×2m to 1m×1m (≈4× more tiles), THEN scene load time stays ≤1.5× of V0 and the entity count stays inside SDK7 scene limits.",
+          "test": "arithmetic in the doc first (tile count × entities-per-tile vs current SDK7 limits — look the limits up, do not quote from memory), then a load-time measurement on Stom's refactored branch in desktop Explorer"
+        },
+        {
+          "id": "H2-02",
+          "stage": "02-core-loop",
+          "slug": "hit-registration-latency",
+          "status": "parked",
+          "ifThen": "IF projectile-vs-player hits use client-side prediction (or a raised projectile tick), THEN in a 2-client desktop test ≥90% of visually on-target shots register as hits.",
+          "test": "desktop Explorer, 2 clients side by side, count 20 deliberate on-target shots; the Flagtag projectile system is the porting base"
+        },
+        {
+          "id": "H2-03",
+          "stage": "02-core-loop",
+          "slug": "launcher-vs-walk-balance",
+          "status": "parked",
+          "ifThen": "IF the launcher claims tiles at range but with limited ammo, THEN in playtest rounds walking still accounts for ≥50% of all tiles flipped (kill-check: rounds do not degenerate into pure shooting).",
+          "test": "desktop Explorer round with bots (or 2 players), log the claim source per tile flip"
+        },
+        {
+          "id": "H2-04",
+          "stage": "02-core-loop",
+          "slug": "hide-in-paint-spike",
+          "status": "parked",
+          "ifThen": "IF hiding is assembled from AvatarModifierArea + InputModifier + a raised-tile marker, THEN a timeboxed 3-day spike delivers all three behaviors: avatar invisible, marker tile visible to enemies, un-hide in under ~200ms.",
+          "test": "desktop Explorer greybox spike, hard timebox of 3 days; failure = any of the three behaviors missing at timebox end"
+        },
+        {
+          "id": "H2-05",
+          "stage": "02-core-loop",
+          "slug": "quickmove-jitter-feel",
+          "status": "parked",
+          "ifThen": "IF quick-move fakes locomotion by teleporting the hidden player along own-paint tiles at 2× speed, THEN the owner self-test finds the motion readable and free of disorienting jitter (kill-check: no visible stutter at 2× speed on a straight paint corridor).",
+          "test": "desktop Explorer greybox, owner self-test on one straight corridor, ~1 day on top of H2-04"
+        },
+        {
+          "id": "H2-06",
+          "stage": "02-core-loop",
+          "slug": "touch-aiming",
+          "status": "parked",
+          "ifThen": "IF the launcher fires from a single on-screen action button with an aim-assist cone (no precision aiming), THEN a mobile self-test lands ≥50% of shots on a moving bot at mid range.",
+          "test": "mobile QR pass in Creator Hub once the launcher exists on desktop (~minutes to run, so do it at Week 4 mobile playtest at the latest)"
+        },
+        {
+          "id": "H2-07",
+          "stage": "02-core-loop",
+          "slug": "items-create-fights",
+          "status": "parked",
+          "ifThen": "IF items spawn at contested midfield locations (not near bases), THEN ≥50% of pickups are followed by a player-vs-player or player-vs-bot encounter within 10 seconds.",
+          "test": "desktop Explorer round with bots, log pickup→encounter intervals"
+        },
+        {
+          "id": "H2-08",
+          "stage": "02-core-loop",
+          "slug": "first-ten-seconds",
+          "status": "parked",
+          "ifThen": "IF a player spawns on their team's base facing unclaimed midfield tiles, THEN ≥80% of first-time testers flip their first tile within 10 seconds with no prompt (program gate: 80% playing within 5 seconds — measure both).",
+          "test": "3 first-time testers on the live V0/greybox in desktop Explorer, stopwatch"
+        },
+        {
+          "id": "H3-01",
+          "stage": "03-vertical-slice",
+          "slug": "roles-emerge",
+          "status": "parked",
+          "ifThen": "IF combat and dual bases ship together, THEN in a live playtest with ≥6 players an observer can classify at least half the players into runner / defender / attacker behavior for the majority of a round — without roles being assigned or explained.",
+          "test": "one observed live-World playtest round with ≥6 players (event night is the natural venue), observer tags each player's dominant behavior"
+        },
+        {
+          "id": "H3-02",
+          "stage": "03-vertical-slice",
+          "slug": "weekly-league-return",
+          "status": "parked",
+          "ifThen": "IF weekly small-league standings (~20 players per league) persist per player and reset Sunday 00:00 UTC, visible at the base spawn, THEN ≥20% of week-1 new players return within 7 days (D7 ≥ 20%).",
+          "test": "paper first — check the multiplayer server supports per-player persistence and that a 5-min-round score is comparable; then 2 weeks of live telemetry after v1 ships. Most expensive claim in the log; calibration: industry median D7 is 4–8%, so also record the intermediate bar (≥8%)"
+        },
+        {
+          "id": "H3-03",
+          "stage": "03-vertical-slice",
+          "slug": "session-depth",
+          "status": "parked",
+          "ifThen": "IF the round ends and the maze instantly regenerates into a new layout, THEN the median session includes ≥2 completed rounds (players who finish round 1 start round 2).",
+          "test": "live telemetry on the v1 World, one week of sessions (V0 is already live — instrumenting rounds-per-session there is nearly free and could run before v1)"
+        },
+        {
+          "id": "H3-04",
+          "stage": "03-vertical-slice",
+          "slug": "event-night-concurrency",
+          "status": "parked",
+          "ifThen": "IF a weekly match night (fixed hour, e.g. Friday 20:00 UTC) is announced in-world and on Discord, THEN peak CCU during the event window is ≥3× the weekday median CCU.",
+          "test": "run one announced event on the live World and compare CCU to the weekday baseline (V0 is live — this is testable before v1 ships)"
+        }
+      ],
+      "createdAt": "2026-08-12T21:10:00.000Z",
+      "updatedAt": "2026-08-12T00:00:00.000Z"
+    },
+    {
+      "id": "alien-human-zoo-shortgdd-v1",
+      "title": "Alien Human Zoo shortGDD",
+      "kind": "shortgdd",
+      "sceneId": null,
+      "version": 1,
+      "supersedes": null,
+      "source": "slack-import",
+      "sourceRef": "https://decentralandteam.slack.com/archives/C0BDDMXGLU8/p1786568416552999",
+      "bodyMd": "# Decentraland Experience Proposal\n\n**Creator Success Program — Proposal Template (short GDD)**\n\n| | |\n|---|---|\n| Experience name | Alien Human Zoo (working title) |\n| Studio / team name | TBD: confirm with owner |\n| Date | 2026-08-12 |\n| Contact (Discord + email) | nearnshaw@decentraland.org (Discord TBD) |\n\n> **Draft status:** Stage 1 interview in progress (Solidify route). Sections marked `TBD:` /\n> `[OPEN]` are not yet decided. Claims marked `[HYPOTHESIS]` have a row in Appendix A.\n\n---\n\n## 0. TL;DR\n\n*Filled last, after everything else.*\n\n| | |\n|---|---|\n| **One-line concept** | Reigns-style advice runs: aliens ask broken-translation questions about their caged humans, you answer with their own odd options, and they implement everything literally |\n| **Team & total hours/week** | TBD: §11 interview (stage 2) |\n| **Current status** | idea — stage-1 document done; find-the-fun test (H1-01) not yet run |\n| **Live at end of Week 6** | [OPEN] — after §9 |\n| **Requested round** | v1 |\n\n---\n\n## 1. The Hook\n\n> **\"It's like Reigns, but you're the consultant telling aliens how to keep the humans in their\n> zoo alive — and they take everything you say catastrophically literally.\"**\n\n(\"Give them water\" → 100% air humidity. \"They need air circulation\" → a 100 km/h turbine.)\n\nSupporting mechanics, not the twist: consequences only appear after the aliens implement them, and\nthe caged human comments on each result.\n\n---\n\n## 2. First Session — written as \"you\"\n\n*Rough (stage 1). Structure set by the owner; wording `[agent-decided]` until reviewed.*\n\nYou spawn facing a glass cage. Inside, a human in pajamas paces; above the glass, four big meters\nglow — one of them, WATER, is blinking red. A screen lights up with a string of abstract alien\n\n_[excerpt — the full document ships in fixtures/gdd/alien-human-zoo-shortgdd.md]_\n",
+      "honesty": {
+        "sections": [
+          {
+            "name": "0. TL;DR",
+            "open": 1,
+            "tbd": 1,
+            "hypothesis": 0,
+            "agentDecided": 0
+          },
+          {
+            "name": "1. The Hook",
+            "open": 0,
+            "tbd": 0,
+            "hypothesis": 0,
+            "agentDecided": 0
+          },
+          {
+            "name": "2. First Session — written as \"you\"",
+            "open": 0,
+            "tbd": 0,
+            "hypothesis": 0,
+            "agentDecided": 1
+          },
+          {
+            "name": "3. Core Loop",
+            "open": 2,
+            "tbd": 0,
+            "hypothesis": 0,
+            "agentDecided": 0
+          },
+          {
+            "name": "4. Why Players Come Back",
+            "open": 1,
+            "tbd": 0,
+            "hypothesis": 0,
+            "agentDecided": 0
+          },
+          {
+            "name": "5. Social by Design",
+            "open": 1,
+            "tbd": 0,
+            "hypothesis": 0,
+            "agentDecided": 0
+          },
+          {
+            "name": "6. Mobile-First",
+            "open": 1,
+            "tbd": 0,
+            "hypothesis": 0,
+            "agentDecided": 0
+          },
+          {
+            "name": "7. World, Look & Story",
+            "open": 0,
+            "tbd": 1,
+            "hypothesis": 0,
+            "agentDecided": 0
+          },
+          {
+            "name": "8. Comparables — exactly two",
+            "open": 0,
+            "tbd": 0,
+            "hypothesis": 0,
+            "agentDecided": 0
+          },
+          {
+            "name": "9. Six-Week Plan (v1 scope)",
+            "open": 1,
+            "tbd": 0,
+            "hypothesis": 0,
+            "agentDecided": 0
+          },
+          {
+            "name": "10. Success Criteria — what you will measure",
+            "open": 1,
+            "tbd": 0,
+            "hypothesis": 0,
+            "agentDecided": 0
+          },
+          {
+            "name": "11. Team",
+            "open": 0,
+            "tbd": 1,
+            "hypothesis": 0,
+            "agentDecided": 0
+          },
+          {
+            "name": "12. Deliverables & Declaration",
+            "open": 1,
+            "tbd": 0,
+            "hypothesis": 0,
+            "agentDecided": 0
+          },
+          {
+            "name": "Appendix A — Hypothesis Log",
+            "open": 0,
+            "tbd": 0,
+            "hypothesis": 0,
+            "agentDecided": 0
+          }
+        ],
+        "totals": {
+          "open": 9,
+          "tbd": 3,
+          "hypothesis": 0,
+          "agentDecided": 1
+        }
+      },
+      "hypotheses": [],
+      "createdAt": "2026-08-12T21:02:00.000Z",
+      "updatedAt": "2026-08-12T00:00:00.000Z"
+    }
+  ],
+  "copilot": {
+    "badge": "5b1c",
+    "unavailable": false,
+    "status": {
+      "online": true,
+      "probedAt": "2026-08-15T01:30:00.000Z",
+      "version": "1.18.18"
+    },
+    "usage": {
+      "messages": 1,
+      "sessions": 1,
+      "inputTokens": 9623,
+      "outputTokens": 76,
+      "costUsd": 0.0009851,
+      "byDay": [
+        {
+          "day": "2026-08-15",
+          "inputTokens": 9623,
+          "outputTokens": 76,
+          "costUsd": 0.0009851
+        }
+      ],
+      "recent": [
+        {
+          "messageId": "msg-unrecorded-01",
+          "sessionId": "ses-unrecorded-01",
+          "sessionTitle": "gateway metering probe (llm.decent.dev)",
+          "model": "decent/llm-default",
+          "inputTokens": 9623,
+          "outputTokens": 76,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0,
+          "costUsd": 0.0009851,
+          "priceInputPerM": 0.1,
+          "priceOutputPerM": 0.3,
+          "at": "2026-08-15T00:55:00.000Z"
+        }
+      ]
+    },
+    "skills": [
+      {
+        "name": "/gdd",
+        "description": "Draft a Decentraland shortGDD from a game brief, in the Creator Success pre-production format.",
+        "dir": "copilot workspace .opencode/commands/gdd.md",
+        "firstCommit": null,
+        "lastCommit": null,
+        "source": "command"
+      },
+      {
+        "name": "add-3d-models",
+        "description": "Add 3D models (.glb/.gltf) to a Decentraland scene using GltfContainer, including 8,800+ free assets from the OpenDCL catalog. Use when the user wants to add models, import GLB files, find free 3D assets, or set up model colliders. Do NOT use for materials/textures (see advanced-rendering) or model animations (see animations-tweens).",
+        "dir": "sdk-skills/add-3d-models",
+        "firstCommit": "2026-04-13T11:55:05Z",
+        "lastCommit": "2026-07-31T13:20:24-03:00",
+        "source": "sdk-skills"
+      },
+      {
+        "name": "add-interactivity",
+        "description": "Event-driven interactivity for Decentraland entities. Covers pointerEventsSystem, proximity events, trigger areas (enter/exit zones), raycasting, and one-shot key presses on entities. Use when the user wants clickable objects, hover highlights, proximity-based interactions, detecting when a player enters a zone, E/F key actions on an entity, or ray-hit detection. For system-level polling (held keys, WASD movement, cursor lock, InputModifier, action bar) see advanced-input. For screen-space UI buttons see build-ui.",
+        "dir": "sdk-skills/add-interactivity",
+        "firstCommit": "2026-04-13T11:55:05Z",
+        "lastCommit": "2026-07-23T15:07:01-03:00",
+        "source": "sdk-skills"
+      },
+      {
+        "name": "advanced-input",
+        "description": "System-level input polling and player movement control in Decentraland. Covers inputSystem, InputModifier, PointerLock, and PrimaryPointerInfo. Use when the user wants continuous key polling, WASD-controlled entities, to freeze the player during a cutscene, FPS-style cursor lock, or multi-key combo patterns. For event-driven clicks and hover on entities see add-interactivity.",
+        "dir": "sdk-skills/advanced-input",
+        "firstCommit": "2026-04-13T11:55:05Z",
+        "lastCommit": "2026-08-12T13:24:04-03:00",
+        "source": "sdk-skills"
+      },
+      {
+        "name": "advanced-rendering",
+        "description": "Advanced rendering in Decentraland scenes. Billboard, TextShape, PBR materials, GltfNodeModifiers, and VisibilityComponent. Use when the user wants billboards, floating labels, 3D text, material effects, glow, transparency, or model node control. Do NOT use for screen-space UI (see build-ui) or loading 3D models (see add-3d-models).",
+        "dir": "sdk-skills/advanced-rendering",
+        "firstCommit": "2026-04-13T11:55:05Z",
+        "lastCommit": "2026-07-23T16:35:04-03:00",
+        "source": "sdk-skills"
+      },
+      {
+        "name": "animations-tweens",
+        "description": "Animate objects in Decentraland scenes. Play GLTF model animations with Animator, create procedural motion with Tween, chain sequences with TweenSequence. Use when the user wants to animate, move, rotate, scroll a texture, or create motion effects. Do NOT use for audio/video playback (see audio-video), player emotes (see player-avatar), or physics-driven motion (see player-physics).",
+        "dir": "sdk-skills/animations-tweens",
+        "firstCommit": "2026-04-13T11:55:05Z",
+        "lastCommit": "2026-08-11T02:33:51+02:00",
+        "source": "sdk-skills"
+      },
+      {
+        "name": "audio-analysis",
+        "description": "Read real-time amplitude and 8-band frequency data from any AudioSource, AudioStream, or VideoPlayer entity in a Decentraland SDK7 scene with the AudioAnalysis component. Use when the user asks for music visualizers, beat reactivity, equalizers, or audio-reactive scenes. Do NOT use to play sound (see audio-video) or to detect player-emitted audio (this reads only entity-attached AudioSource/AudioStream/VideoPlayer audio).",
+        "dir": "sdk-skills/audio-analysis",
+        "firstCommit": "2026-05-04T17:00:08-03:00",
+        "lastCommit": "2026-07-31T13:20:24-03:00",
+        "source": "sdk-skills"
+      },
+      {
+        "name": "audio-video",
+        "description": "Add sound effects, music, audio streaming, and video players to Decentraland scenes with AudioSource, AudioStream, and VideoPlayer. Use when the user wants sound, music, video screens, radio, live streams, or media playback. Do NOT use for player emotes (see player-avatar) or screen-space UI sounds (sounds attach to entities, not UI).",
+        "dir": "sdk-skills/audio-video",
+        "firstCommit": "2026-04-13T11:55:05Z",
+        "lastCommit": "2026-08-13T09:51:36-03:00",
+        "source": "sdk-skills"
+      },
+      {
+        "name": "authoritative-server",
+        "description": "Build multiplayer Decentraland scenes with a headless Multiplayer Server. Use when the user wants authoritative multiplayer, anti-cheat, server-side validation, persistent storage, or server messages. Do NOT use for basic CRDT multiplayer without a server (see multiplayer-sync).",
+        "dir": "sdk-skills/authoritative-server",
+        "firstCommit": "2026-04-13T11:55:05Z",
+        "lastCommit": "2026-07-27T15:23:05-03:00",
+        "source": "sdk-skills"
+      },
+      {
+        "name": "build-ui",
+        "description": "Build 2D screen-space UI for Decentraland scenes using React-ECS (JSX). Create HUDs, menus, health bars, dialogs, buttons, inputs, and dropdowns. Use when the user wants on-screen UI, menus, or form inputs. Do NOT use for 3D in-world text (see advanced-rendering) or clickable 3D objects (see add-interactivity).",
+        "dir": "sdk-skills/build-ui",
+        "firstCommit": "2026-04-13T11:55:05Z",
+        "lastCommit": "2026-08-13T09:51:36-03:00",
+        "source": "sdk-skills"
+      },
+      {
+        "name": "camera-control",
+        "description": "Control camera behavior in Decentraland scenes. Covers CameraMode, CameraModeArea, VirtualCamera, MainCamera, and camera vs collider interactions. Use when the user wants camera control, cutscenes, forced camera modes, or camera tracking. Do NOT use for input restriction during cutscenes (see advanced-input for InputModifier) or cursor lock detection (see advanced-input for PointerLock).",
+        "dir": "sdk-skills/camera-control",
+        "firstCommit": "2026-04-13T11:55:05Z",
+        "lastCommit": "2026-08-03T12:15:45-03:00",
+        "source": "sdk-skills"
+      },
+      {
+        "name": "composites",
+        "description": "Reference for the Decentraland `.composite` JSON format that declares the initial entities of a scene in `assets/scene/main.composite`. Use when creating or editing a main.composite file, or when other skills point to the composite reference. For scaffolding a whole scene project see create-scene.",
+        "dir": "sdk-skills/composites",
+        "firstCommit": "2026-04-13T11:55:05Z",
+        "lastCommit": "2026-08-13T09:51:36-03:00",
+        "source": "sdk-skills"
+      },
+      {
+        "name": "create-scene",
+        "description": "Scaffold a new Decentraland SDK7 scene project. Use when the user wants to start a new scene or create a project. Do NOT use for deployment (see deploy-scene or deploy-worlds).",
+        "dir": "sdk-skills/create-scene",
+        "firstCommit": "2026-04-13T11:55:05Z",
+        "lastCommit": "2026-08-13T09:51:36-03:00",
+        "source": "sdk-skills"
+      },
+      {
+        "name": "deploy-scene",
+        "description": "Deploy a Decentraland scene to Genesis City (LAND-based). Use when the user wants to deploy or publish to parcels they own, or reduce the deployed scene size. Do NOT use for Worlds deployment (see deploy-worlds).",
+        "dir": "sdk-skills/deploy-scene",
+        "firstCommit": "2026-04-13T11:55:05Z",
+        "lastCommit": "2026-08-03T12:15:15-03:00",
+        "source": "sdk-skills"
+      },
+      {
+        "name": "deploy-worlds",
+        "description": "Deploy a Decentraland scene to a World (personal 3D space using a DCL NAME or ENS domain). Use when the user wants to deploy to a World or use a DCL NAME/ENS domain. Do NOT use for Genesis City LAND deployment (see deploy-scene).",
+        "dir": "sdk-skills/deploy-worlds",
+        "firstCommit": "2026-04-13T11:55:05Z",
+        "lastCommit": "2026-08-03T12:15:15-03:00",
+        "source": "sdk-skills"
+      },
+      {
+        "name": "game-design",
+        "description": "Plan and design Decentraland games and interactive experiences. Use when the user wants game design advice, scene architecture, performance planning, or help structuring a game. Do NOT use for specific implementation (see add-interactivity, build-ui, multiplayer-sync).",
+        "dir": "sdk-skills/game-design",
+        "firstCommit": "2026-04-13T11:55:05Z",
+        "lastCommit": "2026-08-13T09:51:36-03:00",
+        "source": "sdk-skills"
+      },
+      {
+        "name": "lighting-environment",
+        "description": "Dynamic lighting and environment in Decentraland scenes. LightSource, shadows, SkyboxTime, realm detection, and emissive materials. Use when the user wants lights, shadows, skybox control, day-night cycle, or glowing materials. Do NOT use for PBR material properties like metallic/roughness (see advanced-rendering).",
+        "dir": "sdk-skills/lighting-environment",
+        "firstCommit": "2026-04-13T11:55:05Z",
+        "lastCommit": "2026-07-23T15:07:01-03:00",
+        "source": "sdk-skills"
+      },
+      {
+        "name": "migrate-sdk6-to-sdk7",
+        "description": "Migrate a legacy Decentraland SDK6 scene to SDK7. Use when the user wants to port an SDK6 scene, upgrade the decentraland-ecs dependency to @dcl/sdk, or rewrite class-based scene code in the ECS style. Do NOT use for new scenes (see create-scene) or for SDK7-to-SDK7 refactors.",
+        "dir": "sdk-skills/migrate-sdk6-to-sdk7",
+        "firstCommit": "2026-05-22T11:14:09-03:00",
+        "lastCommit": "2026-08-11T18:44:44+02:00",
+        "source": "sdk-skills"
+      },
+      {
+        "name": "multiplayer-sync",
+        "description": "Peer-to-peer multiplayer in Decentraland using CRDT networking with syncEntity and MessageBus. Use when the user wants multiplayer, synced entities, shared world state, broadcast events, or player-to-player communication without a server. Do NOT use for server-authoritative multiplayer, anti-cheat, or persistent storage (see authoritative-server). Do NOT use for screen UI (see build-ui).",
+        "dir": "sdk-skills/multiplayer-sync",
+        "firstCommit": "2026-04-13T11:55:05Z",
+        "lastCommit": "2026-07-27T15:23:05-03:00",
+        "source": "sdk-skills"
+      },
+      {
+        "name": "nft-blockchain",
+        "description": "NFT display and blockchain interaction in Decentraland. Use when the user wants NFTs, blockchain, wallet, smart contracts, Web3, or token gating. Do NOT use for player avatar data or emotes (see player-avatar).",
+        "dir": "sdk-skills/nft-blockchain",
+        "firstCommit": "2026-04-13T11:55:05Z",
+        "lastCommit": "2026-07-23T14:23:44-03:00",
+        "source": "sdk-skills"
+      },
+      {
+        "name": "npcs",
+        "description": "Create NPCs (non-player characters) in Decentraland scenes. Two approaches: the NPC Toolkit library (dcl-npc-toolkit) for GLB NPCs with dialogue, movement, and state machines; and AvatarShape for avatar-look NPCs in wearables. Use when the user wants to add an NPC, shopkeeper, or quest giver — any non-player entity with behavior or dialogue. For live player data (position, profile, wearables) see player-avatar instead.",
+        "dir": "sdk-skills/npcs",
+        "firstCommit": "2026-04-13T11:55:05Z",
+        "lastCommit": "2026-08-13T09:51:36-03:00",
+        "source": "sdk-skills"
+      },
+      {
+        "name": "optimize-scene",
+        "description": "Optimize Decentraland scene performance. Scene limit formulas, object pooling, LOD patterns, texture optimization, system throttling, and asset preloading. Use when the user wants to optimize performance, fix lag, reduce load time, check limits, or reduce entity/triangle count. Do NOT use for deployment (see deploy-scene).",
+        "dir": "sdk-skills/optimize-scene",
+        "firstCommit": "2026-04-13T11:55:05Z",
+        "lastCommit": "2026-07-27T15:23:05-03:00",
+        "source": "sdk-skills"
+      },
+      {
+        "name": "particle-system",
+        "description": "Emit particles (fire, smoke, snow, fireworks, magic, trails) from an entity in a Decentraland SDK7 scene with the ParticleSystem component. Do NOT use for procedural entity motion (see animations-tweens), GLTF model effects (see add-3d-models), or 2D UI effects (see build-ui).",
+        "dir": "sdk-skills/particle-system",
+        "firstCommit": "2026-04-30T08:35:19-03:00",
+        "lastCommit": "2026-07-31T13:20:24-03:00",
+        "source": "sdk-skills"
+      },
+      {
+        "name": "player-avatar",
+        "description": "The live player in a Decentraland scene. Use when the user wants to read player position or profile, fetch avatar appearance for off-scene addresses (parcel owners, NFT holders), trigger emotes, read equipped wearables, attach items to players/avatar (cosmetic vs held gameplay items), hide avatars or disable passports in zones (AvatarModifierArea), adjust locomotion speed, teleport the player (movePlayerTo), or listen for scene entry/exit. Do NOT use for NPC characters (see npcs), wallet/blockchain checks (see nft-blockchain), freezing player movement (see advanced-input for InputModifier), or camera mode (see camera-control).",
+        "dir": "sdk-skills/player-avatar",
+        "firstCommit": "2026-04-13T11:55:05Z",
+        "lastCommit": "2026-08-13T09:51:36-03:00",
+        "source": "sdk-skills"
+      },
+      {
+        "name": "player-physics",
+        "description": "Apply physics forces to the player in Decentraland scenes. Impulses (one-shot pushes), knockback (push away from a point with falloff), continuous forces (wind tunnels, anti-gravity, lift, hover), timed forces, and repulsion fields. Use when the user wants launch pads, knockback on hit, wind zones, gravity fields, or lifting/floating/hovering the player. THIS is also the right skill when an agent's first instinct is to mutate `Transform` on `engine.PlayerEntity` to move/lift/push the player — that does NOT work (player Transform is engine-controlled and read-only); use the Physics API instead. Do NOT use for player movement speed (see player-avatar AvatarLocomotionSettings) or platform movement (see animations-tweens).",
+        "dir": "sdk-skills/player-physics",
+        "firstCommit": "2026-04-13T11:55:05Z",
+        "lastCommit": "2026-07-23T14:23:44-03:00",
+        "source": "sdk-skills"
+      },
+      {
+        "name": "scene-runtime",
+        "description": "Cross-cutting runtime APIs for Decentraland SDK7 scenes. Use when the user needs async work (executeTask), HTTP (fetch/signedFetch) or WebSocket, timers, realm/scene metadata, restricted actions (movePlayerTo, teleport, emotes, external URLs), system execution order/priority, or to write scene tests. Do NOT use for UI (see build-ui), multiplayer sync (see multiplayer-sync), avatar/player data (see player-avatar), or polling-based input (see advanced-input).",
+        "dir": "sdk-skills/scene-runtime",
+        "firstCommit": "2026-04-13T11:55:05Z",
+        "lastCommit": "2026-08-13T09:51:36-03:00",
+        "source": "sdk-skills"
+      },
+      {
+        "name": "script-components",
+        "description": "Writing .ts script files for the Creator Hub Script component — self-contained classes attached to individual entities. Use when the user wants to create a custom smart item, a reusable scripted entity, or write code that runs on a Creator Hub Script component. Do NOT use for regular scene index.ts code or global systems (see scene-runtime, add-interactivity).",
+        "dir": "sdk-skills/script-components",
+        "firstCommit": "2026-04-13T11:55:05Z",
+        "lastCommit": "2026-07-27T15:23:05-03:00",
+        "source": "sdk-skills"
+      },
+      {
+        "name": "sdk-scenes",
+        "description": "Build, extend, and deploy Decentraland SDK7 scenes. This is the entry-point skill — it contains agent behavioral guidelines, the composite-first rule, and an index of all individual topic skills. Install this alongside the individual skills you need, or use `--skill '*'` to install everything.",
+        "dir": "sdk-skills/sdk-scenes",
+        "firstCommit": "2026-04-13T11:55:05Z",
+        "lastCommit": "2026-08-10T18:12:04+02:00",
+        "source": "sdk-skills"
+      },
+      {
+        "name": "unity-explorer-mcp",
+        "description": "Iterate on a local Decentraland SDK7 scene against a running Explorer build through its MCP automation server. Use when the user asks to see, test, verify, walk through, screenshot, or debug a scene in-world, when they name the Explorer or its MCP server, or whenever an `mcp__explorer__*` tool is available in the session.",
+        "dir": "sdk-skills/unity-explorer-mcp",
+        "firstCommit": "2026-07-23T00:50:12+02:00",
+        "lastCommit": "2026-08-13T09:51:36-03:00",
+        "source": "sdk-skills"
+      },
+      {
+        "name": "pre-prod-gdd",
+        "description": "Turn a Decentraland experience idea — vague, half-written, or already documented — into a Creator Success proposal (shortGDD.md) that survives review, by interviewing the design owner one question at a time and parking every untestable claim as a falsifiable hypothesis. This is the document door into a design — iterate through the document, while /pre-prod-proto iterates through building. Covers the five entry states: adapt an existing GDD to the program format, solidify a vague idea, pick up parked hypotheses, revise a proposal after reviewer feedback, or harvest a built scene's repo into the document. Use when someone is writing, adapting, scoring or revising a Creator Success / DCL funding proposal, a shortGDD, a concept one-pager or a pitch deck for a Decentraland World; when they ask why a proposal would fail review; or when a design claim about retention, core loop, first 10 seconds, social design, mobile touch or scope needs to be pressure-tested. Pairs with /pre-prod-proto, which tests the hypotheses this skill parks.",
+        "dir": "copilot workspace .opencode/skills/pre-prod-gdd",
+        "firstCommit": null,
+        "lastCommit": null,
+        "source": "pre-prod"
+      },
+      {
+        "name": "pre-prod-proto",
+        "description": "Run one Decentraland experiment end to end — pick the riskiest hypothesis with the cheapest killing test out of a shortGDD Hypothesis Log, write a brief with a pre-registered criterion and an owner-testable kill-check, build the greybox scene in SDK7, get it smoke-checked and tested (owner self-test is the v0 default), then write the verdict back into the log and into the section that made the claim. One experiment per invocation. This is the building door into a design — iterate through building, while /pre-prod-gdd iterates through the document — and it can start from nothing — one build, one question, no document required. This is not a \"build me a prototype\" assistant — the deliverable is a result that is allowed to come back negative. Use when someone wants to find out whether a mechanic is actually fun, settle or kill a parked hypothesis, greybox a core loop in SDK7, plan or run a playtest, decide whether a claim settles by arithmetic, a desktop Explorer build or a mobile check, or record a playtest verdict. Pairs with /pre-prod-gdd, which parks the hypotheses this skill kills.",
+        "dir": "copilot workspace .opencode/skills/pre-prod-proto",
+        "firstCommit": null,
+        "lastCommit": null,
+        "source": "pre-prod"
+      }
+    ],
+    "openUrl": "https://copilot.catalyst.example.com/",
+    "pricing": {
+      "inputPerM": 0.1,
+      "outputPerM": 0.3,
+      "label": "reference pricing — $0.10 in / $0.30 out per 1M tokens; tokens are measured, the price is a chosen constant (self-hosted)"
+    },
+    "catalogSource": {
+      "readAt": "2026-08-15",
+      "note": "name and description are each skill's own frontmatter; dates are git log --follow on the skill directory. Skills outside a git checkout ship without dates rather than with guessed ones."
+    }
+  },
+  "bench": {
+    "badge": "5b1c",
+    "unavailable": false,
+    "reports": [
+      {
+        "id": "br-arena-flagtag-seed7",
+        "slug": "flagtag-arena",
+        "runner": "arena",
+        "realm": null,
+        "ranAt": "2026-08-14T23:29:52.580Z",
+        "verdict": "pass",
+        "checksTotal": null,
+        "checksFailed": null,
+        "missingTools": [],
+        "stubbedTools": [],
+        "networkWrites": null,
+        "shots": 0,
+        "evidencePath": "packages/data/src/fixtures/trajectory-arena-sample.json",
+        "replayHref": "/foundry/console/trajectories/traj-arena-flagtag-seed7",
+        "gameHref": "/foundry/play/flagtag"
+      }
+    ]
+  },
+  "trajectories": {
+    "badge": "5b1c",
+    "unavailable": false,
+    "records": [
+      {
+        "id": "traj-arena-flagtag-seed7",
+        "sceneId": "flagtag",
+        "provenance": "bot",
+        "runner": "arena",
+        "finishReason": {
+          "kind": "completed",
+          "detail": "exit code 0"
+        },
+        "parentTrajectoryId": null,
+        "seedLength": null,
+        "evidencePath": null,
+        "createdAt": "2026-08-14T23:29:52.267Z",
+        "events": 11,
+        "sceneTitle": "Flag Tag"
+      }
+    ]
+  },
+  "replay": {
+    "badge": "5b1c",
+    "unavailable": false,
+    "logError": null,
+    "header": {
+      "id": "traj-arena-flagtag-seed7",
+      "sceneId": "flagtag",
+      "provenance": "bot",
+      "runner": "arena",
+      "finishReason": {
+        "kind": "completed",
+        "detail": "exit code 0"
+      },
+      "parentTrajectoryId": null,
+      "seedLength": null,
+      "evidencePath": null,
+      "createdAt": "2026-08-14T23:29:52.267Z",
+      "sceneTitle": "Flag Tag"
+    },
+    "events": [
+      {
+        "trajectoryId": "traj-arena-flagtag-seed7",
+        "seq": 0,
+        "type": "turn/start",
+        "time": "2026-08-14T23:29:52.267Z",
+        "data": {
+          "turn": 1
+        }
+      },
+      {
+        "trajectoryId": "traj-arena-flagtag-seed7",
+        "seq": 1,
+        "type": "tool/call",
+        "time": "2026-08-14T23:29:52.267Z",
+        "data": {
+          "callId": "arena-seed7",
+          "name": "dclbots.arena",
+          "arguments": "{\"module\": \"dclbots.arena\", \"argv\": [\"--seed\", \"7\"], \"cwd\": \"/workspace/dcl-scene-bots\"}"
+        }
+      },
+      {
+        "trajectoryId": "traj-arena-flagtag-seed7",
+        "seq": 2,
+        "type": "obs/snapshot",
+        "time": "2026-08-14T23:29:52.580Z",
+        "data": {
+          "stream": "stdout",
+          "line": "flagtag sandbox: seed 7, 3 seat(s), 1 round(s) of 300 s (11.6 s cinematic), 3000 ticks"
+        }
+      },
+      {
+        "trajectoryId": "traj-arena-flagtag-seed7",
+        "seq": 3,
+        "type": "obs/snapshot",
+        "time": "2026-08-14T23:29:52.580Z",
+        "data": {
+          "stream": "stdout",
+          "line": "  seat      role        carried   share  pickups  lost  struck"
+        }
+      },
+      {
+        "trajectoryId": "traj-arena-flagtag-seed7",
+        "seq": 4,
+        "type": "obs/snapshot",
+        "time": "2026-08-14T23:29:52.580Z",
+        "data": {
+          "stream": "stdout",
+          "line": "  0xseat1   chase        225.8s  78.3%       13    11       1"
+        }
+      },
+      {
+        "trajectoryId": "traj-arena-flagtag-seed7",
+        "seq": 5,
+        "type": "obs/snapshot",
+        "time": "2026-08-14T23:29:52.580Z",
+        "data": {
+          "stream": "stdout",
+          "line": "  0xseat2   cutoff        33.9s  11.8%        6     6       0"
+        }
+      },
+      {
+        "trajectoryId": "traj-arena-flagtag-seed7",
+        "seq": 6,
+        "type": "obs/snapshot",
+        "time": "2026-08-14T23:29:52.580Z",
+        "data": {
+          "stream": "stdout",
+          "line": "  0xseat3   cutoff        18.0s   6.2%        6     6       0"
+        }
+      },
+      {
+        "trajectoryId": "traj-arena-flagtag-seed7",
+        "seq": 7,
+        "type": "obs/snapshot",
+        "time": "2026-08-14T23:29:52.580Z",
+        "data": {
+          "stream": "stdout",
+          "line": "  flag loose              10.7s"
+        }
+      },
+      {
+        "trajectoryId": "traj-arena-flagtag-seed7",
+        "seq": 8,
+        "type": "obs/snapshot",
+        "time": "2026-08-14T23:29:52.580Z",
+        "data": {
+          "stream": "stdout",
+          "line": "  25 handover(s), mean hold 11.5s, 1 strike(s)"
+        }
+      },
+      {
+        "trajectoryId": "traj-arena-flagtag-seed7",
+        "seq": 9,
+        "type": "check/verdict",
+        "time": "2026-08-14T23:29:52.580Z",
+        "data": {
+          "kind": "exit-code",
+          "pass": true,
+          "detail": "exit 0",
+          "why": "python3 -m dclbots.arena --seed 7 returned 0; the scoreboard above is its own stdout, unedited"
+        }
+      },
+      {
+        "trajectoryId": "traj-arena-flagtag-seed7",
+        "seq": 10,
+        "type": "turn/end",
+        "time": "2026-08-14T23:29:52.580Z",
+        "data": {
+          "turn": 1,
+          "reason": {
+            "kind": "completed",
+            "detail": "exit code 0"
+          }
+        }
+      }
+    ],
+    "eventCount": 11,
+    "oversize": false,
+    "limit": 20000
+  },
+  "costs": {
+    "badge": "5b1c",
+    "unavailable": false,
+    "usage": {
+      "messages": 1,
+      "sessions": 1,
+      "inputTokens": 9623,
+      "outputTokens": 76,
+      "costUsd": 0.0009851,
+      "byDay": [
+        {
+          "day": "2026-08-15",
+          "inputTokens": 9623,
+          "outputTokens": 76,
+          "costUsd": 0.0009851
+        }
+      ],
+      "recent": [
+        {
+          "messageId": "msg-unrecorded-01",
+          "sessionId": "ses-unrecorded-01",
+          "sessionTitle": "gateway metering probe (llm.decent.dev)",
+          "model": "decent/llm-default",
+          "inputTokens": 9623,
+          "outputTokens": 76,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0,
+          "costUsd": 0.0009851,
+          "priceInputPerM": 0.1,
+          "priceOutputPerM": 0.3,
+          "at": "2026-08-15T00:55:00.000Z"
+        }
+      ]
+    },
+    "pricing": {
+      "inputPerM": 0.1,
+      "outputPerM": 0.3,
+      "label": "reference pricing — $0.10 in / $0.30 out per 1M tokens; tokens are measured, the price is a chosen constant (self-hosted)"
+    }
+  },
+  "exchange": {
+    "badge": "5b1c",
+    "variant": "control",
+    "experimentKey": "foundry-tour-activation",
+    "unavailable": false,
+    "requests": [],
+    "stats": {
+      "openRequests": 0,
+      "totalPledges": 0
+    }
+  }
+}

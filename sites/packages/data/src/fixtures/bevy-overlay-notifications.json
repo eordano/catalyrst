@@ -1,0 +1,134 @@
+{
+  "_source": "Derived from decentraland/schemas src/platform/notifications/notifications.ts (NotificationType enum, raw.githubusercontent.com/decentraland/schemas/main/src/platform/notifications/notifications.ts, 200) and the catalyrst-notifications NotificationItem shape (catalyrst/crates/catalyrst-notifications/src/ports/mod.rs: { id, type, address, timestamp, read, created_at, updated_at, metadata }). The live public edge https://catalyst.example.com/notifications returns a 301 redirect and requires a signed auth-chain header (require_signer in src/handlers/notifications.rs), so it is not fetchable unauthenticated \u2014 this fixture seeds the panel and mark-read is SIMULATED. Card categories (friends/badge/gift/community/marketplace/system) follow the ui3 Notifications.jsx prefab inventory; each item carries the canonical NotificationType in `type`.",
+  "address": "0xa1b2c3d4e5f6000000000000000000000000abcd",
+  "notifications": [
+    {
+      "id": "8f1a4d2e-1b3c-4d5e-9f80-000000000001",
+      "type": "social_service_friendship_request",
+      "address": "0xa1b2c3d4e5f6000000000000000000000000abcd",
+      "timestamp": "1750684800000",
+      "read": false,
+      "created_at": "2025-06-23T12:00:00.000Z",
+      "updated_at": "2025-06-23T12:00:00.000Z",
+      "metadata": {
+        "sender": "Morat",
+        "senderAddress": "0x9911223344556677889900aabbccddeeff001r56",
+        "requestId": "fr-000001",
+        "title": "Friend Request Received",
+        "description": "Morat #1r56 wants to be your friend."
+      }
+    },
+    {
+      "id": "8f1a4d2e-1b3c-4d5e-9f80-000000000002",
+      "type": "badge_granted",
+      "address": "0xa1b2c3d4e5f6000000000000000000000000abcd",
+      "timestamp": "1750683600000",
+      "read": false,
+      "created_at": "2025-06-23T11:40:00.000Z",
+      "updated_at": "2025-06-23T11:40:00.000Z",
+      "metadata": {
+        "badgeName": "Weekly Goal Completed",
+        "badgeImageUrl": "https://assets-cdn.decentraland.org/badges/weekly-goal.png",
+        "badgeTierName": "Gold",
+        "title": "New Badge Unlocked!",
+        "description": "You unlocked the Weekly Goal Completed badge."
+      }
+    },
+    {
+      "id": "8f1a4d2e-1b3c-4d5e-9f80-000000000003",
+      "type": "tip_received",
+      "address": "0xa1b2c3d4e5f6000000000000000000000000abcd",
+      "timestamp": "1750681200000",
+      "read": false,
+      "created_at": "2025-06-23T11:00:00.000Z",
+      "updated_at": "2025-06-23T11:00:00.000Z",
+      "metadata": {
+        "sender": "PlayerName",
+        "senderAddress": "0x44aa11bb22cc33dd44ee55ff66001122334fasd",
+        "amount": "5.00",
+        "currency": "MANA",
+        "title": "Gift Received",
+        "description": "PlayerName #4fasd sent you a Gift!"
+      }
+    },
+    {
+      "id": "8f1a4d2e-1b3c-4d5e-9f80-000000000004",
+      "type": "community_voice_chat_started",
+      "address": "0xa1b2c3d4e5f6000000000000000000000000abcd",
+      "timestamp": "1750671600000",
+      "read": false,
+      "created_at": "2025-06-23T08:20:00.000Z",
+      "updated_at": "2025-06-23T08:20:00.000Z",
+      "metadata": {
+        "communityId": "dao-community",
+        "communityName": "The Decentraland DAO",
+        "thumbnailUrl": "https://assets-cdn.decentraland.org/communities/dao.png",
+        "title": "Community Voice Stream Started",
+        "description": "The Decentraland DAO is streaming! Click here to join."
+      }
+    },
+    {
+      "id": "8f1a4d2e-1b3c-4d5e-9f80-000000000005",
+      "type": "credits_goal_completed",
+      "address": "0xa1b2c3d4e5f6000000000000000000000000abcd",
+      "timestamp": "1750662000000",
+      "read": true,
+      "created_at": "2025-06-23T05:40:00.000Z",
+      "updated_at": "2025-06-23T06:10:00.000Z",
+      "metadata": {
+        "goalId": "weekly-credits-2025-25",
+        "creditsAmount": "200",
+        "title": "Marketplace Credits",
+        "description": "Claim your Credits to unlock them."
+      }
+    },
+    {
+      "id": "8f1a4d2e-1b3c-4d5e-9f80-000000000006",
+      "type": "item_sold",
+      "address": "0xa1b2c3d4e5f6000000000000000000000000abcd",
+      "timestamp": "1750658400000",
+      "read": true,
+      "created_at": "2025-06-23T04:40:00.000Z",
+      "updated_at": "2025-06-23T04:55:00.000Z",
+      "metadata": {
+        "nftName": "Cyber Jacket",
+        "price": "150000000000000000000",
+        "network": "matic",
+        "link": "https://decentraland.org/marketplace/account",
+        "title": "Item Sold",
+        "description": "Your Cyber Jacket was sold on the Marketplace."
+      }
+    },
+    {
+      "id": "8f1a4d2e-1b3c-4d5e-9f80-000000000007",
+      "type": "reward_assignment",
+      "address": "0xa1b2c3d4e5f6000000000000000000000000abcd",
+      "timestamp": "1750572000000",
+      "read": true,
+      "created_at": "2025-06-22T04:40:00.000Z",
+      "updated_at": "2025-06-22T05:00:00.000Z",
+      "metadata": {
+        "tokenName": "Long Hair",
+        "tokenImage": "https://assets-cdn.decentraland.org/rewards/long-hair.png",
+        "title": "New Item Received",
+        "description": "Long Hair is already in your Backpack."
+      }
+    },
+    {
+      "id": "8f1a4d2e-1b3c-4d5e-9f80-000000000008",
+      "type": "governance_proposal_enacted",
+      "address": "0xa1b2c3d4e5f6000000000000000000000000abcd",
+      "timestamp": "1750485600000",
+      "read": false,
+      "created_at": "2025-06-21T04:40:00.000Z",
+      "updated_at": "2025-06-21T04:40:00.000Z",
+      "metadata": {
+        "proposalId": "prop-000123",
+        "proposalTitle": "Add a new POI in Genesis Plaza",
+        "link": "https://decentraland.org/governance/proposal/?id=prop-000123",
+        "title": "Proposal Enacted",
+        "description": "A proposal you voted on has been enacted."
+      }
+    }
+  ]
+}

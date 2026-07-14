@@ -1,0 +1,30 @@
+/* The emotional-jobs block: this program's own reading, so every judgment
+   rides a dashed fd-cellchip whose title carries the dated rationale. */
+.fd-emojobs__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+}
+
+.fd-emojobs__none,
+.fd-emojobs__gap {
+  margin: var(--s-2) 0 0;
+  max-width: var(--measure);
+  font-size: var(--fs-13);
+  line-height: var(--lh-body);
+  color: var(--ink-45);
+}
+
+.fd-emojobs__legend {
+  margin-top: var(--s-2);
+  max-width: var(--measure);
+  font-size: var(--fs-12);
+  line-height: var(--lh-body);
+  color: var(--ink-45);
+}
+
+.fd-emojobs__legend ul {
+  margin: var(--s-1) 0 0;
+  padding-left: var(--s-5);
+  list-style: disc;
+}

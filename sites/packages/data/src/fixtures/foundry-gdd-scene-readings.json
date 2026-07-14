@@ -1,0 +1,11 @@
+[
+  {
+    "gddDocId": "flagrush-v1",
+    "sceneId": "flagtag",
+    "relation": "same-concept",
+    "rationale": "Both build a round on chasing one contested flag: Flagrush designs booster-driven capture-the-flag with bases and capture scoring; Flag Tag runs perpetual 5-minute contested-flag keep-away scored by server-credited seconds carried. Flag Tag was deployed 2026-07-05, before this document was drafted, and implements none of its specific mechanics — no bases, no capture scoring, no booster pads.",
+    "confidence": "evidence-backed",
+    "basis": "This program's own reading of the flagrush-v1 document body against Flag Tag's deployment-entity description and observed flag-carry mechanics — not a fact either row carries.",
+    "readAt": "2026-08-18T00:00:00Z"
+  }
+]

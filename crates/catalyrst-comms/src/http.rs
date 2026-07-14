@@ -1,7 +1,13 @@
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::Json;
-use serde_json::json;
+
+#[derive(serde::Serialize)]
+struct ErrorBody {
+    error: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    message: Option<String>,
+}
 
 #[derive(Debug)]
 pub struct ApiError {
@@ -9,7 +15,6 @@ pub struct ApiError {
     pub message: String,
     pub error_label: Option<String>,
     pub is_internal: bool,
-    pub raw_body: Option<serde_json::Value>,
 }
 
 impl ApiError {
@@ -19,17 +24,15 @@ impl ApiError {
             message: message.into(),
             error_label: None,
             is_internal: false,
-            raw_body: None,
         }
     }
 
-    pub fn schema(code: u16, body: serde_json::Value) -> Self {
+    pub fn labeled(code: u16, label: impl Into<String>, message: impl Into<String>) -> Self {
         ApiError {
             code,
-            message: String::new(),
-            error_label: None,
+            message: message.into(),
+            error_label: Some(label.into()),
             is_internal: false,
-            raw_body: Some(body),
         }
     }
 
@@ -47,7 +50,6 @@ impl ApiError {
             message: msg.into(),
             error_label: None,
             is_internal: true,
-            raw_body: None,
         }
     }
 }
@@ -68,7 +70,6 @@ impl From<sqlx::Error> for ApiError {
             message: "Internal Server Error".to_string(),
             error_label: None,
             is_internal: true,
-            raw_body: None,
         }
     }
 }
@@ -76,27 +77,39 @@ impl From<sqlx::Error> for ApiError {
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         let status = StatusCode::from_u16(self.code).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
-        if let Some(raw) = self.raw_body {
-            return (status, Json(raw)).into_response();
-        }
         let body = if self.is_internal {
-            json!({ "error": "Internal Server Error" })
+            ErrorBody {
+                error: "Internal Server Error".to_string(),
+                message: None,
+            }
         } else if let Some(label) = self.error_label {
-            json!({ "error": label, "message": self.message })
+            ErrorBody {
+                error: label,
+                message: Some(self.message),
+            }
         } else {
-            json!({ "error": self.message })
+            ErrorBody {
+                error: self.message,
+                message: None,
+            }
         };
         (status, Json(body)).into_response()
     }
 }
 
 pub fn not_implemented(msg: impl Into<String>) -> Response {
-    let body = json!({ "error": msg.into() });
-    (StatusCode::NOT_IMPLEMENTED, Json(body)).into_response()
+    (
+        StatusCode::NOT_IMPLEMENTED,
+        Json(ErrorBody {
+            error: msg.into(),
+            message: None,
+        }),
+    )
+        .into_response()
 }
 
 pub fn auth_error(status: u16, msg: impl Into<String>) -> ApiError {
-    ApiError::schema(status, json!({ "ok": false, "message": msg.into() }))
+    ApiError::http(status, msg)
 }
 
 pub fn forbidden(msg: impl Into<String>) -> ApiError {
@@ -108,23 +121,11 @@ pub fn unauthorized(msg: impl Into<String>) -> ApiError {
 }
 
 pub fn conflict(msg: impl Into<String>) -> ApiError {
-    ApiError {
-        code: 409,
-        message: msg.into(),
-        error_label: Some("Conflict".to_string()),
-        is_internal: false,
-        raw_body: None,
-    }
+    ApiError::labeled(409, "Conflict", msg)
 }
 
 pub fn not_found_labeled(msg: impl Into<String>) -> ApiError {
-    ApiError {
-        code: 404,
-        message: msg.into(),
-        error_label: Some("Not Found".to_string()),
-        is_internal: false,
-        raw_body: None,
-    }
+    ApiError::labeled(404, "Not Found", msg)
 }
 
 pub fn not_found(msg: impl Into<String>) -> ApiError {
@@ -153,7 +154,20 @@ pub fn encode_path_segment(segment: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::encode_path_segment;
+    use super::*;
+    use serde_json::json;
+
+    #[tokio::test]
+    async fn error_envelope_wire_shape() {
+        let resp = conflict("scene already banned").into_response();
+        assert_eq!(resp.status(), StatusCode::CONFLICT);
+        let bytes = axum::body::to_bytes(resp.into_body(), 1024).await.unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(
+            v,
+            json!({ "error": "Conflict", "message": "scene already banned" })
+        );
+    }
 
     #[test]
     fn encode_path_segment_neutralizes_url_metacharacters() {

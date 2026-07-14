@@ -33,6 +33,15 @@ fn xml_response(body: String) -> Response {
     (StatusCode::OK, [(CONTENT_TYPE, "application/xml")], body).into_response()
 }
 
+#[utoipa::path(
+    get,
+    path = "/events/sitemap.xml",
+    tag = "sitemaps",
+    responses(
+        (status = 200, content_type = "application/xml", body = String),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn sitemap_index(State(state): State<AppState>) -> Result<Response, ApiError> {
     let base = base_url();
     let count = state.events.count_approved().await?;
@@ -64,6 +73,12 @@ pub async fn sitemap_index(State(state): State<AppState>) -> Result<Response, Ap
     Ok(xml_response(out))
 }
 
+#[utoipa::path(
+    get,
+    path = "/events/sitemap.static.xml",
+    tag = "sitemaps",
+    responses((status = 200, content_type = "application/xml", body = String))
+)]
 pub async fn sitemap_static() -> Result<Response, ApiError> {
     let base = base_url();
     let mut out = String::new();
@@ -81,6 +96,16 @@ pub async fn sitemap_static() -> Result<Response, ApiError> {
     Ok(xml_response(out))
 }
 
+#[utoipa::path(
+    get,
+    path = "/events/sitemap.events.xml",
+    tag = "sitemaps",
+    params(("page" = Option<i64>, Query)),
+    responses(
+        (status = 200, content_type = "application/xml", body = String),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn sitemap_events(
     State(state): State<AppState>,
     Query(params): Query<HashMap<String, String>>,
@@ -108,6 +133,15 @@ pub async fn sitemap_events(
     Ok(xml_response(out))
 }
 
+#[utoipa::path(
+    get,
+    path = "/events/sitemap.schedules.xml",
+    tag = "sitemaps",
+    responses(
+        (status = 200, content_type = "application/xml", body = String),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn sitemap_schedules(State(state): State<AppState>) -> Result<Response, ApiError> {
     let base = base_url();
     let ids = state.schedules.sitemap_schedule_ids().await?;

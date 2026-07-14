@@ -99,7 +99,8 @@ pub async fn post_user_ban(
         &format!("/users/{address}/bans"),
         ModeratorMode::Write,
         q.moderator.as_deref(),
-    )?;
+    )
+    .await?;
 
     let content_type = headers.get(CONTENT_TYPE).and_then(|v| v.to_str().ok());
     let body: BanPlayerBody = validate_body(content_type, &body_bytes)?;
@@ -168,7 +169,8 @@ pub async fn delete_user_ban(
         &format!("/users/{address}/bans"),
         ModeratorMode::Write,
         q.moderator.as_deref(),
-    )?;
+    )
+    .await?;
 
     state
         .user_bans
@@ -196,7 +198,8 @@ pub async fn get_user_warnings(
         &format!("/users/{address}/warnings"),
         ModeratorMode::Read,
         None,
-    )?;
+    )
+    .await?;
 
     let warnings = state.user_bans.get_warnings(&address).await?;
     let data = serde_json::to_value(warnings).unwrap_or(serde_json::Value::Array(vec![]));
@@ -217,7 +220,8 @@ pub async fn post_user_warning(
         &format!("/users/{address}/warnings"),
         ModeratorMode::Write,
         q.moderator.as_deref(),
-    )?;
+    )
+    .await?;
 
     let content_type = headers.get(CONTENT_TYPE).and_then(|v| v.to_str().ok());
     let body: WarnPlayerBody = validate_body(content_type, &body_bytes)?;
@@ -242,7 +246,7 @@ pub async fn list_all_bans(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    authorize_moderator(&state, &headers, "get", "/bans", ModeratorMode::Read, None)?;
+    authorize_moderator(&state, &headers, "get", "/bans", ModeratorMode::Read, None).await?;
 
     let bans = state.user_bans.get_active_bans().await?;
     let data = serde_json::to_value(bans).unwrap_or(serde_json::Value::Array(vec![]));

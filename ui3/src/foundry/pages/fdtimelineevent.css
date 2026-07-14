@@ -1,0 +1,5 @@
+/* Stored ids and notes can be long single tokens; they wrap rather than push
+   the fact grid wider than the page. */
+.fd-tlevent .fd-facts dd {
+  overflow-wrap: anywhere;
+}

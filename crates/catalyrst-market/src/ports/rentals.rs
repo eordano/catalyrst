@@ -161,28 +161,6 @@ LIMIT 1000
         .unwrap_or_default();
         rows.iter().map(row_to_listing).collect()
     }
-
-    pub async fn get_rental_assets_ids_for_lessor(&self, owner: &str) -> Vec<String> {
-        let Some(pool) = &self.pool else {
-            return Vec::new();
-        };
-        let rows = sqlx::query(
-            r#"
-SELECT DISTINCT rentals.metadata_id AS nft_id
-FROM rentals
-JOIN rentals_listings rl ON rl.id = rentals.id
-WHERE LOWER(rl.lessor) = LOWER($1)
-  AND rentals.status = 'open'
-"#,
-        )
-        .bind(owner)
-        .fetch_all(pool)
-        .await
-        .unwrap_or_default();
-        rows.iter()
-            .filter_map(|r| r.try_get::<String, _>("nft_id").ok())
-            .collect()
-    }
 }
 
 fn to_millis(dt: NaiveDateTime) -> i64 {

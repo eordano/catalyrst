@@ -1,0 +1,56 @@
+{
+  "slug": "caravan-ledger",
+  "title": "Caravan Ledger",
+  "description": "Instrument-stream run against a local creator preview of the workspace copy, per the games/smoke.json pattern: `npx @dcl/sdk-commands start --no-browser --port 8023` in the scene dir, `decentra-bevy --server http://127.0.0.1:8023 --mcp --mcp-port 8133`. The realm below is that url because it is what this explorer reports as its realm (measured 2026-08-22, current bevy build; the LocalPreview name smoke.json documents is what an older build reported) - the wrong-world gate then refuses any client that is not in this exact preview. The port is pinned per scene by scripts/foundry-bench-scenes.sh. The scene self-plays: the auto-pilot simSystem plans and drives trips from boot with no input. At caravan speed 2 map-units/s over the 6-post map the first delivery lands ~30 s in, so the 90 s wait covers config, route choice, fuel accounting, price observation, a load and a delivery; the session summary line only appears every 5 trips and is deliberately not a check here - it can fall outside the wait on slow routes, and a check that fails on pacing rather than the game would be noise.",
+  "realm": "http://127.0.0.1:8023",
+  "authoritative": false,
+  "spawn": { "x": 7, "y": 0, "z": 5 },
+  "steps": [
+    { "do": "walk", "x": 16, "y": 0, "z": 16, "label": "center post P4, overlooking the network" },
+    { "do": "wait", "seconds": 90, "label": "the auto-pilot completes its first trips; the log ring is drained throughout" },
+    { "do": "screenshot", "label": "caravan and posts mid-run" }
+  ],
+  "checks": [
+    {
+      "kind": "no-log",
+      "pattern": "(TypeError|ReferenceError|Cannot read|is not a function)",
+      "why": "a scene that throws on load looks fine in a screenshot and is broken"
+    },
+    {
+      "kind": "no-log",
+      "pattern": "Unhandled promise rejection",
+      "why": "an async failure the scene swallowed still leaves state half-applied"
+    },
+    {
+      "kind": "log",
+      "pattern": "\\[caravan-ledger-config\\] doc=caravan-ledger-v1",
+      "why": "every design number the GDD commits to is emitted at startup (GDD §9)"
+    },
+    {
+      "kind": "log",
+      "pattern": "\\[caravan-ledger-route\\] trip=\\d+",
+      "why": "the pilot's route choice is on the record per trip, with the true argmax beside it"
+    },
+    {
+      "kind": "log",
+      "pattern": "\\[caravan-ledger-fuel\\] ",
+      "why": "interview #1: deterministic fuel cost per map-unit, accounted per leg and refuel"
+    },
+    {
+      "kind": "log",
+      "pattern": "\\[caravan-ledger-price\\] post=P\\d",
+      "why": "arrival refreshes the last-known price and records the observation error"
+    },
+    {
+      "kind": "log",
+      "pattern": "\\[caravan-ledger-load\\] ",
+      "why": "a buy at the pickup post: units, cost and the target price it pushed"
+    },
+    {
+      "kind": "log",
+      "pattern": "\\[caravan-ledger-delivery\\] ",
+      "why": "a sell at the delivery post - the core loop closed at least once (GDD §2)"
+    }
+  ],
+  "timeoutSec": 240
+}

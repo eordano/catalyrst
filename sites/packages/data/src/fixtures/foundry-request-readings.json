@@ -1,0 +1,112 @@
+[
+  {
+    "url": "https://www.reddit.com/r/decentraland/comments/m6jr46/virtual_planet_fitness/",
+    "cell": "community-operated-game-clubs",
+    "jobs": "F",
+    "shelfAnswer": null,
+    "rationale": "'Pay 5$ a month' for a gym you keep showing up to — membership and routine, the club cell's loop; no fitness world is on the shelf.",
+    "confidence": "inferred",
+    "readAt": "2026-08-17",
+    "basis": "This program's own reading of the ask's stored text against the strategy deck's three gaming cells and six emotional jobs — not a fact the ask carries.",
+    "crowdRange": "8–50 recurring participants"
+  },
+  {
+    "url": "https://www.reddit.com/r/decentraland/comments/ma55dl/would_love_to_be_able_to_go_in_a_venue_and_watch/",
+    "cell": "community-operated-game-clubs",
+    "jobs": "F",
+    "shelfAnswer": null,
+    "rationale": "'Go in a venue and watch sporting events' with others, 'with some bets placed' — a gathering place with something always on.",
+    "confidence": "inferred",
+    "readAt": "2026-08-17",
+    "basis": "This program's own reading of the ask's stored text against the strategy deck's three gaming cells and six emotional jobs — not a fact the ask carries.",
+    "crowdRange": "8–50 recurring participants"
+  },
+  {
+    "url": "https://www.reddit.com/r/decentraland/comments/mciyu1/chess_park/",
+    "cell": "creator-led-social-competition",
+    "jobs": "E",
+    "shelfAnswer": null,
+    "rationale": "'Wager on chess games' in a park that would 'keep people coming back' — repeat stakes rounds in one park.",
+    "confidence": "evidence-backed",
+    "readAt": "2026-08-17",
+    "basis": "This program's own reading of the ask's stored text against the strategy deck's three gaming cells and six emotional jobs — not a fact the ask carries.",
+    "crowdRange": "6–24 active players + spectators"
+  },
+  {
+    "url": "https://www.reddit.com/r/decentraland/comments/s0m01z/what_are_you_actively_playing_on_decentraland_i/",
+    "cell": null,
+    "jobs": "",
+    "shelfAnswer": "flagtag",
+    "rationale": "'Not just walk around in some lobby' wants playable games of any kind — no single cell; Flag Tag on the shelf is exactly that.",
+    "confidence": "evidence-backed",
+    "readAt": "2026-08-17",
+    "basis": "This program's own reading of the ask's stored text against the strategy deck's three gaming cells and six emotional jobs — not a fact the ask carries.",
+    "crowdRange": null
+  },
+  {
+    "url": "https://forum.decentraland.org/t/dao-7bd3286-genesis-plaza-upgrade/23112/2",
+    "cell": "creator-led-social-competition",
+    "jobs": "E",
+    "shelfAnswer": null,
+    "rationale": "'A peer-to-peer shooting game' with zombies to 'seek and destroy' around a shared plaza — head-to-head rounds; nothing on the shelf shoots.",
+    "confidence": "evidence-backed",
+    "readAt": "2026-08-17",
+    "basis": "This program's own reading of the ask's stored text against the strategy deck's three gaming cells and six emotional jobs — not a fact the ask carries.",
+    "crowdRange": "6–24 active players + spectators"
+  },
+  {
+    "url": "https://forum.decentraland.org/t/a-vision-for-2025/23385/14",
+    "cell": null,
+    "jobs": "F",
+    "shelfAnswer": null,
+    "rationale": "'Treasure hunts & brand activations' is an acquisition ask; 'daily grind' wants a routine, but no cell's group loop is named.",
+    "confidence": "inferred",
+    "readAt": "2026-08-17",
+    "basis": "This program's own reading of the ask's stored text against the strategy deck's three gaming cells and six emotional jobs — not a fact the ask carries.",
+    "crowdRange": null
+  },
+  {
+    "url": "https://forum.decentraland.org/t/brief-thoughts-for-the-future-of-decentraland/23467",
+    "cell": "creator-led-social-competition",
+    "jobs": "E",
+    "shelfAnswer": null,
+    "rationale": "'Fight with the rest of the users' and 'snatch their items' — open rivalry with real stakes; no combat game is on the shelf.",
+    "confidence": "evidence-backed",
+    "readAt": "2026-08-17",
+    "basis": "This program's own reading of the ask's stored text against the strategy deck's three gaming cells and six emotional jobs — not a fact the ask carries.",
+    "crowdRange": "6–24 active players + spectators"
+  },
+  {
+    "url": "https://forum.decentraland.org/t/a-message-to-the-decentraland-community-dao-council-and-future-executive-director/23750/19",
+    "cell": "creator-led-social-competition",
+    "jobs": "E",
+    "shelfAnswer": "fastlane",
+    "rationale": "'No sports games' — Fastlane Bowling now sits on the shelf; 'a proper racing game' and deeper parkour stay unanswered.",
+    "confidence": "inferred",
+    "readAt": "2026-08-17",
+    "basis": "This program's own reading of the ask's stored text against the strategy deck's three gaming cells and six emotional jobs — not a fact the ask carries.",
+    "crowdRange": "6–24 active players + spectators"
+  },
+  {
+    "url": "https://forum.decentraland.org/t/dao-01b1065-what-about-golfcraft/24930",
+    "cell": "creator-led-social-competition",
+    "jobs": "F",
+    "shelfAnswer": null,
+    "rationale": "'I really miss the game' that was 'one of Decentraland's biggest attractions' — scored golf rounds; nothing on the shelf plays golf.",
+    "confidence": "inferred",
+    "readAt": "2026-08-17",
+    "basis": "This program's own reading of the ask's stored text against the strategy deck's three gaming cells and six emotional jobs — not a fact the ask carries.",
+    "crowdRange": "6–24 active players + spectators"
+  },
+  {
+    "url": "https://forum.decentraland.org/t/we-need-to-be-able-to-drop-items-on-the-ground/25279",
+    "cell": null,
+    "jobs": "A,C",
+    "shelfAnswer": null,
+    "rationale": "'Single-player reasons to explore that don't require anyone to organize' — a world primitive outside all three group loops.",
+    "confidence": "evidence-backed",
+    "readAt": "2026-08-17",
+    "basis": "This program's own reading of the ask's stored text against the strategy deck's three gaming cells and six emotional jobs — not a fact the ask carries.",
+    "crowdRange": null
+  }
+]

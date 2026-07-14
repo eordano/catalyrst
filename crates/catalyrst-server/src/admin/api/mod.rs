@@ -36,6 +36,82 @@ pub use social::*;
 pub use telemetry::*;
 pub use worlds::*;
 
+#[derive(serde::Serialize)]
+pub(crate) struct AdminEnvelope {
+    pub ok: bool,
+    pub status: u16,
+    pub body: Value,
+}
+
+impl AdminEnvelope {
+    fn success(body: Value) -> Response {
+        (
+            StatusCode::OK,
+            Json(AdminEnvelope {
+                ok: true,
+                status: 200,
+                body,
+            }),
+        )
+            .into_response()
+    }
+
+    fn error(status: StatusCode, body: Value) -> Response {
+        (
+            status,
+            Json(AdminEnvelope {
+                ok: false,
+                status: status.as_u16(),
+                body,
+            }),
+        )
+            .into_response()
+    }
+}
+
+#[allow(dead_code)]
+pub(crate) enum AdminActionError {
+    // from_backend only ever classifies a backend message as Unsupported or
+    // Internal, so nothing constructs these two. They are kept because
+    // status_code() maps them to the 400/404 an admin action ought to return
+    // once the backend reports those cases distinguishably; deleting them would
+    // throw away that mapping. The expect fires if a constructor appears.
+    #[expect(dead_code)]
+    BadRequest(String),
+    #[expect(dead_code)]
+    NotFound(String),
+    Internal(String),
+    Unsupported(String),
+}
+
+impl AdminActionError {
+    fn status_code(&self) -> StatusCode {
+        match self {
+            AdminActionError::BadRequest(_) => StatusCode::BAD_REQUEST,
+            AdminActionError::NotFound(_) => StatusCode::NOT_FOUND,
+            AdminActionError::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            AdminActionError::Unsupported(_) => StatusCode::NOT_IMPLEMENTED,
+        }
+    }
+
+    fn message(&self) -> &str {
+        match self {
+            AdminActionError::BadRequest(m)
+            | AdminActionError::NotFound(m)
+            | AdminActionError::Internal(m)
+            | AdminActionError::Unsupported(m) => m,
+        }
+    }
+
+    pub(crate) fn from_backend(msg: String) -> Self {
+        if msg.contains("not supported") {
+            AdminActionError::Unsupported(msg)
+        } else {
+            AdminActionError::Internal(msg)
+        }
+    }
+}
+
 async fn proxy_envelope(
     method: Method,
     key: &str,
@@ -43,7 +119,7 @@ async fn proxy_envelope(
     body: Option<Value>,
     bearer: Option<&str>,
     admin_addr: Option<&str>,
-) -> Result<(bool, Value), Value> {
+) -> Result<(StatusCode, AdminEnvelope), Value> {
     let Some(base) = console::service_urls().get(key) else {
         return Err(json!({ "error": "not-configured", "service": key }));
     };
@@ -73,22 +149,24 @@ async fn proxy_envelope(
                 Err(_) => Value::String(text),
             };
             let ok = status.is_success();
+            let our_status =
+                StatusCode::from_u16(status.as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
             Ok((
-                ok,
-                json!({
-                    "ok": ok,
-                    "status": status.as_u16(),
-                    "body": downstream,
-                }),
+                our_status,
+                AdminEnvelope {
+                    ok,
+                    status: status.as_u16(),
+                    body: downstream,
+                },
             ))
         }
         Err(e) => Ok((
-            false,
-            json!({
-                "ok": false,
-                "status": 0,
-                "body": { "error": "request-failed", "detail": e.to_string() },
-            }),
+            StatusCode::BAD_GATEWAY,
+            AdminEnvelope {
+                ok: false,
+                status: 0,
+                body: json!({ "error": "request-failed", "detail": e.to_string() }),
+            },
         )),
     }
 }
@@ -106,10 +184,19 @@ async fn proxy_audited(
     body: Option<Value>,
     bearer: Option<&str>,
 ) -> Response {
-    let (ok, resp) = match proxy_envelope(method, key, path, body, bearer, Some(addr)).await {
-        Ok((ok, env)) => (ok, Json(env).into_response()),
-        Err(env) => (false, (StatusCode::BAD_GATEWAY, Json(env)).into_response()),
+    let (status, env) = match proxy_envelope(method, key, path, body, bearer, Some(addr)).await {
+        Ok(pair) => pair,
+        Err(errv) => (
+            StatusCode::BAD_GATEWAY,
+            AdminEnvelope {
+                ok: false,
+                status: StatusCode::BAD_GATEWAY.as_u16(),
+                body: errv,
+            },
+        ),
     };
+    let ok = env.ok;
+    let resp = (status, Json(env)).into_response();
     audit::record(
         state.audit_pool.as_ref(),
         addr,
@@ -134,10 +221,19 @@ async fn proxy_audited_global(
     body: Option<Value>,
     bearer: Option<&str>,
 ) -> Response {
-    let (ok, resp) = match proxy_envelope(method, key, path, body, bearer, Some(addr)).await {
-        Ok((ok, env)) => (ok, Json(env).into_response()),
-        Err(env) => (false, (StatusCode::BAD_GATEWAY, Json(env)).into_response()),
+    let (status, env) = match proxy_envelope(method, key, path, body, bearer, Some(addr)).await {
+        Ok(pair) => pair,
+        Err(errv) => (
+            StatusCode::BAD_GATEWAY,
+            AdminEnvelope {
+                ok: false,
+                status: StatusCode::BAD_GATEWAY.as_u16(),
+                body: errv,
+            },
+        ),
     };
+    let ok = env.ok;
+    let resp = (status, Json(env)).into_response();
     audit::record_global(
         addr,
         action,
@@ -181,11 +277,10 @@ fn valid_path_segment(s: &str) -> bool {
 }
 
 fn bad_segment(what: &str) -> Response {
-    (
+    AdminEnvelope::error(
         StatusCode::BAD_REQUEST,
-        Json(json!({ "ok": false, "error": format!("invalid-{what}") })),
+        json!({ "error": format!("invalid-{what}") }),
     )
-        .into_response()
 }
 
 async fn finish(
@@ -194,7 +289,7 @@ async fn finish(
     action: &str,
     target: Option<&str>,
     detail: Value,
-    outcome: Result<Value, String>,
+    outcome: Result<Value, AdminActionError>,
 ) -> Response {
     match outcome {
         Ok(body) => {
@@ -207,23 +302,21 @@ async fn finish(
                 "ok",
             )
             .await;
-            Json(json!({ "ok": true, "result": body })).into_response()
+            AdminEnvelope::success(body)
         }
         Err(e) => {
+            let status = e.status_code();
+            let message = e.message().to_string();
             audit::record(
                 state.audit_pool.as_ref(),
                 addr,
                 action,
                 target,
-                json!({ "error": e }),
-                "unsupported",
+                json!({ "error": message }),
+                "error",
             )
             .await;
-            (
-                StatusCode::NOT_IMPLEMENTED,
-                Json(json!({ "ok": false, "error": e })),
-            )
-                .into_response()
+            AdminEnvelope::error(status, json!({ "error": message }))
         }
     }
 }
@@ -270,11 +363,10 @@ fn body_without(body: &Value, drop: &[&str]) -> Option<Value> {
 }
 
 fn token_missing(crate_key: &str) -> Response {
-    (
+    AdminEnvelope::error(
         StatusCode::FORBIDDEN,
-        Json(json!({ "error": format!("{crate_key}-admin-token-not-configured") })),
+        json!({ "error": format!("{crate_key}-admin-token-not-configured") }),
     )
-        .into_response()
 }
 
 #[cfg(test)]

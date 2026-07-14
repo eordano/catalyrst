@@ -1,89 +1,30 @@
-use std::time::Duration;
-
+use alloy::signers::{local::PrivateKeySigner, Signer};
+use catalyrst_contract_gate::pg::ScratchSchema;
 use catalyrst_events::fed::apply;
 use catalyrst_events::fed::authority::{is_moderator, require_moderator};
 use catalyrst_events::fed::messages::{ProfileSettingsUpdate, ScheduleUpsert};
 use catalyrst_events::ports::events::{EventListFilters, EventsComponent};
 use catalyrst_fed::sig::{domains, Eip712Domain};
 use catalyrst_fed::{Signed, TypedMessage};
-use ethers_signers::{LocalWallet, Signer};
 use rand::RngExt;
-use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
 
-fn pg_url() -> Option<String> {
-    std::env::var("CATALYRST_EVENTS_TEST_PG").ok()
-}
-
-fn unique_schema() -> String {
-    let b: [u8; 8] = rand::rng().random();
-    format!("test_evt_{}", hex::encode(b))
-}
-
-async fn setup() -> Option<(PgPool, String, String)> {
-    let url = pg_url()?;
-    let admin = PgPoolOptions::new()
-        .max_connections(2)
-        .acquire_timeout(Duration::from_secs(5))
-        .connect(&url)
-        .await
-        .ok()?;
-    let schema = unique_schema();
-    sqlx::query(sqlx::AssertSqlSafe(format!("CREATE SCHEMA {}", schema)))
-        .execute(&admin)
-        .await
-        .ok()?;
-    let suffixed = format!("{}?options=-c%20search_path%3D{}", url, schema);
-    let pool = PgPoolOptions::new()
-        .max_connections(4)
-        .acquire_timeout(Duration::from_secs(5))
-        .connect(&suffixed)
-        .await
-        .ok()?;
-    apply_migration(&pool, include_str!("../migrations/0001_federation.sql")).await;
-    Some((pool, schema, url))
-}
-
-async fn apply_migration(pool: &PgPool, sql: &str) {
-    let cleaned: String = sql
-        .lines()
-        .filter(|l| !l.trim_start().starts_with("--"))
-        .collect::<Vec<_>>()
-        .join("\n");
-    for stmt in cleaned.split(';') {
-        if stmt.trim().is_empty() {
-            continue;
-        }
-        sqlx::query(sqlx::AssertSqlSafe(stmt.to_owned()))
-            .execute(pool)
-            .await
-            .unwrap_or_else(|e| panic!("migration stmt failed: {e}\n{stmt}"));
-    }
-}
-
-async fn cleanup(admin_url: &str, schema: &str) {
-    if let Ok(admin) = PgPoolOptions::new()
-        .max_connections(1)
-        .connect(admin_url)
-        .await
-    {
-        let _ = sqlx::query(sqlx::AssertSqlSafe(format!(
-            "DROP SCHEMA {} CASCADE",
-            schema
-        )))
-        .execute(&admin)
+async fn setup() -> Option<ScratchSchema> {
+    let scratch = ScratchSchema::create("CATALYRST_EVENTS_TEST_PG", "cg_events_fed").await?;
+    scratch
+        .apply_sql(include_str!("../migrations/0001_federation.sql"))
         .await;
-    }
+    Some(scratch)
 }
 
-fn mk_wallet(seed: u8) -> LocalWallet {
+fn mk_wallet(seed: u8) -> PrivateKeySigner {
     let mut key = [0u8; 32];
     key[31] = seed;
     key[0] = 1;
-    LocalWallet::from_bytes(&key).expect("wallet from bytes")
+    PrivateKeySigner::from_slice(&key).expect("wallet from bytes")
 }
 
-fn addr(w: &LocalWallet) -> String {
+fn addr(w: &PrivateKeySigner) -> String {
     format!("{:#x}", w.address())
 }
 
@@ -96,7 +37,7 @@ fn now() -> i64 {
 }
 
 async fn sign<T: TypedMessage>(
-    wallet: &LocalWallet,
+    wallet: &PrivateKeySigner,
     message: T,
     domain: Eip712Domain,
     nonce: [u8; 16],
@@ -110,8 +51,8 @@ async fn sign<T: TypedMessage>(
         signature: String::new(),
     };
     let hash = signed.hash();
-    let sig = wallet.sign_message(hash).await.unwrap();
-    signed.signature = format!("0x{}", sig);
+    let sig = wallet.sign_message(&hash).await.unwrap();
+    signed.signature = sig.to_string();
     signed
 }
 
@@ -126,10 +67,10 @@ async fn add_moderator(pool: &PgPool, address: &str) {
 
 #[tokio::test]
 async fn moderator_gate_and_schedule_and_settings_flow() {
-    let Some((pool, schema, admin_url)) = setup().await else {
-        eprintln!("skipping moderator flow: set CATALYRST_EVENTS_TEST_PG to run");
+    let Some(scratch) = setup().await else {
         return;
     };
+    let pool = scratch.pool.clone();
     let domain = domains::events();
 
     let moderator = mk_wallet(11);
@@ -163,9 +104,9 @@ async fn moderator_gate_and_schedule_and_settings_flow() {
         .await
         .unwrap();
     assert!(applied.fresh);
-    let sched_id = sched["id"].as_str().unwrap().to_string();
-    assert_eq!(sched["name"], "MVMF");
-    assert_eq!(sched["theme"], "mvmf_2022");
+    let sched_id = sched.id.clone();
+    assert_eq!(sched.name, "MVMF");
+    assert_eq!(sched.theme.as_deref(), Some("mvmf_2022"));
 
     let (again, _) = apply::apply_schedule(&pool, &create, &addr(&moderator), None)
         .await
@@ -188,9 +129,9 @@ async fn moderator_gate_and_schedule_and_settings_flow() {
     let (_, updated) = apply::apply_schedule(&pool, &update, &addr(&moderator), None)
         .await
         .unwrap();
-    assert_eq!(updated["id"], sched_id);
-    assert_eq!(updated["name"], "MVMF 2");
-    assert_eq!(updated["active"], false);
+    assert_eq!(updated.id, sched_id);
+    assert_eq!(updated.name, "MVMF 2");
+    assert!(!updated.active);
 
     let settings_msg = ProfileSettingsUpdate {
         target: addr(&victim),
@@ -239,7 +180,7 @@ async fn moderator_gate_and_schedule_and_settings_flow() {
     assert_eq!(self_settings["email"], "me@x.io");
     assert_eq!(self_settings["use_local_time"], false);
 
-    cleanup(&admin_url, &schema).await;
+    scratch.drop().await;
 }
 
 async fn create_event_read_fixtures(pool: &PgPool) {
@@ -306,17 +247,17 @@ async fn insert_event(pool: &PgPool, id: &str, creator: &str, deleted_by_admin: 
 
 #[tokio::test]
 async fn soft_deleted_events_hidden_from_all_reads() {
-    let Some((pool, schema, admin_url)) = setup().await else {
-        eprintln!("skipping soft-delete read filter: set CATALYRST_EVENTS_TEST_PG to run");
+    let Some(scratch) = setup().await else {
         return;
     };
+    let pool = scratch.pool.clone();
     create_event_read_fixtures(&pool).await;
 
     let creator = "0xabc0000000000000000000000000000000000001";
     insert_event(&pool, "ev-visible", creator, false).await;
     insert_event(&pool, "ev-deleted", creator, true).await;
 
-    let events = EventsComponent::new(pool.clone());
+    let events = EventsComponent::new(pool.clone(), None);
 
     let (records, total) = events
         .list(&EventListFilters {
@@ -371,7 +312,7 @@ async fn soft_deleted_events_hidden_from_all_reads() {
         "soft-deleted event leaked into attending: {att_ids:?}"
     );
 
-    cleanup(&admin_url, &schema).await;
+    scratch.drop().await;
 }
 
 async fn insert_event_status(
@@ -404,10 +345,10 @@ async fn insert_event_status(
 
 #[tokio::test]
 async fn owner_filter_returns_all_statuses_for_auth_user() {
-    let Some((pool, schema, admin_url)) = setup().await else {
-        eprintln!("skipping owner filter: set CATALYRST_EVENTS_TEST_PG to run");
+    let Some(scratch) = setup().await else {
         return;
     };
+    let pool = scratch.pool.clone();
     create_event_read_fixtures(&pool).await;
 
     let owner = "0xaaa0000000000000000000000000000000000001";
@@ -418,7 +359,7 @@ async fn owner_filter_returns_all_statuses_for_auth_user() {
     insert_event_status(&pool, "own-rejected", owner, false, true).await;
     insert_event_status(&pool, "other-approved", other, true, false).await;
 
-    let events = EventsComponent::new(pool.clone());
+    let events = EventsComponent::new(pool.clone(), None);
 
     let (records, total) = events
         .list(&EventListFilters {
@@ -455,5 +396,5 @@ async fn owner_filter_returns_all_statuses_for_auth_user() {
     );
     assert_eq!(public_total, 2);
 
-    cleanup(&admin_url, &schema).await;
+    scratch.drop().await;
 }

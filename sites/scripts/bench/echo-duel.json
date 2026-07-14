@@ -1,0 +1,66 @@
+{
+  "slug": "echo-duel",
+  "title": "Echo Duel",
+  "description": "Instrument-stream run against a local creator preview of the workspace copy, per the games/smoke.json pattern: `npx @dcl/sdk-commands start --no-browser --port 8022` in the scene dir, `decentra-bevy --server http://127.0.0.1:8022 --mcp --mcp-port 8132`. The realm below is that url because it is what this explorer reports as its realm (measured 2026-08-22, current bevy build; the LocalPreview name smoke.json documents is what an older build reported) - the wrong-world gate then refuses any client that is not in this exact preview. The port is pinned per scene by scripts/foundry-bench-scenes.sh. The scene self-plays: src/driver.ts plays both hot-seat seats through the same state API the HUD buttons use (the MCP surface has no UI clicks, so without it only the boot-time config line would ever fire). Each seat recalls up to a fixed memory span and goes all-in once the shared sequence outgrows it, so wagers, haptic/shake feedback cues, zero-sum transfers, match ends and the session counter all land on a bounded clock; a match ends in roughly 20 s and the 75 s wait covers several.",
+  "realm": "http://127.0.0.1:8022",
+  "authoritative": false,
+  "spawn": { "x": 8, "y": 0, "z": 2 },
+  "steps": [
+    { "do": "walk", "x": 8, "y": 0, "z": 8, "label": "arena center, facing the board" },
+    { "do": "wait", "seconds": 75, "label": "several driver matches run to completion; the log ring is drained throughout" },
+    { "do": "screenshot", "label": "board and HUD mid-session" }
+  ],
+  "checks": [
+    {
+      "kind": "no-log",
+      "pattern": "(TypeError|ReferenceError|Cannot read|is not a function)",
+      "why": "a scene that throws on load looks fine in a screenshot and is broken"
+    },
+    {
+      "kind": "no-log",
+      "pattern": "Unhandled promise rejection",
+      "why": "an async failure the scene swallowed still leaves state half-applied"
+    },
+    {
+      "kind": "log",
+      "pattern": "\\[echo-duel-config\\] grid_tiles=6",
+      "why": "the pinned rules and doc §9 targets are emitted at every match start"
+    },
+    {
+      "kind": "log",
+      "pattern": "\\[echo-duel-wager\\] turn_wager_amount=\\d+ extension=\\d+",
+      "why": "doc §9 'turn_wager_amount', extension-indexed for the avg-wager-by-extension read"
+    },
+    {
+      "kind": "log",
+      "pattern": "\\[echo-duel-feedback\\] cue=haptic-pulse",
+      "why": "doc §5: a correct recall tap fires the haptic-pulse cue"
+    },
+    {
+      "kind": "log",
+      "pattern": "\\[echo-duel-feedback\\] cue=screen-shake",
+      "why": "doc §5: a failed recall fires the screen-shake cue"
+    },
+    {
+      "kind": "log",
+      "pattern": "\\[echo-duel-transfer\\] from=[AB] to=[AB]",
+      "why": "doc §2 Transfer row: the wager moves loser to rival, zero-sum, never points from nowhere"
+    },
+    {
+      "kind": "log",
+      "pattern": "\\[echo-duel-extend\\] ",
+      "why": "the shared sequence grows one tile per successful turn"
+    },
+    {
+      "kind": "log",
+      "pattern": "\\[echo-duel-match\\] match_end_extension_count=\\d+",
+      "why": "doc §9 'match_end_extension_count' - the contestability instrument, one line per match end"
+    },
+    {
+      "kind": "log",
+      "pattern": "\\[echo-duel-session\\] session_match_count=\\d+",
+      "why": "doc §9 'session_match_count' - the retention instrument counts finished matches"
+    }
+  ],
+  "timeoutSec": 200
+}

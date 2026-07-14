@@ -1,0 +1,316 @@
+{
+  "generatedFrom": "cdp-ic-clean.ndjson",
+  "requestCount": 286,
+  "entries": [
+    {
+      "method": "GET",
+      "host": "config.interconnected.online",
+      "path": "/denylist.json",
+      "queryKeys": [],
+      "statuses": {
+        "200": 1
+      },
+      "mimeTypes": {
+        "application/octet-stream": 1
+      },
+      "headerNames": [],
+      "hasPostData": false,
+      "count": 1,
+      "samplePath": "/denylist.json"
+    },
+    {
+      "method": "POST",
+      "host": "dcl-lists.interconnected.online",
+      "path": "/pois",
+      "queryKeys": [],
+      "statuses": {
+        "200": 1
+      },
+      "mimeTypes": {
+        "application/json": 1
+      },
+      "headerNames": [],
+      "hasPostData": true,
+      "count": 1,
+      "samplePath": "/pois"
+    },
+    {
+      "method": "GET",
+      "host": "events.interconnected.online",
+      "path": "/api/events",
+      "queryKeys": [
+        "list"
+      ],
+      "statuses": {
+        "200": 5
+      },
+      "mimeTypes": {
+        "application/octet-stream": 5
+      },
+      "headerNames": [
+        "x-identity-metadata",
+        "x-identity-timestamp"
+      ],
+      "hasPostData": false,
+      "count": 5,
+      "samplePath": "/api/events?list=live"
+    },
+    {
+      "method": "GET",
+      "host": "gateway.interconnected.online",
+      "path": "/ab-cdn/v{n}/{cid}/{cid}_windows",
+      "queryKeys": [],
+      "statuses": {
+        "200": 26
+      },
+      "mimeTypes": {
+        "application/octet-stream": 26
+      },
+      "headerNames": [],
+      "hasPostData": false,
+      "count": 26,
+      "samplePath": "/ab-cdn/v49/bafkreidvdl5tc5qaltwyu6ksikn7oojk2l5makolltakndqjqjylarmh2y/bafkreichy7wd77z7snnxt46i4e5ewegggnkc5fsc6mrpt4ayw4ppewnndq_windows"
+    },
+    {
+      "method": "GET",
+      "host": "gateway.interconnected.online",
+      "path": "/archipelago-ea-stats/comms/peers",
+      "queryKeys": [],
+      "statuses": {
+        "200": 1
+      },
+      "mimeTypes": {
+        "application/octet-stream": 1
+      },
+      "headerNames": [],
+      "hasPostData": false,
+      "count": 1,
+      "samplePath": "/archipelago-ea-stats/comms/peers"
+    },
+    {
+      "method": "HEAD",
+      "host": "gateway.interconnected.online",
+      "path": "/archipelago-ea-stats/status",
+      "queryKeys": [],
+      "statuses": {
+        "200": 1
+      },
+      "mimeTypes": {
+        "application/octet-stream": 1
+      },
+      "headerNames": [],
+      "hasPostData": false,
+      "count": 1,
+      "samplePath": "/archipelago-ea-stats/status"
+    },
+    {
+      "method": "POST",
+      "host": "gateway.interconnected.online",
+      "path": "/asset-bundle-registry/entities/active",
+      "queryKeys": [],
+      "statuses": {
+        "200": 2
+      },
+      "mimeTypes": {
+        "application/json": 2
+      },
+      "headerNames": [],
+      "hasPostData": true,
+      "count": 2,
+      "samplePath": "/asset-bundle-registry/entities/active"
+    },
+    {
+      "method": "GET",
+      "host": "gateway.interconnected.online",
+      "path": "/camera-reel-service/api/users/{address}",
+      "queryKeys": [],
+      "statuses": {
+        "200": 1
+      },
+      "mimeTypes": {
+        "application/octet-stream": 1
+      },
+      "headerNames": [
+        "x-identity-metadata",
+        "x-identity-timestamp"
+      ],
+      "hasPostData": false,
+      "count": 1,
+      "samplePath": "/camera-reel-service/api/users/0xe168f6bccd24d90c1d755449c06eae6494d7cb14"
+    },
+    {
+      "method": "GET",
+      "host": "gateway.interconnected.online",
+      "path": "/comms-gatekeeper/private-messages/token",
+      "queryKeys": [],
+      "statuses": {
+        "200": 1
+      },
+      "mimeTypes": {
+        "application/octet-stream": 1
+      },
+      "headerNames": [
+        "x-identity-metadata",
+        "x-identity-timestamp"
+      ],
+      "hasPostData": false,
+      "count": 1,
+      "samplePath": "/comms-gatekeeper/private-messages/token"
+    },
+    {
+      "method": "HEAD",
+      "host": "gateway.interconnected.online",
+      "path": "/comms-gatekeeper/status",
+      "queryKeys": [],
+      "statuses": {
+        "200": 1
+      },
+      "mimeTypes": {
+        "application/octet-stream": 1
+      },
+      "headerNames": [],
+      "hasPostData": false,
+      "count": 1,
+      "samplePath": "/comms-gatekeeper/status"
+    },
+    {
+      "method": "GET",
+      "host": "gateway.interconnected.online",
+      "path": "/notifications/notifications",
+      "queryKeys": [
+        "onlyUnread",
+        "from"
+      ],
+      "statuses": {
+        "200": 145
+      },
+      "mimeTypes": {
+        "application/octet-stream": 145
+      },
+      "headerNames": [
+        "x-identity-metadata",
+        "x-identity-timestamp"
+      ],
+      "hasPostData": false,
+      "count": 145,
+      "samplePath": "/notifications/notifications?onlyUnread=true&from=1786709262396"
+    },
+    {
+      "method": "GET",
+      "host": "gateway.interconnected.online",
+      "path": "/places/api/places",
+      "queryKeys": [
+        "with_realms_detail",
+        "positions"
+      ],
+      "statuses": {
+        "200": 1
+      },
+      "mimeTypes": {
+        "application/octet-stream": 1
+      },
+      "headerNames": [
+        "x-identity-metadata",
+        "x-identity-timestamp"
+      ],
+      "hasPostData": false,
+      "count": 1,
+      "samplePath": "/places/api/places?with_realms_detail=true&positions=0,0"
+    },
+    {
+      "method": "GET",
+      "host": "gateway.interconnected.online",
+      "path": "/social-api/v{n}/community-voice-chats/active",
+      "queryKeys": [],
+      "statuses": {
+        "200": 1
+      },
+      "mimeTypes": {
+        "application/octet-stream": 1
+      },
+      "headerNames": [
+        "x-identity-metadata",
+        "x-identity-timestamp"
+      ],
+      "hasPostData": false,
+      "count": 1,
+      "samplePath": "/social-api/v1/community-voice-chats/active"
+    },
+    {
+      "method": "GET",
+      "host": "interconnected.online",
+      "path": "/lambdas/profiles/{address}",
+      "queryKeys": [],
+      "statuses": {
+        "200": 1
+      },
+      "mimeTypes": {
+        "application/octet-stream": 1
+      },
+      "headerNames": [],
+      "hasPostData": false,
+      "count": 1,
+      "samplePath": "/lambdas/profiles/0xe168f6bccd24d90c1d755449c06eae6494d7cb14"
+    },
+    {
+      "method": "GET",
+      "host": "media.githubusercontent.com",
+      "path": "/media/genesis-city/parcels/new-client-images/maps/lod-0/{n}/{coord}.jpg",
+      "queryKeys": [],
+      "statuses": {
+        "200": 64
+      },
+      "mimeTypes": {
+        "application/octet-stream": 64
+      },
+      "headerNames": [],
+      "hasPostData": false,
+      "count": 64,
+      "samplePath": "/media/genesis-city/parcels/new-client-images/maps/lod-0/3/0%2C0.jpg"
+    },
+    {
+      "method": "GET",
+      "host": "profile-images.decentraland.org",
+      "path": "/entities/{cid}/face.png",
+      "queryKeys": [],
+      "statuses": {
+        "200": 1
+      },
+      "mimeTypes": {
+        "application/octet-stream": 1
+      },
+      "headerNames": [],
+      "hasPostData": false,
+      "count": 1,
+      "samplePath": "/entities/bafkreigzobbnio5wbmmon7pkaoe6hggichoji554vdxszxseciy7ckxhge/face.png"
+    },
+    {
+      "method": "GET",
+      "host": "realm-provider-ea.interconnected.online",
+      "path": "/main/about",
+      "queryKeys": [],
+      "statuses": {
+        "200": 1
+      },
+      "mimeTypes": {
+        "application/octet-stream": 1
+      },
+      "headerNames": [],
+      "hasPostData": false,
+      "count": 1,
+      "samplePath": "/main/about"
+    },
+    {
+      "method": "GET",
+      "host": "realm-provider-ea.interconnected.online",
+      "path": "/main/preview-wearables",
+      "queryKeys": [],
+      "statuses": {},
+      "mimeTypes": {},
+      "headerNames": [],
+      "hasPostData": false,
+      "count": 1,
+      "samplePath": "/main/preview-wearables"
+    }
+  ]
+}

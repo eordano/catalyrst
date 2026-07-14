@@ -1,0 +1,17 @@
+name: Build PR Image
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  build:
+    name: "Build & publish: PR #${{ github.event.pull_request.number }}"
+    uses: decentraland/actions/.github/workflows/build-quay-main.yml@main
+    with:
+      service-name: marketplace-squid-core
+      docker-tag: "pr-${{ github.event.pull_request.number }}"
+    secrets:
+      QUAY_USERNAME: ${{ secrets.QUAY_USERNAME }}
+      QUAY_TOKEN: ${{ secrets.QUAY_TOKEN }}
+

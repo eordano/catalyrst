@@ -1,0 +1,66 @@
+{
+  "slug": "relay-gardens",
+  "title": "Relay Gardens",
+  "description": "Instrument-stream run against a local creator preview of the workspace copy, per the games/smoke.json pattern: `npx @dcl/sdk-commands start --no-browser --port 8021` in the scene dir, `decentra-bevy --server http://127.0.0.1:8021 --mcp --mcp-port 8131`. The realm below is that url because it is what this explorer reports as its realm (measured 2026-08-22, current bevy build; the LocalPreview name smoke.json documents is what an older build reported) - the wrong-world gate then refuses any client that is not in this exact preview, which is the honest outcome. The port is pinned per scene by scripts/foundry-bench-scenes.sh; serve elsewhere and the run refuses by design. The scene self-plays: src/driver.ts deals bot hands through alternating trio/solo sessions on the live board, so the checks below measure that every doc-§9 instrument actually streams to the scene log, not that a human played. Pacing (src/const.ts): 1.5 s per phase, 5 s settle pause; a trio session fills the 7x7 plot in well under the 90 s wait, and the next session (solo) starts inside it, so both modes' session lines land in the ring.",
+  "realm": "http://127.0.0.1:8021",
+  "authoritative": false,
+  "spawn": { "x": 2, "y": 0, "z": 2 },
+  "steps": [
+    { "do": "walk", "x": 8, "y": 0, "z": 2, "label": "garden edge, overlooking the plot" },
+    { "do": "wait", "seconds": 90, "label": "one full trio session settles and the solo session starts; the log ring is drained throughout" },
+    { "do": "screenshot", "label": "bloom pattern after the first settle" }
+  ],
+  "checks": [
+    {
+      "kind": "no-log",
+      "pattern": "(TypeError|ReferenceError|Cannot read|is not a function)",
+      "why": "a scene that throws on load looks fine in a screenshot and is broken"
+    },
+    {
+      "kind": "no-log",
+      "pattern": "Unhandled promise rejection",
+      "why": "an async failure the scene swallowed still leaves state half-applied"
+    },
+    {
+      "kind": "log",
+      "pattern": "\\[relay-gardens-config\\] grid=7",
+      "why": "every design number the doc commits to is emitted once at boot (doc §9)"
+    },
+    {
+      "kind": "log",
+      "pattern": "\\[relay-gardens-session\\] session=\\d+ mode=trio",
+      "why": "a trio session ran - doc §9 reads Coordination Lift from trio sessions"
+    },
+    {
+      "kind": "log",
+      "pattern": "\\[relay-gardens-session\\] session=\\d+ mode=solo",
+      "why": "a solo session ran - doc §9 reads Solo Stall against it on the same build"
+    },
+    {
+      "kind": "log",
+      "pattern": "\\[relay-gardens-hand\\] ",
+      "why": "public hands (interview #3): one line per player per round"
+    },
+    {
+      "kind": "log",
+      "pattern": "\\[relay-gardens-plant\\] ",
+      "why": "Plant Phase placements are on the record, one line per tile"
+    },
+    {
+      "kind": "log",
+      "pattern": "\\[relay-gardens-round\\] instrument=Round-Bloom-Count",
+      "why": "doc §9 'Round-Bloom-Count' - the Solo Stall instrument streams per round"
+    },
+    {
+      "kind": "log",
+      "pattern": "\\[relay-gardens-settle\\] instrument=Settle-Point-Triggered",
+      "why": "doc §9 'Settle-Point-Triggered' - the engine detected a session end"
+    },
+    {
+      "kind": "log",
+      "pattern": "\\[relay-gardens-score\\] instrument=Final-Coverage-Percent",
+      "why": "doc §9 'Final-Coverage-Percent' - the session score, with the Appendix A bloom_to_tile ratio"
+    }
+  ],
+  "timeoutSec": 240
+}

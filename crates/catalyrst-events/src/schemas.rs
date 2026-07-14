@@ -1,14 +1,15 @@
 use chrono::{DateTime, Utc};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "events/"))]
 pub struct EventRecord {
     pub id: String,
     pub name: String,
     pub image: Option<String>,
     #[cfg_attr(feature = "ts", ts(type = "string | null"))]
+    #[schema(value_type = Option<String>)]
     pub image_vertical: Option<Value>,
     pub description: Option<String>,
     #[cfg_attr(feature = "ts", ts(type = "string | null"))]
@@ -65,12 +66,26 @@ pub struct EventRecord {
     pub attending: bool,
     pub place_id: Option<String>,
     pub community_id: Option<String>,
+    #[cfg_attr(feature = "ts", ts(type = "string | null"))]
+    pub created_at: Option<DateTime<Utc>>,
+    #[cfg_attr(feature = "ts", ts(type = "string | null"))]
+    pub updated_at: Option<DateTime<Utc>>,
+    pub approved_by: Option<String>,
+    pub rejected_by: Option<String>,
+    pub rejection_reason: Option<String>,
+    pub deleted_by_user: bool,
+    pub deleted_by_admin: bool,
+    pub deleted_by: Option<String>,
+    #[cfg_attr(feature = "ts", ts(type = "string | null"))]
+    pub deleted_at: Option<DateTime<Utc>>,
+    pub deleted_reason: Option<String>,
+    pub previous_place_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub connected_addresses: Option<Vec<String>>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "events/"))]
 pub struct EventCategoryRecord {
     pub name: String,
@@ -80,10 +95,11 @@ pub struct EventCategoryRecord {
     #[cfg_attr(feature = "ts", ts(type = "string"))]
     pub updated_at: DateTime<Utc>,
     #[cfg_attr(feature = "ts", ts(type = "Record<string, unknown>"))]
+    #[schema(value_type = Object)]
     pub i18n: serde_json::Map<String, Value>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "events/"))]
 pub struct EventAttendeeRecord {
     pub event_id: String,
@@ -93,7 +109,44 @@ pub struct EventAttendeeRecord {
     pub created_at: DateTime<Utc>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "events/"))]
+pub struct ScheduleUpsertMessage {
+    #[serde(default)]
+    pub schedule_id: Option<String>,
+    pub name: String,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub image: Option<String>,
+    #[serde(default)]
+    pub theme: Option<String>,
+    #[serde(default)]
+    pub background: Vec<String>,
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
+    pub active_since: i64,
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
+    pub active_until: i64,
+    pub active: bool,
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
+    pub signed_at: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "events/"))]
+pub struct ScheduleUpsertEnvelope {
+    #[schema(value_type = Object)]
+    #[cfg_attr(feature = "ts", ts(type = "Record<string, unknown>"))]
+    pub domain: Value,
+    pub message: ScheduleUpsertMessage,
+    #[cfg_attr(feature = "ts", ts(type = "Array<number>"))]
+    pub nonce: Vec<u8>,
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
+    pub signed_at: i64,
+    pub signature: String,
+}
+
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "events/"))]
 pub struct ScheduleRecord {
     pub id: String,

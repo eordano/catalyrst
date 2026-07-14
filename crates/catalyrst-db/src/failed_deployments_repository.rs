@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use sqlx::{PgPool, Postgres};
+use sqlx::PgPool;
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct SnapshotFailedDeployment {
@@ -16,41 +16,6 @@ pub struct SnapshotFailedDeployment {
     pub error_description: String,
     #[sqlx(rename = "snapshotHash")]
     pub snapshot_hash: String,
-}
-
-pub async fn save_snapshot_failed_deployment<'e, E: sqlx::Executor<'e, Database = Postgres>>(
-    executor: E,
-    fd: &SnapshotFailedDeployment,
-) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        r#"
-        INSERT INTO failed_deployments
-            (entity_id, entity_type, failure_time, reason, auth_chain, error_description, snapshot_hash)
-        VALUES
-            ($1, $2, to_timestamp($3 / 1000.0), $4, $5::json, $6, $7)
-        RETURNING entity_id
-        "#,
-    )
-    .bind(&fd.entity_id)
-    .bind(&fd.entity_type)
-    .bind(fd.failure_timestamp)
-    .bind(&fd.reason)
-    .bind(fd.auth_chain.to_string())
-    .bind(&fd.error_description)
-    .bind(&fd.snapshot_hash)
-    .execute(executor)
-    .await?;
-
-    Ok(())
-}
-
-pub async fn delete_failed_deployment(pool: &PgPool, entity_id: &str) -> Result<(), sqlx::Error> {
-    sqlx::query("DELETE FROM failed_deployments WHERE entity_id = $1")
-        .bind(entity_id)
-        .execute(pool)
-        .await?;
-
-    Ok(())
 }
 
 pub async fn get_snapshot_failed_deployments(

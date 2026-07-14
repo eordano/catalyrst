@@ -1,0 +1,185 @@
+/* The whole card opens the run's log: the "Open the run log" link stretches its
+   ::after over the article, and the inner game/evidence links sit above it
+   (same pattern as the door cards). */
+.fd-benchcard {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  padding: var(--s-4);
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  background: var(--panel);
+  transition:
+    border-color var(--dur-fast) var(--ease-out),
+    background var(--dur-fast) var(--ease-out);
+}
+
+.fd-benchcard:hover {
+  border-color: var(--ink-45);
+  background: var(--panel-2);
+}
+
+.fd-benchcard:has(.fd-benchcard__link:focus-visible) {
+  outline: var(--focus-ring-width) solid var(--focus-ring-color);
+  outline-offset: var(--focus-ring-offset);
+}
+
+.fd-benchcard__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--s-3);
+}
+
+.fd-benchcard__slug {
+  margin: 0;
+  max-width: 24ch;
+  font-size: var(--fs-16);
+  font-weight: var(--fw-bold);
+  line-height: var(--lh-snug);
+}
+
+.fd-benchcard__slug a {
+  position: relative;
+  z-index: 1;
+  color: var(--text);
+  text-decoration: none;
+}
+
+.fd-benchcard__slug a:hover {
+  color: var(--brand-ink);
+}
+
+.fd-benchcard__at {
+  margin: var(--s-1) 0 0;
+  color: var(--ink-45);
+}
+
+.fd-benchcard__checks {
+  margin: 0;
+  font-size: var(--fs-13);
+  line-height: var(--lh-body);
+  max-width: var(--measure);
+  color: var(--text);
+}
+
+.fd-benchcard__facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2) var(--s-5);
+  margin: 0;
+}
+
+.fd-benchcard__facts dt {
+  font-size: var(--fs-11);
+  font-weight: var(--fw-bold);
+  line-height: var(--lh-ui);
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--ink-45);
+}
+
+.fd-benchcard__facts dd {
+  margin: var(--s-1) 0 0;
+  font-size: var(--fs-13);
+  line-height: var(--lh-ui);
+  color: var(--ink-85);
+  font-variant-numeric: tabular-nums;
+}
+
+.fd-benchcard__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+  margin: 0;
+}
+
+.fd-benchcard__chips:empty {
+  display: none;
+}
+
+/* Above the card's stretched link, so an inner chip keeps its own destination. */
+.fd-benchcard__chips a {
+  position: relative;
+  z-index: 1;
+}
+
+.fd-benchcard__links {
+  margin: 0;
+}
+
+.fd-benchcard__link {
+  font-size: var(--fs-13);
+  font-weight: var(--fw-semibold);
+  line-height: var(--lh-ui);
+  color: var(--brand-ink);
+  text-decoration: none;
+}
+
+.fd-benchcard__link:hover {
+  text-decoration: underline;
+}
+
+.fd-benchcard__link::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: var(--r-card);
+}
+
+.fd-benchcard__link:focus-visible {
+  outline: none;
+}
+
+/* The filmstrip: captured frames sampled from the run's surviving evidence.
+   One anchor — pointer-move scrubs the preview, click opens the full replay. */
+.fd-benchcard__filmstrip {
+  position: relative;
+  z-index: 1;
+  display: block;
+  border-radius: var(--r-control);
+  overflow: hidden;
+  border: 1px solid var(--line);
+  background: var(--fill-1);
+}
+
+.fd-benchcard__filmstrip:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring-color);
+  outline-offset: 1px;
+}
+
+.fd-benchcard__stripview {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: contain;
+  background: var(--fill-2);
+}
+
+.fd-benchcard__stripframes {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+}
+
+.fd-benchcard__stripframes img {
+  display: block;
+  flex: 1 1 0;
+  min-width: 0;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  opacity: 0.55;
+  border-radius: 2px;
+}
+
+.fd-benchcard__stripframes img.is-active {
+  opacity: 1;
+  outline: 1px solid var(--ink-45);
+}
+
+.fd-benchcard__sandbox {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+}

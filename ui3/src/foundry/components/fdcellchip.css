@@ -1,0 +1,30 @@
+/* The market-cell chip: this program's own reading of the game, so it follows
+   the provenance-pill convention — dashed means machine-made, and the word is
+   always present, never colour alone. The full reading (date, rationale,
+   confidence) rides the chip's title/aria-label. */
+.fd-cellchip {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 9px;
+  border-radius: var(--r-pill);
+  font-size: var(--fs-11);
+  font-weight: var(--fw-semibold);
+  letter-spacing: 0.02em;
+  line-height: var(--lh-ui);
+  white-space: nowrap;
+  background: transparent;
+  border: 1px dashed var(--line);
+  color: var(--ink-45);
+}
+
+/* On the board the chip links to the full reading on the ask's page — still a
+   chip, but visibly interactive on hover and keyboard focus. */
+.fd-cellchip--link {
+  text-decoration: none;
+  color: var(--ink-45);
+}
+
+.fd-cellchip--link:hover,
+.fd-cellchip--link:focus-visible {
+  text-decoration: underline;
+}

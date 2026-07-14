@@ -2,8 +2,8 @@ use axum::extract::{Query, State};
 use axum::Json;
 use serde::Serialize;
 
-use crate::http::response::ApiError;
-use crate::ports::items::{parse_filters, Item};
+use crate::http::response::{ApiError, DataTotal};
+use crate::ports::items::{parse_catalog_items_params, parse_filters, CreditCatalogItem, Item};
 use crate::AppState;
 
 #[derive(Debug, Serialize)]
@@ -21,4 +21,18 @@ pub async fn get_items(
     let filters = parse_filters(&pairs)?;
     let (data, total) = state.items.get_items(&filters).await?;
     Ok(Json(ItemsResponseBody { data, total }))
+}
+
+pub async fn get_catalog_items(
+    State(state): State<AppState>,
+    Query(pairs): Query<Vec<(String, String)>>,
+) -> Result<Json<DataTotal<CreditCatalogItem>>, ApiError> {
+    let filters = parse_filters(&pairs)?;
+    let catalog = parse_catalog_items_params(&pairs);
+    let rate = state.mana_usd_rate.get_rate();
+    let (data, total) = state
+        .items
+        .get_catalog_items(&filters, &catalog, rate)
+        .await?;
+    Ok(Json(DataTotal { data, total }))
 }

@@ -45,13 +45,19 @@ pub struct Config {
 
     pub usage_grants_database_url: Option<String>,
 
-    pub progress_presence_database_url: Option<String>,
-
     pub escrow_lock_days: i32,
 
     pub mock_fulfillment: bool,
 
     pub mock_card: bool,
+
+    pub credits_signer_key: Option<String>,
+
+    pub credits_manager_contract: Option<String>,
+
+    pub checkout_success_url: String,
+
+    pub checkout_cancel_url: String,
 }
 
 const DEFAULT_CREDITS_CURRENCY: &str = "usd";
@@ -125,12 +131,17 @@ impl Config {
             usage_grants_database_url: env::var("USAGE_GRANTS_PG_CONNECTION_STRING")
                 .ok()
                 .filter(|s| !s.is_empty()),
-            progress_presence_database_url: env::var("PROGRESS_PRESENCE_PG_CONNECTION_STRING")
-                .ok()
-                .filter(|s| !s.is_empty()),
             escrow_lock_days: get_i32("ESCROW_LOCK_DAYS", DEFAULT_ESCROW_LOCK_DAYS)?,
             mock_fulfillment: get_bool("CREDITS_MOCK_FULFILLMENT", false)?,
             mock_card: get_bool("CREDITS_MOCK_CARD", false)?,
+            credits_signer_key: env::var("CREDITS_SIGNER_PRIVATE_KEY")
+                .ok()
+                .filter(|s| !s.is_empty()),
+            credits_manager_contract: env::var("CREDITS_MANAGER_CONTRACT")
+                .ok()
+                .filter(|s| !s.is_empty()),
+            checkout_success_url: env_or("CREDITS_CHECKOUT_SUCCESS_URL", ""),
+            checkout_cancel_url: env_or("CREDITS_CHECKOUT_CANCEL_URL", ""),
         };
         guard_admin_exposure(
             &cfg.http_host,

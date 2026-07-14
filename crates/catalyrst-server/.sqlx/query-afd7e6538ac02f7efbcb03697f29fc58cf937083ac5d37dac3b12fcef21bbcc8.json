@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM active_pointers WHERE pointer = ANY($1)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "TextArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "afd7e6538ac02f7efbcb03697f29fc58cf937083ac5d37dac3b12fcef21bbcc8"
+}

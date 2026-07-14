@@ -1,0 +1,12 @@
+.fd-return-form {
+  display: flex;
+  gap: var(--s-2);
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.fd-return-form__input {
+  font-family: var(--font-mono);
+  letter-spacing: 0.06em;
+  max-width: 28ch;
+}

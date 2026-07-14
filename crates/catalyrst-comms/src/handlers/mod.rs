@@ -1,6 +1,8 @@
 pub mod deferred;
 pub mod messaging;
 pub mod ping;
+pub mod reports;
+pub mod responses;
 pub mod scene_adapter;
 pub mod scene_admin;
 pub mod scene_bans;

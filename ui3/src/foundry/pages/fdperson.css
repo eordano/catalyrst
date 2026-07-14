@@ -1,0 +1,18 @@
+/* One person's page — their words lead, the record follows. */
+.fd-person__words {
+  margin: 0;
+  max-width: var(--measure-narrow);
+  line-height: var(--lh-snug);
+  font-size: var(--fs-18, 1.125rem);
+}
+
+.fd-person__list,
+.fd-person__acts {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: var(--s-2);
+  max-width: var(--measure);
+  line-height: var(--lh-ui);
+}

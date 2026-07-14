@@ -1,6 +1,6 @@
 use chrono::NaiveDateTime;
-use sqlx::postgres::{PgPool, PgPoolOptions};
-use sqlx::Row;
+use sqlx::postgres::PgPool;
+use sqlx::{QueryBuilder, Row};
 use uuid::Uuid;
 
 use crate::proto::{ProtocolMessage, Quest, QuestDefinition};
@@ -19,12 +19,39 @@ pub struct StoredQuest {
     pub created_at: i64,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct QuestInstance {
     pub id: String,
     pub quest_id: String,
     pub user_address: String,
     pub start_timestamp: i64,
+}
+
+#[derive(Debug, Clone)]
+pub struct CreateRewardHook {
+    pub webhook_url: String,
+    pub request_body: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone)]
+pub struct CreateRewardItem {
+    pub name: String,
+    pub image_link: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct CreateReward {
+    pub hook: CreateRewardHook,
+    pub items: Vec<CreateRewardItem>,
+}
+
+#[derive(Debug, Clone)]
+pub struct CreateQuest {
+    pub name: String,
+    pub description: String,
+    pub image_url: String,
+    pub definition: Vec<u8>,
+    pub reward: Option<CreateReward>,
 }
 
 #[derive(Debug, Clone)]
@@ -78,7 +105,21 @@ pub struct Db {
 
 impl Db {
     pub async fn connect(url: &str) -> anyhow::Result<Self> {
-        let pool = PgPoolOptions::new().max_connections(5).connect(url).await?;
+        let pool = catalyrst_db::connect_pool(
+            url,
+            &catalyrst_db::PoolSettings {
+                max_connections: 5,
+                idle_timeout_secs: 600,
+                ..catalyrst_db::PoolSettings::default()
+            },
+        )
+        .await?;
+        let db = Self { pool };
+        db.ensure_schema().await?;
+        Ok(db)
+    }
+
+    pub async fn from_pool(pool: PgPool) -> anyhow::Result<Self> {
         let db = Self { pool };
         db.ensure_schema().await?;
         Ok(db)
@@ -414,5 +455,244 @@ impl Db {
             webhook_url: row.get("webhook_url"),
             request_body: row.try_get("request_body").ok(),
         })
+    }
+
+    async fn insert_quest_row<'e, E>(exec: E, quest: &CreateQuest, creator: &str) -> DbResult<Uuid>
+    where
+        E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+    {
+        let id = Uuid::new_v4();
+        sqlx::query(
+            "INSERT INTO quests (id, name, description, definition, creator_address, image_url) \
+             VALUES ($1, $2, $3, $4, $5, $6)",
+        )
+        .bind(id)
+        .bind(&quest.name)
+        .bind(&quest.description)
+        .bind(&quest.definition)
+        .bind(creator)
+        .bind(&quest.image_url)
+        .execute(exec)
+        .await?;
+        Ok(id)
+    }
+
+    async fn insert_reward_hook<'e, E>(
+        exec: E,
+        quest_id: Uuid,
+        hook: &CreateRewardHook,
+    ) -> DbResult<()>
+    where
+        E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+    {
+        sqlx::query(
+            "INSERT INTO quest_reward_hooks (quest_id, webhook_url, request_body) \
+             VALUES ($1, $2, $3)",
+        )
+        .bind(quest_id)
+        .bind(&hook.webhook_url)
+        .bind(sqlx::types::Json(&hook.request_body))
+        .execute(exec)
+        .await?;
+        Ok(())
+    }
+
+    async fn insert_reward_items<'e, E>(
+        exec: E,
+        quest_id: Uuid,
+        items: &[CreateRewardItem],
+    ) -> DbResult<()>
+    where
+        E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+    {
+        let mut builder = QueryBuilder::new(
+            "INSERT INTO quest_reward_items (quest_id, reward_name, reward_image)",
+        );
+        builder.push_values(items, |mut b, item| {
+            b.push_bind(quest_id)
+                .push_bind(&item.name)
+                .push_bind(&item.image_link);
+        });
+        builder.build().execute(exec).await?;
+        Ok(())
+    }
+
+    pub async fn create_quest(&self, quest: &CreateQuest, creator: &str) -> DbResult<String> {
+        let mut tx = self.pool.begin().await?;
+        let quest_id = Self::insert_quest_row(&mut *tx, quest, creator).await?;
+        if let Some(reward) = &quest.reward {
+            Self::insert_reward_hook(&mut *tx, quest_id, &reward.hook).await?;
+            Self::insert_reward_items(&mut *tx, quest_id, &reward.items).await?;
+        }
+        tx.commit().await?;
+        Ok(quest_id.to_string())
+    }
+
+    pub async fn update_quest(
+        &self,
+        previous_quest_id: &str,
+        quest: &CreateQuest,
+        creator: &str,
+    ) -> DbResult<String> {
+        let previous = parse_uuid(previous_quest_id)?;
+        let mut tx = self.pool.begin().await?;
+        let quest_id = Self::insert_quest_row(&mut *tx, quest, creator).await?;
+        let deactivation_id = Uuid::new_v4();
+        sqlx::query("INSERT INTO deactivated_quests (id, quest_id) VALUES ($1, $2)")
+            .bind(deactivation_id)
+            .bind(previous)
+            .execute(&mut *tx)
+            .await?;
+        if let Some(reward) = &quest.reward {
+            Self::insert_reward_hook(&mut *tx, quest_id, &reward.hook).await?;
+            Self::insert_reward_items(&mut *tx, quest_id, &reward.items).await?;
+        }
+        let update_id = Uuid::new_v4();
+        sqlx::query(
+            "INSERT INTO quest_updates (id, quest_id, previous_quest_id) VALUES ($1, $2, $3)",
+        )
+        .bind(update_id)
+        .bind(quest_id)
+        .bind(previous)
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(quest_id.to_string())
+    }
+
+    pub async fn deactivate_quest(&self, quest_id: &str) -> DbResult<String> {
+        let quest_uuid = parse_uuid(quest_id)?;
+        let id = Uuid::new_v4();
+        sqlx::query("INSERT INTO deactivated_quests (id, quest_id) VALUES ($1, $2)")
+            .bind(id)
+            .bind(quest_uuid)
+            .execute(&self.pool)
+            .await?;
+        Ok(id.to_string())
+    }
+
+    pub async fn can_activate_quest(&self, quest_id: &str) -> DbResult<bool> {
+        let uuid = parse_uuid(quest_id)?;
+        Ok(sqlx::query_scalar(
+            "SELECT EXISTS (SELECT 1 FROM deactivated_quests \
+             WHERE quest_id = $1 AND quest_id NOT IN \
+             (SELECT previous_quest_id FROM quest_updates WHERE previous_quest_id = $1))",
+        )
+        .bind(uuid)
+        .fetch_one(&self.pool)
+        .await?)
+    }
+
+    pub async fn activate_quest(&self, quest_id: &str) -> DbResult<bool> {
+        let uuid = parse_uuid(quest_id)?;
+        let result = sqlx::query("DELETE FROM deactivated_quests WHERE quest_id = $1")
+            .bind(uuid)
+            .execute(&self.pool)
+            .await?;
+        Ok(result.rows_affected() != 0)
+    }
+
+    pub async fn is_updatable(&self, quest_id: &str) -> DbResult<bool> {
+        let uuid = parse_uuid(quest_id)?;
+        let already_updated: bool = sqlx::query_scalar(
+            "SELECT EXISTS (SELECT 1 FROM quest_updates WHERE previous_quest_id = $1)",
+        )
+        .bind(uuid)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(!already_updated)
+    }
+
+    pub async fn get_old_quest_versions(&self, quest_id: &str) -> DbResult<Vec<String>> {
+        let rows = sqlx::query(
+            "SELECT quest_id, previous_quest_id FROM quest_updates ORDER BY created_at DESC",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        let mut versions = Vec::new();
+        let mut cursor = quest_id.to_string();
+        for row in &rows {
+            let quest: Uuid = row.try_get("quest_id")?;
+            let previous: Uuid = row.try_get("previous_quest_id")?;
+            if quest.to_string() == cursor {
+                versions.push(previous.to_string());
+                cursor = previous.to_string();
+            }
+        }
+        Ok(versions)
+    }
+
+    pub async fn get_all_quest_instances_by_quest_id(
+        &self,
+        quest_id: &str,
+    ) -> DbResult<(Vec<QuestInstance>, Vec<QuestInstance>)> {
+        let uuid = parse_uuid(quest_id)?;
+        let rows = sqlx::query(
+            "SELECT *, true AS active FROM quest_instances \
+             WHERE quest_id = $1 \
+             AND id NOT IN (SELECT quest_instance_id AS id FROM abandoned_quest_instances) \
+             UNION \
+             SELECT *, false AS active FROM quest_instances \
+             WHERE quest_id = $1 \
+             AND id IN (SELECT quest_instance_id AS id FROM abandoned_quest_instances)",
+        )
+        .bind(uuid)
+        .fetch_all(&self.pool)
+        .await?;
+        let mut actives = Vec::new();
+        let mut abandoned = Vec::new();
+        for row in &rows {
+            let active: bool = row.try_get("active")?;
+            let instance = Self::row_to_instance(row)?;
+            if active {
+                actives.push(instance);
+            } else {
+                abandoned.push(instance);
+            }
+        }
+        Ok((actives, abandoned))
+    }
+
+    pub async fn is_completed_instance(&self, instance_id: &str) -> DbResult<bool> {
+        let uuid = parse_uuid(instance_id)?;
+        Ok(sqlx::query_scalar(
+            "SELECT EXISTS (SELECT 1 FROM completed_quest_instances WHERE quest_instance_id = $1)",
+        )
+        .bind(uuid)
+        .fetch_one(&self.pool)
+        .await?)
+    }
+
+    pub async fn remove_event(&self, event_id: &str) -> DbResult<()> {
+        let uuid = parse_uuid(event_id)?;
+        let result = sqlx::query("DELETE FROM events WHERE id = $1")
+            .bind(uuid)
+            .execute(&self.pool)
+            .await?;
+        if result.rows_affected() == 0 {
+            return Err(DbError::NotFound);
+        }
+        Ok(())
+    }
+
+    pub async fn remove_events_from_quest_instance(&self, instance_id: &str) -> DbResult<()> {
+        let uuid = parse_uuid(instance_id)?;
+        sqlx::query("DELETE FROM events WHERE quest_instance_id = $1")
+            .bind(uuid)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn remove_instance_from_completed_instances(
+        &self,
+        instance_id: &str,
+    ) -> DbResult<()> {
+        let uuid = parse_uuid(instance_id)?;
+        sqlx::query("DELETE FROM completed_quest_instances WHERE quest_instance_id = $1")
+            .bind(uuid)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
     }
 }

@@ -1,0 +1,82 @@
+[
+  {
+    "sceneId": "flagtag",
+    "job": "E",
+    "rationale": "Perpetual 5-min rounds re-seat whoever stays against the same people; losing a round never ejects — the next round just rolls.",
+    "confidence": "evidence-backed",
+    "readAt": "2026-08-16",
+    "basis": "This program's own reading of the game's observable design (deployment-entity descriptions, measured bot manifests, sandbox sims) against the strategy deck's six emotional jobs — not a fact the deployment entity carries."
+  },
+  {
+    "sceneId": "flagtag",
+    "job": "F",
+    "rationale": "The entity's own 'five minute rounds running 24/7' means a round is always on; no calendar, invitations or off-session continuity.",
+    "confidence": "inferred",
+    "readAt": "2026-08-16",
+    "basis": "This program's own reading of the game's observable design (deployment-entity descriptions, measured bot manifests, sandbox sims) against the strategy deck's six emotional jobs — not a fact the deployment entity carries."
+  },
+  {
+    "sceneId": "slaythesteps",
+    "job": "E",
+    "rationale": "Turn-based contest with a vote ballot and first-class spectators (requestSpectateGame); a lost vote leaves you in the room, not out.",
+    "confidence": "inferred",
+    "readAt": "2026-08-16",
+    "basis": "This program's own reading of the game's observable design (deployment-entity descriptions, measured bot manifests, sandbox sims) against the strategy deck's six emotional jobs — not a fact the deployment entity carries."
+  },
+  {
+    "sceneId": "slaythesteps",
+    "job": "D",
+    "rationale": "Wardrobe avatars and runway turns are click-assumable try-another-look play; no consent or moderation tooling observed.",
+    "confidence": "inferred",
+    "readAt": "2026-08-16",
+    "basis": "This program's own reading of the game's observable design (deployment-entity descriptions, measured bot manifests, sandbox sims) against the strategy deck's six emotional jobs — not a fact the deployment entity carries."
+  },
+  {
+    "sceneId": "skychaser",
+    "job": "E",
+    "rationale": "leaderboardWeekly gives standing recognition and a reason to return and re-compete; rivals are leaderboard names, not a re-seated roster.",
+    "confidence": "inferred",
+    "readAt": "2026-08-16",
+    "basis": "This program's own reading of the game's observable design (deployment-entity descriptions, measured bot manifests, sandbox sims) against the strategy deck's six emotional jobs — not a fact the deployment entity carries."
+  },
+  {
+    "sceneId": "fastlane",
+    "job": "E",
+    "rationale": "LanePhase turn order seats a small group against each other at one lane; a lost frame never ejects — the session is the rivalry.",
+    "confidence": "inferred",
+    "readAt": "2026-08-16",
+    "basis": "This program's own reading of the game's observable design (deployment-entity descriptions, measured bot manifests, sandbox sims) against the strategy deck's six emotional jobs — not a fact the deployment entity carries."
+  },
+  {
+    "sceneId": "alienscrapyard",
+    "job": "C",
+    "rationale": "Every placed piece visibly changes the one shared structure as others build alongside; preset slots and RESET wipe it each round.",
+    "confidence": "evidence-backed",
+    "readAt": "2026-08-16",
+    "basis": "This program's own reading of the game's observable design (deployment-entity descriptions, measured bot manifests, sandbox sims) against the strategy deck's six emotional jobs — not a fact the deployment entity carries."
+  },
+  {
+    "sceneId": "cleantheclub",
+    "job": null,
+    "rationale": "Co-op cleans are server-credited, but no persistence, roles, schedule or recognition surface is observed — no job's machinery present.",
+    "confidence": "evidence-backed",
+    "readAt": "2026-08-16",
+    "basis": "This program's own reading of the game's observable design (deployment-entity descriptions, measured bot manifests, sandbox sims) against the strategy deck's six emotional jobs — not a fact the deployment entity carries."
+  },
+  {
+    "sceneId": "fortunes",
+    "job": "D",
+    "rationale": "The seat is literally labelled 'Become The Fortune Teller' — a click-assumed persona role (teller/guest); no safety tooling observed.",
+    "confidence": "evidence-backed",
+    "readAt": "2026-08-16",
+    "basis": "This program's own reading of the game's observable design (deployment-entity descriptions, measured bot manifests, sandbox sims) against the strategy deck's six emotional jobs — not a fact the deployment entity carries."
+  },
+  {
+    "sceneId": "template-game",
+    "job": null,
+    "rationale": "Five solo click-loop templates — no persistence, no group, no roles, no schedule; no emotional job's observable machinery exists here.",
+    "confidence": "evidence-backed",
+    "readAt": "2026-08-16",
+    "basis": "This program's own reading of the game's observable design (deployment-entity descriptions, measured bot manifests, sandbox sims) against the strategy deck's six emotional jobs — not a fact the deployment entity carries."
+  }
+]

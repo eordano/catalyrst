@@ -9,7 +9,8 @@ use crate::auth_chain::require_signer;
 use crate::http::ApiError;
 use crate::ports::email::{self, CODE_LEN};
 use crate::ports::{
-    normalize_details, validate_subscription_details, SetEmailOutcome, Subscription,
+    normalize_details, validate_subscription_details, CommunityOptOutStatus, OptOutResponse,
+    SetEmailOutcome, Subscription,
 };
 use crate::AppState;
 
@@ -19,12 +20,16 @@ pub async fn get_subscription(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> Result<Json<Subscription>, ApiError> {
-    let signer = require_signer(&headers, "get", "/subscription")?;
+    let signer = require_signer(&headers, "get", "/subscription").await?;
 
-    let sub = match state.notifications.get_subscription(&signer).await? {
+    let sub = match state
+        .notifications
+        .get_subscription(signer.as_str())
+        .await?
+    {
         Some(sub) => sub,
         None => Subscription {
-            address: signer,
+            address: signer.as_str().to_string(),
             email: None,
             unconfirmed_email: None,
             details: normalize_details(&serde_json::json!({})),
@@ -38,13 +43,13 @@ pub async fn put_subscription(
     headers: HeaderMap,
     Json(details): Json<JsonValue>,
 ) -> Result<Json<Subscription>, ApiError> {
-    let signer = require_signer(&headers, "put", "/subscription")?;
+    let signer = require_signer(&headers, "put", "/subscription").await?;
 
     validate_subscription_details(&details).map_err(ApiError::bad_request)?;
 
     let sub = state
         .notifications
-        .put_subscription_details(&signer, &details)
+        .put_subscription_details(signer.as_str(), &details)
         .await?;
     Ok(Json(sub))
 }
@@ -61,7 +66,7 @@ pub async fn put_set_email(
     headers: HeaderMap,
     Json(body): Json<SetEmailBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let signer = require_signer(&headers, "put", "/set-email")?;
+    let signer = require_signer(&headers, "put", "/set-email").await?;
 
     let email = body.email.trim();
 
@@ -76,7 +81,7 @@ pub async fn put_set_email(
 
     match state
         .notifications
-        .set_email(&signer, email, body.is_credits_workflow)
+        .set_email(signer.as_str(), email, body.is_credits_workflow)
         .await?
     {
         SetEmailOutcome::NoEmailSent => {}
@@ -84,7 +89,7 @@ pub async fn put_set_email(
             state
                 .notifications
                 .email
-                .send_confirmation(source, email, &signer, &code)
+                .send_confirmation(source, email, signer.as_str(), &code)
                 .await?;
         }
     }
@@ -139,19 +144,19 @@ pub async fn get_community_opt_out(
     State(state): State<AppState>,
     headers: HeaderMap,
     Path(community_id): Path<String>,
-) -> Result<Json<JsonValue>, ApiError> {
+) -> Result<Json<CommunityOptOutStatus>, ApiError> {
     let path = format!("/subscription/opt-outs/community/{}", community_id);
-    let signer = require_signer(&headers, "get", &path)?;
+    let signer = require_signer(&headers, "get", &path).await?;
 
     let opted_out = state
         .notifications
-        .is_opted_out(&signer, SCOPE_COMMUNITY, &community_id)
+        .is_opted_out(signer.as_str(), SCOPE_COMMUNITY, &community_id)
         .await?;
-    Ok(Json(serde_json::json!({
-        "scope": SCOPE_COMMUNITY,
-        "scopeId": community_id,
-        "optedOut": opted_out,
-    })))
+    Ok(Json(CommunityOptOutStatus {
+        scope: SCOPE_COMMUNITY.to_string(),
+        scope_id: community_id,
+        opted_out,
+    }))
 }
 
 pub async fn delete_community_opt_out(
@@ -160,11 +165,11 @@ pub async fn delete_community_opt_out(
     Path(community_id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
     let path = format!("/subscription/opt-outs/community/{}", community_id);
-    let signer = require_signer(&headers, "delete", &path)?;
+    let signer = require_signer(&headers, "delete", &path).await?;
 
     state
         .notifications
-        .delete_opt_out(&signer, SCOPE_COMMUNITY, &community_id)
+        .delete_opt_out(signer.as_str(), SCOPE_COMMUNITY, &community_id)
         .await?;
     Ok(StatusCode::NO_CONTENT)
 }
@@ -181,7 +186,7 @@ pub async fn post_opt_out(
     headers: HeaderMap,
     Json(body): Json<OptOutBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let signer = require_signer(&headers, "post", "/subscription/opt-outs")?;
+    let signer = require_signer(&headers, "post", "/subscription/opt-outs").await?;
 
     if body.scope != SCOPE_COMMUNITY {
         return Err(ApiError::bad_request("unsupported opt-out scope"));
@@ -192,7 +197,7 @@ pub async fn post_opt_out(
 
     state
         .notifications
-        .create_opt_out(&signer, &body.scope, &body.scope_id)
+        .create_opt_out(signer.as_str(), &body.scope, &body.scope_id)
         .await?;
-    Ok((StatusCode::CREATED, Json(serde_json::json!({ "ok": true }))))
+    Ok((StatusCode::CREATED, Json(OptOutResponse { ok: true })))
 }

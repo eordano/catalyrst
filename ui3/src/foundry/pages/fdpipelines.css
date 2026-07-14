@@ -1,0 +1,7 @@
+.fd-pipelines .fd-table td {
+  white-space: nowrap;
+}
+
+.fd-pipelines .fd-table td.fd-table__prose {
+  white-space: normal;
+}

@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT pg_notify('new_deployment', 'scene:' || $1)",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "pg_notify",
+        "type_info": "Void",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "ac86572539d644fc422fc8767cc3d6b85f90483575209decb9bed1c6901c9a4f"
+}

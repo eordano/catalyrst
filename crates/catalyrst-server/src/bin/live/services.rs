@@ -10,10 +10,8 @@ impl Deployer for ReadOnlyDeployer {
         _entity_id: &str,
         _auth_chain: Value,
         _context: &str,
-    ) -> Result<i64, Vec<String>> {
-        Err(vec![
-            "Live server is read-only; deployments are not supported".to_string(),
-        ])
+    ) -> Result<i64, DeployFailure> {
+        Err(vec!["Live server is read-only; deployments are not supported".to_string()].into())
     }
 }
 
@@ -80,13 +78,13 @@ impl ChallengeSupervisor for UuidChallengeSupervisor {
 }
 
 pub(crate) struct LiveSynchronizationState {
-    sync_state: Option<Arc<tokio::sync::RwLock<catalyrst_sync::SyncState>>>,
+    sync_state: Option<Arc<tokio::sync::RwLock<catalyrst_server::sync::SyncState>>>,
 
     paused: std::sync::atomic::AtomicBool,
 
-    control: Option<catalyrst_sync::sync_orchestrator::SyncControlHandle>,
+    control: Option<catalyrst_server::sync::sync_orchestrator::SyncControlHandle>,
 
-    gauges: Option<catalyrst_server::sync_backends::SyncGauges>,
+    gauges: Option<catalyrst_server::sync::SyncGauges>,
 }
 
 impl LiveSynchronizationState {
@@ -100,9 +98,9 @@ impl LiveSynchronizationState {
     }
 
     pub(crate) fn with_sync_state(
-        sync_state: Arc<tokio::sync::RwLock<catalyrst_sync::SyncState>>,
-        control: Option<catalyrst_sync::sync_orchestrator::SyncControlHandle>,
-        gauges: catalyrst_server::sync_backends::SyncGauges,
+        sync_state: Arc<tokio::sync::RwLock<catalyrst_server::sync::SyncState>>,
+        control: Option<catalyrst_server::sync::sync_orchestrator::SyncControlHandle>,
+        gauges: catalyrst_server::sync::SyncGauges,
     ) -> Self {
         Self {
             sync_state: Some(sync_state),
@@ -112,7 +110,7 @@ impl LiveSynchronizationState {
         }
     }
 
-    fn read_state(&self) -> Option<catalyrst_sync::SyncState> {
+    fn read_state(&self) -> Option<catalyrst_server::sync::SyncState> {
         let handle = self.sync_state.as_ref()?;
         Some(handle.try_read().ok()?.clone())
     }
@@ -122,33 +120,35 @@ impl SynchronizationState for LiveSynchronizationState {
     fn get_state(&self) -> String {
         match self.read_state() {
             None => "Syncing".to_string(),
-            Some(catalyrst_sync::SyncState::Bootstrapping) => "Bootstrapping".to_string(),
-            Some(catalyrst_sync::SyncState::PartiallySynced { .. }) => "Syncing".to_string(),
-            Some(catalyrst_sync::SyncState::Syncing) => "Syncing".to_string(),
+            Some(catalyrst_server::sync::SyncState::Bootstrapping) => "Bootstrapping".to_string(),
+            Some(catalyrst_server::sync::SyncState::PartiallySynced { .. }) => {
+                "Syncing".to_string()
+            }
+            Some(catalyrst_server::sync::SyncState::Syncing) => "Syncing".to_string(),
         }
     }
 
     fn is_type_ready(&self, entity_type: &str) -> bool {
         match self.read_state() {
             None => true,
-            Some(catalyrst_sync::SyncState::Syncing) => true,
-            Some(catalyrst_sync::SyncState::PartiallySynced { ready_types }) => {
+            Some(catalyrst_server::sync::SyncState::Syncing) => true,
+            Some(catalyrst_server::sync::SyncState::PartiallySynced { ready_types }) => {
                 ready_types.contains(entity_type)
             }
-            Some(catalyrst_sync::SyncState::Bootstrapping) => false,
+            Some(catalyrst_server::sync::SyncState::Bootstrapping) => false,
         }
     }
 
     fn ready_types(&self) -> Option<Vec<String>> {
         match self.read_state() {
             None => None,
-            Some(catalyrst_sync::SyncState::Syncing) => None,
-            Some(catalyrst_sync::SyncState::PartiallySynced { ready_types }) => {
+            Some(catalyrst_server::sync::SyncState::Syncing) => None,
+            Some(catalyrst_server::sync::SyncState::PartiallySynced { ready_types }) => {
                 let mut types: Vec<String> = ready_types.iter().cloned().collect();
                 types.sort();
                 Some(types)
             }
-            Some(catalyrst_sync::SyncState::Bootstrapping) => Some(vec![]),
+            Some(catalyrst_server::sync::SyncState::Bootstrapping) => Some(vec![]),
         }
     }
 
@@ -211,12 +211,11 @@ impl SynchronizationState for LiveSynchronizationState {
 }
 
 pub(crate) struct LiveSnapshotGenerator {
-    snapshots: Arc<RwLock<Option<Value>>>,
+    snapshots: Arc<RwLock<Option<Vec<SnapshotMetadata>>>>,
 }
 
 impl LiveSnapshotGenerator {
     pub(crate) async fn load(pool: &PgPool) -> Self {
-        #[derive(sqlx::FromRow)]
         struct SnapRow {
             hash: Option<String>,
             init_ts_ms: f64,
@@ -226,17 +225,18 @@ impl LiveSnapshotGenerator {
             gen_ts_ms: f64,
         }
 
-        let rows = sqlx::query_as::<_, SnapRow>(
+        let rows = sqlx::query_as!(
+            SnapRow,
             r#"
             SELECT hash,
-                   (EXTRACT(EPOCH FROM init_timestamp) * 1000)::float8 AS init_ts_ms,
-                   (EXTRACT(EPOCH FROM end_timestamp) * 1000)::float8 AS end_ts_ms,
+                   (EXTRACT(EPOCH FROM init_timestamp) * 1000)::float8 AS "init_ts_ms!",
+                   (EXTRACT(EPOCH FROM end_timestamp) * 1000)::float8 AS "end_ts_ms!",
                    number_of_entities,
                    replaced_hashes,
-                   (EXTRACT(EPOCH FROM generation_time) * 1000)::float8 AS gen_ts_ms
+                   (EXTRACT(EPOCH FROM generation_time) * 1000)::float8 AS "gen_ts_ms!"
             FROM snapshots
             ORDER BY end_timestamp DESC
-            "#,
+            "#
         )
         .fetch_all(pool)
         .await;
@@ -258,56 +258,51 @@ impl LiveSnapshotGenerator {
             };
         }
 
-        let arr: Vec<Value> = rows
+        let arr: Vec<SnapshotMetadata> = rows
             .iter()
-            .map(|r| {
-                serde_json::json!({
-                    "hash": r.hash,
-                    "timeRange": {
-                        "initTimestamp": r.init_ts_ms as i64,
-                        "endTimestamp": r.end_ts_ms as i64,
-                    },
-                    "replacedSnapshotHashes": r.replaced_hashes,
-                    "numberOfEntities": r.number_of_entities,
-                    "generationTimestamp": r.gen_ts_ms as i64,
-                })
+            .map(|r| SnapshotMetadata {
+                hash: r.hash.clone().unwrap_or_default(),
+                time_range: TimeRange {
+                    init_timestamp: r.init_ts_ms as i64,
+                    end_timestamp: r.end_ts_ms as i64,
+                },
+                number_of_entities: r.number_of_entities as u64,
+                replaced_snapshot_hashes: Some(r.replaced_hashes.clone()),
+                generation_timestamp: r.gen_ts_ms as i64,
             })
             .collect();
 
         tracing::info!(count = arr.len(), "Snapshots loaded into memory");
         Self {
-            snapshots: Arc::new(RwLock::new(Some(Value::Array(arr)))),
+            snapshots: Arc::new(RwLock::new(Some(arr))),
         }
     }
 
-    pub(crate) fn snapshots_handle(&self) -> Arc<RwLock<Option<Value>>> {
+    pub(crate) fn snapshots_handle(&self) -> Arc<RwLock<Option<Vec<SnapshotMetadata>>>> {
         self.snapshots.clone()
     }
 }
 
-pub(crate) fn snapshots_metadata_to_json(
+pub(crate) fn snapshots_metadata_to_wire(
     snapshots: &[catalyrst_db::snapshots_repository::SnapshotMetadata],
-) -> Value {
-    let arr: Vec<Value> = snapshots
+) -> Vec<SnapshotMetadata> {
+    snapshots
         .iter()
-        .map(|s| {
-            json!({
-                "hash": s.hash,
-                "timeRange": {
-                    "initTimestamp": s.time_range.init_timestamp as i64,
-                    "endTimestamp": s.time_range.end_timestamp as i64,
-                },
-                "replacedSnapshotHashes": s.replaced_snapshot_hashes,
-                "numberOfEntities": s.number_of_entities,
-                "generationTimestamp": s.generation_timestamp as i64,
-            })
+        .map(|s| SnapshotMetadata {
+            hash: s.hash.clone().unwrap_or_default(),
+            time_range: TimeRange {
+                init_timestamp: s.time_range.init_timestamp as i64,
+                end_timestamp: s.time_range.end_timestamp as i64,
+            },
+            number_of_entities: s.number_of_entities as u64,
+            replaced_snapshot_hashes: Some(s.replaced_snapshot_hashes.clone()),
+            generation_timestamp: s.generation_timestamp as i64,
         })
-        .collect();
-    Value::Array(arr)
+        .collect()
 }
 
 impl SnapshotGenerator for LiveSnapshotGenerator {
-    fn get_current_snapshots(&self) -> Option<Value> {
+    fn get_current_snapshots(&self) -> Option<Vec<SnapshotMetadata>> {
         self.snapshots.try_read().ok()?.clone()
     }
 }

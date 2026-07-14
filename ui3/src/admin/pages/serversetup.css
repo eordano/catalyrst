@@ -1,0 +1,162 @@
+.srvsetup {
+  font-family: var(--font-sans, system-ui, sans-serif);
+  color: var(--text, #1a1a1a);
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 24px 20px 64px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.srvsetup-h1 {
+  font-size: 22px;
+  font-weight: 700;
+  margin: 0;
+}
+.srvsetup-sub {
+  font-size: 13px;
+  color: var(--ink-45, #6b7280);
+  margin: 4px 0 0;
+}
+.srvsetup-sub a {
+  color: inherit;
+}
+
+.srvsetup-columns {
+  display: grid;
+  grid-template-columns: minmax(320px, 5fr) minmax(320px, 6fr);
+  gap: 20px;
+  align-items: start;
+}
+@media (max-width: 900px) {
+  .srvsetup-columns {
+    grid-template-columns: 1fr;
+  }
+}
+
+.srvsetup-form,
+.srvsetup-result {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+.srvsetup-section {
+  border: 1px solid var(--line, #e5e7eb);
+  border-radius: var(--r-control, 12px);
+  background: var(--panel, #fff);
+  padding: 16px 18px;
+}
+.srvsetup-h2 {
+  font-size: 15px;
+  font-weight: 650;
+  margin: 0 0 12px;
+}
+.srvsetup-note {
+  font-size: 13px;
+  color: var(--warning, #b45309);
+  margin: 0 0 10px;
+}
+.srvsetup-mono {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 12px;
+}
+
+.srvsetup-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.srvsetup-card {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: 10px;
+  align-items: baseline;
+  border: 1px solid var(--line, #e5e7eb);
+  border-radius: 8px;
+  padding: 10px 12px;
+  cursor: pointer;
+}
+.srvsetup-card-on {
+  border-color: var(--accent, #2563eb);
+}
+.srvsetup-card-label {
+  font-weight: 600;
+  font-size: 14px;
+}
+.srvsetup-card-detail {
+  grid-column: 2;
+  font-size: 12px;
+  color: var(--ink-45, #6b7280);
+}
+
+.srvsetup-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 12px;
+}
+.srvsetup-field:last-child {
+  margin-bottom: 0;
+}
+.srvsetup-label {
+  font-size: 13px;
+  font-weight: 600;
+}
+.srvsetup-input {
+  padding: 6px 10px;
+  border: 1px solid var(--line, #e5e7eb);
+  border-radius: 6px;
+  background: var(--panel, #fff);
+  color: inherit;
+  font-size: 13px;
+  width: 100%;
+}
+.srvsetup-hint {
+  font-size: 12px;
+  color: var(--ink-45, #6b7280);
+}
+.srvsetup-error {
+  font-size: 12px;
+  color: var(--danger, #b91c1c);
+  font-weight: 600;
+}
+
+.srvsetup-toggle {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  font-size: 13px;
+  margin-top: 8px;
+  cursor: pointer;
+}
+
+.srvsetup-file {
+  margin-bottom: 12px;
+}
+.srvsetup-filepath {
+  margin: 0 0 4px;
+  font-weight: 600;
+}
+.srvsetup-pre {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line, #e5e7eb);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--ink-45, #6b7280) 6%, transparent);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 12px;
+  overflow-x: auto;
+  user-select: all;
+}
+
+.srvsetup-checklist {
+  margin: 0;
+  padding: 0 0 0 18px;
+  font-size: 13px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}

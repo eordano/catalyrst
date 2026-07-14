@@ -1,29 +1,16 @@
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::Json;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-#[derive(Serialize)]
-pub struct ResponseError {
-    pub message: String,
-}
-
-impl ResponseError {
-    pub fn new(message: impl Into<String>) -> Self {
-        Self {
-            message: message.into(),
-        }
-    }
-}
-
-#[derive(Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum ForbiddenReason {
     MaxLimitReached,
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ForbiddenError {
     pub reason: ForbiddenReason,
@@ -31,9 +18,23 @@ pub struct ForbiddenError {
 }
 
 impl ForbiddenError {
-    pub fn max_limit_reached(message: impl Into<String>) -> Self {
+    pub fn new(message: impl Into<String>) -> Self {
         Self {
             reason: ForbiddenReason::MaxLimitReached,
+            message: message.into(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResponseError {
+    pub message: String,
+}
+
+impl ResponseError {
+    pub fn new(message: impl Into<String>) -> Self {
+        Self {
             message: message.into(),
         }
     }
@@ -62,6 +63,9 @@ pub enum ApiError {
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         match self {
+            ApiError::MaxLimitReached(m) => {
+                (StatusCode::FORBIDDEN, Json(ForbiddenError::new(m))).into_response()
+            }
             ApiError::BadRequest(m) => {
                 (StatusCode::BAD_REQUEST, Json(ResponseError::new(m))).into_response()
             }
@@ -73,11 +77,6 @@ impl IntoResponse for ApiError {
             ApiError::Forbidden(m) => {
                 (StatusCode::FORBIDDEN, Json(ResponseError::new(m))).into_response()
             }
-            ApiError::MaxLimitReached(m) => (
-                StatusCode::FORBIDDEN,
-                Json(ForbiddenError::max_limit_reached(m)),
-            )
-                .into_response(),
             ApiError::NotFound(m) => {
                 (StatusCode::NOT_FOUND, Json(ResponseError::new(m))).into_response()
             }
@@ -98,5 +97,23 @@ impl IntoResponse for ApiError {
                     .into_response()
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[tokio::test]
+    async fn error_envelope_wire_shape() {
+        let resp = ApiError::MaxLimitReached("gallery is full".to_string()).into_response();
+        assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+        let bytes = axum::body::to_bytes(resp.into_body(), 1024).await.unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(
+            v,
+            json!({ "reason": "maxLimitReached", "message": "gallery is full" })
+        );
     }
 }

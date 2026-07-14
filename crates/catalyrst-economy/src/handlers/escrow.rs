@@ -79,7 +79,9 @@ pub async fn reclaim(
     )
     .await?;
 
-    Ok(Json(json!({ "ok": true, "txHash": tx_hash })))
+    Ok(Json(
+        json!({ "ok": true, "status": "sent", "txHash": tx_hash }),
+    ))
 }
 
 pub async fn release(
@@ -111,7 +113,9 @@ pub async fn release(
     )
     .await?;
 
-    Ok(Json(json!({ "ok": true, "txHash": tx_hash })))
+    Ok(Json(
+        json!({ "ok": true, "status": "sent", "txHash": tx_hash }),
+    ))
 }
 
 fn collection_hex(collection: Address) -> String {

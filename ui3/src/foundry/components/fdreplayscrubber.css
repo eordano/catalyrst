@@ -1,0 +1,36 @@
+.fd-scrub {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  padding: var(--s-3) var(--s-4);
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  background: var(--panel);
+}
+
+.fd-scrub__controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+  align-items: center;
+}
+
+.fd-scrub__pos {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: var(--fs-12);
+  line-height: var(--lh-ui);
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-6);
+}
+
+.fd-scrub__pos strong {
+  color: var(--text);
+}
+
+.fd-scrub__note {
+  margin: 0;
+  font-size: var(--fs-12);
+  line-height: var(--lh-body);
+  color: var(--ink-45);
+}

@@ -1,0 +1,294 @@
+/* A stale version read from a direct link must say so before the reader
+   invests: same warning hue as the copilot's stuck pill. */
+.fd-gdd__superseded {
+  margin: 0;
+  padding: var(--s-1-5) var(--s-3);
+  border-left: 3px solid var(--warning);
+  max-width: var(--measure);
+  line-height: var(--lh-ui);
+}
+
+/* One document per row: the fact chips need the width, and a design doc is
+   read in order, not browsed as tiles. */
+.fd-gdd__list {
+  display: grid;
+  gap: var(--s-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.fd-gddcard__facts {
+  margin: 0;
+}
+
+/* Chips and the source path sit above the card's stretched link, so their
+   hover glosses and text selection keep working. */
+.fd-gddcard__facts > *,
+.fd-gddcard .fd-markers > * {
+  position: relative;
+  z-index: 1;
+}
+
+.fd-gddcard__ref,
+.fd-gdd__ref {
+  overflow-wrap: anywhere;
+}
+
+.fd-gdd__publish {
+  max-width: var(--measure-narrow);
+}
+
+.fd-gdd__publish-input {
+  font-family: var(--font-mono);
+}
+
+/* The version rail: one pill-card per stored version, the current one
+   emphasized and non-link. */
+.fd-gdd__versionlist {
+  display: flex;
+  gap: var(--s-2);
+  margin: 0;
+  padding: 2px;
+  list-style: none;
+  overflow-x: auto;
+}
+
+.fd-gdd__vcard {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--s-2);
+  padding: var(--s-1-5) var(--s-3);
+  border: 1px solid var(--line);
+  border-radius: var(--r-pill);
+  background: var(--panel);
+  font-size: var(--fs-12);
+  line-height: var(--lh-ui);
+  color: var(--ink-45);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+a.fd-gdd__vcard:hover,
+a.fd-gdd__vcard:focus-visible {
+  border-color: var(--ink-45);
+  color: var(--text);
+}
+
+.fd-gdd__vcard.is-current {
+  border-color: var(--ink-45);
+  background: var(--fill-1);
+  color: var(--text);
+}
+
+.fd-gdd__vlabel {
+  font-weight: var(--fw-bold);
+}
+
+/* Micro-bar sized by the version's own stored [OPEN] total; zero renders a
+   flat tick, never an invented height. */
+.fd-gdd__vbar {
+  display: inline-block;
+  width: 36px;
+  height: 5px;
+  border-radius: 2px;
+  background: var(--fill-2);
+  overflow: hidden;
+  align-self: center;
+}
+
+.fd-gdd__vfill {
+  display: block;
+  height: 100%;
+  background: var(--warning);
+}
+
+.fd-gdd__vfill.is-zero {
+  width: 3px;
+  background: var(--line);
+}
+
+.fd-gdd__vdelta {
+  font-size: var(--fs-12);
+  line-height: var(--lh-ui);
+}
+
+.fd-gdd__adjacent {
+  white-space: normal;
+}
+
+.fd-gdd__editor {
+  display: grid;
+  gap: var(--s-2);
+}
+
+.fd-gdd__editarea {
+  font-family: var(--font-mono);
+}
+
+.fd-gdd__sectionfoot {
+  display: flex;
+  gap: var(--s-2);
+  margin-top: var(--s-3);
+}
+
+/* Hypothesis status keeps its stored word and takes the chip's geometry; the
+   colour only repeats what the word already says. */
+.fd-hyp--parked {
+  color: var(--ink-45);
+}
+
+.fd-hyp--active {
+  border-color: var(--info);
+  color: var(--info);
+}
+
+.fd-hyp--survived,
+.fd-hyp--validated {
+  border-color: color-mix(in srgb, var(--success) 40%, transparent);
+  color: var(--success);
+}
+
+.fd-hyp--failed {
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--error) 40%, transparent);
+  color: var(--error);
+}
+
+.fd-hyp--deferred {
+  border-style: dashed;
+  color: var(--ink-45);
+}
+
+/* Each `## ` section of the document is a fold; the markers counted inside it
+   ride its own heading. */
+.fd-gdd__sections {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  background: var(--panel);
+}
+
+.fd-gdd__section + .fd-gdd__section {
+  border-top: 1px solid var(--line);
+}
+
+.fd-gdd__sectionrow {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-2-5);
+  padding: var(--s-2-5) var(--s-4);
+  cursor: pointer;
+  list-style: none;
+}
+
+/* A flex summary loses its list marker, so the fold draws its own. */
+.fd-gdd__sectionrow::-webkit-details-marker {
+  display: none;
+}
+
+.fd-gdd__sectionrow::before {
+  content: "";
+  flex: 0 0 auto;
+  align-self: center;
+  width: 0;
+  height: 0;
+  border-left: 5px solid var(--ink-45);
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+
+.fd-gdd__section[open] > .fd-gdd__sectionrow::before {
+  transform: rotate(90deg);
+}
+
+.fd-gdd__sectionrow:hover {
+  background: var(--fill-1);
+}
+
+.fd-gdd__sectionrow:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring-color);
+  outline-offset: calc(-1 * var(--focus-ring-width));
+}
+
+.fd-gdd__sectionname {
+  margin: 0 auto 0 0;
+  font-size: var(--fs-16);
+  font-weight: var(--fw-bold);
+  line-height: var(--lh-snug);
+  color: var(--text);
+}
+
+.fd-gdd__sectionbody {
+  padding: 0 var(--s-4) var(--s-4);
+}
+
+/* The document's own text: the page's subject, so it keeps the reading colour
+   of a data value rather than the dimmer prose grey. */
+.fd-gdd__preamble,
+.fd-gdd__sectionbody {
+  font-size: var(--fs-13);
+  line-height: var(--lh-body);
+  color: var(--ink-85);
+}
+
+.fd-gdd__preamble > *:first-child,
+.fd-gdd__sectionbody > *:first-child {
+  margin-top: 0;
+}
+
+.fd-gdd__preamble p,
+.fd-gdd__preamble li,
+.fd-gdd__sectionbody p,
+.fd-gdd__sectionbody li {
+  max-width: var(--measure);
+}
+
+.fd-gdd__preamble p,
+.fd-gdd__sectionbody p {
+  margin: 0 0 var(--s-3);
+  overflow-wrap: anywhere;
+}
+
+.fd-gdd__preamble ul,
+.fd-gdd__preamble ol,
+.fd-gdd__sectionbody ul,
+.fd-gdd__sectionbody ol {
+  margin: 0 0 var(--s-3);
+  padding-left: var(--s-5);
+}
+
+.fd-gdd__preamble li,
+.fd-gdd__sectionbody li {
+  margin-bottom: var(--s-1);
+}
+
+.fd-gdd__preamble .fd-scroll,
+.fd-gdd__sectionbody .fd-scroll {
+  margin: 0 0 var(--s-3);
+}
+
+.fd-gdd__preamble .fd-code,
+.fd-gdd__sectionbody .fd-code {
+  margin: 0 0 var(--s-3);
+  padding: var(--s-2) var(--s-3);
+  border: 1px solid var(--line);
+  border-radius: var(--r-control);
+  background: var(--fill-1);
+}
+
+.fd-gdd__vsigned {
+  font-size: var(--fs-12);
+  color: var(--success);
+  white-space: nowrap;
+}
+
+.fd-gdd__approve {
+  margin-top: var(--s-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  align-items: flex-start;
+}

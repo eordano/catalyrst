@@ -1,6 +1,6 @@
 # catalyrst-scene-state
 
-Rust port of [`decentraland/scene-state-server`]. Hosts authoritative, server-side state for SDK7 multiplayer scenes: an HTTP control surface plus a per-scene WebSocket transport carrying CRDT state sync. Listens on port 5153 by default - **note:** this crate has no `umbrella/env/catalyrst-scene-state.env` and is not currently deployed; port 5153 is already live-bound by Metabase (`umbrella/env/metabase.env`, `MB_JETTY_PORT=5153`). Pick an unused port from the deployment's port map before wiring this service up.
+Rust port of [`decentraland/scene-state-server`]. Hosts authoritative, server-side state for SDK7 multiplayer scenes: an HTTP control surface plus a per-scene WebSocket transport carrying CRDT state sync. Listens on port 5209 by default (override with `HTTP_SERVER_PORT`).
 
 [`decentraland/scene-state-server`]: https://github.com/decentraland/scene-state-server
 
@@ -8,23 +8,27 @@ Not a dumb CRDT relay: it runs the scene's own compiled SDK7 JavaScript (`bin/ga
 
 ## Architecture (upstream -> this crate)
 
-| upstream file                              | this crate                       |
-|--------------------------------------------|----------------------------------|
-| `logic/protocol.ts`                        | `protocol.rs`                    |
-| `controllers/handlers/ws-handler.ts`       | `ws.rs` + `auth.rs`              |
-| `adapters/scene.ts`                        | `runtime.rs` + `scene.rs`        |
-| `adapters/wsRegistry.ts`                   | `scene.rs::SceneManager`         |
-| `logic/sceneFetcher.ts`                    | `scene_fetcher.rs`               |
-| `logic/scene-runtime/{sandbox,sdk7-runtime,apis}.ts` | **`jsruntime.rs`**     |
-| SDK7 CRDT wire format + LWW merge (`@dcl/ecs`) | **`crdt.rs`**                |
+| upstream file | this crate |
+|---|---|
+| `logic/protocol.ts` | `protocol.rs` |
+| `controllers/handlers/ws-handler.ts` | `ws.rs` + `auth.rs` |
+| `adapters/scene.ts` | `runtime.rs` + `scene.rs` |
+| `adapters/wsRegistry.ts` | `scene.rs::SceneManager` |
+| `logic/sceneFetcher.ts` | `scene_fetcher.rs` |
+| `logic/scene-runtime/{sandbox,sdk7-runtime,apis}.ts` | `jsruntime.rs` |
+| SDK7 CRDT wire format + LWW merge (`@dcl/ecs`) | `crdt.rs` |
 
 ### `crdt.rs` - the SDK7 CRDT engine
 
 Pure-Rust port of the `@dcl/ecs` CRDT wire format and LWW-element-set merge:
 
-- Wire codec (little-endian, matching `@dcl/ecs`'s `ByteBuffer`): the 8-byte `[length u32, type u32]` header plus per-type bodies for `PUT_COMPONENT`, `DELETE_COMPONENT`, `DELETE_ENTITY` and `APPEND_VALUE`. Unknown message types are skipped by length; truncated trailers are ignored.
-- LWW merge keyed by `(entity, componentId)`: highest Lamport `timestamp` wins; on a tie the lexicographically-greater data wins (length first, then bytes - the `dataCompare` rule), with `DELETE_COMPONENT` modelled as `data = null` sorting below any present data. `DELETE_ENTITY` tombstones the entity (drops its components and masks every later op for it).
-- Snapshot serialization (the late-joiner `Init` state) and per-client range reclaim (`reclaim_range`) for `on_client_close`.
+- Wire codec (little-endian, matching `@dcl/ecs`'s `ByteBuffer`): the 8-byte `[length u32, type u32]` header plus per-type bodies for `PUT_COMPONENT`, `DELETE_COMPONENT`, `DELETE_ENTITY` and `APPEND_VALUE`. Unknown message types are skipped by length. Framing is strict, and strict the way the reference is: a record whose declared length does not fit, or which does not carry exactly the payload its `data_len` declares, is dropped and the rest of the batch with it - `@dcl/ecs`'s `CrdtMessageProtocol.validate` ends its read loop at the same point, and nothing in the format marks a record boundary to resynchronise on. Every drop is logged.
+- Entity identity is `(number, generation)`, packed on the wire as `number | generation << 16`. Ranges, the renderer-local floor and tombstones are all expressed in entity NUMBERS, never in packed ids - a recycled entity carries `generation >= 1` and so packs 65536 above its own range. `entity_number` / `entity_generation` / `pack_entity` are the only sanctioned way to cross between the two.
+- LWW merge keyed by `(entity number, generation, componentId)`: highest Lamport `timestamp` wins; on a tie the lexicographically-greater data wins (length first, then bytes - the `dataCompare` rule), with `DELETE_COMPONENT` modelled as `data = null` sorting below any present data.
+- `DELETE_ENTITY` records a version G-Set: `number -> highest generation removed`, so `is_dead(e)` is `removed_generation(number) >= generation` - verbatim `@dcl/ecs` `getEntityState`. One delete masks the whole generation prefix, the set never evicts (it is bounded by the 65536 entity numbers), and `max` is commutative, so the removal set is a function of the message multiset rather than of arrival order.
+- `APPEND_VALUE` goes to a separate, disjoint store, not through the LWW register: every append on the wire carries timestamp 0, so appends cannot be ordered or tie-broken and are always accepted and always relayed. Channels are bounded at `MAX_APPEND_VALUES_PER_CHANNEL` (newest kept), matching `@dcl/ecs`'s `maxElements`.
+- Snapshot serialization (the late-joiner `Init` state) is state-determining: entity tombstones at their high-water generation, then live cells as `PUT_COMPONENT` and component tombstones as `DELETE_COMPONENT`. Replaying it into an empty engine is a fixed point. Grow-only events are deliberately not re-emitted - they are events, not state.
+- Per-client range reclaim (`reclaim_range`) for `on_client_close`, walking the departing client's NUMBER range.
 
 ### `jsruntime.rs` - the server-side JS runtime
 
@@ -34,6 +38,15 @@ Embeds V8 (via the [`v8`] crate - i.e. `rusty_v8`, the same engine `deno_core` w
 - `~system/*` host modules (`apis.ts`): `EngineApi.crdtSendToRenderer({data}) -> {data:[]}` (merges the scene's CRDT batch into the authoritative engine and refreshes the snapshot); `EngineApi.crdtGetState() -> {hasEntities, data:[Uint8Array]}`; `EngineApi.isServer() -> {isServer:true}`; `EngineApi.sendBatch() -> {events:[]}`; `Runtime.getRealm()`, `Runtime.getSceneInformation()`, `Runtime.readFile()`; `UserIdentity.getUserData() -> {}` and `SignedFetch.getHeaders() -> {}` (no-ops, exactly as upstream).
 - Game loop: `onStart` then a 30 Hz `onUpdate` (first tick `dt = 0.0`), draining `setImmediate` and pumping microtasks each tick.
 - Multiplayer wiring: `registerScene(config, observer)` captures the entity-range policy and the client observer; each connected client is surfaced to the scene as `{ sendCrdtMessage(bytes), getMessages() }`, and the scene pulls inbound client batches and pushes merged output from inside its own `onUpdate`, as upstream.
+
+### Authority and entity ranges (`runtime.rs`)
+
+- One authority check, at every apply. `AuthorityGuard` is the single place a batch is judged against its author, and both apply boundaries route through it - `apply_as_server` (the scene's own `crdtSendToRenderer` and its relay of client bytes) and `on_client_crdt`. It is not a check on a queue upstream of the apply.
+- `Authority::Server` (the scene's JS) may write any *network* entity, including relaying another client's - that is the upstream idiom. `Authority::Client` is confined to the half-open NUMBER range it was handed at connect time.
+- Nobody may author the renderer-local block. `network_floor()` is `max(reservedLocalEntities, RENDERER_LOCAL_ENTITIES=406)`, so a scene cannot open it up by declaring `reservedLocalEntities: 0`, and the floor is compared against the entity NUMBER so it cannot be stepped over by bumping a generation.
+- Scene-graph authority: `DclTransformAndParent`'s `parent` is read straight out of the otherwise-opaque payload (LE `u32` at byte 40 of 44 - pinned from the bevy side by `dcl_component::transform_and_parent`'s wire-layout test). Parenting your own entity onto another live client's is refused; ROOT, renderer-local, the server band and your own range stay legal.
+- Slots are recycled, not counted up. `ClientSlots` hands out the lowest free index and takes it back on disconnect. Only `max_client_slots()` indices (126 with the default config) have a representable range; a client for which none is left is handed `EMPTY_RANGE` and the WebSocket layer refuses the connection rather than serving a connected-but-mute client.
+- The range travels with the client. It is resolved once in `on_client_open`, carried on `Command::ClientOpen`, and persisted per-client - never recomputed from a config that may have moved. The transport config is frozen while any client is live.
 
 `RelayRuntime` (also in `runtime.rs`) is the scene-logic-free fallback for scenes with no `game.js` or when `DISABLE_JS_RUNTIME=1` - backed by the same real CRDT engine (deduplicated snapshot, real LWW merge, range reclaim).
 
@@ -68,15 +81,15 @@ No from-source V8 build, no `gn`/`ninja`, no debian sysroot download - just the 
 
 ## Configuration
 
-| env var              | meaning                                                        |
-|----------------------|----------------------------------------------------------------|
-| `HTTP_SERVER_HOST/PORT` | bind address (default `127.0.0.1:5153` - collides with Metabase; see note above, not currently deployed) |
-| `LOCAL_SCENE_PATH`   | local compiled `game.js` to load as `localScene` at startup    |
-| `WORLD_SERVER_URL`   | worlds content-server for `/debugging/reload <world>`          |
-| `DEBUGGING_SECRET`   | shared secret gating `POST /debugging/reload`                  |
-| `REALM_NAME`         | realm reported via `~system/Runtime.getRealm()` (def `dcl-one`) |
-| `DISABLE_JS_RUNTIME` | `1` to use the scene-logic-free `RelayRuntime` instead of V8   |
-| `AUTH_TIMEOUT_SECS`  | seconds to wait for the WS `Auth` frame (default 5)            |
+| env var | meaning |
+|---|---|
+| `HTTP_SERVER_HOST/PORT` | bind address (default `127.0.0.1:5209`) |
+| `LOCAL_SCENE_PATH` | local compiled `game.js` to load as `localScene` at startup |
+| `WORLD_SERVER_URL` | worlds content-server for `/debugging/reload <world>` |
+| `DEBUGGING_SECRET` | shared secret gating `POST /debugging/reload` |
+| `REALM_NAME` | realm reported via `~system/Runtime.getRealm()` (def `dcl-one`) |
+| `DISABLE_JS_RUNTIME` | `1` to use the scene-logic-free `RelayRuntime` instead of V8 |
+| `AUTH_TIMEOUT_SECS` | seconds to wait for the WS `Auth` frame (default 5) |
 
 ## Tests
 

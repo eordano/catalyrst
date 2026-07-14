@@ -1,0 +1,63 @@
+.fd-chip-persona {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  min-width: 0;
+  font-size: var(--fs-13);
+  line-height: var(--lh-ui);
+  color: var(--text);
+}
+
+.fd-chip-persona--link {
+  text-decoration: none;
+  border-radius: var(--r-pill);
+}
+
+.fd-chip-persona--link:hover .fd-chip-persona__name {
+  text-decoration: underline;
+}
+
+.fd-chip-persona__avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  overflow: hidden;
+  flex: none;
+  background: var(--fill-1);
+  border: 1px solid var(--line);
+}
+
+.fd-chip-persona__name {
+  font-weight: var(--fw-semibold);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.fd-chip-persona__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+  background: var(--ink-45);
+}
+
+.fd-chip-persona__badge {
+  color: var(--ink-6);
+  white-space: nowrap;
+}
+
+.fd-chip-persona__hex {
+  font-family: var(--font-mono);
+  font-size: var(--fs-12);
+  line-height: var(--lh-ui);
+  color: var(--ink-7);
+}
+
+.fd-chip-persona__source {
+  font-size: var(--fs-12);
+  line-height: var(--lh-ui);
+  color: var(--ink-45);
+  font-style: italic;
+  white-space: nowrap;
+}

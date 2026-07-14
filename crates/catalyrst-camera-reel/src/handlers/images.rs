@@ -24,7 +24,7 @@ pub async fn upload_image(
     headers: HeaderMap,
     mut multipart: Multipart,
 ) -> Result<Response, ApiError> {
-    let address = require_auth(&headers, "post", uri.path())?;
+    let address = require_auth(&headers, "post", uri.path()).await?;
 
     let mut image_bytes: Option<Bytes> = None;
     let mut image_content_type: Option<String> = None;
@@ -80,7 +80,7 @@ pub async fn upload_image(
 
     finalize_upload(
         &state,
-        &address,
+        address.as_str(),
         image_bytes,
         image_content_type,
         metadata,
@@ -104,7 +104,7 @@ pub async fn upload_image_json(
     headers: HeaderMap,
     Json(req): Json<JsonUpload>,
 ) -> Result<Response, ApiError> {
-    let address = require_auth(&headers, "post", uri.path())?;
+    let address = require_auth(&headers, "post", uri.path()).await?;
 
     let image_bytes = Bytes::from(
         base64::engine::general_purpose::STANDARD
@@ -117,7 +117,7 @@ pub async fn upload_image_json(
 
     finalize_upload(
         &state,
-        &address,
+        address.as_str(),
         image_bytes,
         Some(req.content_type),
         req.metadata,
@@ -217,7 +217,7 @@ pub async fn delete_image(
     headers: HeaderMap,
     Path(image_id): Path<String>,
 ) -> Result<Response, ApiError> {
-    let address = require_auth(&headers, "delete", uri.path())?;
+    let address = require_auth(&headers, "delete", uri.path()).await?;
 
     let image = state
         .db
@@ -225,7 +225,7 @@ pub async fn delete_image(
         .await
         .map_err(|_| ApiError::NotFound("image not found".to_string()))?;
 
-    if !image.user_address.eq_ignore_ascii_case(&address) {
+    if !image.user_address.eq_ignore_ascii_case(address.as_str()) {
         return Err(ApiError::Forbidden("forbidden".to_string()));
     }
 
@@ -234,12 +234,7 @@ pub async fn delete_image(
         ApiError::Internal("failed to delete image".to_string())
     })?;
 
-    if let Some(hash) = image.url.rsplit('/').next() {
-        let _ = state.store.delete(hash).await;
-    }
-    if let Some(hash) = image.thumbnail_url.rsplit('/').next() {
-        let _ = state.store.delete(hash).await;
-    }
+    delete_unreferenced_blobs(&state, &image, &image_id).await;
 
     let current_images = state
         .db
@@ -257,6 +252,32 @@ pub async fn delete_image(
         .into_response())
 }
 
+/// Unlink the image/thumbnail blobs for a just-deleted row, but only for hashes
+/// no other row still references. Blobs are content-addressed with no refcount,
+/// and any user can re-upload another user's public bytes to the same hash, so
+/// an unconditional unlink would 404 every other live row sharing that blob.
+async fn delete_unreferenced_blobs(
+    state: &AppState,
+    image: &crate::ports::db::DbImage,
+    image_id: &str,
+) {
+    for url in [image.url.as_str(), image.thumbnail_url.as_str()] {
+        if let Some(hash) = url.rsplit('/').next() {
+            // On any counting error, fail safe (assume still referenced) and
+            // keep the blob rather than risk destroying shared content.
+            let still_referenced = state
+                .db
+                .count_other_images_with_hash(hash, image_id)
+                .await
+                .unwrap_or(1)
+                > 0;
+            if !still_referenced {
+                let _ = state.store.delete(hash).await;
+            }
+        }
+    }
+}
+
 pub async fn update_image_visibility(
     State(state): State<AppState>,
     OriginalUri(uri): OriginalUri,
@@ -264,7 +285,7 @@ pub async fn update_image_visibility(
     Path(image_id): Path<String>,
     Json(update): Json<UpdateVisibility>,
 ) -> Result<Response, ApiError> {
-    let address = require_auth(&headers, "patch", uri.path())?;
+    let address = require_auth(&headers, "patch", uri.path()).await?;
 
     let image = state
         .db
@@ -272,7 +293,7 @@ pub async fn update_image_visibility(
         .await
         .map_err(|_| ApiError::NotFound("image not found".to_string()))?;
 
-    if !image.user_address.eq_ignore_ascii_case(&address) {
+    if !image.user_address.eq_ignore_ascii_case(address.as_str()) {
         return Err(ApiError::Forbidden("forbidden".to_string()));
     }
 
@@ -296,6 +317,19 @@ pub async fn get_image(
     State(state): State<AppState>,
     Path(image_id): Path<String>,
 ) -> Result<Response, ApiError> {
+    // Honor moderation before serving any bytes (in both bucket-redirect and
+    // local-store modes). Blobs are content-addressed and can be shared across
+    // rows, so a hash is withheld only when every referencing row was rejected.
+    // Fail closed: if the review lookup errors we cannot confirm the blob is
+    // clean, so we withhold rather than risk leaking rejected content.
+    let servable = state.db.hash_is_servable(&image_id).await.map_err(|e| {
+        tracing::error!("failed to check image review status: {e}");
+        ApiError::NotFound("image not found".to_string())
+    })?;
+    if !servable {
+        return Err(ApiError::NotFound("image not found".to_string()));
+    }
+
     if let Some(bucket_url) = &state.config.bucket_url {
         let location = format!("{}/{}", bucket_url.trim_end_matches('/'), image_id);
         return Ok((
@@ -350,12 +384,7 @@ pub async fn admin_delete_image(
         ApiError::Internal("failed to delete image".to_string())
     })?;
 
-    if let Some(hash) = image.url.rsplit('/').next() {
-        let _ = state.store.delete(hash).await;
-    }
-    if let Some(hash) = image.thumbnail_url.rsplit('/').next() {
-        let _ = state.store.delete(hash).await;
-    }
+    delete_unreferenced_blobs(&state, &image, &image_id).await;
 
     let current_images = state
         .db
@@ -418,6 +447,10 @@ pub async fn get_metadata(
             return Err(ApiError::NotFound("image not found".to_string()));
         }
     };
+
+    if db_image.review_status == "rejected" {
+        return Err(ApiError::NotFound("image not found".to_string()));
+    }
 
     let image: Image = db_image.into();
     Ok((StatusCode::OK, Json(image)).into_response())

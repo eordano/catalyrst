@@ -1,0 +1,507 @@
+/* The foundry base layer. Every role here is the one declared in
+   foundry/GUIDELINES.md §1.3; pages compose from these and add nothing that
+   only restates them. */
+
+/* ChromeShell roots every foundry document at `.cs.ui2.fd`, so this is the
+   leading floor: a class that forgets one lands on 1.45, not the UA `normal`. */
+.fd {
+  line-height: var(--lh-ui);
+}
+
+/* ui3 ships no bare `a` rule, so an unstyled anchor renders in the UA blue
+   over a near-black page. Underlined in prose, bare in chrome. */
+.fd a {
+  color: var(--brand-ink);
+  text-decoration-color: color-mix(in srgb, var(--brand-ink) 45%, transparent);
+  text-underline-offset: 2px;
+}
+
+.fd a:hover {
+  text-decoration-color: currentColor;
+}
+
+.fd a:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring-color);
+  outline-offset: var(--focus-ring-offset);
+  border-radius: 2px;
+}
+
+.fd a.btn,
+.fd a.fd-chip,
+.fd a.fd-cardlink,
+.fd a.fd-gamecard__cardlink,
+.fd .fd-pagehead__crumbs a {
+  text-decoration: none;
+}
+
+.fd a.fd-chip:hover {
+  border-color: var(--brand-ink);
+  color: var(--brand-ink);
+}
+
+/* The one fixed bottom-right anchor. The room dock and the tour card are flow
+   children of it, so neither can cover the other and both offsets come from
+   here; column-reverse keeps the dock on the floor with the tour above it. */
+.fd-corner {
+  position: fixed;
+  right: var(--s-3);
+  bottom: var(--s-3);
+  z-index: var(--z-dialog);
+  display: flex;
+  flex-direction: column-reverse;
+  align-items: stretch;
+  gap: var(--s-3);
+  width: min(340px, calc(100vw - 2 * var(--s-3)));
+  pointer-events: none;
+}
+
+.fd-corner > * {
+  pointer-events: auto;
+}
+
+/* Bottom padding clears the fixed room dock. */
+.fd-page {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: var(--s-5) var(--s-5) calc(var(--s-7) + 56px);
+  color: var(--text);
+}
+
+.fd-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-6);
+}
+
+.fd-pagehead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--s-4);
+  flex-wrap: wrap;
+}
+
+/* Grows so the aside sits right on a shared line and left when it wraps. */
+.fd-pagehead__main {
+  flex: 1 1 28ch;
+  min-width: 0;
+}
+
+.fd-pagehead__eyebrow {
+  margin: 0 0 var(--s-2);
+  font-size: var(--fs-11);
+  font-weight: var(--fw-bold);
+  line-height: var(--lh-ui);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--brand-ink);
+}
+
+.fd-pagehead__title {
+  margin: 0;
+  max-width: 24ch;
+  font-size: var(--fs-28);
+  font-weight: var(--fw-bold);
+  line-height: var(--lh-tight);
+  letter-spacing: -0.015em;
+}
+
+.fd-pagehead--display .fd-pagehead__title {
+  max-width: 20ch;
+  font-size: var(--fs-34);
+}
+
+.fd-pagehead__intro {
+  margin: var(--s-2) 0 0;
+  max-width: var(--measure);
+  font-size: var(--fs-14);
+  line-height: var(--lh-body);
+  color: var(--ink-6);
+}
+
+.fd-pagehead__crumbs {
+  margin: var(--s-2) 0 0;
+  font-size: var(--fs-12);
+  line-height: var(--lh-ui);
+  color: var(--ink-45);
+}
+
+.fd-pagehead__aside {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  flex-wrap: wrap;
+}
+
+.fd-section__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-3);
+  flex-wrap: wrap;
+  margin-bottom: var(--s-3);
+}
+
+.fd-section__title {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2-5);
+  margin: 0;
+  font-size: var(--fs-18);
+  font-weight: var(--fw-bold);
+  line-height: var(--lh-snug);
+  color: var(--text);
+}
+
+.fd-section__aside {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  flex-wrap: wrap;
+}
+
+.fd-section__sub {
+  margin: calc(var(--s-1) * -1) 0 var(--s-3);
+  max-width: var(--measure);
+  font-size: var(--fs-13);
+  line-height: var(--lh-body);
+  color: var(--ink-6);
+}
+
+.fd-subhead {
+  margin: 0;
+  font-size: var(--fs-14);
+  font-weight: var(--fw-semibold);
+  line-height: var(--lh-snug);
+  color: var(--text);
+}
+
+.fd-label {
+  margin: 0;
+  font-size: var(--fs-11);
+  font-weight: var(--fw-bold);
+  line-height: var(--lh-ui);
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--ink-45);
+}
+
+.fd-label--eyebrow {
+  letter-spacing: 0.14em;
+  color: var(--brand-ink);
+}
+
+.fd-panel {
+  padding: var(--s-4);
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  background: var(--panel);
+}
+
+.fd-panel--failed {
+  border-left: 3px solid var(--error);
+}
+
+.fd-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2-5);
+  padding: var(--s-4);
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  background: var(--panel);
+}
+
+.fd-card__title {
+  margin: 0;
+  max-width: 24ch;
+  font-size: var(--fs-16);
+  font-weight: var(--fw-bold);
+  line-height: var(--lh-snug);
+  color: var(--text);
+}
+
+.fd-card__foot {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  flex-wrap: wrap;
+  margin-top: auto;
+}
+
+/* Whole-card link: one interaction model for every card board. */
+.fd-cardlink {
+  color: inherit;
+}
+
+.fd-cardlink::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+}
+
+.fd-card:has(.fd-cardlink:hover) {
+  border-color: var(--fill-5);
+}
+
+.fd-card:has(.fd-cardlink:focus-visible) {
+  outline: var(--focus-ring-width) solid var(--focus-ring-color);
+  outline-offset: var(--focus-ring-offset);
+}
+
+.fd-card:has(.fd-cardlink:focus-visible) .fd-cardlink:focus-visible {
+  outline: none;
+}
+
+.fd-board {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: var(--s-3);
+}
+
+.fd-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--s-3);
+  margin: 0;
+}
+
+.fd-facts dt {
+  margin: 0 0 var(--s-1);
+  font-size: var(--fs-11);
+  font-weight: var(--fw-bold);
+  line-height: var(--lh-ui);
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--ink-45);
+}
+
+.fd-facts dd {
+  margin: 0;
+  font-size: var(--fs-13);
+  line-height: var(--lh-ui);
+  color: var(--ink-85);
+}
+
+.fd-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+  padding: var(--s-4);
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  background: var(--panel);
+}
+
+.fd-form__title {
+  margin: 0;
+  font-size: var(--fs-16);
+  font-weight: var(--fw-bold);
+  line-height: var(--lh-snug);
+  color: var(--text);
+}
+
+.fd-form__field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+
+.fd-form__row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: var(--s-3);
+}
+
+.fd-form__label {
+  font-size: var(--fs-11);
+  font-weight: var(--fw-bold);
+  line-height: var(--lh-ui);
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--ink-45);
+}
+
+.fd-form__labelrow {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s-2);
+}
+
+.fd-form__count {
+  font-size: var(--fs-12);
+  line-height: var(--lh-ui);
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-45);
+}
+
+.fd-form__count.is-over {
+  color: var(--error);
+  font-weight: var(--fw-bold);
+}
+
+.fd-form__input,
+.fd-form__select,
+.fd-form__textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: var(--s-2) var(--s-2-5);
+  border: 1px solid var(--line);
+  border-radius: var(--r-control);
+  background: var(--fill-1);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: var(--fs-13);
+  line-height: var(--lh-ui);
+}
+
+.fd-form__textarea {
+  min-height: 96px;
+  resize: vertical;
+  line-height: var(--lh-code);
+}
+
+.fd-form__input:focus-visible,
+.fd-form__select:focus-visible,
+.fd-form__textarea:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring-color);
+  outline-offset: var(--focus-ring-offset);
+}
+
+.fd-form__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  flex-wrap: wrap;
+}
+
+.fd-panelnote {
+  margin: var(--s-2) 0 0;
+  max-width: var(--measure);
+  font-size: var(--fs-13);
+  line-height: var(--lh-body);
+  color: var(--ink-6);
+}
+
+.fd-alert {
+  margin: var(--s-2) 0 0;
+  max-width: var(--measure);
+  font-size: var(--fs-12);
+  line-height: var(--lh-body);
+  color: var(--error);
+}
+
+/* The same alert, sitting inline beside the submit button. */
+.fd-form__alert {
+  margin: 0;
+  flex: 1 1 16ch;
+  min-width: 0;
+}
+
+.fd-note {
+  margin: var(--s-2) 0 0;
+  max-width: var(--measure);
+  font-size: var(--fs-12);
+  line-height: var(--lh-body);
+  color: var(--ink-45);
+}
+
+.fd-note-inline {
+  font-size: var(--fs-12);
+  line-height: var(--lh-body);
+  color: var(--ink-45);
+}
+
+/* One line, left-aligned, in the shape of what it replaces. */
+.fd-empty {
+  margin: 0;
+  max-width: var(--measure);
+  font-size: var(--fs-13);
+  line-height: var(--lh-body);
+  color: var(--ink-45);
+}
+
+.fd-mono {
+  font-family: var(--font-mono);
+  font-size: var(--fs-12);
+  line-height: var(--lh-ui);
+  color: var(--ink-7);
+}
+
+.fd-code {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: var(--fs-12);
+  line-height: var(--lh-code);
+  color: var(--ink-7);
+  white-space: pre-wrap;
+  overflow-x: auto;
+}
+
+.fd-num {
+  font-variant-numeric: tabular-nums;
+}
+
+.fd-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 9px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-pill);
+  background: var(--fill-2);
+  color: var(--ink-7);
+  font-size: var(--fs-11);
+  font-weight: var(--fw-semibold);
+  line-height: var(--lh-ui);
+  white-space: nowrap;
+}
+
+.fd-chip--mono {
+  font-family: var(--font-mono);
+  font-weight: var(--fw-regular);
+}
+
+.fd-chiprow {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  flex-wrap: wrap;
+}
+
+.fd-skel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  width: 100%;
+}
+
+.fd-skel__line {
+  width: 100%;
+  height: 34px;
+  border-radius: var(--r-control);
+}
+
+.fd-pending {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+}
+
+.fd-tour-glow {
+  outline: 2px solid var(--brand);
+  outline-offset: 4px;
+  border-radius: var(--r-card);
+}
+
+@media (max-width: 600px) {
+  .fd-page {
+    padding: var(--s-4) var(--s-4) calc(var(--s-6) + 56px);
+  }
+
+  .fd-board {
+    grid-template-columns: 1fr;
+  }
+}

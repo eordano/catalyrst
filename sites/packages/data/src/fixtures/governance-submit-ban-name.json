@@ -1,0 +1,24 @@
+{
+  "_source": "https://raw.githubusercontent.com/decentraland/governance/master/src/entities/Proposal/types.ts (newProposalBanNameScheme: name minLength MIN_NAME_SIZE=2 / maxLength MAX_NAME_SIZE=15, description 20..250, coAuthors items length 42); name regex ^([a-zA-Z0-9]){2,15}$ from src/entities/Proposal/utils.ts (REGEX_NAME); MIN_NAME_SIZE/MAX_NAME_SIZE from src/entities/Proposal/constants.ts. Governance has no createProposal write endpoint reachable from this app (Snapshot + Aragon externally), so submission is SIMULATED \u2014 this fixture supplies copy + a sample draft only.",
+  "account": {
+    "address": "",
+    "label": "",
+    "votingPower": 0
+  },
+  "copy": {
+    "title": "Ban a name",
+    "description": "Banning a name prevents the use of abusive or offensive names for avatars and scenes.",
+    "nameLabel": "The name you want to ban",
+    "namePlaceholder": "Name",
+    "descriptionLabel": "Description",
+    "descriptionDetail": "Provide a brief explanation of why this name should be banned. For example: why or to whom might it be offensive?",
+    "descriptionPlaceholder": "A brief description of your question.",
+    "submitLabel": "Submit proposal",
+    "noVpGate": true
+  },
+  "sample": {
+    "name": "",
+    "description": "",
+    "coAuthors": []
+  }
+}

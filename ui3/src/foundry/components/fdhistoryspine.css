@@ -1,0 +1,134 @@
+/* The biography spine: one continuous left rail, a thin TODAY rule, and three
+   dot colours — designed, in the world, played. Hollow means nothing recorded
+   yet. This program's readings sit beside the spine, never on its time axis. */
+.fd-life-wrap {
+  padding: var(--s-4);
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  background: var(--panel);
+}
+
+.fd-life {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2-5);
+  margin: 0;
+  padding: var(--s-1) 0;
+  list-style: none;
+}
+
+.fd-life::before {
+  content: "";
+  position: absolute;
+  top: 6px;
+  bottom: 6px;
+  left: 4px;
+  width: 1px;
+  background: var(--line);
+}
+
+.fd-life__node {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(96px, max-content) 1fr;
+  gap: var(--s-1) var(--s-3);
+  align-items: baseline;
+  padding-left: var(--s-5);
+}
+
+@media (max-width: 600px) {
+  .fd-life__node {
+    grid-template-columns: 1fr;
+  }
+}
+
+.fd-life__dot {
+  position: absolute;
+  top: 4px;
+  left: 0;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--ink-45);
+  border: 1px solid transparent;
+}
+
+.fd-life__node--designed .fd-life__dot {
+  background: var(--info);
+}
+
+.fd-life__node--built .fd-life__dot,
+.fd-life__node--live .fd-life__dot {
+  background: var(--warning);
+}
+
+.fd-life__node--played .fd-life__dot {
+  background: var(--success);
+}
+
+/* Nothing recorded yet: a derived future occurrence, or a missing design doc. */
+.fd-life__node--upcoming .fd-life__dot,
+.fd-life__node--muted .fd-life__dot {
+  background: transparent;
+  border: 1px solid var(--line);
+}
+
+.fd-life__date {
+  font-size: var(--fs-12);
+  line-height: var(--lh-ui);
+  color: var(--ink-45);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.fd-life__body {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--s-2);
+  font-size: var(--fs-13);
+  line-height: var(--lh-ui);
+  color: var(--ink-85);
+  overflow-wrap: anywhere;
+}
+
+.fd-life__node--muted .fd-life__body,
+.fd-life__prefix {
+  color: var(--ink-45);
+}
+
+.fd-life__today {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  padding-left: var(--s-5);
+}
+
+.fd-life__todayrule {
+  flex: 1;
+  height: 1px;
+  background: var(--line);
+}
+
+.fd-life__todaydate {
+  font-size: var(--fs-11);
+  line-height: var(--lh-ui);
+  color: var(--ink-45);
+  white-space: nowrap;
+}
+
+.fd-life__readings {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  margin: var(--s-4) 0 0;
+  padding-left: var(--s-5);
+}
+
+.fd-life__foot {
+  margin: var(--s-3) 0 0;
+  padding-left: var(--s-5);
+  font-size: var(--fs-13);
+  line-height: var(--lh-ui);
+}

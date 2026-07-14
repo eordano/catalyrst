@@ -1,0 +1,48 @@
+{
+  "data": [
+    {
+      "id": "0xc5aaaa47d4ed16932d9970352afbd5e0df5a4925-0",
+      "beneficiary": "0x0000000000000000000000000000000000000000",
+      "itemId": "0",
+      "name": "eternal T shirts",
+      "thumbnail": "https://peer.decentraland.org/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0xc5aaaa47d4ed16932d9970352afbd5e0df5a4925:0/thumbnail",
+      "url": "/contracts/0xc5aaaa47d4ed16932d9970352afbd5e0df5a4925/items/0",
+      "urn": "urn:decentraland:matic:collections-v2:0xc5aaaa47d4ed16932d9970352afbd5e0df5a4925:0",
+      "category": "wearable",
+      "contractAddress": "0xc5aaaa47d4ed16932d9970352afbd5e0df5a4925",
+      "rarity": "epic",
+      "available": 996,
+      "isOnSale": false,
+      "creator": "0x366a0a523f640fe73830c302a68585b494e88cb5",
+      "data": {
+        "wearable": {
+          "description": "",
+          "category": "upper_body",
+          "bodyShapes": [
+            "BaseMale"
+          ],
+          "rarity": "epic",
+          "isSmart": false
+        }
+      },
+      "network": "MATIC",
+      "chainId": 137,
+      "price": "0",
+      "createdAt": 1723185775,
+      "updatedAt": 1723690426,
+      "reviewedAt": 1723187527,
+      "firstListedAt": 1741421696,
+      "soldAt": 0,
+      "minPrice": "0",
+      "maxListingPrice": null,
+      "minListingPrice": null,
+      "listings": 0,
+      "owners": null,
+      "picks": {
+        "itemId": "0xc5aaaa47d4ed16932d9970352afbd5e0df5a4925-0",
+        "count": 2
+      }
+    }
+  ],
+  "total": 11109
+}

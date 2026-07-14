@@ -43,7 +43,7 @@ async fn denylist(
     Query(params): Query<HashMap<String, String>>,
 ) -> Json<Value> {
     c.denylist_hits.fetch_add(1, Ordering::SeqCst);
-    let mut users = vec![json!({ "wallet": "0xBANNEDWALLET" })];
+    let mut users = vec![json!({ "wallet": "0xBAD0000000000000000000000000000000000bad" })];
     if let Some(w) = params.get("wallet") {
         users.push(json!({ "wallet": w }));
     }
@@ -125,9 +125,23 @@ async fn deny_list_flags_listed_wallet_case_insensitively() {
         reqwest::Client::new(),
     );
     assert!(deny.is_armed());
-    assert!(deny.is_denied("0xBANNEDWALLET").await);
-    assert!(deny.is_denied("0xbannedwallet").await);
-    assert!(!deny.is_denied("0xsomeoneelse").await);
+    assert!(
+        deny.is_denied("0xBAD0000000000000000000000000000000000BAD")
+            .await
+    );
+    assert!(
+        deny.is_denied("0xbad0000000000000000000000000000000000bad")
+            .await
+    );
+    assert!(
+        !deny
+            .is_denied("0x1111111111111111111111111111111111111111")
+            .await
+    );
+    assert!(
+        deny.is_denied("0xsomeoneelse").await,
+        "malformed addresses must be denied, not silently allowed"
+    );
 }
 
 #[tokio::test]
@@ -137,7 +151,11 @@ async fn deny_list_caches_within_ttl() {
         Some(format!("http://127.0.0.1:{port}/denylist.json")),
         reqwest::Client::new(),
     );
-    for who in ["0xa", "0xb", "0xc"] {
+    for who in [
+        "0x1111111111111111111111111111111111111111",
+        "0x2222222222222222222222222222222222222222",
+        "0x3333333333333333333333333333333333333333",
+    ] {
         deny.is_denied(who).await;
     }
     assert_eq!(
@@ -155,9 +173,15 @@ async fn deny_list_refetches_after_ttl_and_fails_open_on_outage() {
         reqwest::Client::new(),
         Duration::from_millis(0),
     );
-    assert!(deny.is_denied("0xbannedwallet").await);
+    assert!(
+        deny.is_denied("0xbad0000000000000000000000000000000000bad")
+            .await
+    );
     tokio::time::sleep(Duration::from_millis(5)).await;
-    assert!(deny.is_denied("0xbannedwallet").await);
+    assert!(
+        deny.is_denied("0xbad0000000000000000000000000000000000bad")
+            .await
+    );
     assert_eq!(counters.denylist_hits.load(Ordering::SeqCst), 2);
 }
 
@@ -215,13 +239,13 @@ async fn recluster_with_disarmed_ban_checker_keeps_everyone() {
 
 mod ws_deny {
     use super::*;
+    use alloy::signers::{local::PrivateKeySigner, SignerSync};
     use catalyrst_archipelago::config::{AuthConfig, Config, GossipConfig, ServerConfig};
     use catalyrst_archipelago::proto::archipelago::{
         client_packet, server_packet, ChallengeRequestMessage, ClientPacket, ServerPacket,
         SignedChallengeMessage,
     };
     use catalyrst_archipelago::{api_router, build_state};
-    use ethers_signers::{LocalWallet, Signer};
     use futures::{SinkExt, StreamExt};
     use prost::Message as _;
     use tokio_tungstenite::tungstenite::Message as WsMessage;
@@ -282,7 +306,7 @@ mod ws_deny {
         }
     }
 
-    async fn try_handshake(port: u16, wallet: &LocalWallet) -> Option<()> {
+    async fn try_handshake(port: u16, wallet: &PrivateKeySigner) -> Option<()> {
         let (mut ws, _) = tokio_tungstenite::connect_async(format!("ws://127.0.0.1:{port}/ws"))
             .await
             .expect("ws connect");
@@ -300,11 +324,11 @@ mod ws_deny {
             _ => return None,
         };
 
-        let hash = ethers_core::utils::hash_message(challenge.as_bytes());
-        let sig = wallet.sign_hash(hash).expect("sign");
+        let hash = alloy::primitives::eip191_hash_message(challenge.as_bytes());
+        let sig = wallet.sign_hash_sync(&hash).expect("sign");
         let chain = json!([
             { "type": "SIGNER", "payload": address, "signature": "" },
-            { "type": "ECDSA_SIGNED_ENTITY", "payload": challenge, "signature": format!("0x{sig}") }
+            { "type": "ECDSA_SIGNED_ENTITY", "payload": challenge, "signature": sig.to_string() }
         ]);
         ws.send(WsMessage::Binary(encode(
             client_packet::Message::SignedChallenge(SignedChallengeMessage {
@@ -324,7 +348,7 @@ mod ws_deny {
     #[tokio::test]
     async fn deny_listed_wallet_is_rejected_after_auth() {
         let (mock_port, _c) = start_mock().await;
-        let wallet = LocalWallet::new(&mut ethers_core::rand::thread_rng());
+        let wallet = PrivateKeySigner::random();
         let addr = format!("{:#x}", wallet.address());
         let deny_url = format!("http://127.0.0.1:{mock_port}/denylist.json?wallet={addr}");
         let port = start_archipelago(Some(deny_url)).await;
@@ -338,7 +362,7 @@ mod ws_deny {
     #[tokio::test]
     async fn non_denied_wallet_completes_handshake() {
         let (mock_port, _c) = start_mock().await;
-        let wallet = LocalWallet::new(&mut ethers_core::rand::thread_rng());
+        let wallet = PrivateKeySigner::random();
         let deny_url = format!("http://127.0.0.1:{mock_port}/denylist.json?wallet=0xsomeoneelse");
         let port = start_archipelago(Some(deny_url)).await;
 

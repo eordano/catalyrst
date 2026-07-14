@@ -2,6 +2,7 @@ use axum::extract::{Query, State};
 use axum::Json;
 use serde::Deserialize;
 
+use crate::handlers::responses::{SceneParticipantsData, SceneParticipantsResponse};
 use crate::http::ApiError;
 use crate::livekit::{
     address_from_identity, list_room_participant_identities, scene_room_name, world_room_name,
@@ -44,7 +45,7 @@ async fn resolve_scene_id(state: &AppState, pointer: &str) -> Option<String> {
 pub async fn list_participants(
     State(state): State<AppState>,
     Query(q): Query<ParticipantsQuery>,
-) -> Result<Json<serde_json::Value>, ApiError> {
+) -> Result<Json<SceneParticipantsResponse>, ApiError> {
     let pointer = q.pointer.as_deref().filter(|s| !s.is_empty());
     let mut realm_name = q.realm_name.or(q.room).filter(|s| !s.is_empty());
 
@@ -82,7 +83,7 @@ pub async fn list_participants(
             ));
         };
         match resolve_scene_id(&state, p).await {
-            Some(scene_id) => scene_room_name(&scene_id),
+            Some(scene_id) => scene_room_name(realm, &scene_id),
             None => {
                 return Err(ApiError::not_found(format!(
                     "No scene found for pointer: {p}"
@@ -105,8 +106,8 @@ pub async fn list_participants(
         .filter_map(|id| address_from_identity(id))
         .collect();
 
-    Ok(Json(serde_json::json!({
-        "ok": true,
-        "data": { "addresses": addresses }
-    })))
+    Ok(Json(SceneParticipantsResponse {
+        ok: true,
+        data: SceneParticipantsData { addresses },
+    }))
 }
