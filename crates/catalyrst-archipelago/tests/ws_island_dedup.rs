@@ -1,3 +1,4 @@
+use alloy::signers::{local::PrivateKeySigner, SignerSync};
 use catalyrst_archipelago::config::{
     AuthConfig, ClusterConfig, Config, GossipConfig, LivekitConfig, ServerConfig,
 };
@@ -7,7 +8,6 @@ use catalyrst_archipelago::proto::archipelago::{
 };
 use catalyrst_archipelago::proto::Position;
 use catalyrst_archipelago::{api_router, build_state};
-use ethers_signers::{LocalWallet, Signer};
 use futures::{SinkExt, StreamExt};
 use prost::Message as _;
 use std::time::Duration;
@@ -66,7 +66,7 @@ async fn recv_msg(ws: &mut WsStream, timeout: Duration) -> Option<server_packet:
     }
 }
 
-async fn connect_and_handshake(port: u16, wallet: &LocalWallet) -> WsStream {
+async fn connect_and_handshake(port: u16, wallet: &PrivateKeySigner) -> WsStream {
     let (mut ws, _) = tokio_tungstenite::connect_async(format!("ws://127.0.0.1:{port}/ws"))
         .await
         .expect("ws connect");
@@ -85,11 +85,11 @@ async fn connect_and_handshake(port: u16, wallet: &LocalWallet) -> WsStream {
         other => panic!("expected ChallengeResponse, got {other:?}"),
     };
 
-    let hash = ethers_core::utils::hash_message(challenge.as_bytes());
-    let sig = wallet.sign_hash(hash).expect("sign");
+    let hash = alloy::primitives::eip191_hash_message(challenge.as_bytes());
+    let sig = wallet.sign_hash_sync(&hash).expect("sign");
     let chain = serde_json::json!([
         { "type": "SIGNER", "payload": address, "signature": "" },
-        { "type": "ECDSA_SIGNED_ENTITY", "payload": challenge, "signature": format!("0x{sig}") }
+        { "type": "ECDSA_SIGNED_ENTITY", "payload": challenge, "signature": sig.to_string() }
     ]);
 
     ws.send(WsMessage::Binary(encode(
@@ -139,7 +139,7 @@ async fn count_island_changed(ws: &mut WsStream, window: Duration) -> usize {
 #[tokio::test]
 async fn island_changed_is_delivered_exactly_once() {
     let port = start_server().await;
-    let wallet = LocalWallet::new(&mut ethers_core::rand::thread_rng());
+    let wallet = PrivateKeySigner::random();
 
     let mut ws = connect_and_handshake(port, &wallet).await;
     send_heartbeat(&mut ws).await;
@@ -154,7 +154,7 @@ async fn island_changed_is_delivered_exactly_once() {
 #[tokio::test]
 async fn second_socket_same_wallet_gets_one_island_and_survives_stale_close() {
     let port = start_server().await;
-    let wallet = LocalWallet::new(&mut ethers_core::rand::thread_rng());
+    let wallet = PrivateKeySigner::random();
 
     let mut ws_a = connect_and_handshake(port, &wallet).await;
     send_heartbeat(&mut ws_a).await;

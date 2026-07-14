@@ -1,0 +1,337 @@
+.chscenes {
+  --ch-black: var(--panel);
+
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 100%;
+  color: var(--text);
+}
+
+.chscenes__container {
+  display: flex;
+  flex: 1 1 auto;
+  width: 100%;
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 24px 24px 36px;
+  box-sizing: border-box;
+}
+
+.chscenes__list-wrap {
+  flex: 1 1 auto;
+  max-width: 100%;
+  padding-bottom: 32px;
+}
+
+.chscenes__loader {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  max-height: 80vh;
+  min-height: 60vh;
+  width: 100%;
+}
+
+.chscenes__menu {
+  display: flex;
+  flex-direction: column;
+}
+
+.chscenes__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.chscenes__heading {
+  margin: 0 0 24px;
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.chscenes__actions {
+  display: flex;
+  flex: 1 0 auto;
+  align-items: stretch;
+  justify-content: flex-end;
+  gap: 12px;
+  font-size: 13px;
+  line-height: 18px;
+  margin-bottom: 10px;
+}
+
+.chscenes__actionbtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 44px;
+  border-radius: var(--r-control);
+  box-sizing: border-box;
+  border: 1px solid var(--line);
+  background-color: transparent;
+  color: #fff;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 18px;
+  padding: 0 22px;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.chscenes__actionbtn svg {
+  width: 20px;
+  height: 16px;
+  flex: 0 0 auto;
+}
+
+.chscenes__actionbtn--secondary {
+  font-size: 14px;
+  font-weight: 700;
+}
+.chscenes__actionbtn--secondary:hover {
+  background-color: var(--fill-3);
+}
+
+.chscenes__filters {
+  display: flex;
+  align-items: center;
+  border-bottom: 1px solid var(--line);
+  margin-top: 16px;
+  margin-bottom: 16px;
+  padding: 10px 16px;
+}
+
+.chscenes__results {
+  flex: 1 0 auto;
+  color: var(--ink-45);
+  text-transform: uppercase;
+  font-size: 13px;
+  line-height: 18px;
+  font-weight: 500;
+}
+
+.chscenes__sortwrap {
+  color: var(--ink-45);
+  display: flex;
+  align-items: center;
+}
+.chscenes__sortwrap > p {
+  margin: 0 8px 0 0;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.chscenes__cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(256px, 1fr));
+  gap: 16px;
+  max-width: 100%;
+}
+
+.chscenes__newscene {
+  appearance: none;
+  font: inherit;
+  padding: 0;
+  height: 234px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  border-radius: var(--r-card);
+  border: 1.5px dashed var(--fill-5);
+  background: var(--fill-1);
+  color: var(--ink-7);
+  cursor: pointer;
+  transition: border-color 0.12s ease, background 0.12s ease, color 0.12s ease;
+}
+.chscenes__newscene:hover {
+  border-color: var(--fill-5);
+  background: var(--fill-2);
+  color: #fff;
+}
+.chscenes__newplus {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  border: 2px solid currentColor;
+  font-size: 34px;
+  font-weight: 300;
+  line-height: 1;
+}
+.chscenes__newlabel {
+  font-size: var(--fs-14);
+  font-weight: var(--fw-semibold);
+}
+
+.chscenes__card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 240px;
+  border-radius: var(--r-card);
+  color: var(--text);
+  border: 1px solid var(--line);
+  box-sizing: border-box;
+  background-color: var(--panel);
+}
+.chscenes__card:hover {
+  border-color: var(--fill-5);
+}
+
+.chscenes__open {
+  appearance: none;
+  border: 0;
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  border-radius: var(--r-card);
+  cursor: pointer;
+}
+.chscenes__open:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+
+.chscenes__thumb {
+  width: 100%;
+  height: 156px;
+  border-top-left-radius: var(--r-card);
+  border-top-right-radius: var(--r-card);
+  background: no-repeat center / cover;
+}
+
+.chscenes__badge {
+  position: absolute;
+  bottom: 85px;
+  right: 10px;
+  padding: 8px 12px;
+  border-radius: var(--r-pill);
+  background-color: var(--success);
+  color: var(--ch-black);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.chscenes__cardinfo {
+  display: flex;
+  flex-direction: column;
+  padding: 10px;
+  flex: 1;
+}
+
+.chscenes__cardtitle {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  justify-content: space-between;
+  width: 100%;
+  padding-right: 28px;
+  box-sizing: border-box;
+  line-height: 24px;
+  color: var(--text);
+  min-height: 34px;
+}
+.chscenes__cardtitle > span {
+  font-size: 16px;
+  font-weight: 700;
+  min-width: 0;
+}
+
+.chscenes__cardcontent {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  font-size: 14px;
+  font-weight: 400;
+  text-align: left;
+  user-select: none;
+  gap: 4px;
+  color: var(--ink-6);
+  margin-top: auto;
+}
+.chscenes__cardcontent svg {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+}
+
+.chscenes__cardmenu {
+  position: absolute;
+  top: 159px;
+  right: 10px;
+  z-index: 1;
+}
+.chscenes__kebab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: var(--r-control);
+  background: none;
+  color: var(--ink-7);
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.chscenes__kebab:hover {
+  background: var(--fill-3);
+  color: #fff;
+}
+.chscenes__menuanchor {
+  position: absolute;
+  top: 30px;
+  right: 0;
+  z-index: var(--z-overlay);
+  min-width: 220px;
+}
+
+@media (max-width: 980px) {
+  .chscenes__container {
+    padding: 24px 16px 36px;
+  }
+}
+
+.chscenes__tabs {
+  display: flex;
+  gap: 6px;
+  margin: 0 0 18px;
+}
+.chscenes__tab {
+  border: 1px solid var(--line, rgba(255, 255, 255, 0.1));
+  background: var(--fill-2, rgba(255, 255, 255, 0.06));
+  color: rgba(255, 255, 255, 0.75);
+  border-radius: var(--r-pill, 999px);
+  padding: 8px 18px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+.chscenes__tab:hover { background: var(--fill-3, rgba(255, 255, 255, 0.09)); color: #fff; }
+.chscenes__tab.is-active {
+  background: rgba(255, 45, 85, 0.14);
+  border-color: rgba(255, 45, 85, 0.45);
+  color: #fff;
+}
+.chscenes__tab:focus-visible {
+  outline: 2px solid var(--brand, #ff2d55);
+  outline-offset: 2px;
+}

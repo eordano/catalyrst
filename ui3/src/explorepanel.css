@@ -1,0 +1,19 @@
+.ep__backdrop {
+  position: fixed; inset: 0; z-index: var(--z-panel);
+  background: rgba(0, 0, 0, .502);
+  display: flex; align-items: center; justify-content: center;
+  padding: 24px;
+  animation: u-fade-in .3s linear;
+}
+.ep__close {
+  width: 36px; height: 36px; border-radius: 50%; border: none; cursor: pointer;
+  background: var(--fill-3); color: #fff; font-size: 20px; line-height: 1;
+}
+.ep__close:hover { background: rgba(255,255,255,.16); }
+
+@media (max-width: 760px) {
+  .ep__backdrop { padding: 0; }
+}
+@media (max-height: 600px) {
+  .ep__backdrop { padding: 0; }
+}

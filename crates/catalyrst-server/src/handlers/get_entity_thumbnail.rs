@@ -87,13 +87,13 @@ pub(crate) async fn serve_content_blob(
     let file_info = state
         .storage
         .file_info(hash)
-        .await
+        .await?
         .ok_or_else(|| NotFoundError::new("Content not found."))?;
 
     let detected = state
         .storage
         .retrieve_range(hash, 0, 31)
-        .await
+        .await?
         .map(|head| crate::handlers::get_content::detect_content_type(&head))
         .unwrap_or("application/octet-stream");
 
@@ -118,7 +118,7 @@ pub(crate) async fn serve_content_blob(
             let content = state
                 .storage
                 .retrieve_range(hash, start, end)
-                .await
+                .await?
                 .ok_or_else(|| NotFoundError::new("Content not found."))?;
 
             let total = total_size.unwrap_or(0);
@@ -175,7 +175,7 @@ pub(crate) async fn serve_content_blob(
             let content = state
                 .storage
                 .retrieve(hash)
-                .await
+                .await?
                 .ok_or_else(|| NotFoundError::new("Content not found."))?;
 
             let body: Bytes = if *method == Method::HEAD {

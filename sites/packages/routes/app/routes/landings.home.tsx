@@ -1,0 +1,163 @@
+import { useEffect, useRef } from "react";
+import { useNavigate } from "react-router";
+
+import LdHomePage, { type LdHomeRail } from "@ui/landings/pages/LdHomePage";
+
+import {
+  eventItems,
+  heroEventCards,
+  hotspotCards,
+  ritualCards,
+  ritualItems,
+  type HomeContent,
+} from "@data/lib/catalyst/landings/home";
+import { loadHome } from "@data/lib/catalyst/landings/home.server";
+import { type Assignment } from "@core/lib/experiments/assign";
+import { storyLoader } from "@core/lib/experiments/story-loader";
+import { track, trackExposure } from "@core/lib/telemetry/track";
+
+import type { Route } from "./+types/landings.home";
+import type { StoryId } from "@core/lib/telemetry/story-id";
+
+const STORY: StoryId = "landings/home";
+
+const FALLBACK: Assignment = {
+  variant: "hero_cta",
+  flags: { heroDownloadCta: true, showFeatureRails: true },
+  experimentKey: "lp_home_hero_cta",
+};
+
+export async function loader({ request }: Route.LoaderArgs) {
+  const { sid, assignment, wrap } = await storyLoader(
+    request,
+    STORY,
+    FALLBACK,
+  );
+
+  trackExposure({
+    sid,
+    story: STORY,
+    variant: assignment.variant,
+    experimentKey: assignment.experimentKey,
+  });
+
+  const { content, live } = await loadHome();
+
+  const payload = { sid, content, live };
+
+  return wrap(payload);
+}
+
+type LoaderData = { sid: string; content: HomeContent; live: boolean };
+
+export default function LandingsHome({ loaderData }: Route.ComponentProps) {
+  const d = loaderData as LoaderData;
+  return <HomeLanding sid={d.sid} content={d.content} live={d.live} />;
+}
+
+function toRails(content: HomeContent): LdHomeRail[] {
+  return content.rails.map((rail) => ({
+    id: rail.id,
+    title: rail.title,
+    kind: rail.kind,
+    viewAll: rail.viewAll,
+    items:
+      rail.kind === "events"
+        ? eventItems(rail).map((ev) => ({
+            id: ev.id,
+            title: ev.title,
+            href: `/whats-on/${encodeURIComponent(ev.id)}`,
+            category: ev.category,
+            live: ev.live,
+            when: ev.when,
+          }))
+        : rail.kind === "rituals"
+          ? ritualItems(rail).map((r) => ({ id: r.id, title: r.title, href: r.href }))
+          : [],
+  }));
+}
+
+type LandingProps = { sid: string; content: HomeContent; live: boolean };
+
+function HomeLanding({ sid, content, live }: LandingProps) {
+  const navigate = useNavigate();
+  const railCount = content.rails.length;
+
+  useHomeView(sid, railCount, live);
+
+  const railsRef = useRailExposure(sid, content);
+
+  function onDownloadClick(store: string, placement: string) {
+    track(
+      "lp_home_download_clicked",
+      { store, placement },
+      { sid, story: STORY },
+    );
+  }
+
+  function onRailClick(rail: string, target: string) {
+    track("lp_home_rail_clicked", { rail, target }, { sid, story: STORY });
+  }
+
+  return (
+    <LdHomePage
+      hero={content.hero}
+      rails={toRails(content)}
+      comeHangOutTitle={content.comeHangOut.title}
+      live={live}
+      events={heroEventCards(content)}
+      hotspots={hotspotCards(content)}
+      rituals={ritualCards(content)}
+      onDownloadClick={onDownloadClick}
+      onRailClick={onRailClick}
+      onNavigate={(href, e) => {
+        e.preventDefault();
+        navigate(href);
+      }}
+      railRef={railsRef}
+    />
+  );
+}
+
+function useHomeView(sid: string, rails: number, live: boolean) {
+  const viewed = useRef(false);
+  useEffect(() => {
+    if (viewed.current) return;
+    viewed.current = true;
+    track("lp_home_viewed", { rails, live_rail: live }, { sid, story: STORY });
+  }, [sid, rails, live]);
+}
+
+function useRailExposure(sid: string, content: HomeContent) {
+  const fired = useRef<Set<string>>(new Set());
+  const nodes = useRef<Map<string, HTMLElement>>(new Map());
+
+  useEffect(() => {
+    if (typeof IntersectionObserver === "undefined") return;
+    const seen = fired.current;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (!entry.isIntersecting) continue;
+          const id = (entry.target as HTMLElement).dataset.rail;
+          if (!id || seen.has(id)) continue;
+          seen.add(id);
+          track("lp_home_rail_viewed", { rail: id }, { sid, story: STORY });
+          observer.unobserve(entry.target);
+        }
+      },
+      { threshold: 0.4 },
+    );
+    for (const node of nodes.current.values()) observer.observe(node);
+    return () => observer.disconnect();
+  }, [sid, content]);
+
+  return (id: string) => (node: HTMLElement | null) => {
+    if (node) {
+      node.dataset.rail = id;
+      nodes.current.set(id, node);
+    } else {
+      nodes.current.delete(id);
+    }
+  };
+}

@@ -23,6 +23,21 @@ pub struct AppStateInner {
     pub admin_token: Option<String>,
 }
 
+/// Small side pools for the first-wear poller: the canonical
+/// [`catalyrst_db::connect_pool`] constructor with just the connection count
+/// turned down.
+async fn first_wear_pool(url: &str) -> Result<sqlx::PgPool, catalyrst_db::PoolError> {
+    catalyrst_db::connect_pool(
+        url,
+        &catalyrst_db::PoolSettings {
+            max_connections: 2,
+            acquire_timeout_secs: Some(10),
+            ..catalyrst_db::PoolSettings::default()
+        },
+    )
+    .await
+}
+
 pub type AppState = Arc<AppStateInner>;
 
 pub async fn build_state(cfg: &Config) -> Result<AppState> {
@@ -47,7 +62,7 @@ pub async fn build_state(cfg: &Config) -> Result<AppState> {
         (Some(content), Some(social), Some(squid)) => {
             let telemetry = match &cfg.telemetry_database_url {
                 Some(url) => Some(
-                    first_wear::connect_pool(url)
+                    first_wear_pool(url)
                         .await
                         .context("failed to connect first_wear telemetry pool")?,
                 ),
@@ -60,13 +75,13 @@ pub async fn build_state(cfg: &Config) -> Result<AppState> {
             };
             let pools = first_wear::FirstWearPools {
                 own: pool.clone(),
-                content: first_wear::connect_pool(content)
+                content: first_wear_pool(content)
                     .await
                     .context("failed to connect first_wear content pool")?,
-                social: first_wear::connect_pool(social)
+                social: first_wear_pool(social)
                     .await
                     .context("failed to connect first_wear social pool")?,
-                squid: first_wear::connect_pool(squid)
+                squid: first_wear_pool(squid)
                     .await
                     .context("failed to connect first_wear squid pool")?,
                 telemetry,

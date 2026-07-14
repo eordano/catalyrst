@@ -1,8 +1,8 @@
+use alloy::signers::{local::PrivateKeySigner, Signer};
 use axum::http::{HeaderMap, HeaderName, HeaderValue};
 use axum::response::IntoResponse;
 use catalyrst_builder::auth_chain::build_payload;
 use catalyrst_builder::handlers::curation::authorize_admin;
-use ethers_signers::{LocalWallet, Signer};
 
 const CURATION_PATH: &str = "/v1/collections/curation";
 
@@ -18,32 +18,33 @@ fn link_json(kind: &str, payload: &str, signature: &str) -> String {
 }
 
 async fn signed_headers(ts_ms: i64) -> (HeaderMap, String) {
-    let root: LocalWallet = "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
+    let root: PrivateKeySigner = "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
         .parse()
         .unwrap();
     let root_addr = format!("{:#x}", root.address());
 
-    let ephemeral: LocalWallet = "59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d"
-        .parse()
-        .unwrap();
+    let ephemeral: PrivateKeySigner =
+        "59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d"
+            .parse()
+            .unwrap();
     let ephemeral_addr = format!("{:#x}", ephemeral.address());
 
     let ephemeral_payload = format!(
         "Decentraland Login\nEphemeral address: {}\nExpiration: 2099-01-01T00:00:00.000Z",
         ephemeral_addr
     );
-    let ephemeral_sig = format!(
-        "0x{}",
-        root.sign_message(ephemeral_payload.as_bytes())
-            .await
-            .unwrap()
-    );
+    let ephemeral_sig = root
+        .sign_message(ephemeral_payload.as_bytes())
+        .await
+        .unwrap()
+        .to_string();
 
     let canonical = build_payload("get", CURATION_PATH, &ts_ms.to_string(), "{}");
-    let entity_sig = format!(
-        "0x{}",
-        ephemeral.sign_message(canonical.as_bytes()).await.unwrap()
-    );
+    let entity_sig = ephemeral
+        .sign_message(canonical.as_bytes())
+        .await
+        .unwrap()
+        .to_string();
 
     let mut headers = HeaderMap::new();
     headers.insert(

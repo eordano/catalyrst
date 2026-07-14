@@ -1,0 +1,105 @@
+.invite-referral-route {
+  position: relative;
+}
+
+.invite-referral-route__steps {
+  position: fixed;
+  top: 12px;
+  right: 12px;
+  z-index: 50;
+  display: flex;
+  gap: 6px;
+  background: rgba(22, 21, 24, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+  padding: 4px;
+  backdrop-filter: blur(8px);
+}
+
+.invite-referral-route__step {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: capitalize;
+  border-radius: 999px;
+  padding: 5px 12px;
+  cursor: pointer;
+}
+
+.invite-referral-route__step.is-active {
+  background: #ff2d55;
+  color: #fff;
+}
+
+.invite-referral-route__cta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  max-width: 1000px;
+  margin: 0 auto;
+  padding: 40px 24px;
+}
+
+.invite-referral-route__btn {
+  appearance: none;
+  display: inline-block;
+  background: #ff2d55;
+  color: #fff;
+  font-size: 15px;
+  font-weight: 600;
+  text-decoration: none;
+  border-radius: 8px;
+  padding: 18.5px 61px;
+}
+
+.invite-referral-route__btn--alt {
+  background: linear-gradient(180deg, #410461, #5d0089);
+}
+
+.invite-referral-route__by {
+  flex-basis: 100%;
+  text-align: center;
+  color: rgba(255, 255, 255, 0.75);
+  font-size: 14px;
+  margin: 0;
+}
+
+.invite-referral-route__by strong {
+  color: #fff;
+}
+
+.invite-referral-route__faqs {
+  max-width: 1000px;
+  margin: 0 auto;
+  padding: 0 24px 80px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.invite-referral-route__faq {
+  background: #161518;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 24px;
+  padding: 20px 28px;
+}
+
+.invite-referral-route__faq-q {
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 20px;
+  font-weight: 300;
+  cursor: pointer;
+  list-style: none;
+}
+
+.invite-referral-route__faq-a {
+  color: rgba(255, 255, 255, 0.7);
+  line-height: 1.65;
+  white-space: pre-line;
+  margin: 16px 0 0;
+}

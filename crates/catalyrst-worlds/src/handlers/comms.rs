@@ -6,11 +6,26 @@ use serde_json::{json, Value};
 use crate::auth_chain::{require_verified, AuthChainError};
 use crate::http::ApiError;
 use crate::livekit::{
-    build_adapter_url, world_room_name, world_scene_room_name, AccessToken, VideoGrants,
+    build_adapter_url, join_grants, world_room_name, world_scene_room_name, AccessToken,
 };
 use crate::rate_limiter::RATE_LIMIT_WINDOW_SECONDS;
 use crate::AppState;
 
+#[utoipa::path(
+    post,
+    path = "/worlds/{world_name}/comms",
+    tag = "comms",
+    params(("world_name" = String, Path)),
+    responses(
+        (status = 200, body = serde_json::Value),
+        (status = 400, body = catalyrst_types::ApiErrorBody),
+        (status = 401, body = catalyrst_types::ApiErrorBody),
+        (status = 403, body = catalyrst_types::ApiErrorBody),
+        (status = 404, body = catalyrst_types::ApiErrorBody),
+        (status = 429, body = catalyrst_types::ApiErrorBody),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn world_comms(
     State(state): State<AppState>,
     Path(world_name): Path<String>,
@@ -20,6 +35,21 @@ pub async fn world_comms(
     mint(&state, &world_name, None, uri.path(), &headers).await
 }
 
+#[utoipa::path(
+    post,
+    path = "/worlds/{world_name}/scenes/{scene_id}/comms",
+    tag = "comms",
+    params(("world_name" = String, Path), ("scene_id" = String, Path)),
+    responses(
+        (status = 200, body = serde_json::Value),
+        (status = 400, body = catalyrst_types::ApiErrorBody),
+        (status = 401, body = catalyrst_types::ApiErrorBody),
+        (status = 403, body = catalyrst_types::ApiErrorBody),
+        (status = 404, body = catalyrst_types::ApiErrorBody),
+        (status = 429, body = catalyrst_types::ApiErrorBody),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn world_scene_comms(
     State(state): State<AppState>,
     Path((world_name, scene_id)): Path<(String, String)>,
@@ -37,7 +67,7 @@ async fn mint(
     headers: &HeaderMap,
 ) -> Result<Json<Value>, ApiError> {
     let auth = require_verified(headers, "post", path).map_err(map_auth_error)?;
-    let identity = auth.signer.clone();
+    let identity = auth.signer.as_str().to_string();
     let secret = auth.secret();
 
     let world = state.worlds.get_world(world_name).await?;
@@ -155,7 +185,7 @@ async fn mint(
         state.cfg.livekit_api_key.clone(),
         state.cfg.livekit_api_secret.clone(),
         identity.clone(),
-        VideoGrants::join(room),
+        join_grants(room),
     )
     .to_jwt()
     .map_err(|e| ApiError::internal(format!("token mint failed: {e}")))?;

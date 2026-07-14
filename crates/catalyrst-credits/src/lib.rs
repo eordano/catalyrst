@@ -4,6 +4,7 @@ pub mod config;
 pub mod dto;
 pub mod handlers;
 pub mod http;
+pub mod money;
 pub mod ports;
 pub mod provider;
 pub mod purchase_intent;
@@ -14,7 +15,6 @@ use std::time::Duration;
 use anyhow::{Context, Result};
 use axum::routing::{get, post};
 use axum::Router;
-use sqlx::postgres::PgPoolOptions;
 
 use crate::config::Config;
 use crate::ports::checkout::OutboxWorker;
@@ -100,13 +100,17 @@ pub fn api_router() -> Router<AppState> {
 }
 
 pub async fn build_state(cfg: &Config) -> Result<AppState> {
-    let pool = PgPoolOptions::new()
-        .max_connections(20)
-        .acquire_timeout(Duration::from_secs(10))
-        .idle_timeout(Some(Duration::from_secs(60)))
-        .connect(&cfg.database_url)
-        .await
-        .context("failed to connect to credits database")?;
+    let pool = catalyrst_db::connect_pool(
+        &cfg.database_url,
+        &catalyrst_db::PoolSettings {
+            max_connections: 20,
+            idle_timeout_secs: 60,
+            acquire_timeout_secs: Some(10),
+            ..catalyrst_db::PoolSettings::default()
+        },
+    )
+    .await
+    .context("failed to connect to credits database")?;
 
     if let Err(e) = sqlx::migrate!("./migrations").run(&pool).await {
         tracing::error!(error = %e, "migration failed");
@@ -148,12 +152,16 @@ pub async fn build_state(cfg: &Config) -> Result<AppState> {
     );
 
     let usage_grants_pool = match &cfg.usage_grants_database_url {
-        Some(url) => match PgPoolOptions::new()
-            .max_connections(5)
-            .acquire_timeout(Duration::from_secs(10))
-            .idle_timeout(Some(Duration::from_secs(60)))
-            .connect(url)
-            .await
+        Some(url) => match catalyrst_db::connect_pool(
+            url,
+            &catalyrst_db::PoolSettings {
+                max_connections: 5,
+                idle_timeout_secs: 60,
+                acquire_timeout_secs: Some(10),
+                ..catalyrst_db::PoolSettings::default()
+            },
+        )
+        .await
         {
             Ok(p) => Some(p),
             Err(e) => {
@@ -206,31 +214,6 @@ pub async fn build_state(cfg: &Config) -> Result<AppState> {
         usage_grants_pool: usage_grants_pool.clone(),
     }
     .spawn(cfg.checkout_worker_interval_secs);
-
-    let progress_presence_pool = match &cfg.progress_presence_database_url {
-        Some(url) => match PgPoolOptions::new()
-            .max_connections(2)
-            .acquire_timeout(Duration::from_secs(10))
-            .idle_timeout(Some(Duration::from_secs(60)))
-            .connect(url)
-            .await
-        {
-            Ok(p) => Some(p),
-            Err(e) => {
-                tracing::error!(
-                    error = %e,
-                    "failed to connect presence pool; explorer goal tracking disabled"
-                );
-                None
-            }
-        },
-        None => None,
-    };
-    ports::progress::spawn_progress_worker(
-        credits.clone(),
-        progress_presence_pool,
-        cfg.checkout_worker_interval_secs,
-    );
 
     Ok(Arc::new(AppStateInner {
         credits,

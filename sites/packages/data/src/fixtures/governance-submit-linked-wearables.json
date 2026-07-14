@@ -1,0 +1,183 @@
+{
+  "_source": "https://raw.githubusercontent.com/decentraland/governance-ui/main/src/pages/submit/linked-wearables.tsx \u2014 Derived from decentraland/governance-ui (the DAO governance dapp). Primary sources: src/pages/submit/linked-wearables.tsx (the SubmitLinkedWearables form: Name, NFT Marketplace Listing single URL, Links repeatable URL list, Collection Images repeatable image-URL list max 10, NFT Collections markdown, Motivation markdown, Items number, Intellectual Property markdown, Smart Contracts repeatable address list, Managers repeatable address list, a Yes/No 'programmatically generated' Radio pair revealing a conditional Method markdown field, CoAuthors, Submit; Governance.createProposalLinkedWearables on submit; LogIn gate when signed out), src/types/proposals.ts (newProposalLinkedWearablesScheme: name 1..80, image_previews 1..10 items, links minItems 1, nft_collections/governance/motivation 20..750, items integer 1..99999, smart_contract/managers address arrays minItems 1, method 0..750, programmatically_generated boolean; ProposalType.LinkedWearables), src/intl/en.json (page.submit_linked_wearables.* labels/details/placeholders + error.linked_wearables.* messages \u2014 verbatim). decentraland/governance repo paths 404; the live source is decentraland/governance-ui. Governance is NOT a Catalyst service (the DAO runs on Snapshot + Aragon externally), so createProposalLinkedWearables and the remote image-validation are SIMULATED/derived here \u2014 no remote calls.",
+  "type": "linked_wearables",
+  "title": "Linked Wearables Registry",
+  "description": "Linked Wearables are a way to represent NFTs as Wearables in Decentraland. Third parties need to submit a proposal to be approved by the DAO in order to access the tool in the Builder and get slots to submit the 3D models. By using this tool, you will be able to submit NFTs as Wearables to be curated and made available for your NFT holders inside Decentraland.",
+  "description_note": "Note that after being approved, you will need to create an API with the endpoints described in the ADR-42 third-party assets integration document.",
+  "submit_label": "Submit proposal",
+  "fields": {
+    "name": {
+      "label": "Name",
+      "detail": "Please enter the name that represents your Project, Company, or Community as a whole",
+      "placeholder": "Enter the name here",
+      "min_length": 1,
+      "max_length": 80,
+      "required": true,
+      "markdown": false
+    },
+    "marketplace_link": {
+      "label": "NFT Marketplace Listing",
+      "detail": "Provide an URL where users can see your NFT collection listed in an NFT marketplace like OpenSea, Rarible, or any other",
+      "placeholder": "Add a link here",
+      "format": "url",
+      "required": true,
+      "markdown": false
+    },
+    "links": {
+      "label": "Links",
+      "detail": "Links for your project website, Discord server, social media, or any other relevant space for your Project",
+      "placeholder": "Add a link here",
+      "add_label": "Add another link",
+      "format": "url",
+      "min_items": 1,
+      "required": true,
+      "markdown": false
+    },
+    "image_previews": {
+      "label": "Collection Images",
+      "detail": "Provide up to {amount} images to show the community what your collection and wearables looks like. JPG, PNG, BMP & WEBP formats supported.",
+      "placeholder": "Insert image URL",
+      "add_label": "Add another image",
+      "format": "image",
+      "min_items": 1,
+      "max_items": 10,
+      "required": true,
+      "markdown": false
+    },
+    "nft_collections": {
+      "label": "NFT Collections",
+      "detail": "Describe the NFT Collections you created. If it\u2019s only one, just describe that one",
+      "placeholder": "Describe the NFT Collections you created here",
+      "min_length": 20,
+      "max_length": 750,
+      "required": true,
+      "markdown": true
+    },
+    "motivation": {
+      "label": "Motivation",
+      "detail": "Why do you want to have your NFTs represented in Decentraland?",
+      "placeholder": "A brief motivation",
+      "min_length": 20,
+      "max_length": 750,
+      "required": true,
+      "markdown": true
+    },
+    "items": {
+      "label": "Items in Linked Wearables Collection",
+      "detail": "How many 3D models (Linked Wearables) will be uploaded. Note: This is not the number of NFTs in the original collection.",
+      "placeholder": "Add the number of items you will upload",
+      "format": "integer",
+      "minimum": 1,
+      "maximum": 99999,
+      "required": true,
+      "markdown": false
+    },
+    "governance": {
+      "label": "Intellectual Property",
+      "detail": "Provide proof that you are the rightful owner or representative of the Project, Company, or Community. Please share any links with relevant information.",
+      "placeholder": "Provide proof here",
+      "min_length": 20,
+      "max_length": 750,
+      "required": true,
+      "markdown": true
+    },
+    "smart_contract": {
+      "label": "Smart Contracts",
+      "detail": "Share the Addresses of the smart contracts of your NFT collections",
+      "placeholder": "Add Ethereum address",
+      "add_label": "Add another address",
+      "format": "address",
+      "min_items": 1,
+      "required": true,
+      "markdown": false
+    },
+    "managers": {
+      "label": "Managers",
+      "detail": "Addresses of the representatives that will Manage the tool. Note: Managers are the only ones allowed to add item representations and manage the tool",
+      "placeholder": "Add Ethereum address",
+      "add_label": "Add another address",
+      "format": "address",
+      "min_items": 1,
+      "required": true,
+      "markdown": false
+    },
+    "programmatically_generated": {
+      "label": "Is this collection programmatically generated?",
+      "detail": "The collection you will upload to Decentraland as Linked Wearables is programmatically generated. This means the 3D models you will submit to Decentraland were made this way.",
+      "note": "In general, large collections of more than 5k NFTs are not created manually, they are systematically generated from individual traits that were designed individually. If your Linked Wearables Collection is made like this, share the details below.",
+      "yes_label": "Yes",
+      "no_label": "No",
+      "required": true,
+      "markdown": false
+    },
+    "method": {
+      "label": "Method",
+      "detail": "Describe the method used to create the programmatic collection. If possible, share proof and links to the repository.",
+      "placeholder": "Describe the method",
+      "min_length": 0,
+      "max_length": 750,
+      "required": false,
+      "conditional_on": "programmatically_generated",
+      "markdown": true
+    },
+    "coAuthors": {
+      "label": "Co-Authors",
+      "detail": "Add the Decentraland addresses of any co-authors of this proposal",
+      "placeholder": "Add Ethereum address",
+      "format": "address",
+      "max": 5,
+      "required": false,
+      "optional": true,
+      "markdown": false
+    }
+  },
+  "errors": {
+    "name_empty": "Name is empty",
+    "name_too_short": "Name is too short",
+    "name_too_large": "Name is too large",
+    "single_url_empty": "Insert an URL",
+    "single_url_invalid": "The URL is invalid, it must start with 'https://'",
+    "links_empty": "Insert at least one URL",
+    "url_invalid": "Some URL is invalid, they must start with 'https://'",
+    "image_type_invalid": "Some image is invalid, it must be a JPG, PNG, BMP or WEBP",
+    "nft_collections_empty": "Description is empty",
+    "nft_collections_too_short": "Description is too short",
+    "nft_collections_too_large": "Description is too large",
+    "motivation_empty": "Motivation is empty",
+    "motivation_too_short": "Motivation is too short",
+    "motivation_too_large": "Motivation is too large",
+    "items_invalid": "Items quantity is not a valid number",
+    "items_too_low": "Items quantity is too low",
+    "items_too_high": "Items quantity is too high",
+    "governance_empty": "Proof is empty",
+    "governance_too_short": "Proof is too short",
+    "governance_too_large": "Proof is too large",
+    "smart_contract_empty": "Insert at least one smart contract address",
+    "managers_empty": "Insert at least one manager address",
+    "address_invalid": "Some address is invalid",
+    "method_empty": "Method is empty",
+    "method_too_short": "Method is too short",
+    "method_too_large": "Method is too large"
+  },
+  "submit_error": "There was an error while trying to create the proposal, please try again later.",
+  "sample": {
+    "name": "",
+    "marketplace_link": "",
+    "links": [],
+    "image_previews": [],
+    "nft_collections": "",
+    "motivation": "",
+    "items": "",
+    "governance": "",
+    "smart_contract": [],
+    "managers": [],
+    "programmatically_generated": false,
+    "method": "",
+    "coAuthors": []
+  },
+  "success": {
+    "title": "Proposal created",
+    "lead": "Your Linked Wearables Registry proposal is now live for the DAO to vote on.",
+    "note": "This proposal was created in a simulation \u2014 no on-chain transaction or Snapshot proposal was submitted."
+  }
+}

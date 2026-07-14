@@ -1,0 +1,10 @@
+node_modules/
+dist/
+dist-app/
+dist-overlay/
+static/
+*.log
+reference
+storybook-static/
+.storybook-build/
+coverage/

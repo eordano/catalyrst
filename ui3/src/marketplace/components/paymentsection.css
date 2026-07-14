@@ -1,0 +1,105 @@
+.paysec {
+  margin: 14px 0 4px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  padding-top: 14px;
+}
+.paysec__need {
+  margin: 0 0 10px;
+  color: rgba(255, 255, 255, 0.75);
+  font-size: 14px;
+}
+.paysec__methods {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.paysec__method {
+  flex: 1 1 140px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  background: rgba(255, 255, 255, 0.04);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: border-color 140ms ease, background 140ms ease;
+}
+.paysec__method:hover {
+  border-color: rgba(255, 255, 255, 0.45);
+}
+.paysec__method[aria-pressed="true"] {
+  border-color: #a855f7;
+  background: rgba(168, 85, 247, 0.14);
+}
+.paysec__methodicon {
+  font-size: 16px;
+}
+
+.paysec__pane > * {
+  animation: paysec-in 160ms ease;
+}
+@keyframes paysec-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .paysec__pane > * {
+    animation: none;
+  }
+  .paysec__method {
+    transition: none;
+  }
+}
+
+.paysec__form {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: flex-start;
+}
+.paysec__quote {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 14px;
+}
+.paysec__busy {
+  margin: 12px 0 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: rgba(255, 255, 255, 0.75);
+  font-size: 14px;
+}
+.paysec__done {
+  margin: 12px 0 0;
+  color: #7fe0a7;
+  font-size: 14px;
+}
+.paysec__unavailable {
+  margin: 12px 0 0;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 14px;
+}
+
+.mkco__split .paysec { border-top: 0; margin: 0; padding-top: 0; }
+
+.mkco__link {
+  color: var(--brand-ink, #ff6b87);
+  font-weight: 700;
+  font-size: 14px;
+  text-decoration: none;
+}
+.mkco__link:hover { text-decoration: underline; }

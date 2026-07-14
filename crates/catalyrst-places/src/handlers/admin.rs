@@ -22,6 +22,17 @@ pub struct ReportQuery {
     pub offset: Option<i64>,
 }
 
+#[utoipa::path(
+    get,
+    path = "/reports",
+    tag = "admin",
+    params(("limit" = Option<i64>, Query), ("offset" = Option<i64>, Query), ("status" = Option<String>, Query)),
+    responses(
+        (status = 200, body = ApiDataTotal<ReportRow>),
+        (status = 403, body = catalyrst_types::ApiErrorBody),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn get_reports(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -49,6 +60,20 @@ pub struct ReportPatch {
     pub resolved_by: Option<String>,
 }
 
+#[utoipa::path(
+    patch,
+    path = "/reports/{id}",
+    tag = "admin",
+    params(("id" = i64, Path)),
+    request_body = serde_json::Value,
+    responses(
+        (status = 200, body = ApiData<ReportRow>),
+        (status = 400, body = catalyrst_types::ApiErrorBody),
+        (status = 401, body = catalyrst_types::ApiErrorBody),
+        (status = 404, body = catalyrst_types::ApiErrorBody),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn patch_report(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -83,6 +108,20 @@ pub struct DisablePlace {
     pub reason: Option<String>,
 }
 
+#[utoipa::path(
+    patch,
+    path = "/places/{place_id}/disable",
+    tag = "admin",
+    params(("place_id" = String, Path)),
+    request_body = serde_json::Value,
+    responses(
+        (status = 200, body = serde_json::Value),
+        (status = 400, body = catalyrst_types::ApiErrorBody),
+        (status = 401, body = catalyrst_types::ApiErrorBody),
+        (status = 404, body = catalyrst_types::ApiErrorBody),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn patch_place_disable(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -110,6 +149,15 @@ pub async fn patch_place_disable(
     })))
 }
 
+#[utoipa::path(
+    get,
+    path = "/pois",
+    tag = "admin",
+    responses(
+        (status = 200, body = ApiData<Vec<PoiRow>>),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn get_pois(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -128,6 +176,18 @@ pub struct PoiCreate {
     pub enabled: Option<bool>,
 }
 
+#[utoipa::path(
+    post,
+    path = "/pois",
+    tag = "admin",
+    request_body = serde_json::Value,
+    responses(
+        (status = 200, body = ApiData<PoiRow>),
+        (status = 400, body = catalyrst_types::ApiErrorBody),
+        (status = 401, body = catalyrst_types::ApiErrorBody),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn post_poi(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -160,6 +220,20 @@ pub struct PoiPatch {
     pub enabled: Option<bool>,
 }
 
+#[utoipa::path(
+    patch,
+    path = "/pois/{position}",
+    tag = "admin",
+    params(("position" = String, Path)),
+    request_body = serde_json::Value,
+    responses(
+        (status = 200, body = ApiData<PoiRow>),
+        (status = 400, body = catalyrst_types::ApiErrorBody),
+        (status = 401, body = catalyrst_types::ApiErrorBody),
+        (status = 404, body = catalyrst_types::ApiErrorBody),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn patch_poi(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -181,6 +255,18 @@ pub async fn patch_poi(
     Ok(Json(ApiData::ok(row)))
 }
 
+#[utoipa::path(
+    delete,
+    path = "/pois/{position}",
+    tag = "admin",
+    params(("position" = String, Path)),
+    responses(
+        (status = 200, body = serde_json::Value),
+        (status = 401, body = catalyrst_types::ApiErrorBody),
+        (status = 404, body = catalyrst_types::ApiErrorBody),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn delete_poi(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -209,7 +295,10 @@ mod tests {
     fn unauth_is_forbidden_with_token_set() {
         let headers = HeaderMap::new();
         let err = require_admin_bearer(&headers, Some("secret")).unwrap_err();
-        assert!(matches!(err, ApiError::Forbidden(_)));
+        assert!(matches!(
+            err,
+            ApiError::Common(catalyrst_types::ApiError::Http { status: 403, .. })
+        ));
     }
 
     #[test]
@@ -217,7 +306,10 @@ mod tests {
         let mut headers = HeaderMap::new();
         headers.insert("authorization", "Bearer anything".parse().unwrap());
         let err = require_admin_bearer(&headers, None).unwrap_err();
-        assert!(matches!(err, ApiError::Forbidden(_)));
+        assert!(matches!(
+            err,
+            ApiError::Common(catalyrst_types::ApiError::Http { status: 403, .. })
+        ));
     }
 
     #[test]
@@ -225,7 +317,10 @@ mod tests {
         let mut headers = HeaderMap::new();
         headers.insert("authorization", "Bearer nope".parse().unwrap());
         let err = require_admin_bearer(&headers, Some("secret")).unwrap_err();
-        assert!(matches!(err, ApiError::Forbidden(_)));
+        assert!(matches!(
+            err,
+            ApiError::Common(catalyrst_types::ApiError::Http { status: 403, .. })
+        ));
     }
 
     #[test]

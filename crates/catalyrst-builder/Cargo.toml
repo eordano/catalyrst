@@ -1,8 +1,12 @@
 [package]
 name = "catalyrst-builder"
-version = "0.9.10"
+version = "0.14.5"
 edition = "2021"
 description = "Rust port of decentraland/builder-server (builder-api.decentraland.org): collection items, content redirect, newsletter"
+
+[package.metadata.generated]
+gate = "sites/scripts/gen-ts-check.sh"
+ts-bindings = "ui3/src/generated/catalyst/builder"
 
 [[bin]]
 name = "catalyrst-builder"
@@ -12,9 +16,9 @@ path = "src/main.rs"
 catalyrst-types = { workspace = true }
 catalyrst-crypto = { workspace = true }
 catalyrst-envcfg = { workspace = true }
+catalyrst-db = { workspace = true }
 tokio = { workspace = true }
 axum = { workspace = true }
-tower = { workspace = true }
 tower-http = { workspace = true }
 reqwest = { workspace = true }
 sqlx = { workspace = true, features = ["uuid"] }
@@ -26,6 +30,10 @@ tracing-subscriber = { workspace = true }
 thiserror = { workspace = true }
 anyhow = { workspace = true }
 uuid = { workspace = true }
+ts-rs = { workspace = true, optional = true }
+
+[features]
+ts = ["dep:ts-rs"]
 
 [dev-dependencies]
-ethers-signers = { workspace = true }
+alloy = { workspace = true }
