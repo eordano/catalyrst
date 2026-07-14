@@ -29,6 +29,16 @@ pub struct WorldsQuery {
     pub order: Option<String>,
 }
 
+#[utoipa::path(
+    get,
+    path = "/worlds",
+    tag = "worlds",
+    params(("limit" = Option<i64>, Query), ("offset" = Option<i64>, Query)),
+    responses(
+        (status = 200, body = serde_json::Value),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn get_worlds(
     State(state): State<AppState>,
     Query(q): Query<WorldsQuery>,

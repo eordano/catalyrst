@@ -145,13 +145,7 @@ pub async fn create_rentals_listing(
     let now_ms = chrono::Utc::now().timestamp_millis();
     if body.expiration < now_ms {
         return Err(
-            ApiError::BadRequest("The rental listing has expired".to_string())
-                .with_data(json!({
-                    "contractAddress": body.contract_address,
-                    "tokenId": body.token_id,
-                    "expiration": body.expiration,
-                }))
-                .into_response(),
+            ApiError::BadRequest("The rental listing has expired".to_string()).into_response(),
         );
     }
 
@@ -186,14 +180,7 @@ pub async fn create_rentals_listing(
             .nft_by_contract_token(&body.contract_address, &body.token_id)
             .await
             .map_err(|e| ApiError::from(e).into_response())?;
-        let nft = nft.ok_or_else(|| {
-            ApiError::not_found("NFT not found")
-                .with_data(json!({
-                    "contractAddress": body.contract_address,
-                    "tokenId": body.token_id,
-                }))
-                .into_response()
-        })?;
+        let nft = nft.ok_or_else(|| ApiError::not_found("NFT not found").into_response())?;
 
         if !nft.owner_address.eq_ignore_ascii_case(&signer) {
             return Err(ApiError::Unauthorized(format!(
@@ -261,10 +248,6 @@ pub async fn create_rentals_listing(
         Err(e) if crate::db::Database::is_open_conflict(&e) => Err(ApiError::Conflict(
             "There is already an open rental listing for the asset".to_string(),
         )
-        .with_data(json!({
-            "contractAddress": body.contract_address,
-            "tokenId": body.token_id,
-        }))
         .into_response()),
         Err(e) => Err(ApiError::from(e).into_response()),
     }
@@ -367,5 +350,5 @@ fn catalyrst_crypto_require_signer(
     path: &str,
 ) -> Result<String, String> {
     crate::auth::require_signer(headers, method, path, state.config.auth_expiration_secs)
-        .map_err(|e| e.to_string())
+        .map_err(|e| crate::auth::wire_message(&e))
 }

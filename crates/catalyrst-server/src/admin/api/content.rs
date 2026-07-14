@@ -7,7 +7,7 @@ pub async fn flush_deployments_cache(
     state.deployments_cache.clear();
     audit::record(
         state.audit_pool.as_ref(),
-        &session.address,
+        session.address(),
         "content.flush-cache",
         None,
         json!({}),
@@ -58,7 +58,7 @@ pub async fn content_retry_failed(
         .map_err(|errs| errs.join("; "));
     finish(
         &state,
-        &session.address,
+        session.address(),
         "content.failed-deployments.retry",
         Some(&req.id),
         json!({ "entityId": req.id }),
@@ -104,7 +104,7 @@ pub async fn content_clear_failed(
     };
     finish(
         &state,
-        &session.address,
+        session.address(),
         "content.failed-deployments.clear",
         target.as_deref(),
         detail,
@@ -131,7 +131,7 @@ pub async fn content_denylist_add(
         .map(|added| json!({ "added": added }));
     finish(
         &state,
-        &session.address,
+        session.address(),
         "content.denylist.add",
         Some(&req.id),
         json!({ "id": req.id }),
@@ -158,7 +158,7 @@ pub async fn content_denylist_remove(
         .map(|removed| json!({ "removed": removed }));
     finish(
         &state,
-        &session.address,
+        session.address(),
         "content.denylist.remove",
         Some(&req.id),
         json!({ "id": req.id }),
@@ -174,7 +174,7 @@ pub async fn content_denylist_list(
     let ids = state.denylist.list();
     finish(
         &state,
-        &session.address,
+        session.address(),
         "content.denylist.list",
         None,
         json!({ "count": ids.len() }),
@@ -193,7 +193,7 @@ pub async fn content_snapshots_regenerate(
         .map(Value::String);
     finish(
         &state,
-        &session.address,
+        session.address(),
         "content.snapshots.regenerate",
         None,
         json!({}),
@@ -209,7 +209,7 @@ pub async fn content_challenge_refresh(
     let text = state.challenge_supervisor.refresh();
     finish(
         &state,
-        &session.address,
+        session.address(),
         "content.challenge.refresh",
         None,
         json!({}),
@@ -228,7 +228,7 @@ pub async fn content_sync_pause(
         .map(|_| json!({ "control": "paused" }));
     finish(
         &state,
-        &session.address,
+        session.address(),
         "content.sync.pause",
         None,
         json!({}),
@@ -247,7 +247,7 @@ pub async fn content_sync_resume(
         .map(|_| json!({ "control": "run" }));
     finish(
         &state,
-        &session.address,
+        session.address(),
         "content.sync.resume",
         None,
         json!({}),
@@ -266,7 +266,7 @@ pub async fn content_sync_force(
         .map(|_| json!({ "forced": true }));
     finish(
         &state,
-        &session.address,
+        session.address(),
         "content.sync.force",
         None,
         json!({}),
@@ -283,7 +283,7 @@ pub async fn content_read_only(
     let now = state.set_read_only(req.enabled);
     finish(
         &state,
-        &session.address,
+        session.address(),
         "content.read-only",
         None,
         json!({ "enabled": req.enabled }),
@@ -303,7 +303,7 @@ pub async fn content_accepting_users(
         .map(|_| json!({ "acceptingUsers": state.accepting_users.is_accepting() }));
     finish(
         &state,
-        &session.address,
+        session.address(),
         "content.accepting-users",
         None,
         json!({ "enabled": req.enabled }),

@@ -1,4 +1,5 @@
 use crate::modules::admin_auth::require_admin;
+use crate::modules::json_response;
 use crate::AppState;
 use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
@@ -112,11 +113,10 @@ async fn admin_add(
     }
     let wallet = normalize_wallet(&body.wallet);
     if wallet.is_empty() {
-        return (
+        return json_response(
             StatusCode::BAD_REQUEST,
-            Json(json!({ "error": "wallet is required" })),
-        )
-            .into_response();
+            json!({ "error": "wallet is required" }),
+        );
     }
     let path = state.cfg.blocklist_path.clone();
     let mut list = read_denylist(&path).await;
@@ -129,18 +129,16 @@ async fn admin_add(
             wallet: wallet.clone(),
         });
         if let Err(err) = write_denylist(&path, &list).await {
-            return (
+            return json_response(
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "ok": false, "error": err })),
-            )
-                .into_response();
+                json!({ "ok": false, "error": err }),
+            );
         }
     }
-    (
+    json_response(
         StatusCode::OK,
-        Json(json!({ "ok": true, "wallet": wallet, "added": !already, "count": list.users.len() })),
+        json!({ "ok": true, "wallet": wallet, "added": !already, "count": list.users.len() }),
     )
-        .into_response()
 }
 
 async fn admin_remove(
@@ -153,11 +151,10 @@ async fn admin_remove(
     }
     let wallet = normalize_wallet(&body.wallet);
     if wallet.is_empty() {
-        return (
+        return json_response(
             StatusCode::BAD_REQUEST,
-            Json(json!({ "error": "wallet is required" })),
-        )
-            .into_response();
+            json!({ "error": "wallet is required" }),
+        );
     }
     let path = state.cfg.blocklist_path.clone();
     let mut list = read_denylist(&path).await;
@@ -166,20 +163,16 @@ async fn admin_remove(
     let removed = list.users.len() != before;
     if removed {
         if let Err(err) = write_denylist(&path, &list).await {
-            return (
+            return json_response(
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "ok": false, "error": err })),
-            )
-                .into_response();
+                json!({ "ok": false, "error": err }),
+            );
         }
     }
-    (
+    json_response(
         StatusCode::OK,
-        Json(
-            json!({ "ok": true, "wallet": wallet, "removed": removed, "count": list.users.len() }),
-        ),
+        json!({ "ok": true, "wallet": wallet, "removed": removed, "count": list.users.len() }),
     )
-        .into_response()
 }
 
 async fn admin_reload(State(state): State<AppState>, headers: HeaderMap) -> Response {
@@ -189,22 +182,19 @@ async fn admin_reload(State(state): State<AppState>, headers: HeaderMap) -> Resp
     let path = state.cfg.blocklist_path.clone();
     match fs::read(&path).await {
         Ok(bytes) => match serde_json::from_slice::<Denylist>(&bytes) {
-            Ok(list) => (
+            Ok(list) => json_response(
                 StatusCode::OK,
-                Json(json!({ "ok": true, "path": path, "count": list.users.len() })),
-            )
-                .into_response(),
-            Err(err) => (
+                json!({ "ok": true, "path": path, "count": list.users.len() }),
+            ),
+            Err(err) => json_response(
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "ok": false, "path": path, "error": err.to_string() })),
-            )
-                .into_response(),
+                json!({ "ok": false, "path": path, "error": err.to_string() }),
+            ),
         },
-        Err(err) => (
+        Err(err) => json_response(
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "ok": false, "path": path, "error": err.to_string() })),
-        )
-            .into_response(),
+            json!({ "ok": false, "path": path, "error": err.to_string() }),
+        ),
     }
 }
 

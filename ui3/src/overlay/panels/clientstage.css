@@ -1,0 +1,181 @@
+.client-stage {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  background: #05050a;
+}
+
+.client-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  background:
+    radial-gradient(120% 90% at 50% 18%, rgba(124, 92, 255, 0.16), transparent 60%),
+    radial-gradient(120% 90% at 50% 100%, rgba(255, 69, 133, 0.12), transparent 55%),
+    linear-gradient(180deg, #0a0a14 0%, #05050a 100%);
+}
+
+.bv-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.bv-overlay > * {
+  pointer-events: auto;
+}
+
+.bv-overlay__sidebar {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+}
+
+.bv-overlay__minimap {
+  position: absolute;
+  top: 12px;
+  left: 64px;
+}
+
+.bv-overlay__conn {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.bv-overlay__realm {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  padding: 6px 12px;
+  border-radius: 10px;
+  background: rgba(10, 10, 20, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #fff;
+  backdrop-filter: blur(6px);
+}
+
+.bv-overlay__realmname {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+.bv-overlay__realmmeta {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.bv-overlay__voice {
+  position: absolute;
+  bottom: 12px;
+  left: 64px;
+}
+
+.bv-overlay__chat-rest {
+  position: absolute;
+  bottom: 12px;
+  left: 64px;
+}
+
+.bv-overlay__voice + .bv-overlay__chat-rest {
+  bottom: 220px;
+}
+
+.bv-overlay__profile {
+  position: absolute;
+  top: 56px;
+  left: 56px;
+  transform: scale(0.92);
+  transform-origin: top left;
+  transition: opacity 0.15s ease;
+}
+
+.bv-overlay__profile[aria-hidden="true"] {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.bv-panel {
+  position: absolute;
+  z-index: 5;
+  pointer-events: auto;
+}
+
+.bv-panel__close {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 2;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(10, 10, 20, 0.82);
+  color: #fff;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.bv-panel__close:hover {
+  background: rgba(255, 69, 133, 0.85);
+}
+
+.bv-panel--left {
+  top: 0;
+  bottom: 0;
+  left: 46px;
+}
+
+.bv-panel--center {
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(5, 5, 10, 0.62);
+}
+
+.bv-panel--center .bv-panel__close {
+  top: 16px;
+  right: 16px;
+}
+
+.bv-panel--full {
+  inset: 0;
+  background: rgba(5, 5, 10, 0.92);
+  overflow: auto;
+}
+
+.bv-panel--full .bv-panel__close {
+  top: 14px;
+  right: 14px;
+}
+
+.bv-panel__body {
+  width: 100%;
+  height: 100%;
+}
+
+.client-nojs {
+  position: absolute;
+  bottom: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 9;
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: rgba(10, 10, 20, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 12px;
+}

@@ -1,6 +1,6 @@
 [package]
 name = "catalyrst-explorer-api"
-version = "0.9.10"
+version = "0.15.5"
 edition = "2021"
 description = "Bundled Rust ports of the small backend services unity-explorer needs: realm-provider, auth-api, blocklist, builder-api, feature-flags. One binary, one axum router."
 
@@ -11,8 +11,8 @@ path = "src/main.rs"
 [dependencies]
 catalyrst-types = { workspace = true }
 catalyrst-crypto = { workspace = true }
-catalyrst-fed = { workspace = true }
 catalyrst-envcfg = { workspace = true }
+catalyrst-authenticated-principal = { workspace = true }
 tokio = { workspace = true }
 axum = { workspace = true }
 tower = { workspace = true }
@@ -22,10 +22,8 @@ serde_json = { workspace = true }
 chrono = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
-thiserror = { workspace = true }
 anyhow = { workspace = true }
 reqwest = { workspace = true }
-url = { workspace = true }
 uuid = { workspace = true, features = ["v4", "serde"] }
 parking_lot = { workspace = true }
 dashmap = { workspace = true }

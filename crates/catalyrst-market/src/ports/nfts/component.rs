@@ -21,10 +21,6 @@ impl NftsComponent {
         }
     }
 
-    pub fn with_rentals(pool: PgPool, rentals: crate::ports::rentals::RentalsComponent) -> Self {
-        Self { pool, rentals }
-    }
-
     pub async fn get_nfts(
         &self,
         filters: &NftFilters,
@@ -146,10 +142,6 @@ impl NftsComponent {
             })
             .collect();
         Ok((results, total))
-    }
-
-    pub async fn rental_assets_ids_for_owner(&self, owner: &str) -> Vec<String> {
-        self.rentals.get_rental_assets_ids_for_lessor(owner).await
     }
 
     async fn get_open_orders_by_nft_ids(

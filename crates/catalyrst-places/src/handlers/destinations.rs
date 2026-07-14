@@ -132,6 +132,16 @@ async fn enrich(state: &AppState, data: &mut [PlaceRow], flags: &DestinationFlag
     }
 }
 
+#[utoipa::path(
+    get,
+    path = "/destinations",
+    tag = "destinations",
+    params(("limit" = Option<i64>, Query), ("offset" = Option<i64>, Query)),
+    responses(
+        (status = 200, body = serde_json::Value),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn get_destinations_list(
     State(state): State<AppState>,
     Query(pairs): Query<Vec<(String, String)>>,
@@ -153,6 +163,17 @@ pub async fn get_destinations_list(
     Ok(Json(json!({ "ok": true, "data": out, "total": total })))
 }
 
+#[utoipa::path(
+    post,
+    path = "/destinations",
+    tag = "destinations",
+    request_body = Vec<String>,
+    responses(
+        (status = 200, body = serde_json::Value),
+        (status = 400, body = catalyrst_types::ApiErrorBody),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn post_destinations_list_by_id(
     State(state): State<AppState>,
     Query(pairs): Query<Vec<(String, String)>>,

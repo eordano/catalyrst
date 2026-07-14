@@ -5,30 +5,6 @@ use crate::http::ApiError;
 use crate::ports::credits::CreditsComponent;
 
 #[derive(Debug, Clone)]
-pub struct SeasonAdminRow {
-    pub id: i32,
-    pub name: String,
-    pub start_date: chrono::DateTime<chrono::Utc>,
-    pub end_date: chrono::DateTime<chrono::Utc>,
-    pub max_mana: String,
-    pub amount_of_weeks: i32,
-    pub state: String,
-}
-
-#[derive(Debug, Clone)]
-pub struct GoalAdminRow {
-    pub id: i32,
-    pub week_id: i32,
-    pub title: String,
-    pub description: String,
-    pub thumbnail: String,
-    pub reward: String,
-    pub total_steps: i32,
-    pub sort_order: i32,
-    pub kind: String,
-}
-
-#[derive(Debug, Clone)]
 pub struct GrantOutcome {
     pub available: String,
 
@@ -146,280 +122,6 @@ impl CreditsComponent {
         Ok(())
     }
 
-    pub async fn admin_list_seasons(&self) -> Result<Vec<SeasonAdminRow>, ApiError> {
-        let rows = sqlx::query(
-            "SELECT id, name, start_date, end_date, max_mana::text AS max_mana, \
-                    amount_of_weeks, state \
-             FROM credits_seasons ORDER BY start_date DESC, id DESC",
-        )
-        .fetch_all(&self.pool)
-        .await?;
-        Ok(rows.into_iter().map(map_season_admin).collect())
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    pub async fn admin_create_season(
-        &self,
-        name: &str,
-        start_date: chrono::DateTime<chrono::Utc>,
-        end_date: chrono::DateTime<chrono::Utc>,
-        max_mana: &str,
-        amount_of_weeks: i32,
-        state: &str,
-        detail: &JsonValue,
-    ) -> Result<SeasonAdminRow, ApiError> {
-        let mut tx = self.pool.begin().await?;
-        let row = sqlx::query(
-            "INSERT INTO credits_seasons \
-                 (name, start_date, end_date, max_mana, amount_of_weeks, state) \
-             VALUES ($1, $2, $3, $4::numeric, $5, $6) \
-             RETURNING id, name, start_date, end_date, max_mana::text AS max_mana, \
-                       amount_of_weeks, state",
-        )
-        .bind(name)
-        .bind(start_date)
-        .bind(end_date)
-        .bind(max_mana)
-        .bind(amount_of_weeks)
-        .bind(state)
-        .fetch_one(&mut *tx)
-        .await?;
-        let season = map_season_admin(row);
-        Self::audit(
-            &mut *tx,
-            "season.create",
-            None,
-            Some(season.id as i64),
-            None,
-            None,
-            None,
-            detail,
-        )
-        .await?;
-        tx.commit().await?;
-        Ok(season)
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    pub async fn admin_update_season(
-        &self,
-        id: i32,
-        name: &str,
-        start_date: chrono::DateTime<chrono::Utc>,
-        end_date: chrono::DateTime<chrono::Utc>,
-        max_mana: &str,
-        amount_of_weeks: i32,
-        state: &str,
-        detail: &JsonValue,
-    ) -> Result<SeasonAdminRow, ApiError> {
-        let mut tx = self.pool.begin().await?;
-        let row = sqlx::query(
-            "UPDATE credits_seasons SET \
-                 name = $2, start_date = $3, end_date = $4, max_mana = $5::numeric, \
-                 amount_of_weeks = $6, state = $7 \
-             WHERE id = $1 \
-             RETURNING id, name, start_date, end_date, max_mana::text AS max_mana, \
-                       amount_of_weeks, state",
-        )
-        .bind(id)
-        .bind(name)
-        .bind(start_date)
-        .bind(end_date)
-        .bind(max_mana)
-        .bind(amount_of_weeks)
-        .bind(state)
-        .fetch_optional(&mut *tx)
-        .await?;
-        let row = row.ok_or_else(|| ApiError::not_found("season not found"))?;
-        let season = map_season_admin(row);
-        Self::audit(
-            &mut *tx,
-            "season.update",
-            None,
-            Some(season.id as i64),
-            None,
-            None,
-            None,
-            detail,
-        )
-        .await?;
-        tx.commit().await?;
-        Ok(season)
-    }
-
-    pub async fn admin_delete_season(&self, id: i32, detail: &JsonValue) -> Result<(), ApiError> {
-        let mut tx = self.pool.begin().await?;
-        let res = sqlx::query("DELETE FROM credits_seasons WHERE id = $1")
-            .bind(id)
-            .execute(&mut *tx)
-            .await?;
-        if res.rows_affected() == 0 {
-            tx.rollback().await?;
-            return Err(ApiError::not_found("season not found"));
-        }
-        Self::audit(
-            &mut *tx,
-            "season.delete",
-            None,
-            Some(id as i64),
-            None,
-            None,
-            None,
-            detail,
-        )
-        .await?;
-        tx.commit().await?;
-        Ok(())
-    }
-
-    pub async fn admin_list_goals(
-        &self,
-        week_id: Option<i32>,
-    ) -> Result<Vec<GoalAdminRow>, ApiError> {
-        let rows = sqlx::query(
-            "SELECT id, week_id, title, description, thumbnail, reward::text AS reward, \
-                    total_steps, sort_order, kind \
-             FROM credits_goals \
-             WHERE ($1::int IS NULL OR week_id = $1) \
-             ORDER BY week_id, sort_order, id",
-        )
-        .bind(week_id)
-        .fetch_all(&self.pool)
-        .await?;
-        Ok(rows.into_iter().map(map_goal_admin).collect())
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    pub async fn admin_create_goal(
-        &self,
-        week_id: i32,
-        title: &str,
-        description: &str,
-        thumbnail: &str,
-        reward: &str,
-        total_steps: i32,
-        sort_order: i32,
-        kind: &str,
-        detail: &JsonValue,
-    ) -> Result<GoalAdminRow, ApiError> {
-        let mut tx = self.pool.begin().await?;
-
-        let week_exists = sqlx::query("SELECT 1 FROM credits_weeks WHERE id = $1")
-            .bind(week_id)
-            .fetch_optional(&mut *tx)
-            .await?
-            .is_some();
-        if !week_exists {
-            tx.rollback().await?;
-            return Err(ApiError::not_found("week not found"));
-        }
-        let row = sqlx::query(
-            "INSERT INTO credits_goals \
-                 (week_id, title, description, thumbnail, reward, total_steps, sort_order, kind) \
-             VALUES ($1, $2, $3, $4, $5::numeric, $6, $7, $8) \
-             RETURNING id, week_id, title, description, thumbnail, reward::text AS reward, \
-                       total_steps, sort_order, kind",
-        )
-        .bind(week_id)
-        .bind(title)
-        .bind(description)
-        .bind(thumbnail)
-        .bind(reward)
-        .bind(total_steps)
-        .bind(sort_order)
-        .bind(kind)
-        .fetch_one(&mut *tx)
-        .await?;
-        let goal = map_goal_admin(row);
-        Self::audit(
-            &mut *tx,
-            "goal.create",
-            None,
-            Some(goal.id as i64),
-            None,
-            None,
-            None,
-            detail,
-        )
-        .await?;
-        tx.commit().await?;
-        Ok(goal)
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    pub async fn admin_update_goal(
-        &self,
-        id: i32,
-        title: &str,
-        description: &str,
-        thumbnail: &str,
-        reward: &str,
-        total_steps: i32,
-        sort_order: i32,
-        kind: &str,
-        detail: &JsonValue,
-    ) -> Result<GoalAdminRow, ApiError> {
-        let mut tx = self.pool.begin().await?;
-        let row = sqlx::query(
-            "UPDATE credits_goals SET \
-                 title = $2, description = $3, thumbnail = $4, reward = $5::numeric, \
-                 total_steps = $6, sort_order = $7, kind = $8 \
-             WHERE id = $1 \
-             RETURNING id, week_id, title, description, thumbnail, reward::text AS reward, \
-                       total_steps, sort_order, kind",
-        )
-        .bind(id)
-        .bind(title)
-        .bind(description)
-        .bind(thumbnail)
-        .bind(reward)
-        .bind(total_steps)
-        .bind(sort_order)
-        .bind(kind)
-        .fetch_optional(&mut *tx)
-        .await?;
-        let row = row.ok_or_else(|| ApiError::not_found("goal not found"))?;
-        let goal = map_goal_admin(row);
-        Self::audit(
-            &mut *tx,
-            "goal.update",
-            None,
-            Some(goal.id as i64),
-            None,
-            None,
-            None,
-            detail,
-        )
-        .await?;
-        tx.commit().await?;
-        Ok(goal)
-    }
-
-    pub async fn admin_delete_goal(&self, id: i32, detail: &JsonValue) -> Result<(), ApiError> {
-        let mut tx = self.pool.begin().await?;
-        let res = sqlx::query("DELETE FROM credits_goals WHERE id = $1")
-            .bind(id)
-            .execute(&mut *tx)
-            .await?;
-        if res.rows_affected() == 0 {
-            tx.rollback().await?;
-            return Err(ApiError::not_found("goal not found"));
-        }
-        Self::audit(
-            &mut *tx,
-            "goal.delete",
-            None,
-            Some(id as i64),
-            None,
-            None,
-            None,
-            detail,
-        )
-        .await?;
-        tx.commit().await?;
-        Ok(())
-    }
-
     pub async fn find_grant_by_idempotency_key(
         &self,
         key: &str,
@@ -454,6 +156,11 @@ impl CreditsComponent {
                 "admin_grant_credits kind must be one of grant|purchase|refund",
             ));
         }
+        // A negative grant silently DEBITS a wallet (and can drive `available`
+        // below the earned bucket); a zero grant writes a meaningless ledger
+        // row. Same exact-decimal gate as spend/refund/revoke.
+        let amount = crate::money::CreditAmount::parse_positive(amount)?;
+        let amount = amount.as_str();
         let mut tx = self.pool.begin().await?;
 
         if let Some(key) = idempotency_key {
@@ -562,6 +269,10 @@ impl CreditsComponent {
         actor: Option<&str>,
         detail: &JsonValue,
     ) -> Result<GrantOutcome, ApiError> {
+        // Same class as the missing `spend` guard: a NEGATIVE amount here
+        // MINTS credits (`GREATEST(available - (-5), 0)` = available + 5).
+        let amount = crate::money::CreditAmount::parse_positive(amount)?;
+        let amount = amount.as_str();
         let mut tx = self.pool.begin().await?;
 
         let current = sqlx::query(
@@ -576,7 +287,6 @@ impl CreditsComponent {
             tx.rollback().await?;
             return Err(ApiError::not_found("user has no credits balance"));
         };
-        self.expire_earned_in_tx(&mut tx, address).await?;
         let current = sqlx::query(
             "SELECT available::text AS available, earned_available::text AS earned \
              FROM user_credits WHERE address = $1",
@@ -610,27 +320,22 @@ impl CreditsComponent {
         let earned_removed: String = row.get("earned_removed");
         let paid_removed: String = row.get("paid_removed");
 
-        let mut consume_rows: Vec<(&str, &str)> = [
-            ("earned", earned_removed.as_str()),
-            ("paid", paid_removed.as_str()),
-        ]
-        .into_iter()
-        .filter(|(_, p)| p.parse::<f64>().unwrap_or(0.0) > 0.0)
-        .collect();
-        if consume_rows.is_empty() {
-            consume_rows.push(("paid", removed.as_str()));
-        }
-        for (bucket, portion) in consume_rows {
-            sqlx::query(
-                "INSERT INTO credit_ledger (address, kind, amount, bucket, captcha_ok) \
-                 VALUES ($1, 'consume', $2::numeric, $3, FALSE)",
-            )
+        // Ledger rows are selected by PostgreSQL in NUMERIC from the same values
+        // that moved the balance. The old f64 filter dropped positive-but-
+        // sub-f64 portions (`1e-400::numeric > 0` is TRUE in PostgreSQL, `0.0`
+        // in Rust) and its fallback then wrote the whole `removed` amount to
+        // the `paid` bucket even when the debit had come out of `earned`,
+        // desynchronising the earned-bucket reconcile invariant.
+        // `earned_removed + paid_removed == removed`, both >= 0, so when
+        // `removed` is zero no row is written and nothing moved.
+        sqlx::query(crate::ports::wallet::LEDGER_SPLIT_INSERT)
             .bind(address)
-            .bind(portion)
-            .bind(bucket)
+            .bind(&earned_removed)
+            .bind(&paid_removed)
+            .bind(None::<&str>)
+            .bind("consume")
             .execute(&mut *tx)
             .await?;
-        }
 
         let mut detail = detail.clone();
         if let JsonValue::Object(map) = &mut detail {
@@ -1028,9 +733,10 @@ impl CreditsComponent {
     pub async fn find_confirmed_line_by_ref(
         &self,
         escrow_ref: &str,
-    ) -> Result<Option<(String, String)>, ApiError> {
+    ) -> Result<Option<(i64, String, String)>, ApiError> {
         let row = sqlx::query(
-            "SELECT c.address AS address, o.unit_price_credits::text AS amount \
+            "SELECT c.id AS checkout_id, c.address AS address, \
+                    o.unit_price_credits::text AS amount \
              FROM fulfillment_outbox o \
              JOIN checkouts c ON c.id = o.checkout_id \
              WHERE o.external_ref = $1 AND o.status = 'confirmed' \
@@ -1039,7 +745,13 @@ impl CreditsComponent {
         .bind(escrow_ref)
         .fetch_optional(&self.pool)
         .await?;
-        Ok(row.map(|r| (r.get::<String, _>("address"), r.get::<String, _>("amount"))))
+        Ok(row.map(|r| {
+            (
+                r.get::<i64, _>("checkout_id"),
+                r.get::<String, _>("address"),
+                r.get::<String, _>("amount"),
+            )
+        }))
     }
 }
 
@@ -1088,31 +800,5 @@ fn map_pack_admin(r: sqlx::postgres::PgRow) -> PackAdminRow {
         currency: r.get("currency"),
         active: r.get("active"),
         sort_order: r.get("sort_order"),
-    }
-}
-
-fn map_season_admin(r: sqlx::postgres::PgRow) -> SeasonAdminRow {
-    SeasonAdminRow {
-        id: r.get("id"),
-        name: r.get("name"),
-        start_date: r.get("start_date"),
-        end_date: r.get("end_date"),
-        max_mana: r.get("max_mana"),
-        amount_of_weeks: r.get("amount_of_weeks"),
-        state: r.get("state"),
-    }
-}
-
-fn map_goal_admin(r: sqlx::postgres::PgRow) -> GoalAdminRow {
-    GoalAdminRow {
-        id: r.get("id"),
-        week_id: r.get("week_id"),
-        title: r.get("title"),
-        description: r.get("description"),
-        thumbnail: r.get("thumbnail"),
-        reward: r.get("reward"),
-        total_steps: r.get("total_steps"),
-        sort_order: r.get("sort_order"),
-        kind: r.get("kind"),
     }
 }

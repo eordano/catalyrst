@@ -191,7 +191,7 @@ pub(crate) async fn load_entity_type_into_cache(
             dep.version,
             dep.id,
             COALESCE(
-                (SELECT json_agg(json_build_object('key', cf.key, 'hash', cf.content_hash))
+                (SELECT json_agg(json_build_object('key', cf.key, 'hash', cf.content_hash) ORDER BY cf.key)
                  FROM content_files cf WHERE cf.deployment = dep.id),
                 '[]'::json
             ) AS content_json
@@ -220,7 +220,13 @@ async fn refresh_entity_in_cache(
     entity_type: &str,
     entity_id: &str,
 ) -> Vec<String> {
-    let row: Option<ActiveEntityRow> = match sqlx::query_as(
+    let tombstone_filter = if catalyrst_server::land_publish::local_entities_present(pool).await {
+        "AND NOT EXISTS (SELECT 1 FROM local_entities le \
+         WHERE le.entity_id = dep.entity_id AND le.tombstoned_at IS NOT NULL)"
+    } else {
+        ""
+    };
+    let sql = format!(
         r#"
         SELECT
             dep.entity_id,
@@ -231,7 +237,7 @@ async fn refresh_entity_in_cache(
             dep.version,
             dep.id,
             COALESCE(
-                (SELECT json_agg(json_build_object('key', cf.key, 'hash', cf.content_hash))
+                (SELECT json_agg(json_build_object('key', cf.key, 'hash', cf.content_hash) ORDER BY cf.key)
                  FROM content_files cf WHERE cf.deployment = dep.id),
                 '[]'::json
             ) AS content_json
@@ -239,13 +245,15 @@ async fn refresh_entity_in_cache(
         WHERE dep.entity_id = $1
           AND dep.entity_type = $2
           AND dep.deleter_deployment IS NULL
+          {tombstone_filter}
         LIMIT 1
-        "#,
-    )
-    .bind(entity_id)
-    .bind(entity_type)
-    .fetch_optional(pool)
-    .await
+        "#
+    );
+    let row: Option<ActiveEntityRow> = match sqlx::query_as(sqlx::AssertSqlSafe(sql))
+        .bind(entity_id)
+        .bind(entity_type)
+        .fetch_optional(pool)
+        .await
     {
         Ok(r) => r,
         Err(e) => {

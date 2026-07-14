@@ -4,9 +4,6 @@ use std::time::Duration;
 use chrono::{DateTime, Utc};
 use sqlx::PgPool;
 
-pub const DEFAULT_TRADES_SYNC_UPSTREAM_URL: &str =
-    "https://marketplace-api.decentraland.org/v1/trades";
-
 pub const DEFAULT_TRADES_SYNC_INTERVAL_SECS: u64 = 900;
 
 #[derive(Debug, Clone)]

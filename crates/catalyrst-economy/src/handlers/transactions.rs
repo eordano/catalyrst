@@ -17,21 +17,16 @@ pub async fn send_transaction(
     let body = body.map_err(|e| ApiError::MalformedBody(e.body_text()))?;
     let tx = parse_send_transaction_request(&body)?;
 
-    state
+    let sender = state
         .transaction
         .check_data(&state.config, &state.contracts, &tx)
         .await?;
 
-    let user_address = tx.from.to_lowercase();
     let session_id = uuid::Uuid::new_v4().to_string();
 
     state
         .transaction
-        .reserve_quota(
-            state.config.max_transactions_per_day,
-            &user_address,
-            &session_id,
-        )
+        .reserve_quota(state.config.max_transactions_per_day, &sender, &session_id)
         .await?;
 
     let tx_hash = match state
@@ -48,7 +43,7 @@ pub async fn send_transaction(
                 if let Err(release_err) = state.transaction.release_reservation(&session_id).await {
                     tracing::error!(
                         session_id = %session_id,
-                        user_address = %user_address,
+                        user_address = %sender.as_str(),
                         error = %release_err,
                         "failed to release reservation after a pre-broadcast failure"
                     );

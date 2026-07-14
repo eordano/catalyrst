@@ -1,0 +1,21 @@
+[package]
+name = "catalyrst-authenticated-principal"
+version = "0.15.5"
+edition = "2021"
+description = "The shared vocabulary for who a request is from, and by what mechanism that was established"
+
+# Forbidden here permanently, and asserted by tests/source_discipline.rs:
+#   ts-rs, utoipa, sqlx, serde::Serialize on anything, serde::Deserialize on
+#   anything not named Claimed*.
+# catalyrst-types is taken by path with default-features = false so that its optional
+# sqlx feature stays off - the same spelling catalyrst-crypto uses, and for the same
+# reason; a workspace dependency cannot turn default features off from the member side.
+# See docs/crate-boundaries.md.
+[dependencies]
+catalyrst-crypto = { workspace = true }
+catalyrst-types = { path = "../catalyrst-types", default-features = false }
+serde = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
