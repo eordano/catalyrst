@@ -1,39 +1,20 @@
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex, OnceLock};
-use std::time::{Duration, Instant};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+use std::time::Duration;
 
 use axum::extract::{Request, State};
 use axum::http::StatusCode;
 use axum::response::Response;
 use bytes::Bytes;
-use serde_json::{json, Value};
 
 use crate::errors::{AppError, AppResult, InvalidRequestError};
 use crate::query_params::{
     camel_to_snake, parse_query_string, qs_get_array, qs_get_bool, qs_get_number, qs_get_string,
-    to_query_string,
+    to_query_string, QueryParams,
 };
-use crate::state::{
-    AppState, CacheEntry, DeploymentQueryOptions, DEPLOYMENTS_CACHE_MAX_ENTRIES,
-    DEPLOYMENTS_CACHE_TTL,
-};
-
-fn checked_f64_to_i64(v: f64) -> Option<i64> {
-    if !v.is_finite() {
-        return None;
-    }
-    if v < i64::MIN as f64 || v > i64::MAX as f64 {
-        return None;
-    }
-    Some(v as i64)
-}
-
-const DEPLOYMENTS_CACHE_SWEEP_INTERVAL: Duration = Duration::from_secs(60);
-
-fn deployments_cache_last_sweep() -> &'static Mutex<Option<Instant>> {
-    static LAST: OnceLock<Mutex<Option<Instant>>> = OnceLock::new();
-    LAST.get_or_init(|| Mutex::new(None))
-}
+use crate::state::{AppState, DeploymentQueryOptions};
+use crate::wire_types::{ControllerDeployment, DeploymentsResponse, HistoryPagination};
 
 const DEFAULT_FIELDS: &[&str] = &["pointers", "content", "metadata"];
 
@@ -55,144 +36,40 @@ pub async fn get_deployments(
     State(state): State<Arc<AppState>>,
     request: Request,
 ) -> AppResult<Response> {
-    let query_string = request.uri().query().unwrap_or("");
+    let query_string = request.uri().query().unwrap_or("").to_string();
+    let cache_key = normalize_query_string(&query_string);
 
-    let cache_key = normalize_query_string(query_string);
-    if let Some(entry) = state.deployments_cache.get(&cache_key) {
-        if !entry.is_expired(DEPLOYMENTS_CACHE_TTL) {
-            let cached_bytes = entry.bytes.clone();
-            drop(entry);
-            return Ok(Response::builder()
-                .status(StatusCode::OK)
-                .header("content-type", "application/json")
-                .header("cache-control", "max-age=5")
-                .header("x-cache", "HIT")
-                .body(axum::body::Body::from(cached_bytes))
-                .unwrap());
-        }
-        drop(entry);
-    }
+    let fetched = Arc::new(AtomicBool::new(false));
+    let fetched_in_fetch = fetched.clone();
+    let state_in_fetch = state.clone();
+
+    let response_bytes = state
+        .deployments_cache
+        .get_or_fetch(cache_key, move || async move {
+            fetched_in_fetch.store(true, Ordering::Relaxed);
+            fetch_deployments_response(state_in_fetch, &query_string).await
+        })
+        .await?;
+
+    let cache_status = if fetched.load(Ordering::Relaxed) {
+        "MISS"
+    } else {
+        "HIT"
+    };
+
+    Ok(Response::builder()
+        .status(StatusCode::OK)
+        .header("content-type", "application/json")
+        .header("cache-control", "max-age=5")
+        .header("x-cache", cache_status)
+        .body(axum::body::Body::from(response_bytes))
+        .unwrap())
+}
+
+async fn fetch_deployments_response(state: Arc<AppState>, query_string: &str) -> AppResult<Bytes> {
     let params = parse_query_string(query_string);
 
-    let mut entity_types: Vec<String> = Vec::new();
-    for raw in qs_get_array(&params, "entityType") {
-        match crate::query_params::parse_entity_type(&raw) {
-            Some(canonical) => entity_types.push(canonical.to_string()),
-            None => {
-                return Err(InvalidRequestError::new("Found an unrecognized entity type").into())
-            }
-        }
-    }
-
-    let entity_ids = qs_get_array(&params, "entityId");
-
-    let pointers: Vec<String> = qs_get_array(&params, "pointer")
-        .into_iter()
-        .map(|p| p.to_lowercase())
-        .collect();
-
-    let deployed_by: Vec<String> = qs_get_array(&params, "deployedBy")
-        .into_iter()
-        .map(|a| a.to_lowercase())
-        .collect();
-
-    if entity_ids.len() > MAX_DEPLOYMENT_FILTER_VALUES
-        || pointers.len() > MAX_DEPLOYMENT_FILTER_VALUES
-        || entity_types.len() > MAX_DEPLOYMENT_FILTER_VALUES
-    {
-        return Err(InvalidRequestError::new(format!(
-            "Too many filter values; the maximum allowed per filter is {}",
-            MAX_DEPLOYMENT_FILTER_VALUES
-        ))
-        .into());
-    }
-
-    let only_currently_pointed = qs_get_bool(&params, "onlyCurrentlyPointed");
-    let offset = qs_get_number(&params, "offset");
-    let limit = qs_get_number(&params, "limit");
-    let from = qs_get_number(&params, "from");
-    let to = qs_get_number(&params, "to");
-    let last_id = qs_get_string(&params, "lastId").map(|s| s.to_lowercase());
-
-    let from = if from.is_none()
-        && to.is_none()
-        && last_id.is_none()
-        && entity_ids.is_empty()
-        && pointers.is_empty()
-        && deployed_by.is_empty()
-    {
-        let window_days = std::env::var("DEPLOYMENTS_DEFAULT_WINDOW_DAYS")
-            .ok()
-            .and_then(|s| s.parse::<i64>().ok())
-            .unwrap_or(30);
-        if window_days > 0 {
-            let now_ms = chrono::Utc::now().timestamp_millis();
-            Some(now_ms - window_days * 86_400_000)
-        } else {
-            None
-        }
-    } else {
-        from
-    };
-
-    let fields_param = qs_get_string(&params, "fields");
-    let fields: Vec<String> = if let Some(ref f) = fields_param {
-        if f.trim().is_empty() {
-            DEFAULT_FIELDS.iter().map(|s| s.to_string()).collect()
-        } else {
-            f.split(',')
-                .filter(|s| VALID_DEPLOYMENT_FIELDS.contains(&s.trim()))
-                .map(|s| s.trim().to_string())
-                .collect()
-        }
-    } else {
-        DEFAULT_FIELDS.iter().map(|s| s.to_string()).collect()
-    };
-
-    let sorting_field_param = qs_get_string(&params, "sortingField");
-    let sorting_field = if let Some(ref sf) = sorting_field_param {
-        let snake = camel_to_snake(sf);
-        if !VALID_SORTING_FIELDS.contains(&snake.as_str()) {
-            return Err(InvalidRequestError::new("Found an unrecognized sort field param").into());
-        }
-        Some(snake)
-    } else {
-        None
-    };
-
-    let sorting_order = if let Some(ref so) = qs_get_string(&params, "sortingOrder") {
-        if !VALID_SORTING_ORDERS.contains(&so.as_str()) {
-            return Err(InvalidRequestError::new("Found an unrecognized sort order param").into());
-        }
-        Some(so.clone())
-    } else {
-        None
-    };
-
-    if let Some(off) = offset {
-        if off > 5000 {
-            return Err(InvalidRequestError::new(
-                "Offset can't be higher than 5000. Please use the 'next' property for pagination.",
-            )
-            .into());
-        }
-    }
-
-    let options = DeploymentQueryOptions {
-        entity_types,
-        entity_ids,
-        pointers,
-        deployed_by,
-        from,
-        to,
-        only_currently_pointed,
-        fields: fields.clone(),
-        sorting_field,
-        sorting_order,
-        offset,
-        limit,
-        last_id,
-    };
+    let options = parse_deployment_query_options(&params)?;
 
     let timeout_secs: u64 = std::env::var("DEPLOYMENTS_QUERY_TIMEOUT_SECS")
         .ok()
@@ -211,132 +88,163 @@ pub async fn get_deployments(
     })?
     .map_err(|e| AppError::Internal(e.to_string()))?;
 
-    let deployments: Vec<Value> = result
+    let deployments: Vec<ControllerDeployment> = result
         .deployments
         .into_iter()
-        .map(|dep| filter_deployment_fields(&dep, &fields))
+        .map(|dep| project_deployment_fields(dep, &options.fields))
         .collect();
 
-    let mut pagination = json!({
-        "offset": result.pagination.offset,
-        "limit": result.pagination.limit,
-        "moreData": result.pagination.more_data,
-    });
-
-    if result.pagination.more_data && !deployments.is_empty() {
-        let last_deployment = &deployments[deployments.len() - 1];
-        let next = calculate_next_relative_path(&options, last_deployment);
-        pagination["next"] = Value::String(next);
-    } else if let Some(ref next) = result.pagination.next {
-        pagination["next"] = Value::String(next.clone());
-    }
-
-    if let Some(ref lid) = result.pagination.last_id {
-        pagination["lastId"] = Value::String(lid.clone());
-    }
-
-    let response_json = json!({
-        "deployments": deployments,
-        "filters": result.filters,
-        "pagination": pagination,
-    });
-
-    let response_bytes = Bytes::from(serde_json::to_vec(&response_json).unwrap_or_default());
-
-    if state.deployments_cache.len() >= DEPLOYMENTS_CACHE_MAX_ENTRIES {
-        let do_sweep = {
-            let mut guard = deployments_cache_last_sweep().lock().unwrap();
-            let due = guard
-                .map(|t| t.elapsed() >= DEPLOYMENTS_CACHE_SWEEP_INTERVAL)
-                .unwrap_or(true);
-            if due {
-                *guard = Some(Instant::now());
-            }
-            due
-        };
-        if do_sweep {
-            state
-                .deployments_cache
-                .retain(|_, v| !v.is_expired(DEPLOYMENTS_CACHE_TTL));
-        }
-    }
-    if state.deployments_cache.len() < DEPLOYMENTS_CACHE_MAX_ENTRIES {
-        state.deployments_cache.insert(
-            cache_key,
-            CacheEntry {
-                bytes: response_bytes.clone(),
-                inserted_at: Instant::now(),
-            },
-        );
-    }
-
-    Ok(Response::builder()
-        .status(StatusCode::OK)
-        .header("content-type", "application/json")
-        .header("cache-control", "max-age=5")
-        .header("x-cache", "MISS")
-        .body(axum::body::Body::from(response_bytes))
-        .unwrap())
-}
-
-fn filter_deployment_fields(dep: &Value, fields: &[String]) -> Value {
-    let obj = match dep.as_object() {
-        Some(o) => o,
-        None => return dep.clone(),
+    let next = if result.pagination.more_data && !deployments.is_empty() {
+        Some(calculate_next_relative_path(
+            &options,
+            &deployments[deployments.len() - 1],
+        ))
+    } else {
+        result.pagination.next.clone()
     };
 
-    let mut result = serde_json::Map::new();
+    let pagination = HistoryPagination {
+        offset: result.pagination.offset,
+        limit: result.pagination.limit,
+        more_data: result.pagination.more_data,
+        next,
+        last_id: result.pagination.last_id.clone(),
+    };
 
-    for key in &[
-        "entityType",
-        "entityId",
-        "entityTimestamp",
-        "deployedBy",
-        "entityVersion",
-    ] {
-        if let Some(v) = obj.get(*key) {
-            result.insert(key.to_string(), v.clone());
+    let response = DeploymentsResponse {
+        deployments,
+        filters: result.filters,
+        pagination,
+    };
+
+    Ok(Bytes::from(
+        serde_json::to_vec(&response).unwrap_or_default(),
+    ))
+}
+
+fn parse_deployment_query_options(params: &QueryParams) -> AppResult<DeploymentQueryOptions> {
+    let mut entity_types: Vec<String> = Vec::new();
+    for raw in qs_get_array(params, "entityType") {
+        match crate::query_params::parse_entity_type(&raw) {
+            Some(canonical) => entity_types.push(canonical.to_string()),
+            None => {
+                return Err(InvalidRequestError::new("Found an unrecognized entity type").into())
+            }
         }
     }
 
-    if fields.iter().any(|f| f == "pointers") {
-        if let Some(v) = obj.get("pointers") {
-            result.insert("pointers".to_string(), v.clone());
+    let entity_ids = qs_get_array(params, "entityId");
+
+    let pointers: Vec<String> = qs_get_array(params, "pointer")
+        .into_iter()
+        .map(|p| p.to_lowercase())
+        .collect();
+
+    let deployed_by: Vec<String> = qs_get_array(params, "deployedBy")
+        .into_iter()
+        .map(|a| a.to_lowercase())
+        .collect();
+
+    if entity_ids.len() > MAX_DEPLOYMENT_FILTER_VALUES
+        || pointers.len() > MAX_DEPLOYMENT_FILTER_VALUES
+        || entity_types.len() > MAX_DEPLOYMENT_FILTER_VALUES
+    {
+        return Err(InvalidRequestError::new(format!(
+            "Too many filter values; the maximum allowed per filter is {}",
+            MAX_DEPLOYMENT_FILTER_VALUES
+        ))
+        .into());
+    }
+
+    let only_currently_pointed = qs_get_bool(params, "onlyCurrentlyPointed");
+    let offset = qs_get_number(params, "offset");
+    let limit = qs_get_number(params, "limit");
+    let from = qs_get_number(params, "from");
+    let to = qs_get_number(params, "to");
+    let last_id = qs_get_string(params, "lastId").map(|s| s.to_lowercase());
+
+    let fields_param = qs_get_string(params, "fields");
+    let fields: Vec<String> = if let Some(ref f) = fields_param {
+        if f.trim().is_empty() {
+            DEFAULT_FIELDS.iter().map(|s| s.to_string()).collect()
+        } else {
+            f.split(',')
+                .filter(|s| VALID_DEPLOYMENT_FIELDS.contains(&s.trim()))
+                .map(|s| s.trim().to_string())
+                .collect()
+        }
+    } else {
+        DEFAULT_FIELDS.iter().map(|s| s.to_string()).collect()
+    };
+
+    let sorting_field_param = qs_get_string(params, "sortingField");
+    let sorting_field = if let Some(ref sf) = sorting_field_param {
+        let snake = camel_to_snake(sf);
+        if !VALID_SORTING_FIELDS.contains(&snake.as_str()) {
+            return Err(InvalidRequestError::new("Found an unrecognized sort field param").into());
+        }
+        Some(snake)
+    } else {
+        None
+    };
+
+    let sorting_order = if let Some(ref so) = qs_get_string(params, "sortingOrder") {
+        if !VALID_SORTING_ORDERS.contains(&so.as_str()) {
+            return Err(InvalidRequestError::new("Found an unrecognized sort order param").into());
+        }
+        Some(so.clone())
+    } else {
+        None
+    };
+
+    if let Some(off) = offset {
+        if off > 5000 {
+            return Err(InvalidRequestError::new(
+                "Offset can't be higher than 5000. Please use the 'next' property for pagination.",
+            )
+            .into());
         }
     }
 
-    if fields.iter().any(|f| f == "content") {
-        if let Some(v) = obj.get("content") {
-            result.insert("content".to_string(), v.clone());
-        }
-    }
+    Ok(DeploymentQueryOptions {
+        entity_types,
+        entity_ids,
+        pointers,
+        deployed_by,
+        from,
+        to,
+        only_currently_pointed,
+        fields,
+        sorting_field,
+        sorting_order,
+        offset,
+        limit,
+        last_id,
+    })
+}
 
-    if fields.iter().any(|f| f == "metadata") {
-        if let Some(v) = obj.get("metadata") {
-            result.insert("metadata".to_string(), v.clone());
-        }
+fn project_deployment_fields(
+    mut dep: ControllerDeployment,
+    fields: &[String],
+) -> ControllerDeployment {
+    if !fields.iter().any(|f| f == "pointers") {
+        dep.pointers = None;
     }
-
-    if fields.iter().any(|f| f == "auditInfo") {
-        if let Some(v) = obj.get("auditInfo") {
-            result.insert("auditInfo".to_string(), v.clone());
-        }
+    if !fields.iter().any(|f| f == "content") {
+        dep.content = None;
     }
-
-    let local_ts = obj
-        .get("auditInfo")
-        .and_then(|ai| ai.get("localTimestamp"))
-        .cloned();
-    if let Some(ts) = local_ts {
-        result.insert("localTimestamp".to_string(), ts);
+    if !fields.iter().any(|f| f == "metadata") {
+        dep.metadata = None;
     }
-
-    Value::Object(result)
+    if !fields.iter().any(|f| f == "auditInfo") {
+        dep.audit_info = None;
+    }
+    dep
 }
 
 fn calculate_next_relative_path(
     options: &DeploymentQueryOptions,
-    last_deployment: &Value,
+    last_deployment: &ControllerDeployment,
 ) -> String {
     let field = options
         .sorting_field
@@ -345,42 +253,13 @@ fn calculate_next_relative_path(
     let order = options.sorting_order.as_deref().unwrap_or("DESC");
 
     let timestamp = if field == "local_timestamp" {
-        last_deployment.get("localTimestamp").or_else(|| {
-            last_deployment
-                .get("auditInfo")
-                .and_then(|ai| ai.get("localTimestamp"))
-        })
+        last_deployment.local_timestamp
     } else {
-        last_deployment.get("entityTimestamp")
+        last_deployment.entity_timestamp
     };
 
-    let timestamp_str = match timestamp {
-        Some(Value::Number(n)) => {
-            if let Some(i) = n.as_i64() {
-                i.to_string()
-            } else if let Some(f) = n.as_f64() {
-                match checked_f64_to_i64(f) {
-                    Some(i) => i.to_string(),
-                    None => {
-                        tracing::warn!(
-                            raw_timestamp = f,
-                            "Non-finite/out-of-range f64 timestamp in last deployment; \
-                             omitting from `next` cursor"
-                        );
-                        String::new()
-                    }
-                }
-            } else {
-                n.to_string()
-            }
-        }
-        _ => String::new(),
-    };
-
-    let last_entity_id = last_deployment
-        .get("entityId")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
+    let timestamp_str = timestamp.to_string();
+    let last_entity_id = last_deployment.entity_id.as_str();
 
     let mut next_params: HashMap<String, Vec<String>> = HashMap::new();
 
@@ -444,4 +323,230 @@ fn calculate_next_relative_path(
     }
 
     format!("?{}", to_query_string(&next_params))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn no_implicit_time_window_when_client_sends_no_time_filters() {
+        let params = parse_query_string("entityType=emote&limit=3&sortingOrder=DESC");
+        let options = parse_deployment_query_options(&params).unwrap();
+        assert_eq!(options.from, None);
+        assert_eq!(options.to, None);
+    }
+
+    #[test]
+    fn no_implicit_time_window_on_empty_query() {
+        let params = parse_query_string("");
+        let options = parse_deployment_query_options(&params).unwrap();
+        assert_eq!(options.from, None);
+        assert_eq!(options.to, None);
+    }
+
+    #[test]
+    fn client_provided_time_filters_are_preserved() {
+        let params = parse_query_string("from=1&to=2&limit=3");
+        let options = parse_deployment_query_options(&params).unwrap();
+        assert_eq!(options.from, Some(1));
+        assert_eq!(options.to, Some(2));
+        assert_eq!(options.limit, Some(3));
+    }
+
+    use std::sync::atomic::AtomicUsize;
+
+    use async_trait::async_trait;
+    use axum::body::Body;
+    use serde_json::Value;
+
+    use crate::state::{
+        Database, DatabaseError, DeploymentQueryResult, PaginationResult,
+        PointerChangesQueryOptions, PointerChangesQueryResult, PrefixQueryResult,
+    };
+    use crate::test_support;
+    use crate::wire_types::DeploymentsFilters;
+
+    struct CountingDatabase {
+        calls: Arc<AtomicUsize>,
+    }
+
+    #[async_trait]
+    impl Database for CountingDatabase {
+        async fn active_entities_by_pointers(
+            &self,
+            _pointers: &[String],
+        ) -> Result<Vec<Value>, DatabaseError> {
+            Ok(Vec::new())
+        }
+
+        async fn active_entities_by_ids(
+            &self,
+            _ids: &[String],
+        ) -> Result<Vec<Value>, DatabaseError> {
+            Ok(Vec::new())
+        }
+
+        async fn active_entities_by_prefix(
+            &self,
+            _prefix: &str,
+            _offset: i64,
+            _limit: i64,
+        ) -> Result<PrefixQueryResult, DatabaseError> {
+            Ok(PrefixQueryResult {
+                total: 0,
+                entities: Vec::new(),
+            })
+        }
+
+        async fn active_entity_ids_by_content_hash(
+            &self,
+            _hash: &str,
+        ) -> Result<Vec<String>, DatabaseError> {
+            Ok(Vec::new())
+        }
+
+        async fn get_deployments(
+            &self,
+            _options: &DeploymentQueryOptions,
+        ) -> Result<DeploymentQueryResult, DatabaseError> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            Ok(DeploymentQueryResult {
+                deployments: Vec::new(),
+                filters: DeploymentsFilters {
+                    pointers: Vec::new(),
+                    entity_types: Vec::new(),
+                    entity_ids: Vec::new(),
+                    from: None,
+                    to: None,
+                    only_currently_pointed: None,
+                    deployed_by: Vec::new(),
+                },
+                pagination: PaginationResult {
+                    offset: 0,
+                    limit: 100,
+                    more_data: false,
+                    next: None,
+                    last_id: None,
+                },
+            })
+        }
+
+        async fn get_pointer_changes(
+            &self,
+            _options: &PointerChangesQueryOptions,
+        ) -> Result<PointerChangesQueryResult, DatabaseError> {
+            Err(DatabaseError::Unsupported(
+                "unused in this test".to_string(),
+            ))
+        }
+
+        async fn get_failed_deployments(&self) -> Result<Vec<Value>, DatabaseError> {
+            Ok(Vec::new())
+        }
+
+        async fn get_audit_info(
+            &self,
+            _entity_type: &str,
+            _entity_id: &str,
+        ) -> Result<Option<Value>, DatabaseError> {
+            Ok(None)
+        }
+
+        async fn find_entity_by_pointer(
+            &self,
+            _pointer: &str,
+        ) -> Result<Option<Value>, DatabaseError> {
+            Ok(None)
+        }
+    }
+
+    fn deployments_request(query: &str) -> Request {
+        Request::builder()
+            .uri(format!("/deployments?{query}"))
+            .body(Body::empty())
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn second_identical_query_is_served_from_cache() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let state = test_support::app_state_with_database(Arc::new(CountingDatabase {
+            calls: calls.clone(),
+        }));
+
+        let first = get_deployments(
+            State(state.clone()),
+            deployments_request("entityType=scene&limit=10"),
+        )
+        .await
+        .expect("first call must succeed");
+        assert_eq!(first.headers().get("x-cache").unwrap(), "MISS");
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+
+        let second = get_deployments(
+            State(state.clone()),
+            deployments_request("entityType=scene&limit=10"),
+        )
+        .await
+        .expect("second call must succeed");
+        assert_eq!(second.headers().get("x-cache").unwrap(), "HIT");
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            1,
+            "identical query within TTL must not re-hit the database"
+        );
+    }
+
+    #[tokio::test]
+    async fn reordered_query_params_still_hit_the_cache() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let state = test_support::app_state_with_database(Arc::new(CountingDatabase {
+            calls: calls.clone(),
+        }));
+
+        get_deployments(
+            State(state.clone()),
+            deployments_request("entityType=scene&limit=10"),
+        )
+        .await
+        .expect("first call must succeed");
+        get_deployments(
+            State(state.clone()),
+            deployments_request("limit=10&entityType=scene"),
+        )
+        .await
+        .expect("second call must succeed");
+
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            1,
+            "reordered params must normalize to the same cache key"
+        );
+    }
+
+    #[tokio::test]
+    async fn clearing_the_cache_forces_a_refetch() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let state = test_support::app_state_with_database(Arc::new(CountingDatabase {
+            calls: calls.clone(),
+        }));
+
+        get_deployments(
+            State(state.clone()),
+            deployments_request("entityType=scene"),
+        )
+        .await
+        .expect("first call must succeed");
+        state.deployments_cache.clear();
+        let after_clear = get_deployments(
+            State(state.clone()),
+            deployments_request("entityType=scene"),
+        )
+        .await
+        .expect("call after clear must succeed");
+
+        assert_eq!(after_clear.headers().get("x-cache").unwrap(), "MISS");
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+    }
 }

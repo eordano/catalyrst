@@ -1,0 +1,46 @@
+{
+  "_source": "https://api.github.com/repos/decentraland/creator-hub/releases/latest (decentraland/creator-hub GitHub Releases API, public, no auth). Snapshot of the latest release on 2026-06-23. The real download page (decentraland.org/download/creator-hub) resolves these via useLatestGithubRelease(Repo.CREATOR_HUB) + useCreatorHubDownload's OS detection (primaryOption / secondaryOptions of Windows/macOS, amd64/arm64). No catalyst crate backs this story \u2014 download URLs are static GitHub release asset links.",
+  "_notes": "Only installer assets are surfaced (the .dmg / .exe). The .zip, .blockmap and latest*.yml entries from the release are electron-updater artifacts, not user-facing downloads, so they are excluded. macOS arm64 is the default primaryOption (matches ui3 StCreatorHubDownload's placeholder). OS detection is server-side from the User-Agent in the route loader; ?os=windows|macos and ?arch=arm64|amd64 override it for QA / journey screenshots. The download itself is a real GitHub link (an <a href>); there is no on-chain or backend write, so nothing is SIMULATED here.",
+  "repo": "decentraland/creator-hub",
+  "releasesLatestUrl": "https://github.com/decentraland/creator-hub/releases/latest",
+  "version": "0.41.1",
+  "publishedAt": "2026-04-29T18:04:35Z",
+  "releaseUrl": "https://github.com/decentraland/creator-hub/releases/tag/0.41.1",
+  "options": {
+    "macos-arm64": {
+      "os": "macOS",
+      "osKey": "macos",
+      "arch": "arm64",
+      "archLabel": "Apple Silicon",
+      "ext": "dmg",
+      "fileName": "Decentraland-Creator-Hub-0.41.1-mac-arm64.dmg",
+      "sizeBytes": 336670478,
+      "url": "https://github.com/decentraland/creator-hub/releases/download/0.41.1/Decentraland-Creator-Hub-0.41.1-mac-arm64.dmg"
+    },
+    "macos-amd64": {
+      "os": "macOS",
+      "osKey": "macos",
+      "arch": "amd64",
+      "archLabel": "Intel",
+      "ext": "dmg",
+      "fileName": "Decentraland-Creator-Hub-0.41.1-mac-x64.dmg",
+      "sizeBytes": 342994189,
+      "url": "https://github.com/decentraland/creator-hub/releases/download/0.41.1/Decentraland-Creator-Hub-0.41.1-mac-x64.dmg"
+    },
+    "windows-amd64": {
+      "os": "Windows",
+      "osKey": "windows",
+      "arch": "amd64",
+      "archLabel": "x64",
+      "ext": "exe",
+      "fileName": "Decentraland-Creator-Hub-0.41.1-win-x64.exe",
+      "sizeBytes": 294749648,
+      "url": "https://github.com/decentraland/creator-hub/releases/download/0.41.1/Decentraland-Creator-Hub-0.41.1-win-x64.exe"
+    }
+  },
+  "defaultOption": "macos-arm64",
+  "systemRequirements": {
+    "macos": "macOS 11 Big Sur or later (Apple Silicon or Intel).",
+    "windows": "Windows 10 or later (64-bit)."
+  }
+}

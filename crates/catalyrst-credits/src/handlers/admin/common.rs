@@ -1,56 +1,102 @@
-use axum::http::HeaderMap;
+use axum::extract::{FromRef, FromRequestParts};
+use axum::http::request::Parts;
+
+use catalyrst_authenticated_admin::{
+    AdminAuthRejection, AuthenticatedAdminIdentity, ConfiguredAdminBearerSecret,
+};
+use catalyrst_authenticated_principal::AuthorityNotEstablished;
 
 use crate::http::ApiError;
 use crate::AppState;
 
-fn bearer_token(headers: &HeaderMap) -> Option<&str> {
-    headers
-        .get("authorization")
-        .and_then(|v| v.to_str().ok())
-        .and_then(|s| s.strip_prefix("Bearer "))
-}
+/// The environment variable that names the credits admin bearer secret. Server-chosen; it
+/// becomes the verified audit actor (`service-token:CATALYRST_CREDITS_ADMIN_TOKEN`) and the
+/// name reported when the secret is unset. Never client-supplied.
+const ADMIN_TOKEN_ENV: &str = "CATALYRST_CREDITS_ADMIN_TOKEN";
 
-fn timing_safe_eq(a: &str, b: &str) -> bool {
-    if a.len() != b.len() {
-        return false;
-    }
-    let mut diff = 0u8;
-    for (x, y) in a.bytes().zip(b.bytes()) {
-        diff |= x ^ y;
-    }
-    diff == 0
-}
+/// A credits-local carrier for the configured admin secret, so the shared extractor's
+/// `ConfiguredAdminBearerSecret: FromRef<S>` bound is satisfied by a *local* concrete state
+/// type. Implementing `FromRef` for the foreign [`ConfiguredAdminBearerSecret`] over the
+/// foreign `Arc<AppStateInner>` router state directly is forbidden by the orphan rule; this
+/// local type is the legal seam, rebuilt from `state.admin_token` on each request.
+#[derive(Clone)]
+struct AdminSecretState(ConfiguredAdminBearerSecret);
 
-pub(super) fn authorize_admin(state: &AppState, headers: &HeaderMap) -> Result<(), ApiError> {
-    authorize_with_token(state.admin_token.as_deref(), headers)
-}
-
-fn authorize_with_token(expected: Option<&str>, headers: &HeaderMap) -> Result<(), ApiError> {
-    let Some(expected) = expected else {
-        return Err(ApiError::forbidden(
-            "admin controls are disabled (CATALYRST_CREDITS_ADMIN_TOKEN unset)",
-        ));
-    };
-    match bearer_token(headers) {
-        Some(token) if timing_safe_eq(token, expected) => Ok(()),
-        _ => Err(ApiError::forbidden("invalid admin token")),
+impl FromRef<AdminSecretState> for ConfiguredAdminBearerSecret {
+    fn from_ref(state: &AdminSecretState) -> Self {
+        state.0.clone()
     }
 }
 
-fn clean_actor(raw: &str) -> Option<String> {
-    let trimmed = raw.trim();
-    if trimmed.is_empty() {
-        None
-    } else {
-        Some(trimmed.chars().take(100).collect())
+/// Proof, wired into a handler's *signature*, that this request carried the credits admin
+/// bearer secret.
+///
+/// The old gate was `authorize_admin(&state, &headers)?` -- a forgettable body call: delete the
+/// line and the handler still compiled and served a production mutation to a stranger.
+/// `RequireAdmin` replaces that with a value every admin handler must *name in its signature*;
+/// axum refuses the handler into `Router::route` unless the argument resolves, and the only way
+/// it resolves is the [`FromRequestParts`] impl below, which runs the shared verified
+/// [`AuthenticatedAdminIdentity`] mint. The check stops being a deletable statement and becomes a
+/// term in the type the router demands. `tests/admin_routes_are_gated.rs` pins the residual gap --
+/// a *new* admin route that forgets to name it.
+///
+/// The inner identity is a private tuple field: only this module can mint a `RequireAdmin`, and
+/// only via [`establish_admin`]. It derives nothing -- no `Deserialize` (a request body must never
+/// become an admin identity), no `Clone`/`Default` -- the same discipline as the shared type and
+/// `catalyrst-server`'s `AdminSession`.
+pub(crate) struct RequireAdmin(AuthenticatedAdminIdentity);
+
+impl RequireAdmin {
+    /// The server-verified audit actor, `service-token:CATALYRST_CREDITS_ADMIN_TOKEN`. Built by
+    /// the principal crate from the `&'static str` the operator configured -- it replaces the old
+    /// client-supplied `x-catalyrst-admin` header value, which the server never verified.
+    pub(crate) fn audit_actor_description(&self) -> String {
+        self.0.audit_actor_description()
     }
 }
 
-pub(super) fn admin_actor(headers: &HeaderMap) -> Option<String> {
-    headers
-        .get("x-catalyrst-admin")
-        .and_then(|v| v.to_str().ok())
-        .and_then(clean_actor)
+/// Preserve the pre-migration credits wire contract: every admin-auth failure renders as a
+/// **403** carrying the `{ok:false,error,message}` envelope, with the same two messages the
+/// deleted `authorize_with_token` produced -- the unset-token notice when the secret is not
+/// configured, `"invalid admin token"` for a missing or mismatched bearer. This deliberately
+/// collapses the shared extractor's 503-vs-401 distinction back to 403; adopting 401/503 is a
+/// separate follow-on.
+fn to_api_error(rejection: AdminAuthRejection) -> ApiError {
+    match rejection.refusal() {
+        AuthorityNotEstablished::CredentialNotConfigured { .. } => {
+            ApiError::forbidden("admin controls are disabled (CATALYRST_CREDITS_ADMIN_TOKEN unset)")
+        }
+        _ => ApiError::forbidden("invalid admin token"),
+    }
+}
+
+/// The single mint for [`RequireAdmin`]: build the local secret carrier from the configured
+/// token, run the shared verified extractor over the request parts, and map its rejection onto
+/// the credits wire contract. Split out from the trait impl so it is unit-testable without a full
+/// `AppState` (which would require a live database).
+async fn establish_admin(
+    configured: Option<String>,
+    parts: &mut Parts,
+) -> Result<RequireAdmin, ApiError> {
+    let carrier = AdminSecretState(ConfiguredAdminBearerSecret {
+        environment_variable: ADMIN_TOKEN_ENV,
+        configured,
+    });
+    match AuthenticatedAdminIdentity::from_request_parts(parts, &carrier).await {
+        Ok(identity) => Ok(RequireAdmin(identity)),
+        Err(rejection) => Err(to_api_error(rejection)),
+    }
+}
+
+impl FromRequestParts<AppState> for RequireAdmin {
+    type Rejection = ApiError;
+
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &AppState,
+    ) -> Result<Self, Self::Rejection> {
+        establish_admin(state.admin_token.clone(), parts).await
+    }
 }
 
 pub(super) fn validate_idempotency_key(raw: &Option<String>) -> Result<Option<String>, ApiError> {
@@ -74,13 +120,8 @@ pub(super) fn validate_idempotency_key(raw: &Option<String>) -> Result<Option<St
 }
 
 pub(super) fn normalize_address(raw: &str) -> Result<String, ApiError> {
-    let a = raw.trim().to_lowercase();
-    let ok = a.len() == 42 && a.starts_with("0x") && a[2..].bytes().all(|b| b.is_ascii_hexdigit());
-    if ok {
-        Ok(a)
-    } else {
-        Err(ApiError::bad_request("invalid wallet address"))
-    }
+    catalyrst_types::normalize_eth_address(raw)
+        .ok_or_else(|| ApiError::bad_request("invalid wallet address"))
 }
 
 pub(crate) fn validate_positive_amount(raw: &str) -> Result<String, ApiError> {
@@ -107,39 +148,6 @@ pub(crate) fn validate_positive_amount(raw: &str) -> Result<String, ApiError> {
         return Err(ApiError::bad_request("amount must be a positive number"));
     }
     Ok(s.to_string())
-}
-
-pub(super) fn validate_max_mana(raw: &str) -> Result<String, ApiError> {
-    let s = raw.trim();
-    if s.is_empty() || s.len() > 78 {
-        return Err(ApiError::bad_request("invalid maxMana"));
-    }
-    let mut seen_dot = false;
-    let mut any_digit = false;
-    for c in s.chars() {
-        match c {
-            '0'..='9' => any_digit = true,
-            '.' if !seen_dot => seen_dot = true,
-            _ => return Err(ApiError::bad_request("invalid maxMana")),
-        }
-    }
-    if !any_digit {
-        return Err(ApiError::bad_request("invalid maxMana"));
-    }
-    Ok(s.to_string())
-}
-
-const VALID_SEASON_STATES: [&str; 3] = ["NOT_STARTED", "IN_PROGRESS", "FINISHED"];
-
-pub(super) fn validate_season_state(raw: &str) -> Result<String, ApiError> {
-    let s = raw.trim().to_uppercase();
-    if VALID_SEASON_STATES.contains(&s.as_str()) {
-        Ok(s)
-    } else {
-        Err(ApiError::bad_request(
-            "state must be NOT_STARTED, IN_PROGRESS, or FINISHED",
-        ))
-    }
 }
 
 pub(super) fn validated_reason(reason: &Option<String>) -> Result<Option<String>, ApiError> {
@@ -210,44 +218,101 @@ pub(super) fn paginate(limit: Option<i64>, offset: Option<i64>) -> (i64, i64) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use axum::http::HeaderValue;
+    use axum::http::{Request, StatusCode};
+    use axum::response::IntoResponse;
 
-    fn headers_with(auth: Option<&str>) -> HeaderMap {
-        let mut h = HeaderMap::new();
-        if let Some(a) = auth {
-            h.insert("authorization", HeaderValue::from_str(a).unwrap());
+    async fn parts_with_auth(authorization: Option<&str>) -> Parts {
+        let mut builder = Request::builder();
+        if let Some(value) = authorization {
+            builder = builder.header("authorization", value);
         }
-        h
+        let request = builder.body(()).expect("request builds");
+        request.into_parts().0
     }
 
-    #[test]
-    fn unset_token_fails_closed() {
-        let err = authorize_with_token(None, &headers_with(Some("Bearer anything"))).unwrap_err();
-        assert!(matches!(err, ApiError::Forbidden(_)));
+    async fn reject_status_and_body(
+        configured: Option<&str>,
+        authorization: Option<&str>,
+    ) -> (StatusCode, serde_json::Value) {
+        let mut parts = parts_with_auth(authorization).await;
+        let error = match establish_admin(configured.map(str::to_string), &mut parts).await {
+            Ok(_) => panic!("expected a rejection, not an established admin identity"),
+            Err(error) => error,
+        };
+        let response = error.into_response();
+        let status = response.status();
+        let bytes = axum::body::to_bytes(response.into_body(), 4096)
+            .await
+            .expect("body collects");
+        let value: serde_json::Value = serde_json::from_slice(&bytes).expect("json body");
+        (status, value)
     }
 
-    #[test]
-    fn missing_bearer_is_forbidden() {
-        let err = authorize_with_token(Some("secret"), &headers_with(None)).unwrap_err();
-        assert!(matches!(err, ApiError::Forbidden(_)));
+    #[tokio::test]
+    async fn a_matching_bearer_yields_the_verified_service_token_actor() {
+        let mut parts = parts_with_auth(Some("Bearer s3cret")).await;
+        let admin = establish_admin(Some("s3cret".to_string()), &mut parts)
+            .await
+            .unwrap_or_else(|_| panic!("a matching secret establishes admin"));
+        assert_eq!(
+            admin.audit_actor_description(),
+            "service-token:CATALYRST_CREDITS_ADMIN_TOKEN"
+        );
     }
 
-    #[test]
-    fn wrong_token_is_forbidden() {
-        let err =
-            authorize_with_token(Some("secret"), &headers_with(Some("Bearer nope"))).unwrap_err();
-        assert!(matches!(err, ApiError::Forbidden(_)));
+    // The pre-migration wire contract: 403 + the credits error envelope, with the same two
+    // messages the deleted `authorize_with_token` produced, for every failure mode. These lock
+    // the behaviour the old gate had rather than the shared extractor's native 401/503.
+    #[tokio::test]
+    async fn an_unset_token_fails_closed_as_403_disabled() {
+        for presented in [Some("Bearer anything"), None] {
+            let (status, body) = reject_status_and_body(None, presented).await;
+            assert_eq!(status, StatusCode::FORBIDDEN);
+            assert_eq!(body["ok"], serde_json::json!(false));
+            assert_eq!(
+                body["error"],
+                "admin controls are disabled (CATALYRST_CREDITS_ADMIN_TOKEN unset)"
+            );
+            assert_eq!(
+                body["message"],
+                "admin controls are disabled (CATALYRST_CREDITS_ADMIN_TOKEN unset)"
+            );
+        }
     }
 
-    #[test]
-    fn correct_token_authorizes() {
-        assert!(authorize_with_token(Some("secret"), &headers_with(Some("Bearer secret"))).is_ok());
+    #[tokio::test]
+    async fn an_empty_configured_token_also_reads_as_disabled() {
+        let (status, body) = reject_status_and_body(Some(""), Some("Bearer ")).await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        assert_eq!(
+            body["error"],
+            "admin controls are disabled (CATALYRST_CREDITS_ADMIN_TOKEN unset)"
+        );
     }
 
-    #[test]
-    fn raw_token_without_bearer_prefix_is_forbidden() {
-        let err = authorize_with_token(Some("secret"), &headers_with(Some("secret"))).unwrap_err();
-        assert!(matches!(err, ApiError::Forbidden(_)));
+    #[tokio::test]
+    async fn a_missing_wrong_or_unprefixed_bearer_is_403_invalid() {
+        // The raw `"secret"` case pins that the exact `"Bearer "` prefix is still required.
+        let cases = [
+            None,
+            Some("Bearer nope"),
+            Some("Basic s3cret"),
+            Some("secret"),
+        ];
+        for presented in cases {
+            let (status, body) = reject_status_and_body(Some("secret"), presented).await;
+            assert_eq!(status, StatusCode::FORBIDDEN);
+            assert_eq!(body["error"], "invalid admin token");
+            assert_eq!(body["message"], "invalid admin token");
+        }
+    }
+
+    #[tokio::test]
+    async fn a_correct_bearer_authorizes() {
+        let mut parts = parts_with_auth(Some("Bearer secret")).await;
+        assert!(establish_admin(Some("secret".to_string()), &mut parts)
+            .await
+            .is_ok());
     }
 
     #[test]
@@ -283,20 +348,6 @@ mod tests {
         assert!(validate_idempotency_key(&Some("x".repeat(201))).is_err());
         assert!(validate_idempotency_key(&Some("bad key".into())).is_err());
         assert!(validate_idempotency_key(&Some("bad\nkey".into())).is_err());
-    }
-
-    #[test]
-    fn header_actor_resolves() {
-        let mut h = HeaderMap::new();
-        assert_eq!(admin_actor(&h), None);
-        h.insert("x-catalyrst-admin", HeaderValue::from_static("  alice  "));
-        assert_eq!(admin_actor(&h).as_deref(), Some("alice"));
-    }
-
-    #[test]
-    fn validates_season_state() {
-        assert_eq!(validate_season_state("in_progress").unwrap(), "IN_PROGRESS");
-        assert!(validate_season_state("BOGUS").is_err());
     }
 
     #[test]

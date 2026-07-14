@@ -8,9 +8,18 @@ use crate::fed::authority;
 use crate::fed::messages::ScheduleUpsert;
 use crate::handlers::federation::{emit_gossip, is_federation_envelope, preflight};
 use crate::http::response::{ApiError, ApiOk};
-use crate::schemas::ScheduleRecord;
+use crate::schemas::{ScheduleRecord, ScheduleUpsertEnvelope};
 use crate::AppState;
 
+#[utoipa::path(
+    get,
+    path = "/api/schedules",
+    tag = "schedules",
+    responses(
+        (status = 200, body = ApiOk<Vec<ScheduleRecord>>),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn get_schedule_list(
     State(state): State<AppState>,
 ) -> Result<Json<ApiOk<Vec<ScheduleRecord>>>, ApiError> {
@@ -18,6 +27,17 @@ pub async fn get_schedule_list(
     Ok(Json(ApiOk::new(list)))
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/schedules/{schedule_id}",
+    tag = "schedules",
+    params(("schedule_id" = String, Path)),
+    responses(
+        (status = 200, body = ApiOk<ScheduleRecord>),
+        (status = 404, body = catalyrst_types::ApiErrorBody),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn get_schedule_by_id(
     State(state): State<AppState>,
     Path(schedule_id): Path<String>,
@@ -29,20 +49,45 @@ pub async fn get_schedule_by_id(
     Ok(Json(ApiOk::new(s)))
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/schedules",
+    tag = "schedules",
+    request_body = ScheduleUpsertEnvelope,
+    responses(
+        (status = 200, body = ApiOk<ScheduleRecord>),
+        (status = 400, body = catalyrst_types::ApiErrorBody),
+        (status = 401, body = catalyrst_types::ApiErrorBody),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn create_schedule(
     State(state): State<AppState>,
     headers: HeaderMap,
     Json(body): Json<Value>,
-) -> Result<Json<ApiOk<Value>>, ApiError> {
+) -> Result<Json<ApiOk<ScheduleRecord>>, ApiError> {
     apply_upsert(&state, &headers, body, None).await
 }
 
+#[utoipa::path(
+    patch,
+    path = "/api/schedules/{schedule_id}",
+    tag = "schedules",
+    params(("schedule_id" = String, Path)),
+    request_body = ScheduleUpsertEnvelope,
+    responses(
+        (status = 200, body = ApiOk<ScheduleRecord>),
+        (status = 400, body = catalyrst_types::ApiErrorBody),
+        (status = 401, body = catalyrst_types::ApiErrorBody),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn patch_schedule(
     State(state): State<AppState>,
     headers: HeaderMap,
     Path(schedule_id): Path<String>,
     Json(body): Json<Value>,
-) -> Result<Json<ApiOk<Value>>, ApiError> {
+) -> Result<Json<ApiOk<ScheduleRecord>>, ApiError> {
     apply_upsert(&state, &headers, body, Some(schedule_id)).await
 }
 
@@ -51,7 +96,7 @@ async fn apply_upsert(
     headers: &HeaderMap,
     body: Value,
     path_id: Option<String>,
-) -> Result<Json<ApiOk<Value>>, ApiError> {
+) -> Result<Json<ApiOk<ScheduleRecord>>, ApiError> {
     if !is_federation_envelope(&body) {
         return Err(ApiError::bad_request("missing signed body"));
     }

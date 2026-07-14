@@ -6,9 +6,40 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::{Json, Router};
 use parking_lot::RwLock;
-use serde::Deserialize;
-use serde_json::{json, Value};
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::collections::BTreeMap;
+
+#[derive(Serialize)]
+pub struct ConfigListResponse {
+    pub config: BTreeMap<String, Value>,
+}
+
+#[derive(Serialize)]
+pub struct ConfigEntryResponse {
+    pub key: String,
+    pub value: Value,
+}
+
+#[derive(Serialize)]
+pub struct ConfigSetAck {
+    pub ok: bool,
+    pub key: String,
+    pub value: Value,
+}
+
+#[derive(Serialize)]
+pub struct ConfigDeleteAck {
+    pub ok: bool,
+    pub key: String,
+    pub removed: bool,
+}
+
+#[derive(Serialize)]
+pub struct KeyNotFound {
+    pub error: &'static str,
+    pub key: String,
+}
 
 #[derive(Default)]
 pub struct RuntimeConfigState {
@@ -52,7 +83,7 @@ async fn list_config(State(state): State<AppState>, headers: HeaderMap) -> Respo
         return resp;
     }
     let map = state.runtime_config.snapshot();
-    (StatusCode::OK, Json(json!({ "config": map }))).into_response()
+    (StatusCode::OK, Json(ConfigListResponse { config: map })).into_response()
 }
 
 async fn get_config(
@@ -64,12 +95,13 @@ async fn get_config(
         return resp;
     }
     match state.runtime_config.get(&key) {
-        Some(value) => {
-            (StatusCode::OK, Json(json!({ "key": key, "value": value }))).into_response()
-        }
+        Some(value) => (StatusCode::OK, Json(ConfigEntryResponse { key, value })).into_response(),
         None => (
             StatusCode::NOT_FOUND,
-            Json(json!({ "error": "not_found", "key": key })),
+            Json(KeyNotFound {
+                error: "not_found",
+                key,
+            }),
         )
             .into_response(),
     }
@@ -87,7 +119,11 @@ async fn set_config(
     state.runtime_config.set(key.clone(), body.value.clone());
     (
         StatusCode::OK,
-        Json(json!({ "ok": true, "key": key, "value": body.value })),
+        Json(ConfigSetAck {
+            ok: true,
+            key,
+            value: body.value,
+        }),
     )
         .into_response()
 }
@@ -103,7 +139,11 @@ async fn delete_config(
     let removed = state.runtime_config.remove(&key);
     (
         StatusCode::OK,
-        Json(json!({ "ok": true, "key": key, "removed": removed.is_some() })),
+        Json(ConfigDeleteAck {
+            ok: true,
+            key,
+            removed: removed.is_some(),
+        }),
     )
         .into_response()
 }

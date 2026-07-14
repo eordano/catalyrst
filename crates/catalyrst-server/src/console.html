@@ -130,7 +130,7 @@
   .btn.ghost{background:transparent;color:var(--fg)}
   .btn.ghost:hover{background:var(--bg3);color:var(--fg);border-color:var(--fg)}
   .btn:disabled{opacity:.5;cursor:default}
-  /* destructive / financial actions — visually distinct */
+  /* destructive / financial actions &#x2014; visually distinct */
   .btn.danger{background:var(--err);border-color:var(--acc2);color:#fff}
   .btn.danger:hover{background:var(--acc2);border-color:var(--acc2)}
   .danger-form{border-left:3px solid var(--err);padding-left:11px;margin-left:-2px}
@@ -167,7 +167,7 @@
 </div></footer>
 <script>
 // SSR-first: the server renders everything above. This only progressively
-// enhances — relative timestamps and an opt-in 15s auto-refresh.
+// enhances &#x2014; relative timestamps and an opt-in 15s auto-refresh.
 (function(){
   function rel(ts){ if(!ts)return''; const d=(Date.now()-new Date(ts).getTime())/1000;
     if(d<60)return Math.max(0,d|0)+'s ago'; if(d<3600)return (d/60|0)+'m ago';
@@ -182,7 +182,7 @@
   try{ if(localStorage.getItem('cat_live')==='1')on(true); }catch(e){}
 })();
 
-// Operator controls — progressive enhancement only. The server decides which
+// Operator controls &#x2014; progressive enhancement only. The server decides which
 // controls exist (SSR); this wires the wallet sign-in handshake and the POSTs to
 // /admin/api/* for whatever controls were rendered. The session cookie is
 // HttpOnly + same-origin, so fetch() sends it automatically; we never read it.
@@ -217,7 +217,7 @@
       var nj=await nr.json();
       var sig=await ethereum.request({method:'personal_sign',params:[nj.message,acct]});
       var vr=await fetch('/admin/auth/verify',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({message:nj.message,signature:sig})});
-      if(vr.ok){ flash(out,true,'Signed in — reloading…'); location.reload(); }
+      if(vr.ok){ flash(out,true,'Signed in &#x2014; reloading&#x2026;'); location.reload(); }
       else { var t=await vr.text(); flash(out,false,'Sign-in rejected ('+vr.status+'). '+(t||'')); signin.disabled=false; }
     }catch(e){ flash(out,false,'Sign-in failed: '+(e&&e.message||e)); signin.disabled=false; }
   }); }
@@ -260,7 +260,7 @@
     if(confirmMsg && !window.confirm(confirmMsg)) return;
     var out=resultEl(el);
     var body=gather(el);
-    if(out){ out.classList.remove('ok-t','bad-t'); out.textContent='…'; }
+    if(out){ out.classList.remove('ok-t','bad-t'); out.textContent='&#x2026;'; }
     try{
       var r=await fetch(action,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});
       var j=null; try{ j=await r.json(); }catch(e){}
@@ -268,8 +268,8 @@
       // HTTP status and the envelope's ok together.
       var ok=r.ok && (j?(j.ok!==false):true);
       var rendered = j ? (j.body!==undefined?pretty(j.body):pretty(j)) : ('HTTP '+r.status);
-      if(out) flash(out,ok,(ok?'✓ ':'✗ ')+(j&&j.status?('['+j.status+'] '):'')+rendered);
-    }catch(e){ if(out) flash(out,false,'✗ request failed: '+(e&&e.message||e)); }
+      if(out) flash(out,ok,(ok?'&#x2713; ':'&#x2717; ')+(j&&j.status?('['+j.status+'] '):'')+rendered);
+    }catch(e){ if(out) flash(out,false,'&#x2717; request failed: '+(e&&e.message||e)); }
   }
   // Wire every action element. Submit buttons fire via the form's submit event;
   // standalone buttons fire on click.
@@ -279,7 +279,7 @@
   document.querySelectorAll('button[data-admin-action]').forEach(function(btn){
     btn.addEventListener('click',function(ev){
       // A submit button inside a data-admin-action form is handled by the form's
-      // submit handler — don't double-fire.
+      // submit handler &#x2014; don't double-fire.
       if(btn.type==='submit' && btn.closest('form[data-admin-action]')) return;
       ev.preventDefault(); run(btn);
     });

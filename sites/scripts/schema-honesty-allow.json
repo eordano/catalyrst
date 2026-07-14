@@ -1,0 +1,122 @@
+[
+  {
+    "file": "packages/data/src/lib/auth/pair.ts",
+    "line": 120,
+    "why": "Fire-and-forget cancel notification on a pairing session the user abandoned; it returns no value to anyone and its failure cannot be reported to a page that is already gone."
+  },
+  {
+    "file": "packages/data/src/lib/catalyst/builder/collections-schema.ts",
+    "line": 58,
+    "why": "`pending` marks a publish that is in flight. It is written onto a row only while one is, so its absence is the fact and not a gap: catalyrst-builder/src/ports/marketplace.rs:218 emits `false` for every on-chain row, and 7 of the 8 rows in src/fixtures/builder-collections.json omit the key entirely. The single consumer, `toCollectionCard`, writes `pending: c.pending || undefined` and renders nothing for it, so absent and false are the same value to every caller. The measurement fields on this row -- `count` and `thumbs` -- are required precisely because they are not like this one."
+  },
+  {
+    "file": "packages/data/src/lib/catalyst/creator-hub/land-rights.ts",
+    "line": 119,
+    "why": "`outcome: \"unknown\"` is the name this arm gives its own failure, and it is the same value the non-throwing branch two lines above returns when `fetchParcelPermissions` answers null. Nothing downstream reads it as a grant: `probeDeployRights` treats the first `unknown` in the batch as terminal and returns `{ status: \"unknown\", parcel }`, which the LAND publish flow renders as \"we couldn't check your rights on this parcel\" and refuses to deploy. The two outcomes that do decide something -- `granted` and `denied` -- are only ever reached from a permissions payload that actually parsed."
+  },
+  {
+    "file": "packages/data/src/lib/catalyst/creator-hub/manage-worlds.server.ts",
+    "line": 63,
+    "why": "The zero is guarded by `err.status === 404` on `/world/{name}/about`, which is catalyst's answer for a NAME that has never had a scene deployed to it -- so the count is measured, not defaulted. Every other failure rethrows: the `catch` re-raises anything that is not a 404 CatalystError, and an about payload that parses but carries no `configurations` block throws a CatalystError two statements later, so a broken read is kept out of the world list rather than published as \"0 scenes, unpublished\"."
+  },
+  {
+    "file": "packages/data/src/lib/catalyst/creator-hub/scene-drafts.server.ts",
+    "line": 82,
+    "why": "ENOENT on the wallet's draft directory is the filesystem stating that this wallet has never saved a draft -- the directory is created on first write, so its absence is the empty result, not a failed read. Every other errno rethrows on the next line, so a permissions error or an I/O fault reaches the caller instead of arriving as \"you have no drafts\"."
+  },
+  {
+    "file": "packages/data/src/lib/catalyst/creator-hub/world-permissions.server.ts",
+    "line": 39,
+    "why": "worlds-content-server sends `wallets` on a deployment/streaming permission exactly when that permission is an allow-list; a leg that omits it is not gated by a list at all, so the empty list is the real membership. The enclosing `permissions` object is required, so a truncated or error payload still fails the parse before this default is reached."
+  },
+  {
+    "file": "packages/data/src/lib/catalyst/creator-hub/world-permissions.server.ts",
+    "line": 44,
+    "why": "Same allow-list contract on the access leg: `wallets` is present only for `type: \"allow-list\"`. For unrestricted / shared-secret / nft-ownership worlds there is no wallet allow-list, and an empty one is exactly what the ACL panel should show. A broken payload fails earlier on the required `permissions` object."
+  },
+  {
+    "file": "packages/data/src/lib/catalyst/creator-hub/world-permissions.server.ts",
+    "line": 45,
+    "why": "`communities` is the catalyrst extension to the access leg and is emitted only when a community gate exists; its absence means no community can enter by membership, which is what the empty list renders. As above, a payload that is not a permissions answer fails on the required `permissions` object rather than defaulting here."
+  },
+  {
+    "file": "packages/data/src/lib/catalyst/governance/index.ts",
+    "line": 295,
+    "why": "Not a fallback value. `promise` is the in-flight corpus refresh whose rows are being discarded on this branch because a warm cache was already returned; the empty handler only marks its rejection as handled so node does not raise an unhandled rejection. The callback returns nothing, the promise's value is never read again, and the real failure is still surfaced on the next call, which re-fetches because `proposalCorpusInflight` was cleared in the `.finally`."
+  },
+  {
+    "file": "packages/data/src/lib/catalyst/governance/submit-council-veto.ts",
+    "line": 234,
+    "why": "The only thing inside this try is `new URL(url)` on a string the user typed. A throw here means the text is not a URL at all, so `INVALID_DECISION` (snapshotId \"\", space \"\", valid false) is the true reading of it -- the same value the two non-throwing rejection paths above return. No network call, parse or measurement happens in this function; `valid: false` is what the caller renders as \"couldn't read a Council decision from that URL\"."
+  },
+  {
+    "file": "packages/data/src/lib/catalyst/landings/subscriptions.ts",
+    "line": 64,
+    "why": "email_verified is an opt-in assertion on the profile settings record: it is written true only once the user confirms their address. The screen is read-only for this field (writes go through PUT /subscription, which now refuses to run on an unreadable read), and an unconfirmed reading only ever offers the confirm step. Absence is the pre-confirmation state."
+  },
+  {
+    "file": "packages/data/src/lib/catalyst/landings/subscriptions.ts",
+    "line": 65,
+    "why": "notify_by_email is the user's email opt-in. It is set true when they subscribe, so a record that does not assert it is a record for someone who has not subscribed. toSubscriptionSettingsView only uses it to decide whether to show the subscribe or the unsubscribe affordance; it is never written back from this parse."
+  },
+  {
+    "file": "packages/data/src/lib/catalyst/landings/subscriptions.ts",
+    "line": 66,
+    "why": "notify_by_browser is the browser-push opt-in, set true only on explicit consent. Nothing on this surface reads it today and nothing writes it back, so the unasserted state and the declined state are the same fact."
+  },
+  {
+    "file": "packages/data/src/lib/catalyst/marketplace/credit-quotes.ts",
+    "line": 88,
+    "why": "Every value this batch fallback invents is null, which is the answer the rule endorses -- it is flagged only because null-valued fields arrive inside an object literal. `credits: null` means \"no credit price is known for this item\", and `tryQuoteCreditItems` copies exactly that into `(string | null)[]`; its callers show a MANA price and no credit option, the same as for an item the endpoint answered about with no credit price. `amounts: []` matches the request, which asks for items only and never amounts, and the reader loops over `res.items` alone. A quote that failed therefore reduces credit availability, never invents one, and never moves a price."
+  },
+  {
+    "file": "packages/data/src/lib/catalyst/marketplace/purchase-intent.ts",
+    "line": 120,
+    "why": "Neither field is fabricated: `intent` is the caller's own object and `devSignature` is the return value of a real `devSignTypedData` call, which the guard on the line above proves succeeded. This is a second signer, not a stand-in for one -- when the browser wallet cannot sign and no dev identity is configured, `devSignature` is null and the original error is rethrown, so a failed signature is never reported as a signed intent."
+  },
+  {
+    "file": "packages/data/src/lib/catalyst/overlay/communities.ts",
+    "line": 56,
+    "why": "isLive asserts that a community currently has a live voice room. Its only reader adds a 'Live' chip to the header; nothing routes, counts or gates on it. A community the API does not declare live is not shown as live either way."
+  },
+  {
+    "file": "packages/data/src/lib/catalyst/overlay/map-jump.ts",
+    "line": 42,
+    "why": "highlighted is the places API's promotion flag; rowToPin turns it into MapPin.featured, which only selects the 'fav' pin colour. No count, coordinate or jump destination depends on it, so a place the API does not promote renders identically to one it declares unpromoted."
+  },
+  {
+    "file": "packages/data/src/lib/fs/disk.ts",
+    "line": 70,
+    "why": "isAbort(e) only: the user dismissed the file picker, so an empty selection is the true answer, not a failed read. Any non-abort error falls through and propagates."
+  },
+  {
+    "file": "packages/data/src/lib/fs/disk.ts",
+    "line": 123,
+    "why": "The returned object names the outcome -- status is 'cancelled' or 'unsupported' -- so the caller can tell a dismissed picker from an unavailable File System Access API. Nothing is invented."
+  },
+  {
+    "file": "packages/data/src/lib/fs/disk.ts",
+    "line": 197,
+    "why": "'canceled' is the outcome itself, not a stand-in for one: the user dismissed the picker and the caller branches on that string."
+  },
+  {
+    "file": "packages/data/src/lib/fs/save-scene.ts",
+    "line": 281,
+    "why": "Sniffing the glTF magic bytes; an unreadable header means the extension is unknown and 'glb' is the binary default the writer then honours. It labels a file we are about to write, not a measurement of one we read."
+  },
+  {
+    "file": "packages/data/src/lib/fs/save-scene.ts",
+    "line": 768,
+    "why": "The object states 'canceled' or 'unsupported', so a dismissed picker is distinguishable from a browser without the API."
+  },
+  {
+    "file": "packages/data/src/lib/fs/scaffold-project.ts",
+    "line": 251,
+    "why": "written:false plus via:'canceled' says explicitly that nothing was scaffolded and why; the caller renders that rather than a success with no files."
+  },
+  {
+    "file": "packages/data/src/lib/operator/probe.server.ts",
+    "line": 63,
+    "why": "This catch IS the probe's measurement: the operator page exists to report reachability, so a refused/timed-out fetch returning state 'down' with describeError(e) publishes the real observation, not a fabricated success. httpStatus is null in this branch -- no HTTP status is invented -- and latencyMs is the genuinely elapsed time until the failure."
+  }
+]

@@ -1,0 +1,2364 @@
+{
+  "_source": "Live seed from catalyst:https://catalyst.example.com/content/entities/active (POST {\"pointers\":[\"0,0\"]} -> deployed scene entity: id/type/pointers/content[]/metadata.display; verified 2026-06-23 HTTP 200, content has 1088 mappings). Entity/CRDT component model derived from decentraland/js-sdk-toolchain@main packages/@dcl/ecs (the @dcl/inspector source is not in the repo tree on main -- it consumes these @dcl/ecs core components): Transform (src/components/manual/Transform.ts, COMPONENT_ID=1, TransformType{position,rotation(quaternion),scale,parent}, identity = pos 0,0,0 / rot 0,0,0,1 / scale 1,1,1), Name (src/components/manual/Name.ts, 'core-schema::Name', {value:string}), and the LWW component registry in src/components/index.ts (Material, MeshRenderer, MeshCollider, GltfContainer, VisibilityComponent, TextShape, AudioSource, PointerEvents, Animator, Tween, LightSource, ...). Entity envelope shape from decentraland/schemas@main src/platform/entity.ts (Entity{version,id,type,pointers,timestamp,content[],metadata}). scene.json metadata shape from decentraland/sdk7-scene-template@main scene.json. The inspector composite is a CRDT 'main.composite' authored alongside scene.json (engine entities + LWW components). Editor EDITS (place item / set transform / add component / save composite) are SIMULATED in the XState wizard -- the catalyst content server is read-only over the public nginx (deployment requires a signed AuthChain POST to /content/entities which is auth-gated).",
+  "_fetchedAt": "2026-06-23",
+  "_upstreamRefs": [
+    "https://catalyst.example.com/content/entities/active",
+    "https://raw.githubusercontent.com/decentraland/schemas/main/src/platform/entity.ts",
+    "https://raw.githubusercontent.com/decentraland/js-sdk-toolchain/main/packages/@dcl/ecs/src/components/manual/Transform.ts",
+    "https://raw.githubusercontent.com/decentraland/js-sdk-toolchain/main/packages/@dcl/ecs/src/components/manual/Name.ts",
+    "https://raw.githubusercontent.com/decentraland/js-sdk-toolchain/main/packages/@dcl/ecs/src/components/index.ts",
+    "https://raw.githubusercontent.com/decentraland/sdk7-scene-template/main/scene.json"
+  ],
+  "scene": {
+    "pointer": "0,0",
+    "title": "SDK7 Scene Template",
+    "base": "0,0",
+    "parcels": [
+      "0,0"
+    ],
+    "sdkVersion": "7",
+    "main": "bin/index.js",
+    "composite": "main.composite",
+    "_note": "Editor seeds a working scene from a live deployed entity (catalyst /content/entities/active) or this fixture. The authored entity forest below is the inspector composite (LWW CRDT)."
+  },
+  "transformIdentity": {
+    "position": {
+      "x": 0,
+      "y": 0,
+      "z": 0
+    },
+    "rotation": {
+      "x": 0,
+      "y": 0,
+      "z": 0,
+      "w": 1
+    },
+    "scale": {
+      "x": 1,
+      "y": 1,
+      "z": 1
+    }
+  },
+  "hierarchy": [
+    {
+      "entity": 512,
+      "name": "Ground",
+      "parent": 0,
+      "selected": false,
+      "components": [
+        "Transform",
+        "GltfContainer",
+        "MeshCollider"
+      ]
+    },
+    {
+      "entity": 513,
+      "name": "Kiosk",
+      "parent": 0,
+      "selected": false,
+      "components": [
+        "Transform",
+        "GltfContainer"
+      ]
+    },
+    {
+      "entity": 514,
+      "name": "Sign",
+      "parent": 513,
+      "selected": false,
+      "components": [
+        "Transform",
+        "TextShape"
+      ]
+    },
+    {
+      "entity": 520,
+      "name": "Display Cube",
+      "parent": 0,
+      "selected": true,
+      "components": [
+        "Transform",
+        "MeshRenderer",
+        "Material",
+        "VisibilityComponent"
+      ]
+    },
+    {
+      "entity": 521,
+      "name": "Ambient Audio",
+      "parent": 0,
+      "selected": false,
+      "components": [
+        "Transform",
+        "AudioSource"
+      ]
+    }
+  ],
+  "selectedEntity": {
+    "entity": 520,
+    "name": "Display Cube",
+    "transform": {
+      "position": {
+        "x": 8,
+        "y": 1,
+        "z": 8
+      },
+      "rotation": {
+        "x": 0,
+        "y": 0,
+        "z": 0,
+        "w": 1
+      },
+      "scale": {
+        "x": 1,
+        "y": 1,
+        "z": 1
+      }
+    }
+  },
+  "assetCatalog": {
+    "categories": [
+      "Rewards",
+      "Seats",
+      "Text",
+      "buttons",
+      "chests",
+      "decorations",
+      "doors",
+      "empty land",
+      "furniture",
+      "ground",
+      "health",
+      "levers",
+      "lights",
+      "media",
+      "nature",
+      "party",
+      "platforms",
+      "primitives",
+      "social",
+      "sounds",
+      "structures",
+      "text",
+      "tiles",
+      "utils"
+    ],
+    "models": [
+      {
+        "id": "017c0c8b-724a-4aa2-b298-afb9a450906c",
+        "name": "Ad Rock",
+        "pack": "Fantasy",
+        "src": "/content/contents/bafkreif3lbg4adh5o5gl7t3excazjrbxobn3ziq5ij4i6fc4plpjii65n4",
+        "hue": 342,
+        "glbFile": "Rock_03/Rock_03.glb",
+        "contents": {
+          "Rock_03/FanstasyPack_TX.png": "bafkreigovfdxo4z4daxwoejgywgqvht5ueoopglgmzsjnmv7kcjjqle2cm",
+          "Rock_03/Rock_03.glb": "bafkreif3lbg4adh5o5gl7t3excazjrbxobn3ziq5ij4i6fc4plpjii65n4",
+          "Rock_03/thumbnail.png": "bafkreiafa6lszgk6yhykfhb6holtuh67ygqqchqswsgm3xtiuwmaurnd3m",
+          "composite.json": "bafkreia4jqmeldix34v2jczyuds6mm2ptmh4j4hztlx4e4fhakavl4tr4m",
+          "thumbnail.png": "bafkreiafa6lszgk6yhykfhb6holtuh67ygqqchqswsgm3xtiuwmaurnd3m"
+        },
+        "thumbnailUrl": "/content/contents/bafkreiafa6lszgk6yhykfhb6holtuh67ygqqchqswsgm3xtiuwmaurnd3m",
+        "category": "nature"
+      },
+      {
+        "id": "52e9d902-fd6b-4d84-83cd-c08a6bf5aacb",
+        "name": "Alabastron",
+        "pack": "Fantasy",
+        "src": "/content/contents/bafkreihgwttlzskgyap24cji373lx35fyotxhmdkklbqsf5nrd5sj7rase",
+        "hue": 27,
+        "glbFile": "Vase_03/Vase_03.glb",
+        "contents": {
+          "Vase_03/FanstasyPack_TX.png": "bafkreigovfdxo4z4daxwoejgywgqvht5ueoopglgmzsjnmv7kcjjqle2cm",
+          "Vase_03/Vase_03.glb": "bafkreihgwttlzskgyap24cji373lx35fyotxhmdkklbqsf5nrd5sj7rase",
+          "Vase_03/thumbnail.png": "bafkreiexuyozqswidocj3zfypakmbpg3v5emigzuv32vegjvkg4v6nh2we",
+          "composite.json": "bafkreidcclhad74intrtnhag4oywbepdbb5yscy2onmqm6nr2oiap3hyli",
+          "thumbnail.png": "bafkreiexuyozqswidocj3zfypakmbpg3v5emigzuv32vegjvkg4v6nh2we"
+        },
+        "category": "decorations"
+      },
+      {
+        "id": "55843b02-cbbf-4348-823e-f24c6a347d42",
+        "name": "Alchemist Contraption",
+        "pack": "Fantasy",
+        "src": "/content/contents/bafkreib2cb5r63hmyybjbnbfxenyjfhkzg2a472doo6s3jr7zn5uz6r3fu",
+        "hue": 146,
+        "glbFile": "Pillar_Fire_01/Pillar_Fire_01.glb",
+        "contents": {
+          "Pillar_Fire_01/FanstasyPack_TX.png": "bafkreigovfdxo4z4daxwoejgywgqvht5ueoopglgmzsjnmv7kcjjqle2cm",
+          "Pillar_Fire_01/Pillar_Fire_01.glb": "bafkreib2cb5r63hmyybjbnbfxenyjfhkzg2a472doo6s3jr7zn5uz6r3fu",
+          "Pillar_Fire_01/thumbnail.png": "bafkreig672rgy3xfhddxr5m3xqah36zrnlelknrh2gcws6nngij6lbve5a",
+          "composite.json": "bafkreiag3lqjtmwefp7dpxbivmhj4q3qojrdlpxhjhdg44tkjyxdytarvy",
+          "thumbnail.png": "bafkreig672rgy3xfhddxr5m3xqah36zrnlelknrh2gcws6nngij6lbve5a"
+        },
+        "thumbnailUrl": "/content/contents/bafkreig672rgy3xfhddxr5m3xqah36zrnlelknrh2gcws6nngij6lbve5a",
+        "category": "structures"
+      },
+      {
+        "id": "35ab51b8-d68b-41b7-ab49-1c5f616bb3cb",
+        "name": "Alchemy Equipment",
+        "pack": "Fantasy",
+        "src": "/content/contents/bafkreickgf7ofosi2ofxoefrxj4aolnugvg26uit3c4q56atpdhwb6rysy",
+        "hue": 82,
+        "glbFile": "Lab_Sphere_01/Lab_Sphere_01.glb",
+        "contents": {
+          "Lab_Sphere_01/FanstasyPack_TX.png": "bafkreigovfdxo4z4daxwoejgywgqvht5ueoopglgmzsjnmv7kcjjqle2cm",
+          "Lab_Sphere_01/FanstasyPack_Transp.png": "bafkreibbgaezxohb3hsixhhstzhs26fbam6bvanqzknm5im6sgzweysbfi",
+          "Lab_Sphere_01/Lab_Sphere_01.glb": "bafkreickgf7ofosi2ofxoefrxj4aolnugvg26uit3c4q56atpdhwb6rysy",
+          "Lab_Sphere_01/thumbnail.png": "bafkreigojui5oijmqaeh5v6u3wyp3ebu4hi3xirg7dwpkw76nanezd2ey4",
+          "composite.json": "bafkreibdehjwtb5mkdxnapml6eb5ec6xhxsoa4ezay2hud6sk4inflm4ci",
+          "thumbnail.png": "bafkreigojui5oijmqaeh5v6u3wyp3ebu4hi3xirg7dwpkw76nanezd2ey4"
+        },
+        "thumbnailUrl": "/content/contents/bafkreigojui5oijmqaeh5v6u3wyp3ebu4hi3xirg7dwpkw76nanezd2ey4",
+        "category": "decorations"
+      },
+      {
+        "id": "3feac9e9-62e0-4acd-8568-553ec3ed25da",
+        "name": "Amphora",
+        "pack": "Fantasy",
+        "src": "/content/contents/bafkreib5odqaom2o2yf5k5m7mg6mshkdr65avs5drdfjzf4usz7sk56s3i",
+        "hue": 31,
+        "glbFile": "Vase_02/Vase_02.glb",
+        "contents": {
+          "Vase_02/FanstasyPack_TX.png": "bafkreigovfdxo4z4daxwoejgywgqvht5ueoopglgmzsjnmv7kcjjqle2cm",
+          "Vase_02/Vase_02.glb": "bafkreib5odqaom2o2yf5k5m7mg6mshkdr65avs5drdfjzf4usz7sk56s3i",
+          "Vase_02/thumbnail.png": "bafkreicj3k6g5xee55yyyjdxjuali5fhkg6vyonrcr2es3ucb6qnmhrgwi",
+          "composite.json": "bafkreigu77hy3iqj56bgb6gudqyyn3qhwmor7bvpufnkvpjdj3uuwrz7gy",
+          "thumbnail.png": "bafkreicj3k6g5xee55yyyjdxjuali5fhkg6vyonrcr2es3ucb6qnmhrgwi"
+        },
+        "category": "decorations"
+      },
+      {
+        "id": "442e490f-3708-415b-a0a5-a47af1088555",
+        "name": "Ancient Large Stone Path",
+        "pack": "Fantasy",
+        "src": "/content/contents/bafkreibvhmabzw6rv4gf2ucg2jt72m3jkcfcssdzaaorm45iz4tr3xtr6y",
+        "hue": 87,
+        "glbFile": "RockFloor_Module_4M/RockFloor_Module_4M.glb",
+        "contents": {
+          "RockFloor_Module_4M/FanstasyPack_TX.png": "bafkreigovfdxo4z4daxwoejgywgqvht5ueoopglgmzsjnmv7kcjjqle2cm",
+          "RockFloor_Module_4M/RockFloor_Module_4M.glb": "bafkreibvhmabzw6rv4gf2ucg2jt72m3jkcfcssdzaaorm45iz4tr3xtr6y",
+          "RockFloor_Module_4M/thumbnail.png": "bafkreihubglfrjo4hdwxuvue2e4tpyjenpn3nzkxawi7hlmzoffygvdmoa",
+          "composite.json": "bafkreibzk32rntui4x7oynq3qzzign7533ji7jcjxpirtgcb3g2s3myeta",
+          "thumbnail.png": "bafkreihubglfrjo4hdwxuvue2e4tpyjenpn3nzkxawi7hlmzoffygvdmoa"
+        },
+        "thumbnailUrl": "/content/contents/bafkreihubglfrjo4hdwxuvue2e4tpyjenpn3nzkxawi7hlmzoffygvdmoa",
+        "category": "tiles"
+      },
+      {
+        "id": "3738c0ed-0a67-48ad-a632-6d189a51f249",
+        "name": "Ancient Large Stone Stair",
+        "pack": "Fantasy",
+        "src": "/content/contents/bafkreidvf3bz6cia676kz4m3y52c7n2ueh4fn2qowk7h7b6yh4yyf5zyou",
+        "hue": 169,
+        "glbFile": "Module_Stair_Stones_5M/Module_Stair_Stones_5M.glb",
+        "contents": {
+          "Module_Stair_Stones_5M/FanstasyPack_TX.png": "bafkreigovfdxo4z4daxwoejgywgqvht5ueoopglgmzsjnmv7kcjjqle2cm",
+          "Module_Stair_Stones_5M/Module_Stair_Stones_5M.glb": "bafkreidvf3bz6cia676kz4m3y52c7n2ueh4fn2qowk7h7b6yh4yyf5zyou",
+          "Module_Stair_Stones_5M/thumbnail.png": "bafkreidu4ayb5yyncn4wkk4g355ukgv3miiaz7dwr7df3fkimxhvornvyu",
+          "composite.json": "bafkreihkwajecrasgoruc553tipgyznzquf56h37w3323e24h4nohgmaau",
+          "thumbnail.png": "bafkreidu4ayb5yyncn4wkk4g355ukgv3miiaz7dwr7df3fkimxhvornvyu"
+        },
+        "thumbnailUrl": "/content/contents/bafkreidu4ayb5yyncn4wkk4g355ukgv3miiaz7dwr7df3fkimxhvornvyu",
+        "category": "structures"
+      },
+      {
+        "id": "332acea2-75cf-4dfd-88b4-40eede3ae849",
+        "name": "Ancient Medium Stone Path",
+        "pack": "Fantasy",
+        "src": "/content/contents/bafkreigi26n4tzztgut22janeztbpuzyk2daqmx6p5kxwbiwetlobmuwwy",
+        "hue": 33,
+        "glbFile": "RockFloor_Module_2M/RockFloor_Module_2M.glb",
+        "contents": {
+          "RockFloor_Module_2M/FanstasyPack_TX.png": "bafkreigovfdxo4z4daxwoejgywgqvht5ueoopglgmzsjnmv7kcjjqle2cm",
+          "RockFloor_Module_2M/RockFloor_Module_2M.glb": "bafkreigi26n4tzztgut22janeztbpuzyk2daqmx6p5kxwbiwetlobmuwwy",
+          "RockFloor_Module_2M/thumbnail.png": "bafkreibomlmkuxn7bqf5z7t7wrdhoo6o3nzg7kvlagrs6jrfnpfhf7iqaa",
+          "composite.json": "bafkreiadbkiaopvqshzgxcz6v2rfn32yw7crl63umqk5hbklvekn75cvsa",
+          "thumbnail.png": "bafkreibomlmkuxn7bqf5z7t7wrdhoo6o3nzg7kvlagrs6jrfnpfhf7iqaa"
+        },
+        "thumbnailUrl": "/content/contents/bafkreibomlmkuxn7bqf5z7t7wrdhoo6o3nzg7kvlagrs6jrfnpfhf7iqaa",
+        "category": "tiles"
+      },
+      {
+        "id": "bac8dba0-d241-4515-a42d-e7d819802857",
+        "name": "Ancient Medium Stone Stair",
+        "pack": "Fantasy",
+        "src": "/content/contents/bafkreigoubzlmtbhqwpqsrpczkbvomavw3rhrc7c3sdjacdutzuzpbv3pq",
+        "hue": 223,
+        "glbFile": "Module_Stair_Stones_3M/Module_Stair_Stones_3M.glb",
+        "contents": {
+          "Module_Stair_Stones_3M/FanstasyPack_TX.png": "bafkreigovfdxo4z4daxwoejgywgqvht5ueoopglgmzsjnmv7kcjjqle2cm",
+          "Module_Stair_Stones_3M/Module_Stair_Stones_3M.glb": "bafkreigoubzlmtbhqwpqsrpczkbvomavw3rhrc7c3sdjacdutzuzpbv3pq",
+          "Module_Stair_Stones_3M/thumbnail.png": "bafkreih76su2xqnyhobcwgumsrj7bfyj4ub5eqfs4dv626ol4eb7yd4you",
+          "composite.json": "bafkreih3rzszr3yozi6mrkz4yizyhanajgjrddmmicoayrekvjmh5hrb5q",
+          "thumbnail.png": "bafkreih76su2xqnyhobcwgumsrj7bfyj4ub5eqfs4dv626ol4eb7yd4you"
+        },
+        "thumbnailUrl": "/content/contents/bafkreih76su2xqnyhobcwgumsrj7bfyj4ub5eqfs4dv626ol4eb7yd4you",
+        "category": "structures"
+      },
+      {
+        "id": "ec904f7c-6277-4001-ae8e-ab39ffb14a35",
+        "name": "Ancient Small Stone Stair",
+        "pack": "Fantasy",
+        "src": "/content/contents/bafkreid5jiyt46az3i5k7av62b6su5gchuww6uvjdd7dwj7ymccf2uy3rq",
+        "hue": 183,
+        "glbFile": "Module_Stair_Stones_1M/Module_Stair_Stones_1M.glb",
+        "contents": {
+          "Module_Stair_Stones_1M/FanstasyPack_TX.png": "bafkreigovfdxo4z4daxwoejgywgqvht5ueoopglgmzsjnmv7kcjjqle2cm",
+          "Module_Stair_Stones_1M/Module_Stair_Stones_1M.glb": "bafkreid5jiyt46az3i5k7av62b6su5gchuww6uvjdd7dwj7ymccf2uy3rq",
+          "Module_Stair_Stones_1M/thumbnail.png": "bafkreicimixizlnahec7d5yrojtgm2nopjs3mhs6yievmvhxhim3cndqu4",
+          "composite.json": "bafkreie5m3v5gr4g4dfgtzagjdolt7e5mjo7ctl5r3dz4jhsfttrme34nq",
+          "thumbnail.png": "bafkreicimixizlnahec7d5yrojtgm2nopjs3mhs6yievmvhxhim3cndqu4"
+        },
+        "thumbnailUrl": "/content/contents/bafkreicimixizlnahec7d5yrojtgm2nopjs3mhs6yievmvhxhim3cndqu4",
+        "category": "structures"
+      },
+      {
+        "id": "07f282ca-c7cf-457b-a4c1-b6ccd857568c",
+        "name": "Ancient Stone Path",
+        "pack": "Fantasy",
+        "src": "/content/contents/bafkreihxdtv32u6t25yp2blq6t42e4pqps2dq7xhtq6trmmtnpvzym7kuu",
+        "hue": 182,
+        "glbFile": "RockFloor_Module_1M/RockFloor_Module_1M.glb",
+        "contents": {
+          "RockFloor_Module_1M/FanstasyPack_TX.png": "bafkreigovfdxo4z4daxwoejgywgqvht5ueoopglgmzsjnmv7kcjjqle2cm",
+          "RockFloor_Module_1M/RockFloor_Module_1M.glb": "bafkreihxdtv32u6t25yp2blq6t42e4pqps2dq7xhtq6trmmtnpvzym7kuu",
+          "RockFloor_Module_1M/thumbnail.png": "bafkreigwysrgbe2pmgoxrorpqcgccad5z6ccruginmld335rcn4264kpjy",
+          "composite.json": "bafkreic4i3ydmludlnt2t5vh4e22ydvhg3se452m73ocrsvlqq2imrihji",
+          "thumbnail.png": "bafkreigwysrgbe2pmgoxrorpqcgccad5z6ccruginmld335rcn4264kpjy"
+        },
+        "thumbnailUrl": "/content/contents/bafkreigwysrgbe2pmgoxrorpqcgccad5z6ccruginmld335rcn4264kpjy",
+        "category": "tiles"
+      },
+      {
+        "id": "eb9ffc7f-203c-408b-8d0c-71a580b26c85",
+        "name": "Antique Mosaic Tile",
+        "pack": "Fantasy",
+        "src": "/content/contents/bafkreifjlwgtpnpstvrqn2hfwnlr4pgoek5fff35osg3vvborg36dbyama",
+        "hue": 344,
+        "glbFile": "Floor_Tiles_2M_06/Floor_Tiles_2M_06.glb",
+        "contents": {
+          "Floor_Tiles_2M_06/FanstasyPack_TX.png": "bafkreigovfdxo4z4daxwoejgywgqvht5ueoopglgmzsjnmv7kcjjqle2cm",
+          "Floor_Tiles_2M_06/Floor_Tiles_2M_06.glb": "bafkreifjlwgtpnpstvrqn2hfwnlr4pgoek5fff35osg3vvborg36dbyama",
+          "Floor_Tiles_2M_06/thumbnail.png": "bafkreicydmbx2a6lax5t4xyv5cjgk3stgctb25ssqhhxr4ugxdqjqdf754",
+          "composite.json": "bafkreidwbnklv4duebzbivt7ep6zpvk6fs3codi4q4cc3pyhvj3w7n4f54",
+          "thumbnail.png": "bafkreicydmbx2a6lax5t4xyv5cjgk3stgctb25ssqhhxr4ugxdqjqdf754"
+        },
+        "thumbnailUrl": "/content/contents/bafkreicydmbx2a6lax5t4xyv5cjgk3stgctb25ssqhhxr4ugxdqjqdf754",
+        "category": "tiles"
+      },
+      {
+        "id": "5ddddf84-0091-4bba-91c4-d3b9fbfde322",
+        "name": "Anvil",
+        "pack": "Fantasy",
+        "src": "/content/contents/bafkreih575xj5dasvrbqcd3raf5itfncpkbxaggqcnx2zgq35ym5gjtcsy",
+        "hue": 358,
+        "glbFile": "Anvil_01/Anvil_01.glb",
+        "contents": {
+          "Anvil_01/Anvil_01.glb": "bafkreih575xj5dasvrbqcd3raf5itfncpkbxaggqcnx2zgq35ym5gjtcsy",
+          "Anvil_01/FanstasyPack_TX.png": "bafkreigovfdxo4z4daxwoejgywgqvht5ueoopglgmzsjnmv7kcjjqle2cm",
+          "Anvil_01/thumbnail.png": "bafkreigdirjr5mqn3jbx3fuzpazhpnomwysnnmo5e4lpu24vm3fmweq2p4",
+          "composite.json": "bafkreiepqtc4kv26mxatry2qlzigfd3mep363tt6nhoz3kykfp2gmgouke",
+          "thumbnail.png": "bafkreigdirjr5mqn3jbx3fuzpazhpnomwysnnmo5e4lpu24vm3fmweq2p4"
+        },
+        "thumbnailUrl": "/content/contents/bafkreigdirjr5mqn3jbx3fuzpazhpnomwysnnmo5e4lpu24vm3fmweq2p4",
+        "category": "decorations"
+      },
+      {
+        "id": "e43e82be-20dd-4a69-af96-0420f825be0e",
+        "name": "Archway of Nightmares",
+        "pack": "Fantasy",
+        "src": "/content/contents/bafkreigsd5f4jkzpijdx5n3voqyaes63zlr476y4pvj73exav3orpnixci",
+        "hue": 260,
+        "glbFile": "ArchWay_01/ArchWay_01.glb",
+        "contents": {
+          "ArchWay_01/ArchWay_01.glb": "bafkreigsd5f4jkzpijdx5n3voqyaes63zlr476y4pvj73exav3orpnixci",
+          "ArchWay_01/FanstasyPack_TX.png": "bafkreigovfdxo4z4daxwoejgywgqvht5ueoopglgmzsjnmv7kcjjqle2cm",
+          "ArchWay_01/thumbnail.png": "bafkreibqoktxidn6hamcqsqdh5meggh2enrorh3ze63ut2bce4ivxnxghi",
+          "composite.json": "bafkreiftnvimj2tz4lopu5ifizaspl54xuwld7j7y6ry43bivx23b2mbca",
+          "thumbnail.png": "bafkreibqoktxidn6hamcqsqdh5meggh2enrorh3ze63ut2bce4ivxnxghi"
+        },
+        "thumbnailUrl": "/content/contents/bafkreibqoktxidn6hamcqsqdh5meggh2enrorh3ze63ut2bce4ivxnxghi",
+        "category": "structures"
+      },
+      {
+        "id": "28fd15b6-edc4-41a4-854e-f296203eaa22",
+        "name": "Blacksmith Oven",
+        "pack": "Fantasy",
+        "src": "/content/contents/bafkreidhrmip2bjqxezj5zib24isahh52bmo3hhqegjp6bke5u2kdqkgqa",
+        "hue": 280,
+        "glbFile": "OvenSmith_01/OvenSmith_01.glb",
+        "contents": {
+          "OvenSmith_01/FanstasyPack_TX.png": "bafkreigovfdxo4z4daxwoejgywgqvht5ueoopglgmzsjnmv7kcjjqle2cm",
+          "OvenSmith_01/OvenSmith_01.glb": "bafkreidhrmip2bjqxezj5zib24isahh52bmo3hhqegjp6bke5u2kdqkgqa",
+          "OvenSmith_01/thumbnail.png": "bafkreia4cay2oqnbwloyz6vjexprfpqkpnjor2k4jpukxrt22kk33myqlu",
+          "composite.json": "bafkreic33tk3wramq4ytjynznoted6dqcpxk3gxqhwoih7jlu4hl7dcjju",
+          "thumbnail.png": "bafkreia4cay2oqnbwloyz6vjexprfpqkpnjor2k4jpukxrt22kk33myqlu"
+        },
+        "thumbnailUrl": "/content/contents/bafkreia4cay2oqnbwloyz6vjexprfpqkpnjor2k4jpukxrt22kk33myqlu",
+        "category": "decorations"
+      },
+      {
+        "id": "3f001c84-b186-499d-bcaf-490629e85d99",
+        "name": "Blooming Blue Acacia Tree",
+        "pack": "Fantasy",
+        "src": "/content/contents/bafkreidnrjz2xoo275ocs36gghi5amgut7hvwgefb3mn7lv4tvftrpb53e",
+        "hue": 309,
+        "glbFile": "Tree_Forest_Blue_02/Tree_Forest_Blue_02.glb",
+        "contents": {
+          "Tree_Forest_Blue_02/FanstasyPack_TX.png": "bafkreigovfdxo4z4daxwoejgywgqvht5ueoopglgmzsjnmv7kcjjqle2cm",
+          "Tree_Forest_Blue_02/Tree_Forest_Blue_02.glb": "bafkreidnrjz2xoo275ocs36gghi5amgut7hvwgefb3mn7lv4tvftrpb53e",
+          "Tree_Forest_Blue_02/thumbnail.png": "bafkreiagidv5htigyvgl3i6jxm6ovb4iek4345aorsc6xy2kgn2qutereq",
+          "composite.json": "bafkreicdrmmo4sahofzn7ze6xaq57kbtc6yeesyurcgjwjtddzrzowydtq",
+          "thumbnail.png": "bafkreiagidv5htigyvgl3i6jxm6ovb4iek4345aorsc6xy2kgn2qutereq"
+        },
+        "thumbnailUrl": "/content/contents/bafkreiagidv5htigyvgl3i6jxm6ovb4iek4345aorsc6xy2kgn2qutereq",
+        "category": "nature"
+      },
+      {
+        "id": "2dd72eee-1285-43e0-9787-8a60bf4cd46a",
+        "name": "Blooming Green Acacia Tree",
+        "pack": "Fantasy",
+        "src": "/content/contents/bafkreiaqojo2ycbo66rg7ryovex45fqykvqy2qz7ebqabksjbli6inenya",
+        "hue": 119,
+        "glbFile": "Tree_Forest_Green_02/Tree_Forest_Green_02.glb",
+        "contents": {
+          "Tree_Forest_Green_02/FanstasyPack_TX.png": "bafkreigovfdxo4z4daxwoejgywgqvht5ueoopglgmzsjnmv7kcjjqle2cm",
+          "Tree_Forest_Green_02/Tree_Forest_Green_02.glb": "bafkreiaqojo2ycbo66rg7ryovex45fqykvqy2qz7ebqabksjbli6inenya",
+          "Tree_Forest_Green_02/thumbnail.png": "bafkreih6ubxeldsvwifa6er4kvnnyywdv4i3diw2uqcq3qi6y7g6jpjvlu",
+          "composite.json": "bafkreiczce73dmcuwpdmru2ad74s74n5ea4sudsokfltvblru34qdte4oe",
+          "thumbnail.png": "bafkreih6ubxeldsvwifa6er4kvnnyywdv4i3diw2uqcq3qi6y7g6jpjvlu"
+        },
+        "thumbnailUrl": "/content/contents/bafkreih6ubxeldsvwifa6er4kvnnyywdv4i3diw2uqcq3qi6y7g6jpjvlu",
+        "category": "nature"
+      },
+      {
+        "id": "84d1a6c5-7928-4a77-b8c4-b22952ee8b15",
+        "name": "Blooming Pink Acacia Tree",
+        "pack": "Fantasy",
+        "src": "/content/contents/bafkreih7urhlvnomdcxl77xjejjjjekiwvohxwaitesi4s4u7l4j43uptq",
+        "hue": 45,
+        "glbFile": "Tree_Forest_Pink_02/Tree_Forest_Pink_02.glb",
+        "contents": {
+          "Tree_Forest_Pink_02/FanstasyPack_TX.png": "bafkreigovfdxo4z4daxwoejgywgqvht5ueoopglgmzsjnmv7kcjjqle2cm",
+          "Tree_Forest_Pink_02/Tree_Forest_Pink_02.glb": "bafkreih7urhlvnomdcxl77xjejjjjekiwvohxwaitesi4s4u7l4j43uptq",
+          "Tree_Forest_Pink_02/thumbnail.png": "bafkreicbiuquka62vda7okzwwo7mnj5hraisjfifb2l7ytiobeugih5r6e",
+          "composite.json": "bafkreieddkf6y4qltrqhhyojlo575wvvavqp5vcomjs26c6nzfazh6yxre",
+          "thumbnail.png": "bafkreicbiuquka62vda7okzwwo7mnj5hraisjfifb2l7ytiobeugih5r6e"
+        },
+        "thumbnailUrl": "/content/contents/bafkreicbiuquka62vda7okzwwo7mnj5hraisjfifb2l7ytiobeugih5r6e",
+        "category": "nature"
+      },
+      {
+        "id": "af393f91-905e-4d1c-9c26-e11a5d84e4c9",
+        "name": "Blooming Turquoise Acacia Tree",
+        "pack": "Fantasy",
+        "src": "/content/contents/bafkreiadirkl3544hcycxgut33tirfuyjxe6apmujrbsuwwfzzf4ml5dy4",
+        "hue": 152,
+        "glbFile": "Tree_Forest_Turquoise_02/Tree_Forest_Turquoise_02.glb",
+        "contents": {
+          "Tree_Forest_Turquoise_02/FanstasyPack_TX.png": "bafkreigovfdxo4z4daxwoejgywgqvht5ueoopglgmzsjnmv7kcjjqle2cm",
+          "Tree_Forest_Turquoise_02/Tree_Forest_Turquoise_02.glb": "bafkreiadirkl3544hcycxgut33tirfuyjxe6apmujrbsuwwfzzf4ml5dy4",
+          "Tree_Forest_Turquoise_02/thumbnail.png": "bafkreifnheorrwjl2vivf52i6wzg6yerlbuvtif6rlalvzo37vjegyrw5e",
+          "composite.json": "bafkreia2xtewbmmevv4mauczgoruk2cenxpxjvlia4ba56jumr6xcgvmxm",
+          "thumbnail.png": "bafkreifnheorrwjl2vivf52i6wzg6yerlbuvtif6rlalvzo37vjegyrw5e"
+        },
+        "thumbnailUrl": "/content/contents/bafkreifnheorrwjl2vivf52i6wzg6yerlbuvtif6rlalvzo37vjegyrw5e",
+        "category": "nature"
+      },
+      {
+        "id": "dc30e878-f72c-41f2-af27-87b21d674aa3",
+        "name": "Checkers Mosaic Tile",
+        "pack": "Fantasy",
+        "src": "/content/contents/bafkreibws5ccdpcaobjycv7qfbzxv4in5ojfmsg5hydoy4zivflyphmhpm",
+        "hue": 102,
+        "glbFile": "Floor_Tiles_2M_02/Floor_Tiles_2M_02.glb",
+        "contents": {
+          "Floor_Tiles_2M_02/FanstasyPack_TX.png": "bafkreigovfdxo4z4daxwoejgywgqvht5ueoopglgmzsjnmv7kcjjqle2cm",
+          "Floor_Tiles_2M_02/Floor_Tiles_2M_02.glb": "bafkreibws5ccdpcaobjycv7qfbzxv4in5ojfmsg5hydoy4zivflyphmhpm",
+          "Floor_Tiles_2M_02/thumbnail.png": "bafkreidpp6gu62sznsac4oiuo6d4fzzql64f2jhqf2p36o7aiuwg22vfnm",
+          "composite.json": "bafkreibuttssmswax4p5dvxso436f3aavlpvojiqswtekkmigdccqtycia",
+          "thumbnail.png": "bafkreidpp6gu62sznsac4oiuo6d4fzzql64f2jhqf2p36o7aiuwg22vfnm"
+        },
+        "thumbnailUrl": "/content/contents/bafkreidpp6gu62sznsac4oiuo6d4fzzql64f2jhqf2p36o7aiuwg22vfnm",
+        "category": "tiles"
+      },
+      {
+        "id": "7a5f2afc-ae67-4fe8-a3a1-0ef5b4ffdcd6",
+        "name": "Grey Flagstone",
+        "pack": "Fantasy",
+        "src": "/content/contents/bafkreibtyoffdx3dvh2zblwmntus4a7rgwu77ykma52w6msf267xmn3vhi",
+        "hue": 321,
+        "glbFile": "FloorFantasyRocks_03/FloorFantasyRocks_03.glb",
+        "contents": {
+          "FloorFantasyRocks_03/FloorFantasyRocks_03.glb": "bafkreibtyoffdx3dvh2zblwmntus4a7rgwu77ykma52w6msf267xmn3vhi",
+          "FloorFantasyRocks_03/Floor_Rock_03.jpg": "bafkreiefoeepcc6woccvbjhl5xxakf23rmkar5lm4cnej5d7xumn2474tm",
+          "FloorFantasyRocks_03/thumbnail.png": "bafkreibnhbucuvdarxzkfljq7gzezbe37cgxhs7rb7spmp7mkswqvosnva",
+          "composite.json": "bafkreiacwtft4luxkyxbogdneqcky6bfcazqyb36yuxsuerhkyj5spccau",
+          "thumbnail.png": "bafkreibnhbucuvdarxzkfljq7gzezbe37cgxhs7rb7spmp7mkswqvosnva"
+        },
+        "thumbnailUrl": "/content/contents/bafkreibnhbucuvdarxzkfljq7gzezbe37cgxhs7rb7spmp7mkswqvosnva",
+        "category": "ground"
+      },
+      {
+        "id": "9be6610f-cf2b-47fc-a5bd-c9aa62ea6f8e",
+        "name": "Keystone",
+        "pack": "Fantasy",
+        "src": "/content/contents/bafkreiev5uqre57udzbqtlnkw332jrs622qdyi2q67hvuuv6qej7xqqxve",
+        "hue": 116,
+        "glbFile": "FloorFantasyRocks_01/FloorFantasyRocks_01.glb",
+        "contents": {
+          "FloorFantasyRocks_01/FloorFantasyRocks_01.glb": "bafkreiev5uqre57udzbqtlnkw332jrs622qdyi2q67hvuuv6qej7xqqxve",
+          "FloorFantasyRocks_01/Floor_Rock_01.jpg": "bafkreidqjqkqebl7qlh3zlft2ajo2euthpc63gkozusjego6sriel4b7ua",
+          "FloorFantasyRocks_01/thumbnail.png": "bafkreigmt4qhgndrcujy7iqf7srkaml52cyztdrp7ojaadobatcohx4olm",
+          "composite.json": "bafkreie7afgglrfgw253jsswixbywhmlyrs22e3mrqkwtbv2pt5m2w4lhi",
+          "thumbnail.png": "bafkreigmt4qhgndrcujy7iqf7srkaml52cyztdrp7ojaadobatcohx4olm"
+        },
+        "thumbnailUrl": "/content/contents/bafkreigmt4qhgndrcujy7iqf7srkaml52cyztdrp7ojaadobatcohx4olm",
+        "category": "ground"
+      },
+      {
+        "id": "a8fe46c8-8e62-4acb-9660-fd2db7596e37",
+        "name": "Mossy Keystone",
+        "pack": "Fantasy",
+        "src": "/content/contents/bafkreicnnbb2lkemjgvgwbe627cieimmp4dwgcbyfbcl7lu5o3ocgf6yzy",
+        "hue": 174,
+        "glbFile": "FloorFantasyRocks_04/FloorFantasyRocks_04.glb",
+        "contents": {
+          "FloorFantasyRocks_04/FloorFantasyRocks_04.glb": "bafkreicnnbb2lkemjgvgwbe627cieimmp4dwgcbyfbcl7lu5o3ocgf6yzy",
+          "FloorFantasyRocks_04/Floor_Rock_04.jpg": "bafkreiakv6mexy36hrxa7543rsyhvbhlqkcge44dnfdkv3hwulqve6ecvu",
+          "FloorFantasyRocks_04/thumbnail.png": "bafkreietqiszov5qeat5lrtm3ok75j4d6mxb4ovgjzbnerhrfycfoipaim",
+          "composite.json": "bafkreidwnl7dkoj7ty7xwegxe5wyq57flnqpanh7t7snbh5x7koia6veii",
+          "thumbnail.png": "bafkreietqiszov5qeat5lrtm3ok75j4d6mxb4ovgjzbnerhrfycfoipaim"
+        },
+        "thumbnailUrl": "/content/contents/bafkreietqiszov5qeat5lrtm3ok75j4d6mxb4ovgjzbnerhrfycfoipaim",
+        "category": "ground"
+      },
+      {
+        "id": "d32dcb91-b3a0-4d09-8044-75ac60d0ea4b",
+        "name": "Sandy Flagstone",
+        "pack": "Fantasy",
+        "src": "/content/contents/bafkreighiwsbyddfzih2kymmoz6kkpn4wpbo2j3dwk35hbuixbixq32lqq",
+        "hue": 326,
+        "glbFile": "FloorFantasyRocks_02/FloorFantasyRocks_02.glb",
+        "contents": {
+          "FloorFantasyRocks_02/FloorFantasyRocks_02.glb": "bafkreighiwsbyddfzih2kymmoz6kkpn4wpbo2j3dwk35hbuixbixq32lqq",
+          "FloorFantasyRocks_02/Floor_Rock_02.jpg": "bafkreifefigc7cazdtyrasywcvofj3a4mbbyylvavj5yn5c4xpjdbur65u",
+          "FloorFantasyRocks_02/thumbnail.png": "bafkreibk4worxfbygofcpcfzoeeo6s55uss5qc2arasnuzl6zlmmj7tx7i",
+          "composite.json": "bafkreibxg62un5ozkwacrytjr6n6drhzrd2wtusodpo7kmuv2hll25ljja",
+          "thumbnail.png": "bafkreibk4worxfbygofcpcfzoeeo6s55uss5qc2arasnuzl6zlmmj7tx7i"
+        },
+        "thumbnailUrl": "/content/contents/bafkreibk4worxfbygofcpcfzoeeo6s55uss5qc2arasnuzl6zlmmj7tx7i",
+        "category": "ground"
+      },
+      {
+        "id": "efe88bc5-618c-4294-a5b5-4c64e95fafa3",
+        "name": "Apple",
+        "pack": "Genesis City",
+        "src": "/content/contents/bafkreicuv4b6zpwtucgdkyhrdpqvnlhe63r2xcm35kreemtwaddoanuksm",
+        "hue": 166,
+        "glbFile": "FoodApple_01/FoodApple_01.glb",
+        "contents": {
+          "FoodApple_01/FoodApple_01.glb": "bafkreicuv4b6zpwtucgdkyhrdpqvnlhe63r2xcm35kreemtwaddoanuksm",
+          "FoodApple_01/file1.png": "bafkreiao3j5vpvbwnod5nak5e736ldkngmmymeypxih45febzoes3k6rhi",
+          "FoodApple_01/thumbnail.png": "bafkreiap4pudu6zcheurilbd4s6ak35akojw35vu5q5svcrp2ypysu42pm",
+          "composite.json": "bafkreihskrwjjd2jgarduhcsnpfkmj632hstsimb7kmouqwdbk3r3stocq",
+          "thumbnail.png": "bafkreiap4pudu6zcheurilbd4s6ak35akojw35vu5q5svcrp2ypysu42pm"
+        },
+        "thumbnailUrl": "/content/contents/bafkreiap4pudu6zcheurilbd4s6ak35akojw35vu5q5svcrp2ypysu42pm",
+        "category": "nature"
+      },
+      {
+        "id": "71806ca6-1a2b-4d8b-b919-ae96241f8c08",
+        "name": "Balsam Flower",
+        "pack": "Genesis City",
+        "src": "/content/contents/bafkreifh7kypxodgjfdkvjq4ryisl4dkrxaccco6rr7mb4fzx3lq5ybmzy",
+        "hue": 289,
+        "glbFile": "Plant_02/Plant_02.glb",
+        "contents": {
+          "Plant_02/Plant_02.glb": "bafkreifh7kypxodgjfdkvjq4ryisl4dkrxaccco6rr7mb4fzx3lq5ybmzy",
+          "Plant_02/file1.png": "bafkreiao3j5vpvbwnod5nak5e736ldkngmmymeypxih45febzoes3k6rhi",
+          "Plant_02/thumbnail.png": "bafkreiag56ril2tuyhnl5zcp6icv7je2cf3lu23akj2kqpr4viuy7zo5ma",
+          "composite.json": "bafkreid2r3b6dvhyt4uykdgbupry3vqyz4uhbzip7dbr7k5cgcjdoknyju",
+          "thumbnail.png": "bafkreiag56ril2tuyhnl5zcp6icv7je2cf3lu23akj2kqpr4viuy7zo5ma"
+        },
+        "thumbnailUrl": "/content/contents/bafkreiag56ril2tuyhnl5zcp6icv7je2cf3lu23akj2kqpr4viuy7zo5ma",
+        "category": "nature"
+      },
+      {
+        "id": "16888533-8bdd-4dc3-8694-738018f29133",
+        "name": "Barbacue",
+        "pack": "Genesis City",
+        "src": "/content/contents/bafkreifd5ki7lw5jeonp7cezxpoiuycfn2zgzkh6jqyrsfdwgm3wtzdi4a",
+        "hue": 201,
+        "glbFile": "Barbacue_01/Barbacue_01.glb",
+        "contents": {
+          "Barbacue_01/Barbacue_01.glb": "bafkreifd5ki7lw5jeonp7cezxpoiuycfn2zgzkh6jqyrsfdwgm3wtzdi4a",
+          "Barbacue_01/file1.png": "bafkreiao3j5vpvbwnod5nak5e736ldkngmmymeypxih45febzoes3k6rhi",
+          "Barbacue_01/thumbnail.png": "bafkreie3q5tegze3y2iiygn4lllr2owp64ym54x4zw7ij2oljwjjzjp7ce",
+          "composite.json": "bafkreigehn7umx4tn357jiy7lfvdvs2dwir7ecd5dgcdc5qofokvdvqbcu",
+          "thumbnail.png": "bafkreie3q5tegze3y2iiygn4lllr2owp64ym54x4zw7ij2oljwjjzjp7ce"
+        },
+        "thumbnailUrl": "/content/contents/bafkreie3q5tegze3y2iiygn4lllr2owp64ym54x4zw7ij2oljwjjzjp7ce",
+        "category": "decorations"
+      },
+      {
+        "id": "0be9abea-83ae-4a9c-b24d-8a5ce1b9580f",
+        "name": "Beach Umbrella",
+        "pack": "Genesis City",
+        "src": "/content/contents/bafkreibuehbtl3a6agjyajyty4pixupi5licc2xgz3r4rxmzaiurb2e4gm",
+        "hue": 13,
+        "glbFile": "Umbrella_01/Umbrella_01.glb",
+        "contents": {
+          "Umbrella_01/Umbrella_01.glb": "bafkreibuehbtl3a6agjyajyty4pixupi5licc2xgz3r4rxmzaiurb2e4gm",
+          "Umbrella_01/file1.png": "bafkreiao3j5vpvbwnod5nak5e736ldkngmmymeypxih45febzoes3k6rhi",
+          "Umbrella_01/thumbnail.png": "bafkreifklu43pjjwuvlzio2frfuq4gjntn6yqxrhxdanbk62otlfqu5owa",
+          "composite.json": "bafkreiajpebdygca5624hpqgyrklra54tlek4lvdkl4eftga6vls75an7y",
+          "thumbnail.png": "bafkreifklu43pjjwuvlzio2frfuq4gjntn6yqxrhxdanbk62otlfqu5owa"
+        },
+        "thumbnailUrl": "/content/contents/bafkreifklu43pjjwuvlzio2frfuq4gjntn6yqxrhxdanbk62otlfqu5owa",
+        "category": "decorations"
+      },
+      {
+        "id": "c9b17021-765c-4d9a-9966-ce93a9c323d1",
+        "name": "Bermuda Grass",
+        "pack": "Genesis City",
+        "src": "/content/contents/bafkreibytthve4zjlvbcnadjec2wjex2etqxuqtluriefzwwl4qe2qynne",
+        "hue": 265,
+        "glbFile": "FloorBaseGrass_01/FloorBaseGrass_01.glb",
+        "contents": {
+          "FloorBaseGrass_01/FloorBaseGrass_01.glb": "bafkreibytthve4zjlvbcnadjec2wjex2etqxuqtluriefzwwl4qe2qynne",
+          "FloorBaseGrass_01/Floor_Grass01.png.png": "bafkreid2fuffvxm6w2uimphn4tyxyox3eewt3r67zbrewbdonkjb7bqzx4",
+          "FloorBaseGrass_01/thumbnail.png": "bafkreiettvk4675jx7oi7pofbggn5kbgu6s6gqztiw4bcxhbik4actedge",
+          "composite.json": "bafkreie3w5jqs2an3zsmrvgj66tofghhyagccm3q2pl4pny3luolhw6eee",
+          "thumbnail.png": "bafkreiettvk4675jx7oi7pofbggn5kbgu6s6gqztiw4bcxhbik4actedge"
+        },
+        "thumbnailUrl": "/content/contents/bafkreiettvk4675jx7oi7pofbggn5kbgu6s6gqztiw4bcxhbik4actedge",
+        "category": "ground"
+      },
+      {
+        "id": "1a66d011-0a1e-430e-bc04-0f389c241d06",
+        "name": "Bicycle Parking Rack",
+        "pack": "Genesis City",
+        "src": "/content/contents/bafkreiaa25gwrrc4zvp2k7yapxgah4wguskjtyzj672bimjiw2b26ye2qe",
+        "hue": 145,
+        "glbFile": "BicycleParking_01/BicycleParking_01.glb",
+        "contents": {
+          "BicycleParking_01/BicycleParking_01.glb": "bafkreiaa25gwrrc4zvp2k7yapxgah4wguskjtyzj672bimjiw2b26ye2qe",
+          "BicycleParking_01/file1.png": "bafkreiao3j5vpvbwnod5nak5e736ldkngmmymeypxih45febzoes3k6rhi",
+          "BicycleParking_01/thumbnail.png": "bafkreihkoqzjbcz3ky7xvadvxnmieeqgmkc6hc5mdvq7yu7id5g7b2dovq",
+          "composite.json": "bafkreif2bvpdgkj2ebg7uageuu5ocntkacea5p6iwwaonc4jotkom7nwia",
+          "thumbnail.png": "bafkreihkoqzjbcz3ky7xvadvxnmieeqgmkc6hc5mdvq7yu7id5g7b2dovq"
+        },
+        "thumbnailUrl": "/content/contents/bafkreihkoqzjbcz3ky7xvadvxnmieeqgmkc6hc5mdvq7yu7id5g7b2dovq",
+        "category": "furniture"
+      },
+      {
+        "id": "55b53f11-5bff-4176-8ac8-bbf078ff99f9",
+        "name": "Big Flat Rock",
+        "pack": "Genesis City",
+        "src": "/content/contents/bafkreicsng4vfokukua5lzk7gv52jqryw73hxec4pqsy5xkkrz4rbdwo2e",
+        "hue": 8,
+        "glbFile": "RockLarge_02/RockLarge_02.glb",
+        "contents": {
+          "RockLarge_02/RockLarge_02.glb": "bafkreicsng4vfokukua5lzk7gv52jqryw73hxec4pqsy5xkkrz4rbdwo2e",
+          "RockLarge_02/file1.png": "bafkreiao3j5vpvbwnod5nak5e736ldkngmmymeypxih45febzoes3k6rhi",
+          "RockLarge_02/thumbnail.png": "bafkreia3pjskcoztqnz4smns4uujatxzc736pqyg4o2cvo76ididwv7nrm",
+          "composite.json": "bafkreiah4nqikerskn7li5fuvpd5o5ncwsl2ymi7y3olzy4r5jaxy3uqxa",
+          "thumbnail.png": "bafkreia3pjskcoztqnz4smns4uujatxzc736pqyg4o2cvo76ididwv7nrm"
+        },
+        "thumbnailUrl": "/content/contents/bafkreia3pjskcoztqnz4smns4uujatxzc736pqyg4o2cvo76ididwv7nrm",
+        "category": "nature"
+      },
+      {
+        "id": "7db063b0-ba2b-4211-8fd5-8f44b38d9a19",
+        "name": "Big Mossy Rock",
+        "pack": "Genesis City",
+        "src": "/content/contents/bafkreigywnaxxuygtt5ao732vbnw3kcp34hjbkgrg57z3bpi4ynfzsegmy",
+        "hue": 140,
+        "glbFile": "RockLargeMoss_01/RockLargeMoss_01.glb",
+        "contents": {
+          "RockLargeMoss_01/RockLargeMoss_01.glb": "bafkreigywnaxxuygtt5ao732vbnw3kcp34hjbkgrg57z3bpi4ynfzsegmy",
+          "RockLargeMoss_01/file1.png": "bafkreiao3j5vpvbwnod5nak5e736ldkngmmymeypxih45febzoes3k6rhi",
+          "RockLargeMoss_01/thumbnail.png": "bafkreifqwjopjy3irumyav7o5lrm5azs62mxfw3q5qibt4i652kioz7v54",
+          "composite.json": "bafkreigq2qv5pics2ec4zi5cv7iejqpfnqfzvqxsfa7z4xx2qqjklu43we",
+          "thumbnail.png": "bafkreifqwjopjy3irumyav7o5lrm5azs62mxfw3q5qibt4i652kioz7v54"
+        },
+        "thumbnailUrl": "/content/contents/bafkreifqwjopjy3irumyav7o5lrm5azs62mxfw3q5qibt4i652kioz7v54",
+        "category": "nature"
+      },
+      {
+        "id": "13f3da80-42e0-4e3b-a8b0-567ca1e28d34",
+        "name": "Bird Fountain",
+        "pack": "Genesis City",
+        "src": "/content/contents/bafkreihzue73ilqgb6y72opqew4ox4b5et7da5tvjpphut2ybzep7zntva",
+        "hue": 196,
+        "glbFile": "BirdFountain_01/BirdFountain_01.glb",
+        "contents": {
+          "BirdFountain_01/BirdFountain_01.glb": "bafkreihzue73ilqgb6y72opqew4ox4b5et7da5tvjpphut2ybzep7zntva",
+          "BirdFountain_01/file1.png": "bafkreiao3j5vpvbwnod5nak5e736ldkngmmymeypxih45febzoes3k6rhi",
+          "BirdFountain_01/thumbnail.png": "bafkreifjcel62ib6iawsg35vmcal2fgxyvmkrtvk3um4knsefonttfiv6i",
+          "composite.json": "bafkreibns6yb46hgch6gdjllt2yly7u2neklgps3c6ddv2blx2ja6vrko4",
+          "thumbnail.png": "bafkreifjcel62ib6iawsg35vmcal2fgxyvmkrtvk3um4knsefonttfiv6i"
+        },
+        "thumbnailUrl": "/content/contents/bafkreifjcel62ib6iawsg35vmcal2fgxyvmkrtvk3um4knsefonttfiv6i",
+        "category": "decorations"
+      },
+      {
+        "id": "6aeafe19-cc0d-42ec-b7da-51104af39778",
+        "name": "Bird\u2019s Nest Fern Container",
+        "pack": "Genesis City",
+        "src": "/content/contents/bafkreie7zfe6vyc54ojzhif2ps274drh5aqftig3grep2v6b2kncsz3hue",
+        "hue": 113,
+        "glbFile": "PlantPot_02/PlantPot_02.glb",
+        "contents": {
+          "PlantPot_02/PlantPot_02.glb": "bafkreie7zfe6vyc54ojzhif2ps274drh5aqftig3grep2v6b2kncsz3hue",
+          "PlantPot_02/file1.png": "bafkreiao3j5vpvbwnod5nak5e736ldkngmmymeypxih45febzoes3k6rhi",
+          "PlantPot_02/thumbnail.png": "bafkreieyqalc7owvyn5ffdzketoizkfnwfuuyhfxjsin75twkzhlq7j3ai",
+          "composite.json": "bafkreigqejdnocs37ex6qgiegytk3ksqs6vdtaxbxkwqndetg3akar57ke",
+          "thumbnail.png": "bafkreieyqalc7owvyn5ffdzketoizkfnwfuuyhfxjsin75twkzhlq7j3ai"
+        },
+        "thumbnailUrl": "/content/contents/bafkreieyqalc7owvyn5ffdzketoizkfnwfuuyhfxjsin75twkzhlq7j3ai",
+        "category": "decorations"
+      },
+      {
+        "id": "af8136bb-c528-4c8c-a986-c352b48241bf",
+        "name": "Blue Table",
+        "pack": "Genesis City",
+        "src": "/content/contents/bafkreiftuaftgf2at3dauaxnw7jd4ienpwtkbjxgsirtna3incpq7mlgx4",
+        "hue": 236,
+        "glbFile": "Table_02/Table_02.glb",
+        "contents": {
+          "Table_02/Table_02.glb": "bafkreiftuaftgf2at3dauaxnw7jd4ienpwtkbjxgsirtna3incpq7mlgx4",
+          "Table_02/file1.png": "bafkreiao3j5vpvbwnod5nak5e736ldkngmmymeypxih45febzoes3k6rhi",
+          "Table_02/thumbnail.png": "bafkreiclmeh5nw2wchn7xrttohvavlwxzapzqy2sqy327qoeiswsn3yx5m",
+          "composite.json": "bafkreie4izir5rushsvavukbhm2drzuum7twxvagx64n3ototwd5pnjbvm",
+          "thumbnail.png": "bafkreiclmeh5nw2wchn7xrttohvavlwxzapzqy2sqy327qoeiswsn3yx5m"
+        },
+        "thumbnailUrl": "/content/contents/bafkreiclmeh5nw2wchn7xrttohvavlwxzapzqy2sqy327qoeiswsn3yx5m",
+        "category": "furniture"
+      },
+      {
+        "id": "bfbfdb49-05cb-4b8d-9dbd-041cde22e5d1",
+        "name": "Bush - Empty Land 1",
+        "pack": "Genesis City",
+        "src": "/content/contents/bafybeif42vn5j7cw2q26wirrbe5lbgsv566yrjnuvf4gnn6f5wtv6zc62q",
+        "hue": 119,
+        "glbFile": "bush01.glb",
+        "contents": {
+          "bush01.glb": "bafybeif42vn5j7cw2q26wirrbe5lbgsv566yrjnuvf4gnn6f5wtv6zc62q",
+          "composite.json": "bafkreibwwml6fxnvwdjsw7vs26dgrztiexflrpik5cwu26myv4xevhdyyy",
+          "thumbnail.png": "bafkreib3ueyyx56w2qgl2uozog3pxm5vtezzob5xe73v2ttvdlog35oby4"
+        },
+        "category": "empty land"
+      },
+      {
+        "id": "ec3dcd4f-64c6-489b-a921-0cc2c823a69a",
+        "name": "Bush - Empty Land 2",
+        "pack": "Genesis City",
+        "src": "/content/contents/bafybeiglwq7pipd2irqowprk7eiiptieavuiejsa5ptaxwdxowubt2d3ju",
+        "hue": 41,
+        "glbFile": "bush02.glb",
+        "contents": {
+          "bush02.glb": "bafybeiglwq7pipd2irqowprk7eiiptieavuiejsa5ptaxwdxowubt2d3ju",
+          "composite.json": "bafkreifeplfrsidqhblsrnto6fuw5hu7xw7dzhj4d2isdl52rztyp4qtkm",
+          "thumbnail.png": "bafkreifmtp4cbjffz7rstqapl4bhzfwnlzswrlpfuujklllgynxi3q3w4e"
+        },
+        "category": "empty land"
+      },
+      {
+        "id": "3826959a-85b8-41aa-9c95-a68a4830dbbc",
+        "name": "Camping table",
+        "pack": "Genesis City",
+        "src": "/content/contents/bafkreig5bxnio53qnyjboznxoizrzvbsjrxys6d7fqh7tlpdr4rhgexdyq",
+        "hue": 28,
+        "glbFile": "Table_05/Table_05.glb",
+        "contents": {
+          "Table_05/Table_05.glb": "bafkreig5bxnio53qnyjboznxoizrzvbsjrxys6d7fqh7tlpdr4rhgexdyq",
+          "Table_05/file1.png": "bafkreiao3j5vpvbwnod5nak5e736ldkngmmymeypxih45febzoes3k6rhi",
+          "Table_05/thumbnail.png": "bafkreicesohg2qckjjn7mt5wrycejufubmpk3t35uywa7u4u3cdwkhc5ee",
+          "composite.json": "bafkreihnqfghm256fphspl2dyi3puzjgfrt7wmvaw4tylq2ankkpzxwtpi",
+          "thumbnail.png": "bafkreicesohg2qckjjn7mt5wrycejufubmpk3t35uywa7u4u3cdwkhc5ee"
+        },
+        "thumbnailUrl": "/content/contents/bafkreicesohg2qckjjn7mt5wrycejufubmpk3t35uywa7u4u3cdwkhc5ee",
+        "category": "furniture"
+      },
+      {
+        "id": "aca2a574-4495-4752-a414-4550ce7becc5",
+        "name": "Cat Statue",
+        "pack": "Genesis City",
+        "src": "/content/contents/bafkreibfjskwejrpmnywnkhhsvmfh2kaur6ocfmfpyv3zjvxrrgyxmby2q",
+        "hue": 256,
+        "glbFile": "PillarCat_01/PillarCat_01.glb",
+        "contents": {
+          "PillarCat_01/PillarCat_01.glb": "bafkreibfjskwejrpmnywnkhhsvmfh2kaur6ocfmfpyv3zjvxrrgyxmby2q",
+          "PillarCat_01/file1.png": "bafkreiao3j5vpvbwnod5nak5e736ldkngmmymeypxih45febzoes3k6rhi",
+          "PillarCat_01/thumbnail.png": "bafkreicb7a2sc5ui4w43gpbqro6jhkcf676xo5e6gq67i3b3osxims7vbi",
+          "composite.json": "bafkreidytzdogdyzzmpd77hzho5kt73t2lyadlq4p4davhnz3ee64ogg54",
+          "thumbnail.png": "bafkreicb7a2sc5ui4w43gpbqro6jhkcf676xo5e6gq67i3b3osxims7vbi"
+        },
+        "thumbnailUrl": "/content/contents/bafkreicb7a2sc5ui4w43gpbqro6jhkcf676xo5e6gq67i3b3osxims7vbi",
+        "category": "structures"
+      },
+      {
+        "id": "ea013d0a-8f70-44ca-be3d-706d46cb7ed2",
+        "name": "Centipede Grass",
+        "pack": "Genesis City",
+        "src": "/content/contents/bafkreice3qpeyeb4ni7fnlt6bijs57zrbuw7cwmbymzcndyllzho3hbgaa",
+        "hue": 273,
+        "glbFile": "FloorBaseGrass_02/FloorBaseGrass_02.glb",
+        "contents": {
+          "FloorBaseGrass_02/FloorBaseGrass_02.glb": "bafkreice3qpeyeb4ni7fnlt6bijs57zrbuw7cwmbymzcndyllzho3hbgaa",
+          "FloorBaseGrass_02/Floor_Grass02.png.png": "bafkreiax5kgjky6tybmjz7tcozyuesb7lza2bd6dq4vooycp5w2njigwum",
+          "FloorBaseGrass_02/thumbnail.png": "bafkreibrhjdhvne7pw7see34cpddl36ugvzug65myrhls4i7s4l3yktmua",
+          "composite.json": "bafkreiftghwhtwu2mokfxtqzuhosuc5pjcrthihsakp336zawk3sg5izna",
+          "thumbnail.png": "bafkreibrhjdhvne7pw7see34cpddl36ugvzug65myrhls4i7s4l3yktmua"
+        },
+        "thumbnailUrl": "/content/contents/bafkreibrhjdhvne7pw7see34cpddl36ugvzug65myrhls4i7s4l3yktmua",
+        "category": "ground"
+      },
+      {
+        "id": "5fabab5a-62b8-4c39-8938-00d22395d057",
+        "name": "Classic Lamp post",
+        "pack": "Genesis City",
+        "src": "/content/contents/bafkreif7uxtzyxhszdsaipddf4bzr52tmhdnjmr5f7uwdj725udiummzy4",
+        "hue": 292,
+        "glbFile": "LampPost_03/LampPost_03.glb",
+        "contents": {
+          "LampPost_03/LampPost_03.glb": "bafkreif7uxtzyxhszdsaipddf4bzr52tmhdnjmr5f7uwdj725udiummzy4",
+          "LampPost_03/file1.png": "bafkreiao3j5vpvbwnod5nak5e736ldkngmmymeypxih45febzoes3k6rhi",
+          "LampPost_03/thumbnail.png": "bafkreigf4r4bngb7llzfebe2ad5cxusrtjfpmqk46dshchmdj7mrtkadeu",
+          "composite.json": "bafkreievznvtvdkotor3g2unq7bzeicyyyhkbb7uf64qklrm7m7oo6exge",
+          "thumbnail.png": "bafkreigf4r4bngb7llzfebe2ad5cxusrtjfpmqk46dshchmdj7mrtkadeu"
+        },
+        "thumbnailUrl": "/content/contents/bafkreigf4r4bngb7llzfebe2ad5cxusrtjfpmqk46dshchmdj7mrtkadeu",
+        "category": "structures"
+      },
+      {
+        "id": "2c66317c-4923-4094-ad90-8ad72db010b1",
+        "name": "Cobblestone",
+        "pack": "Genesis City",
+        "src": "/content/contents/bafkreierjhhzpk5b6jj4do7fntudqupq6m2t2bg5qt2l56xseizs2b2zxa",
+        "hue": 7,
+        "glbFile": "FloorBaseTiles_01/FloorBaseTiles_01.glb",
+        "contents": {
+          "FloorBaseTiles_01/FloorBaseTiles_01.glb": "bafkreierjhhzpk5b6jj4do7fntudqupq6m2t2bg5qt2l56xseizs2b2zxa",
+          "FloorBaseTiles_01/Floor_Tiles01.png.png": "bafkreibfemrq4476nxncbcccvmbfrdzpfehje42lbpcoemkmbymlklizxm",
+          "FloorBaseTiles_01/thumbnail.png": "bafkreifrajeyk3j7ttq7uvbs77gadf4mj33xobyek64itpwl3knoyogdne",
+          "composite.json": "bafkreic2ag5j6quub4rhe2oc5sq6rv6bizonyazwkb2vzjrppoqkveipbu",
+          "thumbnail.png": "bafkreifrajeyk3j7ttq7uvbs77gadf4mj33xobyek64itpwl3knoyogdne"
+        },
+        "thumbnailUrl": "/content/contents/bafkreifrajeyk3j7ttq7uvbs77gadf4mj33xobyek64itpwl3knoyogdne",
+        "category": "ground"
+      },
+      {
+        "id": "a7c13819-d5eb-4134-acf5-4ec2958fa7f7",
+        "name": "Coin Gecko Statue",
+        "pack": "Genesis City",
+        "src": "/content/contents/bafkreifbtszhre43pqfceyxecolil74z5o2bfhbmkldynnudjrwsevr25e",
+        "hue": 322,
+        "glbFile": "GeckoStone_01/GeckoStone_01.glb",
+        "contents": {
+          "GeckoStone_01/GeckoStone_01.glb": "bafkreifbtszhre43pqfceyxecolil74z5o2bfhbmkldynnudjrwsevr25e",
+          "GeckoStone_01/file1.png": "bafkreiao3j5vpvbwnod5nak5e736ldkngmmymeypxih45febzoes3k6rhi",
+          "GeckoStone_01/thumbnail.png": "bafkreiazbrqdkeakfyth4u7saktd2nxegq6m6ptbj4uxzkfkewsyuisc24",
+          "composite.json": "bafkreie4vphfjnfs6hxkmu53xzes57nalcrsxjszkzqcyobzkusslmgajq",
+          "thumbnail.png": "bafkreiazbrqdkeakfyth4u7saktd2nxegq6m6ptbj4uxzkfkewsyuisc24"
+        },
+        "thumbnailUrl": "/content/contents/bafkreiazbrqdkeakfyth4u7saktd2nxegq6m6ptbj4uxzkfkewsyuisc24",
+        "category": "structures"
+      },
+      {
+        "id": "3bd7d322-f897-444e-99f1-e4e82fb2c035",
+        "name": "Concrete",
+        "pack": "Genesis City",
+        "src": "/content/contents/bafkreidfir2nfh3jgwi376tkg7fgsioswjmpzbxrhkusgiiwpzcin52wri",
+        "hue": 267,
+        "glbFile": "FloorBaseConcrete_01/FloorBaseConcrete_01.glb",
+        "contents": {
+          "FloorBaseConcrete_01/FloorBaseConcrete_01.glb": "bafkreidfir2nfh3jgwi376tkg7fgsioswjmpzbxrhkusgiiwpzcin52wri",
+          "FloorBaseConcrete_01/Floor_Concrete01.png.png": "bafkreibxefote3jeusciwqxxrvwu5b4qi7uzg6lf3avexadfg7xkkz5gge",
+          "FloorBaseConcrete_01/thumbnail.png": "bafkreie23rirhuqc6cbfsa5tufgkqbwdggxaz7y7ajqk5vjqc7izgewubu",
+          "composite.json": "bafkreidzbfy6rxeachb7kdbbemyx55oj5crh2m3munbrxpujd4fey3euly",
+          "thumbnail.png": "bafkreie23rirhuqc6cbfsa5tufgkqbwdggxaz7y7ajqk5vjqc7izgewubu"
+        },
+        "thumbnailUrl": "/content/contents/bafkreie23rirhuqc6cbfsa5tufgkqbwdggxaz7y7ajqk5vjqc7izgewubu",
+        "category": "ground"
+      },
+      {
+        "id": "7f2dbcb5-40f5-4e2f-9409-1886d26ce068",
+        "name": "Grass Tile",
+        "pack": "Genesis City",
+        "src": "/content/contents/bafkreico4udal5kgb2324jh4cyqwljwnku6rrhdw6z4kd5fkp5rkertobe",
+        "hue": 203,
+        "glbFile": "FloorBlock_05/FloorBlock_05.glb",
+        "contents": {
+          "FloorBlock_05/FloorBlock_05.glb": "bafkreico4udal5kgb2324jh4cyqwljwnku6rrhdw6z4kd5fkp5rkertobe",
+          "FloorBlock_05/file1.png": "bafkreiao3j5vpvbwnod5nak5e736ldkngmmymeypxih45febzoes3k6rhi",
+          "FloorBlock_05/thumbnail.png": "bafkreibpve7q2qd7z4gvfsklkkalufd3mtgfvmw6az5ler53vkkzb4bkgu",
+          "composite.json": "bafkreigrmgsos4prgcjhk6i4nwgn3qai5fqe5jclx6gyqeb7wzjfvg33hq",
+          "thumbnail.png": "bafkreibpve7q2qd7z4gvfsklkkalufd3mtgfvmw6az5ler53vkkzb4bkgu"
+        },
+        "thumbnailUrl": "/content/contents/bafkreibpve7q2qd7z4gvfsklkkalufd3mtgfvmw6az5ler53vkkzb4bkgu",
+        "category": "tiles"
+      },
+      {
+        "id": "b3135387-254d-46f2-86f6-a8ebca590564",
+        "name": "Rock - Empty Land 1",
+        "pack": "Genesis City",
+        "src": "/content/contents/bafybeib6qtdlzenxu3ybnu46jertsgrd73evip3rsmdfrxvjdrly5qbqhu",
+        "hue": 133,
+        "glbFile": "rock01.glb",
+        "contents": {
+          "composite.json": "bafkreiak3rci2syswgud5xjiki5ns6gcshump4ipn6qwy4ot4yhostusmi",
+          "rock01.glb": "bafybeib6qtdlzenxu3ybnu46jertsgrd73evip3rsmdfrxvjdrly5qbqhu",
+          "thumbnail.png": "bafkreiftda7pxxxbdlj3h4uigrgwdpbi4uwidao46mxfbxopu57e4leonm"
+        },
+        "category": "empty land"
+      },
+      {
+        "id": "5df296c5-f070-44dc-9ba2-8cafe7852037",
+        "name": "Rock Tile",
+        "pack": "Genesis City",
+        "src": "/content/contents/bafkreidwerq6rwxrdupazvu5m75is3vdft37e6yf2hm5vqkhuedwbgc2ji",
+        "hue": 108,
+        "glbFile": "FloorBlock_04/FloorBlock_04.glb",
+        "contents": {
+          "FloorBlock_04/FloorBlock_04.glb": "bafkreidwerq6rwxrdupazvu5m75is3vdft37e6yf2hm5vqkhuedwbgc2ji",
+          "FloorBlock_04/file1.png": "bafkreiao3j5vpvbwnod5nak5e736ldkngmmymeypxih45febzoes3k6rhi",
+          "FloorBlock_04/thumbnail.png": "bafkreiccwypjlza42mptxupxntpfd5yjkucrn6y6lflruwdufc75wa66m4",
+          "composite.json": "bafkreigvs2ui2anvb2kcnj4h4lmnrgo473vssj23gin7qbu5rjwser5m3e",
+          "thumbnail.png": "bafkreiccwypjlza42mptxupxntpfd5yjkucrn6y6lflruwdufc75wa66m4"
+        },
+        "thumbnailUrl": "/content/contents/bafkreiccwypjlza42mptxupxntpfd5yjkucrn6y6lflruwdufc75wa66m4",
+        "category": "tiles"
+      },
+      {
+        "id": "1874152b-dd3d-4890-960a-4e7719346326",
+        "name": "Sand Tile",
+        "pack": "Genesis City",
+        "src": "/content/contents/bafkreicjjkqxl6hagt24lpa4t7c2ltcyk5q5gdafsackyu6jmlxxysblye",
+        "hue": 274,
+        "glbFile": "FloorBlock_02/FloorBlock_02.glb",
+        "contents": {
+          "FloorBlock_02/FloorBlock_02.glb": "bafkreicjjkqxl6hagt24lpa4t7c2ltcyk5q5gdafsackyu6jmlxxysblye",
+          "FloorBlock_02/file1.png": "bafkreiao3j5vpvbwnod5nak5e736ldkngmmymeypxih45febzoes3k6rhi",
+          "FloorBlock_02/thumbnail.png": "bafkreifxsqm4aoz22zlprku4exmsiic4iumhzpv4icpqvtyqrfq5hko4pm",
+          "composite.json": "bafkreiac5x73fgmmdrnok474k3xsiv4sbpk7wvd725bvj2dqokzpcddiqu",
+          "thumbnail.png": "bafkreifxsqm4aoz22zlprku4exmsiic4iumhzpv4icpqvtyqrfq5hko4pm"
+        },
+        "thumbnailUrl": "/content/contents/bafkreifxsqm4aoz22zlprku4exmsiic4iumhzpv4icpqvtyqrfq5hko4pm",
+        "category": "tiles"
+      },
+      {
+        "id": "5596f018-2573-4a93-8701-eb8af1a4a6c9",
+        "name": "1M Curved Cable",
+        "pack": "Sci-fi",
+        "src": "/content/contents/bafkreie4d34rvh4m7cj3uy2wi6qqrh7ai6ojy4cg2lm5u3iu3tz3a5et2i",
+        "hue": 36,
+        "glbFile": "Cable_1M_Curve_02/Cable_1M_Curve_02.glb",
+        "contents": {
+          "Cable_1M_Curve_02/Cable_1M_Curve_02.glb": "bafkreie4d34rvh4m7cj3uy2wi6qqrh7ai6ojy4cg2lm5u3iu3tz3a5et2i",
+          "Cable_1M_Curve_02/SciFiPack_TX.png": "bafkreiav3zyb6vody64gtpgax5uezxw5pqusqcbnisvp6t5rmlswickogy",
+          "Cable_1M_Curve_02/thumbnail.png": "bafkreihzkmfvd7rtpkrlsn6le5c5yoiilclhzfnxgf4k4iqhqntrtqpyau",
+          "composite.json": "bafkreicw63bomyjdmqegsatjd7pjpdye4qfqos7qltcvwo6plbrnyexenu",
+          "thumbnail.png": "bafkreihzkmfvd7rtpkrlsn6le5c5yoiilclhzfnxgf4k4iqhqntrtqpyau"
+        },
+        "category": "decorations"
+      },
+      {
+        "id": "c67cf4bb-2be5-4db0-9d49-c1847a7c3f0e",
+        "name": "1M Kinked Cable",
+        "pack": "Sci-fi",
+        "src": "/content/contents/bafkreibcm6w3xrt3y6e7yznvyirfnvyhkrm5vwbrm3z4ccp4m6v72khytm",
+        "hue": 282,
+        "glbFile": "Cable_1M_Curve_03/Cable_1M_Curve_03.glb",
+        "contents": {
+          "Cable_1M_Curve_03/Cable_1M_Curve_03.glb": "bafkreibcm6w3xrt3y6e7yznvyirfnvyhkrm5vwbrm3z4ccp4m6v72khytm",
+          "Cable_1M_Curve_03/SciFiPack_TX.png": "bafkreiav3zyb6vody64gtpgax5uezxw5pqusqcbnisvp6t5rmlswickogy",
+          "Cable_1M_Curve_03/thumbnail.png": "bafkreifee4jw4crosr46yz3hqwvfn4kcmubvugfz7gt477uv6k2t2clbtm",
+          "composite.json": "bafkreigt6p5oip3kd5zsa3jvek2voi7xyfsbvq7e3ewep3cfo7uw4qdbgq",
+          "thumbnail.png": "bafkreifee4jw4crosr46yz3hqwvfn4kcmubvugfz7gt477uv6k2t2clbtm"
+        },
+        "category": "decorations"
+      },
+      {
+        "id": "5dcc30f6-292c-4c61-82bc-8f86c5781f8c",
+        "name": "1M Orange Striped Cable",
+        "pack": "Sci-fi",
+        "src": "/content/contents/bafkreicbxrs4nzkpjoymanwza62vh4ivwhweewbqei2vfr2tbb4cpng5ei",
+        "hue": 49,
+        "glbFile": "Cable_1M_Curve_01/Cable_1M_Curve_01.glb",
+        "contents": {
+          "Cable_1M_Curve_01/Cable_1M_Curve_01.glb": "bafkreicbxrs4nzkpjoymanwza62vh4ivwhweewbqei2vfr2tbb4cpng5ei",
+          "Cable_1M_Curve_01/SciFiPack_TX.png": "bafkreiav3zyb6vody64gtpgax5uezxw5pqusqcbnisvp6t5rmlswickogy",
+          "Cable_1M_Curve_01/thumbnail.png": "bafkreiergoa6po2irqbv5uvlzlnx2wv2vucvc4nnohhxwevqtrvujkqbve",
+          "composite.json": "bafkreif7ot65odzzsoa7mwelfnbdxaev7pjvnrd4jezs6wzkvxtdf6sqmq",
+          "thumbnail.png": "bafkreiergoa6po2irqbv5uvlzlnx2wv2vucvc4nnohhxwevqtrvujkqbve"
+        },
+        "thumbnailUrl": "/content/contents/bafkreiergoa6po2irqbv5uvlzlnx2wv2vucvc4nnohhxwevqtrvujkqbve",
+        "category": "decorations"
+      },
+      {
+        "id": "83237c70-a21c-4c61-8828-6ee51f9c0105",
+        "name": "2M Curved Cable",
+        "pack": "Sci-fi",
+        "src": "/content/contents/bafkreibeeptpc5r26z2loshwdjtz3eqrtiqjqwooh3ax4p6quxpdxoolni",
+        "hue": 193,
+        "glbFile": "Cable_2M_Curve_01/Cable_2M_Curve_01.glb",
+        "contents": {
+          "Cable_2M_Curve_01/Cable_2M_Curve_01.glb": "bafkreibeeptpc5r26z2loshwdjtz3eqrtiqjqwooh3ax4p6quxpdxoolni",
+          "Cable_2M_Curve_01/SciFiPack_TX.png": "bafkreiav3zyb6vody64gtpgax5uezxw5pqusqcbnisvp6t5rmlswickogy",
+          "Cable_2M_Curve_01/thumbnail.png": "bafkreig5w6auq3xjmkprjc5nuk2qwg2ah2w6dye6i3645y5bsyj2dfoyye",
+          "composite.json": "bafkreih554ecketvlbbfmb4znqk4ctsyak7gp46rptytfdoabkzk4ci354",
+          "thumbnail.png": "bafkreig5w6auq3xjmkprjc5nuk2qwg2ah2w6dye6i3645y5bsyj2dfoyye"
+        },
+        "category": "decorations"
+      },
+      {
+        "id": "d7e55c98-e10b-4671-8845-1a8dfa9af715",
+        "name": "2M Long Curved Cable",
+        "pack": "Sci-fi",
+        "src": "/content/contents/bafkreicr4w73o7fxfpj3ctopglex33q4ghu3cllll3gomd44umgdeyge4a",
+        "hue": 328,
+        "glbFile": "Cable_2M_Curve_03/Cable_2M_Curve_03.glb",
+        "contents": {
+          "Cable_2M_Curve_03/Cable_2M_Curve_03.glb": "bafkreicr4w73o7fxfpj3ctopglex33q4ghu3cllll3gomd44umgdeyge4a",
+          "Cable_2M_Curve_03/SciFiPack_TX.png": "bafkreiav3zyb6vody64gtpgax5uezxw5pqusqcbnisvp6t5rmlswickogy",
+          "Cable_2M_Curve_03/thumbnail.png": "bafkreieauqzhx7xbvjv2jot56fyomn2iq42dvtelaulhnsxf763ds6kghe",
+          "composite.json": "bafkreih23otpjhnhnaocku3ywxelduwzl5wbw75rgoxrorf4et7dohw26a",
+          "thumbnail.png": "bafkreieauqzhx7xbvjv2jot56fyomn2iq42dvtelaulhnsxf763ds6kghe"
+        },
+        "category": "decorations"
+      },
+      {
+        "id": "9c1edfb1-40ca-4d04-8fcb-dbd8dcf2c2a4",
+        "name": "Ball Stone",
+        "pack": "Sci-fi",
+        "src": "/content/contents/bafkreibget2bph3mygstlb2k6t5ize6fer67jvuyd6xxmz4ckqqahh6ag4",
+        "hue": 82,
+        "glbFile": "Stone_03/Stone_03.glb",
+        "contents": {
+          "Stone_03/SciFiPack_TX.png": "bafkreiav3zyb6vody64gtpgax5uezxw5pqusqcbnisvp6t5rmlswickogy",
+          "Stone_03/Stone_03.glb": "bafkreibget2bph3mygstlb2k6t5ize6fer67jvuyd6xxmz4ckqqahh6ag4",
+          "Stone_03/thumbnail.png": "bafkreigbjkfyuez5k4cvxwoovm5ia75vbhn3jweff4573v34jw7rp2ssxy",
+          "composite.json": "bafkreief3pirzl6i7nvjpekdejnq3sabnlhx4fkckdjipbbfnrnxycbv6m",
+          "thumbnail.png": "bafkreigbjkfyuez5k4cvxwoovm5ia75vbhn3jweff4573v34jw7rp2ssxy"
+        },
+        "thumbnailUrl": "/content/contents/bafkreigbjkfyuez5k4cvxwoovm5ia75vbhn3jweff4573v34jw7rp2ssxy",
+        "category": "nature"
+      },
+      {
+        "id": "a0328983-456e-4229-a116-16391c69a35f",
+        "name": "Bent Tubing",
+        "pack": "Sci-fi",
+        "src": "/content/contents/bafkreieauxbypezzq55okwksrhlhzurjveobggziuflunxpmp5nkxkeip4",
+        "hue": 128,
+        "glbFile": "TubePiece_02/TubePiece_02.glb",
+        "contents": {
+          "TubePiece_02/SciFiPack_TX.png": "bafkreiav3zyb6vody64gtpgax5uezxw5pqusqcbnisvp6t5rmlswickogy",
+          "TubePiece_02/TubePiece_02.glb": "bafkreieauxbypezzq55okwksrhlhzurjveobggziuflunxpmp5nkxkeip4",
+          "TubePiece_02/thumbnail.png": "bafkreidytgkv3iwqwktwpctb3muyo2r7ocdqccxbccpjsdnd25w6f3pkqa",
+          "composite.json": "bafkreife2jye6sr6yd72miuzeogcse2seib7re6r4zs6rwvzfqkgotwzfe",
+          "thumbnail.png": "bafkreidytgkv3iwqwktwpctb3muyo2r7ocdqccxbccpjsdnd25w6f3pkqa"
+        },
+        "category": "structures"
+      },
+      {
+        "id": "dba7c6c8-4b41-409e-88b3-84178ec417ce",
+        "name": "Blue Light Block",
+        "pack": "Sci-fi",
+        "src": "/content/contents/bafkreibgskax2oh6hoqyslpljmfansipyg36tgke6dxyp2pj67h5o47moy",
+        "hue": 289,
+        "glbFile": "LightBlock_02/LightBlock_02.glb",
+        "contents": {
+          "LightBlock_02/LightBlock_02.glb": "bafkreibgskax2oh6hoqyslpljmfansipyg36tgke6dxyp2pj67h5o47moy",
+          "LightBlock_02/SciFiPack_TX.png": "bafkreiav3zyb6vody64gtpgax5uezxw5pqusqcbnisvp6t5rmlswickogy",
+          "LightBlock_02/thumbnail.png": "bafkreidr4os44c2cjg2ion3d2t2wdqvkuyuiuouusmpx2sq6hhpy2fuywq",
+          "composite.json": "bafkreiarku3nxvqzyd2kcmrzvxqzsx5dtkrco6hgswmm5fafgcu4biv2ya",
+          "thumbnail.png": "bafkreidr4os44c2cjg2ion3d2t2wdqvkuyuiuouusmpx2sq6hhpy2fuywq"
+        },
+        "thumbnailUrl": "/content/contents/bafkreidr4os44c2cjg2ion3d2t2wdqvkuyuiuouusmpx2sq6hhpy2fuywq",
+        "category": "structures"
+      },
+      {
+        "id": "0fbe386e-cc30-4ce9-8eb6-d78101ff090b",
+        "name": "Blue Light Corner",
+        "pack": "Sci-fi",
+        "src": "/content/contents/bafkreicrihhtoaapq7zwx5nwdxwyc2aobtgztvqnk5bzxibf5invjkiu7i",
+        "hue": 113,
+        "glbFile": "LightCorner_02/LightCorner_02.glb",
+        "contents": {
+          "LightCorner_02/LightCorner_02.glb": "bafkreicrihhtoaapq7zwx5nwdxwyc2aobtgztvqnk5bzxibf5invjkiu7i",
+          "LightCorner_02/SciFiPack_TX.png": "bafkreiav3zyb6vody64gtpgax5uezxw5pqusqcbnisvp6t5rmlswickogy",
+          "LightCorner_02/thumbnail.png": "bafkreibg2rgjcdza6622vjvzemq3kncyawowujhuqn55ckdngsvqyeupme",
+          "composite.json": "bafkreigldiahvwhk3rmv7tjmpqb2r5nxkcpd2srqv54cakbffz7hsahxwi",
+          "thumbnail.png": "bafkreibg2rgjcdza6622vjvzemq3kncyawowujhuqn55ckdngsvqyeupme"
+        },
+        "thumbnailUrl": "/content/contents/bafkreibg2rgjcdza6622vjvzemq3kncyawowujhuqn55ckdngsvqyeupme",
+        "category": "structures"
+      },
+      {
+        "id": "e6f54515-1149-4c8d-af15-d59ffd7d27a5",
+        "name": "Blue Light Cross",
+        "pack": "Sci-fi",
+        "src": "/content/contents/bafkreiek6bldogefclornubpgcp76bp3ccxmph3xic3gvuscx65scpmwpm",
+        "hue": 259,
+        "glbFile": "LightCross_02/LightCross_02.glb",
+        "contents": {
+          "LightCross_02/LightCross_02.glb": "bafkreiek6bldogefclornubpgcp76bp3ccxmph3xic3gvuscx65scpmwpm",
+          "LightCross_02/SciFiPack_TX.png": "bafkreiav3zyb6vody64gtpgax5uezxw5pqusqcbnisvp6t5rmlswickogy",
+          "LightCross_02/thumbnail.png": "bafkreih4e6trtmitst2dw2azn5qqgztt6fkz5djn7obziz4flhxlawdjt4",
+          "composite.json": "bafkreigbhk2mweqgeh5pinta2m4wb2l4vgidsbm26nwr2kauos7huwncgm",
+          "thumbnail.png": "bafkreih4e6trtmitst2dw2azn5qqgztt6fkz5djn7obziz4flhxlawdjt4"
+        },
+        "thumbnailUrl": "/content/contents/bafkreih4e6trtmitst2dw2azn5qqgztt6fkz5djn7obziz4flhxlawdjt4",
+        "category": "structures"
+      },
+      {
+        "id": "3b5a99ec-0ae0-4f61-ae20-2fc511acdd12",
+        "name": "Blue Light Cube",
+        "pack": "Sci-fi",
+        "src": "/content/contents/bafkreibvvr6n6nqz4cz3d4l42hw5md6uk4aokmduckdvyi3r4a3gw5ezcq",
+        "hue": 172,
+        "glbFile": "LightCube_02/LightCube_02.glb",
+        "contents": {
+          "LightCube_02/LightCube_02.glb": "bafkreibvvr6n6nqz4cz3d4l42hw5md6uk4aokmduckdvyi3r4a3gw5ezcq",
+          "LightCube_02/SciFiPack_TX.png": "bafkreiav3zyb6vody64gtpgax5uezxw5pqusqcbnisvp6t5rmlswickogy",
+          "LightCube_02/thumbnail.png": "bafkreiakdjcf6u7q4m7hximvct6cscxayqvyzujppxgusuvns2zmjleekm",
+          "composite.json": "bafkreihj5qetfq6jzkrclg7v6tgmxx6oa7fove26rwlman66y66ecyuf74",
+          "thumbnail.png": "bafkreiakdjcf6u7q4m7hximvct6cscxayqvyzujppxgusuvns2zmjleekm"
+        },
+        "thumbnailUrl": "/content/contents/bafkreiakdjcf6u7q4m7hximvct6cscxayqvyzujppxgusuvns2zmjleekm",
+        "category": "structures"
+      },
+      {
+        "id": "77bb5e25-550d-467f-a162-90ff2751407c",
+        "name": "Burgundy Kale",
+        "pack": "Sci-fi",
+        "src": "/content/contents/bafkreidqxr3urbyw7y2v6xsrcdvmdx3md7tc2ho3j2lr7cwnnsnhvayz5u",
+        "hue": 85,
+        "glbFile": "PlantSF_10/PlantSF_10.glb",
+        "contents": {
+          "PlantSF_10/PlantSF_10.glb": "bafkreidqxr3urbyw7y2v6xsrcdvmdx3md7tc2ho3j2lr7cwnnsnhvayz5u",
+          "PlantSF_10/SciFiPack_TX.png": "bafkreiav3zyb6vody64gtpgax5uezxw5pqusqcbnisvp6t5rmlswickogy",
+          "PlantSF_10/thumbnail.png": "bafkreif526yjczermck7mzss2tbcy3iu6u3d2fzdrfvzktanbeeagyb3e4",
+          "composite.json": "bafkreihvtoqa64hsbvdc7hx7rgdbl5f6w23si7kpn7t3faevagfqjgvxeq",
+          "thumbnail.png": "bafkreif526yjczermck7mzss2tbcy3iu6u3d2fzdrfvzktanbeeagyb3e4"
+        },
+        "thumbnailUrl": "/content/contents/bafkreif526yjczermck7mzss2tbcy3iu6u3d2fzdrfvzktanbeeagyb3e4",
+        "category": "nature"
+      },
+      {
+        "id": "5f25759e-dd1b-4294-9bc7-d8e66c198e9f",
+        "name": "Cactus Wand",
+        "pack": "Sci-fi",
+        "src": "/content/contents/bafkreiczlw3gfwqkiars52jr762jsmxm4gq2xe465372gfcfr2zfr3olxm",
+        "hue": 150,
+        "glbFile": "PlantSF_07/PlantSF_07.glb",
+        "contents": {
+          "PlantSF_07/PlantSF_07.glb": "bafkreiczlw3gfwqkiars52jr762jsmxm4gq2xe465372gfcfr2zfr3olxm",
+          "PlantSF_07/SciFiPack_TX.png": "bafkreiav3zyb6vody64gtpgax5uezxw5pqusqcbnisvp6t5rmlswickogy",
+          "PlantSF_07/thumbnail.png": "bafkreibsynwslbue7rbaq42q2chsg5ze2xqqeift6w4enqd5ms4ifcoob4",
+          "composite.json": "bafkreidwlo5i4g4cqlrq63wju7awco7wifw7uv65qffyv6m5zabaigwvu4",
+          "thumbnail.png": "bafkreibsynwslbue7rbaq42q2chsg5ze2xqqeift6w4enqd5ms4ifcoob4"
+        },
+        "thumbnailUrl": "/content/contents/bafkreibsynwslbue7rbaq42q2chsg5ze2xqqeift6w4enqd5ms4ifcoob4",
+        "category": "nature"
+      },
+      {
+        "id": "428db18d-258b-476d-bde2-638ad3ab244b",
+        "name": "Checkerboard Floor Panel",
+        "pack": "Sci-fi",
+        "src": "/content/contents/bafkreifrua3ibne2xhg5dcvsz4rnfqkp2nou3ko6prypd72obeoxqlakvm",
+        "hue": 61,
+        "glbFile": "FloorSciFiPanel_03/FloorSciFiPanel_03.glb",
+        "contents": {
+          "FloorSciFiPanel_03/FloorSciFiPanel_03.glb": "bafkreifrua3ibne2xhg5dcvsz4rnfqkp2nou3ko6prypd72obeoxqlakvm",
+          "FloorSciFiPanel_03/SciFiPack_TX.png": "bafkreiav3zyb6vody64gtpgax5uezxw5pqusqcbnisvp6t5rmlswickogy",
+          "FloorSciFiPanel_03/thumbnail.png": "bafkreidgo4jjrqxkix5xwe7rxhuxlrgrvnrnmguru3u4a5khmx5ltvlqie",
+          "composite.json": "bafkreiewsqrqr27nepby5vfdjyktzbsbtg5lheajn6zzogvlg5vz252ohe",
+          "thumbnail.png": "bafkreidgo4jjrqxkix5xwe7rxhuxlrgrvnrnmguru3u4a5khmx5ltvlqie"
+        },
+        "thumbnailUrl": "/content/contents/bafkreidgo4jjrqxkix5xwe7rxhuxlrgrvnrnmguru3u4a5khmx5ltvlqie",
+        "category": "tiles"
+      },
+      {
+        "id": "c8836077-7170-47b1-bc1f-e590d89d117c",
+        "name": "Component Floor Panel",
+        "pack": "Sci-fi",
+        "src": "/content/contents/bafkreiccv252ooej5qwqnecs3jaku54ed27wi6a6sjzyf4nfz2iphgtn2m",
+        "hue": 8,
+        "glbFile": "FloorSciFiPanel_04/FloorSciFiPanel_04.glb",
+        "contents": {
+          "FloorSciFiPanel_04/FloorSciFiPanel_04.glb": "bafkreiccv252ooej5qwqnecs3jaku54ed27wi6a6sjzyf4nfz2iphgtn2m",
+          "FloorSciFiPanel_04/SciFiPack_TX.png": "bafkreiav3zyb6vody64gtpgax5uezxw5pqusqcbnisvp6t5rmlswickogy",
+          "FloorSciFiPanel_04/thumbnail.png": "bafkreiewgxpee2lizmrdwo67higwxezvas3mk3as4l3p4j4nzrr5gytsbi",
+          "composite.json": "bafkreieghgt5m2odmlpgu4ajs3ophjvjnun2rxtp3bzur76o764tg4ct54",
+          "thumbnail.png": "bafkreiewgxpee2lizmrdwo67higwxezvas3mk3as4l3p4j4nzrr5gytsbi"
+        },
+        "thumbnailUrl": "/content/contents/bafkreiewgxpee2lizmrdwo67higwxezvas3mk3as4l3p4j4nzrr5gytsbi",
+        "category": "tiles"
+      },
+      {
+        "id": "64cd0981-48a6-4cd1-9c45-6ec8e8d7e4c7",
+        "name": "Cross Floor Panel",
+        "pack": "Sci-fi",
+        "src": "/content/contents/bafkreialqrdq4p7opvvhzbw6jnarcxsaxvtcowzvqjik5ujcjqflgsr65m",
+        "hue": 63,
+        "glbFile": "Floor_Module_03/Floor_Module_03.glb",
+        "contents": {
+          "Floor_Module_03/Floor_Module_03.glb": "bafkreialqrdq4p7opvvhzbw6jnarcxsaxvtcowzvqjik5ujcjqflgsr65m",
+          "Floor_Module_03/SciFiPack_TX.png": "bafkreiav3zyb6vody64gtpgax5uezxw5pqusqcbnisvp6t5rmlswickogy",
+          "Floor_Module_03/thumbnail.png": "bafkreif4ygner3bsdepuufpfjcpaeoby5kqukkvpopgsw6ehcikvmr2ho4",
+          "composite.json": "bafkreihxi5hdblnkvkmisayblnr4lhoco3e3tkg3qgnxyialucwvxg6fcu",
+          "thumbnail.png": "bafkreif4ygner3bsdepuufpfjcpaeoby5kqukkvpopgsw6ehcikvmr2ho4"
+        },
+        "thumbnailUrl": "/content/contents/bafkreif4ygner3bsdepuufpfjcpaeoby5kqukkvpopgsw6ehcikvmr2ho4",
+        "category": "tiles"
+      },
+      {
+        "id": "6c501b29-1e92-4ae9-8b6a-b4fc3c6d375d",
+        "name": "Dirt Clump",
+        "pack": "Sci-fi",
+        "src": "/content/contents/bafkreigj6lrziny6fwgiv3gphrlxdfdxyubsyxeh53ebd2lcokqkdld5pm",
+        "hue": 136,
+        "glbFile": "Dirt_02/Dirt_02.glb",
+        "contents": {
+          "Dirt_02/Dirt_02.glb": "bafkreigj6lrziny6fwgiv3gphrlxdfdxyubsyxeh53ebd2lcokqkdld5pm",
+          "Dirt_02/SciFiPack_TX.png": "bafkreiav3zyb6vody64gtpgax5uezxw5pqusqcbnisvp6t5rmlswickogy",
+          "Dirt_02/thumbnail.png": "bafkreic6isrlbmukjbaescoisi7lj355idoyehe7xddkwvdtvsp76dcspe",
+          "composite.json": "bafkreigpen2pedf2biowfmpwedh6kke64a5tko7def4p67ld7ccaay3d4e",
+          "thumbnail.png": "bafkreic6isrlbmukjbaescoisi7lj355idoyehe7xddkwvdtvsp76dcspe"
+        },
+        "thumbnailUrl": "/content/contents/bafkreic6isrlbmukjbaescoisi7lj355idoyehe7xddkwvdtvsp76dcspe",
+        "category": "nature"
+      },
+      {
+        "id": "82a8f521-ea30-4fba-b91f-840b2658779d",
+        "name": "Dirt Mound",
+        "pack": "Sci-fi",
+        "src": "/content/contents/bafkreihhcmgpi4bgqhp57hjz6qs4u5fn72bkwjkiglkftd67y63w3mxbwy",
+        "hue": 12,
+        "glbFile": "Dirt_03/Dirt_03.glb",
+        "contents": {
+          "Dirt_03/Dirt_03.glb": "bafkreihhcmgpi4bgqhp57hjz6qs4u5fn72bkwjkiglkftd67y63w3mxbwy",
+          "Dirt_03/SciFiPack_TX.png": "bafkreiav3zyb6vody64gtpgax5uezxw5pqusqcbnisvp6t5rmlswickogy",
+          "Dirt_03/thumbnail.png": "bafkreicmzehkckmnhzjintl3lkl6qrtfb5yo2hhsna4pi7uot4mvg73zx4",
+          "composite.json": "bafkreic5sn4pw3zacxuzi552p6zdnfp3xjvqdzw6ks52d4shwemrthpddy",
+          "thumbnail.png": "bafkreicmzehkckmnhzjintl3lkl6qrtfb5yo2hhsna4pi7uot4mvg73zx4"
+        },
+        "thumbnailUrl": "/content/contents/bafkreicmzehkckmnhzjintl3lkl6qrtfb5yo2hhsna4pi7uot4mvg73zx4",
+        "category": "nature"
+      },
+      {
+        "id": "06f65cfc-1013-4506-930f-ff759561185d",
+        "name": "Four Square Floor Panel",
+        "pack": "Sci-fi",
+        "src": "/content/contents/bafkreida6bqzg4gnsocggfewwbrhhw64qlw2lej5at7ns3mcwwystp7xse",
+        "hue": 111,
+        "glbFile": "FloorSciFiPanel_02/FloorSciFiPanel_02.glb",
+        "contents": {
+          "FloorSciFiPanel_02/FloorSciFiPanel_02.glb": "bafkreida6bqzg4gnsocggfewwbrhhw64qlw2lej5at7ns3mcwwystp7xse",
+          "FloorSciFiPanel_02/SciFiPack_TX.png": "bafkreiav3zyb6vody64gtpgax5uezxw5pqusqcbnisvp6t5rmlswickogy",
+          "FloorSciFiPanel_02/thumbnail.png": "bafkreieqsz5jwsvtbqininzdksptv7byt7cxjc6dzbanocifud5olu75vm",
+          "composite.json": "bafkreietuo4kqu4reslye35ottypfs5moktcftdiymcl3ffjacux57lxhm",
+          "thumbnail.png": "bafkreieqsz5jwsvtbqininzdksptv7byt7cxjc6dzbanocifud5olu75vm"
+        },
+        "thumbnailUrl": "/content/contents/bafkreieqsz5jwsvtbqininzdksptv7byt7cxjc6dzbanocifud5olu75vm",
+        "category": "tiles"
+      },
+      {
+        "id": "13b9f9e1-7b20-40fc-a21b-ca2103026096",
+        "name": "Grey Floor Panel",
+        "pack": "Sci-fi",
+        "src": "/content/contents/bafkreidt3mhebxxvdx5uq4s3ooxymybbzjjc42c5cu6j7qujxnk5uhseqq",
+        "hue": 318,
+        "glbFile": "FloorSciFiPanel_01/FloorSciFiPanel_01.glb",
+        "contents": {
+          "FloorSciFiPanel_01/FloorSciFiPanel_01.glb": "bafkreidt3mhebxxvdx5uq4s3ooxymybbzjjc42c5cu6j7qujxnk5uhseqq",
+          "FloorSciFiPanel_01/SciFiPack_TX.png": "bafkreiav3zyb6vody64gtpgax5uezxw5pqusqcbnisvp6t5rmlswickogy",
+          "FloorSciFiPanel_01/thumbnail.png": "bafkreibmqutp6hplogmwgvucqdhcdt7oljpxbyaax4k4lag44xpbciamem",
+          "composite.json": "bafkreia5dmo4hemps6u55m46q6tedlxscye4fns35sfdazjqhk3oyxh7tq",
+          "thumbnail.png": "bafkreibmqutp6hplogmwgvucqdhcdt7oljpxbyaax4k4lag44xpbciamem"
+        },
+        "thumbnailUrl": "/content/contents/bafkreibmqutp6hplogmwgvucqdhcdt7oljpxbyaax4k4lag44xpbciamem",
+        "category": "tiles"
+      },
+      {
+        "id": "526270d4-b8b9-432a-9a86-1c2c94f860fd",
+        "name": "Martian Reddish",
+        "pack": "Sci-fi",
+        "src": "/content/contents/bafkreihbthbbnamf7egoyyzzsu5ufv4icp5orygpb5d7zpwoi46hqvwt5u",
+        "hue": 220,
+        "glbFile": "GroundFloorSciFi_02/GroundFloorSciFi_02.glb",
+        "contents": {
+          "GroundFloorSciFi_02/GroundFloorSciFi_02.glb": "bafkreihbthbbnamf7egoyyzzsu5ufv4icp5orygpb5d7zpwoi46hqvwt5u",
+          "GroundFloorSciFi_02/SciFi_Floor_Red.png": "bafkreiarg4id6t2fol7o5yfrsy25uynptkz5m4jpuz3fq4yuby2v2jkilu",
+          "GroundFloorSciFi_02/thumbnail.png": "bafybeifzssv3lm2g7mafqu3h4chvqx5uaxxmzhtahnjxdqytff3mtkocgy",
+          "composite.json": "bafkreifypdtjxkzr7wjujvsl7miyjauvcn5ksfm5saiedswc55ficzj5xu",
+          "thumbnail.png": "bafybeifzssv3lm2g7mafqu3h4chvqx5uaxxmzhtahnjxdqytff3mtkocgy"
+        },
+        "thumbnailUrl": "/content/contents/bafybeifzssv3lm2g7mafqu3h4chvqx5uaxxmzhtahnjxdqytff3mtkocgy",
+        "category": "ground"
+      },
+      {
+        "id": "e8c04948-0255-4036-86ec-caae122f370f",
+        "name": "Purple Dust",
+        "pack": "Sci-fi",
+        "src": "/content/contents/bafkreihc7zwtofaip4lnuwlfwhetl3qkfvyy5ng7txoyxkrgwu7tlh62bi",
+        "hue": 70,
+        "glbFile": "GroundFloorSciFi_04/GroundFloorSciFi_04.glb",
+        "contents": {
+          "GroundFloorSciFi_04/GroundFloorSciFi_04.glb": "bafkreihc7zwtofaip4lnuwlfwhetl3qkfvyy5ng7txoyxkrgwu7tlh62bi",
+          "GroundFloorSciFi_04/SciFi_Floor_Violet.png": "bafybeier4s45femhylbnxmo7hok5jcvn64florlmdfdqdreg5jynd5wchm",
+          "GroundFloorSciFi_04/thumbnail.png": "bafybeiekmlgk4kclwtwz2qucey7y66xleb4mu7vlogzeozazkvew5vub4a",
+          "composite.json": "bafkreihdymixdcaz7ckc4celjnm6cmy7ivo22caoa3ij2vnquof3g4oot4",
+          "thumbnail.png": "bafybeiekmlgk4kclwtwz2qucey7y66xleb4mu7vlogzeozazkvew5vub4a"
+        },
+        "thumbnailUrl": "/content/contents/bafybeiekmlgk4kclwtwz2qucey7y66xleb4mu7vlogzeozazkvew5vub4a",
+        "category": "ground"
+      },
+      {
+        "id": "5213245c-db38-4195-8296-b15485230fa0",
+        "name": "Red Giant",
+        "pack": "Sci-fi",
+        "src": "/content/contents/bafkreigavmojmkyc5ysf42uvarzru4rpcisumtvgny5caalzofr7gzm2ji",
+        "hue": 262,
+        "glbFile": "GroundFloorSciFi_03/GroundFloorSciFi_03.glb",
+        "contents": {
+          "GroundFloorSciFi_03/GroundFloorSciFi_03.glb": "bafkreigavmojmkyc5ysf42uvarzru4rpcisumtvgny5caalzofr7gzm2ji",
+          "GroundFloorSciFi_03/SciFi_Floor_Red2.png": "bafkreigbbnn57xkfsvkqr3eheegqjh4g5ukicd43sfcurghc7ay3d262vm",
+          "GroundFloorSciFi_03/thumbnail.png": "bafkreiamwo7bosynknxf3yrkt52rg7sw4jkg24b76hpgtqx4pvgfz7w65a",
+          "composite.json": "bafkreigppjes2odmnpxl46u2xoqfgbgls3cvjhzocybceke3zegifmi5ee",
+          "thumbnail.png": "bafkreiamwo7bosynknxf3yrkt52rg7sw4jkg24b76hpgtqx4pvgfz7w65a"
+        },
+        "thumbnailUrl": "/content/contents/bafkreiamwo7bosynknxf3yrkt52rg7sw4jkg24b76hpgtqx4pvgfz7w65a",
+        "category": "ground"
+      },
+      {
+        "id": "c892f776-59cf-4abe-8662-65a172368b31",
+        "name": "Venus Orange",
+        "pack": "Sci-fi",
+        "src": "/content/contents/bafkreifum3dujr3ag3djda222ijvm5aaiehtoanzv7stt7toj5brzpnguy",
+        "hue": 55,
+        "glbFile": "GroundFloorSciFi_01/GroundFloorSciFi_01.glb",
+        "contents": {
+          "GroundFloorSciFi_01/GroundFloorSciFi_01.glb": "bafkreifum3dujr3ag3djda222ijvm5aaiehtoanzv7stt7toj5brzpnguy",
+          "GroundFloorSciFi_01/SciFi_Floor_Orange.png": "bafybeihph25hoe7jipramj3xn4uihch7qyevgubtu62ax4t5menn5wyeza",
+          "GroundFloorSciFi_01/thumbnail.png": "bafybeicimabnchaxl3gnmx4uqxrqjbh557vk2jnfdpobfezxewweqrc2wm",
+          "composite.json": "bafkreiflwn3iciv23z3pzzogyk7hxn2aorrcivrbc4bh6kpzkg6legax6e",
+          "thumbnail.png": "bafybeicimabnchaxl3gnmx4uqxrqjbh557vk2jnfdpobfezxewweqrc2wm"
+        },
+        "thumbnailUrl": "/content/contents/bafybeicimabnchaxl3gnmx4uqxrqjbh557vk2jnfdpobfezxewweqrc2wm",
+        "category": "ground"
+      },
+      {
+        "id": "0c419cb9-bc21-4c51-977f-41a505a097f0",
+        "name": "Admin Tools",
+        "pack": "Smart Items",
+        "src": "/content/contents/bafkreievymbc6guxdj4xqbql6seyubssbqn3lctv7ps5jqpiknjak7ztcu",
+        "hue": 141,
+        "glbFile": "admin_toolkit.glb",
+        "contents": {
+          "admin_toolkit.glb": "bafkreievymbc6guxdj4xqbql6seyubssbqn3lctv7ps5jqpiknjak7ztcu",
+          "composite.json": "bafkreig3k2k2kyiqef3fcrtvypemz3upushlfoug63hod3cqmi6psql6xq",
+          "thumbnail.png": "bafkreiffmbwfkmypmhj5jemcw52cbkk5wfdorseotvlr4cynta6h647k3q"
+        },
+        "thumbnailUrl": "/content/contents/bafkreiffmbwfkmypmhj5jemcw52cbkk5wfdorseotvlr4cynta6h647k3q",
+        "category": "utils"
+      },
+      {
+        "id": "ambient-music-ambient-1-001",
+        "name": "Ambient Music - Ambient 1",
+        "pack": "Smart Items",
+        "src": "/content/contents/bafkreig6nk5bnvqdz2szic2tyirmwksd2giji5nk4fo22yyu5wbm2cvrry",
+        "hue": 112,
+        "glbFile": "ambient_sound.glb",
+        "contents": {
+          "ambient_1.mp3": "bafybeic4faewxkdqx67dloyw57ikgaeibc2e2dbx34hwjubl3gfvs2r4su",
+          "ambient_sound.glb": "bafkreig6nk5bnvqdz2szic2tyirmwksd2giji5nk4fo22yyu5wbm2cvrry",
+          "composite.json": "bafkreidrb7uh747ni3q26kdm7ta7ulwwpl7ogfpusesv5vgqlkihpuj4eq",
+          "thumbnail.png": "bafkreicflxhv3t4iolfnrqtztnzmufd3nzsourqhlroo52srcjtrgktgzq"
+        },
+        "thumbnailUrl": "/content/contents/bafkreicflxhv3t4iolfnrqtztnzmufd3nzsourqhlroo52srcjtrgktgzq",
+        "category": "sounds",
+        "smart": true
+      },
+      {
+        "id": "ambient-music-ambient-2-002",
+        "name": "Ambient Music - Ambient 2",
+        "pack": "Smart Items",
+        "src": "/content/contents/bafkreig6nk5bnvqdz2szic2tyirmwksd2giji5nk4fo22yyu5wbm2cvrry",
+        "hue": 0,
+        "glbFile": "ambient_sound.glb",
+        "contents": {
+          "ambient_2.mp3": "bafybeieacous2r32mksrm5pfchkqdx3cr2fmi4kqoqfg6amqawmgqbl7fm",
+          "ambient_sound.glb": "bafkreig6nk5bnvqdz2szic2tyirmwksd2giji5nk4fo22yyu5wbm2cvrry",
+          "composite.json": "bafkreibzrlvna6je7cmkeiazlztproep5c7i3zok772mxlspihle3mxtra",
+          "thumbnail.png": "bafkreicflxhv3t4iolfnrqtztnzmufd3nzsourqhlroo52srcjtrgktgzq"
+        },
+        "thumbnailUrl": "/content/contents/bafkreicflxhv3t4iolfnrqtztnzmufd3nzsourqhlroo52srcjtrgktgzq",
+        "category": "sounds",
+        "smart": true
+      },
+      {
+        "id": "ambient-music-ambient-3-003",
+        "name": "Ambient Music - Ambient 3",
+        "pack": "Smart Items",
+        "src": "/content/contents/bafkreig6nk5bnvqdz2szic2tyirmwksd2giji5nk4fo22yyu5wbm2cvrry",
+        "hue": 212,
+        "glbFile": "ambient_sound.glb",
+        "contents": {
+          "ambient_3.mp3": "bafybeiaqntn2bbz7zim2yknrxqvdio4fbsvrzebxjc5vvbplog27w2ldke",
+          "ambient_sound.glb": "bafkreig6nk5bnvqdz2szic2tyirmwksd2giji5nk4fo22yyu5wbm2cvrry",
+          "composite.json": "bafkreieoco7bwdk7uf26wzk26fjq5o4upyi57difffcffsac7wsjscpfsu",
+          "thumbnail.png": "bafkreicflxhv3t4iolfnrqtztnzmufd3nzsourqhlroo52srcjtrgktgzq"
+        },
+        "thumbnailUrl": "/content/contents/bafkreicflxhv3t4iolfnrqtztnzmufd3nzsourqhlroo52srcjtrgktgzq",
+        "category": "sounds",
+        "smart": true
+      },
+      {
+        "id": "8a172b9e-b57d-4920-a804-55cb77f46816",
+        "name": "Arrow",
+        "pack": "Smart Items",
+        "src": "/content/contents/bafkreifqyef4eaerv6gwlwc5c35lkzjy3s4g7s2zuzvi6kjfb7vedvnl74",
+        "hue": 138,
+        "glbFile": "arrow.glb",
+        "contents": {
+          "arrow.glb": "bafkreifqyef4eaerv6gwlwc5c35lkzjy3s4g7s2zuzvi6kjfb7vedvnl74",
+          "composite.json": "bafkreia36r5ell5fcd57enwd5arricnfmhxtzoh6ahjsc7iz6ni7x4dni4",
+          "thumbnail.png": "bafkreicekeog45tsj5m4pxt4ndnw2xspsdmh7vhtzree4p2dea4vctmvia"
+        },
+        "category": "utils",
+        "smart": true
+      },
+      {
+        "id": "d673f2a7-5f82-4db2-813d-ece721414aa8",
+        "name": "Arrow Blue",
+        "pack": "Smart Items",
+        "src": "/content/contents/bafkreihssw2lciat2ig2jhsrsxsv3bn54zhf4jbymbadzjl5jufz5fobru",
+        "hue": 314,
+        "glbFile": "arrow-blue.glb",
+        "contents": {
+          "arrow-blue.glb": "bafkreihssw2lciat2ig2jhsrsxsv3bn54zhf4jbymbadzjl5jufz5fobru",
+          "composite.json": "bafkreigeoqszm5xo32ozswojy2dl6hheyzxlexwbbwh4qnnr6tnxk4siby",
+          "thumbnail.png": "bafkreiduz3nxqdjqgbx27nqes3vee7azn32razrrszthl2wgohgosjxcjy"
+        },
+        "category": "utils",
+        "smart": true
+      },
+      {
+        "id": "1b0ea1b1-9672-4853-8aa1-5405473747d9",
+        "name": "Audio Stream",
+        "pack": "Smart Items",
+        "src": "/content/contents/bafkreibivlqfdaoezxqnb4e2wjt7ijyzlkdslcbusy4mec6gijgun7hgoe",
+        "hue": 36,
+        "glbFile": "radio.glb",
+        "contents": {
+          "composite.json": "bafkreicldkkpxrzmf54y33zshypzw2gypfincsnlw7j7oqao2golthbsge",
+          "radio.glb": "bafkreibivlqfdaoezxqnb4e2wjt7ijyzlkdslcbusy4mec6gijgun7hgoe",
+          "thumbnail.png": "bafkreif3issfo6ci2wg2lxzursvq4qdvaevusau4oho3xeypee75h75mdu"
+        },
+        "thumbnailUrl": "/content/contents/bafkreif3issfo6ci2wg2lxzursvq4qdvaevusau4oho3xeypee75h75mdu",
+        "category": "media",
+        "smart": true
+      },
+      {
+        "id": "42895f40-6ec9-49c4-863c-d916aaf5ae69",
+        "name": "Balloons",
+        "pack": "Smart Items",
+        "src": "/content/contents/bafkreiag7ezcefvnmxumemc7clud3673dvc5oazk6xu5vbna473iwjwici",
+        "hue": 24,
+        "glbFile": "balloons.glb",
+        "contents": {
+          "balloons.glb": "bafkreiag7ezcefvnmxumemc7clud3673dvc5oazk6xu5vbna473iwjwici",
+          "composite.json": "bafkreihdrxj73kalrhkfywmraqa5b52ulnn3o22qe22cskqfpjrzaay6eu",
+          "fireworkexplode.mp3": "bafkreidnd4er62s3riligyrfyyleigd3vhzgcnlfgpu5rdz4qbgc2iehvu",
+          "thumbnail.png": "bafkreiccw47ofhjje5wlzpiounh2uboxvqdxmgmt3obp3h7a6nxnjlcpom"
+        },
+        "category": "party",
+        "smart": true
+      },
+      {
+        "id": "2e1c4446-c99a-4698-9e13-819d232ca849",
+        "name": "Black Button",
+        "pack": "Smart Items",
+        "src": "/content/contents/bafkreigpnyzf5pjk6ahg4ucd6kyvmkfp2r7wzk6rp2rerws5rvvzwme3qq",
+        "hue": 17,
+        "glbFile": "black_fantasy_button.glb",
+        "contents": {
+          "black_fantasy_button.glb": "bafkreigpnyzf5pjk6ahg4ucd6kyvmkfp2r7wzk6rp2rerws5rvvzwme3qq",
+          "composite.json": "bafkreibavsoaubspddfffjiokp6jbwpubi3mszohhsndw4q4a2c7oydqx4",
+          "sound.mp3": "bafkreifzmhe2n6lslneawyejfdurlk43oiuqygt523fva7k46irgahlwza",
+          "thumbnail.png": "bafkreif5gsxn7z7ebw424cq3cridyhapqzmginshml5etyzl5xc5xvupha"
+        },
+        "thumbnailUrl": "/content/contents/bafkreif5gsxn7z7ebw424cq3cridyhapqzmginshml5etyzl5xc5xvupha",
+        "category": "buttons",
+        "smart": true
+      },
+      {
+        "id": "51c9fa4a-4317-4be5-a6e2-21643b793414",
+        "name": "Black Chair",
+        "pack": "Smart Items",
+        "src": "/content/contents/bafkreieao3hpfsgq7l2cl644itj7mswcqk42f65a45nvcz2tphwfldil2u",
+        "hue": 290,
+        "glbFile": "HighBackChair.glb",
+        "contents": {
+          "HighBackChair.glb": "bafkreieao3hpfsgq7l2cl644itj7mswcqk42f65a45nvcz2tphwfldil2u",
+          "composite.json": "bafkreigkagguijqyregxua4cedntusrayzgymhicacpqbptwlve5m4ymzi",
+          "thumbnail.png": "bafkreifnf5lijhnu4i76owrq4ws5mtxymziuou7d3dz522ukmgc3nhtrhu"
+        },
+        "category": "Seats",
+        "smart": true
+      },
+      {
+        "id": "504cd7ac-2873-40d8-9172-13c9c24304b0",
+        "name": "Blue Button",
+        "pack": "Smart Items",
+        "src": "/content/contents/bafkreid3ztllijyhra775khstemtx53m3wt4rdemin4ynof2b7fwkvzuaq",
+        "hue": 59,
+        "glbFile": "blue_button.glb",
+        "contents": {
+          "blue_button.glb": "bafkreid3ztllijyhra775khstemtx53m3wt4rdemin4ynof2b7fwkvzuaq",
+          "composite.json": "bafkreidjvk2cjl4d5urdz7qxgumc3rydgsghhszd2jq4fw4cqiadc3uzte",
+          "sound.mp3": "bafkreifzmhe2n6lslneawyejfdurlk43oiuqygt523fva7k46irgahlwza",
+          "thumbnail.png": "bafkreih3i5343kc2bqezw6lrtjbc3noukvkcobodb3xhzyaqb5bpfparte"
+        },
+        "thumbnailUrl": "/content/contents/bafkreih3i5343kc2bqezw6lrtjbc3noukvkcobodb3xhzyaqb5bpfparte",
+        "category": "buttons",
+        "smart": true
+      },
+      {
+        "id": "51ff7609-407f-481d-991b-8449ef59b390",
+        "name": "Blue Light Button",
+        "pack": "Smart Items",
+        "src": "/content/contents/bafkreiefoeh2cj22jjma3fnbfkfvay2xxvzhgloeevk2yv2s7umfiyiwtm",
+        "hue": 100,
+        "glbFile": "blue_scifi_button.glb",
+        "contents": {
+          "blue_scifi_button.glb": "bafkreiefoeh2cj22jjma3fnbfkfvay2xxvzhgloeevk2yv2s7umfiyiwtm",
+          "composite.json": "bafkreig5farnqo7zu6fq2xpuukn6qqem4okarz3exg3jm6ixywb3hvgxca",
+          "sound.mp3": "bafkreifzmhe2n6lslneawyejfdurlk43oiuqygt523fva7k46irgahlwza",
+          "thumbnail.png": "bafkreibrnlk3nfvyjlo46l6vojqlsxpulpldpf6ilqqijadgfxgpevr5tm"
+        },
+        "thumbnailUrl": "/content/contents/bafkreibrnlk3nfvyjlo46l6vojqlsxpulpldpf6ilqqijadgfxgpevr5tm",
+        "category": "buttons",
+        "smart": true
+      },
+      {
+        "id": "2415fd3a-66fd-4014-956d-d3168231e0d8",
+        "name": "Bubble",
+        "pack": "Smart Items",
+        "src": "/content/contents/bafkreibvdwxvs4fmpykrsf2xoi7ejtqsomsn3gzbxf7yta544en2ayuqzu",
+        "hue": 109,
+        "glbFile": "MessageBubble.glb",
+        "contents": {
+          "MessageBubble.glb": "bafkreibvdwxvs4fmpykrsf2xoi7ejtqsomsn3gzbxf7yta544en2ayuqzu",
+          "composite.json": "bafkreibheypktwk46iynzjr7egjx6gocwc7vudl7ku53jbwzdxbgkeebvm",
+          "thumbnail.png": "bafkreifabmsels3dnxblyefiurebizxlvggah6g5sf54jsc4dlm52sguai"
+        },
+        "category": "Text",
+        "smart": true
+      },
+      {
+        "id": "0b8f3b57-a7f3-48aa-a88a-41098f264566",
+        "name": "Button Chest",
+        "pack": "Smart Items",
+        "src": "/content/contents/bafkreidg6bteosaczthyl6oi4fjhqxxezcbp36rdq5xhfzfuykyiulg2pu",
+        "hue": 252,
+        "glbFile": "button_chest.glb",
+        "contents": {
+          "button_chest.glb": "bafkreidg6bteosaczthyl6oi4fjhqxxezcbp36rdq5xhfzfuykyiulg2pu",
+          "close.mp3": "bafkreidczh3kzyrk4tcmkjoveuotf6tseb7e7b7ed5ppatzvdj5zaen6ku",
+          "composite.json": "bafkreihjrwtg4okvfqrgxusbgap5azwm5rudxwnc4nphgu3qmv7svrkqga",
+          "open.mp3": "bafkreidgqczqmgcq5kcybi7yy2er7ai6crwn3qufwfm3aqhwhy7kk3hytu",
+          "thumbnail.png": "bafkreie6qlr7oqq5fide7tn6grvjmmcpyhfxr64ml5v27bxg6jeak5oi2q"
+        },
+        "thumbnailUrl": "/content/contents/bafkreie6qlr7oqq5fide7tn6grvjmmcpyhfxr64ml5v27bxg6jeak5oi2q",
+        "category": "chests",
+        "smart": true
+      },
+      {
+        "id": "dd9fb5a1-7530-4e07-ac3f-3e50572c239f",
+        "name": "Chest",
+        "pack": "Smart Items",
+        "src": "/content/contents/bafkreic2tq33dcrlcso7kbqfj4d62eavooxmlow7okdm25aoq32dexj4xi",
+        "hue": 203,
+        "glbFile": "chest.glb",
+        "contents": {
+          "chest.glb": "bafkreic2tq33dcrlcso7kbqfj4d62eavooxmlow7okdm25aoq32dexj4xi",
+          "close.mp3": "bafkreia56qk3ve572n7afqsw5b64mprlohlnp2xdgdxpyaklofnlekohau",
+          "composite.json": "bafkreicx5yhn4yylp7hsg7zgdjkwq5qctn5ekjxxjacpztbjqlbo6kchl4",
+          "open.mp3": "bafkreihm7mbapjtv4d642d34pjclamohqykh7ekxyglltaeqh3xqvezizy",
+          "thumbnail.png": "bafkreies6hyp5lshziwa34mtvo6gtujad2co2celu5cejat5tc5sasp77m"
+        },
+        "thumbnailUrl": "/content/contents/bafkreies6hyp5lshziwa34mtvo6gtujad2co2celu5cejat5tc5sasp77m",
+        "category": "chests",
+        "smart": true
+      },
+      {
+        "id": "6dcca8b8-0cb2-4cc4-b369-c95ca5afa199",
+        "name": "Clap Meter",
+        "pack": "Smart Items",
+        "src": "/content/contents/bafkreiesp5vcehmun2tiab657lxbbbbs4b76xprnnkbcy2v5xfexjayare",
+        "hue": 144,
+        "glbFile": "clapMeterBoard.glb",
+        "contents": {
+          "ClapMeter.ts": "bafkreibtwia3qiaelrnjej3ictuwj2defpek6d73fkb4garisdg5bpblqy",
+          "Genesis_TX.png": "bafkreid2aswbhebm5lwcjtsuwrrpz2jczgwvwavbelb22n7myftlhcpa4q",
+          "clapMeterBoard.glb": "bafkreiesp5vcehmun2tiab657lxbbbbs4b76xprnnkbcy2v5xfexjayare",
+          "clapMeterNeedle.glb": "bafkreiglxo4g7tvgnozve4k3ln7dvj2g67bvhhrfrpjjonytyd6hwgrzwu",
+          "composite.json": "bafkreihh4cq7kq3k44a2jp22u75u25yf77pt3ttkslh7jq47j77njdff7y",
+          "thumbnail.png": "bafkreihduzosovew25xhuxhpxs4pidggerumpp53adruj5l6uzxfjbhex4"
+        },
+        "category": "party",
+        "smart": true
+      },
+      {
+        "id": "675110d1-7cf3-4927-95ee-bb6e9ec7f7ae",
+        "name": "Clap Wearable Dispenser",
+        "pack": "Smart Items",
+        "src": "/content/contents/bafkreiefdzidj2m63w36m2dq4zfcn4ulx4jdqqxeogk4rotpb3havpuxpm",
+        "hue": 17,
+        "glbFile": "dispenser.glb",
+        "contents": {
+          "Clap Here.png": "bafkreic4xg4jscaygwalx3q6tekhntz22ctainaz7pibxnn2lfj3qjhzoa",
+          "ClapClaim.tsx": "bafkreiau7lgur5nip5uofn4fwv3qjskbni32gqjytaltuqbgj4ewhlwkpq",
+          "Stencil.png": "bafkreicfeptokbk4hrl3jqh62wvnyxd3vxt3shxwxorjodoyalgviyq4ea",
+          "bannerPlaceholder.png": "bafkreidgbotlsm22535shy6cib7adhhchjfw7evllsj4zhd7x27oe4a6i4",
+          "composite.json": "bafkreid7bnvrzljx73mmdmojtx23rkxtwksput7jwkwxconrot2qsukn3m",
+          "dispenser.glb": "bafkreiefdzidj2m63w36m2dq4zfcn4ulx4jdqqxeogk4rotpb3havpuxpm",
+          "images/WearablePopUp_Background.png": "bafkreifgbudzt7ra35jt7faprgzfr223fadnn7k43l6kihe2cixqvgk2ky",
+          "images/backpack_icon.png": "bafkreiewq6nhxyo4r6cb6ng3waizc3gyae4h5smrm3mxgo7fjloidsrppy",
+          "images/close_button.png": "bafkreidalqsnb23skbaq3hldrwhz6nfzssylxhvfmbd7hpdj35qrnmdybq",
+          "images/frame.png": "bafkreigqwepd4rzkvjvaugvdff6jkinaqod6pmchzwz4dg2pxwtcftvq4q",
+          "images/loader_static_with_margin.png": "bafkreidlwicilk5qpzjxpu2ghkkxzbfbj73rkujer2igw42pen65fuzbcm",
+          "images/ok_button.png": "bafkreihcwxgpigpdpyxzqps7t52ppno6hnst2hcv75znpq2hodk3lx64je",
+          "images/ok_button_empty.png": "bafkreibnsegeumwz5274vehrcwu7iyspazzxvyyddjk5hcbssyvpjyeok4",
+          "images/toast_orange.png": "bafkreig6mhh2x7rwkner63hpsgphwdukwkxo5mh4nifgxpzlvi5rldy5re",
+          "pattern01_arm.png": "bafkreibatnzlzvcnbclro4pzagenrrla7ns3uljts5wj7rnlsqnrbnervu",
+          "pattern01_normal.png": "bafkreifrwnjbujeyfpk54qgzh5yeind5sexaqkplqo4gc2azq7wx3eglfu",
+          "thumbnail.png": "bafkreibrbq5zokyqgm4cu6rug435og7ojks5agnwuhauuavqncb3uzb6z4"
+        },
+        "thumbnailUrl": "/content/contents/bafkreibrbq5zokyqgm4cu6rug435og7ojks5agnwuhauuavqncb3uzb6z4",
+        "category": "Rewards"
+      },
+      {
+        "id": "94f8aa27-7e44-4660-a133-5f12bbe17fa2",
+        "name": "Classic Bench",
+        "pack": "Smart Items",
+        "src": "/content/contents/bafkreiagwp2qd7x3qpqb36ioqck57dk22hnfn53r7qk56ept6fpvbvh7je",
+        "hue": 63,
+        "glbFile": "Bench_01.glb",
+        "contents": {
+          "Bench_01.glb": "bafkreiagwp2qd7x3qpqb36ioqck57dk22hnfn53r7qk56ept6fpvbvh7je",
+          "composite.json": "bafkreifa5v53w62cdffq3ykag3x24rxit7ejacgqbi3li3dvqxf2a3e4ue",
+          "file1.png": "bafkreiao3j5vpvbwnod5nak5e736ldkngmmymeypxih45febzoes3k6rhi",
+          "thumbnail.png": "bafkreibbh6dtiifbrr4o6qznafv7i2vyohvp47kwal5fuoj36a4kqvjkqy"
+        },
+        "category": "Seats",
+        "smart": true
+      },
+      {
+        "id": "433f289b-3e3b-4157-9023-ae0964f90207",
+        "name": "Classic Bench Armrests",
+        "pack": "Smart Items",
+        "src": "/content/contents/bafkreiadfaf4wab7466fk3etwd4jbj5mp6f66oqdusirdkaucbbfo5i4c4",
+        "hue": 27,
+        "glbFile": "Bench 1.glb",
+        "contents": {
+          "Bench 1.glb": "bafkreiadfaf4wab7466fk3etwd4jbj5mp6f66oqdusirdkaucbbfo5i4c4",
+          "composite.json": "bafkreiamx4f5igolhak4s5mmdkp46y7rni354nnbywuph7yqoxa6dxfr3i",
+          "thumbnail.png": "bafkreigk5chubk6hukasconllpgsef4aghhaqe2rqdtbd2vjnarncjllsa"
+        },
+        "category": "Seats",
+        "smart": true
+      },
+      {
+        "id": "39a19351-c101-4401-8a82-bbd809bc1299",
+        "name": "Confetti",
+        "pack": "Smart Items",
+        "src": "/content/contents/bafkreiai6z74qunkbiogamxuje53xqt37ul3s3pf2blszlkqzq6qa5wv4i",
+        "hue": 265,
+        "glbFile": "confetti.glb",
+        "contents": {
+          "composite.json": "bafkreiftneolwizwkjrjhsznmp42v56yio2m34oyi5p35ftzdwt5tdqsee",
+          "confetti.glb": "bafkreiai6z74qunkbiogamxuje53xqt37ul3s3pf2blszlkqzq6qa5wv4i",
+          "confettiarrow.glb": "bafkreif6rnb4evhmjlno753qmeltwwrvaiq3cbhzuvo67nclc6wh45eap4",
+          "fireworkexplode.mp3": "bafkreidnd4er62s3riligyrfyyleigd3vhzgcnlfgpu5rdz4qbgc2iehvu",
+          "thumbnail.png": "bafkreib7y4yx673ryiaai4jddu4wv4jbgin5q3tpkckquxzavhnxjj74mq"
+        },
+        "category": "party",
+        "smart": true
+      },
+      {
+        "id": "7cd4d0bc-54d4-4f64-8ab2-6f18f41f03a3",
+        "name": "Cyberpunk Door",
+        "pack": "Smart Items",
+        "src": "/content/contents/bafybeigfpoxxnetzrkqi2zn7iswsbrj4kewfwxffgqfyvolckwsdwizjpa",
+        "hue": 51,
+        "glbFile": "cyberpunk_door_anim.glb",
+        "contents": {
+          "composite.json": "bafkreictkku77v5jse65b23qzuhfguhtj27b5tdwnls5vfo2vsjlpcxr5u",
+          "cyberpunk_door_anim.glb": "bafybeigfpoxxnetzrkqi2zn7iswsbrj4kewfwxffgqfyvolckwsdwizjpa",
+          "sound.mp3": "bafkreigsbmn4irzhgeeodmisbab4plhqkez6sau4vvgjcriej27yurnpxu",
+          "thumbnail.png": "bafkreicu4uufmucpth33j7rvtdf5jxytsld5qrztmi55e2zduxqhf2jfou"
+        },
+        "thumbnailUrl": "/content/contents/bafkreicu4uufmucpth33j7rvtdf5jxytsld5qrztmi55e2zduxqhf2jfou",
+        "category": "doors",
+        "smart": true
+      },
+      {
+        "id": "f9a5913c-d3d6-450e-9710-371037e4f1ba",
+        "name": "Cylinder Short Video Screen",
+        "pack": "Smart Items",
+        "src": "/content/contents/bafkreifgh4gaqcxlpkskrmfn4faat45zisx4yvrvwabwvxzlr7z3ehj7ti",
+        "hue": 232,
+        "glbFile": "screen_cylinder_double.glb",
+        "contents": {
+          "composite.json": "bafkreiducjuq6me6hkfjbjukd57ijgqplccg2y4c3rzib3aufuvs4t2vre",
+          "screen_cylinder_double.glb": "bafkreifgh4gaqcxlpkskrmfn4faat45zisx4yvrvwabwvxzlr7z3ehj7ti",
+          "thumbnail.png": "bafkreiev472drddpah3m7odwwk7a2gri2gyme7usxggazblsmc5r7pt6pe"
+        },
+        "category": "media"
+      },
+      {
+        "id": "ba1cc208-fd8a-4b5d-849c-8c5f02430af3",
+        "name": "Discord Button",
+        "pack": "Smart Items",
+        "src": "/content/contents/bafkreieihlxu4k77u7gfqclbg7hqcglxv4yhb4z3czda2svkvcrdrynhpq",
+        "hue": 196,
+        "glbFile": "discord.glb",
+        "contents": {
+          "composite.json": "bafkreibeqyllwsvjt2t6swklkrp3cksykggyxa6jeqhbbcpsuyqwepygre",
+          "discord.glb": "bafkreieihlxu4k77u7gfqclbg7hqcglxv4yhb4z3czda2svkvcrdrynhpq",
+          "thumbnail.png": "bafkreifcmwszsmwl5ulvazwkgreyixrxlbrr2insu2ncgstxvttlycqxe4"
+        },
+        "thumbnailUrl": "/content/contents/bafkreifcmwszsmwl5ulvazwkgreyixrxlbrr2insu2ncgstxvttlycqxe4",
+        "category": "social",
+        "smart": true
+      },
+      {
+        "id": "e11d2848-b79d-4ddc-bfea-5033cbdd8f9f",
+        "name": "Discord Link",
+        "pack": "Smart Items",
+        "src": "/content/contents/bafkreibwzyalygrl5kcty2h5o4ej3k6lpj25y5rgyglhtkfwhjm675c4be",
+        "hue": 194,
+        "glbFile": "discord.glb",
+        "contents": {
+          "composite.json": "bafkreibeqyllwsvjt2t6swklkrp3cksykggyxa6jeqhbbcpsuyqwepygre",
+          "discord.glb": "bafkreibwzyalygrl5kcty2h5o4ej3k6lpj25y5rgyglhtkfwhjm675c4be",
+          "thumbnail.png": "bafkreidgaciziqgmefggmnlyl5c5oaowaj3p5kxop4ibwa62frmqz7scui"
+        },
+        "thumbnailUrl": "/content/contents/bafkreidgaciziqgmefggmnlyl5c5oaowaj3p5kxop4ibwa62frmqz7scui",
+        "category": "social",
+        "smart": true
+      },
+      {
+        "id": "134af1d4-e0f1-451b-8a3b-9d2eb42fbe2d",
+        "name": "Exploding Barrel",
+        "pack": "Smart Items",
+        "src": "/content/contents/bafybeig2gwwp6xbfwm7gkjl7ugco3ybiyqkrsirhwbexvrs6fduzxrmblu",
+        "hue": 184,
+        "glbFile": "barrel.glb",
+        "contents": {
+          "barrel.glb": "bafybeig2gwwp6xbfwm7gkjl7ugco3ybiyqkrsirhwbexvrs6fduzxrmblu",
+          "composite.json": "bafkreihbxyvlkbjuazwvqws6kjfvhp6rs3h655qt6zgcwgg2krrvqwob4e",
+          "thumbnail.png": "bafkreifw6hkhl3zfgubexagusu6euo4ve7ytykghbnhn3ejmmo4crsrfm4"
+        },
+        "category": "health",
+        "smart": true
+      },
+      {
+        "id": "ff9257ec-9d62-404f-97c7-cf19c4035761",
+        "name": "Fantasy Chest",
+        "pack": "Smart Items",
+        "src": "/content/contents/bafkreidagr2rnd664szknm4z3xwcfwmfrlcoc63kxjawgecd4yssk6u37q",
+        "hue": 65,
+        "glbFile": "chest_fantasy.glb",
+        "contents": {
+          "chest_fantasy.glb": "bafkreidagr2rnd664szknm4z3xwcfwmfrlcoc63kxjawgecd4yssk6u37q",
+          "close.mp3": "bafkreia56qk3ve572n7afqsw5b64mprlohlnp2xdgdxpyaklofnlekohau",
+          "composite.json": "bafkreigzmdepmsjydy34boact3phthqrqgc2ck2lfjymoixttz5oqkyqju",
+          "open.mp3": "bafkreihm7mbapjtv4d642d34pjclamohqykh7ekxyglltaeqh3xqvezizy",
+          "thumbnail.png": "bafkreidqmyhayrup34gyifezeyvrrwpfzsb2shavv7hn7n3e5m4unz5i4q"
+        },
+        "category": "chests",
+        "smart": true
+      },
+      {
+        "id": "649d5d96-18be-4f89-b592-f2dfce64b7fe",
+        "name": "Fantasy Lever",
+        "pack": "Smart Items",
+        "src": "/content/contents/bafkreig2xm4gzxjnad2ym7l7bvsprkucqczcqv4nsiqcobgpjdkxewfucy",
+        "hue": 125,
+        "glbFile": "lever_fantasy.glb",
+        "contents": {
+          "composite.json": "bafkreigk55fdl3smioioboxbwg2hx7wowjmonci3f6mzsfwuckc6rjp5ve",
+          "lever_fantasy.glb": "bafkreig2xm4gzxjnad2ym7l7bvsprkucqczcqv4nsiqcobgpjdkxewfucy",
+          "sound.mp3": "bafkreidau4zhmal6tavfyeegbbnqgsrrvf5bav64po22efb4nmivglqi3i",
+          "thumbnail.png": "bafkreianisth7vbyj5v7preub5fuymufdjlwq243oaogbkkitpgbua4qga"
+        },
+        "thumbnailUrl": "/content/contents/bafkreianisth7vbyj5v7preub5fuymufdjlwq243oaogbkkitpgbua4qga",
+        "category": "levers",
+        "smart": true
+      },
+      {
+        "id": "b3158511-bda8-4459-a213-d90df94f1e5b",
+        "name": "First Aid",
+        "pack": "Smart Items",
+        "src": "/content/contents/bafybeig5yvni57zemcnz3ye65w4yzvva2ldcc3uait7pie2p4mf7jjwj4u",
+        "hue": 302,
+        "glbFile": "first_aid.glb",
+        "contents": {
+          "composite.json": "bafkreictbbd63appziirb7tlr3zezhdxap3vyhhzwnqshxmkyvtw3bjfei",
+          "first_aid.glb": "bafybeig5yvni57zemcnz3ye65w4yzvva2ldcc3uait7pie2p4mf7jjwj4u",
+          "thumbnail.png": "bafkreieoizvtuimmlw3dmgsdto3zkyczxi5jxt62antrbw6iaobsvkmpti"
+        },
+        "thumbnailUrl": "/content/contents/bafkreieoizvtuimmlw3dmgsdto3zkyczxi5jxt62antrbw6iaobsvkmpti",
+        "category": "health",
+        "smart": true
+      },
+      {
+        "id": "ad646149-6103-4c86-aa08-38f8b94cb41f",
+        "name": "Fixed View Camera",
+        "pack": "Smart Items",
+        "src": "/content/contents/bafkreigi3zsivs66fw64akgdqii3u5qj52fw3hxbhst4umprepkjjjxtlq",
+        "hue": 141,
+        "glbFile": "camera.glb",
+        "contents": {
+          "camera.glb": "bafkreigi3zsivs66fw64akgdqii3u5qj52fw3hxbhst4umprepkjjjxtlq",
+          "composite.json": "bafkreifro6ucyew3du2z2i5icfbbnzcuqns3y4ujg77unwosiiwwhizdle",
+          "thumbnail.png": "bafkreiecvlvcz6x5ltr76kq6fr6xcuiwv3amx5gibnekmcvame2trukima"
+        },
+        "category": "media",
+        "smart": true
+      },
+      {
+        "id": "b2d25644-2f43-48c0-a845-6b2220593411",
+        "name": "Flying Car Black Horizontal Platform",
+        "pack": "Smart Items",
+        "src": "/content/contents/bafybeif44hal2u5cve3p56zxbboo6ao2pxiaovpphty4sdzilfblu7vuey",
+        "hue": 115,
+        "glbFile": "horizontal_flying_car_black.glb",
+        "contents": {
+          "composite.json": "bafkreieay6navpp2l3mp3kp4yjl7xfrkvnazbhonuzsv5hodkbmqv7zcdq",
+          "horizontal_flying_car_black.glb": "bafybeif44hal2u5cve3p56zxbboo6ao2pxiaovpphty4sdzilfblu7vuey",
+          "thumbnail.png": "bafkreibizm5zj4llwjbk3koyepgmsddnsmhmflkvy5oqkc2slmmxnisgau"
+        },
+        "category": "platforms",
+        "smart": true
+      },
+      {
+        "id": "f2531b20-80d1-403d-b810-14cab58045a8",
+        "name": "Flying Car Blue Horizontal Platform",
+        "pack": "Smart Items",
+        "src": "/content/contents/bafybeicxyidlehmvn4jlb2rdw3fwzy3i3tkghtjqbagiznivpdq6h5nmfe",
+        "hue": 169,
+        "glbFile": "horizontal_flying_car_blue.glb",
+        "contents": {
+          "composite.json": "bafkreig7pwy5lg6xxc5ys6nej35ijcxb3if54wcoyf5e7q2uyox5b7ccia",
+          "horizontal_flying_car_blue.glb": "bafybeicxyidlehmvn4jlb2rdw3fwzy3i3tkghtjqbagiznivpdq6h5nmfe",
+          "thumbnail.png": "bafkreifyrbecwfobpmp3ozftkspeaynoinjkhld4cbgyksfpkkn467cybq"
+        },
+        "category": "platforms",
+        "smart": true
+      },
+      {
+        "id": "305e4602-6d02-4b60-b029-5356d1ab684c",
+        "name": "Game Over",
+        "pack": "Smart Items",
+        "src": "/content/contents/bafkreiglh62p7huivwqc7tdcilflrvzou73i6zylzllhtrudfz53kvujsy",
+        "hue": 277,
+        "glbFile": "gameover2.glb",
+        "contents": {
+          "composite.json": "bafkreibpotlkii2lxxhvsykqb22ebg2yecel4nfn3zigp67fjjvcaeptnu",
+          "gameover.mp3": "bafkreiddpbqdki2qkenqe4dfxk7gnx7tumuklyj5g2iar3nghkjyypobuq",
+          "gameover2.glb": "bafkreiglh62p7huivwqc7tdcilflrvzou73i6zylzllhtrudfz53kvujsy",
+          "thumbnail.png": "bafkreiczc3tvtnagq2smwalx4ppk4c7lstibb6lma5spuvlsiyq7hxelke"
+        },
+        "category": "text",
+        "smart": true
+      },
+      {
+        "id": "fefa3ea5-40f3-46c6-a240-9ce70db8f677",
+        "name": "Hatch Trapdoor",
+        "pack": "Smart Items",
+        "src": "/content/contents/bafybeiaqp7vjwdrweurnlsi7bbgntm4jaedjhhg73hjbgb2g3ncmameg5a",
+        "hue": 212,
+        "glbFile": "hatch_anim.glb",
+        "contents": {
+          "composite.json": "bafkreibvmnnoetanizrvec4sy7g4l5oobuzgsyjgxun5aq7xfccl4gnwlm",
+          "hatch_anim.glb": "bafybeiaqp7vjwdrweurnlsi7bbgntm4jaedjhhg73hjbgb2g3ncmameg5a",
+          "sound.mp3": "bafkreigsbmn4irzhgeeodmisbab4plhqkez6sau4vvgjcriej27yurnpxu",
+          "thumbnail.png": "bafkreib3qkup2yhddqei4fxbaketgxvkkl5yfs2oipie4b5x3x4spd5zfe"
+        },
+        "category": "doors",
+        "smart": true
+      },
+      {
+        "id": "001538c8-af64-43fe-bf81-74464d9bdf07",
+        "name": "Healing Pad",
+        "pack": "Smart Items",
+        "src": "/content/contents/bafybeifaloxes7yyarwometvuhmrlrxw4idumx7kuogxebjygcxaivvudy",
+        "hue": 32,
+        "glbFile": "healing_pad.glb",
+        "contents": {
+          "composite.json": "bafkreigyvvopnbhf6plo2e5by4trc2dqpojckxwlu7sna57buy6iing4uy",
+          "heal.mp3": "bafkreicbpz6d5mjdzebwgp7dq33f5ezjphth23v4ova5xp4d436hjus4ai",
+          "healing_pad.glb": "bafybeifaloxes7yyarwometvuhmrlrxw4idumx7kuogxebjygcxaivvudy",
+          "thumbnail.png": "bafkreih6wr5f3kfeehh7562buce5bpbfrppfmymrmafihz55nw4pkuzbym"
+        },
+        "category": "health",
+        "smart": true
+      },
+      {
+        "id": "03099c99-49ff-4880-9e80-095273bb08f6",
+        "name": "Horizontal Circular SciFi Platform",
+        "pack": "Smart Items",
+        "src": "/content/contents/bafkreidp6elcw2wml53taavse6wbasgtkkrctss42utr6igcwkf7omifuq",
+        "hue": 112,
+        "glbFile": "horizontal_platform_scifi_alt.glb",
+        "contents": {
+          "composite.json": "bafkreiaz6tehbxlmsta3n4gpdwyb5hapcxhirrujh3lm5z4f5fl33hfdiy",
+          "horizontal_platform_scifi_alt.glb": "bafkreidp6elcw2wml53taavse6wbasgtkkrctss42utr6igcwkf7omifuq",
+          "thumbnail.png": "bafkreicrbkqbzuabtdmuh7gabd3bmcal4xlwjaplo3aiuee7a4py5j4oce"
+        },
+        "category": "platforms",
+        "smart": true
+      },
+      {
+        "id": "b853061a-bf5a-4d76-b7f1-92ed9ea4a8bf",
+        "name": "Invisible Cylinder",
+        "pack": "Smart Items",
+        "src": "/content/contents/bafkreiehkmi7pgokaegv4bwig4j3qtouaqpj4fltwp4x6pyoicofm3ty4y",
+        "hue": 306,
+        "glbFile": "invisible_cylinder.glb",
+        "contents": {
+          "composite.json": "bafkreif5wczfhma2vmyvoecvmq2ni5hhnat5b3nwyvhb3zp7ap753fwsja",
+          "invisible_cylinder.glb": "bafkreiehkmi7pgokaegv4bwig4j3qtouaqpj4fltwp4x6pyoicofm3ty4y",
+          "thumbnail.png": "bafkreifsalqlmun5bb2gubnhvetehgs5u3oao4z4psj5bcvzck56c2w4ka"
+        },
+        "thumbnailUrl": "/content/contents/bafkreifsalqlmun5bb2gubnhvetehgs5u3oao4z4psj5bcvzck56c2w4ka",
+        "category": "primitives"
+      },
+      {
+        "id": "27de7a4b-c63b-4c88-b521-e60a321abbb7",
+        "name": "Invisible Dome",
+        "pack": "Smart Items",
+        "src": "/content/contents/bafkreicvc2so26eghkkrvjloqutshfrtdqjjqbdfytjumvsdsrgs3esnzy",
+        "hue": 282,
+        "glbFile": "invisible_semisphere.glb",
+        "contents": {
+          "composite.json": "bafkreibxajxspmbzx5dl4li3dc4ac7thdqdcom6itl72v6ixoejwqxqrza",
+          "invisible_semisphere.glb": "bafkreicvc2so26eghkkrvjloqutshfrtdqjjqbdfytjumvsdsrgs3esnzy",
+          "thumbnail.png": "bafkreifebqghgvli4q5hcsyypcxfx3sth22dd57iql373uoqbn22lvncka"
+        },
+        "category": "primitives"
+      },
+      {
+        "id": "a72de884-e275-490d-b1bb-7f7eaca4777f",
+        "name": "Invisible Ramp",
+        "pack": "Smart Items",
+        "src": "/content/contents/bafkreiacltyacmg6zz7so2necwoloqbawlg7hmgllss4ad2xpr7qg7ufqq",
+        "hue": 356,
+        "glbFile": "invisible_ramp.glb",
+        "contents": {
+          "composite.json": "bafkreibo5l7vclb5wtbhjujtg6bh7gka26u43ohmqfp6nd54cc252zrnui",
+          "invisible_ramp.glb": "bafkreiacltyacmg6zz7so2necwoloqbawlg7hmgllss4ad2xpr7qg7ufqq",
+          "thumbnail.png": "bafkreiayozearhwmaqv3zzxq6px225zpnbe7goybolw2mhvoxjf7u73qim"
+        },
+        "thumbnailUrl": "/content/contents/bafkreiayozearhwmaqv3zzxq6px225zpnbe7goybolw2mhvoxjf7u73qim",
+        "category": "primitives"
+      },
+      {
+        "id": "e915cdb6-03e6-43e2-81fb-58ad8603f68c",
+        "name": "Iron Fence Door",
+        "pack": "Smart Items",
+        "src": "/content/contents/bafkreic3eqcigndkj227o2gmri7qnvud747zj57ky6ioeoab7yr4dkezqi",
+        "hue": 233,
+        "glbFile": "door_genesis.glb",
+        "contents": {
+          "composite.json": "bafkreih5ospygrst754ajtiormbvjpp6tw6mltxzzjnk54fj2e2vcay4hq",
+          "door_genesis.glb": "bafkreic3eqcigndkj227o2gmri7qnvud747zj57ky6ioeoab7yr4dkezqi",
+          "sound.mp3": "bafkreigsbmn4irzhgeeodmisbab4plhqkez6sau4vvgjcriej27yurnpxu",
+          "thumbnail.png": "bafkreig4gvcnxqiypfy662w5qijg32bqiry5qokdjcig3emc3rdpblqofa"
+        },
+        "category": "doors",
+        "smart": true
+      },
+      {
+        "id": "d2dbef38-375f-485d-b5a1-51f46f5b3df8",
+        "name": "Open/Closed Sign",
+        "pack": "Smart Items",
+        "src": "/content/contents/bafybeidyx53j3sjwl4uo5yeg5sv2cecjqn3ijefxidqjc7l6hp6pje5np4",
+        "hue": 212,
+        "glbFile": "Closed_Sign.glb",
+        "contents": {
+          "Closed_Sign.glb": "bafybeidyx53j3sjwl4uo5yeg5sv2cecjqn3ijefxidqjc7l6hp6pje5np4",
+          "NeonTube.mp3": "bafkreigkyzfpdrvkeo3ublm7z527dzvpqyeucoyfi227r7lhj6eimo3x3m",
+          "Open_Sign.glb": "bafybeifiwkrphznofkzhp3lua354sir67qtvqsdic5sg7qpgovppp3wdf4",
+          "composite.json": "bafkreih6mwotn7auzxod2aepnkg2qlnvz2vg2cyauzjjglkmbgjj5hmnja",
+          "thumbnail.png": "bafkreic4irsv5nomgmbd2peqlyvsxljketgcggtewufnjfmfgoa237l3d4"
+        },
+        "category": "Text",
+        "smart": true
+      },
+      {
+        "id": "37e449e5-9298-41b6-8c9a-a6d12b45bdd2",
+        "name": "Pirate Lever",
+        "pack": "Smart Items",
+        "src": "/content/contents/bafkreifrb5vv6qt35lae2saxfsmv6ag3xjqspa6scf4nnicwar4k5mmmda",
+        "hue": 232,
+        "glbFile": "lever_pirates.glb",
+        "contents": {
+          "composite.json": "bafkreibaad4k3aioag3reute5keafn6lopsvols4m7msgujl7q7beuzltq",
+          "lever_pirates.glb": "bafkreifrb5vv6qt35lae2saxfsmv6ag3xjqspa6scf4nnicwar4k5mmmda",
+          "sound.mp3": "bafkreif46fywk4uq3efsmo4k4ryvvs4lglww4slzhykmcq7axjmpody55e",
+          "thumbnail.png": "bafkreifupfiglkiywfnys2dc7eilezdr7s72mu6mxuju6khi74djhm7gxa"
+        },
+        "thumbnailUrl": "/content/contents/bafkreifupfiglkiywfnys2dc7eilezdr7s72mu6mxuju6khi74djhm7gxa",
+        "category": "levers",
+        "smart": true
+      },
+      {
+        "id": "c461e2b4-c549-4fc9-aec3-f6531f97cc54",
+        "name": "Point light",
+        "pack": "Smart Items",
+        "src": "/content/contents/bafkreigsq6siqx3yxwpjoxkzjoqeqgwbhphgktfi6dovtp3pjhxud4jxhm",
+        "hue": 137,
+        "glbFile": "pointlight.glb",
+        "contents": {
+          "composite.json": "bafkreib6ubgmbtg7an6wzr7smkaymtku3gehxkljivrff66ifydcrolvam",
+          "pointlight.glb": "bafkreigsq6siqx3yxwpjoxkzjoqeqgwbhphgktfi6dovtp3pjhxud4jxhm",
+          "thumbnail.png": "bafkreiegk7iakk67hipuuam6odsrftdygfitot67atbimxoig2wfiiyeyy"
+        },
+        "thumbnailUrl": "/content/contents/bafkreiegk7iakk67hipuuam6odsrftdygfitot67atbimxoig2wfiiyeyy",
+        "category": "lights",
+        "smart": true
+      },
+      {
+        "id": "0764e129-9fff-4158-98f0-6db8665dcf7b",
+        "name": "SciFi Lever",
+        "pack": "Smart Items",
+        "src": "/content/contents/bafybeih77wluvhc66qe4vo4c7ntvy6rxajgnfjyq3vwusdayvzpfkzl7om",
+        "hue": 158,
+        "glbFile": "lever_scifi.glb",
+        "contents": {
+          "composite.json": "bafkreieqqg6yvf2ntk4bk24es3qafp2yj6nnu2fqrol3qtojmgafzbl6a4",
+          "lever_scifi.glb": "bafybeih77wluvhc66qe4vo4c7ntvy6rxajgnfjyq3vwusdayvzpfkzl7om",
+          "sound.mp3": "bafkreiefmfeg27qf6ym3omdne6iyfmco5ymbecl2owidph3sa2bq5dk6ie",
+          "thumbnail.png": "bafkreid7v4tgg4b64ukkkbmn6fujrxmfxaq2n2xo76kexqdrtfqgx3jfbm"
+        },
+        "category": "levers",
+        "smart": true
+      },
+      {
+        "id": "a98f25d6-6997-421a-acd3-c144098a91f0",
+        "name": "Sign Neon Arrow",
+        "pack": "Smart Items",
+        "src": "/content/contents/bafkreigl2yupac6cf3y2f3lod3q7bgynzplzl3yrlzkzl5yqdpf72qyz7q",
+        "hue": 2,
+        "glbFile": "sign_arrow.glb",
+        "contents": {
+          "composite.json": "bafkreica7n4zodjxc4m4kddobepx5gxd4strppqkklx6specbuhjs5rase",
+          "sign_arrow.glb": "bafkreigl2yupac6cf3y2f3lod3q7bgynzplzl3yrlzkzl5yqdpf72qyz7q",
+          "thumbnail.png": "bafkreigbjgvnz2mmaeirrw6ichmzm7ofcm3hfcstaxxtmy3zgvtjfxnr2q"
+        },
+        "category": "Text"
+      },
+      {
+        "id": "87c829b3-8e8d-4fcb-9f43-85d3aa9084f6",
+        "name": "Spotlight",
+        "pack": "Smart Items",
+        "src": "/content/contents/bafkreih4vgqpmui6kjbeel2spsgxnjqew3a4tma5dvem73y3wkbkuic6oq",
+        "hue": 140,
+        "glbFile": "spotlight.glb",
+        "contents": {
+          "composite.json": "bafkreigbj7s5twjmzxya6benqf6owpjek2hzjc5poeytoutircrak2tvx4",
+          "spotlight.glb": "bafkreih4vgqpmui6kjbeel2spsgxnjqew3a4tma5dvem73y3wkbkuic6oq",
+          "thumbnail.png": "bafkreihqfknho22up4x6fy4fda6pfeayzly6e43wfnilqtzeqaxr5s5yrm"
+        },
+        "thumbnailUrl": "/content/contents/bafkreihqfknho22up4x6fy4fda6pfeayzly6e43wfnilqtzeqaxr5s5yrm",
+        "category": "lights",
+        "smart": true
+      },
+      {
+        "id": "938064c8-65e1-4098-a497-3742337c3382",
+        "name": "Wearable Dispenser",
+        "pack": "Smart Items",
+        "src": "/content/contents/bafybeiaxv2yhapyryxcrqcs244kzvmiwcbgaf5flnfzne766sayeskyeb4",
+        "hue": 99,
+        "glbFile": "Button.glb",
+        "contents": {
+          "Button.glb": "bafybeiaxv2yhapyryxcrqcs244kzvmiwcbgaf5flnfzne766sayeskyeb4",
+          "ClaimRewardButton.tsx": "bafkreicwu2yptzf2ezznkrcnunts2n3zr4vggu6tvfcjddut2anla43tzi",
+          "Dispenser.glb": "bafybeielg2rbzaqe2pxmax3ec522xfldou4l2tknghctpo574ubebw4ike",
+          "button-sound.mp3": "bafkreifzmhe2n6lslneawyejfdurlk43oiuqygt523fva7k46irgahlwza",
+          "composite.json": "bafkreigjigmkl4eyjrd3k3ns4qgjxw4tcwan4d2i7cqq3dqf3fry2g7sj4",
+          "images/WearablePopUp_Background.png": "bafkreifgbudzt7ra35jt7faprgzfr223fadnn7k43l6kihe2cixqvgk2ky",
+          "images/backpack_icon.png": "bafkreiewq6nhxyo4r6cb6ng3waizc3gyae4h5smrm3mxgo7fjloidsrppy",
+          "images/close_button.png": "bafkreidalqsnb23skbaq3hldrwhz6nfzssylxhvfmbd7hpdj35qrnmdybq",
+          "images/frame.png": "bafkreigqwepd4rzkvjvaugvdff6jkinaqod6pmchzwz4dg2pxwtcftvq4q",
+          "images/loader_static_with_margin.png": "bafkreidlwicilk5qpzjxpu2ghkkxzbfbj73rkujer2igw42pen65fuzbcm",
+          "images/ok_button.png": "bafkreihcwxgpigpdpyxzqps7t52ppno6hnst2hcv75znpq2hodk3lx64je",
+          "images/ok_button_empty.png": "bafkreibnsegeumwz5274vehrcwu7iyspazzxvyyddjk5hcbssyvpjyeok4",
+          "images/toast_orange.png": "bafkreig6mhh2x7rwkner63hpsgphwdukwkxo5mh4nifgxpzlvi5rldy5re",
+          "thumbnail.png": "bafkreidfrzuqym4tluo4icckhdsy4e7z4eymwxxdakyp6owlqbsoshehaq"
+        },
+        "category": "Rewards",
+        "smart": true
+      },
+      {
+        "id": "799078be-caf5-40bf-aa77-1c7c095dbd23",
+        "name": "Wearable dispenser 2",
+        "pack": "Smart Items",
+        "src": "/content/contents/bafkreibrse7ko7mp7epuxv42cjnexehtbhy7ddehjfbn3m7erl4rwfkymm",
+        "hue": 240,
+        "glbFile": "dispenser.glb",
+        "contents": {
+          "BoothLegDecor_mat_arm.png": "bafybeifxxwyrbfkai5nlokgknhkst7yepiqwq4s2fiyki3ll6sz5nppghu",
+          "BoothLegDecor_mat_baseColor.png": "bafybeicksszsigrrkg7yjarz4ukk7a7vj2b3q4bko5dmq5jdr6mx2kkm3i",
+          "BoothLegDecor_mat_normal.png": "bafkreigqwbf72kcxfn56aw3r67mgjzmhfmedyprmttkzsdbec6xp4e5aoq",
+          "ClaimReward.tsx": "bafkreifke242isr6wleopems5igreg53e7pp6vyi43243o45xzlthazvvq",
+          "HoloMat_alpha.png": "bafkreidzfrnrga4fdbggdg7vuud7vzilm7u6igmmiazvtmlvyrzqwnyha4",
+          "StripesMask.png": "bafkreigdllkaaag7mjlgccokfubaxp7pqcvbwbdnppobrmzgk27zg7d2m4",
+          "StylizedScifiFloor_v01_arm.png": "bafybeigmsvqx56bdvxae7mfabxvxzpn5wvxvit2ybpfm2vthnjdzj7lx4e",
+          "StylizedScifiFloor_v01_basecolor.png": "bafybeiabyrzfxhp4apcjyoaepora57emqlmhlrztonkw5mpsftr6ddutlq",
+          "StylizedScifiFloor_v01_normal.png": "bafybeigysrbdve4qw43rx3wg4afq72d47jizbc2uhsya35mjyao7flowi4",
+          "composite.json": "bafkreieuh5bpomoxgr4ucfs5hph5myyfh6e4vsfgve2jjn2qrhj76g7xty",
+          "dispenser.glb": "bafkreibrse7ko7mp7epuxv42cjnexehtbhy7ddehjfbn3m7erl4rwfkymm",
+          "images/WearablePopUp_Background.png": "bafkreifgbudzt7ra35jt7faprgzfr223fadnn7k43l6kihe2cixqvgk2ky",
+          "images/backpack_icon.png": "bafkreiewq6nhxyo4r6cb6ng3waizc3gyae4h5smrm3mxgo7fjloidsrppy",
+          "images/close_button.png": "bafkreidalqsnb23skbaq3hldrwhz6nfzssylxhvfmbd7hpdj35qrnmdybq",
+          "images/frame.png": "bafkreigqwepd4rzkvjvaugvdff6jkinaqod6pmchzwz4dg2pxwtcftvq4q",
+          "images/loader_static_with_margin.png": "bafkreidlwicilk5qpzjxpu2ghkkxzbfbj73rkujer2igw42pen65fuzbcm",
+          "images/ok_button.png": "bafkreihcwxgpigpdpyxzqps7t52ppno6hnst2hcv75znpq2hodk3lx64je",
+          "images/ok_button_empty.png": "bafkreibnsegeumwz5274vehrcwu7iyspazzxvyyddjk5hcbssyvpjyeok4",
+          "images/toast_orange.png": "bafkreig6mhh2x7rwkner63hpsgphwdukwkxo5mh4nifgxpzlvi5rldy5re",
+          "thumbnail.png": "bafkreidx4uhaifwl7nosatr6bvjkepk5febireb5akbwlw2kq7tyh6bkdu"
+        },
+        "category": "Rewards"
+      },
+      {
+        "id": "df06cace-c363-4a08-acdb-72abd2138696",
+        "name": "You Win",
+        "pack": "Smart Items",
+        "src": "/content/contents/bafkreihahkikgftbhb55jgxmjnrlu3jesyxmr4j4k443ptkfxsl747vip4",
+        "hue": 294,
+        "glbFile": "win3.glb",
+        "contents": {
+          "composite.json": "bafkreicwkhnzzp64pwpr3pc5nzjz3yoiznot3wi7c5sygpvu3xc6oupkci",
+          "thumbnail.png": "bafkreifw2yk5oyqwix7a3kfhoc7il6lvaabw7xpzwxhrb6ylj76thcxwou",
+          "win3.glb": "bafkreihahkikgftbhb55jgxmjnrlu3jesyxmr4j4k443ptkfxsl747vip4",
+          "wingame.mp3": "bafkreifboogkwotg3qz4hyssbvruy5murtsjxrv5vbrhi6n66y6772waci"
+        },
+        "category": "text",
+        "smart": true
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": 1,
+      "key": "Transform",
+      "label": "Transform",
+      "componentName": "core::Transform",
+      "fields": [
+        "position",
+        "rotation",
+        "scale",
+        "parent"
+      ],
+      "_note": "COMPONENT_ID=1; rotation is a quaternion. The inspector exposes rotation as euler degrees."
+    },
+    {
+      "id": 1041,
+      "key": "GltfContainer",
+      "label": "GLTF",
+      "componentName": "core::GltfContainer",
+      "fields": [
+        "src",
+        "visibleMeshesCollisionMask",
+        "invisibleMeshesCollisionMask"
+      ]
+    },
+    {
+      "id": 1018,
+      "key": "MeshRenderer",
+      "label": "Mesh Renderer",
+      "componentName": "core::MeshRenderer",
+      "fields": [
+        "mesh"
+      ]
+    },
+    {
+      "id": 1019,
+      "key": "MeshCollider",
+      "label": "Mesh Collider",
+      "componentName": "core::MeshCollider",
+      "fields": [
+        "mesh",
+        "collisionMask"
+      ]
+    },
+    {
+      "id": 1017,
+      "key": "Material",
+      "label": "Material",
+      "componentName": "core::Material",
+      "fields": [
+        "material"
+      ]
+    },
+    {
+      "id": 1081,
+      "key": "VisibilityComponent",
+      "label": "Visibility",
+      "componentName": "core::VisibilityComponent",
+      "fields": [
+        "visible"
+      ]
+    },
+    {
+      "id": 1030,
+      "key": "TextShape",
+      "label": "Text Shape",
+      "componentName": "core::TextShape",
+      "fields": [
+        "text",
+        "fontSize",
+        "textColor"
+      ]
+    },
+    {
+      "id": 1020,
+      "key": "AudioSource",
+      "label": "Audio Source",
+      "componentName": "core::AudioSource",
+      "fields": [
+        "audioClipUrl",
+        "playing",
+        "volume"
+      ]
+    },
+    {
+      "id": 1062,
+      "key": "PointerEvents",
+      "label": "On Pointer Event",
+      "componentName": "core::PointerEvents",
+      "fields": [
+        "pointerEvents"
+      ]
+    },
+    {
+      "id": 1042,
+      "key": "Animator",
+      "label": "Animator",
+      "componentName": "core::Animator",
+      "fields": [
+        "states"
+      ]
+    },
+    {
+      "id": 1102,
+      "key": "LightSource",
+      "label": "Light Source",
+      "componentName": "core::LightSource",
+      "fields": [
+        "type",
+        "color",
+        "intensity"
+      ]
+    }
+  ],
+  "_assetThumbCheck": {
+    "base": "https://catalyst.example.com",
+    "checkedAt": "2026-09-07T12:29:05.295Z",
+    "live": [
+      "/content/contents/bafkreia3pjskcoztqnz4smns4uujatxzc736pqyg4o2cvo76ididwv7nrm",
+      "/content/contents/bafkreia4cay2oqnbwloyz6vjexprfpqkpnjor2k4jpukxrt22kk33myqlu",
+      "/content/contents/bafkreiafa6lszgk6yhykfhb6holtuh67ygqqchqswsgm3xtiuwmaurnd3m",
+      "/content/contents/bafkreiag56ril2tuyhnl5zcp6icv7je2cf3lu23akj2kqpr4viuy7zo5ma",
+      "/content/contents/bafkreiagidv5htigyvgl3i6jxm6ovb4iek4345aorsc6xy2kgn2qutereq",
+      "/content/contents/bafkreiakdjcf6u7q4m7hximvct6cscxayqvyzujppxgusuvns2zmjleekm",
+      "/content/contents/bafkreiamwo7bosynknxf3yrkt52rg7sw4jkg24b76hpgtqx4pvgfz7w65a",
+      "/content/contents/bafkreianisth7vbyj5v7preub5fuymufdjlwq243oaogbkkitpgbua4qga",
+      "/content/contents/bafkreiap4pudu6zcheurilbd4s6ak35akojw35vu5q5svcrp2ypysu42pm",
+      "/content/contents/bafkreiayozearhwmaqv3zzxq6px225zpnbe7goybolw2mhvoxjf7u73qim",
+      "/content/contents/bafkreiazbrqdkeakfyth4u7saktd2nxegq6m6ptbj4uxzkfkewsyuisc24",
+      "/content/contents/bafkreibg2rgjcdza6622vjvzemq3kncyawowujhuqn55ckdngsvqyeupme",
+      "/content/contents/bafkreibk4worxfbygofcpcfzoeeo6s55uss5qc2arasnuzl6zlmmj7tx7i",
+      "/content/contents/bafkreibmqutp6hplogmwgvucqdhcdt7oljpxbyaax4k4lag44xpbciamem",
+      "/content/contents/bafkreibnhbucuvdarxzkfljq7gzezbe37cgxhs7rb7spmp7mkswqvosnva",
+      "/content/contents/bafkreibomlmkuxn7bqf5z7t7wrdhoo6o3nzg7kvlagrs6jrfnpfhf7iqaa",
+      "/content/contents/bafkreibpve7q2qd7z4gvfsklkkalufd3mtgfvmw6az5ler53vkkzb4bkgu",
+      "/content/contents/bafkreibqoktxidn6hamcqsqdh5meggh2enrorh3ze63ut2bce4ivxnxghi",
+      "/content/contents/bafkreibrbq5zokyqgm4cu6rug435og7ojks5agnwuhauuavqncb3uzb6z4",
+      "/content/contents/bafkreibrhjdhvne7pw7see34cpddl36ugvzug65myrhls4i7s4l3yktmua",
+      "/content/contents/bafkreibrnlk3nfvyjlo46l6vojqlsxpulpldpf6ilqqijadgfxgpevr5tm",
+      "/content/contents/bafkreibsynwslbue7rbaq42q2chsg5ze2xqqeift6w4enqd5ms4ifcoob4",
+      "/content/contents/bafkreic6isrlbmukjbaescoisi7lj355idoyehe7xddkwvdtvsp76dcspe",
+      "/content/contents/bafkreicb7a2sc5ui4w43gpbqro6jhkcf676xo5e6gq67i3b3osxims7vbi",
+      "/content/contents/bafkreicbiuquka62vda7okzwwo7mnj5hraisjfifb2l7ytiobeugih5r6e",
+      "/content/contents/bafkreiccwypjlza42mptxupxntpfd5yjkucrn6y6lflruwdufc75wa66m4",
+      "/content/contents/bafkreicesohg2qckjjn7mt5wrycejufubmpk3t35uywa7u4u3cdwkhc5ee",
+      "/content/contents/bafkreicflxhv3t4iolfnrqtztnzmufd3nzsourqhlroo52srcjtrgktgzq",
+      "/content/contents/bafkreicimixizlnahec7d5yrojtgm2nopjs3mhs6yievmvhxhim3cndqu4",
+      "/content/contents/bafkreiclmeh5nw2wchn7xrttohvavlwxzapzqy2sqy327qoeiswsn3yx5m",
+      "/content/contents/bafkreicmzehkckmnhzjintl3lkl6qrtfb5yo2hhsna4pi7uot4mvg73zx4",
+      "/content/contents/bafkreicu4uufmucpth33j7rvtdf5jxytsld5qrztmi55e2zduxqhf2jfou",
+      "/content/contents/bafkreicydmbx2a6lax5t4xyv5cjgk3stgctb25ssqhhxr4ugxdqjqdf754",
+      "/content/contents/bafkreidgaciziqgmefggmnlyl5c5oaowaj3p5kxop4ibwa62frmqz7scui",
+      "/content/contents/bafkreidgo4jjrqxkix5xwe7rxhuxlrgrvnrnmguru3u4a5khmx5ltvlqie",
+      "/content/contents/bafkreidpp6gu62sznsac4oiuo6d4fzzql64f2jhqf2p36o7aiuwg22vfnm",
+      "/content/contents/bafkreidr4os44c2cjg2ion3d2t2wdqvkuyuiuouusmpx2sq6hhpy2fuywq",
+      "/content/contents/bafkreidu4ayb5yyncn4wkk4g355ukgv3miiaz7dwr7df3fkimxhvornvyu",
+      "/content/contents/bafkreie23rirhuqc6cbfsa5tufgkqbwdggxaz7y7ajqk5vjqc7izgewubu",
+      "/content/contents/bafkreie3q5tegze3y2iiygn4lllr2owp64ym54x4zw7ij2oljwjjzjp7ce",
+      "/content/contents/bafkreie6qlr7oqq5fide7tn6grvjmmcpyhfxr64ml5v27bxg6jeak5oi2q",
+      "/content/contents/bafkreiegk7iakk67hipuuam6odsrftdygfitot67atbimxoig2wfiiyeyy",
+      "/content/contents/bafkreieoizvtuimmlw3dmgsdto3zkyczxi5jxt62antrbw6iaobsvkmpti",
+      "/content/contents/bafkreieqsz5jwsvtbqininzdksptv7byt7cxjc6dzbanocifud5olu75vm",
+      "/content/contents/bafkreiergoa6po2irqbv5uvlzlnx2wv2vucvc4nnohhxwevqtrvujkqbve",
+      "/content/contents/bafkreies6hyp5lshziwa34mtvo6gtujad2co2celu5cejat5tc5sasp77m",
+      "/content/contents/bafkreietqiszov5qeat5lrtm3ok75j4d6mxb4ovgjzbnerhrfycfoipaim",
+      "/content/contents/bafkreiettvk4675jx7oi7pofbggn5kbgu6s6gqztiw4bcxhbik4actedge",
+      "/content/contents/bafkreiewgxpee2lizmrdwo67higwxezvas3mk3as4l3p4j4nzrr5gytsbi",
+      "/content/contents/bafkreieyqalc7owvyn5ffdzketoizkfnwfuuyhfxjsin75twkzhlq7j3ai",
+      "/content/contents/bafkreif3issfo6ci2wg2lxzursvq4qdvaevusau4oho3xeypee75h75mdu",
+      "/content/contents/bafkreif4ygner3bsdepuufpfjcpaeoby5kqukkvpopgsw6ehcikvmr2ho4",
+      "/content/contents/bafkreif526yjczermck7mzss2tbcy3iu6u3d2fzdrfvzktanbeeagyb3e4",
+      "/content/contents/bafkreif5gsxn7z7ebw424cq3cridyhapqzmginshml5etyzl5xc5xvupha",
+      "/content/contents/bafkreifcmwszsmwl5ulvazwkgreyixrxlbrr2insu2ncgstxvttlycqxe4",
+      "/content/contents/bafkreiffmbwfkmypmhj5jemcw52cbkk5wfdorseotvlr4cynta6h647k3q",
+      "/content/contents/bafkreifjcel62ib6iawsg35vmcal2fgxyvmkrtvk3um4knsefonttfiv6i",
+      "/content/contents/bafkreifklu43pjjwuvlzio2frfuq4gjntn6yqxrhxdanbk62otlfqu5owa",
+      "/content/contents/bafkreifnheorrwjl2vivf52i6wzg6yerlbuvtif6rlalvzo37vjegyrw5e",
+      "/content/contents/bafkreifqwjopjy3irumyav7o5lrm5azs62mxfw3q5qibt4i652kioz7v54",
+      "/content/contents/bafkreifrajeyk3j7ttq7uvbs77gadf4mj33xobyek64itpwl3knoyogdne",
+      "/content/contents/bafkreifsalqlmun5bb2gubnhvetehgs5u3oao4z4psj5bcvzck56c2w4ka",
+      "/content/contents/bafkreifupfiglkiywfnys2dc7eilezdr7s72mu6mxuju6khi74djhm7gxa",
+      "/content/contents/bafkreifxsqm4aoz22zlprku4exmsiic4iumhzpv4icpqvtyqrfq5hko4pm",
+      "/content/contents/bafkreig672rgy3xfhddxr5m3xqah36zrnlelknrh2gcws6nngij6lbve5a",
+      "/content/contents/bafkreigbjkfyuez5k4cvxwoovm5ia75vbhn3jweff4573v34jw7rp2ssxy",
+      "/content/contents/bafkreigdirjr5mqn3jbx3fuzpazhpnomwysnnmo5e4lpu24vm3fmweq2p4",
+      "/content/contents/bafkreigf4r4bngb7llzfebe2ad5cxusrtjfpmqk46dshchmdj7mrtkadeu",
+      "/content/contents/bafkreigmt4qhgndrcujy7iqf7srkaml52cyztdrp7ojaadobatcohx4olm",
+      "/content/contents/bafkreigojui5oijmqaeh5v6u3wyp3ebu4hi3xirg7dwpkw76nanezd2ey4",
+      "/content/contents/bafkreigwysrgbe2pmgoxrorpqcgccad5z6ccruginmld335rcn4264kpjy",
+      "/content/contents/bafkreih3i5343kc2bqezw6lrtjbc3noukvkcobodb3xhzyaqb5bpfparte",
+      "/content/contents/bafkreih4e6trtmitst2dw2azn5qqgztt6fkz5djn7obziz4flhxlawdjt4",
+      "/content/contents/bafkreih6ubxeldsvwifa6er4kvnnyywdv4i3diw2uqcq3qi6y7g6jpjvlu",
+      "/content/contents/bafkreih76su2xqnyhobcwgumsrj7bfyj4ub5eqfs4dv626ol4eb7yd4you",
+      "/content/contents/bafkreihkoqzjbcz3ky7xvadvxnmieeqgmkc6hc5mdvq7yu7id5g7b2dovq",
+      "/content/contents/bafkreihqfknho22up4x6fy4fda6pfeayzly6e43wfnilqtzeqaxr5s5yrm",
+      "/content/contents/bafkreihubglfrjo4hdwxuvue2e4tpyjenpn3nzkxawi7hlmzoffygvdmoa",
+      "/content/contents/bafybeicimabnchaxl3gnmx4uqxrqjbh557vk2jnfdpobfezxewweqrc2wm",
+      "/content/contents/bafybeiekmlgk4kclwtwz2qucey7y66xleb4mu7vlogzeozazkvew5vub4a",
+      "/content/contents/bafybeifzssv3lm2g7mafqu3h4chvqx5uaxxmzhtahnjxdqytff3mtkocgy"
+    ]
+  }
+}

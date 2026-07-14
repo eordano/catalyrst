@@ -11,10 +11,6 @@ pub fn subject_snapshots(scope: Scope) -> String {
     format!("fed.{}.snapshots", scope.as_str())
 }
 
-pub fn account_name() -> &'static str {
-    "federation"
-}
-
 pub fn stream_name(scope: Scope) -> String {
     format!("FED_{}", scope.as_str().to_ascii_uppercase())
 }
@@ -136,25 +132,32 @@ impl GossipPublisher for NoopPublisher {
     }
 }
 
-pub async fn build_publisher(cfg: &GossipConfig) -> Arc<dyn GossipPublisher> {
+pub async fn build_publisher(
+    cfg: &GossipConfig,
+) -> Result<Arc<dyn GossipPublisher>, crate::error::FedError> {
     match cfg {
-        GossipConfig::Disabled => Arc::new(NoopPublisher),
+        GossipConfig::Disabled => Ok(Arc::new(NoopPublisher)),
         GossipConfig::Nats { url, peer_id } => {
             #[cfg(feature = "nats")]
             {
                 match nats::NatsPublisher::connect(url, peer_id.clone()).await {
-                    Ok(p) => Arc::new(p),
-                    Err(e) => {
-                        tracing::error!(error = %e, url = %url, "NATS gossip connect failed; falling back to noop (snapshot-pull only)");
-                        Arc::new(NoopPublisher)
-                    }
+                    Ok(p) => Ok(Arc::new(p)),
+                    Err(e) => Err(crate::error::FedError::GossipMisconfigured(format!(
+                        "FED_GOSSIP=nats but connecting to {url} failed: {e}. Gossip would silently \
+                         not publish, so this is a startup failure: fix FED_NATS_URL or unset \
+                         FED_GOSSIP to run snapshot-pull only"
+                    ))),
                 }
             }
             #[cfg(not(feature = "nats"))]
             {
                 let _ = (url, peer_id);
-                tracing::warn!("FED_GOSSIP=nats but catalyrst-fed built without the `nats` feature; using noop (snapshot-pull only)");
-                Arc::new(NoopPublisher)
+                Err(crate::error::FedError::GossipMisconfigured(
+                    "FED_GOSSIP=nats but this binary was built without the `nats` cargo feature, \
+                     so every publish would be a silent no-op. Rebuild with --features nats, or \
+                     unset FED_GOSSIP to run snapshot-pull only"
+                        .to_string(),
+                ))
             }
         }
     }
@@ -228,6 +231,28 @@ mod tests {
         std::env::remove_var("FED_GOSSIP");
         assert!(matches!(GossipConfig::from_env(), GossipConfig::Disabled));
     }
+
+    #[tokio::test]
+    async fn disabled_gossip_builds_a_publisher() {
+        let p = build_publisher(&GossipConfig::Disabled).await.unwrap();
+        assert!(!p.is_live());
+    }
+
+    #[cfg(not(feature = "nats"))]
+    #[tokio::test]
+    async fn requesting_nats_without_the_feature_refuses_to_build() {
+        let built = build_publisher(&GossipConfig::Nats {
+            url: "nats://127.0.0.1:4222".into(),
+            peer_id: "local".into(),
+        })
+        .await;
+        let Err(err) = built else {
+            panic!("a publisher that can never publish must not be handed out as one");
+        };
+        let msg = err.to_string();
+        assert!(msg.contains("nats"), "{msg}");
+        assert!(msg.contains("no-op"), "{msg}");
+    }
 }
 
 #[cfg(feature = "nats")]
@@ -275,7 +300,7 @@ pub mod nats {
             } else {
                 tracing::warn!(
                     url = %url,
-                    "connecting to federation NATS WITHOUT mTLS — single-broker dev deploy only; \
+                    "connecting to federation NATS WITHOUT mTLS \u{2014} single-broker dev deploy only; \
                      set FED_NATS_CLIENT_CERT/KEY + FED_NATS_ROOT_CA before peering remotely"
                 );
                 async_nats::connect(url)

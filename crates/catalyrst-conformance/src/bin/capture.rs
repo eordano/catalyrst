@@ -50,7 +50,7 @@ async fn main() -> Result<()> {
             }
             Some(
                 serde_json::from_str::<serde_json::Value>(s)
-                    .with_context(|| "request body must be valid JSON — multipart/form-data is not supported by capture")?,
+                    .with_context(|| "request body must be valid JSON \u{2014} multipart/form-data is not supported by capture")?,
             )
         }
     };
@@ -72,7 +72,7 @@ async fn main() -> Result<()> {
     req_headers.insert("accept".to_string(), "application/json".to_string());
     req = req.header("accept", "application/json");
 
-    eprintln!("→ {} {}", method, url);
+    eprintln!("\u{2192} {} {}", method, url);
     let resp = req.send().await.with_context(|| format!("GET {}", url))?;
 
     let status = resp.status().as_u16();
@@ -147,7 +147,7 @@ async fn main() -> Result<()> {
         .with_context(|| format!("writing fixture to {:?}", args.output))?;
 
     eprintln!(
-        "← {} {}  →  wrote {} ({} bytes)",
+        "\u{2190} {} {}  \u{2192}  wrote {} ({} bytes)",
         status,
         content_type.as_deref().unwrap_or("?"),
         args.output.display(),

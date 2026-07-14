@@ -39,7 +39,8 @@ pub struct ProfileWearable {
     #[cfg_attr(feature = "ts", ts(optional))]
     pub status: Option<String>,
 
-    #[serde(rename = "unlockAt", skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "unlockAt")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(type = "number", optional))]
     pub unlock_at: Option<i64>,
 }
@@ -68,7 +69,8 @@ pub struct ProfileEmote {
     #[cfg_attr(feature = "ts", ts(optional))]
     pub status: Option<String>,
 
-    #[serde(rename = "unlockAt", skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "unlockAt")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(type = "number", optional))]
     pub unlock_at: Option<i64>,
 }
@@ -133,7 +135,8 @@ pub struct GroupedWearable {
     #[cfg_attr(feature = "ts", ts(optional))]
     pub status: Option<String>,
 
-    #[serde(rename = "unlockAt", skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "unlockAt")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(type = "number", optional))]
     pub unlock_at: Option<i64>,
 }
@@ -161,7 +164,8 @@ pub struct GroupedEmote {
     #[cfg_attr(feature = "ts", ts(optional))]
     pub status: Option<String>,
 
-    #[serde(rename = "unlockAt", skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "unlockAt")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(type = "number", optional))]
     pub unlock_at: Option<i64>,
 }

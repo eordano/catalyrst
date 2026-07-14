@@ -1,16 +1,17 @@
 use std::collections::HashSet;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
-use parking_lot::Mutex;
+use anyhow::Context;
+use catalyrst_commons::cache::TtlCell;
 use serde::Deserialize;
 
 const BAN_CHECK_TIMEOUT: Duration = Duration::from_millis(1000);
 
 const DENY_LIST_TTL: Duration = Duration::from_secs(5 * 60);
 
-pub fn normalize_address(address: &str) -> String {
-    address.to_ascii_lowercase()
+pub fn normalize_address(address: &str) -> Option<String> {
+    catalyrst_types::normalize_eth_address(address)
 }
 
 pub fn encode_uri_component(input: &str) -> String {
@@ -110,16 +111,11 @@ struct DenyUser {
     wallet: Option<String>,
 }
 
-struct DenyListCache {
-    wallets: HashSet<String>,
-    last_fetched: Option<Instant>,
-}
-
 pub struct DenyList {
     url: Option<String>,
     http: reqwest::Client,
     ttl: Duration,
-    cache: Mutex<DenyListCache>,
+    cache: TtlCell<HashSet<String>>,
 }
 
 impl DenyList {
@@ -133,10 +129,7 @@ impl DenyList {
             url,
             http,
             ttl,
-            cache: Mutex::new(DenyListCache {
-                wallets: HashSet::new(),
-                last_fetched: None,
-            }),
+            cache: TtlCell::new("archipelago-deny-list"),
         })
     }
 
@@ -148,59 +141,49 @@ impl DenyList {
         if self.url.is_none() {
             return false;
         }
+        let Some(normalized) = normalize_address(address) else {
+            return true;
+        };
         let wallets = self.current().await;
-        wallets.contains(&normalize_address(address))
+        wallets.contains(&normalized)
     }
 
     async fn current(&self) -> HashSet<String> {
-        {
-            let cache = self.cache.lock();
-            if let Some(at) = cache.last_fetched {
-                if at.elapsed() < self.ttl {
-                    return cache.wallets.clone();
-                }
-            }
-        }
-        let fetched = self.fetch().await;
-        let mut cache = self.cache.lock();
-        if let Some(wallets) = fetched {
-            cache.wallets = wallets;
-        }
-        cache.last_fetched = Some(Instant::now());
-        cache.wallets.clone()
+        self.cache
+            .get_or_refresh_backoff(self.ttl, || self.fetch())
+            .await
+            .unwrap_or_default()
     }
 
-    async fn fetch(&self) -> Option<HashSet<String>> {
-        let url = self.url.as_deref()?;
+    async fn fetch(&self) -> anyhow::Result<HashSet<String>> {
+        let url = self.url.as_deref().context("deny list url is unset")?;
         let resp = match self.http.get(url).send().await {
             Ok(r) => r,
             Err(e) => {
                 tracing::warn!(error = %e, "deny list fetch failed, keeping last known list");
-                return None;
+                return Err(e).context("deny list fetch failed");
             }
         };
         if !resp.status().is_success() {
             tracing::warn!(status = %resp.status(), "deny list non-OK status, keeping last known list");
-            return None;
+            anyhow::bail!("deny list non-OK status {}", resp.status());
         }
         let doc = match resp.json::<DenyListDoc>().await {
             Ok(d) => d,
             Err(e) => {
                 tracing::warn!(error = %e, "deny list malformed body, keeping last known list");
-                return None;
+                return Err(e).context("deny list malformed body");
             }
         };
         match doc.users {
-            Some(users) => Some(
-                users
-                    .into_iter()
-                    .filter_map(|u| u.wallet)
-                    .map(|w| normalize_address(&w))
-                    .collect(),
-            ),
+            Some(users) => Ok(users
+                .into_iter()
+                .filter_map(|u| u.wallet)
+                .filter_map(|w| normalize_address(&w))
+                .collect()),
             None => {
                 tracing::warn!("deny list missing 'users' field, treating as empty");
-                Some(HashSet::new())
+                Ok(HashSet::new())
             }
         }
     }
@@ -232,12 +215,35 @@ mod tests {
     #[test]
     fn encode_uri_component_escapes_space_and_utf8_bytes() {
         assert_eq!(encode_uri_component("a b"), "a%20b");
-        assert_eq!(encode_uri_component("é"), "%C3%A9");
+        assert_eq!(encode_uri_component("\u{E9}"), "%C3%A9");
     }
 
     #[test]
-    fn normalize_address_lowercases() {
-        assert_eq!(normalize_address("0xABCdef"), "0xabcdef");
+    fn normalize_address_lowercases_valid_addresses() {
+        assert_eq!(
+            normalize_address("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"),
+            Some("0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266".to_string())
+        );
+    }
+
+    #[test]
+    fn normalize_address_rejects_malformed() {
+        assert_eq!(normalize_address("0xABCdef"), None);
+        assert_eq!(normalize_address("not-an-address"), None);
+        assert_eq!(
+            normalize_address("0xZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ"),
+            None
+        );
+    }
+
+    #[tokio::test]
+    async fn armed_deny_list_rejects_malformed_address_without_fetching() {
+        let deny = DenyList::with_ttl(
+            Some("http://127.0.0.1:9/denylist".to_string()),
+            reqwest::Client::new(),
+            Duration::from_secs(300),
+        );
+        assert!(deny.is_denied("not-an-address").await);
     }
 
     #[tokio::test]

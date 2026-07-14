@@ -1,20 +1,24 @@
 use crate::ban::BanChecker;
 use crate::config::ClusterConfig;
 use crate::livekit::{LivekitGrant, LivekitMinter};
+use catalyrst_commons::worker::{spawn_periodic, PeriodicCfg};
 use chrono::{DateTime, Utc};
-use dashmap::DashMap;
+use dashmap::{DashMap, DashSet};
+use futures::stream::StreamExt;
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::broadcast;
-use tokio::time::interval;
+use tokio_util::sync::CancellationToken;
 
 pub type Address = String;
 pub type IslandId = String;
 
 const PARCEL_SIZE: f32 = 16.0;
+
+const BAN_SWEEP_CONCURRENCY: usize = 20;
 
 pub fn to_parcel(x: f32, z: f32) -> [i32; 2] {
     [
@@ -22,9 +26,6 @@ pub fn to_parcel(x: f32, z: f32) -> [i32; 2] {
         (z / PARCEL_SIZE).floor() as i32,
     ]
 }
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Position3D(pub f32, pub f32, pub f32);
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Parcel(pub i32, pub i32);
@@ -66,6 +67,8 @@ pub enum ClusterEvent {
     },
     #[serde(rename = "peer_left")]
     PeerLeft { address: Address },
+    #[serde(rename = "kicked")]
+    Kicked { address: Address, reason: String },
 }
 
 pub struct Cluster {
@@ -81,6 +84,7 @@ pub struct Cluster {
     conn_gens: DashMap<Address, u64>,
     conn_counter: parking_lot::Mutex<u64>,
     last_kicked_recluster: parking_lot::Mutex<std::time::Instant>,
+    kicked: DashSet<Address>,
 }
 
 impl Cluster {
@@ -104,6 +108,7 @@ impl Cluster {
             last_kicked_recluster: parking_lot::Mutex::new(
                 std::time::Instant::now() - std::time::Duration::from_secs(60),
             ),
+            kicked: DashSet::new(),
         })
     }
 
@@ -112,6 +117,7 @@ impl Cluster {
         *c += 1;
         let gen = *c;
         drop(c);
+        self.kicked.remove(address);
         self.conn_gens.insert(address.to_string(), gen);
         gen
     }
@@ -124,8 +130,13 @@ impl Cluster {
             .unwrap_or(false);
         if is_current {
             self.conn_gens.remove(address);
+            self.kicked.remove(address);
             self.remove_peer(address);
         }
+    }
+
+    pub fn is_kicked(&self, address: &str) -> bool {
+        self.kicked.contains(address)
     }
 
     pub fn island_of(&self, address: &str) -> Option<(IslandId, Vec<Address>)> {
@@ -213,6 +224,67 @@ impl Cluster {
         }
     }
 
+    pub fn kick_peer(&self, address: &str, reason: &str) {
+        self.kicked.insert(address.to_string());
+        let room = self.peers.get(address).and_then(|p| p.island_id.clone());
+        let _ = self.tx.send(ClusterEvent::Kicked {
+            address: address.to_string(),
+            reason: reason.to_string(),
+        });
+        self.remove_peer(address);
+        if let (Some(room), true) = (room, self.livekit.is_armed()) {
+            let lk = Arc::clone(&self.livekit);
+            let addr = address.to_string();
+            tokio::spawn(async move {
+                lk.remove_participant(&room, &addr).await;
+            });
+        }
+    }
+
+    pub async fn ban_sweep_once(&self) {
+        if !self.ban_checker.is_armed() {
+            return;
+        }
+        let addrs: Vec<Address> = self.peers.iter().map(|e| e.key().clone()).collect();
+        if addrs.is_empty() {
+            return;
+        }
+        let checker = Arc::clone(&self.ban_checker);
+        let banned: Vec<Address> = futures::stream::iter(addrs)
+            .map(|addr| {
+                let checker = Arc::clone(&checker);
+                async move { checker.is_banned(&addr).await.then_some(addr) }
+            })
+            .buffer_unordered(BAN_SWEEP_CONCURRENCY)
+            .filter_map(|hit| async move { hit })
+            .collect()
+            .await;
+        for addr in banned {
+            tracing::info!(addr = %addr, "ban sweep: evicting banned peer from comms");
+            self.kick_peer(&addr, "banned");
+        }
+    }
+
+    pub fn spawn_ban_sweep(self: Arc<Self>) -> Option<tokio::task::JoinHandle<()>> {
+        if !self.ban_checker.is_armed() {
+            return None;
+        }
+        let period = Duration::from_secs(self.cfg.ban_sweep_interval_secs.max(1));
+        Some(spawn_periodic(
+            "archipelago-ban-sweep",
+            period,
+            PeriodicCfg::default().after_first_period(),
+            CancellationToken::new(),
+            move || {
+                let this = self.clone();
+                async move {
+                    this.ban_sweep_once().await;
+                    Ok::<(), std::convert::Infallible>(())
+                }
+            },
+        ))
+    }
+
     pub fn peers_snapshot(&self) -> Vec<PeerState> {
         self.peers.iter().map(|e| e.value().clone()).collect()
     }
@@ -283,11 +355,21 @@ impl Cluster {
                 continue;
             }
             let mut group: Vec<PeerState> = Vec::new();
-            let mut queue: Vec<PeerState> = vec![seed.clone()];
+            let mut queue: VecDeque<PeerState> = VecDeque::new();
+            queue.push_back(seed.clone());
             visited.insert(seed.address.clone());
-            while let Some(cur) = queue.pop() {
+            while let Some(cur) = queue.pop_front() {
                 group.push(cur.clone());
                 if group.len() >= max_peers {
+                    // Cap reached. Release the queued-but-unprocessed peers so
+                    // they re-seed follow-up islands instead of being orphaned
+                    // (marked visited at enqueue time but never assigned). Each
+                    // pass removes at least the seed from the unvisited set, so
+                    // the single ascending pass terminates with every peer
+                    // assigned to some island.
+                    for leftover in queue.drain(..) {
+                        visited.remove(&leftover.address);
+                    }
                     break;
                 }
                 for other in &all_peers {
@@ -298,7 +380,7 @@ impl Cluster {
                     let dz = (other.parcel[1] - cur.parcel[1]) as f32;
                     if dx * dx + dz * dz <= radius_sq {
                         visited.insert(other.address.clone());
-                        queue.push(other.clone());
+                        queue.push_back(other.clone());
                     }
                 }
             }
@@ -379,7 +461,7 @@ impl Cluster {
         for (address, island_id, from_island_id, peers) in changed {
             if self.ban_checker.is_banned(&address).await {
                 tracing::info!(addr = %address, island = %island_id, "peer banned; evicting from engine, no token minted");
-                self.remove_peer(&address);
+                self.kick_peer(&address, "banned");
                 continue;
             }
             tracing::info!(addr = %address, island = %island_id, from = ?from_island_id, members = peers.len(), "island assigned");
@@ -399,15 +481,19 @@ impl Cluster {
     }
 
     pub fn spawn_periodic(self: Arc<Self>) -> tokio::task::JoinHandle<()> {
-        let interval_secs = self.cfg.recluster_interval_secs.max(1);
-        tokio::task::spawn(async move {
-            let mut tick = interval(Duration::from_secs(interval_secs));
-            tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-            tick.tick().await;
-            loop {
-                tick.tick().await;
-                self.recluster_once().await;
-            }
-        })
+        let period = Duration::from_secs(self.cfg.recluster_interval_secs.max(1));
+        spawn_periodic(
+            "archipelago-recluster",
+            period,
+            PeriodicCfg::default().after_first_period(),
+            CancellationToken::new(),
+            move || {
+                let this = self.clone();
+                async move {
+                    this.recluster_once().await;
+                    Ok::<(), std::convert::Infallible>(())
+                }
+            },
+        )
     }
 }

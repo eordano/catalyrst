@@ -140,14 +140,34 @@ pub async fn save_snapshot(pool: &PgPool, snap: &SnapshotMetadata) -> Result<(),
     Ok(())
 }
 
-pub async fn is_own_snapshot(pool: &PgPool, snapshot_hash: &str) -> Result<bool, sqlx::Error> {
-    let row: Option<(Option<String>,)> =
-        sqlx::query_as("SELECT hash FROM snapshots WHERE hash = $1")
-            .bind(snapshot_hash)
-            .fetch_optional(pool)
-            .await?;
+/// Points a snapshot row at the hash its content actually has, reporting whether it moved.
+///
+/// Pinned to the old hash as well as the range so two generators racing the same repair cannot both
+/// claim it: the second matches nothing, sees `false`, and regenerates instead of overwriting a row
+/// the first already corrected.
+pub async fn update_snapshot_hash(
+    pool: &PgPool,
+    time_range: TimeRange,
+    old_hash: &str,
+    new_hash: &str,
+) -> Result<bool, sqlx::Error> {
+    let result = sqlx::query(
+        r#"
+        UPDATE snapshots
+        SET hash = $1
+        WHERE hash = $2
+          AND init_timestamp = to_timestamp($3 / 1000.0)
+          AND end_timestamp = to_timestamp($4 / 1000.0)
+        "#,
+    )
+    .bind(new_hash)
+    .bind(old_hash)
+    .bind(time_range.init_timestamp)
+    .bind(time_range.end_timestamp)
+    .execute(pool)
+    .await?;
 
-    Ok(row.is_some())
+    Ok(result.rows_affected() > 0)
 }
 
 pub async fn get_snapshot_hashes_not_in_time_range(
@@ -226,26 +246,6 @@ pub async fn snapshot_is_outdated(
     Ok(row.is_some())
 }
 
-pub async fn get_number_of_active_entities_in_time_range(
-    pool: &PgPool,
-    time_range: TimeRange,
-) -> Result<i64, sqlx::Error> {
-    let row: (i64,) = sqlx::query_as(
-        r#"
-        SELECT COUNT(*) AS count
-        FROM deployments
-        WHERE deleter_deployment IS NULL
-          AND entity_timestamp BETWEEN to_timestamp($1 / 1000.0) AND to_timestamp($2 / 1000.0)
-        "#,
-    )
-    .bind(time_range.init_timestamp)
-    .bind(time_range.end_timestamp)
-    .fetch_one(pool)
-    .await?;
-
-    Ok(row.0)
-}
-
 pub async fn get_all_snapshots(pool: &PgPool) -> Result<Vec<SnapshotMetadata>, sqlx::Error> {
     #[derive(sqlx::FromRow)]
     struct Row {
@@ -304,50 +304,4 @@ pub async fn delete_snapshot_by_time_range(
     .await?;
 
     Ok(())
-}
-
-pub async fn get_all_snapshot_hashes(pool: &PgPool) -> Result<Vec<String>, sqlx::Error> {
-    let rows: Vec<(Option<String>,)> =
-        sqlx::query_as("SELECT DISTINCT hash FROM snapshots WHERE hash IS NOT NULL")
-            .fetch_all(pool)
-            .await?;
-
-    Ok(rows.into_iter().filter_map(|r| r.0).collect())
-}
-
-pub async fn save_processed_snapshot(
-    pool: &PgPool,
-    hash: &str,
-    process_timestamp_ms: f64,
-) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        r#"
-        INSERT INTO processed_snapshots (hash, process_time)
-        VALUES ($1, to_timestamp($2 / 1000.0))
-        RETURNING hash
-        "#,
-    )
-    .bind(hash)
-    .bind(process_timestamp_ms)
-    .execute(pool)
-    .await?;
-
-    Ok(())
-}
-
-pub async fn get_processed_snapshots(
-    pool: &PgPool,
-    hashes: &[String],
-) -> Result<HashSet<String>, sqlx::Error> {
-    if hashes.is_empty() {
-        return Ok(HashSet::new());
-    }
-
-    let rows: Vec<(String,)> =
-        sqlx::query_as("SELECT hash FROM processed_snapshots WHERE hash = ANY($1)")
-            .bind(hashes)
-            .fetch_all(pool)
-            .await?;
-
-    Ok(rows.into_iter().map(|r| r.0).collect())
 }

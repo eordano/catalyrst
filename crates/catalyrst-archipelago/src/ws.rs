@@ -1,7 +1,7 @@
 use crate::cluster::ClusterEvent;
 use crate::proto::archipelago::{
     client_packet, server_packet, ChallengeResponseMessage, ClientPacket, IslandChangedMessage,
-    ServerPacket, WelcomeMessage,
+    KickedMessage, KickedReason, ServerPacket, WelcomeMessage,
 };
 use crate::proto::Position;
 use crate::state::AppState;
@@ -45,6 +45,12 @@ async fn send_packet(socket: &mut WebSocket, message: server_packet::Message) ->
         .send(Message::Binary(craft(message).into()))
         .await
         .is_ok()
+}
+
+fn kicked_packet() -> server_packet::Message {
+    server_packet::Message::Kicked(KickedMessage {
+        reason: KickedReason::KrNewSession as i32,
+    })
 }
 
 fn conn_str(grant: Option<&crate::livekit::LivekitGrant>, fallback_ws_url: &str) -> String {
@@ -187,6 +193,13 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                                     continue;
                                 };
                                 let Some(addr) = address.clone() else { continue };
+                                // A `biased` select prefers socket.recv(), so a banned peer
+                                // flooding heartbeats could starve the Kicked broadcast arm
+                                // forever; gate re-admission on the in-memory kicked set here.
+                                if state.cluster.is_kicked(&addr) {
+                                    let _ = send_packet(&mut socket, kicked_packet()).await;
+                                    break;
+                                }
                                 let Some(position) = heartbeat_position(&hb) else { continue };
                                 let parcel = crate::cluster::to_parcel(position[0], position[2]);
                                 let realm = hb.desired_room.unwrap_or_else(|| "catalyrst".into());
@@ -200,8 +213,10 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                                     if let Some((island_id, peers)) = state.cluster.island_of(&addr) {
                                         if last_island_sent.as_deref() != Some(island_id.as_str()) {
                                             if state.ban_checker.is_banned(&addr).await {
-                                                tracing::info!(addr = %addr, island = %island_id, "peer banned; evicting from engine, no livekit token minted");
+                                                tracing::info!(addr = %addr, island = %island_id, "peer banned; kicking and closing socket, no livekit token minted");
                                                 state.cluster.remove_peer(&addr);
+                                                let _ = send_packet(&mut socket, kicked_packet()).await;
+                                                break;
                                             } else {
                                                 let grant = state
                                                     .cluster
@@ -238,10 +253,9 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                 }
             }
             evt = rx.recv() => {
-                let Ok(evt) = evt else { continue };
                 let Some(addr) = address.as_deref() else { continue };
                 match evt {
-                    ClusterEvent::IslandChanged { address: ev_addr, island_id, from_island_id, peers, livekit } if ev_addr == addr => {
+                    Ok(ClusterEvent::IslandChanged { address: ev_addr, island_id, from_island_id, peers, livekit }) if ev_addr == addr => {
                         if last_island_sent.as_deref() == Some(island_id.as_str()) {
                             continue;
                         }
@@ -262,8 +276,21 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                             break;
                         }
                     }
-
-                    _ => {}
+                    Ok(ClusterEvent::Kicked { address: ev_addr, .. }) if ev_addr == addr => {
+                        tracing::info!(addr = %addr, "kicked by cluster; closing socket");
+                        let _ = send_packet(&mut socket, kicked_packet()).await;
+                        break;
+                    }
+                    Ok(_) => {}
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
+                        if state.ban_checker.is_banned(addr).await {
+                            tracing::info!(addr = %addr, "ban recheck after broadcast lag; closing socket");
+                            state.cluster.kick_peer(addr, "banned");
+                            let _ = send_packet(&mut socket, kicked_packet()).await;
+                            break;
+                        }
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => {}
                 }
             }
         }

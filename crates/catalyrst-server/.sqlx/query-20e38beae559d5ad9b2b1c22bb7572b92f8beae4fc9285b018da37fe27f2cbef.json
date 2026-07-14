@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT EXISTS (SELECT 1 FROM local_entities\n         WHERE entity_id = $1 AND tombstoned_at IS NULL) AS \"is_local!\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "is_local!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "20e38beae559d5ad9b2b1c22bb7572b92f8beae4fc9285b018da37fe27f2cbef"
+}

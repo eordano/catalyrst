@@ -4,13 +4,35 @@ use crate::proto::{
 };
 use crate::quests::give_rewards_to_user;
 use crate::state::{apply_event, get_state, hide_state_actions, is_completed, QuestGraph};
+use futures::future::FutureExt;
+use std::panic::AssertUnwindSafe;
 use tokio::sync::mpsc::UnboundedReceiver;
 
 pub fn spawn_event_processor(ctx: Context, mut rx: UnboundedReceiver<Event>) {
     tokio::spawn(async move {
         tracing::info!("quests event processor listening");
         while let Some(event) = rx.recv().await {
-            process_event(&ctx, event).await;
+            // Per-event panic boundary: a panic while processing one quest
+            // event must not unwind the shared processor loop and wedge quest
+            // progress for every player until restart. Catch it, log, continue.
+            let event_id = event.id.clone();
+            let user_address = event.address.clone();
+            if let Err(panic) = AssertUnwindSafe(process_event(&ctx, event))
+                .catch_unwind()
+                .await
+            {
+                let detail = panic
+                    .downcast_ref::<&str>()
+                    .map(|s| s.to_string())
+                    .or_else(|| panic.downcast_ref::<String>().cloned())
+                    .unwrap_or_else(|| "unknown panic payload".to_string());
+                tracing::error!(
+                    event = %event_id,
+                    user = %user_address,
+                    panic = %detail,
+                    "quests event processor > processing panicked; skipping event and continuing"
+                );
+            }
         }
     });
 }

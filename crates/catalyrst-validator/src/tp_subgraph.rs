@@ -1,6 +1,9 @@
+use std::collections::HashMap;
+use std::future::Future;
 use std::time::Duration;
 
 use serde_json::{json, Value};
+use tokio::sync::Mutex;
 use tracing::debug;
 
 pub fn ensure_tls_or_loopback(url: &str, env_name: &str) {
@@ -25,10 +28,24 @@ pub fn ensure_tls_or_loopback(url: &str, env_name: &str) {
     }
 }
 
+/// Bounds the third-party-root memo. `(tp_id, block)` pairs are few in practice
+/// (one collection's batch resolves to one or a handful of finalized L2 blocks),
+/// so this cap is only a safety valve; on overflow the whole map is cleared and
+/// entries are simply re-fetched.
+const TP_ROOT_CACHE_CAP: usize = 1024;
+
+type RootCache = Mutex<HashMap<(String, u64), Option<[u8; 32]>>>;
+
 pub struct TpSubgraph {
     client: reqwest::Client,
     blocks_l2_url: String,
     tpr_url: String,
+    /// Memo of `(tp_id, block) -> decoded root option`. A finalized L2 block is
+    /// immutable, so a successfully-fetched root (or confirmed-absent root) for
+    /// a given pair is a byte-identical fact on every replay -- safe to cache.
+    /// Transport failures are NOT inserted (see `third_party_root_cached`), so a
+    /// transient subgraph outage can never pin a false rejection.
+    root_cache: RootCache,
 }
 
 impl TpSubgraph {
@@ -46,6 +63,7 @@ impl TpSubgraph {
             client,
             blocks_l2_url,
             tpr_url,
+            root_cache: Mutex::new(HashMap::new()),
         }
     }
 
@@ -131,23 +149,62 @@ impl TpSubgraph {
     }
 
     pub async fn third_party_root(&self, third_party_id: &str, block: u64) -> Option<[u8; 32]> {
-        let query = r#"query MerkleRoot($id: ID!, $block: Int!) {
-            thirdParties(where: { id: $id, isApproved: true }, block: { number: $block }, first: 1) { root }
-        }"#;
-        let data = self
-            .graphql(
-                &self.tpr_url,
-                query,
-                json!({ "id": third_party_id, "block": block }),
-            )
-            .await?;
-        let root_str = data
-            .get("thirdParties")
-            .and_then(|t| t.as_array())
-            .and_then(|a| a.first())
-            .and_then(|tp| tp.get("root"))
-            .and_then(|r| r.as_str())?;
-        crate::merkle::decode_hash32(root_str)
+        third_party_root_cached(&self.root_cache, third_party_id, block, || async {
+            let query = r#"query MerkleRoot($id: ID!, $block: Int!) {
+                thirdParties(where: { id: $id, isApproved: true }, block: { number: $block }, first: 1) { root }
+            }"#;
+            // `graphql` returns None only on a transport/non-success error -- the
+            // ONE case we must not memoize. `Some(data)` is a confirmed answer
+            // (a root, or a confirmed-absent root), which is cacheable.
+            let data = self
+                .graphql(
+                    &self.tpr_url,
+                    query,
+                    json!({ "id": third_party_id, "block": block }),
+                )
+                .await?;
+            let root = data
+                .get("thirdParties")
+                .and_then(|t| t.as_array())
+                .and_then(|a| a.first())
+                .and_then(|tp| tp.get("root"))
+                .and_then(|r| r.as_str())
+                .and_then(crate::merkle::decode_hash32);
+            Some(root)
+        })
+        .await
+    }
+}
+
+/// Memoize third-party root lookups on `(tp_id, block)`. The `fetch` closure
+/// returns `None` for a transport failure (NOT cached, so a transient outage
+/// never pins a false rejection) and `Some(root_opt)` for a confirmed answer
+/// (cached -- the block is finalized, so the answer is immutable). Cache hits
+/// return the stored `Option<[u8; 32]>` without any round trip.
+async fn third_party_root_cached<F, Fut>(
+    cache: &RootCache,
+    third_party_id: &str,
+    block: u64,
+    fetch: F,
+) -> Option<[u8; 32]>
+where
+    F: FnOnce() -> Fut,
+    Fut: Future<Output = Option<Option<[u8; 32]>>>,
+{
+    let key = (third_party_id.to_string(), block);
+    if let Some(cached) = cache.lock().await.get(&key) {
+        return *cached;
+    }
+    match fetch().await {
+        Some(result) => {
+            let mut guard = cache.lock().await;
+            if guard.len() >= TP_ROOT_CACHE_CAP {
+                guard.clear();
+            }
+            guard.insert(key, result);
+            result
+        }
+        None => None,
     }
 }
 
@@ -180,6 +237,72 @@ fn parse_u64(v: &Value) -> Option<u64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    // [Performance] third_party_root memoizes on (tp_id, block): N back-to-back
+    // lookups for the same finalized block issue exactly ONE subgraph round trip.
+    // Red-check: reverting the cache (fetch on every call) makes the count == N.
+    #[tokio::test]
+    async fn tp_root_fetched_once_per_block() {
+        let cache: RootCache = Mutex::new(HashMap::new());
+        let fetches = AtomicUsize::new(0);
+        let root = [7u8; 32];
+
+        for _ in 0..10 {
+            let got = third_party_root_cached(&cache, "urn:tp:foo", 42, || async {
+                fetches.fetch_add(1, Ordering::SeqCst);
+                Some(Some(root)) // confirmed answer
+            })
+            .await;
+            assert_eq!(got, Some(root));
+        }
+        assert_eq!(
+            fetches.load(Ordering::SeqCst),
+            1,
+            "the finalized-block root must be fetched at most once"
+        );
+    }
+
+    // [Performance] + correctness: a transport failure (fetch -> None) is NOT
+    // cached, so a later call re-fetches and can succeed; and once a confirmed
+    // answer is cached, further calls issue no round trip. Guards against a
+    // transient subgraph outage pinning a false rejection.
+    #[tokio::test]
+    async fn tp_root_transport_failure_not_cached() {
+        let cache: RootCache = Mutex::new(HashMap::new());
+        let fetches = AtomicUsize::new(0);
+        let root = [9u8; 32];
+
+        // 1st: transport failure -> None, must not cache.
+        let a = third_party_root_cached(&cache, "urn:tp:bar", 7, || async {
+            fetches.fetch_add(1, Ordering::SeqCst);
+            None
+        })
+        .await;
+        assert_eq!(a, None);
+
+        // 2nd: succeeds -> caches the confirmed root.
+        let b = third_party_root_cached(&cache, "urn:tp:bar", 7, || async {
+            fetches.fetch_add(1, Ordering::SeqCst);
+            Some(Some(root))
+        })
+        .await;
+        assert_eq!(b, Some(root));
+
+        // 3rd: served from cache, no fetch.
+        let c = third_party_root_cached(&cache, "urn:tp:bar", 7, || async {
+            fetches.fetch_add(1, Ordering::SeqCst);
+            Some(Some([0u8; 32]))
+        })
+        .await;
+        assert_eq!(c, Some(root));
+
+        assert_eq!(
+            fetches.load(Ordering::SeqCst),
+            2,
+            "only the failed attempt and the first success fetch; the cached hit must not"
+        );
+    }
 
     #[test]
     fn retry_budget_is_bounded() {

@@ -8,25 +8,26 @@ pub struct ExtraKeys(pub Map<String, Value>);
 #[cfg(feature = "ts")]
 impl ts_rs::TS for ExtraKeys {
     type WithoutGenerics = Self;
+    type OptionInnerType = Self;
 
-    fn decl() -> String {
+    fn decl(_: &ts_rs::Config) -> String {
         panic!("ExtraKeys is only used inline, it cannot be declared")
     }
 
-    fn decl_concrete() -> String {
+    fn decl_concrete(_: &ts_rs::Config) -> String {
         panic!("ExtraKeys is only used inline, it cannot be declared")
     }
 
-    fn name() -> String {
+    fn name(_: &ts_rs::Config) -> String {
         "Record<string, unknown>".to_owned()
     }
 
-    fn inline() -> String {
-        Self::name()
+    fn inline(cfg: &ts_rs::Config) -> String {
+        <Self as ts_rs::TS>::name(cfg)
     }
 
-    fn inline_flattened() -> String {
-        Self::name()
+    fn inline_flattened(cfg: &ts_rs::Config) -> String {
+        <Self as ts_rs::TS>::name(cfg)
     }
 }
 
@@ -262,6 +263,51 @@ pub struct BudgetCategory {
     pub extra: ExtraKeys,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "governance/")
+)]
+pub struct VestingRow {
+    pub address: String,
+    pub start_at: String,
+    pub finish_at: String,
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
+    pub released: Number,
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
+    pub releasable: Number,
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
+    pub vested: Number,
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
+    pub total: Number,
+    pub status: String,
+    pub token: String,
+    pub cliff: String,
+    #[serde(rename = "vestedPerPeriod")]
+    #[cfg_attr(feature = "ts", ts(type = "Array<number>"))]
+    pub vested_per_period: Vec<Number>,
+    pub logs: Vec<VestingLogItem>,
+    #[serde(flatten)]
+    pub extra: ExtraKeys,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "governance/")
+)]
+pub struct VestingLogItem {
+    pub topic: String,
+    pub timestamp: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional, type = "number"))]
+    pub amount: Option<Number>,
+    #[serde(flatten)]
+    pub extra: ExtraKeys,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -270,6 +316,7 @@ mod tests {
     const PROPOSALS_CAPTURE: &str = include_str!("../testdata/gov-proposals.json");
     const PROJECTS_CAPTURE: &str = include_str!("../testdata/gov-projects.json");
     const BUDGETS_CAPTURE: &str = include_str!("../testdata/gov-budgets.json");
+    const VESTINGS_CAPTURE: &str = include_str!("../testdata/gov-vestings.json");
     const GRANT_PROPOSAL_ROW: &str = include_str!("../testdata/gov-proposal-grant-row.json");
 
     fn rows_of(capture: &str) -> Vec<Value> {
@@ -336,6 +383,32 @@ mod tests {
             assert_eq!(serde_json::to_value(&parsed).unwrap(), original);
             assert!(!parsed.categories.is_empty());
         }
+    }
+
+    #[test]
+    fn wire_identity_vesting_rows_roundtrip() {
+        let rows = rows_of(VESTINGS_CAPTURE);
+        assert!(!rows.is_empty());
+        let mut saw_logs_with_amount = false;
+        let mut saw_log_without_amount = false;
+        let mut saw_no_logs = false;
+        for original in rows {
+            let parsed: VestingRow =
+                serde_json::from_value(original.clone()).expect("vesting row parses");
+            assert_eq!(serde_json::to_value(&parsed).unwrap(), original);
+            assert!(!parsed.extra.0.contains_key("address"));
+            if parsed.logs.is_empty() {
+                saw_no_logs = true;
+            }
+            for log in &parsed.logs {
+                if log.amount.is_some() {
+                    saw_logs_with_amount = true;
+                } else {
+                    saw_log_without_amount = true;
+                }
+            }
+        }
+        assert!(saw_logs_with_amount && saw_log_without_amount && saw_no_logs);
     }
 
     #[test]

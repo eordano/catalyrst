@@ -1,4 +1,4 @@
-use catalyrst_server::cache::ResponseCache;
+use catalyrst_commons::cache::TtlMap;
 use serde::Serialize;
 use sqlx::PgPool;
 use std::sync::Arc;
@@ -36,7 +36,7 @@ pub struct DbCollection {
 
 pub struct ContractsComponent {
     pool: PgPool,
-    cache: Arc<ResponseCache<(), Vec<Contract>>>,
+    cache: Arc<TtlMap<(), Vec<Contract>>>,
 }
 
 impl ContractsComponent {
@@ -44,7 +44,7 @@ impl ContractsComponent {
         const TTL: Duration = Duration::from_secs(60 * 60);
         Self {
             pool,
-            cache: Arc::new(ResponseCache::new("contracts.all_collections", TTL, 1)),
+            cache: Arc::new(TtlMap::bounded("contracts.all_collections", TTL, 1)),
         }
     }
 

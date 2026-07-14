@@ -1,0 +1,62 @@
+# federation-peers.toml -- the SHIPPED DEFAULT SEED (the one intentional public
+# host seed in the exported module).
+#
+# This file names the two peers a fresh catalyrst node is expected to federate
+# with -- peer.decentraland.org (the reference network) and interconnected.online
+# -- and it is, by design, NOT bootable as shipped. Every entry below carries a
+# blank `mtls_root_pem`, and a blank pinned root is a hard refusal: the peer's
+# root certificate is the admission decision, and no certificate that could be
+# committed to a public repository would be the peer's. A committed placeholder
+# root would be strictly worse than a blank -- the file would boot, the peer
+# would be admitted, and every poll would report "unreachable" for the life of
+# the process. Blank fails once, at boot, by name.
+#
+# TO FEDERATE: copy this file to your deployment path, paste each peer's ROOT
+# certificate (PEM, not the leaf) into its `mtls_root_pem`, and point
+# `services.catalyrst.federation.peersFile` at the copy. That is the only edit
+# required. Confirm `dao_proposal` and `added_at` describe the DAO vote that
+# actually admitted the peer for YOUR deployment.
+#
+# UNTIL YOU DO: with the default `seedDefault = true` this unfilled seed is
+# shipped and the worlds server points at it, so the worlds member refuses the
+# blank roots and `/worlds` stays ABSENT (404) on a stock node. That is the
+# intended default -- a ready-to-fill template, not a working list.
+#
+# TO RUN WITHOUT FEDERATION: set `services.catalyrst.federation.seedDefault =
+# false` (or leave the worlds server's WORLDS_FED_PEERS_FILE unset). The worlds
+# server then serves non-federated -- a normal configuration, not a degraded one.
+#
+# Field reference (gates run in this fixed order; the first failure is reported):
+#   peer_id       -- must not end .invalid/.example/.test/.localhost/.local
+#   catalyst_url  -- the peer's content server base
+#   worlds_url    -- the peer's worlds server base, or "" to federate content only
+#   gossip_pubkey -- 32 bytes, not all zero
+#   mtls_root_pem -- the peer's ROOT certificate, PEM. Required. <--- THE BLANK.
+#   dao_proposal  -- a real snapshot.dcl.eth URL (no "TODO", no <space>/<id>)
+#   added_at      -- the date the DAO admitted the peer (1970-01-01 is refused)
+
+[[peer]]
+version        = 1
+peer_id        = "peer.decentraland.org"
+catalyst_url   = "https://peer.decentraland.org/content"
+worlds_url     = "https://worlds.decentraland.org"
+gossip_pubkey  = [
+    1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,
+    17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32,
+]
+mtls_root_pem  = ""
+dao_proposal   = "https://snapshot.org/#/snapshot.dcl.eth/proposal/0x0000000000000000000000000000000000000000000000000000000000000001"
+added_at       = "2026-01-01"
+
+[[peer]]
+version        = 1
+peer_id        = "interconnected.online"
+catalyst_url   = "https://interconnected.online/content"
+worlds_url     = "https://worlds.interconnected.online"
+gossip_pubkey  = [
+    1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,
+    17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32,
+]
+mtls_root_pem  = ""
+dao_proposal   = "https://snapshot.org/#/snapshot.dcl.eth/proposal/0x0000000000000000000000000000000000000000000000000000000000000002"
+added_at       = "2026-01-01"

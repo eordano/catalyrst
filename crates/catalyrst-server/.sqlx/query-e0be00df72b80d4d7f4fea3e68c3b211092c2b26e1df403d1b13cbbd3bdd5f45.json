@@ -1,0 +1,52 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT deployment, content_hash, key FROM content_files WHERE deployment = ANY($1) ORDER BY deployment, key",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "deployment",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "content_files",
+            "name": "deployment"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "content_hash",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "content_files",
+            "name": "content_hash"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "key",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "content_files",
+            "name": "key"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4Array"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "e0be00df72b80d4d7f4fea3e68c3b211092c2b26e1df403d1b13cbbd3bdd5f45"
+}

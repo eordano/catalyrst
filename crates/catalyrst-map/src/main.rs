@@ -1,18 +1,16 @@
 use anyhow::Result;
-use axum::routing::get;
-use axum::Router;
-use std::net::SocketAddr;
-use tower_http::trace::TraceLayer;
 
 use catalyrst_map::config::Config;
-use catalyrst_map::{api_router, build_state, handlers};
+use catalyrst_map::{build_state, service_router};
 
 const ENV_DOCS: &[(&str, &str)] = &[
     ("HTTP_SERVER_HOST", "bind address (default 127.0.0.1)"),
     ("HTTP_SERVER_PORT", "listen port (default 5152)"),
+    ("MAP_TILES_CACHE_ENTRIES", "tile LRU capacity (default 512)"),
+    ("MAP_PNG_CACHE_ENTRIES", "rendered-PNG LRU capacity (default 256)"),
     (
         "DAPPS_PG_COMPONENT_PSQL_CONNECTION_STRING",
-        "required — squid Postgres connection string",
+        "required \u{2014} squid Postgres connection string",
     ),
     (
         "DAPPS_PG_COMPONENT_PSQL_SCHEMA",
@@ -52,15 +50,23 @@ const ENV_DOCS: &[(&str, &str)] = &[
     ),
     (
         "DISSOLVED_ESTATE_URL",
-        "redirect target for dissolved estates (default https://ui.decentraland.org/dissolved_estate.png)",
+        "redirect target for dissolved estates (unset serves 404; no default)",
     ),
     (
         "SIGNATURES_SERVER_URL",
-        "optional — rentals signatures server base URL (enables rental listings)",
+        "optional \u{2014} rentals signatures server base URL (enables rental listings)",
     ),
     (
         "RENTALS_SIGNATURES_SERVER_URL",
         "fallback name for SIGNATURES_SERVER_URL",
+    ),
+    (
+        "MAP_IMAGE_BASE_URL",
+        "base URL for generated tile/map images (default http://127.0.0.1:5162/v1)",
+    ),
+    (
+        "MAP_EXTERNAL_BASE_URL",
+        "optional \u{2014} marketplace page base URL for external_url; unset yields no link rather than a production one",
     ),
     (
         "RUST_LOG",
@@ -72,29 +78,12 @@ const ENV_DOCS: &[(&str, &str)] = &[
 async fn main() -> Result<()> {
     catalyrst_envcfg::handle_standard_args("catalyrst-map", ENV_DOCS);
 
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "catalyrst_map=info,tower_http=info".into()),
-        )
-        .with_target(false)
-        .init();
+    catalyrst_envcfg::init_tracing("catalyrst_map=info,tower_http=info");
 
     let cfg = Config::from_env()?;
     let state = build_state(&cfg).await?;
 
-    let app = Router::new()
-        .route("/ping", get(handlers::status::ping))
-        .route("/ready", get(handlers::status::ready))
-        .route("/v2/ping", get(handlers::status::ping))
-        .route("/v2/ready", get(handlers::status::ready))
-        .merge(api_router())
-        .layer(TraceLayer::new_for_http())
-        .with_state(state);
+    let app = service_router(state);
 
-    let addr: SocketAddr = format!("{}:{}", cfg.http_host, cfg.http_port).parse()?;
-    tracing::info!(%addr, "catalyrst-map listening");
-    let listener = tokio::net::TcpListener::bind(addr).await?;
-    axum::serve(listener, app).await?;
-    Ok(())
+    catalyrst_envcfg::run_service("catalyrst-map", cfg.http_host, cfg.http_port, app).await
 }

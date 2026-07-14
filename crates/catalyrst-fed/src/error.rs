@@ -23,6 +23,19 @@ pub enum FedError {
     #[error("peer {peer} not in FederationRegistry")]
     UnknownPeer { peer: String },
 
+    #[error(
+        "peer file names {first:?} and {second:?}, which are the same peer: both canonicalise to \
+         {canonical:?}. Peer ids are host names, and host names are case-insensitive (RFC 4343), \
+         so these are one identity written twice \u{2014} not two peers. Whichever entry loaded second \
+         would silently take the first's identity, along with its DAO proposal, its pinned root \
+         and its mirror namespace. Delete one entry, or give them genuinely distinct ids."
+    )]
+    DuplicatePeerId {
+        canonical: String,
+        first: String,
+        second: String,
+    },
+
     #[error("rate limit exceeded for signer {signer}")]
     RateLimited { signer: String },
 
@@ -31,6 +44,9 @@ pub enum FedError {
 
     #[error("transport error: {0}")]
     Transport(String),
+
+    #[error("gossip misconfigured: {0}")]
+    GossipMisconfigured(String),
 
     #[error("crypto: {0}")]
     Crypto(#[from] catalyrst_crypto::AuthError),

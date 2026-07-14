@@ -81,15 +81,6 @@ pub struct RentalListing {
     pub rented_days: Option<i64>,
 }
 
-#[derive(Debug, Clone, Serialize)]
-pub struct PaginatedListings {
-    pub results: Vec<RentalListing>,
-    pub total: i64,
-    pub page: i64,
-    pub pages: i64,
-    pub limit: i64,
-}
-
 #[derive(Debug, Clone)]
 pub struct ContractRentalListing {
     pub signer: String,

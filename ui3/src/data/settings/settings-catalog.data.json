@@ -1,0 +1,297 @@
+{
+  "_source": {
+    "note": "Engine-backed: every module's `setting` is the exact SettingInfo.name the bevy-explorer SettingBridgePlugin registers (crates/system_bridge/src/settings/*.rs). Dropdown options are the engine's variant names and SetSetting sends the variant INDEX as `value`; slider min/max are the engine's integer ranges and SetSetting sends the raw value. Defaults mirror AppConfig::default() on the wasm target. This file only seeds first paint and Storybook \u2014 live values, ranges and options arrive over the bridge (BridgeAction::GetSettings -> OverlayPush::Settings) and the engine persists changes itself (OPFS config.json), so there is no localStorage layer.",
+    "engine": "bevy-explorer/crates/system_bridge/src/settings",
+    "unity_layout": "unity-explorer Explorer/Assets/DCL/Settings/Configuration/SettingsMenuConfiguration.asset \u2014 section/group/module layout and labels, restricted to modules the engine actually implements.",
+    "fetchedAt": "2026-08-14"
+  },
+  "tabs": [
+    {
+      "id": "graphics",
+      "label": "Graphics"
+    },
+    {
+      "id": "sounds",
+      "label": "Sound"
+    },
+    {
+      "id": "controls",
+      "label": "Controls"
+    },
+    {
+      "id": "chat",
+      "label": "Chat"
+    }
+  ],
+  "sections": {
+    "graphics": [
+      {
+        "title": "Display",
+        "modules": [
+          {
+            "key": "fullscreen",
+            "kind": "toggle",
+            "title": "Fullscreen",
+            "fullscreen": true
+          },
+          {
+            "key": "fpsLimit",
+            "kind": "dropdown",
+            "title": "FPS Limit",
+            "setting": "Target Frame Rate",
+            "options": [
+              "10 fps",
+              "15 fps",
+              "20 fps",
+              "30 fps",
+              "60 fps",
+              "120 fps",
+              "144 fps",
+              "Uncapped"
+            ],
+            "default": 4
+          }
+        ]
+      },
+      {
+        "title": "Post Processing",
+        "modules": [
+          {
+            "key": "antiAliasing",
+            "kind": "dropdown",
+            "title": "Anti-aliasing",
+            "setting": "Anti-aliasing",
+            "options": [
+              "Off",
+              "FXAA (Low)",
+              "FXAA (High)"
+            ],
+            "default": 2
+          },
+          {
+            "key": "bloom",
+            "kind": "dropdown",
+            "title": "Bloom",
+            "setting": "Bloom",
+            "options": [
+              "Off",
+              "Low",
+              "High"
+            ],
+            "default": 1
+          },
+          {
+            "key": "avatarCelShading",
+            "kind": "toggle",
+            "title": "Avatar Cel Shading",
+            "setting": "Avatar Cel Shading",
+            "options": [
+              "Off",
+              "On"
+            ],
+            "default": 1
+          },
+          {
+            "key": "avatarOutline",
+            "kind": "dropdown",
+            "title": "Avatar Outline",
+            "setting": "Avatar Outline",
+            "options": [
+              "Always",
+              "Focus",
+              "Off"
+            ],
+            "default": 1
+          }
+        ]
+      },
+      {
+        "title": "Landscape and Foilage",
+        "modules": [
+          {
+            "key": "sceneDistance",
+            "kind": "slider",
+            "title": "Scene Distance",
+            "setting": "Scene Load Distance",
+            "min": 10,
+            "max": 150,
+            "default": 50,
+            "unit": "m"
+          },
+          {
+            "key": "parcelProps",
+            "kind": "dropdown",
+            "title": "Empty Parcel Props",
+            "setting": "Empty Parcel Props",
+            "options": [
+              "Off",
+              "Low",
+              "Mid",
+              "High"
+            ],
+            "default": 1
+          }
+        ]
+      },
+      {
+        "title": "Scene Lighting",
+        "modules": [
+          {
+            "key": "maxLights",
+            "kind": "slider",
+            "title": "Max Lights in a Scene",
+            "setting": "Light Count",
+            "min": 0,
+            "max": 128,
+            "default": 32
+          }
+        ]
+      },
+      {
+        "title": "Shadows",
+        "modules": [
+          {
+            "key": "shadowQuality",
+            "kind": "dropdown",
+            "title": "Quality",
+            "setting": "Shadow settings",
+            "options": [
+              "Off",
+              "Low",
+              "High"
+            ],
+            "default": 2
+          },
+          {
+            "key": "shadowDistance",
+            "kind": "slider",
+            "title": "Shadows Distance",
+            "setting": "Shadow Distance",
+            "min": 0,
+            "max": 300,
+            "default": 100,
+            "unit": "m"
+          }
+        ]
+      }
+    ],
+    "sounds": [
+      {
+        "title": "Volume",
+        "modules": [
+          {
+            "key": "masterVolume",
+            "kind": "slider",
+            "title": "Master",
+            "setting": "Master Volume",
+            "min": 0,
+            "max": 100,
+            "default": 100,
+            "unit": "%"
+          },
+          {
+            "key": "sceneVolume",
+            "kind": "slider",
+            "title": "In-World Music & SFX",
+            "setting": "Scene Volume",
+            "min": 0,
+            "max": 100,
+            "default": 100,
+            "unit": "%"
+          },
+          {
+            "key": "uiVolume",
+            "kind": "slider",
+            "title": "UI SFX",
+            "setting": "System Volume",
+            "min": 0,
+            "max": 100,
+            "default": 100,
+            "unit": "%"
+          },
+          {
+            "key": "avatarVolume",
+            "kind": "slider",
+            "title": "Avatar & Emotes SFX",
+            "setting": "Avatar Volume",
+            "min": 0,
+            "max": 100,
+            "default": 100,
+            "unit": "%"
+          },
+          {
+            "key": "voiceVolume",
+            "kind": "slider",
+            "title": "Voice Chat & Streams",
+            "setting": "Voice Volume",
+            "min": 0,
+            "max": 100,
+            "default": 100,
+            "unit": "%"
+          }
+        ]
+      }
+    ],
+    "controls": [
+      {
+        "title": "Mouse",
+        "modules": [
+          {
+            "key": "mouseSensitivity",
+            "kind": "slider",
+            "title": "Mouse sensitivity",
+            "setting": "Pointer and Locked Camera sensitivity",
+            "min": 1,
+            "max": 100,
+            "default": 50
+          },
+          {
+            "key": "cameraSensitivity",
+            "kind": "slider",
+            "title": "Camera sensitivity",
+            "setting": "Camera Sensitivity",
+            "min": 1,
+            "max": 100,
+            "default": 50
+          }
+        ]
+      },
+      {
+        "title": "Point At",
+        "modules": [
+          {
+            "key": "markerVisibility",
+            "kind": "dropdown",
+            "title": "Marker Visibility",
+            "setting": "Point at marker visibility",
+            "options": [
+              "All",
+              "Friends",
+              "None"
+            ],
+            "default": 1
+          }
+        ]
+      }
+    ],
+    "chat": [
+      {
+        "title": "",
+        "modules": [
+          {
+            "key": "chatBubbles",
+            "kind": "dropdown",
+            "title": "In-World Chat Bubbles",
+            "setting": "In-World Chat Bubbles",
+            "options": [
+              "None",
+              "Nearby Only",
+              "All Chats"
+            ],
+            "default": 2
+          }
+        ]
+      }
+    ]
+  }
+}

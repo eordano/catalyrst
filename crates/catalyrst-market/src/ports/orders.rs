@@ -118,16 +118,23 @@ impl OrdersComponent {
             where_parts.push(format!("buyer = {}", next_param()));
             bind_strings.push(v.to_lowercase());
         }
-        if let Some(ref v) = filters.contract_address {
-            where_parts.push(format!("LOWER(nft_address) = LOWER({})", next_param()));
+        let contract_param = if let Some(ref v) = filters.contract_address {
+            let p = next_param();
+            where_parts.push(format!("LOWER(nft_address) = LOWER({p})"));
             bind_strings.push(v.clone());
-        }
+            Some(p)
+        } else {
+            None
+        };
         if let Some(ref v) = filters.status {
             where_parts.push(format!("status = {}", next_param()));
             bind_strings.push(v.clone());
         }
         if let Some(ref v) = filters.item_id {
-            where_parts.push(item_id_predicate_sql(&next_param()));
+            where_parts.push(item_id_predicate_sql(
+                &next_param(),
+                contract_param.as_deref(),
+            ));
             bind_strings.push(v.clone());
         }
         if let Some(ref v) = filters.token_id {
@@ -199,11 +206,24 @@ impl OrdersComponent {
     }
 }
 
-pub(crate) fn item_id_predicate_sql(param: &str) -> String {
+/// A bare item id resolves through the item table (upstream dfc17f9): an L1
+/// order's item_id is `<collection>-<name_key>`, not
+/// `<collection>-<blockchain_id>`, so composing the id from the request only
+/// ever matched L2 items. The arm is gated on the input carrying no dash so a
+/// composite input keeps the three direct arms and nothing else, and the
+/// collection scope reuses the contract placeholder the caller already bound.
+pub(crate) fn item_id_predicate_sql(param: &str, contract_param: Option<&str>) -> String {
+    let collection_scope = contract_param
+        .map(|c| format!(" AND LOWER(resolved_item.collection_id) = LOWER({c})"))
+        .unwrap_or_default();
     format!(
         "(item_id = {param} OR (item_id = NULLIF(split_part({param}, '-', 2), '') \
          AND LOWER(nft_address) = LOWER(split_part({param}, '-', 1))) \
-         OR item_id IN (SELECT id FROM {schema}.item WHERE (collection_id || '-' || blockchain_id::text) = LOWER({param})))",
+         OR item_id IN (SELECT id FROM {schema}.item WHERE (collection_id || '-' || blockchain_id::text) = LOWER({param})) \
+         OR (strpos({param}, '-') = 0 AND EXISTS (\
+           SELECT 1 FROM {schema}.item resolved_item \
+           WHERE resolved_item.id = combined_orders.item_id \
+           AND resolved_item.blockchain_id::text = {param}{collection_scope})))",
         schema = MARKETPLACE_SQUID_SCHEMA,
     )
 }
@@ -518,7 +538,7 @@ mod query_tests {
 
     #[test]
     fn item_id_filter_matches_composite_and_plain_forms() {
-        let sql = item_id_predicate_sql("$1");
+        let sql = item_id_predicate_sql("$1", None);
 
         assert!(
             sql.contains("item_id = $1"),
@@ -533,8 +553,12 @@ mod query_tests {
             "plain-form match must be scoped to the contract (plain ids are only unique per collection): {sql}"
         );
         assert!(
+            sql.contains("WHERE (collection_id || '-' || blockchain_id::text) = LOWER($1)"),
+            "composite input keeps its squid-id arm: {sql}"
+        );
+        assert!(
             sql.contains(" OR "),
-            "the two forms are alternatives over the UNION branches: {sql}"
+            "the forms are alternatives over the UNION branches: {sql}"
         );
         assert!(
             !sql.contains("$2"),
@@ -542,9 +566,43 @@ mod query_tests {
         );
     }
 
+    /// Upstream dfc17f9: `GET /v1/orders?itemId=7&contractAddress=0x..` must
+    /// find an L1 order whose item_id is `<collection>-<name_key>`, which no
+    /// composite built from the request ever equals.
+    #[test]
+    fn a_bare_item_id_resolves_through_the_item_table() {
+        let unscoped = item_id_predicate_sql("$1", None);
+        assert!(
+            unscoped.contains("OR (strpos($1, '-') = 0 AND EXISTS ("),
+            "only a bare id takes the resolving arm: {unscoped}"
+        );
+        assert!(
+            unscoped.contains("resolved_item.id = combined_orders.item_id"),
+            "{unscoped}"
+        );
+        assert!(
+            unscoped.contains("resolved_item.blockchain_id::text = $1"),
+            "{unscoped}"
+        );
+        assert!(
+            !unscoped.contains("resolved_item.collection_id"),
+            "no contract filter, no collection scope: {unscoped}"
+        );
+
+        let scoped = item_id_predicate_sql("$2", Some("$1"));
+        assert!(
+            scoped.contains("resolved_item.blockchain_id::text = $2 AND LOWER(resolved_item.collection_id) = LOWER($1)"),
+            "{scoped}"
+        );
+        assert!(
+            !scoped.contains("$3"),
+            "the collection scope reuses the contract bind already emitted: {scoped}"
+        );
+    }
+
     #[test]
     fn item_id_filter_is_embedded_in_page_and_count_sql() {
-        let clause = format!(" WHERE {}", item_id_predicate_sql("$1"));
+        let clause = format!(" WHERE {}", item_id_predicate_sql("$1", None));
         let page = build_combined_orders_page_sql(
             &clause,
             "sort_created_at DESC, sort_id ASC",

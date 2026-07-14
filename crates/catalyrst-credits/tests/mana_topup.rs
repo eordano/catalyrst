@@ -13,7 +13,7 @@ fn scratch_wallet() -> String {
 }
 
 async fn pool() -> Option<sqlx::PgPool> {
-    let url = std::env::var("CREDITS_TEST_PG_CONNECTION_STRING").ok()?;
+    let url = catalyrst_testgate::require_pg("CREDITS_TEST_PG_CONNECTION_STRING")?;
     Some(
         sqlx::postgres::PgPoolOptions::new()
             .max_connections(2)

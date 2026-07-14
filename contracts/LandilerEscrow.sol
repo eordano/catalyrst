@@ -13,7 +13,7 @@ import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 ///
 /// Decentraland wearables/emotes are plain ERC-721s with no per-token update
 /// operator (unlike LAND), so a transfer-lock cannot be enforced by a flag on
-/// the token — the only way to make an item non-transferable for the return
+/// the token -- the only way to make an item non-transferable for the return
 /// window is to hold it in custody. This contract is that custody, modeled on
 /// `decentraland/rentals-contract`'s `Rentals.sol` (custody via
 /// `onERC721Received` + `safeTransferFrom` into the contract, an `endDate`-style
@@ -22,11 +22,11 @@ import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 ///   * The broker buys each NFT straight to this contract (primary mint with
 ///     `beneficiaries:[escrow]`, or a secondary buy forwarded here). On receipt
 ///     the contract records `{buyer, unlockAt = now + 15 days}` for the token.
-///   * BEFORE `unlockAt`, only the operator can `reclaim(...)` the token — used
+///   * BEFORE `unlockAt`, only the operator can `reclaim(...)` the token -- used
 ///     when the buyer is refunded inside the return window; the asset is
 ///     retained by Landiler (sent to the operator) and re-sold.
 ///   * AT/AFTER `unlockAt`, `release(...)` transfers the token to the recorded
-///     buyer, ending the lease — the buyer then holds the NFT on-chain and it is
+///     buyer, ending the lease -- the buyer then holds the NFT on-chain and it is
 ///     portable network-wide.
 ///
 /// Off-chain, catalyrst's `marketplace.usage_grants` overlay makes the in-escrow
@@ -124,7 +124,7 @@ contract LandilerEscrow is IERC721Receiver, Ownable, ReentrancyGuard {
         return IERC721Receiver.onERC721Received.selector;
     }
 
-    /// @notice Reclaim a token still inside its return window. Operator-only —
+    /// @notice Reclaim a token still inside its return window. Operator-only --
     ///         used when the buyer is refunded; the asset is retained by Landiler
     ///         (sent to the operator) for re-sale. Reverts at/after `unlockAt`.
     function reclaim(address _collection, uint256 _tokenId) external nonReentrant onlyOperator {
@@ -141,7 +141,7 @@ contract LandilerEscrow is IERC721Receiver, Ownable, ReentrancyGuard {
     /// @notice Release a token to its recorded buyer at/after `unlockAt`. Callable
     ///         by anyone (the destination is fixed to the recorded buyer, so this
     ///         can be driven by a permissionless keeper). `_buyer` must match the
-    ///         recorded buyer — a guard against passing a stale/wrong address.
+    ///         recorded buyer -- a guard against passing a stale/wrong address.
     function release(address _collection, uint256 _tokenId, address _buyer) external nonReentrant {
         Lease memory lease = leases[_collection][_tokenId];
         require(lease.buyer != address(0), "LandilerEscrow: NOT_LEASED");

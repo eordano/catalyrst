@@ -1,6 +1,6 @@
 use sqlx::postgres::PgArguments;
 
-use crate::{BUILDER_SERVER_TABLE_SCHEMA, MARKETPLACE_SQUID_SCHEMA};
+use crate::MARKETPLACE_SQUID_SCHEMA;
 
 use super::sql::{
     build_collections_where, build_get_max_price_case, build_get_max_price_case_with_trades,
@@ -328,20 +328,33 @@ pub fn build_collections_items_count_query(f: &CatalogFilters) -> (String, PgArg
     (b.sql, b.args)
 }
 
+/// Upstream `getItemIdsByTagOrNameQuery`: one row per matched item carrying
+/// the best-matching word and its similarity. Words come from the item's
+/// name and from its collection's name; see logic::search_match for why a
+/// name substring or whole-string similarity is not enough.
 pub(super) fn build_search_query(f: &CatalogFilters) -> (String, PgArguments) {
     let mut b = Builder::new();
     let search = f.search.clone().unwrap_or_default();
-    let bi = b.bind_string(format!("%{}%", search.to_lowercase()));
+    let bi = b.bind_string(search);
     b.push_sql(&format!(
-        " SELECT DISTINCT items.id::text AS id, 'name'::text AS match_type, COALESCE(wearable.name, emote.name, '') AS word, 0.5::real AS word_similarity FROM {schema}.item AS items LEFT JOIN {schema}.wearable AS wearable ON wearable.id = items.metadata_id LEFT JOIN {schema}.emote AS emote ON emote.id = items.metadata_id WHERE lower(COALESCE(wearable.name, emote.name, '')) LIKE ${}",
-        bi,
+        " SELECT DISTINCT ON (matched.id) matched.id, 'name'::text AS match_type, matched.word, matched.word_similarity \
+          FROM ( \
+            SELECT items.id::text AS id, search_word.text AS word, similarity(lower(search_word.text), lower(${bi})) AS word_similarity \
+            FROM {schema}.item AS items \
+            LEFT JOIN {schema}.metadata AS metadata ON metadata.id = items.metadata_id \
+            LEFT JOIN {schema}.wearable AS wearable ON wearable.id = metadata.wearable_id \
+            LEFT JOIN {schema}.emote AS emote ON emote.id = metadata.emote_id \
+            CROSS JOIN LATERAL unnest(string_to_array(COALESCE(wearable.name, emote.name), ' ')) AS search_word(text) \
+            WHERE search_word.text <> '' AND lower(search_word.text) % lower(${bi}) \
+            UNION \
+            SELECT items.id::text, search_word.text, similarity(lower(search_word.text), lower(${bi})) \
+            FROM {schema}.item AS items \
+            JOIN {schema}.collection AS search_collection ON search_collection.id = items.collection_id \
+            CROSS JOIN LATERAL unnest(string_to_array(search_collection.name, ' ')) AS search_word(text) \
+            WHERE search_word.text <> '' AND lower(search_word.text) % lower(${bi}) \
+          ) AS matched \
+          ORDER BY matched.id, matched.word_similarity DESC",
         schema = MARKETPLACE_SQUID_SCHEMA,
     ));
-    let _ = BUILDER_SERVER_TABLE_SCHEMA;
     (b.sql, b.args)
-}
-
-#[allow(dead_code)]
-fn escape_sql_literal(s: &str) -> String {
-    s.replace('\'', "''")
 }

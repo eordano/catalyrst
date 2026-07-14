@@ -32,7 +32,9 @@ async fn ws_upgrade(
     };
 
     let fallback = format!("/ws/{scene_name}");
-    let pathname = crate::auth::signed_fetch_path(&headers, &fallback).into_owned();
+    let pathname = crate::auth::signed_fetch_path(&headers, &fallback)
+        .primary()
+        .to_owned();
     let timeout_secs = state.cfg.auth_timeout_secs;
     let outbound_cap = state.cfg.client_outbound_max.max(1);
 
@@ -82,6 +84,27 @@ async fn handle_socket(
     let (tx, mut rx) = mpsc::channel::<Vec<u8>>(outbound_cap);
     let (client, init) = scene.add_client(authed.signer.clone(), tx);
     let index = client.index;
+
+    // REFUSE a connection that owns nothing. `on_client_open` falls back to
+    // `runtime::EMPTY_RANGE` when no representable entity range is left (every
+    // slot in use, or a config whose bands leave none), and a client holding it
+    // can author no entity at all: `decode_client_batch` admits nothing and
+    // `Authority::Client` rejects every write. Keeping the socket open produced a
+    // client that looked connected, received the whole world, and was silently
+    // mute -- indistinguishable from a broken scene. Closing is the honest signal,
+    // and it hands the slot straight back (`remove_client` -> `on_client_close`)
+    // so the next connection can have it.
+    if init.size == 0 {
+        tracing::error!(
+            scene = %scene.name,
+            index,
+            address = %authed.signer,
+            "no entity range available; refusing the connection"
+        );
+        scene.remove_client(index);
+        let _ = sink.close().await;
+        return;
+    }
 
     let init_frame = encode_init_message(
         &init.crdt_state,

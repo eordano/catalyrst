@@ -3,7 +3,9 @@ use sqlx::postgres::PgRow;
 use sqlx::{PgPool, Postgres, QueryBuilder, Row};
 use uuid::Uuid;
 
-use crate::types::{PaginatedListings, RentalListing, RentalListingCreation, RentalListingPeriod};
+use catalyrst_types::PaginatedResponse;
+
+use crate::types::{RentalListing, RentalListingCreation, RentalListingPeriod};
 
 #[derive(Clone)]
 pub struct Database {
@@ -200,7 +202,10 @@ impl Database {
         Ok(row.map(|r| row_to_listing(&r)))
     }
 
-    pub async fn get_listings(&self, q: &ListingQuery) -> Result<PaginatedListings, sqlx::Error> {
+    pub async fn get_listings(
+        &self,
+        q: &ListingQuery,
+    ) -> Result<PaginatedResponse<RentalListing>, sqlx::Error> {
         let mut qb: QueryBuilder<Postgres> = QueryBuilder::new(
             "SELECT rentals.*, metadata.category, metadata.search_text, \
              metadata.created_at as metadata_created_at, COUNT(*) OVER() as rentals_listings_count \
@@ -369,20 +374,8 @@ impl Database {
             .map(|r| r.try_get::<i64, _>("rentals_listings_count").unwrap_or(0))
             .unwrap_or(0);
         let results: Vec<RentalListing> = rows.iter().map(row_to_listing).collect();
-        let page = if q.limit > 0 { q.offset / q.limit } else { 0 };
-        let pages = if q.limit > 0 {
-            (total + q.limit - 1) / q.limit
-        } else {
-            0
-        };
 
-        Ok(PaginatedListings {
-            results,
-            total,
-            page,
-            pages,
-            limit: q.limit,
-        })
+        Ok(PaginatedResponse::new(results, total, q.limit, q.offset))
     }
 
     pub async fn get_prices(&self, f: &PriceFilters) -> Result<Vec<(String, i64)>, sqlx::Error> {

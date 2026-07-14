@@ -32,6 +32,8 @@ pub enum DisconnectReason {
     InvalidHandshakeField = 15,
 
     PacketCorrupted = 16,
+
+    InvalidSceneListenerField = 19,
 }
 
 impl DisconnectReason {
@@ -248,6 +250,8 @@ pub fn pre_auth_refusal_reason(result: AdmitResult) -> Option<DisconnectReason> 
 
 pub const DEFAULT_PRE_AUTH_BUDGET: i64 = 512;
 
+pub const DEFAULT_PRE_AUTH_BUDGET_WT: i64 = 512;
+
 pub const DEFAULT_MAX_CONCURRENT_PRE_AUTH_PER_IP: i64 = 32;
 
 pub const DEFAULT_MAX_HANDSHAKE_ATTEMPTS: u8 = 2;
@@ -255,6 +259,20 @@ pub const DEFAULT_MAX_HANDSHAKE_ATTEMPTS: u8 = 2;
 pub const DEFAULT_MAX_EMOTE_ID_LENGTH: usize = 512;
 
 pub const DEFAULT_MAX_EMOTE_DURATION_MS: u32 = 60_000;
+
+pub const DEFAULT_MAX_REALM_LENGTH: usize = 255;
+
+// One cumulative budget per scene-listener announcement, in parcels: the sum of nominal rect
+// areas across every announced realm plus SCENE_LISTENER_REALM_BUDGET_COST per realm. Over-cap
+// announcements are rejected, never clamped, on the handshake and on SceneListenerUpdate alike.
+// Tracks upstream Pulse SceneListenerOptions.MaxParcels; move it only in lockstep with upstream.
+pub const DEFAULT_SCENE_LISTENER_MAX_PARCELS: usize = 4096;
+
+// A realm carries overhead a parcel count cannot see (its retained name, a map entry, a set
+// header), roughly six parcel slots; charging four against the same budget keeps one knob
+// governing both dimensions, so many single-parcel realms cannot buy realm-shaped memory with a
+// parcel-shaped allowance.
+pub const SCENE_LISTENER_REALM_BUDGET_COST: usize = 4;
 
 pub const DEFAULT_CORRUPT_MAX_PER_MINUTE: u32 = 5;
 
@@ -296,7 +314,7 @@ impl CorruptedPacketLimiter {
                 let mut b = *b;
                 let refills = now_ms.wrapping_sub(b.last_refill_ms) / interval;
                 if refills > 0 {
-                    b.tokens = (b.tokens as u32 + refills).min(cap as u32) as u8;
+                    b.tokens = (b.tokens as u32).saturating_add(refills).min(cap as u32) as u8;
                     b.last_refill_ms = b.last_refill_ms.wrapping_add(refills * interval);
                 }
                 b
@@ -321,9 +339,137 @@ impl CorruptedPacketLimiter {
     }
 }
 
+// Track the values upstream Pulse REGISTERS from appsettings.json (Messaging:Hardening
+// MovementInput and DiscreteEvent), not the C# option-class defaults: Program.cs binds the
+// section over the class, so the class's 5/10 for DiscreteEvent never runs. Move these only in
+// lockstep with upstream; `gameplay_defaults_track_upstream_appsettings` pins them.
+pub const DEFAULT_INPUT_MAX_HZ: u32 = 20;
+
+pub const DEFAULT_INPUT_BURST: u32 = 16;
+
+pub const DEFAULT_DISCRETE_RATE_PER_SEC: u32 = 20;
+
+pub const DEFAULT_DISCRETE_BURST: u32 = 16;
+
+#[derive(Clone, Copy, Default)]
+struct GameplayBucket {
+    tokens: u8,
+    last_refill_ms: u32,
+}
+
+struct BucketParams {
+    burst: u8,
+    refill_interval_ms: u32,
+}
+
+impl BucketParams {
+    fn new(rate_per_sec: u32, burst: u32) -> Self {
+        Self {
+            burst: burst.min(u8::MAX as u32) as u8,
+            refill_interval_ms: 1000u32
+                .checked_div(rate_per_sec)
+                .map(|v| v.max(1))
+                .unwrap_or(0),
+        }
+    }
+
+    fn is_enabled(&self) -> bool {
+        self.refill_interval_ms > 0 && self.burst > 0
+    }
+}
+
+#[derive(Clone, Copy, Default)]
+struct PeerBuckets {
+    input: GameplayBucket,
+    discrete: GameplayBucket,
+}
+
+pub struct GameplayRateLimiter {
+    input: BucketParams,
+    discrete: BucketParams,
+    peers: std::collections::HashMap<u32, PeerBuckets>,
+}
+
+impl GameplayRateLimiter {
+    pub fn new(
+        input_max_hz: u32,
+        input_burst: u32,
+        discrete_rate_per_sec: u32,
+        discrete_burst: u32,
+    ) -> Self {
+        Self {
+            input: BucketParams::new(input_max_hz, input_burst),
+            discrete: BucketParams::new(discrete_rate_per_sec, discrete_burst),
+            peers: std::collections::HashMap::new(),
+        }
+    }
+
+    pub fn try_accept_input(&mut self, peer: u32, now_ms: u32) -> bool {
+        if !self.input.is_enabled() {
+            return true;
+        }
+        let bucket = &mut self.peers.entry(peer).or_default().input;
+        Self::charge(bucket, &self.input, now_ms)
+    }
+
+    pub fn try_accept_discrete(&mut self, peer: u32, now_ms: u32) -> bool {
+        if !self.discrete.is_enabled() {
+            return true;
+        }
+        let bucket = &mut self.peers.entry(peer).or_default().discrete;
+        Self::charge(bucket, &self.discrete, now_ms)
+    }
+
+    pub fn release(&mut self, peer: u32) {
+        self.peers.remove(&peer);
+    }
+
+    fn charge(bucket: &mut GameplayBucket, p: &BucketParams, now_ms: u32) -> bool {
+        let cap = p.burst;
+        let interval = p.refill_interval_ms;
+        if bucket.last_refill_ms == 0 {
+            *bucket = GameplayBucket {
+                tokens: cap,
+                last_refill_ms: if now_ms == 0 { 1 } else { now_ms },
+            };
+        } else {
+            let refills = now_ms.wrapping_sub(bucket.last_refill_ms) / interval;
+            if refills > 0 {
+                bucket.tokens = (bucket.tokens as u32)
+                    .saturating_add(refills)
+                    .min(cap as u32) as u8;
+                bucket.last_refill_ms = bucket.last_refill_ms.wrapping_add(refills * interval);
+            }
+        }
+        if bucket.tokens == 0 {
+            return false;
+        }
+        bucket.tokens -= 1;
+        true
+    }
+}
+
 #[cfg(test)]
 mod limiter_tests {
-    use super::CorruptedPacketLimiter;
+    use super::{
+        CorruptedPacketLimiter, GameplayRateLimiter, DEFAULT_DISCRETE_BURST,
+        DEFAULT_DISCRETE_RATE_PER_SEC, DEFAULT_INPUT_BURST, DEFAULT_INPUT_MAX_HZ,
+    };
+
+    #[test]
+    fn gameplay_defaults_track_upstream_appsettings() {
+        assert_eq!(
+            (DEFAULT_INPUT_MAX_HZ, DEFAULT_INPUT_BURST),
+            (20, 16),
+            "upstream appsettings Messaging:Hardening:MovementInput MaxHz / BurstCapacity"
+        );
+        assert_eq!(
+            (DEFAULT_DISCRETE_RATE_PER_SEC, DEFAULT_DISCRETE_BURST),
+            (20, 16),
+            "upstream appsettings Messaging:Hardening:DiscreteEvent RatePerSecond / \
+             BurstCapacity: the registered values, not the 5/10 option-class defaults"
+        );
+    }
 
     #[test]
     fn tolerates_burst_then_exhausts() {
@@ -363,6 +509,36 @@ mod limiter_tests {
         }
         l.release(1);
         assert!(!l.register_and_check_exhausted(1, 1000));
+    }
+
+    #[test]
+    fn gameplay_release_resets_buckets() {
+        let mut l = GameplayRateLimiter::new(20, 16, 5, 10);
+        for _ in 0..16 {
+            assert!(l.try_accept_input(1, 1000));
+        }
+        assert!(!l.try_accept_input(1, 1000));
+        l.release(1);
+        assert!(l.try_accept_input(1, 1000));
+    }
+
+    #[test]
+    fn gameplay_disabled_passes_everything() {
+        let mut l = GameplayRateLimiter::new(0, 16, 0, 10);
+        for _ in 0..100 {
+            assert!(l.try_accept_input(1, 0));
+            assert!(l.try_accept_discrete(1, 0));
+        }
+    }
+
+    #[test]
+    fn gameplay_refills_over_time() {
+        let mut l = GameplayRateLimiter::new(20, 16, 5, 10);
+        for _ in 0..16 {
+            assert!(l.try_accept_input(1, 1000));
+        }
+        assert!(!l.try_accept_input(1, 1000));
+        assert!(l.try_accept_input(1, 1050));
     }
 }
 
@@ -532,5 +708,7 @@ mod tests {
         assert_eq!(DisconnectReason::Banned.code(), 5);
         assert_eq!(DisconnectReason::HandshakeReplayRejected.code(), 14);
         assert_eq!(DisconnectReason::InvalidEmoteField.code(), 12);
+        assert_eq!(DisconnectReason::InvalidHandshakeField.code(), 15);
+        assert_eq!(DisconnectReason::InvalidSceneListenerField.code(), 19);
     }
 }

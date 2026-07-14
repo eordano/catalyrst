@@ -169,7 +169,12 @@ async fn retry_pair(
                         .and_then(parse_retry_after)
                 })
                 .max();
-            return Ok(RetryDecision::Retry(hint));
+            let rate_limited = b_status == reqwest::StatusCode::TOO_MANY_REQUESTS
+                || c_status == reqwest::StatusCode::TOO_MANY_REQUESTS;
+            return Ok(RetryDecision::Retry {
+                after: hint,
+                rate_limited,
+            });
         }
 
         let (b_body, c_body) = tokio::try_join!(
@@ -184,7 +189,7 @@ async fn retry_pair(
     match outcome {
         Some(tup) => Ok(PairOutcome::Got(tup)),
         None => Ok(PairOutcome::Transient(
-            "baseline/candidate kept returning 429/5xx after 3 attempts".to_string(),
+            "baseline/candidate kept returning 429/5xx after exhausting retries".to_string(),
         )),
     }
 }
@@ -203,6 +208,7 @@ pub(crate) async fn test_pagination(
     let mut c_next: Option<String> = Some(format!("{}{}", candidate_base, initial_path));
 
     for page in 1..=3 {
+        ctx.sleep_heavy().await;
         let b_url = match &b_next {
             Some(u) => u.clone(),
             None => {
@@ -255,15 +261,23 @@ pub(crate) async fn test_pagination(
         };
 
         if !b_status.is_success() || !c_status.is_success() {
-            score.record(
-                &[Difference {
-                    path: "HTTP status".to_string(),
-                    baseline_value: b_status.to_string(),
-                    candidate_value: c_status.to_string(),
-                }],
-                &format!("Page {}: non-2xx response", page),
-                verbose,
-            );
+            if b_status != c_status {
+                score.record(
+                    &[Difference {
+                        path: "HTTP status".to_string(),
+                        baseline_value: b_status.to_string(),
+                        candidate_value: c_status.to_string(),
+                    }],
+                    &format!("Page {}: non-2xx response", page),
+                    verbose,
+                );
+            } else {
+                score.record(
+                    &[],
+                    &format!("Page {}: both non-2xx ({})", page, b_status),
+                    verbose,
+                );
+            }
             return Ok(());
         }
 
@@ -356,6 +370,8 @@ fn extract_next_link(body: &Value, base_url: &str) -> Option<String> {
             .map(|i| &base_url[..i])
             .unwrap_or(base_url);
         Some(format!("{}{}", origin, next))
+    } else if next.starts_with('?') {
+        Some(format!("{}/deployments{}", base_url, next))
     } else {
         Some(format!("{}/{}", base_url, next))
     }
@@ -406,7 +422,12 @@ pub(crate) async fn test_content_hash(
                         .and_then(parse_retry_after)
                 })
                 .max();
-            return Ok(RetryDecision::Retry(hint));
+            let rate_limited = b_status == reqwest::StatusCode::TOO_MANY_REQUESTS
+                || c_status == reqwest::StatusCode::TOO_MANY_REQUESTS;
+            return Ok(RetryDecision::Retry {
+                after: hint,
+                rate_limited,
+            });
         }
 
         Ok(RetryDecision::Done((b_resp, c_resp, b_status, c_status)))
@@ -542,7 +563,12 @@ pub(crate) async fn test_get_bytes(
                         .and_then(parse_retry_after)
                 })
                 .max();
-            return Ok(RetryDecision::Retry(hint));
+            let rate_limited = b_status == reqwest::StatusCode::TOO_MANY_REQUESTS
+                || c_status == reqwest::StatusCode::TOO_MANY_REQUESTS;
+            return Ok(RetryDecision::Retry {
+                after: hint,
+                rate_limited,
+            });
         }
 
         Ok(RetryDecision::Done((b_resp, c_resp, b_status, c_status)))
@@ -583,7 +609,11 @@ pub(crate) async fn test_get_bytes(
 
 fn truncate(s: &str) -> String {
     if s.len() > 120 {
-        format!("{}...", &s[..117])
+        let mut cut = 117;
+        while !s.is_char_boundary(cut) {
+            cut -= 1;
+        }
+        format!("{}...", &s[..cut])
     } else {
         s.to_string()
     }

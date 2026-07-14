@@ -6,13 +6,14 @@ use crate::handlers::dashboard;
 use crate::AppState;
 
 const TEMPLATE: &str = include_str!("../dashboard.html");
+const EXPERIMENTS_TEMPLATE: &str = include_str!("../experiments.html");
+const FLAGS_TEMPLATE: &str = include_str!("../flags.html");
 
 #[derive(Clone, Copy, PartialEq)]
 enum Surface {
     Errors,
     Metrics,
     Health,
-    Flags,
     Sql,
     Session,
 }
@@ -64,7 +65,6 @@ fn parse_path(path: &str) -> Route {
                 r.tab = "breakdown";
             }
             "/health" => r.surface = Surface::Health,
-            "/flags" => r.surface = Surface::Flags,
             "/sql" => r.surface = Surface::Sql,
             _ => {}
         }
@@ -179,6 +179,12 @@ fn query_of<T: serde::de::DeserializeOwned>(v: Value) -> Query<T> {
 
 pub async fn page(State(st): State<AppState>, OriginalUri(uri): OriginalUri) -> Html<String> {
     let path = uri.path().to_string();
+    if path.trim_end_matches('/') == "/experiments" {
+        return Html(EXPERIMENTS_TEMPLATE.replace("<!--SSR:base-->", &env_base_head()));
+    }
+    if path.trim_end_matches('/') == "/flags" {
+        return Html(FLAGS_TEMPLATE.replace("<!--SSR:base-->", &env_base_head()));
+    }
     let raw_query: Vec<(String, String)> = uri.query().map(parse_query).unwrap_or_default();
     let route = parse_path(&path);
     let filters = parse_filters(&raw_query, route.surface);
@@ -194,7 +200,7 @@ pub async fn page(State(st): State<AppState>, OriginalUri(uri): OriginalUri) -> 
 
     let panel_surface = matches!(
         route.surface,
-        Surface::Health | Surface::Flags | Surface::Sql | Surface::Session
+        Surface::Health | Surface::Sql | Surface::Session
     ) || matches!(route.tab, "funnel" | "breakdown");
 
     match route.surface {
@@ -270,7 +276,7 @@ pub async fn page(State(st): State<AppState>, OriginalUri(uri): OriginalUri) -> 
                     events.clone(),
                 );
                 thead_html = errors_thead(false, &filters);
-                rows_html = render_rows(&events, false, false);
+                rows_html = render_rows(&events, false, false, &[]);
             } else {
                 let issues = route.tab == "issues";
                 let group = if issues { "1" } else { "0" };
@@ -303,7 +309,7 @@ pub async fn page(State(st): State<AppState>, OriginalUri(uri): OriginalUri) -> 
                     events.clone(),
                 );
                 thead_html = errors_thead(issues, &filters);
-                rows_html = render_rows(&events, issues, false);
+                rows_html = render_rows(&events, issues, false, &[]);
             }
         }
         Surface::Metrics if matches!(route.tab, "funnel" | "breakdown") => {
@@ -351,18 +357,18 @@ pub async fn page(State(st): State<AppState>, OriginalUri(uri): OriginalUri) -> 
                 ),
                 events.clone(),
             );
-            thead_html = metrics_thead(issues, &filters);
-            rows_html = render_rows(&events, issues, true);
+            let prop_cols = if issues {
+                Vec::new()
+            } else {
+                prop_columns(&events)
+            };
+            thead_html = metrics_thead(issues, &filters, &prop_cols);
+            rows_html = render_rows(&events, issues, true, &prop_cols);
         }
         Surface::Health => {
             let v = call_health(&st, filters.hours).await;
             cache.insert(format!("/dash/health?hours={}", filters.hours), v.clone());
             panel_html = render_health(&v);
-        }
-        Surface::Flags => {
-            let v = call_flags(&st).await;
-            cache.insert("/dash/flags".to_string(), v.clone());
-            panel_html = render_flags(&v);
         }
         Surface::Sql => {}
         Surface::Session => {
@@ -377,10 +383,19 @@ pub async fn page(State(st): State<AppState>, OriginalUri(uri): OriginalUri) -> 
     }
 
     let boot = json!({ "cache": Value::Object(cache) });
-    let boot_script = format!("<script>window.__BOOT__={};</script>", boot);
+    // Escape the three characters that can break out of an inline <script> so
+    // stored, attacker-controlled event data cannot inject markup/JS (stored XSS).
+    // These \u escapes are valid JSON and parse back to the identical string.
+    let boot_json = boot
+        .to_string()
+        .replace('<', "\\u003c")
+        .replace('>', "\\u003e")
+        .replace('&', "\\u0026");
+    let boot_script = format!("<script>window.__BOOT__={};</script>", boot_json);
 
     let mut html = TEMPLATE.to_string();
     html = html.replace("<!--SSR:boot-->", &boot_script);
+    html = html.replace("<!--SSR:base-->", &env_base_head());
     html = html.replace("<!--SSR:total-->", &total_html);
     html = html.replace("<!--SSR:thead-->", &thead_html);
     html = html.replace("<!--SSR:rows-->", &rows_html);
@@ -390,7 +405,7 @@ pub async fn page(State(st): State<AppState>, OriginalUri(uri): OriginalUri) -> 
 
     let no_chrome = matches!(
         route.surface,
-        Surface::Health | Surface::Flags | Surface::Sql | Surface::Session
+        Surface::Health | Surface::Sql | Surface::Session
     );
     html = html.replace(
         "<!--SSR:tableview-style-->",
@@ -511,13 +526,6 @@ async fn call_health(st: &AppState, hours: i64) -> Value {
     .unwrap_or(json!({}))
 }
 
-async fn call_flags(st: &AppState) -> Value {
-    dashboard::flags(State(st.clone()))
-        .await
-        .map(|j| j.0)
-        .unwrap_or(json!({}))
-}
-
 async fn call_session(st: &AppState, id: i64) -> Value {
     dashboard::session(State(st.clone()), Path(id))
         .await
@@ -611,7 +619,7 @@ fn metrics_total(m: &Value, hours: i64) -> String {
     let users = vi64(m, "users");
     let h = m.get("hours").and_then(|x| x.as_i64()).unwrap_or(hours);
     format!(
-        "<b>{}</b> events · {} users / {}h",
+        "<b>{}</b> events \u{B7} {} users / {}h",
         commas(total),
         commas(users),
         h
@@ -620,12 +628,12 @@ fn metrics_total(m: &Value, hours: i64) -> String {
 
 fn errors_thead(issues: bool, f: &Filters) -> String {
     let freq = if f.sort.as_deref() == Some("frequent") {
-        " ▾"
+        " \u{25BE}"
     } else {
         ""
     };
     let recent = if f.sort.as_deref() == Some("recent") {
-        " ▾"
+        " \u{25BE}"
     } else {
         ""
     };
@@ -638,14 +646,14 @@ fn errors_thead(issues: bool, f: &Filters) -> String {
     }
 }
 
-fn metrics_thead(issues: bool, f: &Filters) -> String {
+fn metrics_thead(issues: bool, f: &Filters, props: &[String]) -> String {
     let freq = if f.sort.as_deref() == Some("frequent") {
-        " ▾"
+        " \u{25BE}"
     } else {
         ""
     };
     let recent = if f.sort.as_deref() == Some("recent") {
-        " ▾"
+        " \u{25BE}"
     } else {
         ""
     };
@@ -654,23 +662,66 @@ fn metrics_thead(issues: bool, f: &Filters) -> String {
             "<tr><th></th><th>Event</th><th class=\"cnt sortable\" id=\"sort-freq\">count{freq}</th><th class=\"cnt\">users</th><th class=\"sortable\" id=\"sort-recent\">last seen{recent}</th></tr>"
         )
     } else {
-        "<tr><th></th><th>Event</th><th>type</th><th>when</th></tr>".to_string()
+        let ph = props
+            .iter()
+            .map(|p| format!("<th class=\"prop\">{}</th>", esc(p)))
+            .collect::<String>();
+        format!("<tr><th></th><th>Event</th><th>type</th>{ph}<th>when</th></tr>")
     }
 }
 
-fn render_rows(data: &Value, issues: bool, metrics: bool) -> String {
+fn prop_columns(data: &Value) -> Vec<String> {
+    let items = match data.get("items").and_then(|i| i.as_array()) {
+        Some(a) => a,
+        None => return Vec::new(),
+    };
+    let mut freq: Vec<(String, usize)> = Vec::new();
+    for it in items {
+        if let Some(obj) = it.get("properties").and_then(|p| p.as_object()) {
+            for k in obj.keys() {
+                match freq.iter_mut().find(|(n, _)| n == k) {
+                    Some((_, c)) => *c += 1,
+                    None => freq.push((k.clone(), 1)),
+                }
+            }
+        }
+    }
+    freq.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+    freq.truncate(8);
+    freq.into_iter().map(|(n, _)| n).collect()
+}
+
+fn prop_cell(it: &Value, key: &str) -> String {
+    let s = match it.get("properties").and_then(|p| p.get(key)) {
+        None | Some(Value::Null) => String::new(),
+        Some(Value::String(s)) => s.clone(),
+        Some(other) => other.to_string(),
+    };
+    let short = if s.chars().count() > 48 {
+        format!("{}\u{2026}", s.chars().take(47).collect::<String>())
+    } else {
+        s.clone()
+    };
+    format!(
+        "<td class=\"tag prop\" title=\"{}\">{}</td>",
+        esc(&s),
+        esc(&short)
+    )
+}
+
+fn render_rows(data: &Value, issues: bool, metrics: bool, props: &[String]) -> String {
     let items = match data.get("items").and_then(|i| i.as_array()) {
         Some(a) => a,
         None => return String::new(),
     };
     items
         .iter()
-        .map(|it| row_html(it, issues, metrics))
+        .map(|it| row_html(it, issues, metrics, props))
         .collect::<Vec<_>>()
         .join("")
 }
 
-fn row_html(it: &Value, issues: bool, metrics: bool) -> String {
+fn row_html(it: &Value, issues: bool, metrics: bool, props: &[String]) -> String {
     if metrics {
         let title = esc(&strip_tags(&{
             let t = vstr(it, "title");
@@ -693,8 +744,9 @@ fn row_html(it: &Value, issues: bool, metrics: bool) -> String {
         let id = vi64(it, "id");
         let kind = esc(&vstr(it, "kind"));
         let recv = vstr(it, "received_at");
+        let cells = props.iter().map(|k| prop_cell(it, k)).collect::<String>();
         return format!(
-            "<tr class=\"ev\" data-id=\"{id}\"><td><span class=\"lvl info\"></span></td>\n      <td><div class=\"title\">{title}</div></td><td class=\"tag\">{kind}</td>\n      <td class=\"when\" title=\"{rt}\">{rtshort}</td></tr>",
+            "<tr class=\"ev\" data-id=\"{id}\"><td><span class=\"lvl info\"></span></td>\n      <td><div class=\"title\">{title}</div></td><td class=\"tag\">{kind}</td>{cells}\n      <td class=\"when\" title=\"{rt}\">{rtshort}</td></tr>",
             rt = esc(&recv), rtshort = esc(&short_time(&recv))
         );
     }
@@ -725,10 +777,10 @@ fn row_html(it: &Value, issues: bool, metrics: bool) -> String {
         };
         let acts = if status == "unresolved" {
             format!(
-                "<button class=\"act\" data-fp=\"{fp}\" data-st=\"resolved\" title=\"resolve\">✓</button><button class=\"act\" data-fp=\"{fp}\" data-st=\"ignored\" title=\"ignore\">⊘</button>"
+                "<button class=\"act\" data-fp=\"{fp}\" data-st=\"resolved\" title=\"resolve\">\u{2713}</button><button class=\"act\" data-fp=\"{fp}\" data-st=\"ignored\" title=\"ignore\">\u{2298}</button>"
             )
         } else {
-            format!("<button class=\"act\" data-fp=\"{fp}\" data-st=\"unresolved\" title=\"unresolve\">↺</button>")
+            format!("<button class=\"act\" data-fp=\"{fp}\" data-st=\"unresolved\" title=\"unresolve\">\u{21BA}</button>")
         };
         let count = commas(vi64(it, "count"));
         let users = commas(vi64(it, "users"));
@@ -778,9 +830,9 @@ fn issue_head(meta: &Value, fp: &str) -> (String, String) {
         }
     };
     let status_block = if status == "unresolved" {
-        "<button class=\"act2\" data-st=\"resolved\">✓ resolve</button><button class=\"act2\" data-st=\"ignored\">⊘ ignore</button>".to_string()
+        "<button class=\"act2\" data-st=\"resolved\">\u{2713} resolve</button><button class=\"act2\" data-st=\"ignored\">\u{2298} ignore</button>".to_string()
     } else {
-        format!("<span class=\"sbadge {s}\">{s}</span><button class=\"act2\" data-st=\"unresolved\">↺ unresolve</button>", s = esc(&status))
+        format!("<span class=\"sbadge {s}\">{s}</span><button class=\"act2\" data-st=\"unresolved\">\u{21BA} unresolve</button>", s = esc(&status))
     };
     let assignee = vstr(meta, "assignee");
     let assignee_block = if !assignee.is_empty() {
@@ -844,7 +896,7 @@ fn render_health(h: &Value) -> String {
             let b = p.get(0).and_then(|x| x.as_str()).unwrap_or("");
             let c = p.get(1).and_then(|x| x.as_i64()).unwrap_or(0);
             format!(
-                "<div class=\"bar\" style=\"height:{}%\" title=\"{} — {}\"></div>",
+                "<div class=\"bar\" style=\"height:{}%\" title=\"{} \u{2014} {}\"></div>",
                 (c as f64 / mx as f64 * 100.0).round() as i64,
                 esc(b),
                 c
@@ -873,55 +925,9 @@ fn render_health(h: &Value) -> String {
     )
 }
 
-fn render_flags(f: &Value) -> String {
-    let config = f.get("config").cloned().unwrap_or(Value::Null);
-    let flags = config
-        .get("flags")
-        .and_then(|x| x.as_object())
-        .cloned()
-        .unwrap_or_default();
-    let variants = config
-        .get("variants")
-        .and_then(|x| x.as_object())
-        .cloned()
-        .unwrap_or_default();
-    let empty = vec![];
-    let observed = f
-        .get("observed")
-        .and_then(|x| x.as_array())
-        .unwrap_or(&empty);
-    let obs: std::collections::HashMap<String, i64> = observed
-        .iter()
-        .filter_map(|p| Some((p.get(0)?.as_str()?.to_string(), p.get(1)?.as_i64()?)))
-        .collect();
-    let mut names: Vec<&String> = flags.keys().collect();
-    names.sort();
-    let source_url = vstr(f, "source_url");
-    let rows: String = names.iter().map(|n| {
-        let on = flags.get(*n).and_then(|x| x.as_bool()).unwrap_or(false);
-        let variant = variants.get(*n).and_then(|x| x.get("name")).and_then(|x| x.as_str()).unwrap_or("");
-        let obs_txt = obs.get(*n).map(|c| commas(*c)).unwrap_or_else(|| "—".to_string());
-        format!(
-            "<tr><td><span class=\"lvl {oc}\"></span> {name}</td>\n      <td>{state}</td>\n      <td class=\"tag\">{variant}</td><td class=\"cnt\">{obs}</td></tr>",
-            oc = if on { "ok" } else { "none" }, name = esc(n),
-            state = if on { "<span class=\"sbadge resolved\">on</span>" } else { "<span class=\"sbadge ignored\">off</span>" },
-            variant = esc(variant), obs = obs_txt
-        )
-    }).collect();
-    let body = if rows.is_empty() {
-        "<tr><td colspan=4 class=\"empty\">flag service unreachable</td></tr>".to_string()
-    } else {
-        rows
-    };
-    format!(
-        "<div class=\"when\" style=\"margin-bottom:10px\">{n} flags · live config from <b>{url}</b> · \"observed\" = times a flag appeared in event data (contexts.flags)</div>\n    <table><thead><tr><th>flag</th><th>state</th><th>variant</th><th class=\"cnt\">observed</th></tr></thead><tbody>{body}</tbody></table>",
-        n = names.len(), url = esc(&source_url)
-    )
-}
-
 fn render_session(s: &Value, session_id: &str) -> String {
     if s.get("user").map(|u| u.is_null()).unwrap_or(true) {
-        return "<a class=\"back\" id=\"sback\">← back</a><div class=\"empty\">no session for this event (no user/app-launch id)</div>".to_string();
+        return "<a class=\"back\" id=\"sback\">\u{2190} back</a><div class=\"empty\">no session for this event (no user/app-launch id)</div>".to_string();
     }
     let user = vstr(s, "user");
     let total = vi64(s, "total");
@@ -994,7 +1000,7 @@ fn render_session(s: &Value, session_id: &str) -> String {
         tl
     };
     format!(
-        "<a class=\"back\" id=\"sback\">← back</a>\n    <h3 class=\"sec\" style=\"margin-top:10px\">session timeline</h3>\n    <div class=\"stats\" style=\"border:0;padding:0 0 12px;margin:0\">\n      <div class=\"card\" style=\"min-width:200px\"><div class=\"lab\">user</div><div class=\"kv\" style=\"background:0;border:0;padding:4px 0\"><div class=\"v\">{user}</div></div></div>\n      <div class=\"card\"><div class=\"lab\">events</div><div class=\"big\">{total}</div></div>\n      <div class=\"card\"><div class=\"lab\">errors</div><div class=\"big\" style=\"color:var(--err)\">{errors}</div></div>\n      <div class=\"card\"><div class=\"lab\">duration</div><div class=\"big\">{dur}</div></div>\n      <div class=\"card\" style=\"flex:1;min-width:200px\"><div class=\"lab\">started {started}</div><div class=\"chips\">{lv}</div></div>\n    </div>\n    <div class=\"timeline\">{tl}</div>",
+        "<a class=\"back\" id=\"sback\">\u{2190} back</a>\n    <h3 class=\"sec\" style=\"margin-top:10px\">session timeline</h3>\n    <div class=\"stats\" style=\"border:0;padding:0 0 12px;margin:0\">\n      <div class=\"card\" style=\"min-width:200px\"><div class=\"lab\">user</div><div class=\"kv\" style=\"background:0;border:0;padding:4px 0\"><div class=\"v\">{user}</div></div></div>\n      <div class=\"card\"><div class=\"lab\">events</div><div class=\"big\">{total}</div></div>\n      <div class=\"card\"><div class=\"lab\">errors</div><div class=\"big\" style=\"color:var(--err)\">{errors}</div></div>\n      <div class=\"card\"><div class=\"lab\">duration</div><div class=\"big\">{dur}</div></div>\n      <div class=\"card\" style=\"flex:1;min-width:200px\"><div class=\"lab\">started {started}</div><div class=\"chips\">{lv}</div></div>\n    </div>\n    <div class=\"timeline\">{tl}</div>",
         user = esc(&user), total = commas(total), errors = commas(errors), dur = fmt_dur(dur),
         started = esc(&started), tl = tl_block
     )
@@ -1072,4 +1078,71 @@ fn urlencode(s: &str) -> String {
         }
     }
     out
+}
+
+fn env_base_head() -> String {
+    base_head(&normalize_base(
+        &std::env::var("TELEMETRY_BASE_PATH").unwrap_or_default(),
+    ))
+}
+
+fn normalize_base(raw: &str) -> String {
+    let t = raw.trim().trim_end_matches('/');
+    if t.is_empty() {
+        String::new()
+    } else if t.starts_with('/') {
+        t.to_string()
+    } else {
+        format!("/{t}")
+    }
+}
+
+// nginx strips the /telemetry/ prefix, so the page must re-declare its base for
+// the SPA's fetch/nav to resolve; window.__BASE__ is always defined (empty=root).
+fn base_head(base: &str) -> String {
+    if base.is_empty() {
+        "<script>window.__BASE__=\"\";</script>".to_string()
+    } else {
+        format!("<base href=\"{base}/\"><script>window.__BASE__=\"{base}\";</script>")
+    }
+}
+
+#[cfg(test)]
+mod base_tests {
+    use super::*;
+
+    #[test]
+    fn normalize_base_forms() {
+        assert_eq!(normalize_base(""), "");
+        assert_eq!(normalize_base("/telemetry"), "/telemetry");
+        assert_eq!(normalize_base("telemetry"), "/telemetry");
+        assert_eq!(normalize_base("/telemetry/"), "/telemetry");
+        assert_eq!(normalize_base("  /telemetry/  "), "/telemetry");
+    }
+
+    #[test]
+    fn base_head_injects_tag_and_global() {
+        let h = base_head("/telemetry");
+        assert!(h.contains("<base href=\"/telemetry/\">"));
+        assert!(h.contains("window.__BASE__=\"/telemetry\""));
+    }
+
+    #[test]
+    fn base_head_empty_has_no_base_tag() {
+        let h = base_head("");
+        assert!(!h.contains("<base "));
+        assert!(h.contains("window.__BASE__=\"\""));
+    }
+
+    #[test]
+    fn rendered_page_consumes_base_marker_and_carries_base() {
+        assert!(
+            TEMPLATE.contains("<!--SSR:base-->"),
+            "dashboard.html must carry the SSR base marker"
+        );
+        let out = TEMPLATE.replace("<!--SSR:base-->", &base_head(&normalize_base("/telemetry")));
+        assert!(!out.contains("<!--SSR:base-->"));
+        assert!(out.contains("<base href=\"/telemetry/\">"));
+        assert!(out.contains("window.__BASE__=\"/telemetry\""));
+    }
 }

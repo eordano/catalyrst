@@ -1,0 +1,10 @@
+{
+  "ok": true,
+  "data": {
+    "total": 5,
+    "limit": 2,
+    "pages": 3,
+    "page": 1,
+    "results": []
+  }
+}

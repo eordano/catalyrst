@@ -2,6 +2,7 @@ use axum::extract::{Path, Query, State};
 use axum::http::HeaderMap;
 use axum::Json;
 use base64::Engine;
+use catalyrst_types::is_eth_address;
 use serde::Deserialize;
 use serde_json::json;
 
@@ -33,14 +34,33 @@ fn b64(bytes: &[u8]) -> String {
     base64::engine::general_purpose::STANDARD.encode(bytes)
 }
 
-fn is_eth_address(addr: &str) -> bool {
-    addr.len() == 42 && addr.starts_with("0x") && addr[2..].chars().all(|c| c.is_ascii_hexdigit())
+async fn auth(headers: &HeaderMap, method: &str, path: &str) -> Result<String, ApiError> {
+    require_signer(headers, method, path)
+        .await
+        .map(|s| s.as_str().to_string())
+        .map_err(|e| unauthorized(format!("invalid identity: {e}")))
 }
 
-fn auth(headers: &HeaderMap, method: &str, path: &str) -> Result<String, ApiError> {
-    require_signer(headers, method, path)
-        .map(|s| s.to_lowercase())
-        .map_err(|e| unauthorized(format!("invalid identity: {e}")))
+fn authorized_community_binding(
+    state: &AppState,
+    headers: &HeaderMap,
+    requested: Option<&str>,
+) -> Result<Option<String>, ApiError> {
+    let Some(requested) = requested.map(str::trim).filter(|s| !s.is_empty()) else {
+        return Ok(None);
+    };
+    let presented_service_token = state
+        .gatekeeper_auth_token
+        .as_deref()
+        .zip(crate::moderator::bearer_token(headers))
+        .map(|(expected, token)| crate::moderator::timing_safe_eq(&token, expected))
+        .unwrap_or(false);
+    if !presented_service_token {
+        return Err(forbidden(
+            "a wallet signature cannot prove community membership; community-scoped groups may only be created with the platform service token",
+        ));
+    }
+    Ok(Some(requested.to_string()))
 }
 
 async fn is_member(state: &AppState, group_id: &str, wallet: &str) -> Result<bool, ApiError> {
@@ -60,7 +80,7 @@ pub async fn publish_key_packages(
     headers: HeaderMap,
     body: axum::body::Bytes,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let signer = auth(&headers, "post", "/mls/key-packages")?;
+    let signer = auth(&headers, "post", "/mls/key-packages").await?;
     let payload: serde_json::Value =
         serde_json::from_slice(&body).map_err(|e| bad_request(e.to_string()))?;
     let arr = payload
@@ -118,7 +138,7 @@ pub async fn claim_key_package(
     if !is_eth_address(&owner) {
         return Err(bad_request("owner must be an eth address"));
     }
-    let _claimer = auth(&headers, "get", &format!("/mls/key-packages/{owner}"))?;
+    let _claimer = auth(&headers, "get", &format!("/mls/key-packages/{owner}")).await?;
 
     let row = sqlx::query_as::<_, (String, Vec<u8>, i32)>(
         "UPDATE mls_key_packages SET consumed_at = now() \
@@ -139,9 +159,10 @@ pub async fn claim_key_package(
             "ciphersuite": cs,
             "key_package": b64(&kp),
         }))),
-        None => Err(ApiError::schema(
+        None => Err(ApiError::labeled(
             404,
-            json!({ "error": "no key package available", "owner": owner, "last_resort": false }),
+            "no key package available",
+            format!("no key package available for {owner}"),
         )),
     }
 }
@@ -155,7 +176,7 @@ pub async fn key_package_count(
     if !is_eth_address(&owner) {
         return Err(bad_request("owner must be an eth address"));
     }
-    let _ = auth(&headers, "get", &format!("/mls/key-packages/{owner}/count"))?;
+    let _ = auth(&headers, "get", &format!("/mls/key-packages/{owner}/count")).await?;
     let n: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM mls_key_packages WHERE owner = $1 AND consumed_at IS NULL",
     )
@@ -188,7 +209,7 @@ pub async fn create_group(
     headers: HeaderMap,
     body: axum::body::Bytes,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let creator = auth(&headers, "post", "/mls/groups")?;
+    let creator = auth(&headers, "post", "/mls/groups").await?;
     let b: CreateGroupBody =
         serde_json::from_slice(&body).map_err(|e| bad_request(e.to_string()))?;
 
@@ -210,7 +231,9 @@ pub async fn create_group(
         return Err(bad_request("a 'dm' group must have exactly two members"));
     }
 
-    let epoch_author = std::env::var("FED_PEER_ID").unwrap_or_else(|_| "local".to_string());
+    let community_id = authorized_community_binding(&state, &headers, b.community_id.as_deref())?;
+
+    let epoch_author = state.fed_peer_id.clone();
 
     let mut tx = state.pool.begin().await?;
     let inserted = sqlx::query(
@@ -221,7 +244,7 @@ pub async fn create_group(
     .bind(&group_id)
     .bind(&creator)
     .bind(&b.group_kind)
-    .bind(&b.community_id)
+    .bind(&community_id)
     .bind(&epoch_author)
     .bind(mls::PINNED_CIPHERSUITE_ID as i32)
     .execute(&mut *tx)
@@ -304,7 +327,7 @@ pub async fn submit_commit(
     body: axum::body::Bytes,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let group_id = group_id.to_lowercase();
-    let signer = auth(&headers, "post", &format!("/mls/groups/{group_id}/commits"))?;
+    let signer = auth(&headers, "post", &format!("/mls/groups/{group_id}/commits")).await?;
     let b: CommitBody = serde_json::from_slice(&body).map_err(|e| bad_request(e.to_string()))?;
 
     let g = sqlx::query_as::<_, (String, i64)>(
@@ -320,27 +343,23 @@ pub async fn submit_commit(
         return Err(forbidden("only group members may submit commits"));
     }
 
-    let our_peer = std::env::var("FED_PEER_ID").unwrap_or_else(|_| "local".to_string());
+    let our_peer = state.fed_peer_id.as_str();
     if epoch_author != our_peer {
-        return Err(ApiError::schema(
+        return Err(ApiError::labeled(
             409,
-            json!({
-                "error": "wrong epoch author",
-                "message": "submit epoch-advancing commits to the group's epoch-author catalyst",
-                "epoch_author": epoch_author,
-            }),
+            "wrong epoch author",
+            format!("submit epoch-advancing commits to the group's epoch-author catalyst ({epoch_author})"),
         ));
     }
 
     if b.epoch != current_epoch + 1 {
-        return Err(ApiError::schema(
+        return Err(ApiError::labeled(
             409,
-            json!({
-                "error": "epoch conflict",
-                "message": "commit epoch must be current_epoch + 1",
-                "current_epoch": current_epoch,
-                "submitted_epoch": b.epoch,
-            }),
+            "epoch conflict",
+            format!(
+                "commit epoch must be current_epoch + 1 (current_epoch={current_epoch}, submitted_epoch={})",
+                b.epoch
+            ),
         ));
     }
 
@@ -448,7 +467,7 @@ pub async fn fetch_commits(
     Query(q): Query<CommitsQuery>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let group_id = group_id.to_lowercase();
-    let signer = auth(&headers, "get", &format!("/mls/groups/{group_id}/commits"))?;
+    let signer = auth(&headers, "get", &format!("/mls/groups/{group_id}/commits")).await?;
     if !is_member(&state, &group_id, &signer).await? {
         return Err(forbidden("only group members may fetch commits"));
     }
@@ -489,16 +508,24 @@ pub async fn send_message(
         &headers,
         "post",
         &format!("/mls/groups/{group_id}/messages"),
-    )?;
+    )
+    .await?;
 
-    let g = sqlx::query_as::<_, (i64,)>("SELECT current_epoch FROM mls_groups WHERE group_id = $1")
-        .bind(&group_id)
-        .fetch_optional(&state.pool)
-        .await?
-        .ok_or_else(|| ApiError::not_found("group not found"))?;
-    let current_epoch = g.0;
-
-    if !is_member(&state, &group_id, &signer).await? {
+    let row = sqlx::query_as::<_, (i64, bool)>(
+        "SELECT g.current_epoch, \
+            EXISTS(SELECT 1 FROM mls_group_members m \
+                   WHERE m.group_id = g.group_id AND m.member = $2 \
+                     AND m.removed_epoch IS NULL) \
+         FROM mls_groups g WHERE g.group_id = $1",
+    )
+    .bind(&group_id)
+    .bind(&signer)
+    .fetch_optional(&state.pool)
+    .await?;
+    let Some((current_epoch, is_member)) = row else {
+        return Err(ApiError::not_found("group not found"));
+    };
+    if !is_member {
         return Err(forbidden("only group members may send messages"));
     }
 
@@ -515,14 +542,13 @@ pub async fn send_message(
     }
 
     if routing.epoch as i64 > current_epoch {
-        return Err(ApiError::schema(
+        return Err(ApiError::labeled(
             409,
-            json!({
-                "error": "epoch ahead",
-                "message": "message epoch is ahead of the group's current epoch; submit the commit first",
-                "current_epoch": current_epoch,
-                "message_epoch": routing.epoch,
-            }),
+            "epoch ahead",
+            format!(
+                "message epoch is ahead of the group's current epoch; submit the commit first (current_epoch={current_epoch}, message_epoch={})",
+                routing.epoch
+            ),
         ));
     }
 
@@ -582,7 +608,7 @@ pub async fn fetch_history(
     Query(q): Query<HistoryQuery>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let group_id = group_id.to_lowercase();
-    let signer = auth(&headers, "get", &format!("/mls/groups/{group_id}/messages"))?;
+    let signer = auth(&headers, "get", &format!("/mls/groups/{group_id}/messages")).await?;
     if !is_member(&state, &group_id, &signer).await? {
         return Err(forbidden("only group members may fetch history"));
     }
@@ -624,7 +650,7 @@ pub async fn fetch_blob(
     Path(hash): Path<String>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let hash = hash.to_lowercase();
-    let signer = auth(&headers, "get", &format!("/mls/blobs/{hash}"))?;
+    let signer = auth(&headers, "get", &format!("/mls/blobs/{hash}")).await?;
 
     let allowed: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM mls_message_refs r \

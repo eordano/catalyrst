@@ -1,15 +1,51 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use axum::extract::{Query, RawQuery, State};
+use axum::extract::{Query, State};
 use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 use serde_json::{json, Map, Value};
 
 use crate::cache;
-use crate::map::{Tile, TileType};
+use crate::map::{coords_to_id, LegacyTile, Tile, TileType};
 use crate::AppState;
+
+/// Params that `filter_tiles` actually consumes. The cache key is built from
+/// exactly these (see `canonical_tiles_key`) so semantically-equal requests
+/// collapse to one entry regardless of raw query-string order or extra params.
+const KEY_PARAMS: &[&str] = &["x1", "x2", "y1", "y2", "exclude", "include"];
+
+/// Canonical, order-independent cache key derived from the parsed params rather than the raw
+/// query string. `include`/`exclude` lists are sorted: projection is key-order-insensitive.
+fn canonical_tiles_key(prefix: &str, q: &HashMap<String, String>) -> String {
+    let mut s = String::with_capacity(prefix.len() + 32);
+    s.push_str(prefix);
+    s.push('?');
+    for (i, p) in KEY_PARAMS.iter().enumerate() {
+        if i > 0 {
+            s.push('&');
+        }
+        s.push_str(p);
+        s.push('=');
+        if let Some(v) = q.get(*p) {
+            if *p == "include" || *p == "exclude" {
+                let mut parts: Vec<&str> = v.split(',').collect();
+                parts.sort_unstable();
+                s.push_str(&parts.join(","));
+            } else {
+                s.push_str(v);
+            }
+        }
+    }
+    s
+}
+
+// Thread-local so parallel test threads do not cross-count.
+#[cfg(test)]
+thread_local! {
+    pub(crate) static FILTER_TILE_VISITS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
 
 fn finalize(mut resp: Response, last: i64) -> Response {
     cache::apply(&mut resp, last, cache::DEFAULT_MAX_AGE, cache::DEFAULT_SWR);
@@ -90,20 +126,56 @@ fn filter_tiles<'a>(
         None
     };
 
+    // A bbox smaller than the tile set is cheaper to probe coordinate by coordinate than to
+    // find by scanning every parcel. Ids are `coords_to_id`, so the visited set is identical.
+    let use_bbox = match bbox {
+        Some((min_x, max_x, min_y, max_y)) => {
+            let w = (max_x as i64 - min_x as i64 + 1) as u64;
+            let h = (max_y as i64 - min_y as i64 + 1) as u64;
+            w.checked_mul(h)
+                .map(|area| area < tiles.len() as u64)
+                .unwrap_or(false)
+        }
+        None => false,
+    };
+
     let mut out = Vec::new();
-    for (id, tile) in tiles {
-        if let Some((min_x, max_x, min_y, max_y)) = bbox {
-            if tile.x < min_x || tile.x > max_x || tile.y < min_y || tile.y > max_y {
-                continue;
+    if let (true, Some((min_x, max_x, min_y, max_y))) = (use_bbox, bbox) {
+        for x in min_x..=max_x {
+            for y in min_y..=max_y {
+                #[cfg(test)]
+                FILTER_TILE_VISITS.with(|c| c.set(c.get() + 1));
+                if let Some((id, tile)) = tiles.get_key_value(&coords_to_id(x, y)) {
+                    push_projected(id, tile, &fields, &mut out);
+                }
             }
         }
-        let mut obj = serde_json::to_value(tile).unwrap_or(Value::Null);
-        if let Some(fields) = &fields {
-            obj = project_include(&obj, fields);
+    } else {
+        for (id, tile) in tiles {
+            #[cfg(test)]
+            FILTER_TILE_VISITS.with(|c| c.set(c.get() + 1));
+            if let Some((min_x, max_x, min_y, max_y)) = bbox {
+                if tile.x < min_x || tile.x > max_x || tile.y < min_y || tile.y > max_y {
+                    continue;
+                }
+            }
+            push_projected(id, tile, &fields, &mut out);
         }
-        out.push((id, obj));
     }
     out
+}
+
+fn push_projected<'a>(
+    id: &'a String,
+    tile: &Tile,
+    fields: &Option<Vec<String>>,
+    out: &mut Vec<(&'a String, Value)>,
+) {
+    let mut obj = serde_json::to_value(tile).unwrap_or(Value::Null);
+    if let Some(fields) = fields {
+        obj = project_include(&obj, fields);
+    }
+    out.push((id, obj));
 }
 
 fn project_include(obj: &Value, fields: &[String]) -> Value {
@@ -121,11 +193,10 @@ fn project_include(obj: &Value, fields: &[String]) -> Value {
 pub async fn get_tiles(
     State(state): State<AppState>,
     headers: HeaderMap,
-    RawQuery(raw): RawQuery,
     Query(q): Query<HashMap<String, String>>,
 ) -> Response {
     let last = state.map.last_updated_at();
-    let cache_key = format!("v2?{}", raw.as_deref().unwrap_or(""));
+    let cache_key = canonical_tiles_key("v2", &q);
     if let Some(r) = cache::not_modified_etag(
         &headers,
         last,
@@ -176,46 +247,32 @@ fn legacy_type(tile: &Tile) -> i32 {
     }
 }
 
-fn to_legacy(tile: &Tile) -> Value {
-    let mut m = Map::new();
-    m.insert("type".into(), json!(legacy_type(tile)));
-    m.insert("x".into(), json!(tile.x));
-    m.insert("y".into(), json!(tile.y));
-    if tile.top {
-        m.insert("top".into(), json!(1));
+pub fn to_legacy(tile: &Tile) -> LegacyTile {
+    LegacyTile {
+        tile_type: legacy_type(tile),
+        x: tile.x,
+        y: tile.y,
+        top: tile.top.then_some(1),
+        left: tile.left.then_some(1),
+        top_left: tile.top_left.then_some(1),
+        owner: tile.owner.clone(),
+        name: tile.name.clone(),
+        estate_id: tile.estate_id.clone(),
+        price: tile.price,
+        rental_price_per_day: tile
+            .rental_listing
+            .as_ref()
+            .map(|rl| rl.max_price_per_day()),
     }
-    if tile.left {
-        m.insert("left".into(), json!(1));
-    }
-    if tile.top_left {
-        m.insert("topLeft".into(), json!(1));
-    }
-    if let Some(o) = &tile.owner {
-        m.insert("owner".into(), json!(o));
-    }
-    if let Some(n) = &tile.name {
-        m.insert("name".into(), json!(n));
-    }
-    if let Some(e) = &tile.estate_id {
-        m.insert("estate_id".into(), json!(e));
-    }
-    if let Some(p) = tile.price {
-        m.insert("price".into(), json!(p));
-    }
-    if let Some(rl) = &tile.rental_listing {
-        m.insert("rentalPricePerDay".into(), json!(rl.max_price_per_day()));
-    }
-    Value::Object(m)
 }
 
 pub async fn get_legacy_tiles(
     State(state): State<AppState>,
     headers: HeaderMap,
-    RawQuery(raw): RawQuery,
     Query(q): Query<HashMap<String, String>>,
 ) -> Response {
     let last = state.map.last_updated_at();
-    let cache_key = format!("v1?{}", raw.as_deref().unwrap_or(""));
+    let cache_key = canonical_tiles_key("v1", &q);
     if let Some(r) = cache::not_modified_etag(
         &headers,
         last,
@@ -244,7 +301,10 @@ pub async fn get_legacy_tiles(
     let mut map = Map::new();
     for (id, _) in filtered {
         if let Some(t) = data.tiles.get(id) {
-            map.insert(id.clone(), to_legacy(t));
+            map.insert(
+                id.clone(),
+                serde_json::to_value(to_legacy(t)).unwrap_or(Value::Null),
+            );
         }
     }
     let body =
@@ -397,7 +457,7 @@ mod tests {
 
     #[test]
     fn legacy_tile_carries_rental_price_per_day() {
-        let v = to_legacy(&owned_tile());
+        let v = serde_json::to_value(to_legacy(&owned_tile())).unwrap();
         assert_eq!(v["rentalPricePerDay"], json!("2000"));
 
         assert_eq!(v["type"], json!(10));
@@ -466,5 +526,95 @@ mod tests {
         let out = filter_tiles(&tiles, &q);
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].0, "10,20");
+    }
+
+    fn grid_tile(x: i32, y: i32) -> Tile {
+        let mut t = owned_tile();
+        t.id = coords_to_id(x, y);
+        t.x = x;
+        t.y = y;
+        t
+    }
+
+    fn bbox_query(x1: i32, x2: i32, y1: i32, y2: i32) -> HashMap<String, String> {
+        [
+            ("x1".to_string(), x1.to_string()),
+            ("x2".to_string(), x2.to_string()),
+            ("y1".to_string(), y1.to_string()),
+            ("y2".to_string(), y2.to_string()),
+        ]
+        .into_iter()
+        .collect()
+    }
+
+    // The full-map scan visits 10_000; the bbox probe visits 25.
+    #[test]
+    fn bbox_filter_probes_area_not_total() {
+        let mut tiles = HashMap::new();
+        for x in 0..100 {
+            for y in 0..100 {
+                tiles.insert(coords_to_id(x, y), grid_tile(x, y));
+            }
+        }
+        assert_eq!(tiles.len(), 10_000);
+
+        let q = bbox_query(0, 4, 0, 4); // area = 5*5 = 25
+        FILTER_TILE_VISITS.with(|c| c.set(0));
+        let out = filter_tiles(&tiles, &q);
+        let visits = FILTER_TILE_VISITS.with(|c| c.get());
+
+        assert_eq!(visits, 25, "bbox must probe area (25), not scan all tiles");
+
+        let mut got: Vec<String> = out.iter().map(|(id, _)| (*id).clone()).collect();
+        got.sort();
+        let mut want: Vec<String> = (0..=4)
+            .flat_map(|x| (0..=4).map(move |y| coords_to_id(x, y)))
+            .collect();
+        want.sort();
+        assert_eq!(got, want);
+    }
+
+    // The raw-query key forked semantically-equal requests into separate entries.
+    #[tokio::test]
+    async fn param_order_collapses_to_one_entry() {
+        // extra ignored param must not change the key
+        let a = bbox_query(0, 1, 0, 1);
+        let mut b = bbox_query(0, 1, 0, 1);
+        b.insert("cachebust".to_string(), "xyz".to_string());
+        assert_eq!(
+            canonical_tiles_key("v2", &a),
+            canonical_tiles_key("v2", &b),
+            "ignored params must not fork the cache key"
+        );
+
+        // include list order must not change the key
+        let c: HashMap<String, String> = [("include".to_string(), "x,y,owner".to_string())]
+            .into_iter()
+            .collect();
+        let d: HashMap<String, String> = [("include".to_string(), "owner,y,x".to_string())]
+            .into_iter()
+            .collect();
+        assert_eq!(canonical_tiles_key("v2", &c), canonical_tiles_key("v2", &d));
+
+        // and both requests land on a single cache entry within one epoch
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .connect_lazy("postgres://u:p@127.0.0.1:5999/db")
+            .unwrap();
+        let mc = crate::map::MapComponent::new(
+            pool,
+            "s".into(),
+            "0xland".into(),
+            "0xestate".into(),
+            64,
+            64,
+        );
+        let body = Arc::new(vec![1u8]);
+        mc.store_tiles_response(canonical_tiles_key("v2", &a), body.clone());
+        mc.store_tiles_response(canonical_tiles_key("v2", &b), body);
+        assert_eq!(
+            mc.tiles_cache_len(),
+            1,
+            "equivalent requests must share one entry"
+        );
     }
 }

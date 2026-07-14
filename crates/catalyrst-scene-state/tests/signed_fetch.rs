@@ -15,7 +15,9 @@ use catalyrst_scene_state::crdt::{decode_batch, encode_batch, CrdtMessage};
 use catalyrst_scene_state::delegation::{parse_storage_delegation, DelegationSlot};
 use catalyrst_scene_state::jsruntime::{self, parse_origin, StorageCtx};
 use catalyrst_scene_state::runtime::RuntimeLimits;
-use catalyrst_world_storage::delegation::{verify_storage_delegation, StorageDelegationTarget};
+use catalyrst_worlds::world_storage::delegation::{
+    verify_storage_delegation, StorageDelegationTarget,
+};
 
 const AUTHORITATIVE_KEY: &str =
     "0x4c0883a69102937d6231471b5dbb6204fe5129617082792ae468d01a3f362318";
@@ -320,8 +322,12 @@ async fn signed_fetch_pipeline_signs_caps_and_confines_requests() {
     assert_eq!(link0["type"], "SIGNER");
     let signer = link0["payload"].as_str().unwrap().to_string();
     assert_eq!(signer.to_lowercase(), ephemeral_address.to_lowercase());
-    let expected_payload =
-        catalyrst_world_storage::auth_chain::build_payload("put", "/values/k?x=1", &ts, &metadata);
+    let expected_payload = catalyrst_worlds::world_storage::auth_chain::build_payload(
+        "put",
+        "/values/k?x=1",
+        &ts,
+        &metadata,
+    );
     assert_eq!(link1["payload"].as_str().unwrap(), expected_payload);
     let recovered = catalyrst_crypto::recover::recover_address(
         expected_payload.as_bytes(),
@@ -331,7 +337,7 @@ async fn signed_fetch_pipeline_signs_caps_and_confines_requests() {
     assert_eq!(recovered.to_lowercase(), ephemeral_address.to_lowercase());
 
     // The scope header on the wire verifies against the REAL verifier for the
-    // matching target — and fails for wrong world / scene / parcel.
+    // matching target -- and fails for wrong world / scene / parcel.
     let authoritative = Wallet::from_hex(AUTHORITATIVE_KEY).unwrap();
     let trusted = vec![authoritative.address()];
     let wire_scope = header("x-authoritative-scope").unwrap();

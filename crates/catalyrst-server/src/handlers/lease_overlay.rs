@@ -1,22 +1,31 @@
 use sqlx::PgPool;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicU8, Ordering};
 
-static PRESENT: AtomicBool = AtomicBool::new(false);
+const UNKNOWN: u8 = 0;
+const PRESENT: u8 = 1;
+const ABSENT: u8 = 2;
+
+static STATE: AtomicU8 = AtomicU8::new(UNKNOWN);
 
 pub(crate) async fn usage_grants_present(pool: &PgPool) -> bool {
-    if PRESENT.load(Ordering::Relaxed) {
-        return true;
+    match STATE.load(Ordering::Relaxed) {
+        PRESENT => return true,
+        ABSENT => return false,
+        _ => {}
     }
 
-    let present: bool = sqlx::query_scalar(
-        "SELECT to_regclass('marketplace.usage_grants') IS NOT NULL \
-         AND has_table_privilege(current_user, 'marketplace.usage_grants', 'SELECT')",
+    let probe: Result<bool, sqlx::Error> = sqlx::query_scalar!(
+        r#"SELECT to_regclass('marketplace.usage_grants') IS NOT NULL
+         AND has_table_privilege(current_user, 'marketplace.usage_grants', 'SELECT') AS "present!""#
     )
     .fetch_one(pool)
-    .await
-    .unwrap_or(false);
-    if present {
-        PRESENT.store(true, Ordering::Relaxed);
+    .await;
+
+    match probe {
+        Ok(present) => {
+            STATE.store(if present { PRESENT } else { ABSENT }, Ordering::Relaxed);
+            present
+        }
+        Err(_) => false,
     }
-    present
 }

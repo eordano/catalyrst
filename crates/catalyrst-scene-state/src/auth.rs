@@ -1,14 +1,14 @@
 use std::collections::HashMap;
 
+use catalyrst_crypto::signed_fetch::{build_legacy_payload, build_payload_v6};
 use catalyrst_crypto::verify::verify_auth_chain;
-use catalyrst_types::AuthLink;
+use catalyrst_types::{AuthLink, AuthLinkType};
 use thiserror::Error;
 
-pub const AUTH_CHAIN_HEADER_PREFIX: &str = "x-identity-auth-chain-";
-pub const AUTH_TIMESTAMP_HEADER: &str = "x-identity-timestamp";
-pub const AUTH_METADATA_HEADER: &str = "x-identity-metadata";
-
-pub const MAX_AUTH_CHAIN_LINKS: usize = 10;
+pub use catalyrst_crypto::signed_fetch::{
+    build_payload, signed_fetch_path, AUTH_CHAIN_HEADER_PREFIX, AUTH_METADATA_HEADER,
+    AUTH_TIMESTAMP_HEADER, MAX_AUTH_CHAIN_LINKS,
+};
 
 pub const FIVE_MINUTES: i64 = 5 * 60;
 
@@ -63,23 +63,27 @@ pub fn verify_auth_frame(
         .cloned()
         .unwrap_or_else(|| "{}".into());
 
-    let payload = build_payload(method, path, &ts, &metadata);
-    validate_signature(&chain, &payload, &ts, FIVE_MINUTES, now)?;
+    validate_signature_either_payload(&chain, method, path, &ts, &metadata, FIVE_MINUTES, now)?;
 
     Ok(Authenticated { signer })
 }
 
-pub fn build_payload(method: &str, path: &str, timestamp: &str, metadata: &str) -> String {
-    format!("{method}:{path}:{timestamp}:{metadata}").to_lowercase()
-}
-
-pub fn signed_fetch_path<'a>(
-    headers: &axum::http::HeaderMap,
-    fallback: &'a str,
-) -> std::borrow::Cow<'a, str> {
-    match headers.get("x-original-path").and_then(|v| v.to_str().ok()) {
-        Some(raw) => std::borrow::Cow::Owned(raw.split('?').next().unwrap_or(raw).to_string()),
-        None => std::borrow::Cow::Borrowed(fallback),
+fn validate_signature_either_payload(
+    chain: &[AuthLink],
+    method: &str,
+    path: &str,
+    timestamp: &str,
+    metadata: &str,
+    expiration_secs: i64,
+    now: i64,
+) -> Result<(), AuthError> {
+    let v6 = build_payload_v6(method, path, timestamp, metadata);
+    let legacy = build_legacy_payload(method, path, timestamp, metadata);
+    match validate_signature(chain, &v6, timestamp, expiration_secs, now) {
+        Err(AuthError::InvalidSignature(_)) if legacy != v6 => {
+            validate_signature(chain, &legacy, timestamp, expiration_secs, now)
+        }
+        settled => settled,
     }
 }
 
@@ -90,6 +94,24 @@ fn extract_auth_chain(headers: &HashMap<String, String>) -> Result<Vec<AuthLink>
         let Some(raw) = headers.get(&name) else { break };
         let link: AuthLink =
             serde_json::from_str(raw).map_err(|e| AuthError::MalformedChain(e.to_string()))?;
+        if link.link_type == AuthLinkType::SIGNER {
+            if i != 0 {
+                return Err(AuthError::MalformedChain(format!(
+                    "SIGNER link at non-zero index {i}"
+                )));
+            }
+        } else {
+            if i == 0 {
+                return Err(AuthError::MalformedChain(
+                    "first link must be SIGNER".into(),
+                ));
+            }
+            if link.signature.as_deref().unwrap_or("").is_empty() {
+                return Err(AuthError::MalformedChain(format!(
+                    "missing signature on link {i}"
+                )));
+            }
+        }
         links.push(link);
     }
     let overflow = format!("{AUTH_CHAIN_HEADER_PREFIX}{MAX_AUTH_CHAIN_LINKS}");
@@ -132,7 +154,10 @@ mod tests {
     #[test]
     fn rejects_non_json() {
         let err = verify_auth_frame(b"not json", "GET", "/ws/x", 0).unwrap_err();
-        matches!(err, AuthError::BadJson(_));
+        assert!(
+            matches!(err, AuthError::BadJson(_)),
+            "expected BadJson, got {err:?}"
+        );
     }
 
     #[test]
@@ -143,7 +168,58 @@ mod tests {
         })
         .to_string();
         let err = verify_auth_frame(body.as_bytes(), "GET", "/ws/x", 0).unwrap_err();
-        matches!(err, AuthError::InsufficientLinks);
+        assert!(
+            matches!(err, AuthError::InsufficientLinks),
+            "expected InsufficientLinks, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn rejects_signer_link_at_non_zero_index() {
+        let body = serde_json::json!({
+            "x-identity-auth-chain-0":
+                "{\"type\":\"ECDSA_EPHEMERAL\",\"payload\":\"0xabc\",\"signature\":\"0xsig\"}",
+            "x-identity-auth-chain-1":
+                "{\"type\":\"SIGNER\",\"payload\":\"0xabc\",\"signature\":\"\"}"
+        })
+        .to_string();
+        let err = verify_auth_frame(body.as_bytes(), "GET", "/ws/x", 0).unwrap_err();
+        assert!(
+            matches!(err, AuthError::MalformedChain(_)),
+            "expected MalformedChain, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn rejects_non_signer_first_link() {
+        let body = serde_json::json!({
+            "x-identity-auth-chain-0":
+                "{\"type\":\"ECDSA_EPHEMERAL\",\"payload\":\"0xabc\",\"signature\":\"0xsig\"}",
+            "x-identity-auth-chain-1":
+                "{\"type\":\"ECDSA_SIGNED_ENTITY\",\"payload\":\"payload\",\"signature\":\"0xsig\"}"
+        })
+        .to_string();
+        let err = verify_auth_frame(body.as_bytes(), "GET", "/ws/x", 0).unwrap_err();
+        assert!(
+            matches!(err, AuthError::MalformedChain(_)),
+            "expected MalformedChain, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn rejects_missing_signature_on_non_signer_link() {
+        let body = serde_json::json!({
+            "x-identity-auth-chain-0":
+                "{\"type\":\"SIGNER\",\"payload\":\"0xabc\",\"signature\":\"\"}",
+            "x-identity-auth-chain-1":
+                "{\"type\":\"ECDSA_SIGNED_ENTITY\",\"payload\":\"payload\"}"
+        })
+        .to_string();
+        let err = verify_auth_frame(body.as_bytes(), "GET", "/ws/x", 0).unwrap_err();
+        assert!(
+            matches!(err, AuthError::MalformedChain(_)),
+            "expected MalformedChain, got {err:?}"
+        );
     }
 
     #[test]

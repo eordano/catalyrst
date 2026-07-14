@@ -1,0 +1,111 @@
+{
+  "cart": {
+    "address": "0x70997970c51812dc3a010c7d01b50e0d17dc79c8",
+    "items": [
+      {
+        "itemId": "0",
+        "collection": "0xc78d22b25514ebef5cdb34ccc4bf85f28c30f8c4",
+        "urn": "urn:decentraland:matic:collections-v2:0xc78d22b25514ebef5cdb34ccc4bf85f28c30f8c4:0",
+        "category": "wearable",
+        "qty": 1,
+        "unitPriceCredits": "1"
+      },
+      {
+        "itemId": "0",
+        "collection": "0xd14026bf5e455f3487dc57cbff3d408d4c11949f",
+        "urn": "urn:decentraland:matic:collections-v2:0xd14026bf5e455f3487dc57cbff3d408d4c11949f:0",
+        "category": "emote",
+        "qty": 1,
+        "unitPriceCredits": "1"
+      }
+    ],
+    "totalCredits": "2"
+  },
+  "catalogRows": {
+    "0xc78d22b25514ebef5cdb34ccc4bf85f28c30f8c4-0": {
+      "id": "0xc78d22b25514ebef5cdb34ccc4bf85f28c30f8c4-0",
+      "beneficiary": "0x0000000000000000000000000000000000000000",
+      "itemId": "0",
+      "name": "ENO T-Shirt",
+      "thumbnail": "https://catalyst.example.com/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0xc78d22b25514ebef5cdb34ccc4bf85f28c30f8c4:0/thumbnail",
+      "url": "/contracts/0xc78d22b25514ebef5cdb34ccc4bf85f28c30f8c4/items/0",
+      "urn": "urn:decentraland:matic:collections-v2:0xc78d22b25514ebef5cdb34ccc4bf85f28c30f8c4:0",
+      "category": "wearable",
+      "contractAddress": "0xc78d22b25514ebef5cdb34ccc4bf85f28c30f8c4",
+      "rarity": "epic",
+      "available": 68,
+      "isOnSale": true,
+      "creator": "0x1d6bca27c286ac04ead56f1ade02741b826571b7",
+      "data": {
+        "wearable": {
+          "description": "A black T-Shirt with the ENO Logo, first edition.",
+          "category": "upper_body",
+          "bodyShapes": [
+            "BaseFemale",
+            "BaseMale"
+          ],
+          "rarity": "epic",
+          "isSmart": false
+        }
+      },
+      "network": "MATIC",
+      "chainId": 137,
+      "price": "0",
+      "createdAt": 1729283379,
+      "updatedAt": 1731141270,
+      "reviewedAt": 1731141372,
+      "firstListedAt": 1731269430,
+      "soldAt": 0,
+      "minPrice": "0",
+      "maxListingPrice": "900000000000000000",
+      "minListingPrice": "900000000000000000",
+      "listings": 1,
+      "owners": null,
+      "picks": null
+    },
+    "0xd14026bf5e455f3487dc57cbff3d408d4c11949f-0": {
+      "id": "0xd14026bf5e455f3487dc57cbff3d408d4c11949f-0",
+      "beneficiary": "0x0000000000000000000000000000000000000000",
+      "itemId": "0",
+      "name": "Golfcraft - Eating Paella",
+      "thumbnail": "https://catalyst.example.com/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0xd14026bf5e455f3487dc57cbff3d408d4c11949f:0/thumbnail",
+      "url": "/contracts/0xd14026bf5e455f3487dc57cbff3d408d4c11949f/items/0",
+      "urn": "urn:decentraland:matic:collections-v2:0xd14026bf5e455f3487dc57cbff3d408d4c11949f:0",
+      "category": "emote",
+      "contractAddress": "0xd14026bf5e455f3487dc57cbff3d408d4c11949f",
+      "rarity": "common",
+      "available": 99565,
+      "isOnSale": true,
+      "creator": "0xcf10cd8b5dc2323b1eb6de6164647756bad4de4d",
+      "data": {
+        "emote": {
+          "bodyShapes": [
+            "BaseMale",
+            "BaseFemale"
+          ],
+          "category": "poses",
+          "description": "La millor paella amb aig\u00fca de la terreta i feta per ma mare.",
+          "hasGeometry": true,
+          "hasSound": true,
+          "loop": true,
+          "outcomeType": null,
+          "rarity": "common"
+        }
+      },
+      "network": "MATIC",
+      "chainId": 137,
+      "price": "0",
+      "createdAt": 1695148018,
+      "updatedAt": 1758743019,
+      "reviewedAt": 1695148231,
+      "firstListedAt": 1695210843,
+      "soldAt": 1758743019,
+      "minPrice": "0",
+      "maxListingPrice": "990000000000000000",
+      "minListingPrice": "140000000000000000",
+      "listings": 3,
+      "owners": null,
+      "picks": null
+    }
+  }
+}

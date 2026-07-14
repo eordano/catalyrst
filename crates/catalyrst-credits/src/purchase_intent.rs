@@ -1,10 +1,13 @@
-use alloy_primitives::{keccak256, Address, U256};
+use alloy_primitives::Address;
+use catalyrst_crypto::eip712::{
+    hash_dynamic, struct_hash, typed_data_digest, word_address, word_u64,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::http::ApiError;
 use crate::ports::checkout::RepricedLine;
 
-pub const INTENT_DOMAIN_NAME: &str = "Catalyst Checkout";
+pub const INTENT_DOMAIN_NAME: &str = "dcl.one Checkout";
 pub const INTENT_DOMAIN_VERSION: &str = "1";
 pub const INTENT_CHAIN_ID: u64 = 137;
 pub const INTENT_CURRENCY: &str = "CREDITS";
@@ -44,12 +47,14 @@ pub fn canonical_items(lines: &[RepricedLine]) -> String {
 }
 
 fn domain_separator() -> [u8; 32] {
-    let mut enc = Vec::with_capacity(32 * 4);
-    enc.extend_from_slice(keccak256(DOMAIN_TYPE.as_bytes()).as_slice());
-    enc.extend_from_slice(keccak256(INTENT_DOMAIN_NAME.as_bytes()).as_slice());
-    enc.extend_from_slice(keccak256(INTENT_DOMAIN_VERSION.as_bytes()).as_slice());
-    enc.extend_from_slice(&U256::from(INTENT_CHAIN_ID).to_be_bytes::<32>());
-    keccak256(&enc).0
+    struct_hash(
+        hash_dynamic(DOMAIN_TYPE.as_bytes()),
+        &[
+            hash_dynamic(INTENT_DOMAIN_NAME.as_bytes()),
+            hash_dynamic(INTENT_DOMAIN_VERSION.as_bytes()),
+            word_u64(INTENT_CHAIN_ID),
+        ],
+    )
 }
 
 pub fn intent_digest(intent: &PurchaseIntentIn) -> Result<[u8; 32], ApiError> {
@@ -58,23 +63,18 @@ pub fn intent_digest(intent: &PurchaseIntentIn) -> Result<[u8; 32], ApiError> {
         .parse()
         .map_err(|_| ApiError::bad_request("purchase intent buyer is not a valid address"))?;
 
-    let mut enc = Vec::with_capacity(32 * 7);
-    enc.extend_from_slice(keccak256(INTENT_TYPE.as_bytes()).as_slice());
-    let mut buyer_word = [0u8; 32];
-    buyer_word[12..].copy_from_slice(buyer.as_slice());
-    enc.extend_from_slice(&buyer_word);
-    enc.extend_from_slice(keccak256(intent.items.as_bytes()).as_slice());
-    enc.extend_from_slice(keccak256(intent.total_credits.as_bytes()).as_slice());
-    enc.extend_from_slice(keccak256(intent.currency.as_bytes()).as_slice());
-    enc.extend_from_slice(keccak256(intent.nonce.as_bytes()).as_slice());
-    enc.extend_from_slice(&U256::from(intent.expires_at).to_be_bytes::<32>());
-    let struct_hash = keccak256(&enc);
-
-    let mut msg = Vec::with_capacity(2 + 32 + 32);
-    msg.extend_from_slice(&[0x19, 0x01]);
-    msg.extend_from_slice(&domain_separator());
-    msg.extend_from_slice(struct_hash.as_slice());
-    Ok(keccak256(&msg).0)
+    let intent_hash = struct_hash(
+        hash_dynamic(INTENT_TYPE.as_bytes()),
+        &[
+            word_address(buyer),
+            hash_dynamic(intent.items.as_bytes()),
+            hash_dynamic(intent.total_credits.as_bytes()),
+            hash_dynamic(intent.currency.as_bytes()),
+            hash_dynamic(intent.nonce.as_bytes()),
+            word_u64(intent.expires_at),
+        ],
+    );
+    Ok(typed_data_digest(domain_separator(), intent_hash))
 }
 
 pub fn verify_purchase_intent(
@@ -101,7 +101,7 @@ pub fn verify_purchase_intent(
     }
     if intent.expires_at <= now_secs {
         return Err(ApiError::bad_request(
-            "purchase intent has expired — please review and sign the purchase again",
+            "purchase intent has expired \u{2014} please review and sign the purchase again",
         ));
     }
     if intent.expires_at - now_secs > INTENT_MAX_TTL_SECS {
@@ -128,7 +128,7 @@ pub fn verify_intent_matches_order(
     let canonical = canonical_items(repriced);
     if intent.items != canonical {
         return Err(ApiError::conflict(
-            "the items in this order changed after the purchase was signed — please review and \
+            "the items in this order changed after the purchase was signed \u{2014} please review and \
              sign again",
         ));
     }
@@ -137,7 +137,7 @@ pub fn verify_intent_matches_order(
     })?;
     if !decimal_eq(&intent.total_credits, &total) {
         return Err(ApiError::conflict(format!(
-            "the order total changed after the purchase was signed (signed {}, current {}) — \
+            "the order total changed after the purchase was signed (signed {}, current {}) \u{2014} \
              please review and sign again",
             intent.total_credits, total
         )));
@@ -231,6 +231,8 @@ mod tests {
 
     const VECTOR_DOMAIN_NAME_KECCAK: &str =
         "94b9b84cc9e8d44af6ca4323f5b15defda634248bfaebca980d77354327751be";
+    const VECTOR_DOMAIN_SEPARATOR: &str =
+        "7ba5e574617daf701d23f368738cb93e64101e0068c0528d671b924338fb1a87";
     const VECTOR_SIGNER: &str = "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266";
     const VECTOR_ITEMS: &str = r#"[["0x59a90bad9570ecd08895f132daf7b79696337f61","12",2],["0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","3",1]]"#;
     const VECTOR_NONCE: &str = "idem-vector-0001";
@@ -281,7 +283,12 @@ mod tests {
     const NOW: u64 = VECTOR_EXPIRES_AT - 600;
 
     fn vector_domain_compiled_in() -> bool {
-        hex::encode(keccak256(INTENT_DOMAIN_NAME.as_bytes())) == VECTOR_DOMAIN_NAME_KECCAK
+        hex::encode(hash_dynamic(INTENT_DOMAIN_NAME.as_bytes())) == VECTOR_DOMAIN_NAME_KECCAK
+    }
+
+    #[test]
+    fn ts_signed_vector_domain_separator_matches() {
+        assert_eq!(hex::encode(domain_separator()), VECTOR_DOMAIN_SEPARATOR);
     }
 
     #[test]
@@ -501,5 +508,40 @@ mod tests {
                 "expiresAt": 1767225600u64,
             })
         );
+    }
+}
+
+/// Characterizes `parse_decimal` on the shared edge-input set used across all
+/// decimal-string validators in this crate (see the sibling
+/// `characterization_*` tests in money.rs, ports/pricing.rs,
+/// ports/checkout.rs, and handlers/packs.rs). Like `charge_is_positive` and
+/// `parse_nonneg_decimal`, this rejects scientific notation and a stray
+/// extra `.`, and tolerates surrounding whitespace via `.trim()` -- but unlike
+/// them it has ITS OWN magnitude bound (`int_part.len() > 30` or
+/// `frac_part.len() > 18`), close to but not the same mechanism as `CreditAmount`'s exponent
+/// bound, and it returns a scaled mantissa `(u128, scale)` rather than a bool
+/// or string tuple, because it feeds an exact-arithmetic total-credits
+/// comparison for the signed purchase intent, not a positivity check.
+#[cfg(test)]
+mod characterization_parse_decimal {
+    use super::parse_decimal;
+
+    #[test]
+    fn current_accept_reject_on_edge_inputs() {
+        assert_eq!(parse_decimal("1e18"), None);
+        assert_eq!(parse_decimal("1E18"), None);
+        assert_eq!(parse_decimal(" 1.5 "), Some((15, 1)));
+        assert_eq!(parse_decimal(".5"), Some((5, 1)));
+        assert_eq!(parse_decimal("5."), Some((5, 0)));
+        assert_eq!(parse_decimal("01.50"), Some((150, 2)));
+        assert_eq!(parse_decimal(""), None);
+        assert_eq!(parse_decimal("-1"), None);
+        assert_eq!(parse_decimal("1.2.3"), None);
+        // 50-digit int_part exceeds this validator's OWN 30-digit cap --
+        // rejected here even though pricing/checkout's grammar has no
+        // magnitude bound at all (see their characterization tests).
+        assert_eq!(parse_decimal(&"9".repeat(50)), None);
+        // Same story for the fractional side's 18-digit cap.
+        assert_eq!(parse_decimal(&format!("0.{}", "9".repeat(50))), None);
     }
 }

@@ -151,6 +151,66 @@ pub async fn reconcile_name_transfers_once(
     Ok(advanced)
 }
 
+pub async fn reconcile_escrow_actions_once(
+    state: &AppState,
+    signer: &DirectSigner,
+) -> Result<u64, sqlx::Error> {
+    // Escrow actions (reclaim/release) are recorded 'sent' on MEMPOOL acceptance
+    // and are never otherwise confirmed on-chain -- so settle them from receipts
+    // exactly like name transfers. Keyless calls leave `idempotency_key` NULL,
+    // so drive the UPDATE off the primary key `id`, not the idempotency key.
+    let rows = sqlx::query(
+        "SELECT id, tx_hash \
+         FROM escrow_actions \
+         WHERE status = 'sent' \
+           AND tx_hash IS NOT NULL \
+           AND chain_id = $1 \
+           AND updated_at < NOW() - INTERVAL '2 minutes' \
+         ORDER BY updated_at ASC \
+         LIMIT 50",
+    )
+    .bind(signer.chain_id() as i64)
+    .fetch_all(&state.pool)
+    .await?;
+
+    let mut advanced = 0u64;
+    for r in rows {
+        let id: i64 = r.get("id");
+        let hash: Option<String> = r.get("tx_hash");
+        let Some(hash) = hash else { continue };
+
+        let outcome = match signer.await_receipt(&hash).await {
+            Ok(o) => o,
+            Err(e) => {
+                tracing::warn!(escrow_action_id = id, error = %e, "reconcile: escrow action receipt poll failed; will retry next tick");
+                continue;
+            }
+        };
+        let new_status = match outcome {
+            ReceiptOutcome::Confirmed => "confirmed",
+            ReceiptOutcome::Reverted => "reverted",
+            ReceiptOutcome::Pending => continue,
+        };
+
+        sqlx::query(
+            "UPDATE escrow_actions SET status = $2, updated_at = NOW() \
+             WHERE id = $1 AND status = 'sent'",
+        )
+        .bind(id)
+        .bind(new_status)
+        .execute(&state.pool)
+        .await?;
+        advanced += 1;
+        tracing::info!(
+            escrow_action_id = id,
+            to = %new_status,
+            tx_hash = %hash,
+            "reconcile: escrow action settled from receipt"
+        );
+    }
+    Ok(advanced)
+}
+
 pub fn spawn_broker_reconciler(state: AppState, interval: Duration) {
     if !state.transaction.has_direct_signer() && state.eth_signer.is_none() {
         tracing::info!(
@@ -158,44 +218,58 @@ pub fn spawn_broker_reconciler(state: AppState, interval: Duration) {
         );
         return;
     }
-    tokio::spawn(async move {
-        let mut ticker = tokio::time::interval(interval);
-        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-        loop {
-            ticker.tick().await;
-            let polygon = async {
-                match state.transaction.direct_signer() {
-                    Some(signer) => reconcile_once(&state, signer).await.unwrap_or_else(|e| {
-                        tracing::error!(error = %e, chain_id = signer.chain_id(), "broker reconcile pass failed");
-                        0
-                    }),
-                    None => 0,
-                }
-            };
-            let ethereum = async {
-                match state.eth_signer.as_ref() {
-                    Some(signer) => {
-                        let buys = reconcile_once(&state, signer).await.unwrap_or_else(|e| {
-                            tracing::error!(error = %e, chain_id = signer.chain_id(), "broker reconcile pass failed");
-                            0
-                        });
-                        let transfers = reconcile_name_transfers_once(&state, signer)
-                            .await
-                            .unwrap_or_else(|e| {
-                                tracing::error!(error = %e, "name transfer reconcile pass failed");
+    catalyrst_commons::worker::spawn_periodic(
+        "broker-reconcile",
+        interval,
+        catalyrst_commons::worker::PeriodicCfg::default(),
+        tokio_util::sync::CancellationToken::new(),
+        move || {
+            let state = state.clone();
+            async move {
+                let polygon = async {
+                    match state.transaction.direct_signer() {
+                        Some(signer) => {
+                            let buys = reconcile_once(&state, signer).await.unwrap_or_else(|e| {
+                                tracing::error!(error = %e, chain_id = signer.chain_id(), "broker reconcile pass failed");
                                 0
                             });
-                        buys + transfers
+                            let escrow = reconcile_escrow_actions_once(&state, signer)
+                                .await
+                                .unwrap_or_else(|e| {
+                                    tracing::error!(error = %e, chain_id = signer.chain_id(), "escrow action reconcile pass failed");
+                                    0
+                                });
+                            buys + escrow
+                        }
+                        None => 0,
                     }
-                    None => 0,
+                };
+                let ethereum = async {
+                    match state.eth_signer.as_ref() {
+                        Some(signer) => {
+                            let buys = reconcile_once(&state, signer).await.unwrap_or_else(|e| {
+                                tracing::error!(error = %e, chain_id = signer.chain_id(), "broker reconcile pass failed");
+                                0
+                            });
+                            let transfers = reconcile_name_transfers_once(&state, signer)
+                                .await
+                                .unwrap_or_else(|e| {
+                                    tracing::error!(error = %e, "name transfer reconcile pass failed");
+                                    0
+                                });
+                            buys + transfers
+                        }
+                        None => 0,
+                    }
+                };
+                let (a, b) = tokio::join!(polygon, ethereum);
+                if a + b > 0 {
+                    tracing::info!(advanced = a + b, "broker reconcile pass");
                 }
-            };
-            let (a, b) = tokio::join!(polygon, ethereum);
-            if a + b > 0 {
-                tracing::info!(advanced = a + b, "broker reconcile pass");
+                Ok::<(), std::convert::Infallible>(())
             }
-        }
-    });
+        },
+    );
 }
 
 #[cfg(test)]

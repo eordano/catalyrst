@@ -25,7 +25,7 @@ fn bearer_token(headers: &HeaderMap) -> Option<&str> {
 
 fn authorize(state: &AppState, headers: &HeaderMap) -> Result<(), axum::response::Response> {
     let forbidden = || (StatusCode::FORBIDDEN, "Not authorized").into_response();
-    let Some(expected) = state.cfg.admin_token.as_deref() else {
+    let Some(expected) = state.cfg.admin_token.as_deref().filter(|s| !s.is_empty()) else {
         return Err(forbidden());
     };
     match bearer_token(headers) {
@@ -244,7 +244,7 @@ mod tests {
     fn test_cfg() -> crate::config::Config {
         crate::config::Config {
             http_host: "127.0.0.1".into(),
-            http_port: 5153,
+            http_port: 5209,
             local_scene_path: None,
             world_server_url: None,
             debugging_secret: None,
@@ -299,5 +299,22 @@ mod tests {
     fn correct_bearer_accepted() {
         let s = state_with(Some("secret"));
         assert!(authorize(&s, &bearer("secret")).is_ok());
+    }
+
+    #[test]
+    fn empty_configured_secret_must_reject_empty_bearer() {
+        // canonical gate returns 503 on an empty configured secret; this gate must at least refuse.
+        let s = state_with(Some(""));
+        assert!(
+            authorize(&s, &bearer("")).is_err(),
+            "empty configured admin_token accepted an empty Bearer -- fail-open bypass"
+        );
+        assert!(authorize(&s, &HeaderMap::new()).is_err());
+    }
+
+    #[test]
+    fn empty_bearer_rejected_when_secret_set() {
+        let s = state_with(Some("secret"));
+        assert!(authorize(&s, &bearer("")).is_err());
     }
 }

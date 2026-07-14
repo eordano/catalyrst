@@ -1,14 +1,82 @@
 use serde_json::Value;
+use sqlx::postgres::PgRow;
 use sqlx::{PgPool, Row};
 
 use crate::access::AccessSetting;
 use crate::http::ApiError;
 
 use super::types::{
-    canonicalize_parcels, scene_settings_from_entity, AccessLogRow, BlockedRow, OrderDirection,
-    PermissionRecordFull, WorldAdminRow, WorldInfoRow, WorldManifest, WorldRecord, WorldScene,
-    WorldSettingsRow, WorldSettingsUpdate, WorldsListFilters, WorldsListOptions, WorldsOrderBy,
+    canonicalize_parcels, effective_base_parcel, scene_settings_from_entity, AccessLogRow,
+    BlockedRow, OrderDirection, PermissionRecordFull, SceneReplacement, WorldAdminRow,
+    WorldInfoRow, WorldManifest, WorldRecord, WorldScene, WorldSettingsRow, WorldSettingsUpdate,
+    WorldsListFilters, WorldsListOptions, WorldsOrderBy,
 };
+
+/// The upsert shared by `store_access` and `modify_access_atomically`: both persist a full
+/// replacement of a world's access JSON, differing only in which executor (pool vs. an
+/// in-flight transaction) runs it.
+async fn upsert_world_access(
+    executor: impl sqlx::PgExecutor<'_>,
+    world_name: &str,
+    access_json: &Value,
+) -> Result<(), ApiError> {
+    sqlx::query(
+        r#"INSERT INTO worlds (name, access, created_at, updated_at)
+           VALUES (lower($1), $2::jsonb, now(), now())
+           ON CONFLICT (name) DO UPDATE SET access = $2::jsonb,
+             settings_version = worlds.settings_version + 1,
+             updated_at = now()"#,
+    )
+    .bind(world_name)
+    .bind(access_json)
+    .execute(executor)
+    .await?;
+    Ok(())
+}
+
+fn default_access_json() -> Value {
+    serde_json::json!({ "type": "unrestricted" })
+}
+
+/// The world-shape rectangle spanned by every deployed scene's parcels; runs
+/// on the caller's executor so spawn validation can read it under the worlds
+/// row lock inside the settings transaction.
+async fn bounding_rectangle(
+    executor: impl sqlx::PgExecutor<'_>,
+    world_name: &str,
+) -> Result<Option<(i32, i32, i32, i32)>, ApiError> {
+    let row = sqlx::query(
+        r#"SELECT min(split_part(p, ',', 1)::int) AS min_x,
+                  max(split_part(p, ',', 1)::int) AS max_x,
+                  min(split_part(p, ',', 2)::int) AS min_y,
+                  max(split_part(p, ',', 2)::int) AS max_y
+           FROM world_scenes ws, unnest(ws.parcels) AS p
+           WHERE lower(ws.world_name) = lower($1)"#,
+    )
+    .bind(world_name)
+    .fetch_optional(executor)
+    .await?;
+
+    Ok(row.and_then(|r| {
+        let min_x: Option<i32> = r.get("min_x");
+        let max_x: Option<i32> = r.get("max_x");
+        let min_y: Option<i32> = r.get("min_y");
+        let max_y: Option<i32> = r.get("max_y");
+        match (min_x, max_x, min_y, max_y) {
+            (Some(a), Some(b), Some(c), Some(d)) => Some((a, b, c, d)),
+            _ => None,
+        }
+    }))
+}
+
+fn world_scene_from_row(row: &PgRow) -> WorldScene {
+    WorldScene {
+        entity_id: row.get("entity_id"),
+        entity: row.get("entity"),
+        parcels: row.get("parcels"),
+        deployer: row.get("deployer"),
+    }
+}
 
 #[derive(Clone)]
 pub struct WorldsComponent {
@@ -27,7 +95,8 @@ impl WorldsComponent {
     pub async fn get_world(&self, world_name: &str) -> Result<Option<WorldRecord>, ApiError> {
         let row = sqlx::query(
             r#"SELECT name, owner, access, blocked_since, spawn_coordinates,
-                      skybox_time, single_player
+                      skybox_time, single_player, realm_name_override,
+                      preview_wearable_urns
                FROM worlds WHERE lower(name) = lower($1)"#,
         )
         .bind(world_name)
@@ -47,16 +116,10 @@ impl WorldsComponent {
                 spawn_coordinates: r.get("spawn_coordinates"),
                 skybox_time: r.get("skybox_time"),
                 single_player: r.get::<Option<bool>, _>("single_player").unwrap_or(false),
+                realm_name_override: r.get("realm_name_override"),
+                preview_wearable_urns: r.get("preview_wearable_urns"),
             }
         }))
-    }
-
-    pub async fn get_access(&self, world_name: &str) -> Result<AccessSetting, ApiError> {
-        Ok(self
-            .get_world(world_name)
-            .await?
-            .map(|w| w.access)
-            .unwrap_or_default())
     }
 
     pub async fn is_world_valid(&self, world_name: &str) -> Result<bool, ApiError> {
@@ -73,7 +136,7 @@ impl WorldsComponent {
 
     pub async fn get_scenes(&self, world_name: &str) -> Result<Vec<WorldScene>, ApiError> {
         let rows = sqlx::query(
-            r#"SELECT entity_id, entity, parcels
+            r#"SELECT entity_id, entity, parcels, deployer
                FROM world_scenes
                WHERE lower(world_name) = lower($1)
                ORDER BY created_at DESC"#,
@@ -82,14 +145,31 @@ impl WorldsComponent {
         .fetch_all(&self.pool)
         .await?;
 
-        Ok(rows
-            .into_iter()
-            .map(|r| WorldScene {
-                entity_id: r.get("entity_id"),
-                entity: r.get("entity"),
-                parcels: r.get("parcels"),
-            })
-            .collect())
+        Ok(rows.iter().map(world_scene_from_row).collect())
+    }
+
+    /// The already-deployed scenes whose parcels overlap `parcels`; a deploy/undeploy must
+    /// authorize the full footprint of each before replacing it. `parcels` must already be
+    /// canonical, matching how `world_scenes.parcels` are stored.
+    pub async fn scenes_overlapping_parcels(
+        &self,
+        world_name: &str,
+        parcels: &[String],
+    ) -> Result<Vec<WorldScene>, ApiError> {
+        if parcels.is_empty() {
+            return Ok(Vec::new());
+        }
+        let rows = sqlx::query(
+            r#"SELECT entity_id, entity, parcels, deployer
+               FROM world_scenes
+               WHERE lower(world_name) = lower($1) AND parcels && $2::text[]"#,
+        )
+        .bind(world_name)
+        .bind(parcels)
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(rows.iter().map(world_scene_from_row).collect())
     }
 
     pub async fn list_index_scenes(
@@ -106,7 +186,7 @@ impl WorldsComponent {
                  ORDER BY ws.world_name
                  LIMIT $1 OFFSET $2
                )
-               SELECT ws.world_name, ws.entity_id, ws.entity, ws.parcels
+               SELECT ws.world_name, ws.entity_id, ws.entity, ws.parcels, ws.deployer
                FROM world_scenes ws
                JOIN paged_worlds pw ON pw.world_name = ws.world_name
                ORDER BY ws.world_name, ws.created_at DESC"#,
@@ -117,17 +197,10 @@ impl WorldsComponent {
         .await?;
 
         Ok(rows
-            .into_iter()
+            .iter()
             .map(|r| {
                 let world_name: String = r.get("world_name");
-                (
-                    world_name,
-                    WorldScene {
-                        entity_id: r.get("entity_id"),
-                        entity: r.get("entity"),
-                        parcels: r.get("parcels"),
-                    },
-                )
+                (world_name, world_scene_from_row(r))
             })
             .collect())
     }
@@ -192,13 +265,7 @@ impl WorldsComponent {
         Ok(row.and_then(|r| {
             let entity: Value = r.get("entity");
             let parcels: Vec<String> = r.get("parcels");
-            let base = entity
-                .get("metadata")
-                .and_then(|m| m.get("scene"))
-                .and_then(|s| s.get("base"))
-                .and_then(|b| b.as_str())
-                .map(|s| s.to_string());
-            base.or_else(|| parcels.first().cloned())
+            effective_base_parcel(&entity, &parcels)
         }))
     }
 
@@ -206,32 +273,46 @@ impl WorldsComponent {
     pub async fn deploy_scene(
         &self,
         world_name: &str,
-        owner: &str,
+        name_owner: Option<&str>,
         entity_id: &str,
         deployer: &str,
         deployment_auth_chain: &Value,
         entity: &Value,
         parcels: &[String],
         size: i64,
+        contents_dir: &std::path::Path,
+        replacement: &SceneReplacement,
     ) -> Result<(), ApiError> {
+        let mut s = scene_settings_from_entity(entity);
+        // The bytes are checked against the same formats the settings endpoint
+        // accepts, since a promoted thumbnail is served verbatim to consumers.
+        if let Some(hash) = s.thumbnail_hash.take() {
+            s.thumbnail_hash =
+                crate::settings_policy::storable_thumbnail_hash(contents_dir, &hash).await;
+        }
+
         let mut tx = self.pool.begin().await?;
 
-        let s = scene_settings_from_entity(entity);
-        sqlx::query(
+        // The upsert takes the worlds row lock; settings columns are written on
+        // INSERT (first deploy) but left unchanged on UPDATE -- the refresh
+        // decision needs the scene count read AFTER the lock is acquired, so a
+        // concurrent deploy cannot race it under READ COMMITTED.
+        let is_insert: bool = sqlx::query_scalar(
             r#"INSERT INTO worlds (
-                   name, owner, blocked_since, spawn_coordinates,
+                   name, owner, access, blocked_since, spawn_coordinates,
                    title, description, content_rating, skybox_time, categories,
                    single_player, show_in_places, thumbnail_hash, updated_at
                )
-               VALUES ($1, $2, NULL, $3, $4, $5, $6, $7, $8::text[], $9, $10, $11, now())
+               VALUES ($1, COALESCE($2, $12), $13::jsonb, NULL, $3, $4, $5, $6, $7, $8::text[], $9, $10, $11, now())
                ON CONFLICT (name) DO UPDATE SET
-                 owner = EXCLUDED.owner,
+                 owner = COALESCE($2, worlds.owner),
                  blocked_since = NULL,
                  spawn_coordinates = COALESCE(worlds.spawn_coordinates, EXCLUDED.spawn_coordinates),
-                 updated_at = now()"#,
+                 updated_at = now()
+               RETURNING (xmax = 0)"#,
         )
         .bind(world_name)
-        .bind(owner)
+        .bind(name_owner)
         .bind(&s.spawn_coordinates)
         .bind(&s.title)
         .bind(&s.description)
@@ -241,17 +322,107 @@ impl WorldsComponent {
         .bind(s.single_player)
         .bind(s.show_in_places)
         .bind(&s.thumbnail_hash)
-        .execute(&mut *tx)
+        .bind(deployer)
+        .bind(default_access_json())
+        .fetch_one(&mut *tx)
         .await?;
 
-        sqlx::query(
-            r#"DELETE FROM world_scenes
-               WHERE lower(world_name) = lower($1) AND parcels && $2"#,
-        )
-        .bind(world_name)
-        .bind(parcels)
-        .execute(&mut *tx)
-        .await?;
+        if !is_insert {
+            // Refresh settings iff no non-overlapping scene survives this deploy:
+            // every currently deployed scene is being replaced (or none exist), so
+            // the incoming scene ends up alone in the world.
+            let sole_occupant: bool = sqlx::query_scalar(
+                r#"SELECT COUNT(*) FILTER (WHERE NOT (parcels && $2::text[])) = 0
+                   FROM world_scenes WHERE lower(world_name) = lower($1)"#,
+            )
+            .bind(world_name)
+            .bind(parcels)
+            .fetch_one(&mut *tx)
+            .await?;
+
+            if sole_occupant {
+                // A field the scene does not express (NULL) falls back to the
+                // stored value; the IS DISTINCT FROM guard keeps a republish of
+                // unchanged metadata from bumping the settings version.
+                sqlx::query(
+                    r#"UPDATE worlds SET
+                         title = COALESCE($2, title),
+                         description = COALESCE($3, description),
+                         content_rating = COALESCE($4, content_rating),
+                         skybox_time = COALESCE($5, skybox_time),
+                         categories = COALESCE($6::text[], categories),
+                         single_player = COALESCE($7, single_player),
+                         show_in_places = COALESCE($8, show_in_places),
+                         thumbnail_hash = COALESCE($9, thumbnail_hash),
+                         settings_version = settings_version + 1,
+                         updated_at = now()
+                       WHERE lower(name) = lower($1)
+                         AND (title, description, content_rating, skybox_time, categories,
+                              single_player, show_in_places, thumbnail_hash)
+                             IS DISTINCT FROM
+                             (COALESCE($2, title), COALESCE($3, description),
+                              COALESCE($4, content_rating), COALESCE($5, skybox_time),
+                              COALESCE($6::text[], categories), COALESCE($7, single_player),
+                              COALESCE($8, show_in_places), COALESCE($9, thumbnail_hash))"#,
+                )
+                .bind(world_name)
+                .bind(&s.title)
+                .bind(&s.description)
+                .bind(&s.content_rating)
+                .bind(s.skybox_time)
+                .bind(&s.categories)
+                .bind(s.single_player)
+                .bind(s.show_in_places)
+                .bind(&s.thumbnail_hash)
+                .execute(&mut *tx)
+                .await?;
+            }
+        }
+
+        match replacement {
+            SceneReplacement::UnrestrictedOwner => {
+                sqlx::query(
+                    r#"DELETE FROM world_scenes
+                       WHERE lower(world_name) = lower($1) AND parcels && $2"#,
+                )
+                .bind(world_name)
+                .bind(parcels)
+                .execute(&mut *tx)
+                .await?;
+            }
+            SceneReplacement::Scoped(entity_ids) => {
+                // Replace only the exact scene identities the caller was authorized for.
+                sqlx::query(
+                    r#"DELETE FROM world_scenes
+                       WHERE lower(world_name) = lower($1)
+                         AND parcels && $2
+                         AND entity_id = ANY($3::text[])"#,
+                )
+                .bind(world_name)
+                .bind(parcels)
+                .bind(entity_ids)
+                .execute(&mut *tx)
+                .await?;
+
+                // The worlds upsert above locks this world's row, serializing deploys; this
+                // final overlap probe rejects a scene that appeared after the caller's
+                // authorization snapshot was taken, rather than deleting it unauthorized.
+                let leftover: Option<String> = sqlx::query_scalar(
+                    r#"SELECT entity_id FROM world_scenes
+                       WHERE lower(world_name) = lower($1) AND parcels && $2
+                       LIMIT 1"#,
+                )
+                .bind(world_name)
+                .bind(parcels)
+                .fetch_optional(&mut *tx)
+                .await?;
+                if leftover.is_some() {
+                    return Err(ApiError::conflict(format!(
+                        "Scene replacement authorization changed while deploying to world \"{world_name}\". Please retry."
+                    )));
+                }
+            }
+        }
 
         sqlx::query(
             r#"INSERT INTO world_scenes
@@ -263,7 +434,7 @@ impl WorldsComponent {
                      deployer = EXCLUDED.deployer,
                      parcels = EXCLUDED.parcels,
                      size = EXCLUDED.size,
-                     created_at = now()"#,
+                     updated_at = now()"#,
         )
         .bind(world_name)
         .bind(entity_id)
@@ -279,24 +450,75 @@ impl WorldsComponent {
         Ok(())
     }
 
-    pub async fn undeploy_scene(&self, world_name: &str, parcel: &str) -> Result<u64, ApiError> {
-        let res = sqlx::query(
-            r#"DELETE FROM world_scenes
-               WHERE lower(world_name) = lower($1) AND $2 = ANY(parcels)"#,
-        )
-        .bind(world_name)
-        .bind(parcel)
-        .execute(&self.pool)
-        .await?;
-        Ok(res.rows_affected())
+    /// Undeploy every scene overlapping `parcel`. When `authorized_entity_ids` is set the
+    /// delete is scoped to those exact identities, so a parcel-scoped deployer can't remove
+    /// a scene reaching into parcels it was never granted; `None` (name owner) is unrestricted.
+    pub async fn undeploy_scene(
+        &self,
+        world_name: &str,
+        parcel: &str,
+        authorized_entity_ids: Option<&[String]>,
+    ) -> Result<u64, ApiError> {
+        // Serialize against a concurrent deploy on the same world: take the
+        // worlds-row lock before deleting the scene at this parcel.
+        let mut tx = self.pool.begin().await?;
+        sqlx::query(r#"SELECT name FROM worlds WHERE lower(name) = lower($1) FOR UPDATE"#)
+            .bind(world_name)
+            .execute(&mut *tx)
+            .await?;
+        let res = match authorized_entity_ids {
+            Some(ids) => {
+                sqlx::query(
+                    r#"DELETE FROM world_scenes
+                       WHERE lower(world_name) = lower($1) AND $2 = ANY(parcels)
+                         AND entity_id = ANY($3::text[])"#,
+                )
+                .bind(world_name)
+                .bind(parcel)
+                .bind(ids)
+                .execute(&mut *tx)
+                .await?
+            }
+            None => {
+                sqlx::query(
+                    r#"DELETE FROM world_scenes
+                       WHERE lower(world_name) = lower($1) AND $2 = ANY(parcels)"#,
+                )
+                .bind(world_name)
+                .bind(parcel)
+                .execute(&mut *tx)
+                .await?
+            }
+        };
+        let affected = res.rows_affected();
+        tx.commit().await?;
+        Ok(affected)
+    }
+
+    pub async fn undeploy_world(&self, world_name: &str) -> Result<u64, ApiError> {
+        // Serialize against a concurrent deploy on the same world: take the
+        // worlds-row lock before deleting its scenes so a deploy cannot slip a
+        // scene in between the lock check and the delete.
+        let mut tx = self.pool.begin().await?;
+        sqlx::query(r#"SELECT name FROM worlds WHERE lower(name) = lower($1) FOR UPDATE"#)
+            .bind(world_name)
+            .execute(&mut *tx)
+            .await?;
+        let res = sqlx::query(r#"DELETE FROM world_scenes WHERE lower(world_name) = lower($1)"#)
+            .bind(world_name)
+            .execute(&mut *tx)
+            .await?;
+        let affected = res.rows_affected();
+        tx.commit().await?;
+        Ok(affected)
     }
 
     pub async fn list_scenes(
         &self,
         world_name: &str,
-    ) -> Result<Vec<(String, Vec<String>)>, ApiError> {
+    ) -> Result<Vec<(String, Vec<String>, Option<String>)>, ApiError> {
         let rows = sqlx::query(
-            r#"SELECT entity_id, parcels FROM world_scenes
+            r#"SELECT entity_id, parcels, entity FROM world_scenes
                WHERE lower(world_name) = lower($1)
                ORDER BY entity_id"#,
         )
@@ -306,10 +528,10 @@ impl WorldsComponent {
         Ok(rows
             .into_iter()
             .map(|r| {
-                (
-                    r.get::<String, _>("entity_id"),
-                    r.get::<Vec<String>, _>("parcels"),
-                )
+                let entity: Value = r.get("entity");
+                let parcels: Vec<String> = r.get("parcels");
+                let base = effective_base_parcel(&entity, &parcels);
+                (r.get::<String, _>("entity_id"), parcels, base)
             })
             .collect())
     }
@@ -508,7 +730,6 @@ impl WorldsComponent {
         world_name: &str,
         owner: &str,
     ) -> Result<(), ApiError> {
-        let default_access = serde_json::json!({ "type": "unrestricted" });
         sqlx::query(
             r#"INSERT INTO worlds (name, owner, access, created_at, updated_at)
                VALUES (lower($1), lower($2), $3::jsonb, now(), now())
@@ -516,7 +737,7 @@ impl WorldsComponent {
         )
         .bind(world_name)
         .bind(owner)
-        .bind(&default_access)
+        .bind(default_access_json())
         .execute(&self.pool)
         .await?;
         Ok(())
@@ -533,10 +754,20 @@ impl WorldsComponent {
                 SELECT ws.world_name,
                        count(DISTINCT ws.entity_id) AS deployed_scenes,
                        max(ws.created_at) AS last_deployed_at,
-                       min(split_part(p, ',', 1)::int) AS min_x,
-                       max(split_part(p, ',', 1)::int) AS max_x,
-                       min(split_part(p, ',', 2)::int) AS min_y,
-                       max(split_part(p, ',', 2)::int) AS max_y
+                       -- A world scene's parcels are not always "x,y": most rows
+                       -- carry a bare index ("0", "1"), split_part then yields ''
+                       -- and its ::int cast aborts the statement -- which is why
+                       -- this endpoint answered 500 to every caller. CASE, not
+                       -- FILTER, so the cast is never evaluated for a pointer
+                       -- that is not a coordinate pair.
+                       min(CASE WHEN p ~ '^-?[0-9]+,-?[0-9]+$'
+                                THEN split_part(p, ',', 1)::int END) AS min_x,
+                       max(CASE WHEN p ~ '^-?[0-9]+,-?[0-9]+$'
+                                THEN split_part(p, ',', 1)::int END) AS max_x,
+                       min(CASE WHEN p ~ '^-?[0-9]+,-?[0-9]+$'
+                                THEN split_part(p, ',', 2)::int END) AS min_y,
+                       max(CASE WHEN p ~ '^-?[0-9]+,-?[0-9]+$'
+                                THEN split_part(p, ',', 2)::int END) AS max_y
                 FROM world_scenes ws, unnest(ws.parcels) AS p
                 GROUP BY ws.world_name
             ) ss ON lower(ss.world_name) = lower(w.name)
@@ -575,8 +806,10 @@ impl WorldsComponent {
 
         let main_sql = format!(
             r#"SELECT w.name, w.owner, w.title, w.description, w.content_rating,
-                      w.spawn_coordinates, w.skybox_time, w.categories, w.single_player,
-                      w.show_in_places, w.thumbnail_hash,
+                      w.spawn_coordinates, w.skybox_time, w.categories,
+                      COALESCE(w.single_player, false) AS single_player,
+                      COALESCE(w.show_in_places, true) AS show_in_places,
+                      w.thumbnail_hash,
                       ss.last_deployed_at,
                       ss.min_x, ss.max_x, ss.min_y, ss.max_y,
                       b.created_at AS blocked_since,
@@ -627,7 +860,9 @@ impl WorldsComponent {
     ) -> Result<Option<WorldSettingsRow>, ApiError> {
         let row = sqlx::query(
             r#"SELECT title, description, content_rating, spawn_coordinates, skybox_time,
-                      categories, single_player, show_in_places, thumbnail_hash
+                      categories, single_player, show_in_places, thumbnail_hash,
+                      access->>'type' AS access_type, realm_name_override,
+                      preview_wearable_urns, settings_version
                FROM worlds WHERE lower(name) = lower($1)"#,
         )
         .bind(world_name)
@@ -644,34 +879,10 @@ impl WorldsComponent {
             single_player: r.get("single_player"),
             show_in_places: r.get("show_in_places"),
             thumbnail_hash: r.get("thumbnail_hash"),
-        }))
-    }
-
-    pub async fn get_world_bounding_rectangle(
-        &self,
-        world_name: &str,
-    ) -> Result<Option<(i32, i32, i32, i32)>, ApiError> {
-        let row = sqlx::query(
-            r#"SELECT min(split_part(p, ',', 1)::int) AS min_x,
-                      max(split_part(p, ',', 1)::int) AS max_x,
-                      min(split_part(p, ',', 2)::int) AS min_y,
-                      max(split_part(p, ',', 2)::int) AS max_y
-               FROM world_scenes ws, unnest(ws.parcels) AS p
-               WHERE lower(ws.world_name) = lower($1)"#,
-        )
-        .bind(world_name)
-        .fetch_optional(&self.pool)
-        .await?;
-
-        Ok(row.and_then(|r| {
-            let min_x: Option<i32> = r.get("min_x");
-            let max_x: Option<i32> = r.get("max_x");
-            let min_y: Option<i32> = r.get("min_y");
-            let max_y: Option<i32> = r.get("max_y");
-            match (min_x, max_x, min_y, max_y) {
-                (Some(a), Some(b), Some(c), Some(d)) => Some((a, b, c, d)),
-                _ => None,
-            }
+            access_type: r.get("access_type"),
+            realm_name_override: r.get("realm_name_override"),
+            preview_wearable_urns: r.get("preview_wearable_urns"),
+            settings_version: r.get("settings_version"),
         }))
     }
 
@@ -683,13 +894,50 @@ impl WorldsComponent {
     ) -> Result<(WorldSettingsRow, Option<String>), ApiError> {
         let mut tx = self.pool.begin().await?;
 
+        // A spawn coordinate is validated against the world's deployed shape, so
+        // the worlds row lock is held across validation and the write -- deploy
+        // and undeploy take the same lock before touching world_scenes. FOR
+        // UPDATE locks nothing when the row does not exist yet, so materialize
+        // it first; a failed validation rolls it back with the transaction.
+        if input.spawn_coordinates.is_some() {
+            sqlx::query(
+                r#"INSERT INTO worlds (name, owner, access, created_at, updated_at)
+                   VALUES (lower($1), lower($2), $3::jsonb, now(), now())
+                   ON CONFLICT (name) DO NOTHING"#,
+            )
+            .bind(world_name)
+            .bind(owner)
+            .bind(default_access_json())
+            .execute(&mut *tx)
+            .await?;
+        }
+
         let old_spawn: Option<String> = sqlx::query_scalar(
-            r#"SELECT spawn_coordinates FROM worlds WHERE lower(name) = lower($1)"#,
+            r#"SELECT spawn_coordinates FROM worlds WHERE lower(name) = lower($1) FOR UPDATE"#,
         )
         .bind(world_name)
         .fetch_optional(&mut *tx)
         .await?
         .flatten();
+
+        if let Some(spawn) = input.spawn_coordinates.as_deref() {
+            let (min_x, max_x, min_y, max_y) = bounding_rectangle(&mut *tx, world_name)
+                .await?
+                .ok_or_else(|| {
+                    ApiError::bad_request(format!(
+                        "Invalid spawnCoordinates \"{spawn}\". The world has no deployed scenes."
+                    ))
+                })?;
+            let within = catalyrst_types::pointer::parse_pointer(spawn)
+                .and_then(|(x, y)| Some((i32::try_from(x).ok()?, i32::try_from(y).ok()?)))
+                .map(|(x, y)| (min_x..=max_x).contains(&x) && (min_y..=max_y).contains(&y))
+                .unwrap_or(false);
+            if !within {
+                return Err(ApiError::bad_request(format!(
+                    "Invalid spawnCoordinates \"{spawn}\". It must be within the world shape rectangle: ({min_x},{min_y}) to ({max_x},{max_y})."
+                )));
+            }
+        }
 
         let skybox_provided = input.skybox_time_provided;
         let categories: Option<Vec<String>> = if input.categories_provided {
@@ -697,17 +945,28 @@ impl WorldsComponent {
         } else {
             None
         };
-        let default_access = serde_json::json!({ "type": "unrestricted" });
+        // spawn_coordinates deliberately excluded: only settings columns move the
+        // version, matching the upstream settings-write policy.
+        let has_settings_patch = input.title.is_some()
+            || input.description.is_some()
+            || input.content_rating.is_some()
+            || input.skybox_time_provided
+            || input.categories_provided
+            || input.single_player.is_some()
+            || input.show_in_places.is_some()
+            || input.thumbnail_hash.is_some()
+            || input.realm_name_override_provided
+            || input.preview_wearable_urns_provided;
 
         let row = sqlx::query(
             r#"INSERT INTO worlds (
                    name, owner, access,
                    title, description, content_rating, spawn_coordinates,
                    skybox_time, categories, single_player, show_in_places, thumbnail_hash,
-                   created_at, updated_at
+                   realm_name_override, preview_wearable_urns, created_at, updated_at
                )
                VALUES (lower($1), lower($2), $3::jsonb,
-                       $4, $5, $6, $7, $8, $9::text[], $10, $11, $12, now(), now())
+                       $4, $5, $6, $7, $8, $9::text[], $10, $11, $12, $15, $17::text[], now(), now())
                ON CONFLICT (name) DO UPDATE SET
                  title = COALESCE(EXCLUDED.title, worlds.title),
                  description = COALESCE(EXCLUDED.description, worlds.description),
@@ -719,13 +978,21 @@ impl WorldsComponent {
                  single_player = COALESCE(EXCLUDED.single_player, worlds.single_player),
                  show_in_places = COALESCE(EXCLUDED.show_in_places, worlds.show_in_places),
                  thumbnail_hash = COALESCE(EXCLUDED.thumbnail_hash, worlds.thumbnail_hash),
+                 realm_name_override = CASE WHEN $16::boolean THEN EXCLUDED.realm_name_override
+                                            ELSE worlds.realm_name_override END,
+                 preview_wearable_urns = CASE WHEN $18::boolean THEN EXCLUDED.preview_wearable_urns
+                                              ELSE worlds.preview_wearable_urns END,
+                 settings_version = CASE WHEN $14::boolean THEN worlds.settings_version + 1
+                                         ELSE worlds.settings_version END,
                  updated_at = now()
                RETURNING title, description, content_rating, spawn_coordinates, skybox_time,
-                         categories, single_player, show_in_places, thumbnail_hash"#,
+                         categories, single_player, show_in_places, thumbnail_hash,
+                         access->>'type' AS access_type, realm_name_override,
+                         preview_wearable_urns, settings_version"#,
         )
         .bind(world_name)
         .bind(owner)
-        .bind(&default_access)
+        .bind(default_access_json())
         .bind(&input.title)
         .bind(&input.description)
         .bind(&input.content_rating)
@@ -736,6 +1003,11 @@ impl WorldsComponent {
         .bind(input.show_in_places)
         .bind(&input.thumbnail_hash)
         .bind(skybox_provided)
+        .bind(has_settings_patch)
+        .bind(&input.realm_name_override)
+        .bind(input.realm_name_override_provided)
+        .bind(&input.preview_wearable_urns)
+        .bind(input.preview_wearable_urns_provided)
         .fetch_one(&mut *tx)
         .await?;
 
@@ -752,6 +1024,10 @@ impl WorldsComponent {
                 single_player: row.get("single_player"),
                 show_in_places: row.get("show_in_places"),
                 thumbnail_hash: row.get("thumbnail_hash"),
+                access_type: row.get("access_type"),
+                realm_name_override: row.get("realm_name_override"),
+                preview_wearable_urns: row.get("preview_wearable_urns"),
+                settings_version: row.get("settings_version"),
             },
             old_spawn,
         ))
@@ -1134,16 +1410,7 @@ impl WorldsComponent {
     ) -> Result<(), ApiError> {
         let json = serde_json::to_value(access)
             .map_err(|e| ApiError::internal(format!("serialize access: {e}")))?;
-        sqlx::query(
-            r#"INSERT INTO worlds (name, access, created_at, updated_at)
-               VALUES (lower($1), $2::jsonb, now(), now())
-               ON CONFLICT (name) DO UPDATE SET access = $2::jsonb, updated_at = now()"#,
-        )
-        .bind(world_name)
-        .bind(&json)
-        .execute(&self.pool)
-        .await?;
-        Ok(())
+        upsert_world_access(&self.pool, world_name, &json).await
     }
 
     pub async fn modify_access_atomically<F>(
@@ -1168,15 +1435,7 @@ impl WorldsComponent {
         let updated = modifier(current)?;
         let json = serde_json::to_value(&updated)
             .map_err(|e| ApiError::internal(format!("serialize access: {e}")))?;
-        sqlx::query(
-            r#"INSERT INTO worlds (name, access, created_at, updated_at)
-               VALUES (lower($1), $2::jsonb, now(), now())
-               ON CONFLICT (name) DO UPDATE SET access = $2::jsonb, updated_at = now()"#,
-        )
-        .bind(world_name)
-        .bind(&json)
-        .execute(&mut *tx)
-        .await?;
+        upsert_world_access(&mut *tx, world_name, &json).await?;
         tx.commit().await?;
         Ok(updated)
     }

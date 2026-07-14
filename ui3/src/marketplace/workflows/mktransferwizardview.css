@@ -1,0 +1,203 @@
+.transfer-wizard {
+  min-height: 100vh;
+  background: #18141a;
+  color: #fff;
+}
+
+.transfer-wizard__note {
+  margin: 0;
+  padding: 10px 32px;
+  font-size: 13px;
+  color: #a09ba8;
+  background: rgba(20, 16, 22, 0.9);
+  border-bottom: 1px solid #2b2630;
+}
+
+.transfer-wizard__controls {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 520px;
+  margin: 0 auto;
+  padding: 20px 32px 40px;
+}
+
+.transfer-wizard__controls--floating {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  align-items: center;
+  text-align: center;
+  background: rgba(20, 16, 22, 0.96);
+  border-top: 1px solid #2b2630;
+  backdrop-filter: blur(6px);
+}
+
+.transfer-wizard__label {
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #a09ba8;
+}
+
+.transfer-wizard__input {
+  appearance: none;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 12px 14px;
+  border-radius: 8px;
+  border: 1px solid #43404a;
+  background: #100d13;
+  color: #fff;
+  font-size: 15px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.transfer-wizard__input.is-error {
+  border-color: #ff2d55;
+}
+
+.transfer-wizard__error {
+  color: #ff5a78;
+  font-size: 13px;
+  margin: 0;
+}
+
+.transfer-wizard__btnrow {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+}
+
+.transfer-wizard__btn {
+  appearance: none;
+  border: 1px solid #43404a;
+  background: transparent;
+  color: #fff;
+  font-size: 15px;
+  font-weight: 600;
+  padding: 12px 26px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease, opacity 120ms ease;
+}
+
+.transfer-wizard__btn:hover {
+  border-color: #6b6776;
+}
+
+.transfer-wizard__btn--primary {
+  background: var(--brand-cta);
+  border-color: var(--brand-cta);
+}
+
+.transfer-wizard__btn--primary:hover {
+  background: #ff4f70;
+  border-color: #ff4f70;
+}
+
+.transfer-wizard__btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.transfer-wizard__hint {
+  margin: 0;
+  font-size: 14px;
+  color: #a09ba8;
+}
+
+.transfer-wizard__assets {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 420px;
+  max-width: 100%;
+}
+
+.transfer-wizard__asset {
+  display: grid;
+  grid-template-columns: 14px 1fr auto;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  text-align: left;
+  appearance: none;
+  cursor: pointer;
+  padding: 12px 16px;
+  border-radius: 10px;
+  border: 1px solid #2b2630;
+  background: #211c26;
+  color: #fff;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+
+.transfer-wizard__asset:hover {
+  border-color: #6b6776;
+  background: #29232f;
+}
+
+.transfer-wizard__rarity {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #6b6776;
+}
+.transfer-wizard__rarity.is-common { background: #d4d4d4; }
+.transfer-wizard__rarity.is-uncommon { background: #ff8b6c; }
+.transfer-wizard__rarity.is-rare { background: #56e0c1; }
+.transfer-wizard__rarity.is-epic { background: #5e8df9; }
+.transfer-wizard__rarity.is-legendary { background: #a663f6; }
+.transfer-wizard__rarity.is-mythic { background: #ff5fc0; }
+.transfer-wizard__rarity.is-unique { background: #ffb13d; }
+.transfer-wizard__rarity.is-exotic { background: #ffe24d; }
+
+.transfer-wizard__assetname {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.transfer-wizard__assetmeta {
+  font-size: 12px;
+  color: #a09ba8;
+  text-transform: capitalize;
+}
+
+.transfer-wizard__empty {
+  color: #a09ba8;
+  font-size: 14px;
+}
+
+.transfer-wizard__summary {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 8px 16px;
+  margin: 0 0 8px;
+  font-size: 14px;
+}
+
+.transfer-wizard__summary dt {
+  color: #a09ba8;
+  text-transform: uppercase;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+}
+
+.transfer-wizard__summary dd {
+  margin: 0;
+  font-weight: 600;
+}
+
+.transfer-wizard__mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.transfer-wizard__txnote {
+  text-align: center;
+  font-size: 13px;
+  color: #a09ba8;
+  padding: 16px 32px 40px;
+}

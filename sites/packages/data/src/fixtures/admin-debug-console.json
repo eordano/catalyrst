@@ -1,0 +1,134 @@
+{
+  "_source": "Derived from decentraland/governance (master) \u2014 src/routes/debug.ts (the committee-gated /debug backend: GET /debug returns DEBUG_ADDRESSES; POST /debug/trigger over FUNCTIONS_MAP = {runQueuedAirdropJobs, giveAndRevokeLandOwnerBadges, giveTopVoterBadges, restoreMissingUpdatesForumPost}; DELETE /debug/invalidate-cache; POST /debug/report-error), src/entities/Debug/isDebugAddress.ts (the useIsDebugAddress gate over DEBUG_ADDRESSES from src/constants.ts), src/.env.example + src/constants.ts + src/entities/Snapshot/constants.ts (frontend env var names: GATSBY_GOVERNANCE_API, GATSBY_SNAPSHOT_API, GATSBY_SNAPSHOT_URL, GATSBY_SNAPSHOT_SPACE, GATSBY_DEFAULT_CHAIN_ID, GATSBY_DISCOURSE_API), and ui3 GvDebugAdmin.jsx (which mirrors the legacy debug.tsx Admin/Debug panels 1:1). The live read paths come from catalyrst-governance (GET /governance/budgets paged {data,limit,offset} over archived transparency-budget payloads; GET /governance/health). Both 404 on https://catalyst.example.com today (the crate is staged but not yet deployed), so version/health/env and the transparency-budgets summary degrade to this fixture. Tool ACTIONS (TriggerFunction, BadgesAdmin, InvalidateCache, Notifications, Snapshot, QueryData) are committee-gated maintenance ops and are SIMULATED/inert here (read-only console; no write API surfaced to an anonymous browser session). Budget figures are realistic placeholders modelled on the public DAO transparency budget quarters.",
+  "version": "v3.41.0",
+  "health": {
+    "service": "catalyrst-governance",
+    "status": "fixture",
+    "ok": false,
+    "checkedPath": "/governance/health"
+  },
+  "snapshot": {
+    "space": "snapshot.dcl.eth",
+    "network": "1",
+    "config": "{\"network\":\"1\",\"strategies\":[{\"name\":\"erc20-balance-of\"}],\"plugins\":{}}",
+    "spaceInfo": "{\"id\":\"snapshot.dcl.eth\",\"name\":\"Decentraland\",\"symbol\":\"VP\",\"members\":12}"
+  },
+  "env": [
+    {
+      "name": "GATSBY_GOVERNANCE_API",
+      "value": "https://governance.decentraland.org/api"
+    },
+    {
+      "name": "GATSBY_SNAPSHOT_API",
+      "value": "https://hub.snapshot.org/"
+    },
+    {
+      "name": "GATSBY_SNAPSHOT_URL",
+      "value": "https://snapshot.org/"
+    },
+    {
+      "name": "GATSBY_SNAPSHOT_SPACE",
+      "value": "snapshot.dcl.eth"
+    },
+    {
+      "name": "GATSBY_DEFAULT_CHAIN_ID",
+      "value": "1"
+    },
+    {
+      "name": "GATSBY_DISCOURSE_API",
+      "value": "https://forum.decentraland.org"
+    }
+  ],
+  "functions": [
+    "runQueuedAirdropJobs",
+    "giveAndRevokeLandOwnerBadges",
+    "giveTopVoterBadges",
+    "restoreMissingUpdatesForumPost"
+  ],
+  "budgets": [
+    {
+      "start_at": "2026-01-01",
+      "finish_at": "2026-03-31",
+      "total": 1209090,
+      "categories": {
+        "accelerator": {
+          "allocated": 0,
+          "available": 0,
+          "total": 84636
+        },
+        "core_unit": {
+          "allocated": 0,
+          "available": 0,
+          "total": 181364
+        },
+        "documentation": {
+          "allocated": 0,
+          "available": 0,
+          "total": 24182
+        },
+        "in_world_content": {
+          "allocated": 0,
+          "available": 0,
+          "total": 290182
+        },
+        "platform": {
+          "allocated": 0,
+          "available": 0,
+          "total": 459454
+        },
+        "social_media_content": {
+          "allocated": 0,
+          "available": 0,
+          "total": 72545
+        },
+        "sponsorship": {
+          "allocated": 0,
+          "available": 0,
+          "total": 96727
+        }
+      }
+    },
+    {
+      "start_at": "2025-10-01",
+      "finish_at": "2025-12-31",
+      "total": 1156400,
+      "categories": {
+        "accelerator": {
+          "allocated": 0,
+          "available": 0,
+          "total": 80948
+        },
+        "core_unit": {
+          "allocated": 0,
+          "available": 0,
+          "total": 173460
+        },
+        "documentation": {
+          "allocated": 0,
+          "available": 0,
+          "total": 23128
+        },
+        "in_world_content": {
+          "allocated": 0,
+          "available": 0,
+          "total": 277536
+        },
+        "platform": {
+          "allocated": 0,
+          "available": 0,
+          "total": 439432
+        },
+        "social_media_content": {
+          "allocated": 0,
+          "available": 0,
+          "total": 69384
+        },
+        "sponsorship": {
+          "allocated": 0,
+          "available": 0,
+          "total": 92512
+        }
+      }
+    }
+  ]
+}

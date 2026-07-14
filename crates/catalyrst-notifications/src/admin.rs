@@ -26,15 +26,15 @@ pub fn authorize_admin(state: &AppState, headers: &HeaderMap) -> Result<(), ApiE
 }
 
 fn check_admin(expected: Option<&str>, presented: Option<&str>) -> Result<(), ApiError> {
-    let Some(expected) = expected else {
-        return Err(ApiError::Forbidden(
-            "admin broadcast disabled: CATALYRST_NOTIFICATIONS_ADMIN_TOKEN is not set".to_string(),
+    let Some(expected) = expected.filter(|s| !s.is_empty()) else {
+        return Err(ApiError::forbidden(
+            "admin broadcast disabled: CATALYRST_NOTIFICATIONS_ADMIN_TOKEN is not set",
         ));
     };
     match presented {
         Some(token) if timing_safe_eq(token, expected) => Ok(()),
-        _ => Err(ApiError::Forbidden(
-            "You are not authorized to access this resource".to_string(),
+        _ => Err(ApiError::forbidden(
+            "You are not authorized to access this resource",
         )),
     }
 }
@@ -44,7 +44,7 @@ mod tests {
     use super::*;
 
     fn is_forbidden(r: Result<(), ApiError>) -> bool {
-        matches!(r, Err(ApiError::Forbidden(_)))
+        matches!(r, Err(ApiError::Http { status: 403, .. }))
     }
 
     #[test]
@@ -83,5 +83,26 @@ mod tests {
         let mut h2 = HeaderMap::new();
         h2.insert("authorization", "Basic tok123".parse().unwrap());
         assert_eq!(bearer_token(&h2), None);
+    }
+
+    #[test]
+    fn probe_empty_bearer_header_parses_to_empty_token() {
+        let mut h = HeaderMap::new();
+        h.insert("authorization", "Bearer ".parse().unwrap());
+        assert_eq!(bearer_token(&h), Some(""));
+    }
+
+    #[test]
+    fn probe_empty_presented_token_with_set_secret_rejected() {
+        assert!(is_forbidden(check_admin(Some("secret"), Some(""))));
+        assert!(is_forbidden(check_admin(Some("secret"), None)));
+    }
+
+    // Empty configured secret must reject like the canonical gate; an empty
+    // presented bearer is currently ACCEPTED, so this probe fails-open.
+    #[test]
+    fn probe_fails_closed_when_secret_empty() {
+        assert!(is_forbidden(check_admin(Some(""), Some(""))));
+        assert!(is_forbidden(check_admin(Some(""), None)));
     }
 }

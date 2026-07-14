@@ -12,7 +12,7 @@
 -- 100-300 ms per request. With them it drops to <10 ms.
 --
 -- Run on the squid DB (NOT the content DB):
---   psql "$SQUID_DATABASE_URL" -f 0002_squid_lookup_indexes.sql
+--   psql "$SQUID_DATABASE_URL" -f 0001_squid_lookup_indexes.sql
 
 -- Covers /explorer/{addr}/wearables, /users/{addr}/wearables, /users/{addr}/emotes:
 --   WHERE n.category=$1 AND n.urn IS NOT NULL AND n.owner_address=lower($2)

@@ -84,9 +84,6 @@ impl GodotRenderer {
             "--rendering-driver".into(),
             self.cfg.rendering_driver.clone(),
         ];
-        if self.cfg.headless {
-            args.push("--headless".into());
-        }
         args.push("--avatar-renderer".into());
         args.push("--avatars".into());
         args.push(payload_path.to_string_lossy().into_owned());
@@ -102,10 +99,22 @@ impl GodotRenderer {
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
-            .kill_on_drop(true);
+            .kill_on_drop(true)
+            // Its own process group, so a timeout can reap the whole tree. The
+            // binary is a wrapper that starts an X server beside godot, and
+            // kill_on_drop's SIGKILL reaches only the wrapper -- the server and
+            // godot would outlive it, once per timeout, forever.
+            .process_group(0);
         if let Some(display) = &self.cfg.display {
             cmd.env("DISPLAY", display);
         }
+        // The payload's baseUrl only steers the profile fetch. Wearable and
+        // emote lookups go through the engine's own peer_base(), which upstream
+        // pins to peer.decentraland.org -- so without this a self-hosted node
+        // resolves its avatars against Decentraland's catalyst. The patched
+        // build reads DCL_PEER_BASE; on an unpatched binary it is ignored and
+        // behaviour is unchanged.
+        cmd.env("DCL_PEER_BASE", peer_base_of(content_base));
 
         tracing::debug!(
             entity = %entity,
@@ -115,29 +124,77 @@ impl GodotRenderer {
         );
 
         let child = cmd.spawn().map_err(|e| RenderError::Spawn(e.to_string()))?;
+        let pgid = child.id();
 
         let timeout = Duration::from_secs(self.cfg.timeout_seconds);
         let output = match tokio::time::timeout(timeout, child.wait_with_output()).await {
             Ok(Ok(o)) => o,
             Ok(Err(e)) => return Err(RenderError::Spawn(e.to_string())),
-            Err(_) => return Err(RenderError::Timeout(timeout)),
+            Err(_) => {
+                if let Some(pgid) = pgid {
+                    kill_process_group(pgid);
+                }
+                return Err(RenderError::Timeout(timeout));
+            }
         };
 
-        if !output.status.success() {
+        // The images decide the outcome, not the exit code. Godot writes both
+        // PNGs and only then tears down its GL context, where the NVIDIA driver
+        // aborts on a double free -- so a run that produced perfectly good
+        // output can still exit non-zero. Verify first, and report the exit
+        // status only when there is nothing usable on disk to serve.
+        let body_ok = verify_output(&body_path, ImageKind::Body).await;
+        let face_ok = verify_output(&face_path, ImageKind::Face).await;
+        if let (Ok(()), Ok(())) = (&body_ok, &face_ok) {
+            if !output.status.success() {
+                tracing::warn!(
+                    status = %output.status,
+                    "godot exited non-zero after writing both images; serving them"
+                );
+            }
+        } else if !output.status.success() {
             let tail = tail_of(&output.stderr, &output.stdout);
             return Err(RenderError::NonZero {
                 status: output.status.to_string(),
                 tail,
             });
         }
-
-        verify_output(&body_path, ImageKind::Body).await?;
-        verify_output(&face_path, ImageKind::Face).await?;
+        body_ok?;
+        face_ok?;
 
         Ok(RenderOutputs {
             body_path,
             face_path,
         })
+    }
+}
+
+/// The catalyst root a content base belongs to, e.g.
+/// `http://127.0.0.1:5141/content` -> `http://127.0.0.1:5141`.
+///
+/// The engine appends its own `/content/` and `/lambdas/`, so it wants the root
+/// rather than the content endpoint the payload carries.
+fn peer_base_of(content_base: &str) -> String {
+    let trimmed = content_base.trim_end_matches('/');
+    trimmed
+        .strip_suffix("/content")
+        .unwrap_or(trimmed)
+        .to_string()
+}
+
+/// SIGKILL every process in `pgid`, which spawn() made a group of its own.
+///
+/// Runs after kill_on_drop has already SIGKILLed the group leader, so this is
+/// what actually reaches the X server and godot beneath it. Best-effort:
+/// the group is simply gone when a render exits between the timeout firing and
+/// this call, and ESRCH is the ordinary result rather than a fault to report.
+fn kill_process_group(pgid: u32) {
+    let pgid = pgid as i32;
+    if pgid <= 0 {
+        return;
+    }
+    unsafe {
+        libc::kill(-pgid, libc::SIGKILL);
     }
 }
 
@@ -156,7 +213,49 @@ async fn verify_output(path: &Path, kind: ImageKind) -> Result<(), RenderError> 
 
 fn tail_of(stderr: &[u8], stdout: &[u8]) -> String {
     let src = if stderr.is_empty() { stdout } else { stderr };
-    let s = String::from_utf8_lossy(src);
-    let n = s.len().saturating_sub(2048);
-    s[n..].trim().to_string()
+    let start = src.len().saturating_sub(2048);
+    String::from_utf8_lossy(&src[start..]).trim().to_string()
+}
+
+#[cfg(test)]
+mod peer_base_tests {
+    use super::peer_base_of;
+
+    #[test]
+    fn the_content_endpoint_is_reduced_to_its_catalyst_root() {
+        assert_eq!(
+            peer_base_of("http://127.0.0.1:5141/content"),
+            "http://127.0.0.1:5141"
+        );
+        assert_eq!(
+            peer_base_of("http://127.0.0.1:5141/content/"),
+            "http://127.0.0.1:5141"
+        );
+    }
+
+    #[test]
+    fn a_base_that_is_already_a_root_is_left_alone() {
+        assert_eq!(
+            peer_base_of("https://peer.example.org"),
+            "https://peer.example.org"
+        );
+        assert_eq!(
+            peer_base_of("https://peer.example.org/"),
+            "https://peer.example.org"
+        );
+    }
+
+    /// A path merely ending in the word "content" is not the content endpoint;
+    /// stripping it would point the engine at a parent that serves nothing.
+    #[test]
+    fn only_a_trailing_content_segment_is_stripped() {
+        assert_eq!(
+            peer_base_of("https://host.example/my-content"),
+            "https://host.example/my-content"
+        );
+        assert_eq!(
+            peer_base_of("https://host.example/catalyst/content"),
+            "https://host.example/catalyst"
+        );
+    }
 }

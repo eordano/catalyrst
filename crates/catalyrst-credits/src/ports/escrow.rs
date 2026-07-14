@@ -1,6 +1,8 @@
 use std::time::Duration;
 
+use catalyrst_commons::worker::{spawn_periodic, PeriodicCfg};
 use sqlx::Row;
+use tokio_util::sync::CancellationToken;
 
 use crate::http::ApiError;
 use crate::ports::credits::CreditsComponent;
@@ -111,6 +113,7 @@ struct DueGrant {
 
 #[derive(Clone)]
 pub struct ReleaseWorker {
+    pub credits: CreditsComponent,
     pub http: reqwest::Client,
     pub economy_base_url: String,
     pub economy_admin_token: Option<String>,
@@ -121,19 +124,30 @@ pub struct ReleaseWorker {
 
 impl ReleaseWorker {
     pub fn spawn(self, interval_secs: u64) {
-        tokio::spawn(async move {
-            let mut ticker = tokio::time::interval(Duration::from_secs(interval_secs.max(1)));
-            ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-            loop {
-                ticker.tick().await;
-                if let Err(e) = self.run_once().await {
-                    tracing::warn!(error = %e, "escrow release sweep failed");
-                }
-            }
-        });
+        spawn_periodic(
+            "credits-escrow-release",
+            Duration::from_secs(interval_secs.max(1)),
+            PeriodicCfg::default(),
+            CancellationToken::new(),
+            move || {
+                let worker = self.clone();
+                async move { worker.run_once().await.map(|_| ()) }
+            },
+        );
     }
 
     pub async fn run_once(&self) -> Result<usize, ApiError> {
+        match self.credits.expire_stale_authorizations().await {
+            Ok(n) if n > 0 => {
+                tracing::info!(
+                    expired = n,
+                    "swept stale credit authorizations to 'expired'"
+                )
+            }
+            Ok(_) => {}
+            Err(e) => tracing::warn!(error = %e, "credit authorization expiry sweep failed"),
+        }
+
         let (Some(pool), Some(token)) = (
             self.usage_grants_pool.as_ref(),
             self.economy_admin_token.as_ref(),

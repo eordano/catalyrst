@@ -56,59 +56,6 @@ struct EntityResponse<'a> {
     metadata: Option<&'a Value>,
 }
 
-#[derive(Serialize)]
-pub(crate) struct PointerChangeDelta<'a> {
-    #[serde(rename = "deploymentId")]
-    pub(crate) deployment_id: i64,
-    #[serde(rename = "entityType")]
-    pub(crate) entity_type: &'a str,
-    #[serde(rename = "entityId")]
-    pub(crate) entity_id: &'a str,
-    pub(crate) pointers: &'a Vec<String>,
-    #[serde(rename = "entityTimestamp")]
-    pub(crate) entity_timestamp: i64,
-    pub(crate) metadata: &'a Value,
-    #[serde(rename = "deployerAddress")]
-    pub(crate) deployer_address: &'a str,
-    pub(crate) version: &'a str,
-    #[serde(rename = "authChain")]
-    pub(crate) auth_chain: &'a Value,
-    #[serde(rename = "localTimestamp")]
-    pub(crate) local_timestamp: i64,
-}
-
-#[derive(Serialize)]
-pub(crate) struct DeploymentFiltersResponse<'a> {
-    pub(crate) pointers: &'a Vec<String>,
-    #[serde(rename = "entityTypes")]
-    pub(crate) entity_types: &'a Vec<String>,
-    #[serde(rename = "entityIds")]
-    pub(crate) entity_ids: &'a Vec<String>,
-    #[serde(rename = "from", skip_serializing_if = "Option::is_none")]
-    pub(crate) from: Option<i64>,
-    #[serde(rename = "to", skip_serializing_if = "Option::is_none")]
-    pub(crate) to: Option<i64>,
-    #[serde(
-        rename = "onlyCurrentlyPointed",
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub(crate) only_currently_pointed: Option<bool>,
-    #[serde(rename = "deployedBy", skip_serializing_if = "Vec::is_empty")]
-    pub(crate) deployed_by: &'a Vec<String>,
-}
-
-#[derive(Serialize)]
-pub(crate) struct PointerChangesFiltersResponse<'a> {
-    #[serde(rename = "entityTypes")]
-    pub(crate) entity_types: &'a Vec<String>,
-    #[serde(rename = "from", skip_serializing_if = "Option::is_none")]
-    pub(crate) from: Option<i64>,
-    #[serde(rename = "to", skip_serializing_if = "Option::is_none")]
-    pub(crate) to: Option<i64>,
-    #[serde(rename = "includeAuthChain")]
-    pub(crate) include_auth_chain: bool,
-}
-
 const MAX_HISTORY_LIMIT: i64 = 500;
 
 pub(crate) fn curate_limit(limit: Option<i64>) -> i64 {

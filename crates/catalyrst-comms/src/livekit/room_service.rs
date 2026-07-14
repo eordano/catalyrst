@@ -217,31 +217,59 @@ impl<'a> RoomServiceClient<'a> {
         }
     }
 
+    pub async fn get_participant(
+        &self,
+        room: &str,
+        identity: &str,
+    ) -> Result<Option<ParticipantInfo>, RoomServiceError> {
+        match self
+            .call(
+                "GetParticipant",
+                room,
+                serde_json::json!({ "room": room, "identity": identity }),
+            )
+            .await
+        {
+            Ok(v) => Ok(Some(parse_participant(&v))),
+            Err(RoomServiceError::NotFound) => Ok(None),
+            Err(e) => Err(e),
+        }
+    }
+
     pub async fn remove_participant_from_all_rooms(
         &self,
         identity: &str,
     ) -> Result<(), RoomServiceError> {
+        use futures::StreamExt;
+        // Bound so a single ban cannot flood LiveKit with hundreds of
+        // simultaneous per-room RPCs.
+        const KICK_CONCURRENCY: usize = 8;
         let rooms = self.list_rooms().await?;
         let lower = identity.to_lowercase();
-        for room in rooms {
-            let participants = match self.list_participants(&room).await {
-                Ok(p) => p,
-                Err(RoomServiceError::NotFound) => continue,
-                Err(e) => {
-                    tracing::warn!(error = %e, room = %room, identity, "failed to list participants for room");
-                    continue;
+        futures::stream::iter(rooms)
+            .for_each_concurrent(KICK_CONCURRENCY, |room| {
+                let lower = lower.clone();
+                async move {
+                    let participants = match self.list_participants(&room).await {
+                        Ok(p) => p,
+                        Err(RoomServiceError::NotFound) => return,
+                        Err(e) => {
+                            tracing::warn!(error = %e, room = %room, identity = %lower, "failed to list participants for room");
+                            return;
+                        }
+                    };
+                    let Some(p) = participants
+                        .into_iter()
+                        .find(|p| p.identity.to_lowercase() == lower)
+                    else {
+                        return;
+                    };
+                    if let Err(e) = self.remove_participant(&room, &p.identity).await {
+                        tracing::warn!(error = %e, room = %room, identity = %p.identity, "failed to remove participant from room");
+                    }
                 }
-            };
-            let Some(p) = participants
-                .into_iter()
-                .find(|p| p.identity.to_lowercase() == lower)
-            else {
-                continue;
-            };
-            if let Err(e) = self.remove_participant(&room, &p.identity).await {
-                tracing::warn!(error = %e, room = %room, identity = %p.identity, "failed to remove participant from room");
-            }
-        }
+            })
+            .await;
         Ok(())
     }
 
@@ -296,15 +324,10 @@ impl<'a> RoomServiceClient<'a> {
         patch: serde_json::Map<String, serde_json::Value>,
     ) -> Result<(), RoomServiceError> {
         let existing = self
-            .list_participants(room)
+            .get_participant(room, identity)
             .await
             .ok()
-            .and_then(|parts| {
-                let target = identity.to_lowercase();
-                parts
-                    .into_iter()
-                    .find(|p| p.identity.to_lowercase() == target)
-            })
+            .flatten()
             .and_then(|p| p.metadata);
         let mut merged: serde_json::Map<String, serde_json::Value> = existing
             .as_deref()
@@ -361,22 +384,6 @@ impl<'a> RoomServiceClient<'a> {
             Ok(_) | Err(RoomServiceError::NotFound) => Ok(()),
             Err(e) => Err(e),
         }
-    }
-
-    pub async fn update_room_metadata(
-        &self,
-        room: &str,
-        patch: serde_json::Map<String, serde_json::Value>,
-    ) -> Result<(), RoomServiceError> {
-        let _guard = room_metadata_write_lock().lock().await;
-        let Some(info) = self.get_room_info(room).await? else {
-            return Ok(());
-        };
-        let mut metadata = parse_room_metadata(info.get("metadata").and_then(|m| m.as_str()));
-        for (k, v) in patch {
-            metadata.insert(k, v);
-        }
-        self.write_room_metadata(room, metadata).await
     }
 
     pub async fn append_to_room_metadata_array(

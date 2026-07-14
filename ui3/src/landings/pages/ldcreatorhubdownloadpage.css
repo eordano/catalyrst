@@ -1,0 +1,26 @@
+.creatorhub-download-route {
+  display: contents;
+}
+
+.creatorhub-download-route__success-link {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 20;
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: rgba(28, 7, 47, 0.78);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  color: rgba(255, 255, 255, 0.82);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  text-decoration: none;
+  backdrop-filter: blur(6px);
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+
+.creatorhub-download-route__success-link:hover {
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.4);
+}

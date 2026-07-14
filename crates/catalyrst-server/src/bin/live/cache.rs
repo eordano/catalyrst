@@ -11,7 +11,13 @@ pub(crate) struct CachedEntity {
 pub(crate) struct EntityCache {
     pub(crate) by_id: HashMap<String, CachedEntity>,
     pub(crate) pointer_to_id: HashMap<String, String>,
-    by_type: HashMap<&'static str, Vec<String>>,
+    /// A set, not a Vec: the membership check this needs ran as a linear scan of
+    /// a growing Vec on every insert, so a bulk load of one type was quadratic
+    /// in that type's size -- ~45k wearables meant ~1e9 string comparisons, and
+    /// that, not the queries, was the bulk of the cache-load wall time. Nothing
+    /// reads this index today; keeping it as a set means whoever adds the first
+    /// reader inherits an O(1) structure rather than that trap.
+    by_type: HashMap<&'static str, HashSet<String>>,
 }
 
 impl EntityCache {
@@ -46,9 +52,14 @@ impl EntityCache {
         let eid = entity.entity_id.clone();
         self.by_id.insert(entity.entity_id.clone(), entity);
 
-        let type_vec = self.by_type.entry(etype).or_default();
-        if !type_vec.contains(&eid) {
-            type_vec.push(eid);
+        self.by_type.entry(etype).or_default().insert(eid);
+    }
+
+    /// Folds a separately-loaded cache in, one `upsert` per entity so the
+    /// pointer-reassignment rules are exactly those of a sequential load.
+    pub(crate) fn absorb(&mut self, other: EntityCache) {
+        for (_, entity) in other.by_id {
+            self.upsert(entity);
         }
     }
 
@@ -64,8 +75,8 @@ impl EntityCache {
                     self.pointer_to_id.remove(ptr);
                 }
             }
-            if let Some(type_vec) = self.by_type.get_mut(old.entity_type) {
-                type_vec.retain(|id| id != entity_id);
+            if let Some(type_set) = self.by_type.get_mut(old.entity_type) {
+                type_set.remove(entity_id);
             }
         }
     }
@@ -191,7 +202,7 @@ pub(crate) async fn load_entity_type_into_cache(
             dep.version,
             dep.id,
             COALESCE(
-                (SELECT json_agg(json_build_object('key', cf.key, 'hash', cf.content_hash))
+                (SELECT json_agg(json_build_object('key', cf.key, 'hash', cf.content_hash) ORDER BY cf.key)
                  FROM content_files cf WHERE cf.deployment = dep.id),
                 '[]'::json
             ) AS content_json
@@ -220,7 +231,13 @@ async fn refresh_entity_in_cache(
     entity_type: &str,
     entity_id: &str,
 ) -> Vec<String> {
-    let row: Option<ActiveEntityRow> = match sqlx::query_as(
+    let tombstone_filter = if catalyrst_server::land_publish::local_entities_present(pool).await {
+        "AND NOT EXISTS (SELECT 1 FROM local_entities le \
+         WHERE le.entity_id = dep.entity_id AND le.tombstoned_at IS NOT NULL)"
+    } else {
+        ""
+    };
+    let sql = format!(
         r#"
         SELECT
             dep.entity_id,
@@ -231,7 +248,7 @@ async fn refresh_entity_in_cache(
             dep.version,
             dep.id,
             COALESCE(
-                (SELECT json_agg(json_build_object('key', cf.key, 'hash', cf.content_hash))
+                (SELECT json_agg(json_build_object('key', cf.key, 'hash', cf.content_hash) ORDER BY cf.key)
                  FROM content_files cf WHERE cf.deployment = dep.id),
                 '[]'::json
             ) AS content_json
@@ -239,13 +256,15 @@ async fn refresh_entity_in_cache(
         WHERE dep.entity_id = $1
           AND dep.entity_type = $2
           AND dep.deleter_deployment IS NULL
+          {tombstone_filter}
         LIMIT 1
-        "#,
-    )
-    .bind(entity_id)
-    .bind(entity_type)
-    .fetch_optional(pool)
-    .await
+        "#
+    );
+    let row: Option<ActiveEntityRow> = match sqlx::query_as(sqlx::AssertSqlSafe(sql))
+        .bind(entity_id)
+        .bind(entity_type)
+        .fetch_optional(pool)
+        .await
     {
         Ok(r) => r,
         Err(e) => {
@@ -280,7 +299,7 @@ async fn refresh_entity_in_cache(
 }
 
 pub(crate) async fn install_notify_trigger(pool: &PgPool) -> Result<(), sqlx::Error> {
-    sqlx::query(
+    sqlx::query!(
         r#"
         CREATE OR REPLACE FUNCTION notify_new_deployment() RETURNS trigger AS $$
         BEGIN
@@ -288,25 +307,25 @@ pub(crate) async fn install_notify_trigger(pool: &PgPool) -> Result<(), sqlx::Er
             RETURN NEW;
         END;
         $$ LANGUAGE plpgsql;
-        "#,
+        "#
     )
     .execute(pool)
     .await?;
 
-    sqlx::query(
+    sqlx::query!(
         r#"
         DROP TRIGGER IF EXISTS deployment_notify_trigger ON deployments;
-        "#,
+        "#
     )
     .execute(pool)
     .await?;
 
-    sqlx::query(
+    sqlx::query!(
         r#"
         CREATE TRIGGER deployment_notify_trigger
             AFTER INSERT ON deployments
             FOR EACH ROW EXECUTE FUNCTION notify_new_deployment();
-        "#,
+        "#
     )
     .execute(pool)
     .await?;
@@ -323,7 +342,7 @@ pub(crate) async fn listen_for_invalidations(
     let mut listener = match sqlx::postgres::PgListener::connect_with(&pool).await {
         Ok(l) => l,
         Err(e) => {
-            tracing::error!(error = %e, "Failed to create PgListener — cache invalidation disabled");
+            tracing::error!(error = %e, "Failed to create PgListener -- cache invalidation disabled");
             return;
         }
     };
@@ -339,14 +358,14 @@ pub(crate) async fn listen_for_invalidations(
         let notification = match listener.recv().await {
             Ok(n) => n,
             Err(e) => {
-                tracing::warn!(error = %e, "PgListener recv error — reconnecting");
+                tracing::warn!(error = %e, "PgListener recv error -- reconnecting");
                 continue;
             }
         };
 
         let payload = notification.payload();
         let Some((entity_type, entity_id)) = payload.split_once(':') else {
-            tracing::warn!(payload, "Malformed NOTIFY payload — expected 'type:id'");
+            tracing::warn!(payload, "Malformed NOTIFY payload -- expected 'type:id'");
             continue;
         };
 

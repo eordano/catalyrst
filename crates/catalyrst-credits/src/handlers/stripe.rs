@@ -6,7 +6,7 @@ use axum::Json;
 use serde_json::{json, Value as JsonValue};
 
 use crate::http::ApiError;
-use crate::ports::packs::{MarkPaidOutcome, RefundOutcome};
+use crate::ports::packs::{MarkPaidOutcome, ReversalOutcome};
 use crate::ports::stripe::{verify_stripe_signature, SIGNATURE_TOLERANCE_SECS};
 use crate::AppState;
 
@@ -125,6 +125,75 @@ pub async fn webhook(
                 }
             }
         }
+        "checkout.session.completed" => {
+            let session_id = object
+                .get("id")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| ApiError::bad_request("checkout.session missing id"))?;
+
+            let charged_cents = object
+                .get("amount_total")
+                .and_then(|v| v.as_i64())
+                .ok_or_else(|| ApiError::bad_request("checkout.session missing amount_total"))?;
+
+            match state
+                .credits
+                .mark_order_paid_by_session(session_id, &event_id, charged_cents)
+                .await?
+            {
+                MarkPaidOutcome::Granted { address, credits } => {
+                    let detail = json!({
+                        "source": "stripe",
+                        "eventId": event_id,
+                        "checkoutSession": session_id,
+                        "sku": object.get("metadata").and_then(|m| m.get("sku")),
+                        "orderId": object.get("metadata").and_then(|m| m.get("orderId")),
+                    });
+
+                    state
+                        .credits
+                        .admin_grant_credits(
+                            &address,
+                            &credits,
+                            "purchase",
+                            Some("stripe checkout purchase"),
+                            Some("stripe"),
+                            Some(&event_id),
+                            &detail,
+                        )
+                        .await?;
+                }
+                MarkPaidOutcome::AmountMismatch {
+                    expected_cents,
+                    charged_cents,
+                } => {
+                    tracing::warn!(
+                        event_id = %event_id,
+                        checkout_session = %session_id,
+                        expected_cents,
+                        charged_cents,
+                        "checkout.session.completed amount mismatch; NOT granting credits"
+                    );
+                }
+                MarkPaidOutcome::NoPendingPurchase => {
+                    tracing::warn!(
+                        event_id = %event_id,
+                        checkout_session = %session_id,
+                        "checkout.session.completed matched no pending order; no grant"
+                    );
+                }
+            }
+        }
+        "checkout.session.expired" => {
+            mark_session_terminal(&state, &object, &event_id, "abandoned", None).await?;
+        }
+        "checkout.session.async_payment_failed" => {
+            let reason = object
+                .get("last_payment_error")
+                .and_then(|e| e.get("message"))
+                .and_then(|v| v.as_str());
+            mark_session_terminal(&state, &object, &event_id, "failed", reason).await?;
+        }
         "charge.refunded" => {
             apply_partial_refund(&state, &object, &event_id).await?;
         }
@@ -136,6 +205,32 @@ pub async fn webhook(
 
     state.credits.mark_stripe_event_processed(&event_id).await?;
     Ok(ok("processed"))
+}
+
+async fn mark_session_terminal(
+    state: &AppState,
+    object: &JsonValue,
+    event_id: &str,
+    status: &str,
+    failure_reason: Option<&str>,
+) -> Result<(), ApiError> {
+    let Some(session_id) = object.get("id").and_then(|v| v.as_str()) else {
+        tracing::warn!(event_id = %event_id, status = %status, "checkout.session event missing id");
+        return Ok(());
+    };
+    let changed = state
+        .credits
+        .mark_order_status_by_session(session_id, status, failure_reason)
+        .await?;
+    if !changed {
+        tracing::info!(
+            event_id = %event_id,
+            checkout_session = %session_id,
+            status = %status,
+            "checkout.session terminal event matched no pending order"
+        );
+    }
+    Ok(())
 }
 
 async fn apply_partial_refund(
@@ -155,35 +250,11 @@ async fn apply_partial_refund(
         .and_then(|v| v.as_i64())
         .ok_or_else(|| ApiError::bad_request("charge.refunded missing amount_refunded"))?;
 
-    match state
+    let outcome = state
         .credits
         .record_charge_refund(pi_id, cumulative_refunded_cents, event_id)
-        .await?
-    {
-        RefundOutcome::Refund { address, credits } => {
-            tracing::info!(
-                event_id = %event_id,
-                payment_intent = %pi_id,
-                address = %address,
-                credits = %credits,
-                "charge.refunded: refunded credits (atomic)"
-            );
-        }
-        RefundOutcome::NothingToRefund => {
-            tracing::info!(
-                event_id = %event_id,
-                payment_intent = %pi_id,
-                "charge.refunded added no new refunded amount; no credits refunded"
-            );
-        }
-        RefundOutcome::NoPaidPurchase => {
-            tracing::warn!(
-                event_id = %event_id,
-                payment_intent = %pi_id,
-                "charge.refunded matched no paid purchase; no refund"
-            );
-        }
-    }
+        .await?;
+    log_reversal(&outcome, event_id, pi_id, "charge.refunded");
     Ok(())
 }
 
@@ -202,37 +273,63 @@ async fn apply_full_reversal(
         return Ok(());
     };
 
-    match state
+    let outcome = state
         .credits
         .record_full_reversal(pi_id, status, event_id)
-        .await?
-    {
-        RefundOutcome::Refund { address, credits } => {
+        .await?;
+    log_reversal(&outcome, event_id, pi_id, status);
+    Ok(())
+}
+
+fn log_reversal(outcome: &ReversalOutcome, event_id: &str, pi_id: &str, kind: &str) {
+    match outcome {
+        ReversalOutcome::Reversed {
+            address,
+            charged_back,
+            removed,
+            shortfall,
+            has_shortfall,
+        } => {
             tracing::info!(
                 event_id = %event_id,
                 payment_intent = %pi_id,
-                status = %status,
+                kind = %kind,
                 address = %address,
-                credits = %credits,
-                "reversal: refunded remaining credits (atomic)"
+                charged_back = %charged_back,
+                removed = %removed,
+                "fiat reversed: revoked the credits this purchase granted (atomic)"
             );
+            // The buyer had already spent part of what we are clawing back:
+            // the fiat is gone AND the credits were consumed. Unrecoverable
+            // without a manual write-off, so it must page someone.
+            if *has_shortfall {
+                tracing::error!(
+                    event_id = %event_id,
+                    payment_intent = %pi_id,
+                    address = %address,
+                    charged_back = %charged_back,
+                    removed = %removed,
+                    shortfall = %shortfall,
+                    "REVERSAL SHORTFALL: buyer had already spent part of the reversed \
+                     purchase's credits; that amount is an unrecovered loss"
+                );
+            }
         }
-        RefundOutcome::NothingToRefund => {
+        ReversalOutcome::NothingToReverse => {
             tracing::info!(
                 event_id = %event_id,
                 payment_intent = %pi_id,
-                status = %status,
-                "reversal: nothing left un-refunded; no credits refunded"
+                kind = %kind,
+                "reversal added no new reversed amount; no credits revoked"
             );
         }
-        RefundOutcome::NoPaidPurchase => {
+        ReversalOutcome::NoPaidPurchase => {
             tracing::warn!(
                 event_id = %event_id,
                 payment_intent = %pi_id,
-                status = %status,
-                "reversal matched no paid purchase; no refund"
+                kind = %kind,
+                "reversal matched no paid purchase; nothing revoked"
             );
         }
     }
-    Ok(())
 }

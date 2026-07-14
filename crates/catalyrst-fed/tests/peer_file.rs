@@ -50,6 +50,11 @@ fn peer_file_valid_loads_expected_entries() {
     assert_eq!(p.catalyst_url, "https://interconnected.online/content");
     assert_eq!(p.version, 1, "version should default to 1 when omitted");
     assert!(p.dao_proposal.contains("snapshot.dcl.eth"));
+    assert_eq!(
+        p.worlds_url, "",
+        "worlds_url must default to empty so every pre-existing peer file stays valid; \
+         empty means 'this peer runs no worlds server', not 'derive one from catalyst_url'"
+    );
 
     let audit = reg.audit();
     assert_eq!(audit.len(), 2);
@@ -59,6 +64,30 @@ fn peer_file_valid_loads_expected_entries() {
         .unwrap();
     assert!(interconnected.dao_proposal.contains("0xabc"));
     assert_eq!(interconnected.added_at, "2026-05-30");
+}
+
+#[test]
+fn peer_file_worlds_url_round_trips_when_present() {
+    let body = r#"
+[[peer]]
+peer_id        = "worldsy.peer"
+catalyst_url   = "https://worldsy.peer/content"
+worlds_url     = "https://worlds.worldsy.peer"
+gossip_pubkey  = [
+    1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
+    1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
+]
+dao_proposal   = "https://snapshot.org/#/snapshot.dcl.eth/proposal/0xworlds"
+added_at       = "2026-06-01"
+"#;
+    let path = write_tmp("worlds-url.toml", body);
+    let reg = FederationRegistry::from_file(&path).expect("worlds_url should parse");
+    let p = reg.get("worldsy.peer").unwrap();
+    assert_eq!(p.worlds_url, "https://worlds.worldsy.peer");
+    assert_eq!(
+        p.catalyst_url, "https://worldsy.peer/content",
+        "worlds_url must not be conflated with catalyst_url"
+    );
 }
 
 #[test]
@@ -108,6 +137,111 @@ dao_proposal   = "https://snapshot.org/#/snapshot.dcl.eth/proposal/0xfoo"
     let path = write_tmp("missing-added-at.toml", body);
     let err = FederationRegistry::from_file(&path).expect_err("missing added_at must reject");
     assert!(format!("{err}").contains("added_at"));
+}
+
+/// Two entries naming the same peer are a refusal, not a merge.
+///
+/// `HashMap::insert` returns the displaced value, and this loop used to discard it, so
+/// a file could carry two complete entries -- two DAO proposals, two pinned roots, two
+/// hosts -- and boot a registry holding exactly one of them, chosen by document order.
+/// In `catalyrst-worlds` that made two admitted peers share one mirror namespace, and
+/// whichever polled second wiped the first's rows.
+#[test]
+fn peer_file_naming_one_peer_twice_is_refused_naming_both_entries() {
+    let body = r#"
+[[peer]]
+peer_id        = "twin.peer"
+catalyst_url   = "https://twin.peer/content"
+gossip_pubkey  = [
+    1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
+    1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
+]
+dao_proposal   = "https://snapshot.org/#/snapshot.dcl.eth/proposal/0xaaa"
+added_at       = "2026-06-01"
+
+[[peer]]
+peer_id        = "Twin.Peer"
+catalyst_url   = "https://elsewhere.example/content"
+gossip_pubkey  = [
+    2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,
+    2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,
+]
+dao_proposal   = "https://snapshot.org/#/snapshot.dcl.eth/proposal/0xbbb"
+added_at       = "2026-06-02"
+"#;
+    let path = write_tmp("case-variant-twins.toml", body);
+    let err = FederationRegistry::from_file(&path)
+        .expect_err("a file naming one peer twice must be refused, not silently merged");
+    let msg = format!("{err}");
+    assert!(
+        msg.contains("twin.peer") && msg.contains("Twin.Peer"),
+        "the refusal must name BOTH entries in the spelling the operator used, so the \
+         two offending lines can be found: {msg}"
+    );
+}
+
+/// An *exact* duplicate is the same defect without the case variance, and was equally
+/// silent. It is refused for the same reason.
+#[test]
+fn peer_file_with_a_verbatim_duplicate_entry_is_refused() {
+    let one = r#"
+[[peer]]
+peer_id        = "dupe.peer"
+catalyst_url   = "https://dupe.peer/content"
+gossip_pubkey  = [
+    3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,
+    3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,
+]
+dao_proposal   = "https://snapshot.org/#/snapshot.dcl.eth/proposal/0xccc"
+added_at       = "2026-06-03"
+"#;
+    let path = write_tmp("verbatim-dupe.toml", &format!("{one}{one}"));
+    let err = FederationRegistry::from_file(&path).expect_err("a duplicated entry must be refused");
+    assert!(format!("{err}").contains("dupe.peer"));
+}
+
+/// Ids are canonicalised once, at parse time. After that the registry holds no raw
+/// spelling at all, and lookups fold the needle the same way -- so a caller cannot miss
+/// a peer it does hold by writing the id in a different case.
+#[test]
+fn peer_ids_are_canonicalised_at_parse_time_and_lookups_fold_to_match() {
+    let body = r#"
+[[peer]]
+peer_id        = "  MiXeD.Case.Peer  "
+catalyst_url   = "https://mixed.case.peer/content"
+gossip_pubkey  = [
+    4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,
+    4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,
+]
+dao_proposal   = "https://snapshot.org/#/snapshot.dcl.eth/proposal/0xddd"
+added_at       = "2026-06-04"
+"#;
+    let path = write_tmp("mixed-case.toml", body);
+    let reg = FederationRegistry::from_file(&path).expect("a single mixed-case entry is fine");
+
+    let stored: Vec<String> = reg.all().into_iter().map(|p| p.peer_id).collect();
+    assert_eq!(
+        stored,
+        vec!["mixed.case.peer"],
+        "the stored id is canonical; the registry keeps no raw spelling for a consumer \
+         to re-fold differently"
+    );
+    assert_eq!(
+        reg.audit()[0].peer_id,
+        "mixed.case.peer",
+        "the audit view reports the canonical id too"
+    );
+
+    for spelling in ["mixed.case.peer", "MIXED.CASE.PEER", " MiXeD.Case.Peer "] {
+        assert!(reg.contains(spelling), "contains({spelling:?}) must hit");
+        assert!(reg.get(spelling).is_some(), "get({spelling:?}) must hit");
+    }
+    assert!(!reg.contains("other.peer"));
+
+    assert_eq!(
+        catalyrst_fed::canonical_peer_id("  MiXeD.Case.Peer  "),
+        "mixed.case.peer"
+    );
 }
 
 #[test]

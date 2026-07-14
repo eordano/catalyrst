@@ -12,7 +12,7 @@ pub async fn explorer_api_flags_toggle(
     };
     proxy_audited(
         &state,
-        &session.address,
+        session.address(),
         "explorer-api.flags.toggle",
         target_field(&body, "name").as_deref(),
         body.clone(),
@@ -34,7 +34,7 @@ pub async fn explorer_api_flags_reload(
     };
     proxy_audited(
         &state,
-        &session.address,
+        session.address(),
         "explorer-api.flags.reload",
         None,
         json!({}),
@@ -57,7 +57,7 @@ pub async fn explorer_api_blocklist_add(
     };
     proxy_audited(
         &state,
-        &session.address,
+        session.address(),
         "explorer-api.blocklist.add",
         target_field(&body, "wallet").as_deref(),
         body.clone(),
@@ -80,7 +80,7 @@ pub async fn explorer_api_blocklist_remove(
     };
     proxy_audited(
         &state,
-        &session.address,
+        session.address(),
         "explorer-api.blocklist.remove",
         target_field(&body, "wallet").as_deref(),
         body.clone(),
@@ -102,7 +102,7 @@ pub async fn explorer_api_blocklist_reload(
     };
     proxy_audited(
         &state,
-        &session.address,
+        session.address(),
         "explorer-api.blocklist.reload",
         None,
         json!({}),
@@ -124,7 +124,7 @@ pub async fn explorer_api_config_list(
     };
     proxy_audited(
         &state,
-        &session.address,
+        session.address(),
         "explorer-api.config.list",
         None,
         json!({}),
@@ -157,7 +157,7 @@ pub async fn explorer_api_config_get(
     }
     proxy_audited(
         &state,
-        &session.address,
+        session.address(),
         "explorer-api.config.get",
         Some(&req.key),
         json!({ "key": req.key }),
@@ -183,7 +183,7 @@ pub async fn explorer_api_config_set(
     }
     proxy_audited(
         &state,
-        &session.address,
+        session.address(),
         "explorer-api.config.set",
         Some(&req.key),
         req.extra.clone(),
@@ -209,7 +209,7 @@ pub async fn explorer_api_config_delete(
     }
     proxy_audited(
         &state,
-        &session.address,
+        session.address(),
         "explorer-api.config.delete",
         Some(&req.key),
         json!({ "key": req.key }),
@@ -236,7 +236,7 @@ pub async fn explorer_api_challenges_list(
     };
     proxy_audited(
         &state,
-        &session.address,
+        session.address(),
         "explorer-api.challenges.list",
         None,
         json!({}),
@@ -267,7 +267,7 @@ pub async fn explorer_api_challenge_get(
     }
     proxy_audited(
         &state,
-        &session.address,
+        session.address(),
         "explorer-api.challenge.get",
         Some(&req.id),
         json!({ "id": req.id }),
@@ -293,7 +293,7 @@ pub async fn explorer_api_challenge_revoke(
     }
     proxy_audited(
         &state,
-        &session.address,
+        session.address(),
         "explorer-api.challenge.revoke",
         Some(&req.id),
         json!({ "id": req.id }),
@@ -315,7 +315,7 @@ pub async fn explorer_api_identities_list(
     };
     proxy_audited(
         &state,
-        &session.address,
+        session.address(),
         "explorer-api.identities.list",
         None,
         json!({}),
@@ -341,7 +341,7 @@ pub async fn explorer_api_identity_revoke(
     }
     proxy_audited(
         &state,
-        &session.address,
+        session.address(),
         "explorer-api.identity.revoke",
         Some(&req.id),
         json!({ "id": req.id }),

@@ -1,58 +1,15 @@
-use std::time::Duration;
-
-use rand::RngExt;
-use sqlx::postgres::PgPoolOptions;
+use catalyrst_contract_gate::pg::ScratchSchema;
 use sqlx::PgPool;
 
 use catalyrst_places::ports::places::{PlaceListFilters, PlacesComponent};
 
-fn pg_url() -> Option<String> {
-    std::env::var("CATALYRST_PLACES_TEST_PG")
-        .ok()
-        .or_else(|| Some("postgres://postgres:postgres@127.0.0.1:5432/places".into()))
-}
-
-fn unique_schema() -> String {
-    let b: [u8; 8] = rand::rng().random();
-    format!("test_dest_order_{}", hex::encode(b))
-}
-
-async fn setup() -> Option<(PgPool, String, String)> {
-    let url = pg_url()?;
-    let admin = PgPoolOptions::new()
-        .max_connections(1)
-        .acquire_timeout(Duration::from_secs(5))
-        .connect(&url)
-        .await
-        .ok()?;
-    let schema = unique_schema();
-    sqlx::query(sqlx::AssertSqlSafe(format!("CREATE SCHEMA {}", schema)))
-        .execute(&admin)
-        .await
-        .ok()?;
-    let suffixed = format!("{}?options=-c%20search_path%3D{}", url, schema);
-    let pool = PgPoolOptions::new()
-        .max_connections(4)
-        .acquire_timeout(Duration::from_secs(5))
-        .connect(&suffixed)
-        .await
-        .ok()?;
-    Some((pool, schema, url))
-}
-
-async fn cleanup(admin_url: &str, schema: &str) {
-    if let Ok(admin) = PgPoolOptions::new()
-        .max_connections(1)
-        .connect(admin_url)
-        .await
-    {
-        let _ = sqlx::query(sqlx::AssertSqlSafe(format!(
-            "DROP SCHEMA {} CASCADE",
-            schema
-        )))
-        .execute(&admin)
-        .await;
-    }
+async fn setup(schema: &str) -> Option<ScratchSchema> {
+    ScratchSchema::create_or_default(
+        "CATALYRST_PLACES_TEST_PG",
+        "postgres://postgres:postgres@127.0.0.1:5432/places",
+        schema,
+    )
+    .await
 }
 
 async fn create_place_table(pool: &PgPool) {
@@ -79,6 +36,16 @@ async fn create_place_table(pool: &PgPool) {
     .execute(pool)
     .await
     .expect("create place table");
+
+    sqlx::raw_sql(include_str!("../migrations/0002_place_indexed.sql"))
+        .execute(pool)
+        .await
+        .expect("create place_indexed");
+
+    sqlx::raw_sql(include_str!("../migrations/0003_place_world_name.sql"))
+        .execute(pool)
+        .await
+        .expect("promote world_name");
 }
 
 async fn seed(pool: &PgPool, id: &str, highlighted: bool, ranking: Option<f64>, like_score: f64) {
@@ -98,12 +65,10 @@ async fn seed(pool: &PgPool, id: &str, highlighted: bool, ranking: Option<f64>, 
 
 #[tokio::test]
 async fn destinations_float_highlighted_then_ranking_above_order_by() {
-    let Some((pool, schema, admin_url)) = setup().await else {
-        eprintln!(
-            "skipping destinations_float_highlighted_then_ranking_above_order_by: no postgres reachable"
-        );
+    let Some(scratch) = setup("cg_places_destorder").await else {
         return;
     };
+    let pool = scratch.pool.clone();
     create_place_table(&pool).await;
 
     seed(&pool, "A", false, None, 0.9).await;
@@ -145,5 +110,56 @@ async fn destinations_float_highlighted_then_ranking_above_order_by() {
         "/api/places must NOT apply the highlighted+ranking prefix"
     );
 
-    cleanup(&admin_url, &schema).await;
+    scratch.drop().await;
+}
+
+// Upstream places #878: the feed's tail ties on every sort column, so an untied
+// ORDER BY let the plan -- which changes with the LIMIT -- pick the page.
+#[tokio::test]
+async fn a_page_carries_the_same_rows_whatever_the_limit_is() {
+    let Some(scratch) = setup("cg_places_destorder_total").await else {
+        return;
+    };
+    let pool = scratch.pool.clone();
+    create_place_table(&pool).await;
+
+    for i in 0..12 {
+        seed(&pool, &format!("tied-{i:02}"), false, None, 0.0).await;
+    }
+
+    let places = PlacesComponent::new(pool.clone());
+    let page = |limit: i64| {
+        let places = &places;
+        async move {
+            places
+                .find_list(&PlaceListFilters {
+                    limit,
+                    order_desc: true,
+                    destinations_mode: true,
+                    ..Default::default()
+                })
+                .await
+                .expect("destinations list")
+                .into_iter()
+                .map(|r| r.id)
+                .collect::<Vec<_>>()
+        }
+    };
+
+    let short = page(5).await;
+    let long = page(13).await;
+    assert_eq!(short.len(), 5);
+    assert_eq!(long.len(), 12);
+    assert_eq!(
+        short,
+        long[..5].to_vec(),
+        "the first page must not depend on how many rows were asked for"
+    );
+    assert_eq!(
+        long,
+        (0..12).map(|i| format!("tied-{i:02}")).collect::<Vec<_>>(),
+        "rows tied on every other column fall back to the primary key"
+    );
+
+    scratch.drop().await;
 }

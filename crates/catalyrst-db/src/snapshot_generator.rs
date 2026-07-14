@@ -1,14 +1,11 @@
+use std::collections::HashSet;
 use std::io::Write;
-use std::sync::Arc;
-use std::time::Duration;
+use std::sync::{LazyLock, Mutex};
 
 use sqlx::PgPool;
-use tokio::sync::{Mutex, Notify, RwLock};
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 use crate::snapshots_repository::{self, SnapshotMetadata, TimeRange};
-
-const GENERATION_INTERVAL: Duration = Duration::from_secs(6 * 60 * 60);
 
 pub const SNAPSHOTS_INIT_TIMESTAMP_MS: f64 = 1_577_836_800_000.0;
 
@@ -18,17 +15,6 @@ const MS_PER_DAY: f64 = 86_400_000.0;
 const MS_PER_WEEK: f64 = 7.0 * MS_PER_DAY;
 const MS_PER_MONTH: f64 = 4.0 * MS_PER_WEEK;
 const MS_PER_YEAR: f64 = 12.0 * MS_PER_MONTH;
-
-pub type GenerateFn = Arc<
-    dyn Fn(
-            f64,
-            f64,
-        ) -> futures::future::BoxFuture<
-            'static,
-            Result<Vec<SnapshotMetadata>, Box<dyn std::error::Error + Send + Sync>>,
-        > + Send
-        + Sync,
->;
 
 pub fn divide_time_in_years_months_weeks_and_days(
     time_range: TimeRange,
@@ -63,11 +49,115 @@ pub fn divide_time_in_years_months_weeks_and_days(
     (intervals, remainder)
 }
 
+/// Hashes whose stored bytes have been re-read and matched during this process's life.
+///
+/// Content-addressed storage is immutable, so a match is permanent -- the file under a key cannot
+/// change, so the verdict cannot expire. Re-deriving it every cycle would mean re-reading every
+/// reused snapshot, gigabytes an hour, to learn the same fact.
+static VERIFIED: LazyLock<Mutex<HashSet<String>>> = LazyLock::new(|| Mutex::new(HashSet::new()));
+
+fn remember_verified(hash: &str) {
+    if let Ok(mut seen) = VERIFIED.lock() {
+        seen.insert(hash.to_owned());
+    }
+}
+
+fn already_verified(hash: &str) -> bool {
+    VERIFIED
+        .lock()
+        .map(|seen| seen.contains(hash))
+        .unwrap_or(false)
+}
+
+/// The metadata to reuse for `candidate`, or `None` when the interval has to be regenerated.
+///
+/// Reuse is the one path that republishes a hash without recomputing it, so it is the one path that
+/// has to check. `exist()` answers "is there a file at this key", which is not the same question: a
+/// bulk import in 2026-05 wrote five snapshots whose CIDs it had computed with a broken multi-level
+/// DAG, and because those intervals are frozen history the reuse gate re-advertised them every cycle
+/// for months. Every peer that fetched one got bytes that did not hash to the CID we had named, and
+/// rejected the payload.
+///
+/// When bytes and key disagree the bytes are the truth -- the snapshot is good and only its name is
+/// wrong, so this re-keys rather than throwing away valid content.
+async fn reusable_snapshot(
+    pool: &PgPool,
+    content_storage: &catalyrst_storage::ContentStorage,
+    candidate: &SnapshotMetadata,
+) -> Option<SnapshotMetadata> {
+    let advertised = candidate.hash.as_deref()?;
+
+    if already_verified(advertised) {
+        return Some(candidate.clone());
+    }
+
+    let actual = match content_storage.stored_content_hash(advertised).await {
+        Ok(Some(actual)) => actual,
+        Ok(None) => return None,
+        Err(e) => {
+            error!(hash = advertised, %e, "Failed to read snapshot content to verify its hash");
+            return None;
+        }
+    };
+
+    if actual == advertised {
+        remember_verified(advertised);
+        return Some(candidate.clone());
+    }
+
+    warn!(
+        advertised,
+        actual, "Stored snapshot does not hash to its advertised CID; re-keying"
+    );
+
+    // Renamed before the row moves: a crash in between leaves the row pointing at a key that is now
+    // absent, which regenerates on the next cycle. The other order would leave the wrong CID still
+    // serving its mismatched bytes, which is the defect itself.
+    match content_storage.rekey(advertised, &actual).await {
+        Ok(true) => {}
+        Ok(false) => return None,
+        Err(e) => {
+            error!(advertised, actual, %e, "Failed to re-key snapshot content");
+            return None;
+        }
+    }
+
+    match snapshots_repository::update_snapshot_hash(
+        pool,
+        candidate.time_range,
+        advertised,
+        &actual,
+    )
+    .await
+    {
+        Ok(true) => {}
+        Ok(false) => {
+            warn!(
+                advertised,
+                "Snapshot row already moved by another writer; regenerating"
+            );
+            return None;
+        }
+        Err(e) => {
+            error!(advertised, actual, %e, "Failed to re-key snapshot row");
+            return None;
+        }
+    }
+
+    remember_verified(&actual);
+
+    Some(SnapshotMetadata {
+        hash: Some(actual),
+        ..candidate.clone()
+    })
+}
+
 pub async fn generate_snapshot(
     pool: &PgPool,
     content_storage: &catalyrst_storage::ContentStorage,
     init_timestamp_ms: f64,
     end_timestamp_ms: f64,
+    replaced_hashes: Vec<String>,
 ) -> Result<SnapshotMetadata, Box<dyn std::error::Error + Send + Sync>> {
     let time_range = TimeRange::new(init_timestamp_ms, end_timestamp_ms);
 
@@ -101,18 +191,15 @@ pub async fn generate_snapshot(
         .await
         .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { Box::new(e) })?;
 
-    let replaced_hashes =
-        snapshots_repository::find_snapshots_strictly_contained_in_time_range(pool, time_range)
-            .await?
-            .into_iter()
-            .filter_map(|s| s.hash)
-            .filter(|h| h != &hash)
-            .collect::<Vec<_>>();
+    let replaced_snapshot_hashes = replaced_hashes
+        .into_iter()
+        .filter(|h| h != &hash)
+        .collect::<Vec<_>>();
 
     let metadata = SnapshotMetadata {
         hash: Some(hash),
         time_range,
-        replaced_snapshot_hashes: replaced_hashes,
+        replaced_snapshot_hashes,
         number_of_entities,
         generation_timestamp,
     };
@@ -164,14 +251,11 @@ pub async fn generate_snapshots_multi(
         let mut reused: Option<SnapshotMetadata> = None;
         if exact.len() == 1 {
             let candidate = exact[0];
-            if let Some(h) = &candidate.hash {
-                let stored = content_storage.exist(h).await.unwrap_or(false);
-                let outdated = snapshots_repository::snapshot_is_outdated(pool, candidate)
-                    .await
-                    .unwrap_or(true);
-                if stored && !outdated {
-                    reused = Some(candidate.clone());
-                }
+            let outdated = snapshots_repository::snapshot_is_outdated(pool, candidate)
+                .await
+                .unwrap_or(true);
+            if !outdated {
+                reused = reusable_snapshot(pool, content_storage, candidate).await;
             }
         }
 
@@ -189,12 +273,14 @@ pub async fn generate_snapshots_multi(
             )
             .await
             .unwrap_or_default();
-            snapshots_repository::delete_snapshots_in_time_range(pool, &stale_hashes, interval)
+            if snapshots_repository::delete_snapshots_in_time_range(pool, &stale_hashes, interval)
                 .await
-                .ok();
-            for h in &stale_hashes {
-                if !keep.contains(h) {
-                    content_storage.delete(h).await.ok();
+                .is_ok()
+            {
+                for h in &stale_hashes {
+                    if !keep.contains(h) {
+                        content_storage.delete(h).await.ok();
+                    }
                 }
             }
         }
@@ -204,6 +290,7 @@ pub async fn generate_snapshots_multi(
             content_storage,
             interval.init_timestamp,
             interval.end_timestamp,
+            stale_hashes,
         )
         .await?;
         result.push(meta);
@@ -223,12 +310,14 @@ pub async fn generate_snapshots_multi(
                 if matches_interval {
                     continue;
                 }
-                snapshots_repository::delete_snapshot_by_time_range(pool, snap.time_range)
+                if snapshots_repository::delete_snapshot_by_time_range(pool, snap.time_range)
                     .await
-                    .ok();
-                if let Some(h) = &snap.hash {
-                    if !valid_hashes.contains(h) {
-                        content_storage.delete(h).await.ok();
+                    .is_ok()
+                {
+                    if let Some(h) = &snap.hash {
+                        if !valid_hashes.contains(h) {
+                            content_storage.delete(h).await.ok();
+                        }
                     }
                 }
                 info!(
@@ -244,91 +333,6 @@ pub async fn generate_snapshots_multi(
     }
 
     Ok(result)
-}
-
-pub struct SnapshotGenerator {
-    current_snapshots: Arc<RwLock<Option<Vec<SnapshotMetadata>>>>,
-    stop_notify: Arc<Notify>,
-    stopped: Arc<Mutex<bool>>,
-}
-
-impl SnapshotGenerator {
-    pub fn new() -> Self {
-        Self {
-            current_snapshots: Arc::new(RwLock::new(None)),
-            stop_notify: Arc::new(Notify::new()),
-            stopped: Arc::new(Mutex::new(false)),
-        }
-    }
-
-    pub async fn start(&self, generate_fn: GenerateFn) {
-        self.run_generation(&generate_fn).await;
-
-        let snapshots = self.current_snapshots.clone();
-        let stop_notify = self.stop_notify.clone();
-        let stopped = self.stopped.clone();
-        let gf = generate_fn.clone();
-
-        tokio::spawn(async move {
-            loop {
-                tokio::select! {
-                    _ = tokio::time::sleep(GENERATION_INTERVAL) => {
-                        let is_stopped = *stopped.lock().await;
-                        if is_stopped {
-                            break;
-                        }
-
-                        let now_ms = chrono::Utc::now().timestamp_millis() as f64;
-                        match gf(SNAPSHOTS_INIT_TIMESTAMP_MS, now_ms).await {
-                            Ok(snaps) => {
-                                let mut current = snapshots.write().await;
-                                *current = Some(snaps);
-                            }
-                            Err(e) => {
-                                error!(%e, "Failed generating snapshots");
-                            }
-                        }
-                    }
-                    _ = stop_notify.notified() => {
-                        break;
-                    }
-                }
-            }
-        });
-    }
-
-    async fn run_generation(&self, generate_fn: &GenerateFn) {
-        let now_ms = chrono::Utc::now().timestamp_millis() as f64;
-        match generate_fn(SNAPSHOTS_INIT_TIMESTAMP_MS, now_ms).await {
-            Ok(snaps) => {
-                let mut current = self.current_snapshots.write().await;
-                *current = Some(snaps);
-            }
-            Err(e) => {
-                error!(%e, "Failed generating snapshots");
-            }
-        }
-    }
-
-    pub async fn stop(&self) {
-        let mut stopped = self.stopped.lock().await;
-        if *stopped {
-            return;
-        }
-        *stopped = true;
-        self.stop_notify.notify_one();
-    }
-
-    pub async fn get_current_snapshots(&self) -> Option<Vec<SnapshotMetadata>> {
-        let current = self.current_snapshots.read().await;
-        current.clone()
-    }
-}
-
-impl Default for SnapshotGenerator {
-    fn default() -> Self {
-        Self::new()
-    }
 }
 
 #[cfg(test)]

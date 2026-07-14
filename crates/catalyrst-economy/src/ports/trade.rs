@@ -1,6 +1,10 @@
 use alloy::primitives::{address, keccak256, Address, Bytes, B256, U256};
 use alloy::sol;
 use alloy::sol_types::SolCall;
+use catalyrst_crypto::eip712::{
+    domain_separator_salted, hash_array_of_structs, hash_dynamic, struct_hash, typed_data_digest,
+    word_address, word_u256, word_u64,
+};
 use serde::Deserialize;
 
 use crate::http::errors::ApiError;
@@ -80,9 +84,6 @@ const ASSET_TYPE_HASH: [u8; 32] =
 const TRADE_TYPE_HASH: [u8; 32] =
     hex_literal("1bb41340c6ec0467bb14b59212e1189437e71660f2ef919bda2be2f2065dfe6c");
 
-const DOMAIN_TYPE_HASH: [u8; 32] =
-    hex_literal("36c25de3e541d5d970f66e4210d728721220fff5c077cc6cd008b3a0c62adab7");
-
 const fn hex_val(b: u8) -> u8 {
     match b {
         b'0'..=b'9' => b - b'0',
@@ -104,92 +105,93 @@ const fn hex_literal(s: &str) -> [u8; 32] {
     out
 }
 
-fn word_address(a: Address) -> [u8; 32] {
-    let mut w = [0u8; 32];
-    w[12..].copy_from_slice(a.as_slice());
-    w
+fn hash_external_checks(checks: &[SolExternalCheck]) -> [u8; 32] {
+    let members: Vec<[u8; 32]> = checks
+        .iter()
+        .map(|c| {
+            let mut selector = [0u8; 32];
+            selector[..4].copy_from_slice(c.selector.as_slice());
+            struct_hash(
+                EXTERNAL_CHECK_TYPE_HASH,
+                &[
+                    word_address(c.contractAddress),
+                    selector,
+                    hash_dynamic(&c.value),
+                    word_u64(u64::from(c.required)),
+                ],
+            )
+        })
+        .collect();
+    hash_array_of_structs(&members)
 }
 
-fn word_u256(v: U256) -> [u8; 32] {
-    v.to_be_bytes::<32>()
+fn hash_checks(c: &SolChecks) -> [u8; 32] {
+    struct_hash(
+        CHECKS_TYPE_HASH,
+        &[
+            word_u256(c.uses),
+            word_u256(c.expiration),
+            word_u256(c.effective),
+            c.salt.0,
+            word_u256(c.contractSignatureIndex),
+            word_u256(c.signerSignatureIndex),
+            c.allowedRoot.0,
+            hash_external_checks(&c.externalChecks),
+        ],
+    )
 }
 
-fn hash_external_checks(checks: &[SolExternalCheck]) -> B256 {
-    let mut cat = Vec::with_capacity(checks.len() * 32);
-    for c in checks {
-        let mut enc = Vec::with_capacity(5 * 32);
-        enc.extend_from_slice(&EXTERNAL_CHECK_TYPE_HASH);
-        enc.extend_from_slice(&word_address(c.contractAddress));
-        let mut sel = [0u8; 32];
-        sel[..4].copy_from_slice(c.selector.as_slice());
-        enc.extend_from_slice(&sel);
-        enc.extend_from_slice(keccak256(&c.value).as_slice());
-        enc.extend_from_slice(&word_u256(U256::from(c.required as u8)));
-        cat.extend_from_slice(keccak256(&enc).as_slice());
-    }
-    keccak256(&cat)
-}
-
-fn hash_checks(c: &SolChecks) -> B256 {
-    let mut enc = Vec::with_capacity(9 * 32);
-    enc.extend_from_slice(&CHECKS_TYPE_HASH);
-    enc.extend_from_slice(&word_u256(c.uses));
-    enc.extend_from_slice(&word_u256(c.expiration));
-    enc.extend_from_slice(&word_u256(c.effective));
-    enc.extend_from_slice(c.salt.as_slice());
-    enc.extend_from_slice(&word_u256(c.contractSignatureIndex));
-    enc.extend_from_slice(&word_u256(c.signerSignatureIndex));
-    enc.extend_from_slice(c.allowedRoot.as_slice());
-    enc.extend_from_slice(hash_external_checks(&c.externalChecks).as_slice());
-    keccak256(&enc)
-}
-
-fn hash_assets(assets: &[SolAsset], with_beneficiary: bool) -> B256 {
-    let mut cat = Vec::with_capacity(assets.len() * 32);
-    for a in assets {
-        let mut enc = Vec::with_capacity(6 * 32);
-        enc.extend_from_slice(if with_beneficiary {
-            &ASSET_TYPE_HASH
-        } else {
-            &ASSET_WO_BENEFICIARY_TYPE_HASH
-        });
-        enc.extend_from_slice(&word_u256(a.assetType));
-        enc.extend_from_slice(&word_address(a.contractAddress));
-        enc.extend_from_slice(&word_u256(a.value));
-        enc.extend_from_slice(keccak256(&a.extra).as_slice());
-        if with_beneficiary {
-            enc.extend_from_slice(&word_address(a.beneficiary));
-        }
-        cat.extend_from_slice(keccak256(&enc).as_slice());
-    }
-    keccak256(&cat)
+fn hash_assets(assets: &[SolAsset], with_beneficiary: bool) -> [u8; 32] {
+    let members: Vec<[u8; 32]> = assets
+        .iter()
+        .map(|a| {
+            let mut fields = vec![
+                word_u256(a.assetType),
+                word_address(a.contractAddress),
+                word_u256(a.value),
+                hash_dynamic(&a.extra),
+            ];
+            if with_beneficiary {
+                fields.push(word_address(a.beneficiary));
+            }
+            struct_hash(
+                if with_beneficiary {
+                    ASSET_TYPE_HASH
+                } else {
+                    ASSET_WO_BENEFICIARY_TYPE_HASH
+                },
+                &fields,
+            )
+        })
+        .collect();
+    hash_array_of_structs(&members)
 }
 
 pub fn hash_trade(t: &SolTrade) -> B256 {
-    let mut enc = Vec::with_capacity(4 * 32);
-    enc.extend_from_slice(&TRADE_TYPE_HASH);
-    enc.extend_from_slice(hash_checks(&t.checks).as_slice());
-    enc.extend_from_slice(hash_assets(&t.sent, false).as_slice());
-    enc.extend_from_slice(hash_assets(&t.received, true).as_slice());
-    keccak256(&enc)
+    B256::from(struct_hash(
+        TRADE_TYPE_HASH,
+        &[
+            hash_checks(&t.checks),
+            hash_assets(&t.sent, false),
+            hash_assets(&t.received, true),
+        ],
+    ))
 }
 
 fn domain_separator(chain_id: u64, verifying_contract: Address) -> B256 {
-    let mut enc = Vec::with_capacity(5 * 32);
-    enc.extend_from_slice(&DOMAIN_TYPE_HASH);
-    enc.extend_from_slice(keccak256(OFFCHAIN_MARKETPLACE_EIP712_NAME.as_bytes()).as_slice());
-    enc.extend_from_slice(keccak256(OFFCHAIN_MARKETPLACE_EIP712_VERSION.as_bytes()).as_slice());
-    enc.extend_from_slice(&word_address(verifying_contract));
-    enc.extend_from_slice(&word_u256(U256::from(chain_id)));
-    keccak256(&enc)
+    B256::from(domain_separator_salted(
+        OFFCHAIN_MARKETPLACE_EIP712_NAME,
+        OFFCHAIN_MARKETPLACE_EIP712_VERSION,
+        verifying_contract,
+        word_u64(chain_id),
+    ))
 }
 
 pub fn trade_digest(t: &SolTrade, chain_id: u64, verifying_contract: Address) -> B256 {
-    let mut enc = Vec::with_capacity(2 + 64);
-    enc.extend_from_slice(&[0x19, 0x01]);
-    enc.extend_from_slice(domain_separator(chain_id, verifying_contract).as_slice());
-    enc.extend_from_slice(hash_trade(t).as_slice());
-    keccak256(&enc)
+    B256::from(typed_data_digest(
+        domain_separator(chain_id, verifying_contract).0,
+        hash_trade(t).0,
+    ))
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -354,7 +356,7 @@ pub fn validate_trade(
     }
     if !is_item_order && c.uses != 1 {
         return Err(err(format!(
-            "public_nft_order with uses={} — a signed NFT order sells one token; refusing \
+            "public_nft_order with uses={} \u{2014} a signed NFT order sells one token; refusing \
              multi-use NFT orders",
             c.uses
         )));
@@ -540,10 +542,13 @@ pub fn validate_trade(
     };
 
     let digest = trade_digest(&onchain, expect.chain_id, OFFCHAIN_MARKETPLACE_POLYGON);
-    let sig = alloy::primitives::Signature::from_raw(&sig_bytes)
-        .map_err(|e| err(format!("trade signature is malformed: {e}")))?;
-    let recovered = sig
-        .recover_address_from_prehash(&digest)
+    let recovered_hex = catalyrst_crypto::recover::recover_address_from_digest(
+        &digest.0,
+        &alloy::hex::encode_prefixed(&sig_bytes),
+    )
+    .map_err(|e| err(format!("trade signature is malformed: {e}")))?;
+    let recovered: Address = recovered_hex
+        .parse()
         .map_err(|e| err(format!("trade signature recovery failed: {e}")))?;
     if recovered != signer {
         return Err(err(format!(
@@ -705,13 +710,6 @@ mod tests {
             TRADE_TYPE_HASH,
             keccak256("Trade(Checks checks,AssetWithoutBeneficiary[] sent,Asset[] received)Asset(uint256 assetType,address contractAddress,uint256 value,bytes extra,address beneficiary)AssetWithoutBeneficiary(uint256 assetType,address contractAddress,uint256 value,bytes extra)Checks(uint256 uses,uint256 expiration,uint256 effective,bytes32 salt,uint256 contractSignatureIndex,uint256 signerSignatureIndex,bytes32 allowedRoot,ExternalCheck[] externalChecks)ExternalCheck(address contractAddress,bytes4 selector,bytes value,bool required)").0
         );
-        assert_eq!(
-            DOMAIN_TYPE_HASH,
-            keccak256(
-                "EIP712Domain(string name,string version,address verifyingContract,bytes32 salt)"
-            )
-            .0
-        );
     }
 
     #[test]
@@ -737,6 +735,32 @@ mod tests {
             }
         );
         assert_eq!(v.price_wei, U256::from(1_000_000_000_000_000_000u64));
+    }
+
+    #[test]
+    fn domain_and_trade_struct_hashes_are_pinned() {
+        let v = validate_trade(&fixture(), &expectations()).expect("real trade validates");
+        assert_eq!(
+            [
+                alloy::hex::encode(domain_separator(137, OFFCHAIN_MARKETPLACE_POLYGON)),
+                alloy::hex::encode(hash_trade(&v.onchain)),
+                alloy::hex::encode(hash_checks(&v.onchain.checks)),
+                alloy::hex::encode(hash_assets(&v.onchain.sent, false)),
+                alloy::hex::encode(hash_assets(&v.onchain.received, true)),
+            ],
+            [
+                "a509f87b8ee4b49969808cb8527697d8da141375b18ecb1277a1515f16d0e88e",
+                "3e5acb2423f9af536fefed3d3b067845a81623c2cf7e99fde70e397481a1e1f0",
+                "0b7d526d2229d2cd09e3be1201750907225a779532a699ec365f5be1c555b77d",
+                "8aa8471cd75aafba06f4b6fd26acb056a8eb8fd171042316b2d45cba91e7f473",
+                "4336bd23b882b9c591e502df1c4c3fac042d445494f95e62dd5d66b4fc88eab4",
+            ]
+            .map(String::from)
+        );
+        assert_eq!(
+            alloy::hex::encode(trade_digest(&v.onchain, 137, OFFCHAIN_MARKETPLACE_POLYGON)),
+            "d4d6a86e2a1f0ab327b88353ef9cbd59ddde578a73fdcc176d8b07564c6f7718"
+        );
     }
 
     #[test]
@@ -1037,6 +1061,34 @@ mod tests {
         assert!(
             format!("{err}").contains("recovers to"),
             "shape must validate up to the signature: {err}"
+        );
+    }
+
+    #[test]
+    fn high_s_malleated_signature_is_refused() {
+        let ok = validate_trade(&fixture(), &expectations()).expect("baseline validates");
+        assert_eq!(
+            ok.signer,
+            address!("0x02d0bb59a5f04a12d883751dc1605e15b4959b7e")
+        );
+
+        let sig = fixture_json()["signature"].as_str().unwrap().to_string();
+        let mut raw = alloy::hex::decode(&sig).unwrap();
+        let n = U256::from_str_radix(
+            "fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141",
+            16,
+        )
+        .unwrap();
+        let s = U256::from_be_slice(&raw[32..64]);
+        raw[32..64].copy_from_slice(&(n - s).to_be_bytes::<32>());
+        raw[64] = if raw[64] == 27 { 28 } else { 27 };
+        let malleated = alloy::hex::encode_prefixed(&raw);
+
+        let t = with(|v| v["signature"] = malleated.into());
+        let err = validate_trade(&t, &expectations()).unwrap_err();
+        assert!(
+            format!("{err}").contains("recovery failed"),
+            "high-s twin must be rejected before recovery: {err}"
         );
     }
 

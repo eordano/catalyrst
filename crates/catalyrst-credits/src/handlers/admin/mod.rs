@@ -9,10 +9,7 @@ mod ops;
 
 pub(crate) use common::validate_positive_amount;
 
-use catalog::{
-    create_goal, create_pack, create_season, delete_goal, delete_pack, delete_season, list_goals,
-    list_packs, list_seasons, update_goal, update_pack, update_season,
-};
+use catalog::{create_pack, delete_pack, list_packs, update_pack};
 use ops::{
     block_user, force_fulfill_checkout, grant_credits, list_checkouts, list_ledger, list_purchases,
     reclaim_grant, reconcile, refund_checkout, release_grant, revoke_credits,
@@ -20,16 +17,6 @@ use ops::{
 
 pub fn router() -> Router<AppState> {
     Router::new()
-        .route("/admin/seasons", get(list_seasons).post(create_season))
-        .route(
-            "/admin/seasons/{id}",
-            axum::routing::put(update_season).delete(delete_season),
-        )
-        .route("/admin/goals", get(list_goals).post(create_goal))
-        .route(
-            "/admin/goals/{id}",
-            axum::routing::put(update_goal).delete(delete_goal),
-        )
         .route("/admin/credits/grant", post(grant_credits))
         .route("/admin/credits/revoke", post(revoke_credits))
         .route("/admin/users/{address}/block", post(block_user))

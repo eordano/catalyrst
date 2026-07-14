@@ -49,20 +49,81 @@ pub struct UserBan {
     pub custom_message: Option<String>,
     #[serde(rename = "bannedDeviceId")]
     pub banned_device_id: Option<String>,
-    #[serde(rename = "bannedAt", serialize_with = "ms_iso::serialize")]
+    #[serde(rename = "bannedAt")]
+    #[serde(serialize_with = "ms_iso::serialize")]
     #[cfg_attr(feature = "ts", ts(type = "string"))]
     pub banned_at: DateTime<Utc>,
-    #[serde(rename = "expiresAt", serialize_with = "ms_iso::option::serialize")]
+    #[serde(rename = "expiresAt")]
+    #[serde(serialize_with = "ms_iso::option::serialize")]
     #[cfg_attr(feature = "ts", ts(type = "string | null"))]
     pub expires_at: Option<DateTime<Utc>>,
-    #[serde(rename = "liftedAt", serialize_with = "ms_iso::option::serialize")]
+    #[serde(rename = "liftedAt")]
+    #[serde(serialize_with = "ms_iso::option::serialize")]
     #[cfg_attr(feature = "ts", ts(type = "string | null"))]
     pub lifted_at: Option<DateTime<Utc>>,
     #[serde(rename = "liftedBy")]
     pub lifted_by: Option<String>,
-    #[serde(rename = "createdAt", serialize_with = "ms_iso::serialize")]
+    #[serde(rename = "createdAt")]
+    #[serde(serialize_with = "ms_iso::serialize")]
     #[cfg_attr(feature = "ts", ts(type = "string"))]
     pub created_at: DateTime<Utc>,
+}
+
+/// `UserBan` minus `banned_device_id`, the shape the unauthenticated
+/// `GET /users/{address}/bans` publishes. The device id is a stable
+/// cross-wallet machine identifier: two banned addresses carrying the same
+/// one are publicly linkable, so only the moderator-gated `GET /bans` shows
+/// it. Keep any new public route on this type, not `UserBan`.
+#[derive(Debug, Serialize)]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "comms/", rename_all = "camelCase")
+)]
+pub struct PublicUserBan {
+    pub id: String,
+    #[serde(rename = "bannedAddress")]
+    pub banned_address: String,
+    #[serde(rename = "bannedBy")]
+    pub banned_by: String,
+    pub reason: String,
+    #[serde(rename = "customMessage")]
+    pub custom_message: Option<String>,
+    #[serde(rename = "bannedAt")]
+    #[serde(serialize_with = "ms_iso::serialize")]
+    #[cfg_attr(feature = "ts", ts(type = "string"))]
+    pub banned_at: DateTime<Utc>,
+    #[serde(rename = "expiresAt")]
+    #[serde(serialize_with = "ms_iso::option::serialize")]
+    #[cfg_attr(feature = "ts", ts(type = "string | null"))]
+    pub expires_at: Option<DateTime<Utc>>,
+    #[serde(rename = "liftedAt")]
+    #[serde(serialize_with = "ms_iso::option::serialize")]
+    #[cfg_attr(feature = "ts", ts(type = "string | null"))]
+    pub lifted_at: Option<DateTime<Utc>>,
+    #[serde(rename = "liftedBy")]
+    pub lifted_by: Option<String>,
+    #[serde(rename = "createdAt")]
+    #[serde(serialize_with = "ms_iso::serialize")]
+    #[cfg_attr(feature = "ts", ts(type = "string"))]
+    pub created_at: DateTime<Utc>,
+}
+
+impl From<UserBan> for PublicUserBan {
+    fn from(ban: UserBan) -> Self {
+        Self {
+            id: ban.id,
+            banned_address: ban.banned_address,
+            banned_by: ban.banned_by,
+            reason: ban.reason,
+            custom_message: ban.custom_message,
+            banned_at: ban.banned_at,
+            expires_at: ban.expires_at,
+            lifted_at: ban.lifted_at,
+            lifted_by: ban.lifted_by,
+            created_at: ban.created_at,
+        }
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -78,10 +139,12 @@ pub struct UserWarning {
     #[serde(rename = "warnedBy")]
     pub warned_by: String,
     pub reason: String,
-    #[serde(rename = "warnedAt", serialize_with = "ms_iso::serialize")]
+    #[serde(rename = "warnedAt")]
+    #[serde(serialize_with = "ms_iso::serialize")]
     #[cfg_attr(feature = "ts", ts(type = "string"))]
     pub warned_at: DateTime<Utc>,
-    #[serde(rename = "createdAt", serialize_with = "ms_iso::serialize")]
+    #[serde(rename = "createdAt")]
+    #[serde(serialize_with = "ms_iso::serialize")]
     #[cfg_attr(feature = "ts", ts(type = "string"))]
     pub created_at: DateTime<Utc>,
 }
@@ -96,7 +159,8 @@ pub struct BanStatus {
     #[serde(rename = "isBanned")]
     pub is_banned: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub ban: Option<UserBan>,
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub ban: Option<PublicUserBan>,
 }
 
 type BanRow = (
@@ -218,8 +282,7 @@ impl UserBansComponent {
         )
         .bind(&address)
         .fetch_one(&self.pool)
-        .await
-        .unwrap_or(0);
+        .await?;
         Ok(n > 0)
     }
 
@@ -231,26 +294,28 @@ impl UserBansComponent {
         let address = address.to_lowercase();
         let device_id = device_id.filter(|s| !s.is_empty());
         let n: i64 = match device_id {
-            Some(device_id) => sqlx::query_scalar(
-                "SELECT COUNT(*) FROM user_bans \
+            Some(device_id) => {
+                sqlx::query_scalar(
+                    "SELECT COUNT(*) FROM user_bans \
                  WHERE (banned_address = $1 OR banned_device_id = $2) \
                    AND lifted_at IS NULL \
                    AND (expires_at IS NULL OR expires_at > now())",
-            )
-            .bind(&address)
-            .bind(device_id)
-            .fetch_one(&self.pool)
-            .await
-            .unwrap_or(0),
-            None => sqlx::query_scalar(
-                "SELECT COUNT(*) FROM user_bans \
+                )
+                .bind(&address)
+                .bind(device_id)
+                .fetch_one(&self.pool)
+                .await?
+            }
+            None => {
+                sqlx::query_scalar(
+                    "SELECT COUNT(*) FROM user_bans \
                  WHERE banned_address = $1 AND lifted_at IS NULL \
                    AND (expires_at IS NULL OR expires_at > now())",
-            )
-            .bind(&address)
-            .fetch_one(&self.pool)
-            .await
-            .unwrap_or(0),
+                )
+                .bind(&address)
+                .fetch_one(&self.pool)
+                .await?
+            }
         };
         Ok(n > 0)
     }
@@ -270,7 +335,7 @@ impl UserBansComponent {
         Ok(match row {
             Some(row) => BanStatus {
                 is_banned: true,
-                ban: Some(ban_from_row(row)),
+                ban: Some(ban_from_row(row).into()),
             },
             None => BanStatus {
                 is_banned: false,
@@ -283,9 +348,6 @@ impl UserBansComponent {
         let banned_address = input.banned_address.to_lowercase();
         let banned_by = input.banned_by.to_lowercase();
 
-        // No DB uniqueness constraint covers active bans (a partial unique index would block
-        // re-banning after expiry), so serialize concurrent check-then-insert per address with a
-        // transaction-scoped advisory lock, mirroring upstream.
         let mut txn = self.pool.begin().await?;
 
         sqlx::query("SELECT pg_advisory_xact_lock(hashtext($1))")
@@ -450,5 +512,49 @@ mod ms_iso_tests {
         let v = serde_json::to_value(w).unwrap();
         assert_eq!(v["warnedAt"], "2024-06-20T16:13:20.000Z");
         assert_eq!(v["createdAt"], "2024-06-20T16:13:20.000Z");
+    }
+}
+
+#[cfg(test)]
+mod public_shape_tests {
+    use super::*;
+    use chrono::TimeZone;
+
+    fn device_ban() -> UserBan {
+        let at = Utc.timestamp_opt(1_718_900_000, 0).unwrap();
+        UserBan {
+            id: "00000000-0000-0000-0000-000000000001".into(),
+            banned_address: "0xabc".into(),
+            banned_by: "0xdef".into(),
+            reason: "spam".into(),
+            custom_message: None,
+            banned_device_id: Some("dev-1".into()),
+            banned_at: at,
+            expires_at: None,
+            lifted_at: None,
+            lifted_by: None,
+            created_at: at,
+        }
+    }
+
+    #[test]
+    fn the_public_status_shape_never_carries_the_device_id() {
+        let status = BanStatus {
+            is_banned: true,
+            ban: Some(device_ban().into()),
+        };
+        let v = serde_json::to_value(status).unwrap();
+        let ban = &v["ban"];
+        assert!(ban.get("bannedDeviceId").is_none());
+        assert_eq!(ban["bannedAddress"], "0xabc");
+        assert_eq!(ban["bannedAt"], "2024-06-20T16:13:20.000Z");
+        assert_eq!(ban.as_object().unwrap().len(), 10);
+    }
+
+    #[test]
+    fn the_moderator_list_shape_keeps_the_device_id() {
+        let v = serde_json::to_value(vec![device_ban()]).unwrap();
+        assert_eq!(v[0]["bannedDeviceId"], "dev-1");
+        assert_eq!(v[0].as_object().unwrap().len(), 11);
     }
 }

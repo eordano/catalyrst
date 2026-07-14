@@ -8,7 +8,7 @@ use uuid::Uuid;
 
 use crate::admin::authorize_admin;
 use crate::http::ApiError;
-use crate::ports::NOTIFICATION_TYPES;
+use crate::ports::{BroadcastResponse, NOTIFICATION_TYPES};
 use crate::AppState;
 
 const MAX_ADDRESSES: usize = 10_000;
@@ -80,11 +80,11 @@ pub async fn post_broadcast(
 
     Ok((
         StatusCode::OK,
-        Json(serde_json::json!({
-            "ok": true,
-            "broadcastId": broadcast_id,
-            "type": body.kind,
-            "recipients": inserted,
-        })),
+        Json(BroadcastResponse {
+            ok: true,
+            broadcast_id,
+            kind: body.kind,
+            recipients: inserted,
+        }),
     ))
 }

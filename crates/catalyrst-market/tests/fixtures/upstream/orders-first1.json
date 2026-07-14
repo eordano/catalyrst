@@ -1,0 +1,22 @@
+{
+  "data": [
+    {
+      "id": "6d35034c-0618-49d5-8e97-84782e5878cd",
+      "marketplaceAddress": "0x1b67d0e31eeb6b52d8eeed71d3616c2f5b33b8e7",
+      "contractAddress": "0xf87e31492faf9a91b02ee0deaad50d51d56d5d4d",
+      "tokenId": "115792089237316195423570985008687907809373559332839502252682259649215030362197",
+      "owner": "0xc723cf4771b5373e4a2f5cfd1d773a61c9d6e18d",
+      "buyer": "",
+      "price": "1500000000000000000000",
+      "status": "open",
+      "expiresAt": 1789617600,
+      "createdAt": 1787061057,
+      "updatedAt": 1787061057,
+      "network": "ETHEREUM",
+      "chainId": 1,
+      "issuedId": null,
+      "tradeId": "6d35034c-0618-49d5-8e97-84782e5878cd"
+    }
+  ],
+  "total": "160047"
+}

@@ -92,10 +92,6 @@ pub async fn load_or_reload(state: &AppState, name: &str) -> Result<()> {
     Ok(())
 }
 
-// The delegation slot is written by the renewal task and read by the fetch
-// worker; the JS isolate never sees key material or signed headers. Local scenes
-// have no world name/parcel, so they only get storage via a pre-minted
-// STORAGE_DELEGATION.
 async fn build_storage_ctx(
     state: &AppState,
     world: &str,

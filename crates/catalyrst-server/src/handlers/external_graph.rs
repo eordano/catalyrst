@@ -1,35 +1,42 @@
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
+use catalyrst_commons::cache::{TtlCell, TtlMap};
+use catalyrst_commons::http::{http_client, HttpClientCfg};
 use serde_json::{json, Value};
-use tokio::sync::Mutex;
-
-use crate::cache::ResponseCache;
 
 pub struct SubgraphUrls {
-    pub eth_collections: &'static str,
-    pub matic_collections: &'static str,
-    pub third_party_registry: &'static str,
-    pub land: &'static str,
+    pub eth_collections: String,
+    pub matic_collections: String,
+    pub third_party_registry: String,
+    pub land: String,
 }
 
-pub fn subgraph_urls(eth_network: &str) -> SubgraphUrls {
-    match eth_network {
-        "sepolia" => SubgraphUrls {
-            eth_collections:
-                "https://api.studio.thegraph.com/query/49472/collections-ethereum-sepolia/version/latest",
-            matic_collections: "https://subgraph.decentraland.org/collections-matic-amoy",
-            third_party_registry: "https://subgraph.decentraland.org/tpr-matic-amoy",
-            land: "https://subgraph.decentraland.org/land-manager-sepolia",
-        },
+/// Subgraph indexers are per-deployment infrastructure, so every one is named
+/// by an env var with no fallback: the previous hardcoded values were all
+/// production Decentraland indexers, and reaching for them on an unconfigured
+/// node was exactly the silent-production-call defect.
+fn subgraph_env(key: &str) -> Result<String, String> {
+    std::env::var(key)
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| {
+            format!(
+                "{key} is unset \u{2014} this node has no subgraph indexer configured for that \
+                 role. There is deliberately no default: the historical default was a \
+                 production Decentraland subgraph."
+            )
+        })
+}
 
-        _ => SubgraphUrls {
-            eth_collections: "https://subgraph.decentraland.org/collections-ethereum-mainnet",
-            matic_collections: "https://subgraph.decentraland.org/collections-matic-mainnet",
-            third_party_registry: "https://subgraph.decentraland.org/tpr-matic-mainnet",
-            land: "https://subgraph.decentraland.org/land-manager",
-        },
-    }
+pub fn subgraph_urls(_eth_network: &str) -> Result<SubgraphUrls, String> {
+    Ok(SubgraphUrls {
+        eth_collections: subgraph_env("ETH_COLLECTIONS_SUBGRAPH_URL")?,
+        matic_collections: subgraph_env("MATIC_COLLECTIONS_SUBGRAPH_URL")?,
+        third_party_registry: subgraph_env("THIRD_PARTY_REGISTRY_L2_SUBGRAPH_URL")?,
+        land: subgraph_env("LAND_SUBGRAPH_URL")?,
+    })
 }
 
 pub struct LandContracts {
@@ -52,18 +59,26 @@ pub fn land_contracts(eth_network: &str) -> LandContracts {
 
 pub const THE_GRAPH_PAGE_SIZE: i64 = 1000;
 
-fn nft_worker_base_url() -> String {
+fn nft_worker_base_url() -> Option<String> {
     std::env::var("NFT_WORKER_BASE_URL")
-        .unwrap_or_else(|_| "https://nfts.decentraland.org".to_string())
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
+pub fn nft_worker_configured() -> bool {
+    nft_worker_base_url().is_some()
 }
 
 pub fn client() -> &'static reqwest::Client {
     static CLIENT: std::sync::OnceLock<reqwest::Client> = std::sync::OnceLock::new();
     CLIENT.get_or_init(|| {
-        reqwest::Client::builder()
-            .timeout(Duration::from_secs(60))
-            .build()
-            .unwrap_or_default()
+        http_client(
+            "external-graph",
+            &HttpClientCfg::default()
+                .with_total_timeout(Duration::from_secs(60))
+                .following_redirects(10),
+        )
     })
 }
 
@@ -116,41 +131,28 @@ const TP_QUERY: &str = r#"
   }
 }"#;
 
-struct ProviderCache {
-    providers: Mutex<Option<(Vec<ThirdPartyProvider>, Instant)>>,
-}
-
-fn provider_cache() -> &'static ProviderCache {
-    static C: std::sync::OnceLock<ProviderCache> = std::sync::OnceLock::new();
-    C.get_or_init(|| ProviderCache {
-        providers: Mutex::new(None),
-    })
+fn provider_cache() -> &'static TtlCell<Vec<ThirdPartyProvider>> {
+    static C: std::sync::OnceLock<TtlCell<Vec<ThirdPartyProvider>>> = std::sync::OnceLock::new();
+    C.get_or_init(|| TtlCell::new("third-party-providers"))
 }
 
 const PROVIDER_TTL: Duration = Duration::from_secs(6 * 60 * 60);
 
 pub async fn third_party_providers(eth_network: &str) -> Vec<ThirdPartyProvider> {
-    let cache = provider_cache();
-    let mut guard = cache.providers.lock().await;
-    if let Some((providers, at)) = guard.as_ref() {
-        if at.elapsed() < PROVIDER_TTL {
-            return providers.clone();
-        }
-    }
-
-    let url = subgraph_urls(eth_network).third_party_registry;
-    let providers = match graph_query(url, TP_QUERY, json!({})).await {
-        Ok(data) => parse_providers(&data),
-        Err(_) => {
-            if let Some((p, _)) = guard.as_ref() {
-                return p.clone();
-            }
-            Vec::new()
-        }
-    };
-
-    *guard = Some((providers.clone(), Instant::now()));
-    providers
+    let eth_network = eth_network.to_string();
+    provider_cache()
+        .get_or_refresh(PROVIDER_TTL, || async move {
+            let url = subgraph_urls(&eth_network)
+                .map(|u| u.third_party_registry)
+                .map_err(|e| {
+                    tracing::warn!(error = %e, "third-party registry lookup skipped");
+                    e
+                })?;
+            let data = graph_query(&url, TP_QUERY, json!({})).await?;
+            Ok::<Vec<ThirdPartyProvider>, String>(parse_providers(&data))
+        })
+        .await
+        .unwrap_or_default()
 }
 
 fn parse_providers(data: &Value) -> Vec<ThirdPartyProvider> {
@@ -199,12 +201,14 @@ async fn owned_nfts_for_network(owner: &str, network: &str, contracts: &[String]
     if !SUPPORTED_NETWORKS.contains(&network) {
         return Vec::new();
     }
-    let url = format!(
-        "{}/wallets/{}/networks/{}/nfts",
-        nft_worker_base_url(),
-        owner,
-        network
-    );
+    let Some(base) = nft_worker_base_url() else {
+        tracing::warn!(
+            "NFT_WORKER_BASE_URL is unset \u{2014} reporting no owned NFTs for {network}; \
+             set it to an NFT ownership indexer for this deployment"
+        );
+        return Vec::new();
+    };
+    let url = format!("{base}/wallets/{owner}/networks/{network}/nfts");
     let resp = match client()
         .post(&url)
         .header("Content-Type", "application/json")
@@ -235,11 +239,11 @@ async fn owned_nfts_for_network(owner: &str, network: &str, contracts: &[String]
 
 const NFT_CACHE_TTL: Duration = Duration::from_secs(30);
 
-fn owned_nfts_cache() -> &'static Arc<ResponseCache<(String, String), Vec<String>>> {
-    static CACHE: std::sync::OnceLock<Arc<ResponseCache<(String, String), Vec<String>>>> =
+fn owned_nfts_cache() -> &'static Arc<TtlMap<(String, String), Vec<String>>> {
+    static CACHE: std::sync::OnceLock<Arc<TtlMap<(String, String), Vec<String>>>> =
         std::sync::OnceLock::new();
     CACHE.get_or_init(|| {
-        Arc::new(ResponseCache::new(
+        Arc::new(TtlMap::bounded(
             "owned_nfts",
             NFT_CACHE_TTL,
             PARCEL_CACHE_MAX_ENTRIES,
@@ -367,12 +371,11 @@ pub struct ParcelOperators {
 const PARCEL_CACHE_TTL: Duration = Duration::from_secs(60);
 const PARCEL_CACHE_MAX_ENTRIES: usize = 50_000;
 
-fn parcel_cache() -> &'static Arc<ResponseCache<(String, i64, i64), Option<ParcelOperators>>> {
-    static CACHE: std::sync::OnceLock<
-        Arc<ResponseCache<(String, i64, i64), Option<ParcelOperators>>>,
-    > = std::sync::OnceLock::new();
+fn parcel_cache() -> &'static Arc<TtlMap<(String, i64, i64), Option<ParcelOperators>>> {
+    static CACHE: std::sync::OnceLock<Arc<TtlMap<(String, i64, i64), Option<ParcelOperators>>>> =
+        std::sync::OnceLock::new();
     CACHE.get_or_init(|| {
-        Arc::new(ResponseCache::new(
+        Arc::new(TtlMap::bounded(
             "parcel_operators",
             PARCEL_CACHE_TTL,
             PARCEL_CACHE_MAX_ENTRIES,
@@ -433,8 +436,8 @@ pub async fn parcel_operators(
     let eth_network_owned = eth_network.to_string();
     parcel_cache()
         .get_or_fetch(key, move || async move {
-            let url = subgraph_urls(&eth_network_owned).land;
-            let data = graph_query(url, QUERY_OPERATORS_PARCEL, json!({ "x": x, "y": y })).await?;
+            let url = subgraph_urls(&eth_network_owned)?.land;
+            let data = graph_query(&url, QUERY_OPERATORS_PARCEL, json!({ "x": x, "y": y })).await?;
 
             let estates = data
                 .get("estates")
@@ -460,7 +463,7 @@ pub async fn parcel_operators(
             };
 
             let (update_managers, approved_for_all) =
-                update_managers_and_approved_for_all(url, &resolved.owner, token_address).await?;
+                update_managers_and_approved_for_all(&url, &resolved.owner, token_address).await?;
 
             Ok(Some(ParcelOperators {
                 owner: resolved.owner,
@@ -543,11 +546,11 @@ async fn update_managers_and_approved_for_all(
     Ok((update_managers, approved_for_all))
 }
 
-fn parcels_by_operator_cache() -> &'static Arc<ResponseCache<(String, String), Vec<Value>>> {
-    static CACHE: std::sync::OnceLock<Arc<ResponseCache<(String, String), Vec<Value>>>> =
+fn parcels_by_operator_cache() -> &'static Arc<TtlMap<(String, String), Vec<Value>>> {
+    static CACHE: std::sync::OnceLock<Arc<TtlMap<(String, String), Vec<Value>>>> =
         std::sync::OnceLock::new();
     CACHE.get_or_init(|| {
-        Arc::new(ResponseCache::new(
+        Arc::new(TtlMap::bounded(
             "parcels_by_update_operator",
             PARCEL_CACHE_TTL,
             PARCEL_CACHE_MAX_ENTRIES,
@@ -564,13 +567,13 @@ pub async fn parcels_by_update_operator(
     let operator = update_operator.to_string();
     parcels_by_operator_cache()
         .get_or_fetch(key, move || async move {
-            let url = subgraph_urls(&eth).land;
+            let url = subgraph_urls(&eth)?.land;
             let mut elements: Vec<Value> = Vec::new();
             let mut skip = 0i64;
 
             loop {
                 let data = graph_query(
-                    url,
+                    &url,
                     QUERY_PARCELS_BY_UPDATE_OPERATOR,
                     json!({
                         "updateOperator": operator,
@@ -624,7 +627,7 @@ pub async fn collections_from_squid(
     let rows: Vec<(String, Option<String>)> = sqlx::query_as(
         "SELECT urn, name FROM squid_marketplace.collection \
          WHERE network = $1 AND urn IS NOT NULL \
-         ORDER BY urn ASC LIMIT $2",
+         ORDER BY urn COLLATE \"C\" ASC LIMIT $2",
     )
     .bind(squid_network)
     .bind(COLLECTIONS_PAGE_SIZE)
@@ -831,8 +834,8 @@ mod tests {
 
     #[tokio::test]
     async fn parcel_operators_cache_second_call_is_a_hit() {
-        let cache: ResponseCache<(String, i64, i64), Option<ParcelOperators>> =
-            ResponseCache::new("parcel_test", StdDuration::from_secs(60), 100);
+        let cache: TtlMap<(String, i64, i64), Option<ParcelOperators>> =
+            TtlMap::bounded("parcel_test", StdDuration::from_secs(60), 100);
         let counter = StdArc::new(AtomicUsize::new(0));
         let key = ("mainnet".to_string(), 10, -5);
 
@@ -865,8 +868,8 @@ mod tests {
 
     #[tokio::test]
     async fn parcel_operators_cache_caches_none() {
-        let cache: ResponseCache<(String, i64, i64), Option<ParcelOperators>> =
-            ResponseCache::new("parcel_test_none", StdDuration::from_secs(60), 100);
+        let cache: TtlMap<(String, i64, i64), Option<ParcelOperators>> =
+            TtlMap::bounded("parcel_test_none", StdDuration::from_secs(60), 100);
         let counter = StdArc::new(AtomicUsize::new(0));
         let key = ("mainnet".to_string(), 99, 99);
 

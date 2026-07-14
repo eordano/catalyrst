@@ -1,0 +1,49 @@
+.mk-account {
+  background: var(--lm-bg);
+  min-height: 100%;
+}
+
+.mk-account__subnav {
+  padding: 0 18px;
+  background: var(--lm-bg);
+}
+
+.mk-account__sections {
+  padding: 6px 22px 0;
+  background: var(--lm-bg);
+}
+
+.mk-account__banner {
+  margin: 14px 22px 0;
+  padding: 14px 18px;
+  border-radius: 12px;
+  background: var(--lm-surface);
+  border: 1px solid var(--lm-line);
+  color: var(--lm-ink-2);
+  font-size: 14px;
+  line-height: 1.5;
+}
+.mk-account__banner strong {
+  color: var(--lm-ink);
+}
+
+.mk-account__signin {
+  margin-top: 12px;
+  padding: 10px 22px;
+  border-radius: var(--r-pill, 999px);
+  border: 0;
+  background: var(--brand-cta);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.mk-account__signin:hover {
+  filter: brightness(1.05);
+}
+
+@media (max-width: 860px) {
+  .mk-account__subnav { padding: 0 10px; }
+  .mk-account__sections { padding: 6px 14px 0; }
+  .mk-account__banner { margin: 12px 14px 0; }
+}

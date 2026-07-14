@@ -1,0 +1,321 @@
+.stprofileoverviewtab {
+  --spo-surface: rgba(0, 0, 0, .20);
+  --spo-surface-hi: rgba(0, 0, 0, .30);
+  --spo-infolabel: #cfcdd4;
+  --spo-link: #57c2ff;
+  --spo-text2: rgba(255, 255, 255, .7);
+}
+
+.stprofileoverviewtab .ptl__main { padding-top: 40px; position: relative; }
+
+.stprofileoverviewtab__namecta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 22px;
+  border-radius: 10px;
+  border: none;
+  background: var(--brand-cta, #d80029);
+  color: #fff;
+  font-weight: 600;
+  font-size: 14px;
+  letter-spacing: .4px;
+  line-height: 24px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 150ms ease;
+}
+.stprofileoverviewtab__namecta:hover { background: var(--brand-hover); }
+
+.stprofileoverviewtab__mutual {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #ecebed;
+  background: none;
+  border: none;
+  padding: 4px 8px;
+  margin-left: -8px;
+  border-radius: 8px;
+  font: inherit;
+  cursor: pointer;
+  transition: background-color 150ms ease;
+}
+.stprofileoverviewtab__mutual:hover { background-color: var(--fill-3); }
+.stprofileoverviewtab__mutualstack { display: flex; align-items: center; }
+.stprofileoverviewtab__mutualpic {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, .5);
+  flex-shrink: 0;
+  display: inline-block;
+}
+.stprofileoverviewtab__mutualtext { font-weight: 400; font-size: 16px; line-height: 1; color: var(--text); }
+.stprofileoverviewtab__mutualtext strong { font-weight: 600; }
+
+.stprofileoverviewtab__cta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 180px;
+  height: 40px;
+  padding: 9px 24px;
+  border-radius: 10px;
+  border: none;
+  background: var(--brand-cta, #d80029);
+  color: #fff;
+  font-weight: 600;
+  font-size: 14px;
+  letter-spacing: .4px;
+  line-height: 24px;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background 150ms ease;
+}
+.stprofileoverviewtab__cta:hover { background: var(--brand-hover); }
+
+.stprofileoverviewtab__more {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border: none;
+  background: none;
+  color: #fff;
+  border-radius: 50%;
+  cursor: pointer;
+}
+.stprofileoverviewtab__more:hover { background: var(--fill-3); }
+
+.stprofileoverviewtab__render {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  width: 500px;
+  max-width: 100%;
+  height: 706px;
+  overflow: visible;
+}
+.stprofileoverviewtab__renderglow {
+  position: absolute;
+  left: 50%;
+  bottom: 8%;
+  transform: translateX(-50%);
+  width: 320px;
+  height: 320px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(255, 255, 255, .14) 0%, rgba(255, 255, 255, 0) 70%);
+  pointer-events: none;
+}
+.stprofileoverviewtab__renderfig {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 200px;
+  height: 460px;
+  margin-bottom: 24px;
+  border-radius: 100px 100px 24px 24px;
+  color: rgba(255, 255, 255, .85);
+  font-size: 88px;
+  font-weight: 700;
+  text-transform: uppercase;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, .35);
+}
+
+.stprofileoverviewtab__surface {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 32px;
+  padding: 30px 40px;
+  border-radius: 16px;
+  background: var(--spo-surface);
+  width: 100%;
+}
+
+.stprofileoverviewtab__section { width: 100%; }
+
+.stprofileoverviewtab__sectitle {
+  margin: 0;
+  color: var(--text);
+  font-weight: 600;
+  font-size: 16px;
+  line-height: normal;
+  text-transform: uppercase;
+}
+
+.stprofileoverviewtab__edit {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--fill-5);
+  border-radius: var(--r-pill);
+  padding: 6px 14px;
+  background: var(--fill-1);
+  color: var(--spo-text2);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: .4px;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: color 150ms ease, border-color 150ms ease;
+}
+.stprofileoverviewtab__edit:hover { color: var(--text); border-color: var(--ink-45); }
+.stprofileoverviewtab__edit--float { position: absolute; top: 12px; right: 14px; z-index: 2; }
+
+.stprofileoverviewtab__badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 30px;
+  align-items: center;
+  margin-top: 12px;
+}
+.stprofileoverviewtab__badge {
+  width: 86px;
+  height: 86px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  outline: none;
+}
+.stprofileoverviewtab__badgeinit {
+  font-size: 30px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, .92);
+  text-transform: uppercase;
+}
+
+.stprofileoverviewtab__bio {
+  margin: 8px 0 0;
+  color: var(--text);
+  font-weight: 400;
+  font-size: 16px;
+  line-height: normal;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.stprofileoverviewtab__empty {
+  margin: 8px 0 0;
+  color: var(--ink-45);
+  font-weight: 400;
+  font-size: 14px;
+  line-height: 1.5;
+  font-style: italic;
+}
+
+.stprofileoverviewtab__infogrid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  align-items: flex-start;
+  margin-top: 16px;
+}
+.stprofileoverviewtab__infoitem { width: 200px; display: flex; flex-direction: column; gap: 4px; justify-content: center; }
+.stprofileoverviewtab__infolabel {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--spo-infolabel);
+  font-weight: 600;
+  font-size: 14px;
+  line-height: normal;
+  text-transform: uppercase;
+}
+.stprofileoverviewtab__infoicon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  color: var(--spo-infolabel);
+}
+.stprofileoverviewtab__infovalue {
+  color: var(--text);
+  font-weight: 400;
+  font-size: 16px;
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+.stprofileoverviewtab__links { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 8px; }
+.stprofileoverviewtab__linkpill {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 10px;
+  border-radius: 12px;
+  background: var(--spo-surface);
+  color: var(--spo-link);
+  font-size: 16px;
+  font-weight: 600;
+  line-height: normal;
+  text-decoration: none;
+  transition: background 150ms ease;
+}
+.stprofileoverviewtab__linkpill:hover { background: var(--spo-surface-hi); }
+.stprofileoverviewtab__linkicon { display: inline-flex; align-items: center; color: var(--spo-link); }
+
+.stprofileoverviewtab__equipped {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  row-gap: 28px;
+  column-gap: 16px;
+  align-items: stretch;
+  width: 100%;
+  margin-top: 16px;
+}
+.stprofileoverviewtab__equipped > * { min-width: 0; width: 100%; }
+
+.stprofileoverviewtab__equippeditem { display: flex; flex-direction: column; gap: 10px; }
+.stprofileoverviewtab__equippeditem .ac { width: 100%; }
+
+.stprofileoverviewtab__buy {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 40px;
+  width: 100%;
+  border-radius: 10px;
+  background: var(--brand-cta, #d80029);
+  color: #fff;
+  text-decoration: none;
+  font-weight: 600;
+  font-size: 14px;
+  letter-spacing: .4px;
+  text-transform: uppercase;
+  transition: background 150ms ease;
+}
+.stprofileoverviewtab__buy:hover { background: var(--brand-hover); }
+
+.stprofileoverviewtab__loadingrow { display: flex; justify-content: flex-start; padding: 24px 0; }
+.stprofileoverviewtab__spinner {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 3px solid var(--fill-4);
+  border-top-color: var(--brand);
+  animation: u-spin 0.9s linear infinite;
+}
+@media (max-width: 900px) {
+  .stprofileoverviewtab .ptl__main { padding-top: 16px; }
+  .stprofileoverviewtab__cta { width: auto; min-width: 140px; }
+  .stprofileoverviewtab__render { width: 100%; height: 360px; }
+  .stprofileoverviewtab__renderfig { height: 300px; width: 130px; font-size: 56px; }
+  .stprofileoverviewtab__surface { padding: 16px; gap: 24px; }
+  .stprofileoverviewtab__badges { gap: 12px; }
+  .stprofileoverviewtab__badge { width: 72px; height: 72px; }
+  .stprofileoverviewtab__equipped { grid-template-columns: repeat(2, 1fr); row-gap: 16px; column-gap: 12px; }
+}

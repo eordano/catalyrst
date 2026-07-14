@@ -121,3 +121,56 @@ pub struct ClaimCreditsResponse {
     #[serde(rename = "isBlockedForClaiming")]
     pub is_blocked_for_claiming: bool,
 }
+
+#[derive(Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "credits/"))]
+pub struct UserCreditsResponse {
+    pub credits: Vec<UserCreditItem>,
+    #[serde(rename = "totalCredits")]
+    pub total_credits: f64,
+    pub totals: CreditsTotals,
+    pub usd: UsdCredits,
+}
+
+#[derive(Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "credits/"))]
+pub struct UserCreditItem {
+    pub id: String,
+    #[serde(rename = "userAddress")]
+    pub user_address: String,
+    pub amount: String,
+    #[serde(rename = "availableAmount")]
+    pub available_amount: String,
+    pub status: String,
+    pub contract: String,
+    pub timestamp: String,
+    pub signature: String,
+    #[serde(rename = "seasonId")]
+    pub season_id: i32,
+    #[serde(rename = "goalId")]
+    pub goal_id: String,
+    #[serde(rename = "weekId")]
+    pub week_id: i32,
+    #[serde(rename = "claimedAt")]
+    pub claimed_at: String,
+    #[serde(rename = "expiresAt")]
+    pub expires_at: String,
+    #[serde(rename = "creditSource")]
+    pub credit_source: String,
+}
+
+#[derive(Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "credits/"))]
+pub struct CreditsTotals {
+    pub expiring: f64,
+    #[serde(rename = "nonExpiring")]
+    pub non_expiring: f64,
+}
+
+#[derive(Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "credits/"))]
+pub struct UsdCredits {
+    #[serde(rename = "balanceCents")]
+    pub balance_cents: i64,
+    pub credits: i32,
+}

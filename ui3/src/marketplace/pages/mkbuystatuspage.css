@@ -1,0 +1,145 @@
+.mkbuystatuspage {
+  --mkbuystatuspage-muted: var(--lm-ink-3);
+  width: 100%;
+  min-height: 100%;
+  box-sizing: border-box;
+  padding: 0 24px 64px;
+  color: var(--text);
+  font-family: var(--font-sans);
+}
+
+.mkbuystatuspage__row {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-top: 110px;
+}
+
+.mkbuystatuspage__center {
+  flex: 0.5 1 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  max-width: 400px;
+}
+
+.mkbuystatuspage__imgwrap {
+  position: relative;
+  width: 240px;
+  display: inline-block;
+}
+
+.mkbuystatuspage__img {
+  position: relative;
+  width: 240px;
+  height: 240px;
+  border-radius: var(--r-card);
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.mkbuystatuspage__stars {
+  position: absolute;
+  z-index: 1;
+  width: 60px;
+  height: 60px;
+  fill: var(--gold);
+  pointer-events: none;
+}
+.mkbuystatuspage__stars--top {
+  top: -7%;
+  left: -7%;
+}
+.mkbuystatuspage__stars--bottom {
+  bottom: -8%;
+  right: -4%;
+}
+
+.mkbuystatuspage__title {
+  margin: 40px 0 16px;
+  font-size: 34px;
+  line-height: 36px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--text);
+}
+
+.mkbuystatuspage__statuswrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  column-gap: 8px;
+  margin-bottom: 16px;
+}
+
+.mkbuystatuspage__loader {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.18);
+  border-top-color: var(--brand);
+  animation: u-spin 0.7s linear infinite;
+  flex: 0 0 auto;
+}
+.mkbuystatuspage__status {
+  margin: 0;
+  font-weight: 500;
+  font-size: 17px;
+  line-height: 26px;
+  color: var(--mkbuystatuspage-muted);
+}
+
+.mkbuystatuspage__description {
+  margin: 0;
+  font-weight: 400;
+  font-size: 15px;
+  line-height: 24px;
+  color: var(--ink-7);
+}
+
+.mkbuystatuspage__link {
+  color: var(--brand);
+  text-decoration: none;
+  font-weight: 500;
+}
+.mkbuystatuspage__link:hover {
+  text-decoration: underline;
+}
+
+.mkbuystatuspage__cta {
+  margin-top: 40px;
+  width: 100%;
+  height: 44px;
+  border: none;
+  border-radius: var(--r-pill);
+  background: var(--brand-cta, #d80029);
+  color: #fff;
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+.mkbuystatuspage__cta:hover {
+  background: var(--brand-hover);
+}
+
+@media (max-width: 768px) {
+  .mkbuystatuspage__row {
+    padding-top: 56px;
+  }
+  .mkbuystatuspage__center,
+  .mkbuystatuspage__imgwrap,
+  .mkbuystatuspage__img {
+    width: 100%;
+    max-width: 320px;
+  }
+  .mkbuystatuspage__img {
+    height: auto;
+    aspect-ratio: 1 / 1;
+  }
+}

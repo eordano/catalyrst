@@ -14,15 +14,21 @@ const DUMP_TIMEOUT: Duration = Duration::from_secs(120);
 #[derive(Clone)]
 pub struct DataLayerState {
     pub port_rx: watch::Receiver<u16>,
-    pub public_dir: PathBuf,
+    /// The editor's browser bundle, if installed. `None` is normal: the data
+    /// layer still serves the protocol and 404s `/inspector/*`; treating it as
+    /// fatal made the vendored host unreachable, since a real `@dcl/inspector`
+    /// wins at `require()` time.
+    pub public_dir: Option<PathBuf>,
 }
 
-pub fn locate_inspector_public(root: &Path) -> Result<PathBuf> {
+/// The editor UI for this scene, if one is installed. `Ok(None)` is not an
+/// error; a `DCL_ONE_INSPECTOR_DIR` that names a non-inspector build is.
+pub fn locate_inspector_public(root: &Path) -> Result<Option<PathBuf>> {
     if let Ok(dir) = std::env::var("DCL_ONE_INSPECTOR_DIR") {
         let d = PathBuf::from(&dir);
         for candidate in [d.join("public"), d.clone()] {
             if candidate.join("index.html").is_file() {
-                return Ok(candidate);
+                return Ok(Some(candidate));
             }
         }
         return Err(UserError::new(
@@ -39,20 +45,11 @@ pub fn locate_inspector_public(root: &Path) -> Result<PathBuf> {
     while let Some(d) = dir {
         let candidate = d.join("node_modules/@dcl/inspector/public");
         if candidate.join("index.html").is_file() {
-            return Ok(candidate);
+            return Ok(Some(candidate));
         }
         dir = d.parent();
     }
-    Err(UserError::new(
-        "the visual editor UI (@dcl/inspector) is not installed in this scene",
-        TrySteps::one("run npm install in the scene directory (@dcl/sdk-commands ships it)")
-            .and("or set DCL_ONE_INSPECTOR_DIR=<path-to-an-@dcl/inspector-package>"),
-    )
-    .why(format!(
-        "no node_modules/@dcl/inspector/public/index.html at or above {}",
-        root.display()
-    ))
-    .into())
+    Ok(None)
 }
 
 pub fn inject_config(html: &str, config_json: &str) -> String {
@@ -64,6 +61,55 @@ pub fn inject_config(html: &str, config_json: &str) -> String {
 
 pub fn inspector_config_json(ws_url: &str) -> String {
     json!({ "dataLayerRpcWsUrl": ws_url }).to_string()
+}
+
+/// The vendored blob stores the big bundles `.gz` (11 MB instead of 73 MB); an
+/// npm-installed `@dcl/inspector` has them plain, so plain wins.
+pub enum Asset {
+    Plain(PathBuf),
+    Gzipped(PathBuf),
+}
+
+pub fn resolve_asset(public_dir: &Path, rel: &str) -> Option<Asset> {
+    if rel.split('/').any(|seg| seg == "..") {
+        return None;
+    }
+    let base = dunce::canonicalize(public_dir).unwrap_or_else(|_| public_dir.to_path_buf());
+    let found = match dunce::canonicalize(public_dir.join(rel)) {
+        Ok(p) => Asset::Plain(p),
+        Err(_) => Asset::Gzipped(dunce::canonicalize(public_dir.join(format!("{rel}.gz"))).ok()?),
+    };
+    let path = match &found {
+        Asset::Plain(p) | Asset::Gzipped(p) => p,
+    };
+    path.starts_with(&base).then_some(found)
+}
+
+/// Does the client take gzip? `identity` and `gzip;q=0` both mean no.
+pub fn accepts_gzip(accept_encoding: Option<&str>) -> bool {
+    let Some(value) = accept_encoding else {
+        return false;
+    };
+    value.split(',').any(|part| {
+        let mut bits = part.split(';');
+        let coding = bits.next().unwrap_or("").trim();
+        if !coding.eq_ignore_ascii_case("gzip") && coding != "*" {
+            return false;
+        }
+        !bits.any(|p| {
+            let p = p.trim();
+            p.strip_prefix("q=")
+                .and_then(|q| q.trim().parse::<f32>().ok())
+                .is_some_and(|q| q <= 0.0)
+        })
+    })
+}
+
+pub fn gunzip(bytes: &[u8]) -> std::io::Result<Vec<u8>> {
+    use std::io::Read;
+    let mut out = Vec::new();
+    flate2::read::GzDecoder::new(bytes).read_to_end(&mut out)?;
+    Ok(out)
 }
 
 pub fn inspector_mime(path: &Path) -> &'static str {
@@ -92,24 +138,19 @@ pub fn inspector_mime(path: &Path) -> &'static str {
 }
 
 pub fn write_driver(root: &Path) -> Result<PathBuf> {
-    let dir = root.join(".dcl-one");
-    std::fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
+    let dir = crate::scene::work_dir(root)
+        .with_context(|| format!("creating {}", root.join(".dcl-one").display()))?;
     let path = dir.join("data-layer-host.mjs");
     std::fs::write(&path, DRIVER_TEMPLATE)
         .with_context(|| format!("writing {}", path.display()))?;
     Ok(path)
 }
 
-fn node_bin() -> Result<PathBuf> {
-    match crate::build::find_node() {
-        Some(p) => Ok(p),
-        None => Err(UserError::new(
-            "node is required for the visual editor data layer but is not on PATH",
-            TrySteps::one("install Node.js or add it to PATH")
-                .and("to preview without the editor, drop --data-layer"),
-        )
-        .into()),
-    }
+fn node_for_data_layer() -> Result<PathBuf> {
+    crate::build::require_node(
+        "the visual editor data layer",
+        "to preview without the editor, drop --data-layer",
+    )
 }
 
 struct Driver {
@@ -189,9 +230,11 @@ async fn launch(node: &Path, driver: &Path, root: &Path) -> Result<Driver> {
             };
             Err(UserError::new(
                 "the data-layer host did not come up",
-                TrySteps::one("run npm install in the scene directory (@dcl/inspector, @dcl/rpc and ws must resolve)")
-                    .and("or set DCL_ONE_INSPECTOR_DIR=<path-to-an-@dcl/inspector-package>")
-                    .and("re-run with --verbose for the full driver log"),
+                TrySteps::one(
+                    "run dcl-one-sdk init --node-modules-only \u{2014} the host, @dcl/rpc and ws are vendored",
+                )
+                .and("or npm install in the scene (@dcl/inspector, @dcl/rpc and ws must resolve)")
+                .and("re-run with --verbose for the full driver log"),
             )
             .why(why)
             .into())
@@ -200,7 +243,7 @@ async fn launch(node: &Path, driver: &Path, root: &Path) -> Result<Driver> {
 }
 
 pub async fn spawn(root: &Path) -> Result<watch::Receiver<u16>> {
-    let node = node_bin()?;
+    let node = node_for_data_layer()?;
     let driver = write_driver(root)?;
     let mut current = launch(&node, &driver, root).await?;
     let (tx, rx) = watch::channel(current.port);
@@ -253,8 +296,9 @@ pub async fn spawn(root: &Path) -> Result<watch::Receiver<u16>> {
 }
 
 pub async fn dump_crdt(root: &Path) -> Result<u64> {
-    let node = node_bin()?;
+    let node = node_for_data_layer()?;
     let driver = write_driver(root)?;
+    let _progress = crate::ux::Slow::start("regenerating main.crdt");
     let out = tokio::time::timeout(
         DUMP_TIMEOUT,
         tokio::process::Command::new(&node)
@@ -314,47 +358,90 @@ pub async fn dump_crdt(root: &Path) -> Result<u64> {
         .unwrap_or(0))
 }
 
-pub async fn regenerate_main_crdt(root: &Path, ignore_composite: bool) -> Result<Option<u64>> {
+/// Which generator produced main.crdt; the node fallback is slower and needs
+/// `@dcl/inspector` resolvable, so the build reports it.
+pub enum CrdtRegen {
+    /// Generated in-process, from this many composite files.
+    Native(u64),
+    /// The node summary carries no trustworthy composite count, so none is
+    /// reported rather than a zero that reads as "nothing included".
+    NodeDataLayer,
+}
+
+/// Re-run the node data-layer and shout if its bytes differ from the native
+/// ones; a `DCL_ONE_CRDT_VERIFY=1` soak that reports nothing is the gate for
+/// deleting the node fallback. The driver only writes `<root>/main.crdt`, so
+/// that path is borrowed and restored afterwards.
+async fn shadow_verify(root: &Path, native: &[u8]) {
+    let main_crdt = root.join("main.crdt");
+    let outcome = match dump_crdt(root).await {
+        Ok(_) => tokio::fs::read(&main_crdt)
+            .await
+            .map_err(anyhow::Error::from),
+        Err(e) => Err(e),
+    };
+    match outcome {
+        Ok(reference) => {
+            if let Some(difference) = crate::crdt_gen::describe_difference(native, &reference, root)
+            {
+                tracing::error!("DCL_ONE_CRDT_VERIFY: native main.crdt differs from the node data-layer's — {difference}");
+            } else {
+                tracing::info!("DCL_ONE_CRDT_VERIFY: native main.crdt matches the node data-layer byte for byte");
+            }
+        }
+        Err(e) => tracing::error!("DCL_ONE_CRDT_VERIFY: the node data-layer could not run ({e})"),
+    }
+    if let Err(e) = tokio::fs::write(&main_crdt, native).await {
+        tracing::error!("DCL_ONE_CRDT_VERIFY: could not restore the native main.crdt ({e})");
+    }
+}
+
+pub async fn regenerate_main_crdt(
+    root: &Path,
+    ignore_composite: bool,
+) -> Result<Option<CrdtRegen>> {
     if ignore_composite {
         return Ok(None);
     }
-    if crate::entrypoint::find_composites(root).is_empty() {
-        return Ok(None);
+    let progress = crate::ux::Slow::start("regenerating main.crdt");
+    let generated = crate::crdt_gen::generate(root);
+    progress.finish();
+    match generated {
+        Ok(None) => Ok(None),
+        Ok(Some(generated)) => {
+            tokio::fs::write(root.join("main.crdt"), &generated.bytes)
+                .await
+                .context("writing main.crdt")?;
+            tracing::info!(
+                "main.crdt regenerated natively from {} composite(s)",
+                generated.composites
+            );
+            if std::env::var("DCL_ONE_CRDT_VERIFY").as_deref() == Ok("1") {
+                shadow_verify(root, &generated.bytes).await;
+            }
+            Ok(Some(CrdtRegen::Native(generated.composites)))
+        }
+        Err(crate::crdt_gen::GenError::Unsupported(why)) => {
+            tracing::info!(
+                "native main.crdt generation does not cover this scene ({why}); using the node data-layer"
+            );
+            let n = dump_crdt(root).await?;
+            tracing::info!("main.crdt regenerated from {n} composite(s)");
+            Ok(Some(CrdtRegen::NodeDataLayer))
+        }
+        Err(crate::crdt_gen::GenError::Invalid(why)) => Err(UserError::new(
+            "main.crdt regeneration failed \u{2014} keeping the existing main.crdt",
+            TrySteps::one("check the composite files named below"),
+        )
+        .why(why)
+        .into()),
     }
-    let n = dump_crdt(root).await?;
-    tracing::info!("main.crdt regenerated from {n} composite(s)");
-    Ok(Some(n))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    struct Tmp(PathBuf);
-
-    impl Tmp {
-        fn new(tag: &str) -> Self {
-            let dir = std::env::temp_dir().join(format!(
-                "dcl-one-sdk-datalayer-{tag}-{}",
-                std::process::id()
-            ));
-            let _ = std::fs::remove_dir_all(&dir);
-            std::fs::create_dir_all(&dir).unwrap();
-            Tmp(dir)
-        }
-
-        fn write(&self, rel: &str, contents: &str) {
-            let p = self.0.join(rel);
-            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
-            std::fs::write(p, contents).unwrap();
-        }
-    }
-
-    impl Drop for Tmp {
-        fn drop(&mut self) {
-            let _ = std::fs::remove_dir_all(&self.0);
-        }
-    }
+    use crate::crdt_gen::TestDir;
 
     #[test]
     fn config_injection_rewrites_only_the_assignment() {
@@ -369,15 +456,18 @@ mod tests {
 
     #[test]
     fn locate_walks_up_to_find_the_inspector_public_dir() {
-        let t = Tmp::new("locate");
+        let t = TestDir::new("datalayer-locate");
         t.write(
             "node_modules/@dcl/inspector/public/index.html",
             "<html>$CONFIG</html>",
         );
         t.write("ws/member/scene.json", "{}");
         let found = locate_inspector_public(&t.0.join("ws/member")).unwrap();
-        assert_eq!(found, t.0.join("node_modules/@dcl/inspector/public"));
-        assert!(locate_inspector_public(Path::new("/nonexistent-dcl1")).is_err());
+        assert_eq!(found, Some(t.0.join("node_modules/@dcl/inspector/public")));
+        assert_eq!(
+            locate_inspector_public(Path::new("/nonexistent-dcl1")).unwrap(),
+            None
+        );
     }
 
     #[test]
@@ -385,6 +475,64 @@ mod tests {
         assert!(DRIVER_TEMPLATE.contains("createDataLayerHost"));
         assert!(DRIVER_TEMPLATE.contains("dump-crdt"));
         assert!(DRIVER_TEMPLATE.contains("DataServiceDefinition"));
+    }
+
+    #[test]
+    fn resolve_prefers_a_plain_asset_and_falls_back_to_the_gzipped_one() {
+        let t = TestDir::new("datalayer-resolve");
+        t.write("public/index.html", "<html></html>");
+        t.write("public/bundle.js.gz", "not really gzip");
+        t.write("public/plain.js", "console.log(1)");
+        let dir = t.0.join("public");
+        assert!(matches!(
+            resolve_asset(&dir, "plain.js"),
+            Some(Asset::Plain(_))
+        ));
+        assert!(matches!(
+            resolve_asset(&dir, "bundle.js"),
+            Some(Asset::Gzipped(_))
+        ));
+        t.write("public/bundle.js", "plain wins");
+        assert!(matches!(
+            resolve_asset(&dir, "bundle.js"),
+            Some(Asset::Plain(_))
+        ));
+        assert!(resolve_asset(&dir, "missing.js").is_none());
+    }
+
+    #[test]
+    fn resolve_refuses_paths_that_escape_the_public_dir() {
+        let t = TestDir::new("datalayer-escape");
+        t.write("public/index.html", "<html></html>");
+        t.write("secret.txt", "nope");
+        let dir = t.0.join("public");
+        assert!(resolve_asset(&dir, "../secret.txt").is_none());
+        assert!(resolve_asset(&dir, "a/../../secret.txt").is_none());
+        assert!(resolve_asset(&dir, "../secret.txt.gz").is_none());
+    }
+
+    #[test]
+    fn accepts_gzip_reads_the_q_value() {
+        assert!(accepts_gzip(Some("gzip, deflate, br")));
+        assert!(accepts_gzip(Some("br;q=1.0, gzip;q=0.8")));
+        assert!(accepts_gzip(Some("GZIP")));
+        assert!(accepts_gzip(Some("*")));
+        assert!(!accepts_gzip(None));
+        assert!(!accepts_gzip(Some("identity")));
+        assert!(!accepts_gzip(Some("deflate, gzip;q=0")));
+        assert!(!accepts_gzip(Some("")));
+    }
+
+    #[test]
+    fn gunzip_round_trips_the_blobs_own_encoding() {
+        use std::io::Write;
+        let payload = b"globalThis.InspectorConfig = {}\n".repeat(64);
+        let mut enc = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::best());
+        enc.write_all(&payload).unwrap();
+        let gz = enc.finish().unwrap();
+        assert!(gz.len() < payload.len(), "the fixture must actually shrink");
+        assert_eq!(gunzip(&gz).unwrap(), payload);
+        assert!(gunzip(b"not gzip at all").is_err());
     }
 
     #[test]

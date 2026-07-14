@@ -1,5 +1,8 @@
-use ethers_core::types::{RecoveryMessage, Signature, H160, U256};
-use ethers_core::utils::keccak256;
+use alloy_primitives::{Address, U256};
+use catalyrst_crypto::eip712::{
+    domain_separator, hash_array_of_structs, hash_dynamic, struct_hash, typed_data_digest,
+    word_address, word_u256,
+};
 
 use crate::types::ContractRentalListing;
 
@@ -14,6 +17,7 @@ fn rentals_contract(chain_id: u64) -> Option<&'static str> {
 
 const DOMAIN_NAME: &str = "Rentals";
 const DOMAIN_VERSION: &str = "1";
+const LISTING_TYPE: &str = "Listing(address signer,address contractAddress,uint256 tokenId,uint256 expiration,uint256[3] indexes,uint256[] pricePerDay,uint256[] maxDays,uint256[] minDays,address target)";
 
 #[derive(Debug, thiserror::Error)]
 pub enum SignatureError {
@@ -25,89 +29,66 @@ pub enum SignatureError {
     Invalid(String),
 }
 
-fn type_hash() -> [u8; 32] {
-    let encode_type = "Listing(address signer,address contractAddress,uint256 tokenId,uint256 expiration,uint256[3] indexes,uint256[] pricePerDay,uint256[] maxDays,uint256[] minDays,address target)";
-    keccak256(encode_type.as_bytes())
-}
-
-fn domain_separator(chain_id: u64, verifying_contract: &str) -> Result<[u8; 32], SignatureError> {
-    let domain_type_hash = keccak256(
-        b"EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)",
-    );
-    let mut buf = Vec::with_capacity(32 * 5);
-    buf.extend_from_slice(&domain_type_hash);
-    buf.extend_from_slice(&keccak256(DOMAIN_NAME.as_bytes()));
-    buf.extend_from_slice(&keccak256(DOMAIN_VERSION.as_bytes()));
-    buf.extend_from_slice(&encode_u256(U256::from(chain_id)));
-    buf.extend_from_slice(&encode_address(verifying_contract)?);
-    Ok(keccak256(&buf))
-}
-
-fn encode_u256(v: U256) -> [u8; 32] {
-    let mut out = [0u8; 32];
-    v.to_big_endian(&mut out);
-    out
-}
-
 fn parse_u256(s: &str) -> Result<U256, SignatureError> {
-    U256::from_dec_str(s).map_err(|_| SignatureError::InvalidNumber(s.to_string()))
-}
-
-fn encode_address(addr: &str) -> Result<[u8; 32], SignatureError> {
-    let a: H160 = addr
-        .parse()
-        .map_err(|_| SignatureError::InvalidNumber(format!("address {}", addr)))?;
-    let mut out = [0u8; 32];
-    out[12..].copy_from_slice(a.as_bytes());
-    Ok(out)
-}
-
-fn encode_u256_array(values: &[String]) -> Result<[u8; 32], SignatureError> {
-    let mut buf = Vec::with_capacity(values.len() * 32);
-    for v in values {
-        buf.extend_from_slice(&encode_u256(parse_u256(v)?));
+    if !s.bytes().all(|b| b.is_ascii_digit()) {
+        return Err(SignatureError::InvalidNumber(s.to_string()));
     }
-    Ok(keccak256(&buf))
+    U256::from_str_radix(s, 10).map_err(|_| SignatureError::InvalidNumber(s.to_string()))
 }
 
-fn encode_u256_fixed3(values: &[String]) -> Result<[u8; 32], SignatureError> {
+fn parse_address(addr: &str) -> Result<Address, SignatureError> {
+    addr.parse()
+        .map_err(|_| SignatureError::InvalidNumber(format!("address {}", addr)))
+}
+
+fn hash_u256_array(values: &[String]) -> Result<[u8; 32], SignatureError> {
+    let mut words = Vec::with_capacity(values.len());
+    for v in values {
+        words.push(word_u256(parse_u256(v)?));
+    }
+    Ok(hash_array_of_structs(&words))
+}
+
+fn hash_u256_fixed3(values: &[String]) -> Result<[u8; 32], SignatureError> {
     if values.len() != 3 {
         return Err(SignatureError::InvalidNumber(format!(
             "indexes must have 3 elements, got {}",
             values.len()
         )));
     }
-    encode_u256_array(values)
+    hash_u256_array(values)
 }
 
-fn hash_struct(listing: &ContractRentalListing) -> Result<[u8; 32], SignatureError> {
-    let mut buf = Vec::with_capacity(32 * 10);
-    buf.extend_from_slice(&type_hash());
-    buf.extend_from_slice(&encode_address(&listing.signer)?);
-    buf.extend_from_slice(&encode_address(&listing.contract_address)?);
-    buf.extend_from_slice(&encode_u256(parse_u256(&listing.token_id)?));
-    buf.extend_from_slice(&encode_u256(parse_u256(&listing.expiration)?));
-    buf.extend_from_slice(&encode_u256_fixed3(&listing.indexes)?);
-    buf.extend_from_slice(&encode_u256_array(&listing.price_per_day)?);
-    buf.extend_from_slice(&encode_u256_array(&listing.max_days)?);
-    buf.extend_from_slice(&encode_u256_array(&listing.min_days)?);
-    buf.extend_from_slice(&encode_address(&listing.target)?);
-    Ok(keccak256(&buf))
+fn hash_listing(listing: &ContractRentalListing) -> Result<[u8; 32], SignatureError> {
+    Ok(struct_hash(
+        hash_dynamic(LISTING_TYPE.as_bytes()),
+        &[
+            word_address(parse_address(&listing.signer)?),
+            word_address(parse_address(&listing.contract_address)?),
+            word_u256(parse_u256(&listing.token_id)?),
+            word_u256(parse_u256(&listing.expiration)?),
+            hash_u256_fixed3(&listing.indexes)?,
+            hash_u256_array(&listing.price_per_day)?,
+            hash_u256_array(&listing.max_days)?,
+            hash_u256_array(&listing.min_days)?,
+            word_address(parse_address(&listing.target)?),
+        ],
+    ))
 }
 
-fn typed_data_digest(
+fn listing_digest(
     listing: &ContractRentalListing,
     chain_id: u64,
 ) -> Result<[u8; 32], SignatureError> {
     let verifying_contract =
         rentals_contract(chain_id).ok_or(SignatureError::ContractNotFound(chain_id))?;
-    let domain = domain_separator(chain_id, verifying_contract)?;
-    let hs = hash_struct(listing)?;
-    let mut buf = Vec::with_capacity(2 + 32 + 32);
-    buf.extend_from_slice(&[0x19, 0x01]);
-    buf.extend_from_slice(&domain);
-    buf.extend_from_slice(&hs);
-    Ok(keccak256(&buf))
+    let domain = domain_separator(
+        DOMAIN_NAME,
+        DOMAIN_VERSION,
+        chain_id,
+        parse_address(verifying_contract)?,
+    );
+    Ok(typed_data_digest(domain, hash_listing(listing)?))
 }
 
 pub fn has_valid_v(signature: &str) -> bool {
@@ -125,24 +106,24 @@ pub fn verify_rentals_listing_signature(
     listing: &ContractRentalListing,
     chain_id: u64,
 ) -> Result<bool, SignatureError> {
-    let digest = typed_data_digest(listing, chain_id)?;
+    let digest = listing_digest(listing, chain_id)?;
 
     let sig_str = listing
         .signature
         .strip_prefix("0x")
         .unwrap_or(&listing.signature);
-    let sig = Signature::try_from(
-        hex::decode(sig_str)
-            .map_err(|e| SignatureError::Invalid(e.to_string()))?
-            .as_slice(),
-    )
-    .map_err(|e| SignatureError::Invalid(e.to_string()))?;
-
-    let recovered: H160 = match sig.recover(RecoveryMessage::Hash(digest.into())) {
-        Ok(a) => a,
-        Err(_) => return Ok(false),
-    };
-    let recovered = format!("{:#x}", recovered);
+    let sig_bytes = hex::decode(sig_str).map_err(|e| SignatureError::Invalid(e.to_string()))?;
+    if sig_bytes.len() != 65 {
+        return Err(SignatureError::Invalid(format!(
+            "expected 65 signature bytes, got {}",
+            sig_bytes.len()
+        )));
+    }
+    let recovered =
+        match catalyrst_crypto::recover::recover_address_from_digest(&digest, &listing.signature) {
+            Ok(a) => a,
+            Err(_) => return Ok(false),
+        };
 
     Ok(recovered.eq_ignore_ascii_case(&listing.signer) && has_valid_v(&listing.signature))
 }
@@ -167,6 +148,14 @@ mod tests {
     }
 
     #[test]
+    fn digest_matches_captured_vector() {
+        assert_eq!(
+            hex::encode(listing_digest(&vector(), 1).unwrap()),
+            "d6c00455cf6c7c140ed004ba43dcb049b121ea69c690043c69431815343cbc82"
+        );
+    }
+
+    #[test]
     fn accepts_valid_eip712_listing_signature() {
         assert!(verify_rentals_listing_signature(&vector(), 1).unwrap());
     }
@@ -188,6 +177,33 @@ mod tests {
     #[test]
     fn unknown_chain_has_no_contract() {
         assert!(verify_rentals_listing_signature(&vector(), 999).is_err());
+    }
+
+    #[test]
+    fn rejects_underscore_separated_numbers() {
+        let mut v = vector();
+        v.token_id = "4_2".to_string();
+        assert!(verify_rentals_listing_signature(&v, 1).is_err());
+    }
+
+    #[test]
+    fn rejects_high_s_malleated_signature() {
+        let mut v = vector();
+        let mut raw = hex::decode(v.signature.trim_start_matches("0x")).unwrap();
+        let n = U256::from_str_radix(
+            "fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141",
+            16,
+        )
+        .unwrap();
+        let s = U256::from_be_slice(&raw[32..64]);
+        raw[32..64].copy_from_slice(&(n - s).to_be_bytes::<32>());
+        raw[64] = match raw[64] {
+            27 => 28,
+            28 => 27,
+            other => other ^ 1,
+        };
+        v.signature = format!("0x{}", hex::encode(&raw));
+        assert!(!verify_rentals_listing_signature(&v, 1).unwrap());
     }
 
     #[test]

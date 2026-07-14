@@ -1,0 +1,450 @@
+.stam {
+  background: radial-gradient(123.58% 82% at 9.01% 25.79%, #7434b1 0%, #481c6c 37.11%, #2b1040 100%);
+  min-height: 100vh;
+  padding: 96px 0 64px;
+  isolation: isolate;
+  font-family: var(--font-sans);
+
+  --stam-tabidle: #a09ba8;
+  --stam-tabactive: #fcfcfc;
+  --stam-line: rgba(255, 255, 255, .3);
+  --stam-headline: rgba(255, 255, 255, .08);
+  --stam-surface: rgba(0, 0, 0, .25);
+  --stam-surface-hi: rgba(0, 0, 0, .35);
+  --stam-namesuffix: #8b8593;
+  --stam-text2: rgba(255, 255, 255, .7);
+  --stam-chip-bg: rgba(255, 255, 255, .06);
+  --stam-chip-bg-hi: rgba(255, 255, 255, .12);
+  --stam-chip-border: rgba(255, 255, 255, .25);
+  --stam-chip-border-hi: rgba(255, 255, 255, .35);
+  --stam-count: #a09ba8;
+  --stam-namelogo-grad: linear-gradient(135deg, var(--brand) 0%, #a524b3 100%);
+}
+
+.stam__content {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-width: 1650px;
+  margin: 0 auto;
+  padding: 0 32px;
+}
+
+.stam__card { position: relative; width: 100%; display: flex; flex-direction: column; }
+
+.stam__header {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  width: 100%;
+  padding: 16px 24px;
+  border-bottom: 1px solid var(--stam-headline);
+}
+
+.stam__identity {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.stam__avatar {
+  position: relative;
+  width: 76px;
+  height: 76px;
+  border-radius: 50%;
+  border: 3.2px solid rgba(255, 255, 255, .5);
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.stam__avatarinitial {
+  font-size: 34px;
+  font-weight: 600;
+  line-height: 1;
+  color: #fff;
+  text-transform: uppercase;
+}
+
+.stam__nameblock { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+
+.stam__namerow { display: flex; align-items: center; gap: 4px; }
+
+.stam__name {
+  font-weight: 500;
+  font-size: 24px;
+  line-height: 1.334;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 20ch;
+}
+
+.stam__verified {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.stam__addrrow { display: flex; align-items: center; gap: 6px; color: var(--stam-text2); }
+.stam__addr {
+  font-weight: 400;
+  font-size: 16px;
+  line-height: 1.75;
+  color: var(--text);
+}
+
+.stam__tabs {
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  gap: 50px;
+  width: 100%;
+  min-height: 46px;
+  padding: 0 24px;
+  border-bottom: 1px solid var(--stam-line);
+  overflow-x: auto;
+}
+
+.stam__tab {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  min-height: 46px;
+  padding: 0;
+  border: none;
+  background: none;
+  font-family: inherit;
+  font-weight: 600;
+  font-size: 16px;
+  letter-spacing: 0;
+  text-transform: uppercase;
+  color: var(--stam-tabidle);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.stam__tab.is-active,
+.stam__tab:hover { color: var(--stam-tabactive); }
+.stam__tabbar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 4px;
+  background: var(--brand);
+}
+
+.stam__body {
+  flex: 1 1 auto;
+  width: 100%;
+  padding: 32px;
+  min-width: 0;
+}
+
+.stam__assetshead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.stam__filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.stam__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 14px 0 6px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--stam-chip-border);
+  background: var(--stam-chip-bg);
+  color: var(--text);
+  font-family: inherit;
+  font-weight: 600;
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease;
+}
+.stam__chip:hover {
+  background: var(--stam-chip-bg-hi);
+  border-color: var(--stam-chip-border-hi);
+}
+.stam__chip.is-active { background: #fcfcfc; border-color: #fcfcfc; color: var(--panel); }
+.stam__chip.is-active:hover { background: rgba(252, 252, 252, .88); }
+.stam__chipicon { display: inline-flex; align-items: center; margin-left: 6px; }
+
+.stam__count {
+  margin: 0 0 16px;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.43;
+  color: var(--stam-count);
+}
+
+.stam__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  row-gap: 28px;
+  column-gap: 16px;
+  align-items: stretch;
+  width: 100%;
+}
+.stam__grid > * { min-width: 0; }
+
+.stam__card .stam__card,
+article.stam__card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  border-radius: 16px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  background: rgba(0, 0, 0, .35);
+  transition: transform 150ms ease, border-color 150ms ease, box-shadow 150ms ease;
+}
+article.stam__card:hover {
+  transform: translateY(-2px);
+  border-color: var(--brand);
+  box-shadow: 0 0 0 1px var(--brand), 0 10px 30px rgba(255, 45, 85, .25);
+}
+
+.stam__thumb { position: relative; width: 100%; aspect-ratio: 1 / 1; overflow: hidden; }
+.stam__thumbph {
+  position: absolute;
+  inset: 18%;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, .22);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .25);
+}
+
+.stam__badges { position: absolute; top: 10px; left: 10px; display: flex; gap: 6px; }
+.stam__badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, .45);
+  color: #fff;
+}
+
+.stam__cardbody { display: flex; flex-direction: column; gap: 8px; padding: 14px 16px 16px; }
+.stam__cardrow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.stam__cardname { font-weight: 600; font-size: 15px; line-height: 1.3; color: var(--text); }
+.stam__price {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--text);
+  flex-shrink: 0;
+}
+.stam__manamark { color: var(--text); }
+.stam__notforsale { font-size: 12px; font-weight: 500; color: var(--ink-45); flex-shrink: 0; }
+.stam__cardmeta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.stam__rarity { font-size: 12px; font-weight: 600; text-transform: capitalize; }
+.stam__network { font-size: 12px; font-weight: 400; color: var(--stam-text2); }
+
+.stam__viewbtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 40px;
+  margin-top: 4px;
+  border-radius: 12px;
+  background: var(--brand-cta, #d80029);
+  color: #fff;
+  font-weight: 600;
+  font-size: 14px;
+  letter-spacing: .4px;
+  line-height: 24px;
+  text-transform: uppercase;
+  text-decoration: none;
+  transition: background 150ms ease;
+}
+.stam__viewbtn:hover { background: var(--brand-hover); }
+
+.stam__namerow { display: flex; flex-direction: column; gap: 10px; width: 100%; }
+.stam__namecard {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 16px;
+  border-radius: 12px;
+  background: var(--stam-surface);
+  border: 1px solid var(--fill-3);
+  transition: background 150ms ease, border-color 150ms ease;
+}
+.stam__namecard:hover {
+  background: var(--stam-surface-hi);
+  border-color: rgba(255, 255, 255, .18);
+}
+.stam__namelogo {
+  flex-shrink: 0;
+  width: 48px;
+  height: 48px;
+  border-radius: 10px;
+  background: var(--stam-namelogo-grad);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fcfcfc;
+}
+.stam__namelabel { flex: 1 1 auto; min-width: 0; font-size: 16px; font-weight: 600; color: var(--text); }
+.stam__namesuffix { color: var(--stam-namesuffix); font-weight: 500; }
+.stam__nameactions { display: flex; gap: 8px; flex-shrink: 0; }
+.stam__nameedit,
+.stam__nametransfer {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 30px;
+  padding: 0 14px;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 13px;
+  letter-spacing: .3px;
+  text-transform: uppercase;
+  text-decoration: none;
+  cursor: pointer;
+}
+.stam__nameedit { border: 1px solid var(--stam-chip-border); background: transparent; color: var(--text); }
+.stam__nameedit:hover { background: var(--fill-2); border-color: var(--stam-chip-border-hi); }
+.stam__nametransfer { border: 1px solid transparent; background: var(--brand-cta, #d80029); color: #fff; }
+.stam__nametransfer:hover { background: var(--brand-hover); }
+
+.stam__loadingrow { display: flex; padding: 24px 0; }
+.stam__loadingrow--center { justify-content: center; margin-top: 16px; }
+.stam__loadmore {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 40px;
+  padding: 0 22px;
+  border-radius: 10px;
+  border: 1px solid var(--stam-chip-border);
+  background: transparent;
+  color: var(--text);
+  font-family: inherit;
+  font-weight: 600;
+  font-size: 14px;
+  letter-spacing: .4px;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background 150ms ease, border-color 150ms ease;
+}
+.stam__loadmore:hover { background: var(--fill-2); border-color: var(--stam-chip-border-hi); }
+
+.stam__spinner {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 3px solid var(--fill-4);
+  border-top-color: var(--brand);
+  animation: u-spin 0.9s linear infinite;
+}
+.stam__emptybox {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 20px;
+  padding: 80px 16px;
+}
+.stam__emptyicon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 100px;
+  height: 100px;
+  border-radius: 24px;
+  border: 4px solid #fcfcfc;
+  color: #fcfcfc;
+}
+.stam__emptybody { display: flex; flex-direction: column; align-items: center; gap: 10px; padding-top: 10px; }
+.stam__emptytitle {
+  margin: 0;
+  color: #fcfcfc;
+  font-weight: 500;
+  font-size: 20px;
+  line-height: 1.6;
+  max-width: 452px;
+}
+.stam__emptysub {
+  margin: 0;
+  color: #fcfcfc;
+  font-weight: 400;
+  font-size: 16px;
+  line-height: 1.5;
+  max-width: 436px;
+}
+.stam__emptycta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 4px;
+  height: 46px;
+  padding: 0 16px;
+  border-radius: 12px;
+  background: var(--brand-cta, #d80029);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: .4px;
+  line-height: 24px;
+  text-transform: uppercase;
+  text-decoration: none;
+  transition: background 150ms ease;
+}
+.stam__emptycta:hover { background: var(--brand-hover); }
+
+@media (max-width: 900px) {
+  .stam { padding-top: 64px; }
+  .stam__content { padding: 0; }
+  .stam__header {
+    flex-direction: column;
+    align-items: flex-start;
+    padding: 16px;
+    gap: 12px;
+  }
+  .stam__name { font-size: 18px; }
+  .stam__tabs { display: none; }
+  .stam__body { padding: 16px; }
+  .stam__grid { grid-template-columns: repeat(2, 1fr); row-gap: 16px; column-gap: 12px; }
+  .stam__emptybox { padding: 48px 16px; }
+  .stam__nameactions { flex-direction: column; }
+}

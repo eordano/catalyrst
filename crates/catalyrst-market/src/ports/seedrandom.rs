@@ -157,7 +157,7 @@ mod tests {
         approx(first_double(""), 0.23144008215179881);
         approx(first_double("a"), 0.43449421599986604);
         approx(first_double("0xabc0xdef"), 0.1646894869769447);
-        approx(first_double("💀emoji"), 0.6852670915645748);
+        approx(first_double("\u{1F480}emoji"), 0.6852670915645748);
         approx(first_double("x"), 0.9080614664401105);
         approx(first_double("0x1"), 0.4480108581306423);
         approx(first_double("long-seed-value-123"), 0.9333971911046186);
@@ -170,7 +170,7 @@ mod tests {
 
     #[test]
     fn in_unit_interval() {
-        for s in ["", "x", "0x1", "long-seed-value-123", "💀emoji"] {
+        for s in ["", "x", "0x1", "long-seed-value-123", "\u{1F480}emoji"] {
             let v = first_double(s);
             assert!((0.0..1.0).contains(&v), "{s} -> {v} out of [0,1)");
         }

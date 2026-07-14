@@ -1,0 +1,53 @@
+{
+  "sid": "story-sid",
+  "contract": "0x66194b1abcbfbedd83841775404b245c8f9e4183",
+  "sortBy": "recently_listed",
+  "header": {
+    "name": "CCC - Gray - Drop #1",
+    "isOnSale": true
+  },
+  "items": [
+    {
+      "id": "0x66194b1abcbfbedd83841775404b245c8f9e4183-0",
+      "name": "CCC - Pants - Gray",
+      "category": "wearable",
+      "sub": "lower_body",
+      "rarity": "rare",
+      "available": 3883,
+      "price": "1",
+      "credits": "1",
+      "image": "https://catalyst.example.com/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0x66194b1abcbfbedd83841775404b245c8f9e4183:0/thumbnail"
+    },
+    {
+      "id": "0x66194b1abcbfbedd83841775404b245c8f9e4183-1",
+      "name": "CCC - Long Sleeve - Gray",
+      "category": "wearable",
+      "sub": "upper_body",
+      "rarity": "rare",
+      "available": 4250,
+      "price": "1",
+      "credits": "1",
+      "image": "https://catalyst.example.com/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0x66194b1abcbfbedd83841775404b245c8f9e4183:1/thumbnail"
+    },
+    {
+      "id": "0x66194b1abcbfbedd83841775404b245c8f9e4183-2",
+      "name": "CCC - Hat - Gray",
+      "category": "wearable",
+      "sub": "hat",
+      "rarity": "common",
+      "available": 0,
+      "price": "\u2014",
+      "credits": "1",
+      "image": "https://catalyst.example.com/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0x66194b1abcbfbedd83841775404b245c8f9e4183:2/thumbnail"
+    }
+  ],
+  "stats": {
+    "floor": "1",
+    "floorCredits": "1",
+    "creator": "0x4ac6144e29bdad84e7671027da80422bb00787ce",
+    "creatorShort": "0x4ac6\u202687ce",
+    "itemCount": 3,
+    "network": "polygon"
+  },
+  "fallback": false
+}

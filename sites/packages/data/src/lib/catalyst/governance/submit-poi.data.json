@@ -1,0 +1,29 @@
+{
+  "_source": "Static POI-proposal form config (formerly the non-account fields of the dropped fixture). Coordinate ranges (x: -150..163, y: -150..159), description length (20..250), co-author wallet shape (42-char addresses) and PoiType (add_poi / remove_poi) are verbatim from decentraland/governance src/entities/Proposal/types.ts newProposalPOIScheme. This is NOT a Catalyst read \u2014 POI map limits + copy are governance form config. votingPowerToPass is the VP a POI proposal needs to PASS once it reaches Snapshot voting (not a submission gate). There is no live createProposal endpoint reachable from this app (Snapshot + Aragon run the DAO externally); the submit step is SIMULATED.",
+  "votingPowerToPass": 2000000,
+  "copy": {
+    "intro": "Points of interest (POIs) are scenes that have been highlighted on Decentraland\u2019s map in a \u2018pin drop\u2019 form, helping other users to quickly find and access especially interesting areas.",
+    "add": {
+      "title": "Add a Point of Interest",
+      "coordinatesLabel": "What location do you want to add as a POI?",
+      "descriptionDetail": "Why do you think that this location should be a featured point of interest within Decentraland? Please describe the scene located at these coordinates, explaining how it would be interesting or helpful for other Decentraland users.",
+      "descriptionPlaceholder": "The scene located at 0,0 is both visually stunning and informative for new users. The interactive tutorial hosted here would provide people with a fun and enjoyable way to learn more about Decentraland."
+    },
+    "remove": {
+      "title": "Remove a Point of Interest",
+      "coordinatesLabel": "What location do you want to remove as a POI?",
+      "descriptionDetail": "Why do you think that this location should be removed as a featured point of interest within Decentraland? Please describe the scene located at these coordinates, explaining why it is no longer an interesting or helpful place for other Decentraland users.",
+      "descriptionPlaceholder": "The scene located at 0,0 is no longer visually stunning for users. The location has been abandoned for a long time."
+    }
+  },
+  "samples": {
+    "add": {
+      "x": 0,
+      "y": 0
+    },
+    "remove": {
+      "x": 100,
+      "y": 100
+    }
+  }
+}

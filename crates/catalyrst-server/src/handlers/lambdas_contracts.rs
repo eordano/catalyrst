@@ -1,12 +1,13 @@
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use axum::extract::State;
 use axum::response::IntoResponse;
 use axum::Json;
+use catalyrst_commons::cache::TtlCell;
+use catalyrst_commons::http::{http_client, HttpClientCfg};
 use serde::Deserialize;
 use serde_json::{json, Value};
-use tokio::sync::Mutex;
 
 use crate::state::AppState;
 
@@ -14,7 +15,6 @@ struct ContractAddrs {
     catalyst: &'static str,
     name_denylist: &'static str,
     poi: &'static str,
-    tpr_subgraph: &'static str,
 }
 
 fn contracts_for(network: &str) -> ContractAddrs {
@@ -23,14 +23,12 @@ fn contracts_for(network: &str) -> ContractAddrs {
             catalyst: "0x9b5091588a4bae0a5ea54a35af3c31f57a68ed37",
             name_denylist: "0x6082b0b10b0fe9040652e35acbf3a22fe6764f27",
             poi: "0x7a0fad6854de8df1245da952cd3ae7f6893154c1",
-            tpr_subgraph: "https://subgraph.decentraland.org/tpr-matic-amoy",
         },
 
         _ => ContractAddrs {
             catalyst: "0x4a2f10076101650f40342885b99b6b101d83c486",
             name_denylist: "0x0c4c90a4f29872a2e9ef4c4be3d419792bca9a36",
             poi: "0xFEC09d5C192aaf7Ec7E2C89Cc8D3224138391B2E",
-            tpr_subgraph: "https://subgraph.decentraland.org/tpr-matic-mainnet",
         },
     }
 }
@@ -41,14 +39,27 @@ const SEL_CATALYST_BY_ID: &str = "c9038ce9";
 const SEL_SIZE: &str = "949d225d";
 const SEL_GET: &str = "9507d39a";
 
-fn eth_rpc_url() -> String {
-    std::env::var("RPC_ENDPOINT_ETH")
-        .unwrap_or_else(|_| "https://rpc.decentraland.org/mainnet".to_string())
+/// No fallback: each of these once defaulted to a production Decentraland
+/// endpoint, so an unconfigured node silently queried production.
+fn endpoint_env(key: &str) -> Result<String, String> {
+    std::env::var(key)
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| {
+            format!(
+                "{key} is unset \u{2014} there is deliberately no default: the historical \
+                 default was a production Decentraland endpoint. Set it for this deployment."
+            )
+        })
 }
 
-fn polygon_rpc_url() -> String {
-    std::env::var("RPC_ENDPOINT_POLYGON")
-        .unwrap_or_else(|_| "https://rpc.decentraland.org/polygon".to_string())
+fn eth_rpc_url() -> Result<String, String> {
+    endpoint_env("RPC_ENDPOINT_ETH")
+}
+
+fn polygon_rpc_url() -> Result<String, String> {
+    endpoint_env("RPC_ENDPOINT_POLYGON")
 }
 
 #[derive(Deserialize)]
@@ -108,22 +119,11 @@ fn strip0x(s: &str) -> &str {
 }
 
 fn hex_decode(s: &str) -> Result<Vec<u8>, String> {
-    if !s.len().is_multiple_of(2) {
-        return Err("odd-length hex".into());
+    let b = s.as_bytes();
+    if b.len() >= 2 && b[0] == b'0' && (b[1] == b'x' || b[1] == b'X') {
+        return Err(format!("invalid hex char: {}", b[1] as char));
     }
-    let nibble = |c: u8| -> Result<u8, String> {
-        match c {
-            b'0'..=b'9' => Ok(c - b'0'),
-            b'a'..=b'f' => Ok(c - b'a' + 10),
-            b'A'..=b'F' => Ok(c - b'A' + 10),
-            _ => Err(format!("invalid hex char: {}", c as char)),
-        }
-    };
-
-    s.as_bytes()
-        .chunks_exact(2)
-        .map(|pair| Ok((nibble(pair[0])? << 4) | nibble(pair[1])?))
-        .collect()
+    catalyrst_types::decode_hex_0x(s).map_err(|e| e.to_string())
 }
 
 fn hex_encode(bytes: &[u8]) -> String {
@@ -319,7 +319,7 @@ fn be_word_to_usize(word: &[u8]) -> Result<usize, String> {
 
 async fn fetch_servers(client: &reqwest::Client, network: &str) -> Result<Vec<Value>, String> {
     let c = contracts_for(network);
-    let rpc = eth_rpc_url();
+    let rpc = eth_rpc_url()?;
 
     let count_hex = eth_call(client, &rpc, c.catalyst, SEL_CATALYST_COUNT).await?;
     let count = decode_uint_word(&count_hex)?;
@@ -392,7 +392,7 @@ async fn fetch_list(
 
 async fn fetch_pois(client: &reqwest::Client, network: &str) -> Result<Vec<String>, String> {
     let c = contracts_for(network);
-    fetch_list(client, &polygon_rpc_url(), c.poi).await
+    fetch_list(client, &polygon_rpc_url()?, c.poi).await
 }
 
 async fn fetch_denylisted_names(
@@ -400,17 +400,17 @@ async fn fetch_denylisted_names(
     network: &str,
 ) -> Result<Vec<String>, String> {
     let c = contracts_for(network);
-    fetch_list(client, &eth_rpc_url(), c.name_denylist).await
+    fetch_list(client, &eth_rpc_url()?, c.name_denylist).await
 }
 
 async fn fetch_third_party_integrations(
     client: &reqwest::Client,
-    network: &str,
+    _network: &str,
 ) -> Result<Vec<Value>, String> {
-    let c = contracts_for(network);
+    let tpr_subgraph = endpoint_env("THIRD_PARTY_REGISTRY_L2_SUBGRAPH_URL")?;
     let query = r#"{ thirdParties(where: {isApproved: true}, first: 1000) { id metadata { thirdParty { name description } } } }"#;
     let resp = client
-        .post(c.tpr_subgraph)
+        .post(&tpr_subgraph)
         .json(&json!({ "query": query }))
         .send()
         .await
@@ -453,33 +453,27 @@ const CACHE_TTL: Duration = Duration::from_secs(6 * 60 * 60);
 
 const ETH_CALL_CONCURRENCY: usize = 16;
 
-struct Cached {
-    value: Value,
-    fetched_at: Instant,
-}
-
 struct ContractCaches {
-    servers: Mutex<Option<Cached>>,
-    pois: Mutex<Option<Cached>>,
-    denylisted_names: Mutex<Option<Cached>>,
-    third_party: Mutex<Option<Cached>>,
+    servers: TtlCell<Value>,
+    pois: TtlCell<Value>,
+    denylisted_names: TtlCell<Value>,
+    third_party: TtlCell<Value>,
     client: reqwest::Client,
 }
 
 impl ContractCaches {
     fn new() -> Self {
-        let client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(60))
-            .build()
-            .unwrap_or_else(|e| {
-                tracing::warn!("failed to build reqwest client with timeout ({e}); using default");
-                reqwest::Client::new()
-            });
+        let client = http_client(
+            "lambdas-contracts",
+            &HttpClientCfg::default()
+                .with_total_timeout(Duration::from_secs(60))
+                .following_redirects(10),
+        );
         Self {
-            servers: Mutex::new(None),
-            pois: Mutex::new(None),
-            denylisted_names: Mutex::new(None),
-            third_party: Mutex::new(None),
+            servers: TtlCell::new("contracts-servers"),
+            pois: TtlCell::new("contracts-pois"),
+            denylisted_names: TtlCell::new("contracts-denylisted-names"),
+            third_party: TtlCell::new("contracts-third-party"),
             client,
         }
     }
@@ -490,47 +484,15 @@ fn caches() -> &'static ContractCaches {
     CACHES.get_or_init(ContractCaches::new)
 }
 
-async fn cached_or_fetch<F, Fut>(slot: &Mutex<Option<Cached>>, fetch: F) -> Result<Value, String>
-where
-    F: FnOnce() -> Fut,
-    Fut: std::future::Future<Output = Result<Value, String>>,
-{
-    let mut g = slot.lock().await;
-
-    let cached_snapshot: Option<(Value, Instant)> =
-        g.as_ref().map(|c| (c.value.clone(), c.fetched_at));
-
-    if let Some((ref value, fetched_at)) = cached_snapshot {
-        if fetched_at.elapsed() < CACHE_TTL {
-            return Ok(value.clone());
-        }
-    }
-
-    let new_value = match fetch().await {
-        Ok(v) => v,
-        Err(e) => {
-            if let Some((value, _)) = cached_snapshot {
-                tracing::warn!("contract fetch failed ({e}); serving stale cache");
-                return Ok(value);
-            }
-            return Err(e);
-        }
-    };
-
-    *g = Some(Cached {
-        value: new_value.clone(),
-        fetched_at: Instant::now(),
-    });
-    Ok(new_value)
-}
-
 pub async fn contracts_servers(State(s): State<Arc<AppState>>) -> impl IntoResponse {
     let c = caches();
     let network = s.eth_network.clone();
-    match cached_or_fetch(&c.servers, || async {
-        fetch_servers(&c.client, &network).await.map(Value::Array)
-    })
-    .await
+    match c
+        .servers
+        .get_or_refresh(CACHE_TTL, || async {
+            fetch_servers(&c.client, &network).await.map(Value::Array)
+        })
+        .await
     {
         Ok(v) => Json(v),
         Err(e) => {
@@ -543,11 +505,13 @@ pub async fn contracts_servers(State(s): State<Arc<AppState>>) -> impl IntoRespo
 pub async fn contracts_pois(State(s): State<Arc<AppState>>) -> impl IntoResponse {
     let c = caches();
     let network = s.eth_network.clone();
-    match cached_or_fetch(&c.pois, || async {
-        let pois = fetch_pois(&c.client, &network).await?;
-        Ok(Value::Array(pois.into_iter().map(Value::String).collect()))
-    })
-    .await
+    match c
+        .pois
+        .get_or_refresh(CACHE_TTL, || async {
+            let pois = fetch_pois(&c.client, &network).await?;
+            Ok::<Value, String>(Value::Array(pois.into_iter().map(Value::String).collect()))
+        })
+        .await
     {
         Ok(v) => Json(v),
         Err(e) => {
@@ -560,11 +524,13 @@ pub async fn contracts_pois(State(s): State<Arc<AppState>>) -> impl IntoResponse
 pub async fn contracts_denylisted_names(State(s): State<Arc<AppState>>) -> impl IntoResponse {
     let c = caches();
     let network = s.eth_network.clone();
-    match cached_or_fetch(&c.denylisted_names, || async {
-        let names = fetch_denylisted_names(&c.client, &network).await?;
-        Ok(Value::Array(names.into_iter().map(Value::String).collect()))
-    })
-    .await
+    match c
+        .denylisted_names
+        .get_or_refresh(CACHE_TTL, || async {
+            let names = fetch_denylisted_names(&c.client, &network).await?;
+            Ok::<Value, String>(Value::Array(names.into_iter().map(Value::String).collect()))
+        })
+        .await
     {
         Ok(v) => Json(v),
         Err(e) => {
@@ -577,12 +543,14 @@ pub async fn contracts_denylisted_names(State(s): State<Arc<AppState>>) -> impl 
 pub async fn third_party_integrations(State(s): State<Arc<AppState>>) -> impl IntoResponse {
     let c = caches();
     let network = s.eth_network.clone();
-    match cached_or_fetch(&c.third_party, || async {
-        fetch_third_party_integrations(&c.client, &network)
-            .await
-            .map(Value::Array)
-    })
-    .await
+    match c
+        .third_party
+        .get_or_refresh(CACHE_TTL, || async {
+            fetch_third_party_integrations(&c.client, &network)
+                .await
+                .map(Value::Array)
+        })
+        .await
     {
         Ok(v) => Json(json!({ "data": v })),
         Err(e) => {
@@ -595,6 +563,13 @@ pub async fn third_party_integrations(State(s): State<Arc<AppState>>) -> impl In
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn hex_decode_rejects_residual_0x_prefix() {
+        assert_eq!(hex_decode("0xdead"), Err("invalid hex char: x".to_string()));
+        assert_eq!(hex_decode("0Xdead"), Err("invalid hex char: X".to_string()));
+        assert_eq!(hex_decode("dead"), Ok(vec![0xde, 0xad]));
+    }
 
     #[test]
     fn keccak_empty() {

@@ -1,68 +1,42 @@
-use std::time::Duration;
-
 use catalyrst_comms::ports::scene_bans::SceneBansComponent;
-use sqlx::postgres::PgPoolOptions;
+use catalyrst_contract_gate::pg::ScratchSchema;
 use sqlx::PgPool;
-use uuid::Uuid;
 
-fn pg_url() -> Option<String> {
-    std::env::var("CATALYRST_COMMS_TEST_PG").ok()
-}
-
-fn unique_schema() -> String {
-    format!("test_comms_{}", Uuid::new_v4().simple())
-}
-
-async fn setup_db() -> Option<(PgPool, String, String)> {
-    let url = pg_url()?;
-    let admin = PgPoolOptions::new()
-        .max_connections(2)
-        .acquire_timeout(Duration::from_secs(5))
-        .connect(&url)
-        .await
-        .ok()?;
-    let schema = unique_schema();
-    sqlx::query(sqlx::AssertSqlSafe(format!("CREATE SCHEMA {}", schema)))
-        .execute(&admin)
-        .await
-        .ok()?;
-    let suffixed = format!("{}?options=-c%20search_path%3D{}", url, schema);
-    let pool = PgPoolOptions::new()
-        .max_connections(4)
-        .acquire_timeout(Duration::from_secs(5))
-        .connect(&suffixed)
-        .await
-        .ok()?;
-
-    apply_migration(&pool, include_str!("../migrations/0001_comms.sql")).await;
+async fn setup_db() -> Option<ScratchSchema> {
+    let scratch = ScratchSchema::create("CATALYRST_COMMS_TEST_PG", "cg_comms_sceneban").await?;
+    apply_migration(&scratch.pool, include_str!("../migrations/0001_comms.sql")).await;
     apply_migration(
-        &pool,
+        &scratch.pool,
         include_str!("../migrations/0002_user_moderation.sql"),
     )
     .await;
     apply_migration(
-        &pool,
+        &scratch.pool,
         include_str!("../migrations/0003_private_messages_privacy.sql"),
     )
     .await;
-    apply_migration(&pool, include_str!("../migrations/0004_mls_messaging.sql")).await;
     apply_migration(
-        &pool,
+        &scratch.pool,
+        include_str!("../migrations/0004_mls_messaging.sql"),
+    )
+    .await;
+    apply_migration(
+        &scratch.pool,
         include_str!("../migrations/0005_published_events.sql"),
     )
     .await;
     apply_migration(
-        &pool,
+        &scratch.pool,
         include_str!("../migrations/0006_player_connection_and_device_bans.sql"),
     )
     .await;
     apply_migration(
-        &pool,
+        &scratch.pool,
         include_str!("../migrations/0007_community_voice_chat_sid.sql"),
     )
     .await;
 
-    Some((pool, schema, url))
+    Some(scratch)
 }
 
 async fn apply_migration(pool: &PgPool, sql: &str) {
@@ -116,29 +90,12 @@ fn strip_line_comments(s: &str) -> String {
     out
 }
 
-async fn cleanup(admin_url: &str, schema: &str) {
-    if let Ok(admin) = PgPoolOptions::new()
-        .max_connections(1)
-        .connect(admin_url)
-        .await
-    {
-        let _ = sqlx::query(sqlx::AssertSqlSafe(format!(
-            "DROP SCHEMA {} CASCADE",
-            schema
-        )))
-        .execute(&admin)
-        .await;
-    }
-}
-
 #[tokio::test]
 async fn world_ban_keys_on_resolved_scene_id_not_world_name() {
-    let Some((pool, schema, admin_url)) = setup_db().await else {
-        eprintln!(
-            "skipping world_ban_keys_on_resolved_scene_id_not_world_name: set CATALYRST_COMMS_TEST_PG to run"
-        );
+    let Some(scratch) = setup_db().await else {
         return;
     };
+    let pool = scratch.pool.clone();
     let bans = SceneBansComponent::new(pool.clone());
 
     let world_name = "foo.eth";
@@ -165,15 +122,15 @@ async fn world_ban_keys_on_resolved_scene_id_not_world_name() {
         .await
         .unwrap());
 
-    cleanup(&admin_url, &schema).await;
+    scratch.drop().await;
 }
 
 #[tokio::test]
 async fn listing_under_resolved_key_sees_hot_path_bans() {
-    let Some((pool, schema, admin_url)) = setup_db().await else {
-        eprintln!("skipping listing_under_resolved_key_sees_hot_path_bans: set CATALYRST_COMMS_TEST_PG to run");
+    let Some(scratch) = setup_db().await else {
         return;
     };
+    let pool = scratch.pool.clone();
     let bans = SceneBansComponent::new(pool.clone());
 
     let world_name = "foo.dcl.eth";
@@ -204,5 +161,5 @@ async fn listing_under_resolved_key_sees_hot_path_bans() {
         .unwrap()
         .is_empty());
 
-    cleanup(&admin_url, &schema).await;
+    scratch.drop().await;
 }

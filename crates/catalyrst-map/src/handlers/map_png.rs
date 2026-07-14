@@ -9,9 +9,33 @@ use axum::Json;
 use serde_json::json;
 
 use crate::cache;
-use crate::map::TileType;
+use crate::map::MapData;
 use crate::render::{render_estate_minimap, render_minimap, render_png, Coord};
 use crate::AppState;
+
+// Thread-local so parallel test threads do not cross-count.
+#[cfg(test)]
+thread_local! {
+    pub(crate) static ESTATE_SELECT_VISITS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// Estate parcel selection through the prebuilt index, replacing two full-map scans. Prefers
+/// owned parcels and falls back to all parcels carrying the estate id, as the scans did.
+fn select_estate_coords(data: &MapData, estate_id: &str) -> Vec<Coord> {
+    let coords = data
+        .estates_owned
+        .get(estate_id)
+        .filter(|v| !v.is_empty())
+        .or_else(|| data.estates_all.get(estate_id));
+    match coords {
+        Some(v) => {
+            #[cfg(test)]
+            ESTATE_SELECT_VISITS.with(|c| c.set(c.get() + v.len()));
+            v.iter().map(|&(x, y)| Coord { x, y }).collect()
+        }
+        None => Vec::new(),
+    }
+}
 
 struct Params {
     width: u32,
@@ -236,36 +260,23 @@ pub async fn estate_map_png(
         || {
             let data = state.map.snapshot().ok_or_else(not_ready)?;
 
-            let mut selected: Vec<Coord> = data
-                .tiles
-                .values()
-                .filter(|t| t.tile_type == TileType::Owned)
-                .filter(|t| t.estate_id.as_deref() == Some(estate_id.as_str()))
-                .map(|t| Coord { x: t.x, y: t.y })
-                .collect();
-            if selected.is_empty() {
-                selected = data
-                    .tiles
-                    .values()
-                    .filter(|t| t.estate_id.as_deref() == Some(estate_id.as_str()))
-                    .map(|t| Coord { x: t.x, y: t.y })
-                    .collect();
-            }
+            let selected: Vec<Coord> = select_estate_coords(&data, &estate_id);
 
             if selected.is_empty() {
-                return Err(Response::builder()
-                    .status(StatusCode::FOUND)
-                    .header(
-                        header::LOCATION,
-                        std::env::var("DISSOLVED_ESTATE_URL")
-                            .ok()
-                            .filter(|s| !s.is_empty())
-                            .unwrap_or_else(|| {
-                                "https://ui.decentraland.org/dissolved_estate.png".to_string()
-                            }),
-                    )
-                    .body(Body::empty())
-                    .unwrap());
+                let placeholder = std::env::var("DISSOLVED_ESTATE_URL")
+                    .ok()
+                    .filter(|s| !s.trim().is_empty());
+                return Err(match placeholder {
+                    Some(url) => Response::builder()
+                        .status(StatusCode::FOUND)
+                        .header(header::LOCATION, url)
+                        .body(Body::empty())
+                        .unwrap(),
+                    None => Response::builder()
+                        .status(StatusCode::NOT_FOUND)
+                        .body(Body::empty())
+                        .unwrap(),
+                });
             }
 
             let mut xs: Vec<i32> = selected.iter().map(|c| c.x).collect();
@@ -322,4 +333,120 @@ pub async fn estate_minimap_png(State(state): State<AppState>, headers: HeaderMa
             render_estate_minimap(&data).map_err(render_error)
         },
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::map::{Tile, TileType};
+    use std::collections::HashMap;
+
+    fn tile(x: i32, y: i32, estate_id: Option<&str>, owned: bool) -> Tile {
+        Tile {
+            id: format!("{x},{y}"),
+            x,
+            y,
+            nft_id: None,
+            tile_type: if owned {
+                TileType::Owned
+            } else {
+                TileType::Unowned
+            },
+            top: false,
+            left: false,
+            top_left: false,
+            updated_at: 0,
+            name: None,
+            owner: None,
+            estate_id: estate_id.map(|s| s.to_string()),
+            token_id: None,
+            price: None,
+            expires_at: None,
+            rental_listing: None,
+        }
+    }
+
+    fn build_map_data(n: usize, estate_id: &str, estate_size: usize) -> MapData {
+        let mut tiles: HashMap<String, Tile> = HashMap::new();
+        let mut estates_owned: HashMap<String, Vec<(i32, i32)>> = HashMap::new();
+        let mut estates_all: HashMap<String, Vec<(i32, i32)>> = HashMap::new();
+        for i in 0..estate_size as i32 {
+            let t = tile(i, 0, Some(estate_id), true);
+            estates_all
+                .entry(estate_id.into())
+                .or_default()
+                .push((i, 0));
+            estates_owned
+                .entry(estate_id.into())
+                .or_default()
+                .push((i, 0));
+            tiles.insert(t.id.clone(), t);
+        }
+        for j in estate_size..n {
+            let x = 1000 + j as i32;
+            let t = tile(x, 0, None, false);
+            tiles.insert(t.id.clone(), t);
+        }
+        MapData {
+            tiles,
+            last_updated_at: 0,
+            estates_owned,
+            estates_all,
+        }
+    }
+
+    // The two full-map scans visited 5000; the index visits 4.
+    #[test]
+    fn estate_lookup_visits_estate_size_not_map() {
+        let n = 5000;
+        let k = 4;
+        let data = build_map_data(n, "77", k);
+
+        ESTATE_SELECT_VISITS.with(|c| c.set(0));
+        let selected = select_estate_coords(&data, "77");
+        let visits = ESTATE_SELECT_VISITS.with(|c| c.get());
+
+        assert_eq!(
+            visits, k,
+            "must visit only the estate's parcels, not all tiles"
+        );
+
+        let mut got: Vec<(i32, i32)> = selected.iter().map(|c| (c.x, c.y)).collect();
+        got.sort_unstable();
+        let mut want: Vec<(i32, i32)> = data
+            .tiles
+            .values()
+            .filter(|t| t.tile_type == TileType::Owned)
+            .filter(|t| t.estate_id.as_deref() == Some("77"))
+            .map(|t| (t.x, t.y))
+            .collect();
+        want.sort_unstable();
+        assert_eq!(got, want);
+    }
+
+    #[test]
+    fn estate_lookup_falls_back_to_all_parcels() {
+        let mut tiles: HashMap<String, Tile> = HashMap::new();
+        let mut estates_all: HashMap<String, Vec<(i32, i32)>> = HashMap::new();
+        for i in 0..3i32 {
+            let t = tile(i, 5, Some("99"), false);
+            estates_all.entry("99".into()).or_default().push((i, 5));
+            tiles.insert(t.id.clone(), t);
+        }
+        let data = MapData {
+            tiles,
+            last_updated_at: 0,
+            estates_owned: HashMap::new(),
+            estates_all,
+        };
+        let mut got: Vec<(i32, i32)> = select_estate_coords(&data, "99")
+            .iter()
+            .map(|c| (c.x, c.y))
+            .collect();
+        got.sort_unstable();
+        assert_eq!(got, vec![(0, 5), (1, 5), (2, 5)]);
+
+        // An absent estate selects nothing, preserving the 404/302 path.
+        assert!(select_estate_coords(&data, "does-not-exist").is_empty());
+    }
 }

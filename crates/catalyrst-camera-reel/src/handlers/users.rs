@@ -21,8 +21,13 @@ pub struct GetImagesQuery {
     pub compact: bool,
 }
 
-fn only_public_for(headers: &HeaderMap, method: &str, path: &str, user_address: &str) -> bool {
-    !matches!(optional_auth(headers, method, path), Some(signer) if signer.eq_ignore_ascii_case(user_address))
+async fn only_public_for(
+    headers: &HeaderMap,
+    method: &str,
+    path: &str,
+    user_address: &str,
+) -> bool {
+    !matches!(optional_auth(headers, method, path).await, Some(signer) if signer.as_str().eq_ignore_ascii_case(user_address))
 }
 
 pub async fn get_user_data(
@@ -31,7 +36,7 @@ pub async fn get_user_data(
     headers: HeaderMap,
     Path(user_address): Path<String>,
 ) -> Result<Response, ApiError> {
-    let only_public = only_public_for(&headers, "get", uri.path(), &user_address);
+    let only_public = only_public_for(&headers, "get", uri.path(), &user_address).await;
 
     let images_count = state
         .db
@@ -56,7 +61,7 @@ pub async fn get_user_images(
     Path(user_address): Path<String>,
     Query(q): Query<GetImagesQuery>,
 ) -> Result<Response, ApiError> {
-    let only_public = only_public_for(&headers, "get", uri.path(), &user_address);
+    let only_public = only_public_for(&headers, "get", uri.path(), &user_address).await;
 
     let images_count = state
         .db

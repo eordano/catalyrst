@@ -1,4 +1,5 @@
-use axum::extract::{Path, Query, State};
+use axum::extract::{OriginalUri, Path, Query, State};
+use axum::http::Method;
 use axum::Json;
 
 use crate::http::errors::ApiError;
@@ -6,15 +7,29 @@ use crate::http::response::{ApiData, ApiDataTotal};
 use crate::ports::places::{PlaceListFilters, PlaceOrderBy, PlaceRow, PlaceStatusRow};
 use crate::AppState;
 
+#[utoipa::path(
+    get,
+    path = "/places/{place_id}",
+    tag = "places",
+    params(("place_id" = String, Path)),
+    responses(
+        (status = 200, body = ApiData<PlaceRow>),
+        (status = 404, body = catalyrst_types::ApiErrorBody),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn get_place(
     State(state): State<AppState>,
+    method: Method,
+    OriginalUri(uri): OriginalUri,
     headers: axum::http::HeaderMap,
     Query(pairs): Query<Vec<(String, String)>>,
     Path(place_id): Path<String>,
 ) -> Result<Json<ApiData<PlaceRow>>, ApiError> {
     match state.places.find_by_id(&place_id).await? {
         Some(mut p) => {
-            let user = crate::auth::auth_address_optional(&headers);
+            let user =
+                crate::auth::auth_address_optional(&headers, method.as_str(), uri.path()).await;
             state
                 .places
                 .apply_user_interactions(user.as_deref(), std::slice::from_mut(&mut p))
@@ -29,14 +44,41 @@ pub async fn get_place(
     }
 }
 
+#[utoipa::path(
+    get,
+    path = "/places",
+    tag = "places",
+    params(("limit" = Option<i64>, Query),
+        ("offset" = Option<i64>, Query),
+        ("positions" = Option<Vec<String>>, Query),
+        ("names" = Option<Vec<String>>, Query),
+        ("categories" = Option<Vec<String>>, Query),
+        ("only_highlighted" = Option<String>, Query),
+        ("only_excluded_from_ranking" = Option<String>, Query,
+            description = "True to show only entries the automated ranking is not allowed to touch"),
+        ("only_favorites" = Option<String>, Query),
+        ("search" = Option<String>, Query),
+        ("creator_address" = Option<String>, Query),
+        ("sdk" = Option<String>, Query),
+        ("order_by" = Option<String>, Query),
+        ("order" = Option<String>, Query),
+        ("owner" = Option<String>, Query),
+        ("with_realms_detail" = Option<String>, Query)),
+    responses(
+        (status = 200, body = ApiDataTotal<PlaceRow>),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn get_place_list(
     State(state): State<AppState>,
+    method: Method,
+    OriginalUri(uri): OriginalUri,
     headers: axum::http::HeaderMap,
     Query(pairs): Query<Vec<(String, String)>>,
 ) -> Result<Json<ApiDataTotal<PlaceRow>>, ApiError> {
     let mut filters = parse_filters(&pairs);
 
-    let user = crate::auth::auth_address_optional(&headers);
+    let user = crate::auth::auth_address_optional(&headers, method.as_str(), uri.path()).await;
     let only_favorites = pairs
         .iter()
         .any(|(k, v)| k == "only_favorites" && matches!(v.as_str(), "true" | "1"));
@@ -70,8 +112,21 @@ pub async fn get_place_list(
     Ok(Json(ApiDataTotal::ok(data, total)))
 }
 
+#[utoipa::path(
+    post,
+    path = "/places",
+    tag = "places",
+    request_body = Vec<String>,
+    responses(
+        (status = 200, body = ApiDataTotal<PlaceRow>),
+        (status = 400, body = catalyrst_types::ApiErrorBody),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn post_place_list_by_id(
     State(state): State<AppState>,
+    method: Method,
+    OriginalUri(uri): OriginalUri,
     headers: axum::http::HeaderMap,
     Json(ids): Json<serde_json::Value>,
 ) -> Result<Json<ApiDataTotal<PlaceRow>>, ApiError> {
@@ -92,7 +147,7 @@ pub async fn post_place_list_by_id(
         state.places.find_by_ids(&ids),
         state.places.count_by_ids(&ids),
     )?;
-    let user = crate::auth::auth_address_optional(&headers);
+    let user = crate::auth::auth_address_optional(&headers, method.as_str(), uri.path()).await;
     state
         .places
         .apply_user_interactions(user.as_deref(), &mut data)
@@ -100,6 +155,17 @@ pub async fn post_place_list_by_id(
     Ok(Json(ApiDataTotal::ok(data, total)))
 }
 
+#[utoipa::path(
+    post,
+    path = "/places/status",
+    tag = "places",
+    request_body = Vec<String>,
+    responses(
+        (status = 200, body = ApiDataTotal<PlaceStatusRow>),
+        (status = 400, body = catalyrst_types::ApiErrorBody),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn post_place_status_list_by_id(
     State(state): State<AppState>,
     Json(ids): Json<serde_json::Value>,
@@ -161,6 +227,7 @@ fn parse_filters(pairs: &[(String, String)]) -> PlaceListFilters {
         names: get_all("names"),
         categories: get_all("categories"),
         only_highlighted: bool_q("only_highlighted"),
+        only_excluded_from_ranking: bool_q("only_excluded_from_ranking"),
         search: get("search"),
         creator_address: get("creator_address").map(|s| s.to_lowercase()),
         sdk: get("sdk"),
@@ -171,6 +238,8 @@ fn parse_filters(pairs: &[(String, String)]) -> PlaceListFilters {
         only_places: true,
         operated_positions: Vec::new(),
         owner_filtered: false,
+        require_content_places: false,
+        require_content_worlds: false,
         destinations_mode: false,
         place_user_counts: Vec::new(),
         world_user_counts: Vec::new(),
@@ -210,12 +279,19 @@ mod tests {
             ("sdk", "7"),
             ("creator_address", "0xABC"),
             ("only_highlighted", "true"),
+            ("only_excluded_from_ranking", "1"),
             ("positions", "1,2"),
         ]));
         assert_eq!(f.names, vec!["Foo.dcl.eth", "Bar.dcl.eth"]);
         assert_eq!(f.sdk.as_deref(), Some("7"));
         assert_eq!(f.creator_address.as_deref(), Some("0xabc"));
         assert!(f.only_highlighted);
+        assert!(f.only_excluded_from_ranking);
         assert_eq!(f.positions, vec!["1,2"]);
+        assert!(!parse_filters(&pairs(&[])).only_excluded_from_ranking);
+        assert!(
+            !parse_filters(&pairs(&[("only_excluded_from_ranking", "false")]))
+                .only_excluded_from_ranking
+        );
     }
 }

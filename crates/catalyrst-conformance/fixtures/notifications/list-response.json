@@ -1,0 +1,16 @@
+{
+  "notifications": [
+    {
+      "id": "00000000-0000-0000-0000-000000000001",
+      "type": "badge_granted",
+      "address": "0x0000000000000000000000000000000000dead",
+      "timestamp": "1699999999999",
+      "read": false,
+      "created_at": "2023-11-14T22:13:19.999Z",
+      "updated_at": "2023-11-14T22:13:19.999Z",
+      "metadata": {
+        "badgeId": "welcome"
+      }
+    }
+  ]
+}

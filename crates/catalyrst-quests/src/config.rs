@@ -1,5 +1,8 @@
+/// Loopback by default, matching every other catalyrst HTTP service: the public
+/// API is meant to arrive through the nginx front. An operator that genuinely
+/// wants this reachable directly sets QUESTS_BIND.
 pub fn bind_addr() -> String {
-    std::env::var("QUESTS_BIND").unwrap_or_else(|_| "0.0.0.0:5155".to_string())
+    std::env::var("QUESTS_BIND").unwrap_or_else(|_| "127.0.0.1:5155".to_string())
 }
 
 pub fn database_url() -> Option<String> {

@@ -1,0 +1,36 @@
+{
+  "entries": [
+    {
+      "method": "GET",
+      "host": "gateway.decentraland.org",
+      "path": "/notifications/notifications",
+      "baseline": 400,
+      "candidate": 401,
+      "rationale": "unauthenticated signed-fetch refusal is 401 here, 400 upstream; signed flow verified identical (README: accepted divergences)"
+    },
+    {
+      "method": "GET",
+      "host": "gateway.decentraland.org",
+      "path": "/social-api/v{n}/community-voice-chats/active",
+      "baseline": 400,
+      "candidate": 401,
+      "rationale": "unauthenticated signed-fetch refusal is 401 here, 400 upstream; signed flow verified identical (README: accepted divergences)"
+    },
+    {
+      "method": "GET",
+      "host": "social-api.decentraland.org",
+      "path": "/v{n}/mutes",
+      "baseline": 400,
+      "candidate": 401,
+      "rationale": "unauthenticated signed-fetch refusal is 401 here, 400 upstream; signed flow verified identical (README: accepted divergences)"
+    },
+    {
+      "method": "GET",
+      "host": "gateway.decentraland.org",
+      "path": "/credits/users/{address}/credits",
+      "baseline": 400,
+      "candidate": 401,
+      "rationale": "unauthenticated signed-fetch refusal is 401 here, 400 upstream; signed flow verified against upstream + the ported route (README: accepted divergences)"
+    }
+  ]
+}

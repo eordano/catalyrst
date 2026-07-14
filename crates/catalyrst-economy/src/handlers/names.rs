@@ -249,7 +249,7 @@ async fn confirm_name_buy(
             )))
         }
         ReceiptOutcome::Pending => Err(ApiError::RelayerTimeout(format!(
-            "name buy tx {tx} not yet mined; not confirming — retry/reconcile to settle"
+            "name buy tx {tx} not yet mined; not confirming \u{2014} retry/reconcile to settle"
         ))),
     }
 }
@@ -305,7 +305,7 @@ async fn resume_name_buy(
             Ok(tx)
         }
         "pending" => Err(ApiError::Conflict(format!(
-            "name buy {key:?} is in flight (status 'pending'); not re-broadcasting — retry once it settles"
+            "name buy {key:?} is in flight (status 'pending'); not re-broadcasting \u{2014} retry once it settles"
         ))),
         other => Err(ApiError::Conflict(format!(
             "name buy {key:?} has unexpected status {other:?}; reconcile manually"

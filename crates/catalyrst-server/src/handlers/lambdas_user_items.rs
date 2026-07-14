@@ -1,8 +1,10 @@
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
+use std::time::Duration;
 
 use axum::extract::{Path, Request, State};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
+use catalyrst_commons::cache::TtlMap;
 use futures::future::join_all;
 use serde_json::{json, Value};
 
@@ -10,6 +12,7 @@ use crate::errors::bad_request;
 use crate::handlers::definitions::{
     extract_emote_definition, extract_wearable_definition, locale_cmp, rarity_rank,
 };
+use crate::handlers::nft_ownership;
 use crate::query_params::{
     is_valid_eth_address, parse_pagination_with, parse_query_string, qs_get_array, qs_get_string,
     NonPositivePolicy, OversizePolicy, Pagination, QueryParams, MAX_PAGE_SIZE,
@@ -439,45 +442,53 @@ pub async fn fetch_all_third_party_wearables(
         }
     }
 
-    let owned_nft_urns = external_graph::owned_nfts(&owner, &contracts_by_network).await;
-    if owned_nft_urns.is_empty() {
-        return Vec::new();
-    }
-
-    let mut providers_to_check: HashSet<String> = HashSet::new();
-    for urn in &owned_nft_urns {
-        let parts: Vec<&str> = urn.split(':').collect();
-        if parts.len() < 2 {
-            continue;
+    let (owned_nft_urns, entity_lists) = if external_graph::nft_worker_configured() {
+        let owned = external_graph::owned_nfts(&owner, &contracts_by_network).await;
+        if owned.is_empty() {
+            return Vec::new();
         }
-        let (network, contract) = (parts[0], parts[1]);
-        for p in &providers {
-            if p.contracts
-                .iter()
-                .any(|c| c.network == network && c.address == contract)
-            {
-                providers_to_check.insert(p.id.clone());
+        let mut providers_to_check: HashSet<String> = HashSet::new();
+        for urn in &owned {
+            let parts: Vec<&str> = urn.split(':').collect();
+            if parts.len() < 2 {
+                continue;
+            }
+            let (network, contract) = (parts[0], parts[1]);
+            for p in &providers {
+                if p.contracts
+                    .iter()
+                    .any(|c| c.network == network && c.address == contract)
+                {
+                    providers_to_check.insert(p.id.clone());
+                }
             }
         }
-    }
-    if providers_to_check.is_empty() {
-        return Vec::new();
-    }
-
-    let per_provider = join_all(
-        providers_to_check
-            .iter()
-            .map(|provider_id| fetch_collection_entities(state, provider_id)),
-    )
-    .await;
-    let mut entities: Vec<Value> = Vec::new();
-    for chunk in per_provider {
-        entities.extend(chunk);
-    }
+        if providers_to_check.is_empty() {
+            return Vec::new();
+        }
+        let lists =
+            collection_entity_lists(state, providers_to_check.iter().map(String::as_str)).await;
+        (owned, lists)
+    } else {
+        // No indexer: read every provider's mappings, then ask the chain about those ids only.
+        let lists = collection_entity_lists(state, providers.iter().map(|p| p.id.as_str())).await;
+        let mut candidates =
+            nft_ownership::candidates_from_mappings(lists.iter().flat_map(|l| l.iter()));
+        candidates.retain(|(network, contract), _| {
+            contracts_by_network
+                .get(network)
+                .is_some_and(|cs| cs.contains(contract))
+        });
+        let owned = nft_ownership::owned_via_rpc(&owner, &candidates).await;
+        if owned.is_empty() {
+            return Vec::new();
+        }
+        (owned, lists)
+    };
 
     let mut by_urn: HashMap<String, TpwElement> = HashMap::new();
     let mut order: Vec<String> = Vec::new();
-    for entity in &entities {
+    for entity in entity_lists.iter().flat_map(|l| l.iter()) {
         let meta = match entity.get("metadata") {
             Some(m) => m,
             None => continue,
@@ -532,6 +543,37 @@ pub async fn fetch_all_third_party_wearables(
         .into_iter()
         .filter_map(|u| by_urn.remove(&u))
         .collect()
+}
+
+const COLLECTION_ENTITIES_TTL: Duration = Duration::from_secs(60);
+
+fn collection_entities_cache() -> &'static TtlMap<String, Arc<Vec<Value>>> {
+    static C: OnceLock<TtlMap<String, Arc<Vec<Value>>>> = OnceLock::new();
+    C.get_or_init(|| {
+        TtlMap::bounded(
+            "third-party-collection-entities",
+            COLLECTION_ENTITIES_TTL,
+            256,
+        )
+    })
+}
+
+async fn collection_entity_lists<'a>(
+    state: &AppState,
+    providers: impl Iterator<Item = &'a str>,
+) -> Vec<Arc<Vec<Value>>> {
+    join_all(providers.map(|id| {
+        let id = id.to_string();
+        async move {
+            collection_entities_cache()
+                .get_or_fetch(id.clone(), || async {
+                    Ok::<Arc<Vec<Value>>, ()>(Arc::new(fetch_collection_entities(state, &id).await))
+                })
+                .await
+                .unwrap_or_default()
+        }
+    }))
+    .await
 }
 
 async fn fetch_collection_entities(state: &AppState, collection_id: &str) -> Vec<Value> {

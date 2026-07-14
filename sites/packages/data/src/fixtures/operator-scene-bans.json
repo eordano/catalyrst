@@ -1,0 +1,129 @@
+{
+  "_source": "catalyrst-comms GET /scene-bans?place_id=&limit=&offset= (handlers/scene_bans.rs list_bans). That route is signed-fetch gated (SCENE_SIGNER=\"decentraland-kernel-scene\") and is_scene_owner_or_admin gated, so it 404s/401s on the public catalyst edge and cannot be read anonymously from SSR \u2014 hence this fixture. The `places` rows are SYNTHETIC in the live /places/api/places envelope shape (real place rows were used before 2026-08-31; de-identified so fabricated ban records attach to nothing real). The banned-address list per place mirrors the list_bans envelope { results:[{bannedAddress,name}], total, page, pages, limit }; bannedAddress values are synthetic 0x wallets (no real ban records are public) and `name` is the DCL NAME resolved by names.get_names_from_addresses (empty string when unclaimed). Ban/unban commits are SIMULATED.",
+  "_fetched_at": "2026-06-24",
+  "_endpoints": {
+    "list": "GET /scene-bans?place_id=<id>&limit=<n>&offset=<n>  (signed-fetch: decentraland-kernel-scene)",
+    "ban": "POST /scene-bans { place_id, banned_address }  (is_scene_owner_or_admin -> 403 anon) [SIMULATED]",
+    "unban": "DELETE /scene-bans?place_id=<id>&banned_address=<addr>  (is_scene_owner_or_admin -> 403 anon) [SIMULATED]"
+  },
+  "default_owner": "0x9e1d8a3b27f5c640e1aa07b2d3c9f4e8a61b7c20",
+  "places": [
+    {
+      "id": "11111111-1111-4111-8111-111111111111",
+      "title": "Crystal Caverns RPG",
+      "base_position": "12,-20",
+      "parcels": 100,
+      "contact_name": "Morgan",
+      "image": "https://peer.decentraland.org/content/contents/bafybeisyntheticplacefixture0000000000000000000000000000001",
+      "user_count": 4
+    },
+    {
+      "id": "22222222-2222-4222-8222-222222222222",
+      "title": "Copper Forge Crafting",
+      "base_position": "-31,44",
+      "parcels": 40,
+      "contact_name": "ForgeWorks",
+      "image": "https://peer.decentraland.org/content/contents/bafybeisyntheticplacefixture0000000000000000000000000000002",
+      "user_count": 3
+    },
+    {
+      "id": "33333333-3333-4333-8333-333333333333",
+      "title": "Neon Bazaar",
+      "base_position": "4,88",
+      "parcels": 30,
+      "contact_name": "BazaarLabs",
+      "image": "https://peer.decentraland.org/content/contents/bafybeisyntheticplacefixture0000000000000000000000000000003",
+      "user_count": 2
+    },
+    {
+      "id": "44444444-4444-4444-8444-444444444444",
+      "title": "Willow Creek Farm",
+      "base_position": "58,121",
+      "parcels": 9,
+      "contact_name": "FarmKeeper",
+      "image": "https://peer.decentraland.org/content/contents/bafybeisyntheticplacefixture0000000000000000000000000000004",
+      "user_count": 2
+    }
+  ],
+  "bans": {
+    "11111111-1111-4111-8111-111111111111": {
+      "limit": 100,
+      "page": 1,
+      "pages": 1,
+      "total": 7,
+      "results": [
+        {
+          "bannedAddress": "0x4a1f7c2e90b35d8146a0c7e29f51d83b06a9e417",
+          "name": "griefer.dcl"
+        },
+        {
+          "bannedAddress": "0xb70e2c9d4138a65f0e9a3c71f284d50b6e1a93c8",
+          "name": ""
+        },
+        {
+          "bannedAddress": "0x18c3e09a7b2d465f80a1e4c39d76b502f8a9e163",
+          "name": "spammer42"
+        },
+        {
+          "bannedAddress": "0x6e2a18d0c9b347f5e01a8d63c97f24b05e9a3d71",
+          "name": ""
+        },
+        {
+          "bannedAddress": "0xa39f06c8e1d245b790e3a1c6f48d27b05e9a8f13",
+          "name": "scalper.dcl"
+        },
+        {
+          "bannedAddress": "0x2c8b71f0a93d465e801e4a2c7f96d35b0e9a1d84",
+          "name": ""
+        },
+        {
+          "bannedAddress": "0x5d10a8f3c2e947b6091e3a7c84d20b56f9a3e017",
+          "name": "adbot"
+        }
+      ]
+    },
+    "22222222-2222-4222-8222-222222222222": {
+      "limit": 100,
+      "page": 1,
+      "pages": 1,
+      "total": 3,
+      "results": [
+        {
+          "bannedAddress": "0x83f0a91c5d2e647b8f10a3c7e29d45b06f1a8e93",
+          "name": ""
+        },
+        {
+          "bannedAddress": "0x1a7c93e02b8d465f9013a6c2e74f80d5b9a3e168",
+          "name": "exploiter.dcl"
+        },
+        {
+          "bannedAddress": "0x47e2b08d9a3c165f0b8e4a1c7d92f306e5a9b740",
+          "name": ""
+        }
+      ]
+    },
+    "33333333-3333-4333-8333-333333333333": {
+      "limit": 100,
+      "page": 1,
+      "pages": 1,
+      "total": 0,
+      "results": []
+    },
+    "44444444-4444-4444-8444-444444444444": {
+      "limit": 100,
+      "page": 1,
+      "pages": 1,
+      "total": 2,
+      "results": [
+        {
+          "bannedAddress": "0x90e7c4a13b6d28f5019e3a7c41d80b62f5a9e034",
+          "name": "harasser"
+        },
+        {
+          "bannedAddress": "0x12c8b7a04e6f93d2510a8c7e3b94f06d2a8e15c4",
+          "name": ""
+        }
+      ]
+    }
+  }
+}

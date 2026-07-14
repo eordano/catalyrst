@@ -1,9 +1,8 @@
-use std::collections::HashMap;
-use std::sync::Mutex;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use axum::extract::State;
 use axum::Json;
+use catalyrst_commons::cache::TtlMap;
 use futures::stream::{self, StreamExt};
 use serde::{Deserialize, Serialize};
 
@@ -20,42 +19,33 @@ pub const QUOTE_CACHE_TTL: Duration = Duration::from_secs(60);
 
 pub const QUOTE_CACHE_MAX_ENTRIES: usize = 10_000;
 
-type QuoteCacheMap = HashMap<(String, String), (Instant, Option<String>)>;
-
 pub struct QuoteCache {
-    ttl: Duration,
     max_entries: usize,
-    inner: Mutex<QuoteCacheMap>,
+    inner: TtlMap<(String, String), Option<String>>,
 }
 
 impl QuoteCache {
     pub fn new(ttl: Duration, max_entries: usize) -> Self {
         Self {
-            ttl,
             max_entries,
-            inner: Mutex::new(HashMap::new()),
+            inner: TtlMap::bounded("credits-quote", ttl, max_entries),
         }
     }
 
     pub fn get(&self, collection: &str, item_id: &str) -> Option<Option<String>> {
-        let map = self.inner.lock().unwrap_or_else(|p| p.into_inner());
-        let (at, credits) = map.get(&(collection.to_string(), item_id.to_string()))?;
-        (at.elapsed() < self.ttl).then(|| credits.clone())
+        self.inner
+            .get_fresh(&(collection.to_string(), item_id.to_string()))
     }
 
     pub fn put(&self, collection: &str, item_id: &str, credits: Option<String>) {
-        let mut map = self.inner.lock().unwrap_or_else(|p| p.into_inner());
-        if map.len() >= self.max_entries {
-            let ttl = self.ttl;
-            map.retain(|_, (at, _)| at.elapsed() < ttl);
-            if map.len() >= self.max_entries {
-                map.clear();
+        if self.inner.len() >= self.max_entries {
+            self.inner.retain_fresh();
+            if self.inner.len() >= self.max_entries {
+                self.inner.clear();
             }
         }
-        map.insert(
-            (collection.to_string(), item_id.to_string()),
-            (Instant::now(), credits),
-        );
+        self.inner
+            .insert((collection.to_string(), item_id.to_string()), credits);
     }
 }
 
@@ -189,17 +179,30 @@ pub async fn quote(
         })
         .collect();
 
-    let mut amounts = Vec::with_capacity(body.amounts.len());
-    for raw in &body.amounts {
-        let credits = match (valid_wei(raw), mana_usd.as_ref()) {
-            (Some(wei), Some(mana_usd)) => state
+    // One batched round trip for every valid amount instead of a serial reprice
+    // per entry. Invalid/unparseable weis stay `None`, and -- mirroring the old
+    // per-call `.ok()` -- a DB failure leaves every valid slot `None` too; index
+    // alignment with `body.amounts` is preserved by carrying the saved indices.
+    let mut amounts: Vec<Option<String>> = vec![None; body.amounts.len()];
+    if let Some(mana_usd) = mana_usd.as_ref() {
+        let valid: Vec<(usize, String)> = body
+            .amounts
+            .iter()
+            .enumerate()
+            .filter_map(|(i, raw)| valid_wei(raw).map(|wei| (i, wei.to_string())))
+            .collect();
+        if !valid.is_empty() {
+            let weis: Vec<String> = valid.iter().map(|(_, wei)| wei.clone()).collect();
+            if let Ok(priced) = state
                 .pricing
-                .compute_credit_price(&state.credits.pool, wei, mana_usd)
+                .compute_credit_prices_batch(&state.credits.pool, &weis, mana_usd)
                 .await
-                .ok(),
-            _ => None,
-        };
-        amounts.push(credits);
+            {
+                for ((i, _), credit) in valid.iter().zip(priced) {
+                    amounts[*i] = Some(credit);
+                }
+            }
+        }
     }
 
     Ok(Json(PriceQuotesOut { items, amounts }))
@@ -261,8 +264,8 @@ mod tests {
         assert_eq!(b.amounts, vec!["10000000000000000".to_string()]);
     }
 
-    #[test]
-    fn quote_cache_hit_within_ttl_serves_without_refetch() {
+    #[tokio::test]
+    async fn quote_cache_hit_within_ttl_serves_without_refetch() {
         let cache = QuoteCache::new(Duration::from_secs(60), 100);
         assert_eq!(cache.get("0xabc", "1"), None, "cold cache misses");
         cache.put("0xabc", "1", Some("2".into()));
@@ -272,15 +275,15 @@ mod tests {
         assert_eq!(cache.get("0xdef", "1"), None);
     }
 
-    #[test]
-    fn quote_cache_expires_after_ttl() {
+    #[tokio::test]
+    async fn quote_cache_expires_after_ttl() {
         let cache = QuoteCache::new(Duration::ZERO, 100);
         cache.put("0xabc", "1", Some("2".into()));
         assert_eq!(cache.get("0xabc", "1"), None, "zero TTL expires instantly");
     }
 
-    #[test]
-    fn quote_cache_stays_bounded() {
+    #[tokio::test]
+    async fn quote_cache_stays_bounded() {
         let cache = QuoteCache::new(Duration::from_secs(60), 2);
         cache.put("0xabc", "1", Some("1".into()));
         cache.put("0xabc", "2", Some("2".into()));

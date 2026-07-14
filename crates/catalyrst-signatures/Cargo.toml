@@ -1,6 +1,6 @@
 [package]
 name = "catalyrst-signatures"
-version = "0.9.10"
+version = "0.23.0"
 edition = "2021"
 description = "Rust port of decentraland/signatures-server (signatures-api.decentraland.org), the LAND/Estate rental-listing signature store over a dedicated postgres DB"
 
@@ -9,22 +9,19 @@ name = "catalyrst-signatures"
 path = "src/main.rs"
 
 [dependencies]
+catalyrst-db = { workspace = true }
 catalyrst-crypto = { workspace = true }
-catalyrst-types = { workspace = true }
+catalyrst-types = { workspace = true, features = ["sqlx"] }
 catalyrst-envcfg = { workspace = true }
 tokio = { workspace = true }
 axum = { workspace = true }
-tower = { workspace = true }
-tower-http = { workspace = true }
 sqlx = { workspace = true, features = ["uuid", "migrate", "chrono", "json"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 chrono = { workspace = true }
 tracing = { workspace = true }
-tracing-subscriber = { workspace = true }
 thiserror = { workspace = true }
 anyhow = { workspace = true }
 uuid = { workspace = true }
-url = { workspace = true }
-ethers-core = { workspace = true }
+alloy-primitives = { workspace = true, features = ["k256"] }
 hex = "0.4"
