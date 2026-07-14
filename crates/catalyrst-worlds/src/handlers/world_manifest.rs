@@ -5,6 +5,17 @@ use serde_json::{json, Value};
 use crate::http::ApiError;
 use crate::AppState;
 
+#[utoipa::path(
+    get,
+    path = "/world/{world_name}/manifest",
+    tag = "worlds",
+    params(("world_name" = String, Path)),
+    responses(
+        (status = 200, body = serde_json::Value),
+        (status = 404, body = catalyrst_types::ApiErrorBody),
+        (status = 500, body = catalyrst_types::ApiErrorBody)
+    )
+)]
 pub async fn get_world_manifest(
     State(state): State<AppState>,
     Path(world_name): Path<String>,

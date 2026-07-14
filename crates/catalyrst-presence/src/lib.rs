@@ -2,14 +2,12 @@ pub mod config;
 pub mod handlers;
 pub mod ports;
 
-use std::str::FromStr;
 use std::sync::Arc;
-use std::time::Duration;
 
 use anyhow::{Context, Result};
 use axum::routing::get;
 use axum::Router;
-use sqlx::postgres::{PgConnectOptions, PgPool, PgPoolOptions};
+use sqlx::postgres::PgPool;
 
 use crate::config::Config;
 use crate::ports::collector::Collector;
@@ -48,18 +46,15 @@ pub async fn build_collector(cfg: &Config) -> Result<Collector> {
 }
 
 async fn connect_pool(cfg: &Config) -> Result<PgPool> {
-    let opts = PgConnectOptions::from_str(&cfg.database_url)
-        .context("invalid PRESENCE_PG_COMPONENT_PSQL_CONNECTION_STRING")?
-        .options([
-            ("statement_timeout", "60000"),
-            ("idle_in_transaction_session_timeout", "30000"),
-        ]);
-    let pool = PgPoolOptions::new()
-        .max_connections(5)
-        .idle_timeout(Duration::from_secs(30))
-        .connect_with(opts)
-        .await
-        .context("failed to connect presence pool")?;
+    let pool = catalyrst_db::connect_pool(
+        &cfg.database_url,
+        &catalyrst_db::PoolSettings {
+            max_connections: 5,
+            ..catalyrst_db::PoolSettings::default()
+        },
+    )
+    .await
+    .context("failed to connect presence pool")?;
 
     sqlx::migrate!("./migrations")
         .run(&pool)

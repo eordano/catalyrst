@@ -1,0 +1,104 @@
+{
+  "_source": "Live seed from catalyst:https://catalyst.example.com/content/entities/active (POST {\"pointers\":[\"0,0\"]} -> deployed scene entity: id/type/pointers/content[]/metadata.display; verified 2026-06-23 HTTP 200, content has 1088 mappings). Entity/CRDT component model derived from decentraland/js-sdk-toolchain@main packages/@dcl/ecs (the @dcl/inspector source is not in the repo tree on main — it consumes these @dcl/ecs core components): Transform (src/components/manual/Transform.ts, COMPONENT_ID=1, TransformType{position,rotation(quaternion),scale,parent}, identity = pos 0,0,0 / rot 0,0,0,1 / scale 1,1,1), Name (src/components/manual/Name.ts, 'core-schema::Name', {value:string}), and the LWW component registry in src/components/index.ts (Material, MeshRenderer, MeshCollider, GltfContainer, VisibilityComponent, TextShape, AudioSource, PointerEvents, Animator, Tween, LightSource, ...). Entity envelope shape from decentraland/schemas@main src/platform/entity.ts (Entity{version,id,type,pointers,timestamp,content[],metadata}). scene.json metadata shape from decentraland/sdk7-scene-template@main scene.json. The inspector composite is a CRDT 'main.composite' authored alongside scene.json (engine entities + LWW components). Editor EDITS (place item / set transform / add component / save composite) are SIMULATED in the XState wizard — the catalyst content server is read-only over the public nginx (deployment requires a signed AuthChain POST to /content/entities which is auth-gated).",
+  "_fetchedAt": "2026-06-23",
+  "_upstreamRefs": [
+    "https://catalyst.example.com/content/entities/active",
+    "https://raw.githubusercontent.com/decentraland/schemas/main/src/platform/entity.ts",
+    "https://raw.githubusercontent.com/decentraland/js-sdk-toolchain/main/packages/@dcl/ecs/src/components/manual/Transform.ts",
+    "https://raw.githubusercontent.com/decentraland/js-sdk-toolchain/main/packages/@dcl/ecs/src/components/manual/Name.ts",
+    "https://raw.githubusercontent.com/decentraland/js-sdk-toolchain/main/packages/@dcl/ecs/src/components/index.ts",
+    "https://raw.githubusercontent.com/decentraland/sdk7-scene-template/main/scene.json"
+  ],
+
+  "scene": {
+    "pointer": "0,0",
+    "title": "SDK7 Scene Template",
+    "base": "0,0",
+    "parcels": ["0,0"],
+    "sdkVersion": "7",
+    "main": "bin/index.js",
+    "composite": "main.composite",
+    "_note": "Editor seeds a working scene from a live deployed entity (catalyst /content/entities/active) or this fixture. The authored entity forest below is the inspector composite (LWW CRDT)."
+  },
+
+  "transformIdentity": {
+    "position": { "x": 0, "y": 0, "z": 0 },
+    "rotation": { "x": 0, "y": 0, "z": 0, "w": 1 },
+    "scale": { "x": 1, "y": 1, "z": 1 }
+  },
+
+  "hierarchy": [
+    {
+      "entity": 512,
+      "name": "Ground",
+      "parent": 0,
+      "selected": false,
+      "components": ["Transform", "GltfContainer", "MeshCollider"]
+    },
+    {
+      "entity": 513,
+      "name": "Kiosk",
+      "parent": 0,
+      "selected": false,
+      "components": ["Transform", "GltfContainer"]
+    },
+    {
+      "entity": 514,
+      "name": "Sign",
+      "parent": 513,
+      "selected": false,
+      "components": ["Transform", "TextShape"]
+    },
+    {
+      "entity": 520,
+      "name": "Display Cube",
+      "parent": 0,
+      "selected": true,
+      "components": ["Transform", "MeshRenderer", "Material", "VisibilityComponent"]
+    },
+    {
+      "entity": 521,
+      "name": "Ambient Audio",
+      "parent": 0,
+      "selected": false,
+      "components": ["Transform", "AudioSource"]
+    }
+  ],
+
+  "selectedEntity": {
+    "entity": 520,
+    "name": "Display Cube",
+    "transform": {
+      "position": { "x": 8, "y": 1, "z": 8 },
+      "rotation": { "x": 0, "y": 0, "z": 0, "w": 1 },
+      "scale": { "x": 1, "y": 1, "z": 1 }
+    }
+  },
+
+  "assetCatalog": {
+    "_note": "No bundled fixture models: the editor's placeable catalog is the real builder-api assetPacks (loadAssetCatalog) plus GLBs derived from the live scene composite. Fake sample assets are forbidden.",
+    "categories": [],
+    "models": []
+  },
+
+  "components": [
+    {
+      "id": 1,
+      "key": "Transform",
+      "label": "Transform",
+      "componentName": "core::Transform",
+      "fields": ["position", "rotation", "scale", "parent"],
+      "_note": "COMPONENT_ID=1; rotation is a quaternion. The inspector exposes rotation as euler degrees."
+    },
+    { "id": 1041, "key": "GltfContainer", "label": "GLTF", "componentName": "core::GltfContainer", "fields": ["src", "visibleMeshesCollisionMask", "invisibleMeshesCollisionMask"] },
+    { "id": 1018, "key": "MeshRenderer", "label": "Mesh Renderer", "componentName": "core::MeshRenderer", "fields": ["mesh"] },
+    { "id": 1019, "key": "MeshCollider", "label": "Mesh Collider", "componentName": "core::MeshCollider", "fields": ["mesh", "collisionMask"] },
+    { "id": 1017, "key": "Material", "label": "Material", "componentName": "core::Material", "fields": ["material"] },
+    { "id": 1081, "key": "VisibilityComponent", "label": "Visibility", "componentName": "core::VisibilityComponent", "fields": ["visible"] },
+    { "id": 1030, "key": "TextShape", "label": "Text Shape", "componentName": "core::TextShape", "fields": ["text", "fontSize", "textColor"] },
+    { "id": 1020, "key": "AudioSource", "label": "Audio Source", "componentName": "core::AudioSource", "fields": ["audioClipUrl", "playing", "volume"] },
+    { "id": 1062, "key": "PointerEvents", "label": "On Pointer Event", "componentName": "core::PointerEvents", "fields": ["pointerEvents"] },
+    { "id": 1042, "key": "Animator", "label": "Animator", "componentName": "core::Animator", "fields": ["states"] },
+    { "id": 1102, "key": "LightSource", "label": "Light Source", "componentName": "core::LightSource", "fields": ["type", "color", "intensity"] }
+  ]
+}

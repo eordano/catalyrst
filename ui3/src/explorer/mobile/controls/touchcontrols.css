@@ -1,0 +1,162 @@
+.tc {
+  --tc-px: var(--ui-px, min(100dvw / 1600, 100dvh / 720));
+  --tc-stick-w: calc(35.2% + 171.458 * var(--tc-px));
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+@media (orientation: portrait) {
+  .tc { --tc-px: var(--ui-px, min(100dvw / 720, 100dvh / 1600)); }
+}
+
+.tc[data-enabled="false"] { display: none; }
+
+.tc__look {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: var(--tc-stick-w);
+  pointer-events: auto;
+  touch-action: none;
+  overscroll-behavior: contain;
+}
+
+.tc__stick {
+  position: absolute;
+  top: 0;
+  left: var(--safe-left, 0px);
+  bottom: var(--safe-bottom, 0px);
+  width: var(--tc-stick-w);
+  pointer-events: auto;
+  touch-action: none;
+  overscroll-behavior: contain;
+}
+
+.tc__look[data-disabled="true"],
+.tc__stick[data-disabled="true"] { pointer-events: none; }
+
+.tc__knob {
+  position: absolute;
+  left: var(--tc-base-x, 0px);
+  top: var(--tc-base-y, 0px);
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+
+.tc__ring,
+.tc__core,
+.tc__tip,
+.tc__link {
+  position: absolute;
+  border-radius: 50%;
+  box-sizing: border-box;
+}
+
+.tc__ring {
+  width: calc(136 * var(--tc-px));
+  height: calc(136 * var(--tc-px));
+  margin: calc(-68 * var(--tc-px)) 0 0 calc(-68 * var(--tc-px));
+  border: calc(5 * var(--tc-px)) solid rgba(255, 255, 255, .95);
+  background: rgba(0, 0, 0, .7);
+}
+
+.tc__core {
+  width: calc(54 * var(--tc-px));
+  height: calc(54 * var(--tc-px));
+  margin: calc(-27 * var(--tc-px)) 0 0 calc(-27 * var(--tc-px));
+  border: calc(4.5 * var(--tc-px)) solid rgba(255, 255, 255, .95);
+  background: rgba(0, 0, 0, .7);
+}
+
+.tc__tip {
+  left: var(--tc-tip-x, 0px);
+  top: var(--tc-tip-y, 0px);
+  width: calc(76 * var(--tc-px));
+  height: calc(76 * var(--tc-px));
+  margin: calc(-38 * var(--tc-px)) 0 0 calc(-38 * var(--tc-px));
+  border: calc(3 * var(--tc-px)) solid rgba(255, 255, 255, .95);
+  background: rgba(0, 0, 0, .4);
+  display: grid;
+  place-items: center;
+}
+
+.tc__tip-core {
+  width: calc(28 * var(--tc-px));
+  height: calc(28 * var(--tc-px));
+  border-radius: 50%;
+  background: #fff;
+}
+
+.tc__link {
+  width: calc(var(--tc-link-r, 5) * 2 * var(--tc-px));
+  height: calc(var(--tc-link-r, 5) * 2 * var(--tc-px));
+  margin: calc(var(--tc-link-r, 5) * -1 * var(--tc-px)) 0 0
+    calc(var(--tc-link-r, 5) * -1 * var(--tc-px));
+  background: #000;
+  opacity: var(--tc-link-a, 0);
+}
+
+.tc__link[data-index="0"] {
+  left: var(--tc-link-0-x, 0px); top: var(--tc-link-0-y, 0px);
+  --tc-link-r: var(--tc-link-0-r, 5); --tc-link-a: var(--tc-link-0-a, 0);
+}
+.tc__link[data-index="1"] {
+  left: var(--tc-link-1-x, 0px); top: var(--tc-link-1-y, 0px);
+  --tc-link-r: var(--tc-link-1-r, 5); --tc-link-a: var(--tc-link-1-a, 0);
+}
+.tc__link[data-index="2"] {
+  left: var(--tc-link-2-x, 0px); top: var(--tc-link-2-y, 0px);
+  --tc-link-r: var(--tc-link-2-r, 5); --tc-link-a: var(--tc-link-2-a, 0);
+}
+.tc__link[data-index="3"] {
+  left: var(--tc-link-3-x, 0px); top: var(--tc-link-3-y, 0px);
+  --tc-link-r: var(--tc-link-3-r, 5); --tc-link-a: var(--tc-link-3-a, 0);
+}
+.tc__link[data-index="4"] {
+  left: var(--tc-link-4-x, 0px); top: var(--tc-link-4-y, 0px);
+  --tc-link-r: var(--tc-link-4-r, 5); --tc-link-a: var(--tc-link-4-a, 0);
+}
+.tc__link[data-index="5"] {
+  left: var(--tc-link-5-x, 0px); top: var(--tc-link-5-y, 0px);
+  --tc-link-r: var(--tc-link-5-r, 5); --tc-link-a: var(--tc-link-5-a, 0);
+}
+
+.tc__stick[data-stage="hidden"] .tc__knob { display: none; }
+
+.tc__stick[data-stage="resting"] .tc__tip,
+.tc__stick[data-stage="resting"] .tc__link { display: none; }
+
+.tc__stick[data-stage="active"] .tc__ring,
+.tc__stick[data-stage="active"] .tc__core { display: none; }
+
+.tc__jump {
+  position: absolute;
+  right: calc(66 * var(--tc-px) + var(--safe-right, 0px));
+  bottom: calc(50 * var(--tc-px) + var(--safe-bottom, 0px));
+  width: max(64px, calc(120 * var(--tc-px)));
+  height: max(64px, calc(120 * var(--tc-px)));
+  padding: 0;
+  border: calc(3 * var(--tc-px)) solid rgba(255, 255, 255, .95);
+  border-radius: 50%;
+  background: rgba(0, 0, 0, .45);
+  color: #fff;
+  pointer-events: auto;
+  touch-action: none;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+
+.tc__jump svg {
+  width: 45%;
+  height: 45%;
+  display: block;
+}
+
+.tc__jump:active { background: rgba(255, 255, 255, .25); }

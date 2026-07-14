@@ -13,9 +13,6 @@ pub async fn envelope(
     headers: HeaderMap,
     body: Bytes,
 ) -> Json<Value> {
-    if !state.ingest.admit(&project) {
-        return Json(json!({ "id": "" }));
-    }
     let raw = decode_body(&headers, body);
     let text = String::from_utf8_lossy(&raw);
     let mut lines = text.split('\n').filter(|l| !l.trim().is_empty());
@@ -30,7 +27,7 @@ pub async fn envelope(
         .unwrap_or("")
         .to_string();
 
-    let mut stored = 0usize;
+    let mut items: Vec<(String, Value)> = Vec::new();
     let mut pending_kind: Option<String> = None;
     for line in lines {
         let value: Value = match serde_json::from_str(line) {
@@ -48,27 +45,34 @@ pub async fn envelope(
                 );
             }
             Some(kind) => {
-                let _ = sqlx::query(
-                    "INSERT INTO telemetry_events (source, project, event_kind, body) \
-                     VALUES ('sentry', $1, $2, $3)",
-                )
-                .bind(&project)
-                .bind(&kind)
-                .bind(&value)
-                .execute(&state.pool)
-                .await;
-                stored += 1;
+                items.push((kind, value));
             }
         }
     }
 
-    if stored == 0 {
+    if items.is_empty() {
+        if state.ingest.admit(&project) {
+            let _ = sqlx::query(
+                "INSERT INTO telemetry_events (source, project, event_kind, body) \
+                 VALUES ('sentry', $1, 'envelope', $2)",
+            )
+            .bind(&project)
+            .bind(json!({ "raw": text }))
+            .execute(&state.pool)
+            .await;
+        }
+        return Json(json!({ "id": event_id }));
+    }
+
+    let admitted = state.ingest.admit_n(&project, items.len());
+    for (kind, value) in items.into_iter().take(admitted) {
         let _ = sqlx::query(
             "INSERT INTO telemetry_events (source, project, event_kind, body) \
-             VALUES ('sentry', $1, 'envelope', $2)",
+             VALUES ('sentry', $1, $2, $3)",
         )
         .bind(&project)
-        .bind(json!({ "raw": text }))
+        .bind(&kind)
+        .bind(&value)
         .execute(&state.pool)
         .await;
     }

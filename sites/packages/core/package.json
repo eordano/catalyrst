@@ -1,0 +1,11 @@
+{
+  "name": "@sites/core",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "sitesBoundary": {
+    "alias": "@core",
+    "root": "src",
+    "mayImport": []
+  }
+}

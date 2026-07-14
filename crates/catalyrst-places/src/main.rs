@@ -1,7 +1,6 @@
 use anyhow::Result;
 use axum::routing::get;
 use axum::Router;
-use std::net::SocketAddr;
 use tower_http::trace::TraceLayer;
 
 use catalyrst_places::config::Config;
@@ -17,6 +16,26 @@ const ENV_DOCS: &[(&str, &str)] = &[
     (
         "PLACES_PG_COMPONENT_WRITER_PSQL_CONNECTION_STRING",
         "optional — writer Postgres connection string (enables write endpoints)",
+    ),
+    (
+        "CONTENT_PG_CONNECTION_STRING",
+        "optional — content Postgres connection string (source for the place catalog)",
+    ),
+    (
+        "PLACES_DERIVE_FROM_CONTENT",
+        "bool — build the place catalog from this node's own content deployments",
+    ),
+    (
+        "CONTENT_PUBLIC_URL",
+        "public content base for derived place images (default /content)",
+    ),
+    (
+        "PLACES_MIRROR_UPSTREAM",
+        "bool — mirror the place catalog from an upstream places API (takes precedence over content derivation)",
+    ),
+    (
+        "PLACES_UPSTREAM_URL",
+        "upstream places API base for the mirror (default https://places.decentraland.org)",
     ),
     (
         "DAPPS_PG_COMPONENT_PSQL_CONNECTION_STRING",
@@ -40,11 +59,11 @@ const ENV_DOCS: &[(&str, &str)] = &[
     ),
     (
         "COMMS_GATEKEEPER_URL",
-        "comms gatekeeper base URL (default https://comms-gatekeeper.decentraland.zone)",
+        "comms gatekeeper base URL (default http://127.0.0.1:5138)",
     ),
     (
         "EVENTS_API_URL",
-        "events API base URL (default https://events.decentraland.zone/api)",
+        "events API base URL (default http://127.0.0.1:5135)",
     ),
     (
         "PRESENCE_URL",
@@ -76,13 +95,7 @@ const ENV_DOCS: &[(&str, &str)] = &[
 async fn main() -> Result<()> {
     catalyrst_envcfg::handle_standard_args("catalyrst-places", ENV_DOCS);
 
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "catalyrst_places=info,tower_http=info".into()),
-        )
-        .with_target(false)
-        .init();
+    catalyrst_envcfg::init_tracing("catalyrst_places=info,tower_http=info");
 
     let cfg = Config::from_env()?;
     let state = build_state(&cfg).await?;
@@ -94,9 +107,5 @@ async fn main() -> Result<()> {
         .layer(TraceLayer::new_for_http())
         .with_state(state);
 
-    let addr: SocketAddr = format!("{}:{}", cfg.http_host, cfg.http_port).parse()?;
-    tracing::info!(%addr, "catalyrst-places listening");
-    let listener = tokio::net::TcpListener::bind(addr).await?;
-    axum::serve(listener, app).await?;
-    Ok(())
+    catalyrst_envcfg::run_service("catalyrst-places", cfg.http_host, cfg.http_port, app).await
 }

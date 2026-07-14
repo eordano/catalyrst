@@ -1,0 +1,47 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO deployments\n            (deployer_address, version, entity_type, entity_id, entity_metadata,\n             entity_timestamp, entity_pointers, local_timestamp, auth_chain)\n        SELECT da, v, et, ei, em,\n               to_timestamp(ts / 1000.0),\n               ARRAY(SELECT json_array_elements_text(ep)),\n               now(), ac\n        FROM unnest(\n            $1::text[], $2::text[], $3::text[], $4::text[],\n            $5::json[], $6::float8[], $7::json[], $8::json[]\n        ) AS t(da, v, et, ei, em, ts, ep, ac)\n        ON CONFLICT (entity_id) DO NOTHING\n        RETURNING entity_id, id\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "entity_id",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "deployments",
+            "name": "entity_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "id",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "deployments",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "TextArray",
+        "TextArray",
+        "TextArray",
+        "TextArray",
+        "JsonArray",
+        "Float8Array",
+        "JsonArray",
+        "JsonArray"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "b6678598a7c6844e15c75824ce9c3076f60c39ceafae85f8f54ef2cf7f8c274c"
+}

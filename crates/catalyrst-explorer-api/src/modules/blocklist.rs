@@ -1,4 +1,5 @@
 use crate::modules::admin_auth::require_admin;
+use crate::modules::json_response;
 use crate::AppState;
 use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
@@ -10,6 +11,7 @@ use serde::de::{SeqAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::json;
 use std::fmt;
+use std::sync::Arc;
 use tokio::fs;
 
 #[derive(Debug, Clone, Default, Serialize)]
@@ -87,7 +89,7 @@ fn normalize_wallet(w: &str) -> String {
     w.trim().to_lowercase()
 }
 
-async fn read_denylist(path: &str) -> Denylist {
+pub(crate) async fn read_denylist(path: &str) -> Denylist {
     match fs::read(path).await {
         Ok(bytes) => serde_json::from_slice::<Denylist>(&bytes).unwrap_or_default(),
         Err(_) => Denylist::default(),
@@ -112,11 +114,10 @@ async fn admin_add(
     }
     let wallet = normalize_wallet(&body.wallet);
     if wallet.is_empty() {
-        return (
+        return json_response(
             StatusCode::BAD_REQUEST,
-            Json(json!({ "error": "wallet is required" })),
-        )
-            .into_response();
+            json!({ "error": "wallet is required" }),
+        );
     }
     let path = state.cfg.blocklist_path.clone();
     let mut list = read_denylist(&path).await;
@@ -129,18 +130,20 @@ async fn admin_add(
             wallet: wallet.clone(),
         });
         if let Err(err) = write_denylist(&path, &list).await {
-            return (
+            return json_response(
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "ok": false, "error": err })),
-            )
-                .into_response();
+                json!({ "ok": false, "error": err }),
+            );
         }
     }
-    (
+    let count = list.users.len();
+    if !already {
+        *state.denylist.write() = Arc::new(list);
+    }
+    json_response(
         StatusCode::OK,
-        Json(json!({ "ok": true, "wallet": wallet, "added": !already, "count": list.users.len() })),
+        json!({ "ok": true, "wallet": wallet, "added": !already, "count": count }),
     )
-        .into_response()
 }
 
 async fn admin_remove(
@@ -153,11 +156,10 @@ async fn admin_remove(
     }
     let wallet = normalize_wallet(&body.wallet);
     if wallet.is_empty() {
-        return (
+        return json_response(
             StatusCode::BAD_REQUEST,
-            Json(json!({ "error": "wallet is required" })),
-        )
-            .into_response();
+            json!({ "error": "wallet is required" }),
+        );
     }
     let path = state.cfg.blocklist_path.clone();
     let mut list = read_denylist(&path).await;
@@ -166,20 +168,20 @@ async fn admin_remove(
     let removed = list.users.len() != before;
     if removed {
         if let Err(err) = write_denylist(&path, &list).await {
-            return (
+            return json_response(
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "ok": false, "error": err })),
-            )
-                .into_response();
+                json!({ "ok": false, "error": err }),
+            );
         }
     }
-    (
+    let count = list.users.len();
+    if removed {
+        *state.denylist.write() = Arc::new(list);
+    }
+    json_response(
         StatusCode::OK,
-        Json(
-            json!({ "ok": true, "wallet": wallet, "removed": removed, "count": list.users.len() }),
-        ),
+        json!({ "ok": true, "wallet": wallet, "removed": removed, "count": count }),
     )
-        .into_response()
 }
 
 async fn admin_reload(State(state): State<AppState>, headers: HeaderMap) -> Response {
@@ -189,38 +191,27 @@ async fn admin_reload(State(state): State<AppState>, headers: HeaderMap) -> Resp
     let path = state.cfg.blocklist_path.clone();
     match fs::read(&path).await {
         Ok(bytes) => match serde_json::from_slice::<Denylist>(&bytes) {
-            Ok(list) => (
-                StatusCode::OK,
-                Json(json!({ "ok": true, "path": path, "count": list.users.len() })),
-            )
-                .into_response(),
-            Err(err) => (
+            Ok(list) => {
+                let count = list.users.len();
+                *state.denylist.write() = Arc::new(list);
+                json_response(
+                    StatusCode::OK,
+                    json!({ "ok": true, "path": path, "count": count }),
+                )
+            }
+            Err(err) => json_response(
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "ok": false, "path": path, "error": err.to_string() })),
-            )
-                .into_response(),
+                json!({ "ok": false, "path": path, "error": err.to_string() }),
+            ),
         },
-        Err(err) => (
+        Err(err) => json_response(
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "ok": false, "path": path, "error": err.to_string() })),
-        )
-            .into_response(),
+            json!({ "ok": false, "path": path, "error": err.to_string() }),
+        ),
     }
 }
 
 async fn get_denylist(State(state): State<AppState>) -> impl IntoResponse {
-    let path = &state.cfg.blocklist_path;
-    match fs::read(path).await {
-        Ok(bytes) => match serde_json::from_slice::<Denylist>(&bytes) {
-            Ok(list) => (StatusCode::OK, Json(list)).into_response(),
-            Err(err) => {
-                tracing::warn!(?path, %err, "denylist parse failed; serving empty");
-                (StatusCode::OK, Json(Denylist::default())).into_response()
-            }
-        },
-        Err(err) => {
-            tracing::warn!(?path, %err, "denylist read failed; serving empty");
-            (StatusCode::OK, Json(Denylist::default())).into_response()
-        }
-    }
+    let list = state.denylist.read().clone();
+    (StatusCode::OK, Json(list)).into_response()
 }

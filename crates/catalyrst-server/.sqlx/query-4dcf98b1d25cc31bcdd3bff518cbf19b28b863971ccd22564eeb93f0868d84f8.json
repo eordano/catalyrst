@@ -1,0 +1,43 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT dep1.id, dep1.entity_pointers\n            FROM deployments AS dep1\n            LEFT JOIN deployments AS dep2 ON dep1.deleter_deployment = dep2.id\n            WHERE dep1.entity_type = $1\n              AND dep1.entity_pointers && $2\n              AND (dep1.entity_timestamp < to_timestamp($3 / 1000.0)\n                   OR (dep1.entity_timestamp = to_timestamp($3 / 1000.0) AND lower(dep1.entity_id) < lower($4)))\n              AND (dep2.id IS NULL\n                   OR dep2.entity_timestamp > to_timestamp($3 / 1000.0)\n                   OR (dep2.entity_timestamp = to_timestamp($3 / 1000.0) AND lower(dep2.entity_id) > lower($4)))\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "deployments",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "entity_pointers",
+        "type_info": "TextArray",
+        "origin": {
+          "Table": {
+            "table": "deployments",
+            "name": "entity_pointers"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "TextArray",
+        "Numeric",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "4dcf98b1d25cc31bcdd3bff518cbf19b28b863971ccd22564eeb93f0868d84f8"
+}

@@ -4,7 +4,9 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use anyhow::{Context, Result};
+use catalyrst_types::duration_fmt::fmt_elapsed;
 use catalyrst_worlds::config::Config;
+use catalyrst_worlds::contents_temp;
 use serde_json::Value;
 use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
@@ -46,9 +48,21 @@ fn parse_args() -> Args {
 async fn main() -> Result<()> {
     let args = parse_args();
     let cfg = Config::from_env()?;
-    let upstream = cfg.contents_upstream_url.trim_end_matches('/').to_string();
+    let upstream = cfg.contents_upstream_url.clone().ok_or_else(|| {
+        anyhow::anyhow!(
+            "worlds-mirror needs CONTENTS_UPSTREAM_URL — it mirrors content from another \
+             worlds server and has nothing to do without one. There is no default."
+        )
+    })?;
     let contents_dir = cfg.contents_dir.clone();
     tokio::fs::create_dir_all(&contents_dir).await.ok();
+    contents_temp::spawn_reaper(
+        contents_dir.clone(),
+        contents_temp::reap_grace(
+            cfg.multipart_upload_timeout_ms,
+            cfg.deployment_processing_timeout_ms,
+        ),
+    );
 
     let pool = PgPoolOptions::new()
         .max_connections((args.jobs as u32 + 4).min(32))
@@ -150,12 +164,12 @@ async fn main() -> Result<()> {
     while set.join_next().await.is_some() {}
 
     println!(
-        "DONE: synced={} skipped={} scenes={} new_blobs={} in {:.0}s",
+        "DONE: synced={} skipped={} scenes={} new_blobs={} in {}",
         synced.load(Ordering::Relaxed),
         skipped.load(Ordering::Relaxed),
         scenes_total.load(Ordering::Relaxed),
         blobs.load(Ordering::Relaxed),
-        t0.elapsed().as_secs_f64(),
+        fmt_elapsed(t0.elapsed()),
     );
     Ok(())
 }
@@ -305,6 +319,14 @@ fn scene_refs(about: &Value) -> Vec<(String, String)> {
         .unwrap_or_default()
 }
 
+fn temp_name(hash: &str) -> String {
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    format!(".{hash}.{}.{nonce}.part", std::process::id())
+}
+
 async fn fetch_blob(
     http: &reqwest::Client,
     contents_dir: &Path,
@@ -325,9 +347,25 @@ async fn fetch_blob(
         .bytes()
         .await?
         .to_vec();
-    let tmp = contents_dir.join(format!(".{hash}.part"));
+    let tmp = contents_dir.join(temp_name(hash));
     tokio::fs::write(&tmp, &bytes).await?;
-    tokio::fs::rename(&tmp, &dst).await?;
+    if let Err(e) = tokio::fs::rename(&tmp, &dst).await {
+        let _ = tokio::fs::remove_file(&tmp).await;
+        return Err(e.into());
+    }
     *new_blobs += 1;
     Ok(bytes)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{contents_temp, temp_name};
+
+    #[test]
+    fn mirror_temps_follow_the_reaper_convention() {
+        let name = temp_name("bafkreiabc");
+        assert!(contents_temp::is_temp_name(&name), "{name}");
+        assert!(name.starts_with(".bafkreiabc."));
+        assert_ne!(name, temp_name("bafkreiabc"));
+    }
 }

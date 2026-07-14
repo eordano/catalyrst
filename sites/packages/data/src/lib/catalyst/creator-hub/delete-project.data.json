@@ -1,0 +1,93 @@
+{
+  "_source": "https://raw.githubusercontent.com/decentraland/creator-hub/main/packages/creator-hub/shared/types/projects.ts (Project / Layout / SortBy shape) + https://raw.githubusercontent.com/decentraland/creator-hub/main/packages/creator-hub/renderer/src/components/Modals/DeleteProject/component.tsx (modal copy/behaviour) + .../locales/en.json (verbatim modal.delete_project.* copy). Fetched 2026-06-23, branch main, all 200. There is NO catalyst endpoint for this flow: deleting a local scene project is a desktop/Electron filesystem op (deleteProject IPC). The project list below is a faithful local-fixture stand-in for the renderer's in-memory project store; the actual removal is SIMULATED client-side in the route (no fs write).",
+  "copy": {
+    "title": "Are you sure you want to delete {title} from 'My Scenes'?",
+    "files_checkbox": "Also delete this scene's files from my computer",
+    "files_warning": "Deleting scene files from your computer is permanent, you won't be able to access this scene again.",
+    "cancel": "Cancel",
+    "confirm": "Confirm",
+    "menu_delete": "Delete from My Scenes"
+  },
+  "projects": [
+    {
+      "id": "p1",
+      "path": "/home/creator/Documents/Decentraland/neon-night-market",
+      "title": "Neon Night Market",
+      "description": "A vibrant after-dark bazaar with stalls, neon signage and an open dance floor.",
+      "thumbnail": "",
+      "layout": { "rows": 2, "cols": 2 },
+      "scene": { "base": "10,20", "parcels": ["10,20", "11,20", "10,21", "11,21"] },
+      "createdAt": 1742400000000,
+      "updatedAt": 1750464000000,
+      "publishedAt": 1750464000000,
+      "size": 18874368,
+      "grad": "linear-gradient(135deg, #ff2d55 0%, #350447 100%)",
+      "published": true,
+      "hasDeployments": true
+    },
+    {
+      "id": "p2",
+      "path": "/home/creator/Documents/Decentraland/sky-gallery",
+      "title": "Sky Gallery",
+      "description": "A floating exhibition hall for NFT artwork with framed pedestals.",
+      "thumbnail": "",
+      "layout": { "rows": 4, "cols": 4 },
+      "scene": { "base": "0,0", "parcels": ["0,0", "1,0", "2,0", "3,0"] },
+      "createdAt": 1740000000000,
+      "updatedAt": 1748390400000,
+      "publishedAt": 0,
+      "size": 41943040,
+      "grad": "linear-gradient(135deg, #438fff 0%, #1f0a3a 100%)",
+      "published": false,
+      "hasDeployments": true
+    },
+    {
+      "id": "p3",
+      "path": "/home/creator/Documents/Decentraland/forest-puzzle-quest",
+      "title": "Forest Puzzle Quest",
+      "description": "A single-parcel exploration scene with collectible riddles.",
+      "thumbnail": "",
+      "layout": { "rows": 1, "cols": 1 },
+      "scene": { "base": "-5,12", "parcels": ["-5,12"] },
+      "createdAt": 1738800000000,
+      "updatedAt": 1746748800000,
+      "publishedAt": 0,
+      "size": 6291456,
+      "grad": "linear-gradient(135deg, #34ce77 0%, #103a25 100%)",
+      "published": false,
+      "hasDeployments": false
+    },
+    {
+      "id": "p4",
+      "path": "/home/creator/Documents/Decentraland/retro-arcade-hall",
+      "title": "Retro Arcade Hall",
+      "description": "A cabinet-lined arcade with leaderboards and emote rewards.",
+      "thumbnail": "",
+      "layout": { "rows": 2, "cols": 3 },
+      "scene": { "base": "33,7", "parcels": ["33,7", "34,7", "35,7"] },
+      "createdAt": 1736208000000,
+      "updatedAt": 1745020800000,
+      "publishedAt": 0,
+      "size": 27262976,
+      "grad": "linear-gradient(135deg, #ffc95b 0%, #5a2c00 100%)",
+      "published": false,
+      "hasDeployments": false
+    },
+    {
+      "id": "p5",
+      "path": "/home/creator/Documents/Decentraland/midnight-lounge",
+      "title": "Midnight Lounge",
+      "description": "An intimate two-parcel social lounge with ambient music zones.",
+      "thumbnail": "",
+      "layout": { "rows": 1, "cols": 2 },
+      "scene": { "base": "61,-14", "parcels": ["61,-14", "62,-14"] },
+      "createdAt": 1734220800000,
+      "updatedAt": 1743897600000,
+      "publishedAt": 0,
+      "size": 12582912,
+      "grad": "linear-gradient(135deg, #982de2 0%, #1a0438 100%)",
+      "published": false,
+      "hasDeployments": false
+    }
+  ]
+}

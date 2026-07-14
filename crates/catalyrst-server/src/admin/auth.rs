@@ -12,8 +12,23 @@ use crate::state::AppState;
 
 const NONCE_TTL_SECS: i64 = 300;
 
+/// Proof that the current request carried a valid admin session cookie.
+///
+/// The `address` field is deliberately private: a public field would let any
+/// code in this crate mint an `AdminSession` from a bare string and hand it to
+/// the ~60 admin handlers that trust it, bypassing the SIWE + HMAC + allowlist
+/// check. The only constructor is the `FromRequestParts` impl below; the test
+/// `tests/source_discipline.rs` pins that as a fact about the source.
 pub struct AdminSession {
-    pub address: String,
+    address: String,
+}
+
+impl AdminSession {
+    /// The operator address recovered from the SIWE sign-in and re-verified
+    /// (HMAC signature + live allowlist) by `session::verify` on this request.
+    pub fn address(&self) -> &str {
+        &self.address
+    }
 }
 
 impl<S> FromRequestParts<S> for AdminSession

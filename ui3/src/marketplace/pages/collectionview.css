@@ -1,0 +1,73 @@
+.mkcoll {
+  position: relative;
+}
+
+.mkcoll__bar {
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: 18px 24px 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 20px;
+  color: #fff;
+  font-family: inherit;
+}
+
+.mkcoll__stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.mkcoll__statlabel {
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #a09ba8;
+}
+
+.mkcoll__statvalue {
+  font-size: 15px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.mkcoll__sort {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.mkcoll__sortlabel {
+  font-size: 12px;
+  color: #a09ba8;
+}
+
+.mkcoll__select {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 8px;
+  color: #fff;
+  font: inherit;
+  font-size: 13px;
+  padding: 7px 10px;
+  cursor: pointer;
+}
+
+.mkcoll__select:focus-visible {
+  outline: 2px solid var(--brand, #ff2d55);
+  outline-offset: 1px;
+}
+
+.mkcoll .cp__tbl tbody tr {
+  cursor: pointer;
+}
+
+.mkcoll .cp__tbl tbody tr:hover {
+  background: rgba(255, 255, 255, 0.04);
+}

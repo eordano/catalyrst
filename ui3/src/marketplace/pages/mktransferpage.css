@@ -1,0 +1,252 @@
+.mktransferpage {
+  min-height: 100%;
+  display: flex;
+  justify-content: center;
+  padding: 0 24px 80px;
+}
+
+.mktransferpage__action {
+  width: 100%;
+  max-width: 920px;
+}
+
+.mktransferpage__back {
+  margin-top: 5vh;
+  margin-bottom: 10vh;
+  margin-left: 2px;
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 100%;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--ink-85);
+  cursor: pointer;
+  padding: 0;
+  transition: border-color 0.12s ease, color 0.12s ease;
+}
+.mktransferpage__back:hover {
+  border-color: rgba(255, 255, 255, 0.5);
+  color: #fff;
+}
+
+.mktransferpage__row {
+  display: flex;
+  align-items: flex-start;
+}
+
+.mktransferpage__left {
+  flex: 0.75 1 auto;
+  display: flex;
+  justify-content: flex-end;
+  margin-right: 80px;
+}
+
+.mktransferpage__right {
+  flex: 1.25 1 auto;
+  min-width: 0;
+}
+
+.mktransferpage__title {
+  margin: 0 0 8px;
+  font-size: 30px;
+  font-weight: 600;
+  line-height: 1.2;
+  color: var(--lm-ink);
+}
+
+.mktransferpage__subtitle {
+  margin-bottom: 32px;
+  font-size: 16px;
+  color: var(--ink-7);
+}
+.mktransferpage__subtitle b {
+  color: var(--lm-ink);
+  font-weight: 700;
+}
+.mktransferpage__subtitle.is-error {
+  color: var(--error);
+}
+.mktransferpage__subtitle.is-error b {
+  color: var(--error);
+}
+
+.mktransferpage__form {
+  display: block;
+}
+.mktransferpage__fields {
+  width: 420px;
+  max-width: 100%;
+}
+.mktransferpage__field {
+  display: flex;
+  flex-direction: column;
+}
+.mktransferpage__label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-7);
+  margin-bottom: 8px;
+}
+.mktransferpage__inputwrap {
+  position: relative;
+}
+.mktransferpage__input {
+  width: 100%;
+  height: 44px;
+  box-sizing: border-box;
+  padding: 0 14px;
+  border-radius: var(--r-control);
+  border: 1px solid var(--line);
+  background: var(--fill-2);
+  color: var(--lm-ink);
+  font: inherit;
+  font-size: 15px;
+  outline: none;
+  transition: border-color 0.12s ease, background 0.12s ease;
+}
+.mktransferpage__input::placeholder {
+  color: var(--ink-45);
+}
+.mktransferpage__input:focus {
+  border-color: var(--ink-6);
+  background: var(--fill-3);
+}
+.mktransferpage__input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.mktransferpage__input.is-error {
+  border-color: var(--error);
+}
+
+.mktransferpage__resolved {
+  position: absolute;
+  right: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--ink-6);
+  font-size: 14px;
+  pointer-events: none;
+}
+
+.mktransferpage__error {
+  margin-top: 8px;
+  color: var(--error);
+  font-size: 12px;
+}
+
+.mktransferpage__warning {
+  color: var(--error);
+  margin: 24px 0;
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.mktransferpage__buttons {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-top: 4px;
+}
+.mktransferpage__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  min-width: 132px;
+  height: 44px;
+  padding: 0 26px;
+  border: none;
+  border-radius: 6px;
+  font: inherit;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s ease, opacity 0.15s ease;
+}
+.mktransferpage__btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.mktransferpage__btn--secondary {
+  background: var(--fill-4);
+  color: #fff;
+}
+.mktransferpage__btn--secondary:not(:disabled):hover {
+  background: var(--fill-5);
+}
+.mktransferpage__btn--primary {
+  background: var(--brand-cta);
+  color: #fff;
+}
+.mktransferpage__btn--primary:not(:disabled):hover {
+  background: var(--brand-hover);
+}
+
+.mktransferpage__spinner {
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.4);
+  border-top-color: #fff;
+  animation: u-spin 0.7s linear infinite;
+}
+.mktransferpage__success {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 4vh 0 0;
+}
+.mktransferpage__successicon {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(49, 193, 26, 0.16);
+  color: var(--progress);
+  margin-bottom: 22px;
+}
+.mktransferpage__success .mktransferpage__subtitle {
+  margin-bottom: 18px;
+}
+.mktransferpage__txlink {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--brand);
+  text-decoration: none;
+  font-size: 14px;
+  font-weight: 700;
+  padding: 9px 16px;
+  border-radius: var(--r-pill);
+  background: var(--fill-2);
+  border: 1px solid var(--line);
+}
+.mktransferpage__txlink:hover {
+  background: var(--fill-3);
+}
+
+@media (max-width: 768px) {
+  .mktransferpage__row {
+    flex-direction: column;
+  }
+  .mktransferpage__left {
+    margin-right: 0;
+    margin-bottom: 24px;
+    justify-content: center;
+    width: 100%;
+  }
+  .mktransferpage__buttons {
+    flex-direction: column-reverse;
+    align-items: stretch;
+  }
+  .mktransferpage__btn {
+    width: 100%;
+  }
+}

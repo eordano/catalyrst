@@ -1,0 +1,15 @@
+.u-manapill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 36px;
+  padding: 0 14px;
+  border-radius: var(--r-pill);
+  background: var(--chip-bg, var(--fill-3));
+  border: 1px solid var(--chip-line, var(--line));
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--chip-ink, #fff);
+  white-space: nowrap;
+}
+.u-manapill__mark { color: var(--brand); flex: 0 0 auto; }

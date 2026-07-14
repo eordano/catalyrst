@@ -1,5 +1,7 @@
 use sqlx::{PgPool, Postgres, Transaction};
 
+use crate::util::now_ms;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VoiceChatUserStatus {
     Connected,
@@ -476,14 +478,6 @@ impl VoiceDb {
         is_active_community_user(&self.cfg, user, now)
     }
 
-    pub async fn is_community_room_active(&self, room_name: &str) -> Result<bool, sqlx::Error> {
-        let now = now_ms();
-        let users = self.get_community_users_in_room(room_name).await?;
-        Ok(users
-            .iter()
-            .any(|u| u.is_moderator && self.is_active_community_user(u, now)))
-    }
-
     pub async fn get_community_voice_chat_participant_count(
         &self,
         room_name: &str,
@@ -631,6 +625,29 @@ impl VoiceDb {
         Ok(counts)
     }
 
+    pub async fn get_bulk_community_voice_chat_status(
+        &self,
+        room_names: &[String],
+    ) -> Result<std::collections::BTreeMap<String, (i64, i64)>, sqlx::Error> {
+        if room_names.is_empty() {
+            return Ok(Default::default());
+        }
+        let connected = self.is_connected_sql();
+        let query = format!(
+            "SELECT room_name, \
+                COUNT(CASE WHEN ({connected}) THEN 1 END) AS participant_count, \
+                COUNT(CASE WHEN is_moderator = true AND ({connected}) THEN 1 END) AS moderator_count \
+             FROM community_voice_chat_users \
+             WHERE room_name = ANY($1) \
+             GROUP BY room_name"
+        );
+        let rows: Vec<(String, i64, i64)> = sqlx::query_as(sqlx::AssertSqlSafe(query))
+            .bind(room_names)
+            .fetch_all(&self.pool)
+            .await?;
+        Ok(rows.into_iter().map(|(r, p, m)| (r, (p, m))).collect())
+    }
+
     fn is_connected_sql(&self) -> String {
         let now = now_ms();
         let connected = VoiceChatUserStatus::Connected.as_str();
@@ -674,14 +691,6 @@ pub struct JoinOutcome {
 pub enum DeleteRoomError {
     RoomDoesNotExist,
     Db(sqlx::Error),
-}
-
-fn now_ms() -> i64 {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or(0)
 }
 
 fn is_active_community_user(

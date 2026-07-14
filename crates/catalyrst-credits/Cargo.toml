@@ -1,8 +1,12 @@
 [package]
 name = "catalyrst-credits"
-version = "0.9.10"
+version = "0.16.2"
 edition = "2021"
 description = "Rust port of credits.decentraland.org (Marketplace Credits program API): enrollment, seasons/weeks/goals, per-wallet progress, captcha-gated claims. SignedFetch (AuthChain) auth via catalyrst-crypto."
+
+[package.metadata.generated]
+gate = "sites/scripts/gen-ts-check.sh"
+ts-bindings = "ui3/src/generated/catalyst/credits"
 
 [[bin]]
 name = "catalyrst-credits"
@@ -11,10 +15,12 @@ path = "src/main.rs"
 [dependencies]
 catalyrst-types = { workspace = true }
 catalyrst-crypto = { workspace = true }
+catalyrst-authenticated-admin = { workspace = true }
+catalyrst-authenticated-principal = { workspace = true }
 catalyrst-envcfg = { workspace = true }
+catalyrst-db = { workspace = true }
 tokio = { workspace = true }
 axum = { workspace = true }
-tower = { workspace = true }
 tower-http = { workspace = true }
 reqwest = { workspace = true }
 sqlx = { workspace = true }
@@ -26,8 +32,6 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 thiserror = { workspace = true }
 anyhow = { workspace = true }
-url = { workspace = true }
-uuid = { workspace = true, features = ["serde"] }
 hmac = { workspace = true }
 sha2 = { workspace = true }
 hex = "0.4"
@@ -38,5 +42,6 @@ ts-rs = { workspace = true, optional = true }
 ts = ["dep:ts-rs"]
 
 [dev-dependencies]
+catalyrst-testgate = { workspace = true }
+alloy = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
-ethers-signers = { workspace = true }

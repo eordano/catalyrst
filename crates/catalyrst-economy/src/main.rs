@@ -1,7 +1,6 @@
 use anyhow::Result;
 use axum::routing::get;
 use axum::Router;
-use std::net::SocketAddr;
 use tower_http::trace::TraceLayer;
 
 use catalyrst_economy::config::Config;
@@ -37,7 +36,7 @@ const ENV_DOCS: &[(&str, &str)] = &[
     ),
     (
         "CONTRACT_ADDRESSES_URL",
-        "contract addresses JSON (default https://contracts.decentraland.org/addresses.json)",
+        "contract addresses JSON (REQUIRED; no default)",
     ),
     (
         "CONTRACT_ADDRESSES_CHAIN_KEY",
@@ -111,7 +110,9 @@ const ENV_DOCS: &[(&str, &str)] = &[
     (
         "USD_PEGGED_ORACLE_MAX_AGE_SECS",
         "max age of the MANA/USD oracle round before a USD-pegged trade is refused \
-         (default 60; the on-chain contract enforces its own 27s tolerance at execution)",
+         (default 60; keep <= the deployed marketplace manaUsdAggregatorTolerance, \
+         read as 60s from 0x540fb08eDb56AaE562864B390542C97F562825BA; \
+         refusals are counted in /health usd_pegged_stale_refusals)",
     ),
     (
         "USD_PEGGED_SLIPPAGE_BPS",
@@ -128,13 +129,7 @@ const ENV_DOCS: &[(&str, &str)] = &[
 async fn main() -> Result<()> {
     catalyrst_envcfg::handle_standard_args("catalyrst-economy", ENV_DOCS);
 
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "catalyrst_economy=info,tower_http=info".into()),
-        )
-        .with_target(false)
-        .init();
+    catalyrst_envcfg::init_tracing("catalyrst_economy=info,tower_http=info");
 
     let cfg = Config::from_env()?;
     let host = cfg.http_host.clone();
@@ -150,9 +145,5 @@ async fn main() -> Result<()> {
         .layer(TraceLayer::new_for_http())
         .with_state(state);
 
-    let addr: SocketAddr = format!("{}:{}", host, port).parse()?;
-    tracing::info!(%addr, "catalyrst-economy listening");
-    let listener = tokio::net::TcpListener::bind(addr).await?;
-    axum::serve(listener, app).await?;
-    Ok(())
+    catalyrst_envcfg::run_service("catalyrst-economy", host, port, app).await
 }

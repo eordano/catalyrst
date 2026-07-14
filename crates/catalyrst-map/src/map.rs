@@ -8,6 +8,11 @@ use sqlx::PgPool;
 use crate::rentals::{RentalsClient, TileRentalListing};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "map/", rename_all = "lowercase")
+)]
 #[serde(rename_all = "lowercase")]
 pub enum TileType {
     Owned,
@@ -31,11 +36,14 @@ impl TileType {
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "map/"))]
 pub struct Tile {
     pub id: String,
     pub x: i32,
     pub y: i32,
-    #[serde(skip_serializing_if = "Option::is_none", rename = "nftId")]
+    #[serde(rename = "nftId")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
     pub nft_id: Option<String>,
     #[serde(rename = "type")]
     pub tile_type: TileType,
@@ -44,20 +52,32 @@ pub struct Tile {
     #[serde(rename = "topLeft")]
     pub top_left: bool,
     #[serde(rename = "updatedAt")]
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub updated_at: i64,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
     pub name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
     pub owner: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", rename = "estateId")]
+    #[serde(rename = "estateId")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
     pub estate_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", rename = "tokenId")]
+    #[serde(rename = "tokenId")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
     pub token_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
     pub price: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none", rename = "expiresAt")]
+    #[serde(rename = "expiresAt")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional, type = "number"))]
     pub expires_at: Option<i64>,
-    #[serde(skip_serializing_if = "Option::is_none", rename = "rentalListing")]
+    #[serde(rename = "rentalListing")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
     pub rental_listing: Option<TileRentalListing>,
 }
 
@@ -125,10 +145,6 @@ impl MapComponent {
             tiles_cache: Arc::new(RwLock::new(GenCache::default())),
             png_cache: Arc::new(RwLock::new(GenCache::default())),
         }
-    }
-
-    pub fn rentals_enabled(&self) -> bool {
-        self.rentals.is_some()
     }
 
     pub fn cached_tiles_response(&self, key: &str) -> Option<Arc<Vec<u8>>> {

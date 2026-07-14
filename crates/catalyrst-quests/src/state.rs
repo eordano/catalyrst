@@ -218,20 +218,31 @@ pub fn apply_event(state: &QuestState, graph: &QuestGraph, event: &Event) -> Que
         if step_content.to_dos.is_empty() {
             continue;
         }
-        for (i, task) in step_content.to_dos.iter().enumerate() {
-            if let Some(matched) = task
-                .action_items
-                .iter()
-                .position(|action| matches_action(action, event_action))
-            {
-                if let Some(step) = next.current_steps.get_mut(step_id) {
+        // Drive the mutation off the mutable clone so index math stays valid
+        // as tasks are removed. Match/remove one action item per task in
+        // ascending order (preserving completion order), record which tasks
+        // emptied, then remove those to_dos entries in descending index order
+        // so an earlier index never shifts out from under a later removal.
+        if let Some(step) = next.current_steps.get_mut(step_id) {
+            let mut completed_indices: Vec<usize> = Vec::new();
+            for i in 0..step.to_dos.len() {
+                if let Some(matched) = step.to_dos[i]
+                    .action_items
+                    .iter()
+                    .position(|action| matches_action(action, event_action))
+                {
                     step.to_dos[i].action_items.remove(matched);
                     if step.to_dos[i].action_items.is_empty() {
-                        let completed_task = step.to_dos[i].clone();
-                        step.tasks_completed.push(completed_task);
-                        step.to_dos.remove(i);
+                        completed_indices.push(i);
                     }
                 }
+            }
+            for &i in &completed_indices {
+                let completed_task = step.to_dos[i].clone();
+                step.tasks_completed.push(completed_task);
+            }
+            for &i in completed_indices.iter().rev() {
+                step.to_dos.remove(i);
             }
         }
 

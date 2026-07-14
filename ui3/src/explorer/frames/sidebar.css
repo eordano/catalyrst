@@ -1,0 +1,122 @@
+.sb__stage {
+  width: 100vw; height: 100vh; overflow: hidden;
+  background: linear-gradient(160deg, #2a2433 0%, #15121b 100%);
+}
+
+.sb {
+  position: absolute; left: 0; top: 0; bottom: 0; width: 46px;
+  background: rgba(20, 20, 24, .82);
+  backdrop-filter: blur(4px);
+  display: flex; flex-direction: column; align-items: center;
+  padding: 8px 0 22px; gap: 4px; z-index: 5;
+}
+
+.sb__cfg {
+  width: 32px; height: 18px; border: none; cursor: pointer; padding: 0;
+  background: rgba(0, 0, 0, .55); color: rgba(255, 255, 255, .92);
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 9px; margin-bottom: 6px;
+}
+.sb__cfg:hover { background: rgba(0, 0, 0, .8); color: #fff; }
+.sb__cfg .sb__icon { width: 20px; height: 14px; }
+
+.sb__profile {
+  width: 38px; height: 38px; border-radius: 50%; border: none; cursor: pointer;
+  padding: 0; background: none; margin-bottom: 4px;
+}
+.sb__avatar {
+  display: block; border: 2px solid var(--ink-85);
+  background: linear-gradient(135deg, #5a5566, #34303d);
+}
+
+.sb__group { display: flex; flex-direction: column; align-items: center; gap: 3px; }
+.sb__item { display: flex; flex-direction: column; align-items: center; gap: 3px; }
+.sb__spacer { flex: 1; min-height: 8px; }
+
+.sb__divider {
+  width: 22px; height: 1px; margin: 4px 0 1px;
+  background: rgba(255, 255, 255, .14);
+}
+
+.sb__btn {
+  position: relative;
+  width: 38px; height: 38px; border-radius: 10px; border: none; cursor: pointer;
+  background: transparent; color: #fff;
+  display: flex; align-items: center; justify-content: center;
+  transition: background .12s ease, color .12s ease;
+}
+.sb__icon { width: 21px; height: 21px; fill: currentColor; }
+.sb__btn.is-stroke .sb__icon {
+  fill: none; stroke: currentColor; stroke-width: 1.7;
+  stroke-linecap: round; stroke-linejoin: round;
+}
+.sb__btn.is-stroke .sb__icon [fill="currentColor"] { fill: currentColor; }
+.sb__btn:hover { background: var(--fill-5); color: #fff; }
+
+.sb__btn.is-tile {
+  border: 1.5px solid rgba(255, 255, 255, .3);
+  border-radius: 9px; width: 36px; height: 36px;
+}
+.sb__btn.is-tile:hover { background: var(--fill-5); border-color: rgba(255, 255, 255, .5); }
+
+.sb__btn.is-active { color: #fff; background: rgba(255, 45, 85, .16); }
+.sb__btn.is-active .sb__icon { fill: var(--brand); }
+.sb__btn.is-active.is-stroke .sb__icon { fill: none; stroke: var(--brand); }
+.sb__btn.is-active::before {
+  content: ""; position: absolute; left: -8px; top: 50%; transform: translateY(-50%);
+  width: 3px; height: 24px; border-radius: 0 3px 3px 0; background: var(--brand);
+}
+
+.sb__presence {
+  position: absolute; right: -2px; top: -2px;
+  width: 9px; height: 9px; border-radius: 50%;
+  background: #2dd36f; border: 1.5px solid rgba(20, 20, 24, .95);
+}
+
+.sb__notif {
+  position: absolute; right: 7px; top: 6px;
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--brand); border: 1.5px solid rgba(20, 20, 24, .95);
+}
+
+.sb__badge {
+  position: absolute; top: 0; right: 0;
+  transform: scale(.74); transform-origin: top right;
+}
+
+@media (max-width: 760px) {
+  .sb { width: 48px; overflow-y: auto; overflow-x: visible; }
+  .sb__btn, .sb__profile, .sb__avatar { width: 34px; height: 34px; }
+  .sb__icon { width: 19px; height: 19px; }
+  .sb__spacer { flex: 0 0 auto; min-height: 8px; }
+}
+
+@media (max-height: 700px) {
+  .sb { overflow-y: auto; overflow-x: visible; }
+  .sb__spacer { flex: 0 0 auto; min-height: 0; }
+}
+
+@media (pointer: coarse) and (orientation: portrait) {
+  [data-mobile-chrome] .sb { display: none; }
+}
+
+@media (pointer: coarse) and (orientation: landscape) {
+  [data-mobile-chrome] .sb {
+    left: auto;
+    right: 0;
+    width: 56px;
+    padding: calc(8px + var(--safe-top, env(safe-area-inset-top, 0px))) 0
+             calc(12px + var(--safe-bottom, env(safe-area-inset-bottom, 0px)));
+    padding-right: var(--safe-right, env(safe-area-inset-right, 0px));
+    border-radius: 18px 0 0 18px;
+  }
+  [data-mobile-chrome] .sb__btn, [data-mobile-chrome] .sb__profile {
+    width: 44px;
+    height: 44px;
+  }
+  [data-mobile-chrome] .sb__btn.is-active::before {
+    left: auto;
+    right: -6px;
+    border-radius: 3px 0 0 3px;
+  }
+}
