@@ -5,7 +5,9 @@ use catalyrst_fed::{Signed, TypedMessage};
 use serde::de::DeserializeOwned;
 use serde_json::{json, Value};
 
-use crate::auth::{auth_address_verified, require_admin_bearer, require_bearer_token};
+use crate::auth::{
+    auth_address_verified, require_admin_bearer, require_bearer_token, require_ranking_token,
+};
 use crate::fed::apply as fed_apply;
 use crate::fed::messages::{PlaceFavorite, PlaceReport, PlaceVote};
 use crate::fed::replay;
@@ -481,7 +483,11 @@ pub async fn put_place_ranking(
     Path(place_id): Path<String>,
     body: Option<Json<Value>>,
 ) -> Result<Json<ApiData<PlaceRow>>, ApiError> {
-    require_bearer_token(&headers, state.data_team_auth_token.as_deref())?;
+    require_ranking_token(
+        &headers,
+        state.data_team_auth_token.as_deref(),
+        state.admin_auth_token.as_deref(),
+    )?;
     let ranking = body_ranking(&body)?;
     let mut place = fetch_place(&state, &place_id).await?;
     state.places.set_ranking(&place_id, ranking).await?;
@@ -586,7 +592,11 @@ pub async fn put_world_ranking(
     Path(world_id): Path<String>,
     body: Option<Json<Value>>,
 ) -> Result<Json<ApiData<PlaceRow>>, ApiError> {
-    require_bearer_token(&headers, state.data_team_auth_token.as_deref())?;
+    require_ranking_token(
+        &headers,
+        state.data_team_auth_token.as_deref(),
+        state.admin_auth_token.as_deref(),
+    )?;
     let ranking = body_ranking(&body)?;
     let mut world = fetch_world(&state, &world_id).await?;
     state.places.set_ranking(&world.id, ranking).await?;
@@ -637,8 +647,47 @@ pub async fn delete_world_featured(
 #[cfg(test)]
 mod tests {
     use super::{body_disabled, is_place_uuid};
+    use crate::auth::require_ranking_token;
+    use crate::http::errors::ApiError;
+    use axum::http::HeaderMap;
     use axum::Json;
     use serde_json::json;
+
+    fn bearer(token: &str) -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        headers.insert("authorization", format!("Bearer {token}").parse().unwrap());
+        headers
+    }
+
+    #[test]
+    fn ranking_accepts_data_team_token() {
+        let headers = bearer("data-team");
+        assert!(require_ranking_token(&headers, Some("data-team"), Some("admin")).is_ok());
+        assert!(require_ranking_token(&headers, Some("data-team"), None).is_ok());
+    }
+
+    #[test]
+    fn ranking_accepts_admin_token() {
+        let headers = bearer("admin");
+        assert!(require_ranking_token(&headers, Some("data-team"), Some("admin")).is_ok());
+        assert!(require_ranking_token(&headers, None, Some("admin")).is_ok());
+    }
+
+    #[test]
+    fn ranking_rejects_wrong_token() {
+        let headers = bearer("nope");
+        let err = require_ranking_token(&headers, Some("data-team"), Some("admin")).unwrap_err();
+        assert!(matches!(err, ApiError::Unauthorized(_)));
+    }
+
+    #[test]
+    fn ranking_rejects_when_no_tokens_configured_or_header_missing() {
+        let err = require_ranking_token(&bearer("anything"), None, None).unwrap_err();
+        assert!(matches!(err, ApiError::Unauthorized(_)));
+        let err =
+            require_ranking_token(&HeaderMap::new(), Some("data-team"), Some("admin")).unwrap_err();
+        assert!(matches!(err, ApiError::Unauthorized(_)));
+    }
 
     #[test]
     fn place_uuid_guard() {

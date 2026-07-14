@@ -1,6 +1,6 @@
 [package]
 name = "catalyrst-social"
-version = "0.9.10"
+version = "0.10.0"
 edition = "2021"
 description = "Social bundle: composes the catalyrst-communities, -comms, -notifications, -badges and -media API routers onto a single axum port (5145). Each member crate stays a standalone binary; this binary serves all of them at once."
 

@@ -59,6 +59,26 @@ pub fn require_bearer_token(
     }
 }
 
+pub fn require_ranking_token(
+    headers: &HeaderMap,
+    data_team: Option<&str>,
+    admin: Option<&str>,
+) -> Result<(), crate::http::errors::ApiError> {
+    let token = bearer_token(headers)
+        .ok_or_else(|| crate::http::errors::ApiError::unauthorized("Invalid authentication"))?;
+    if [data_team, admin]
+        .into_iter()
+        .flatten()
+        .any(|expected| timing_safe_eq(&token, expected))
+    {
+        Ok(())
+    } else {
+        Err(crate::http::errors::ApiError::unauthorized(
+            "Invalid authentication",
+        ))
+    }
+}
+
 pub fn timing_safe_eq(a: &str, b: &str) -> bool {
     if a.len() != b.len() {
         return false;

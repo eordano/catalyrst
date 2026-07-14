@@ -44,7 +44,7 @@ async fn main() -> Result<()> {
 
     let app = Router::new()
         .route("/healthz", get(|| async { "ok" }))
-        .merge(api_router())
+        .merge(api_router(state.clone()))
         .layer(TraceLayer::new_for_http())
         .with_state(state);
 

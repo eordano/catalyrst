@@ -1,6 +1,6 @@
 [package]
 name = "catalyrst-conformance"
-version = "0.9.10"
+version = "0.10.0"
 edition = "2021"
 description = "Side-by-side conformance / parity tester for two catalyst hosts (local catalyrst, TS catalyst, public peers, in any combination)"
 
@@ -33,3 +33,6 @@ urlencoding = "2.1"
 base64 = "0.22"
 walkdir = "2.5"
 glob = "0.3"
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }

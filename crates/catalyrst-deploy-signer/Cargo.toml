@@ -1,6 +1,6 @@
 [package]
 name = "catalyrst-deploy-signer"
-version = "0.9.10"
+version = "0.10.0"
 edition = "2021"
 description = "One-shot local web page that collects a wallet signature and deploys a Decentraland scene/World to a content server. A dependency-light, self-contained replacement for `sdk-commands deploy`'s linker dApp."
 

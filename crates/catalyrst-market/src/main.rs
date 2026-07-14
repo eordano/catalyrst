@@ -63,6 +63,26 @@ const ENV_DOCS: &[(&str, &str)] = &[
         "response cache TTL in seconds (default 30; 0 disables)",
     ),
     (
+        "PRICE_BASE_URL",
+        "MANA/USD oracle: catalyrst-price base URL (default http://127.0.0.1:5156; same feed the credits checkout settles at)",
+    ),
+    (
+        "MANA_RATE_REFRESH_INTERVAL_MS",
+        "MANA/USD rate cache refresh interval in ms (default 90000)",
+    ),
+    (
+        "MANA_USD_FALLBACK_RATE",
+        "USD per MANA served before the first successful oracle fetch (default 0.02)",
+    ),
+    (
+        "MANA_ORACLE_MAX_STALENESS_SECONDS",
+        "max age of an oracle quote before it is refused (default 86400)",
+    ),
+    (
+        "MANA_RATE_STARTUP_TIMEOUT_MS",
+        "max time the initial rate fetch may delay startup (default 5000)",
+    ),
+    (
         "RUST_LOG",
         "tracing filter (default catalyrst_market=info,tower_http=info)",
     ),

@@ -361,6 +361,44 @@ mod tests {
     }
 
     #[test]
+    fn restricted_actions_stubs_resolve() {
+        let batch = encode_batch(&[put(601, 1, 1, &[7])]);
+        let js = format!(
+            r#"
+            var EngineApi = require('~system/EngineApi');
+            var RestrictedActions = require('~system/RestrictedActions');
+            module.exports.onStart = async function () {{
+              await RestrictedActions.triggerEmote({{ predefinedEmote: 'wave' }});
+              await RestrictedActions.stopEmote({{}});
+              var bytes = new Uint8Array({:?});
+              await EngineApi.crdtSendToRenderer({{ data: bytes }});
+            }};
+            registerScene(
+              {{ reservedLocalEntities: 512, networkEntitiesLimit: {{ serverLimit: 512, clientLimit: 512 }} }},
+              function (ev) {{}}
+            );
+            "#,
+            batch
+        );
+        let handle = spawn(
+            "restricted-actions-scene".into(),
+            js,
+            "dcl-test".into(),
+            RuntimeLimits::default(),
+            Vec::new(),
+            None,
+        );
+        let ok = wait_for(|| {
+            let eng = handle.shared.engine.lock();
+            eng.component_count() == 1
+        });
+        assert!(
+            ok,
+            "restricted-action stubs (incl. stopEmote) must resolve so onStart reaches the write"
+        );
+    }
+
+    #[test]
     fn scene_relays_client_messages_via_observer() {
         let js = r#"
             var clients = {};

@@ -32,6 +32,7 @@ use crate::ports::collections::CollectionsComponent;
 use crate::ports::contracts::ContractsComponent;
 use crate::ports::items::ItemsComponent;
 use crate::ports::lists::ListsComponent;
+use crate::ports::mana_rate::ManaUsdRateComponent;
 use crate::ports::nfts::NftsComponent;
 use crate::ports::orders::OrdersComponent;
 use crate::ports::owners::OwnersComponent;
@@ -60,6 +61,7 @@ pub struct AppStateInner {
     pub contracts: ContractsComponent,
     pub items: ItemsComponent,
     pub lists: ListsComponent,
+    pub mana_usd_rate: ManaUsdRateComponent,
     pub nfts: NftsComponent,
     pub orders: OrdersComponent,
     pub owners: OwnersComponent,
@@ -103,6 +105,11 @@ pub fn api_router() -> Router<AppState> {
             "/v3/catalog/legacy",
             get(handlers::shop_catalog::get_legacy_catalog),
         )
+        .route(
+            "/v3/catalog/unified",
+            get(handlers::shop_catalog::get_unified_catalog),
+        )
+        .route("/v3/catalog/items", get(handlers::items::get_catalog_items))
         .route(
             "/v3/catalog/importable",
             get(handlers::shop_catalog::get_importable_listings),
@@ -337,6 +344,18 @@ pub async fn build_state(cfg: &Config) -> Result<AppState> {
         ),
     }
 
+    let mana_usd_rate = ManaUsdRateComponent::new(
+        cfg.price_base_url.clone(),
+        cfg.mana_usd_fallback_rate,
+        cfg.mana_oracle_max_staleness_secs,
+    );
+    mana_usd_rate
+        .start(
+            Duration::from_millis(cfg.mana_rate_startup_timeout_ms),
+            Duration::from_millis(cfg.mana_rate_refresh_interval_ms.max(1)),
+        )
+        .await;
+
     let replay = Replay::new(dapps_write.clone())
         .await
         .context("failed to load federation replay state")?;
@@ -368,6 +387,7 @@ pub async fn build_state(cfg: &Config) -> Result<AppState> {
         contracts: ContractsComponent::new(pool.clone()),
         items: ItemsComponent::new(pool.clone()),
         lists: ListsComponent::new(pool.clone()).with_write(dapps_write.clone()),
+        mana_usd_rate,
         nfts: NftsComponent::new(pool.clone()),
         orders: OrdersComponent::new(pool.clone()),
         owners: OwnersComponent::new(pool.clone()),

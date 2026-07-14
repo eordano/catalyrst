@@ -218,7 +218,7 @@ pub(super) const CATALOG: &[Group] = &[
     Group {
         key: "ab-cdn",
         title: "Asset bundle CDN",
-        bundle: "catalyrst-abgen · :5147",
+        bundle: "abgen · :5147 (upstream decentraland/abgen)",
         multi: false,
         detail: &[("Health", "/health")],
         services: &[Svc {

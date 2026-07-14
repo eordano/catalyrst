@@ -7,7 +7,7 @@ Written against `flake.nix`, `Cargo.toml`, and the test crates.
 - Stable Rust; no pinned toolchain file, but the flake pins by shell: `nix develop`
   (default, nixpkgs stable ~1.95), `.#ci` (rust-overlay 1.97.0, the CI toolchain),
   `.#gpu` (adds the CUDA/vulkan loader env). `protoc` required (dcl-rpc protobuf
-  codegen in social-rpc/quests), `cmake` for abgen's native deps.
+  codegen in social-rpc/quests).
 - The HTTP stack is rustls, but `openssl-sys` arrives transitively via the Helios consensus
   light-client - a system OpenSSL (+`pkg-config`) is needed at compile time. Build with
   `OPENSSL_NO_VENDOR=1` to link the system library.
@@ -52,7 +52,7 @@ Flake pin/patch rationale:
 | `scripts/schemathesis/` | property-based fuzzing of a running server against [`docs/openapi.yaml`](./openapi.yaml); custom checks for 5xx, schema conformance, CORS, error-body shape | `scripts/schemathesis/run.sh --target http://127.0.0.1:5141` |
 | `catalyrst-fuzz`, `catalyrst-bench` | fuzz/stress harnesses; criterion benches for hot paths (bench persists previous results so delta-p50/delta-p99 columns show regressions) | `cargo bench` etc. |
 | federation gossip | in-process loop test (`tests/gossip_loop.rs`, broker-free); `nats_live` runs against a real broker only when `FED_NATS_URL` is set | see [federation.md](./federation.md) |
-| abgen gates | fork-parity byte ratio, live-mode structural diff, three-byte-mode render gate | see [asset-bundles.md](./asset-bundles.md) - mandatory after touching abgen builder/live/texture/animation code |
+| abgen gates | fork-parity byte ratio, live-mode structural diff, render gates | live in upstream `decentraland/abgen` alongside the code - see [asset-bundles.md](./asset-bundles.md) |
 
 Three escalating sources of truth, cheapest first: unit tests pin the invariants; conformance/
 oracle pin wire and byte behavior against real reference data; for client-facing questions the

@@ -691,6 +691,12 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/metrics", get(crate::metrics::metrics_handler))
         .layer(axum::middleware::from_fn(crate::metrics::track_http))
         .layer(TraceLayer::new_for_http())
+        // Reject NUL bytes in the URL before routing/DB (Postgres text can't hold
+        // `\0`; a bound `%00` otherwise 500s). Placed inside cors so the 400 still
+        // gets CORS/security headers.
+        .layer(axum::middleware::from_fn(
+            crate::nul_guard::nul_guard_middleware,
+        ))
         .layer(axum::middleware::from_fn(crate::cors::cors_middleware));
 
     if let Some(timeout) = request_timeout() {

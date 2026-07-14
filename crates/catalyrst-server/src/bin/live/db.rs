@@ -49,7 +49,7 @@ const POINTER_CHANGES_SELECT: &str = r#"
                 date_part('epoch', dep1.entity_timestamp) * 1000 AS entity_timestamp,
                 dep1.deployer_address,
                 dep1.version,
-                NULL::json AS entity_metadata,
+                dep1.entity_metadata,
                 dep1.auth_chain
             FROM deployments AS dep1
             "#;
@@ -99,7 +99,7 @@ impl Database for LiveDatabase {
                     dep.version,
                     dep.id,
                     COALESCE(
-                        (SELECT json_agg(json_build_object('key', cf.key, 'hash', cf.content_hash))
+                        (SELECT json_agg(json_build_object('key', cf.key, 'hash', cf.content_hash) ORDER BY cf.ctid)
                          FROM content_files cf WHERE cf.deployment = dep.id),
                         '[]'::json
                     ) AS content_json
@@ -169,7 +169,7 @@ impl Database for LiveDatabase {
                     dep.version,
                     dep.id,
                     COALESCE(
-                        (SELECT json_agg(json_build_object('key', cf.key, 'hash', cf.content_hash))
+                        (SELECT json_agg(json_build_object('key', cf.key, 'hash', cf.content_hash) ORDER BY cf.ctid)
                          FROM content_files cf WHERE cf.deployment = dep.id),
                         '[]'::json
                     ) AS content_json
@@ -555,7 +555,7 @@ impl Database for LiveDatabase {
             HashMap::new()
         } else {
             let cf_rows: Vec<(i32, String, String)> = sqlx::query_as(
-                "SELECT deployment, content_hash, key FROM content_files WHERE deployment = ANY($1)"
+                "SELECT deployment, content_hash, key FROM content_files WHERE deployment = ANY($1) ORDER BY ctid"
             )
             .bind(&deployment_ids)
             .fetch_all(&self.pool)
@@ -758,7 +758,6 @@ impl Database for LiveDatabase {
             rows
         };
 
-        const NULL_METADATA: Value = Value::Null;
         let deltas: Vec<Value> = rows
             .iter()
             .map(|r| {
@@ -768,11 +767,7 @@ impl Database for LiveDatabase {
                     entity_id: &r.entity_id,
                     pointers: &r.entity_pointers,
                     entity_timestamp: r.entity_timestamp as i64,
-                    metadata: r
-                        .entity_metadata
-                        .as_ref()
-                        .and_then(|m| m.get("v"))
-                        .unwrap_or(&NULL_METADATA),
+                    metadata: r.entity_metadata.as_ref().and_then(|m| m.get("v")),
                     deployer_address: &r.deployer_address,
                     version: &r.version,
                     auth_chain: &r.auth_chain,
@@ -921,8 +916,8 @@ mod tests {
     use super::POINTER_CHANGES_SELECT;
 
     #[test]
-    fn pointer_changes_projects_null_metadata() {
-        assert!(POINTER_CHANGES_SELECT.contains("NULL::json AS entity_metadata"));
-        assert!(!POINTER_CHANGES_SELECT.contains("dep1.entity_metadata"));
+    fn pointer_changes_selects_entity_metadata() {
+        assert!(POINTER_CHANGES_SELECT.contains("dep1.entity_metadata"));
+        assert!(!POINTER_CHANGES_SELECT.contains("NULL::json"));
     }
 }

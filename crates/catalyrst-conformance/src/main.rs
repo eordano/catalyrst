@@ -48,6 +48,36 @@ struct Args {
 
     #[arg(long)]
     capture_to: Option<PathBuf>,
+
+    /// Pin profile addresses to test (repeatable). Pinned values are tested
+    /// first; sampled values fill the remaining slots.
+    #[arg(long = "profile-address")]
+    profile_address: Vec<String>,
+
+    /// Pin scene pointers to test (repeatable), e.g. --scene-pointer -9,-9
+    #[arg(long = "scene-pointer", allow_hyphen_values = true)]
+    scene_pointer: Vec<String>,
+
+    /// Pin profile entity IDs to test (repeatable).
+    #[arg(long = "profile-entity-id")]
+    profile_entity_id: Vec<String>,
+
+    /// Pin scene entity IDs to test (repeatable).
+    #[arg(long = "scene-entity-id")]
+    scene_entity_id: Vec<String>,
+
+    /// Pin wearable entity IDs to test (repeatable).
+    #[arg(long = "wearable-entity-id")]
+    wearable_entity_id: Vec<String>,
+
+    /// Pin content hashes to test (repeatable).
+    #[arg(long = "content-hash")]
+    content_hash: Vec<String>,
+
+    /// Disable the built-in default pins (e.g. the NFT-heavy profile
+    /// address), reverting to a purely sampled bootstrap.
+    #[arg(long, default_value_t = false)]
+    no_default_pins: bool,
 }
 
 struct Endpoints {
@@ -190,6 +220,13 @@ impl Ctx {
         }
     }
 
+    /// Pacing for endpoints the baseline rate-limits aggressively
+    /// (/content/deployments): always sleep at least 250ms even when
+    /// --inter-request-delay-ms is 0.
+    async fn sleep_heavy(&self) {
+        tokio::time::sleep(Duration::from_millis(self.inter_delay_ms.max(250))).await;
+    }
+
     fn is_capturing(&self) -> bool {
         self.capture_dir.is_some()
     }
@@ -255,9 +292,9 @@ async fn main() -> Result<()> {
     );
 
     println!("{}", "Bootstrapping test data from baseline ...".dimmed());
-    let bootstrap = bootstrap_data(&ctx, &endpoints.baseline_content).await?;
+    let bootstrap = bootstrap_data(&ctx, &endpoints.baseline_content, &args).await?;
     println!(
-        "  profiles: {} ids, {} addresses;  scenes: {} ids, {} pointers;  wearables: {} ids;  content: {} hashes\n",
+        "  profiles: {} ids, {} addresses;  scenes: {} ids, {} pointers;  wearables: {} ids;  content: {} hashes",
         bootstrap.profile_entity_ids.len(),
         bootstrap.profile_addresses.len(),
         bootstrap.scene_entity_ids.len(),
@@ -265,6 +302,28 @@ async fn main() -> Result<()> {
         bootstrap.wearable_entity_ids.len(),
         bootstrap.content_hashes.len(),
     );
+    println!(
+        "  {}",
+        "Bootstrap sample (pass these flags to replay exactly):".dimmed()
+    );
+    for (flag, values) in [
+        ("--profile-address", &bootstrap.profile_addresses),
+        ("--scene-pointer", &bootstrap.scene_pointers),
+        ("--profile-entity-id", &bootstrap.profile_entity_ids),
+        ("--scene-entity-id", &bootstrap.scene_entity_ids),
+        ("--wearable-entity-id", &bootstrap.wearable_entity_ids),
+        ("--content-hash", &bootstrap.content_hashes),
+    ] {
+        if !values.is_empty() {
+            let flags = values
+                .iter()
+                .map(|v| format!("{} {}", flag, v))
+                .collect::<Vec<_>>()
+                .join(" ");
+            println!("    {}", flags);
+        }
+    }
+    println!();
 
     let mut score = Scoreboard::new();
 

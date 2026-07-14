@@ -2,7 +2,7 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use hmac::{Hmac, KeyInit, Mac};
 use serde::Serialize;
-use sha2::Sha256;
+use sha2::{Digest, Sha256};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use thiserror::Error;
 
@@ -163,23 +163,109 @@ pub fn room_admin_token(
     Ok(format!("{}.{}", signing_input, sig_b64))
 }
 
-pub fn verify_webhook_signature(secret: &str, body: &[u8], header: &str) -> bool {
-    let parts: std::collections::HashMap<&str, &str> = header
-        .split(',')
-        .filter_map(|kv| {
-            let mut it = kv.splitn(2, '=');
-            Some((it.next()?.trim(), it.next()?.trim()))
-        })
-        .collect();
-    let Some(sig_hex) = parts.get("v1").or_else(|| parts.get("sha256")) else {
+fn json_u64(v: &serde_json::Value) -> Option<u64> {
+    v.as_u64().or_else(|| v.as_f64().map(|f| f as u64))
+}
+
+fn ct_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for (x, y) in a.iter().zip(b.iter()) {
+        diff |= x ^ y;
+    }
+    diff == 0
+}
+
+fn decode_body_digest(claim: &str) -> Option<Vec<u8>> {
+    use base64::engine::general_purpose::{STANDARD, STANDARD_NO_PAD, URL_SAFE};
+    STANDARD
+        .decode(claim)
+        .or_else(|_| STANDARD_NO_PAD.decode(claim))
+        .or_else(|_| URL_SAFE.decode(claim))
+        .or_else(|_| URL_SAFE_NO_PAD.decode(claim))
+        .ok()
+        .filter(|b| b.len() == 32)
+}
+
+pub fn verify_webhook_token(
+    api_key: &str,
+    api_secret: &str,
+    body: &[u8],
+    auth_header: &str,
+) -> bool {
+    let trimmed = auth_header.trim();
+    let token = trimmed.strip_prefix("Bearer ").unwrap_or(trimmed).trim();
+
+    let mut segments = token.split('.');
+    let (Some(header_b64), Some(payload_b64), Some(sig_b64), None) = (
+        segments.next(),
+        segments.next(),
+        segments.next(),
+        segments.next(),
+    ) else {
         return false;
     };
-    let Ok(provided) = hex::decode(sig_hex) else {
+
+    let Ok(header_bytes) = URL_SAFE_NO_PAD.decode(header_b64) else {
         return false;
     };
-    let Ok(mut mac) = HmacSha256::new_from_slice(secret.as_bytes()) else {
+    let Ok(header) = serde_json::from_slice::<serde_json::Value>(&header_bytes) else {
         return false;
     };
-    mac.update(body);
-    mac.verify_slice(&provided).is_ok()
+    if header.get("alg").and_then(|a| a.as_str()) != Some("HS256") {
+        return false;
+    }
+
+    let Ok(provided_sig) = URL_SAFE_NO_PAD.decode(sig_b64) else {
+        return false;
+    };
+    let Ok(mut mac) = HmacSha256::new_from_slice(api_secret.as_bytes()) else {
+        return false;
+    };
+    mac.update(header_b64.as_bytes());
+    mac.update(b".");
+    mac.update(payload_b64.as_bytes());
+    if mac.verify_slice(&provided_sig).is_err() {
+        return false;
+    }
+
+    let Ok(payload_bytes) = URL_SAFE_NO_PAD.decode(payload_b64) else {
+        return false;
+    };
+    let Ok(payload) = serde_json::from_slice::<serde_json::Value>(&payload_bytes) else {
+        return false;
+    };
+
+    let Ok(now) = SystemTime::now().duration_since(UNIX_EPOCH) else {
+        return false;
+    };
+    let now = now.as_secs();
+    const LEEWAY: u64 = 60;
+
+    let Some(exp) = payload.get("exp").and_then(json_u64) else {
+        return false;
+    };
+    if now > exp.saturating_add(LEEWAY) {
+        return false;
+    }
+    if let Some(nbf) = payload.get("nbf").and_then(json_u64) {
+        if nbf > now.saturating_add(LEEWAY) {
+            return false;
+        }
+    }
+    if payload.get("iss").and_then(|v| v.as_str()) != Some(api_key) {
+        return false;
+    }
+
+    let Some(claim) = payload.get("sha256").and_then(|v| v.as_str()) else {
+        return false;
+    };
+    let Some(expected) = decode_body_digest(claim) else {
+        return false;
+    };
+
+    let actual = Sha256::digest(body);
+    ct_eq(&expected, &actual)
 }

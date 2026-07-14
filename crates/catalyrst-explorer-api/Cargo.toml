@@ -1,6 +1,6 @@
 [package]
 name = "catalyrst-explorer-api"
-version = "0.9.10"
+version = "0.10.0"
 edition = "2021"
 description = "Bundled Rust ports of the small backend services unity-explorer needs: realm-provider, auth-api, blocklist, builder-api, feature-flags. One binary, one axum router."
 

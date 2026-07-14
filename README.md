@@ -85,7 +85,7 @@ path-routes; see [`docs/deploy/runbook.md`](./docs/deploy/runbook.md).
 | `catalyrst-social` | 5145 | communities, comms, notifications, badges, media |
 | `catalyrst-data` | 5146 | market, economy, price, credits, rpc |
 | `catalyrst-explorer-api` | 5137 | realm-provider, auth-api, blocklist, builder-api, feature-flags |
-| `catalyrst-abgen` | 5147 | asset-bundle CDN (LOD / manifest / binaries) |
+| `abgen` | 5147 | asset-bundle CDN + AB-registry (LOD / manifest / binaries; upstream `decentraland/abgen` via the flake input) |
 | `catalyrst-social-rpc` | 5148 | dcl-rpc WebSocket (friends / voice) |
 | `catalyrst-governance` | 5151 | governance archive + read API (standalone) |
 | `catalyrst-presence` | 5152 | user-count history collector + read API (standalone) |

@@ -24,10 +24,7 @@ members = [
     "crates/catalyrst-telemetry",
     "crates/catalyrst-comms",
     "crates/catalyrst-archipelago",
-    "crates/catalyrst-registry",
-    "crates/dcl-contents",
     "crates/catalyrst-builder",
-    "crates/catalyrst-abgen",
     "crates/catalyrst-worlds",
     "crates/catalyrst-badges",
     "crates/catalyrst-notifications",
@@ -59,11 +56,6 @@ members = [
 ]
 exclude = [
     "crates/catalyrst-fuzz/fuzz",
-    "crates/catalyrst-abgen/third_party/draco_decoder",
-    "crates/catalyrst-abgen/third_party/crunch",
-    "crates/catalyrst-abgen/third_party/libjpeg9c",
-    "crates/catalyrst-abgen/kernel-ptx",
-    "crates/catalyrst-abgen/wasm-poc",
 ]
 
 [workspace.dependencies]

@@ -5,7 +5,8 @@ use serde::Serialize;
 use crate::http::params::Params;
 use crate::http::response::{ApiError, DataTotal};
 use crate::ports::shop_catalog::{
-    parse_legacy_filters, parse_shop_filters, ImportableListing, LegacyListing, ShopListing,
+    parse_legacy_filters, parse_shop_filters, parse_unified_filters, ImportableListing,
+    LegacyListing, ShopListing, UnifiedListing,
 };
 use crate::AppState;
 
@@ -34,6 +35,24 @@ pub async fn get_legacy_catalog(
 ) -> Result<Json<DataTotal<LegacyListing>>, ApiError> {
     let filters = parse_legacy_filters(&pairs);
     let (data, total) = state.shop_catalog.get_legacy_listings(&filters).await?;
+    Ok(Json(DataTotal { data, total }))
+}
+
+// GET /v3/catalog/unified — the UNIFIED shop feed: native (USD-pegged) + legacy (classic MANA)
+// listings in ONE credit-priced feed. Every item carries a server-computed priceCredits (legacy
+// converted MANA->credits with the live rate) and a `source` discriminator. Same query params as
+// /v3/catalog/shop plus optional `source` (native|legacy); sorting and
+// minPriceCredits/maxPriceCredits work across BOTH sources.
+pub async fn get_unified_catalog(
+    State(state): State<AppState>,
+    Query(pairs): Query<Vec<(String, String)>>,
+) -> Result<Json<DataTotal<UnifiedListing>>, ApiError> {
+    let filters = parse_unified_filters(&pairs);
+    let rate = state.mana_usd_rate.get_rate();
+    let (data, total) = state
+        .shop_catalog
+        .get_unified_listings(&filters, rate)
+        .await?;
     Ok(Json(DataTotal { data, total }))
 }
 

@@ -56,13 +56,15 @@ async fn fed_add_member(
         Err(e) => return map_apply_err(e),
     }
     match community_is_private(&state.pool, &signed.message.community_id).await {
-        Ok(Some(true)) => return err_json(
-            StatusCode::UNAUTHORIZED,
-            format!(
+        Ok(Some(true)) => {
+            return err_json(
+                StatusCode::UNAUTHORIZED,
+                format!(
                 "Cannot join private community {} directly; a join request or invite is required",
                 id
             ),
-        ),
+            )
+        }
         Ok(_) => {}
         Err(e) => return map_apply_err(e),
     }

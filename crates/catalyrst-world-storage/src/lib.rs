@@ -92,9 +92,10 @@ pub struct AuthPolicy {
 
     pub allow_owners_and_deployers: bool,
 
-    // Accept world-scoped authoritative storage delegations. Enabled ONLY on the
-    // /values/* routes — env routes stay strictly authoritative-server-only so a
-    // scoped worker ephemeral can never read env secrets.
+    // Accept world-scoped authoritative storage delegations. Enabled on the /values/*
+    // routes and on GET /env/{key}: env values are keyed by place_id = f(world, parcel),
+    // the same scope the claim pins, so a scene worker reads only its own scene's env
+    // values. The remaining env routes never accept a delegation.
     pub allow_scoped_delegation: bool,
 }
 
@@ -111,10 +112,12 @@ impl AuthPolicy {
         allow_scoped_delegation: false,
     };
 
-    pub const AUTHORIZED_ADDRESSES_ONLY: AuthPolicy = AuthPolicy {
+    // GET /env/{key} (upstream f2eb3be): authorized addresses OR a scene-scoped
+    // delegation — never owners/deployers, who manage env via list/upsert/delete.
+    pub const AUTHORIZED_ADDRESSES_OR_SCOPED_DELEGATION: AuthPolicy = AuthPolicy {
         allow_authorized_addresses: true,
         allow_owners_and_deployers: false,
-        allow_scoped_delegation: false,
+        allow_scoped_delegation: true,
     };
 }
 
@@ -381,16 +384,22 @@ mod scene_context_tests {
     }
 
     #[test]
-    fn scoped_delegation_is_accepted_only_on_the_default_policy() {
-        // Env routes must never accept a delegation, so a scoped worker ephemeral
-        // can never read env secrets.
+    fn scoped_delegation_policy_matrix() {
+        // The env value-read preset accepts a delegation but never grants
+        // owners/deployers; the owner/deployer preset (env list/upsert/delete)
+        // never accepts a delegation.
         let cases = [
-            (AuthPolicy::DEFAULT, true),
-            (AuthPolicy::OWNERS_DEPLOYERS_ONLY, false),
-            (AuthPolicy::AUTHORIZED_ADDRESSES_ONLY, false),
+            (AuthPolicy::DEFAULT, true, true),
+            (AuthPolicy::OWNERS_DEPLOYERS_ONLY, false, true),
+            (
+                AuthPolicy::AUTHORIZED_ADDRESSES_OR_SCOPED_DELEGATION,
+                true,
+                false,
+            ),
         ];
-        for (policy, allowed) in cases {
-            assert_eq!(policy.allow_scoped_delegation, allowed);
+        for (policy, delegation, owners) in cases {
+            assert_eq!(policy.allow_scoped_delegation, delegation);
+            assert_eq!(policy.allow_owners_and_deployers, owners);
         }
     }
 }

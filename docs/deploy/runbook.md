@@ -6,10 +6,10 @@
 |---|---|---|
 | catalyrst-live | 5141 (`HTTP_SERVER_PORT`) | content, lambdas, about |
 | catalyrst-explore | 5143 | places, events, archipelago, worlds, map, lists |
-| catalyrst-create | 5144 | builder, camera-reel, registry |
+| catalyrst-create | 5144 | builder, camera-reel |
 | catalyrst-social | 5145 | communities, comms, notifications, badges, media |
 | catalyrst-data | 5146 | market, economy, price, credits, rpc |
-| catalyrst-abgen | 5147 | asset-bundle CDN + in-process converter |
+| abgen | 5147 | asset-bundle CDN + AB-registry + in-process converter (upstream decentraland/abgen) |
 | catalyrst-social-rpc | 5148 | dcl-rpc WebSocket (friends/voice) |
 | catalyrst-market | 5133 | standalone marketplace (optional; data already serves `/v1`) |
 
@@ -47,7 +47,7 @@ done
 $PSQL -d marketplace -c "GRANT USAGE ON SCHEMA marketplace, favorites, squid_marketplace TO cat_data_ro;"
 $PSQL -d marketplace -c "GRANT SELECT ON ALL TABLES IN SCHEMA marketplace, favorites, squid_marketplace TO cat_data_ro;"
 $PSQL -c "CREATE DATABASE credits OWNER cat_data_rw;"
-# create owns ab_registry, reads content; social owns its four DBs
+# abgen owns ab_registry (registry surface), reads content; social owns its four DBs
 $PSQL -c "CREATE DATABASE ab_registry OWNER cat_create_rw;"
 for db in communities comms_gatekeeper notifications badges; do
   $PSQL -c "CREATE DATABASE $db OWNER cat_social_rw;"

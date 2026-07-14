@@ -694,6 +694,7 @@ fn build_system_module<'s>(
                 "teleportTo",
                 "triggerEmote",
                 "triggerSceneEmote",
+                "stopEmote",
                 "openExternalUrl",
                 "openNftDialog",
                 "changeRealm",

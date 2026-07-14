@@ -40,7 +40,7 @@ A crate "owns" a DB when its `build_state()` runs `sqlx::migrate!` against it; e
 | places | places DB (`PLACES_PG_COMPONENT_PSQL_CONNECTION_STRING`; optional separate writer pool) | optional squid |
 | events | `places_events` | - |
 | worlds | worlds DB | optional squid (NAME-ownership publish authz - **fail-closed deny** when missing) |
-| notifications, badges, media, builder, camera-reel, price, signatures, world-storage, telemetry, governance, presence, lists, social-rpc, registry | one DB each (`<SVC>_PG_CONNECTION_STRING`-style; social-rpc uses plain `DATABASE_URL`) | governance optionally reads external archive DBs (`SNAPSHOT_DATABASE_URL`, `DISCOURSE_DATABASE_URL`) - absence means empty results, never an error |
+| notifications, badges, media, builder, camera-reel, price, signatures, world-storage, telemetry, governance, presence, lists, social-rpc | one DB each (`<SVC>_PG_CONNECTION_STRING`-style; social-rpc uses plain `DATABASE_URL`) | governance optionally reads external archive DBs (`SNAPSHOT_DATABASE_URL`, `DISCOURSE_DATABASE_URL`) - absence means empty results, never an error |
 | map | none owned - reads `squid_marketplace` directly | - |
 | explorer-api, scene-state, rpc, profile-images, pulse | **no database** | - |
 

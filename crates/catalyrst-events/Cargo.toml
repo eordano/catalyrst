@@ -1,6 +1,6 @@
 [package]
 name = "catalyrst-events"
-version = "0.9.10"
+version = "0.10.0"
 edition = "2021"
 description = "Rust port of decentraland/events (REST API for events.decentraland.org), HTTP-snapshot federation per docs/federation/events.md"
 

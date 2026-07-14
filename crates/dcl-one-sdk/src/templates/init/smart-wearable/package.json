@@ -9,8 +9,8 @@
     "pack": "dcl-one-sdk pack"
   },
   "devDependencies": {
-    "@dcl/js-runtime": "7.24.4",
-    "@dcl/sdk": "7.24.4",
+    "@dcl/js-runtime": "7.24.5",
+    "@dcl/sdk": "7.24.5",
     "typescript": "5.9.3"
   },
   "engines": {

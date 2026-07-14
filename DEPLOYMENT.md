@@ -118,7 +118,7 @@ a 200 + the row in `deployments` + `active_pointers`.
 | `ADMIN_SESSION_TTL_SECS` | `43200` | admin session lifetime (seconds, default 12h). |
 | `ADMIN_COOKIE_INSECURE` | unset | set `1` to drop the cookie `Secure` flag - only for a plain-HTTP private network with no TLS terminator (localhost is already a secure context). |
 | `COMMS_MODERATOR_TOKEN` / `MODERATOR_TOKEN` | unset | bearer the console forwards to comms for ban/unban/warn; unset => social controls hidden. |
-| `AB_REGISTRY_ADMIN_TOKEN` / `API_ADMIN_TOKEN` | unset | bearer forwarded to ab-registry for registry re-ingest / AB cache flush; unset => create controls hidden. |
+| `AB_REGISTRY_ADMIN_TOKEN` / `API_ADMIN_TOKEN` | unset | bearer forwarded to the abgen registry surface (:5147) for registry re-ingest / AB cache flush; unset => the controls are hidden. |
 | `DEBUGGING_SECRET` | unset | secret injected into the scene-state reload call; unset => scene controls hidden. |
 | `PROFILE_CDN_BASE_URL` | `https://profile-images.decentraland.org` | base URL for rebuilt profile snapshot links |
 | `POSTGRES_HOST` | `/run/postgresql` | content DB socket/host |
@@ -186,6 +186,9 @@ pointing at `STORAGE_ROOT_FOLDER/contents`:
 location /__protected_storage/ {
     internal;
     alias <DATA_DIR>/content/contents/;
+    etag off;
+    add_header ETag $upstream_http_etag always;
+    add_header Access-Control-Expose-Headers $upstream_http_access_control_expose_headers always;
     add_header Cache-Control "public, max-age=31536000, immutable" always;
     add_header X-Content-Type-Options "nosniff" always;
     sendfile on;
@@ -194,6 +197,13 @@ location /__protected_storage/ {
     output_buffers 1 256k;
 }
 ```
+
+`etag off;` plus the two `add_header ... $upstream_http_*` lines are required for parity: on an
+X-Accel-Redirect nginx discards the upstream response headers, and its static-file module would
+otherwise generate its default `<mtime>-<size>` ETag — breaking parity with the TS catalyst,
+whose ETag is the quoted content CID. Re-emitting `$upstream_http_etag` (still populated from
+the proxied response that issued the redirect) restores the app's CID ETag, and the same trick
+restores `Access-Control-Expose-Headers`.
 
 `internal;` = only nginx-internal redirects (issued by catalyrst's `X-Accel-Redirect` header)
 hit this path; external clients get 404. The example NixOS module (`nixos/configuration.nix`)

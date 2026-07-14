@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use axum::extract::{Multipart, State};
+use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use axum::Json;
@@ -9,6 +9,7 @@ use bytes::{Bytes, BytesMut};
 use serde_json::{json, Value};
 
 use crate::errors::{AppError, InvalidRequestError};
+use crate::extractors::MultipartBody;
 use crate::state::AppState;
 
 const MAX_DEPLOY_FILES: usize = 1000;
@@ -107,7 +108,7 @@ pub(crate) fn extract_auth_chain_from_fields(
 pub async fn create_entity_multipart(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
-    mut multipart: Multipart,
+    MultipartBody(mut multipart): MultipartBody,
 ) -> Result<impl IntoResponse, AppError> {
     let sync_state = state.synchronization_state.get_state();
     if sync_state == "Bootstrapping" {

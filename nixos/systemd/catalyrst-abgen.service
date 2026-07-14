@@ -1,5 +1,5 @@
 [Unit]
-Description=catalyrst-abgen (asset-bundle CDN + in-process converter over abgen output — port 5147)
+Description=abgen (asset-bundle CDN + AB-registry + in-process converter — port 5147)
 After=network.target
 StartLimitIntervalSec=0
 
@@ -7,7 +7,7 @@ StartLimitIntervalSec=0
 Type=exec
 WorkingDirectory=<WORKSPACE>
 EnvironmentFile=<WORKSPACE>/env/catalyrst-abgen.env
-ExecStart=<WORKSPACE>/bin/catalyrst/catalyrst-abgen
+ExecStart=<WORKSPACE>/bin/catalyrst/abgen
 Restart=always
 RestartSec=10
 

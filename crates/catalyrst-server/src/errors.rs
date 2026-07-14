@@ -80,6 +80,33 @@ impl IntoResponse for AppError {
     }
 }
 
+/// Detect the Postgres "NUL byte in text" failure from a stringified DB error.
+/// Postgres cannot store `\0` in text and surfaces it as SQLSTATE 22021 / a
+/// message naming the `0x00` byte; sqlx may also reject it at encode time.
+fn is_nul_byte_db_error(msg: &str) -> bool {
+    let m = msg.to_ascii_lowercase();
+    m.contains("0x00")
+        || m.contains("22021")
+        || m.contains("nul byte")
+        || m.contains("nul character")
+        || m.contains("null byte")
+        || (m.contains("invalid") && m.contains("utf") && m.contains("00"))
+}
+
+/// Request-body backstop to `nul_guard` (which covers the URL): a JSON
+/// `"\0"` only becomes a real NUL after deserialization, past any URL check,
+/// then Postgres rejects the bound value. Classify that as a client error (400)
+/// rather than an opaque server error (500); everything else stays Internal.
+impl From<crate::state::DatabaseError> for AppError {
+    fn from(e: crate::state::DatabaseError) -> Self {
+        if is_nul_byte_db_error(&e.to_string()) {
+            InvalidRequestError::new("a request value contains an invalid NUL byte").into()
+        } else {
+            AppError::Internal(e.to_string())
+        }
+    }
+}
+
 pub type AppResult<T> = Result<T, AppError>;
 
 fn json_response(status: StatusCode, body: serde_json::Value) -> Response {
@@ -110,4 +137,36 @@ pub fn internal_server_error() -> Response {
         StatusCode::INTERNAL_SERVER_ERROR,
         json!({ "error": "Internal Server Error" }),
     )
+}
+
+/// JSON error body with a caller-chosen status; used to convert axum
+/// extractor rejections (Json/Multipart) from their default text/plain
+/// responses into the `{"error":...}` JSON contract.
+pub fn json_error(status: StatusCode, message: &str) -> Response {
+    json_response(status, json!({ "error": message }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn nul_byte_db_errors_are_recognized() {
+        assert!(is_nul_byte_db_error(
+            "sqlx error: error returned from database: invalid byte sequence for encoding \"UTF8\": 0x00"
+        ));
+        assert!(is_nul_byte_db_error(
+            "encode error: unexpected NUL byte in string"
+        ));
+        assert!(is_nul_byte_db_error("SQLSTATE 22021"));
+    }
+
+    #[test]
+    fn ordinary_db_errors_are_not_nul() {
+        assert!(!is_nul_byte_db_error("sqlx error: pool timed out"));
+        assert!(!is_nul_byte_db_error("connection refused"));
+        assert!(!is_nul_byte_db_error(
+            "relation \"deployments\" does not exist"
+        ));
+    }
 }

@@ -39,10 +39,11 @@ pub fn env_bool(key: &str, default: bool) -> bool {
             tracing::warn!(
                 key,
                 value = other,
-                "unrecognized boolean env value; treating as enabled \
+                default,
+                "unrecognized boolean env value; keeping default \
                  (use 1/true/yes/on or 0/false/no/off)"
             );
-            true
+            default
         }
     }
 }
@@ -134,7 +135,8 @@ mod tests {
         std::env::set_var("ENVCFG_TEST_BOOL_EMPTY", "");
         assert!(env_bool("ENVCFG_TEST_BOOL_ON", false));
         assert!(!env_bool("ENVCFG_TEST_BOOL_OFF", true));
-        assert!(env_bool("ENVCFG_TEST_BOOL_WEIRD", false));
+        assert!(!env_bool("ENVCFG_TEST_BOOL_WEIRD", false));
+        assert!(env_bool("ENVCFG_TEST_BOOL_WEIRD", true));
         assert!(!env_bool("ENVCFG_TEST_BOOL_EMPTY", false));
         assert!(env_bool("ENVCFG_TEST_BOOL_EMPTY", true));
         assert!(env_bool("ENVCFG_TEST_BOOL_UNSET_XYZ", true));

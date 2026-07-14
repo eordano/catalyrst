@@ -1,6 +1,6 @@
 [package]
 name = "catalyrst-world-storage"
-version = "0.9.10"
+version = "0.10.0"
 edition = "2021"
 description = "Rust port of decentraland/world-storage-service: signed-fetch (ADR-44) key-value + encrypted env storage for Decentraland worlds, over a dedicated postgres DB"
 

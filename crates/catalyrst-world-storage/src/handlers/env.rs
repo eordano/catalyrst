@@ -21,7 +21,12 @@ pub async fn get(
 ) -> Result<Json<Value>, ApiError> {
     let path = signed_path(&uri);
     let ctx = resolve_scene_context(&state, &headers, "get", &path).await?;
-    authorize(&state, &ctx, AuthPolicy::AUTHORIZED_ADDRESSES_ONLY).await?;
+    authorize(
+        &state,
+        &ctx,
+        AuthPolicy::AUTHORIZED_ADDRESSES_OR_SCOPED_DELEGATION,
+    )
+    .await?;
     validate_key(&key)?;
 
     let enc = state

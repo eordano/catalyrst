@@ -1,6 +1,6 @@
 [package]
 name = "catalyrst-map"
-version = "0.9.10"
+version = "0.10.0"
 edition = "2021"
 description = "Rust port of decentraland/atlas-server (api.decentraland.org map tiles + map.png renderer), sourced from the shared marketplace_squid DB"
 
