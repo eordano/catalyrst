@@ -1,0 +1,18 @@
+{
+  "description": "GET /lambdas/explorer/{address}/wearables with an invalid orderBy/direction combination must 400 with the exact lamb2 message including allowed options.",
+  "request": {
+    "method": "GET",
+    "path": "/lambdas/explorer/0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef/wearables",
+    "query": {"orderBy": ["bogus"], "direction": ["sideways"]},
+    "headers": {},
+    "body": null
+  },
+  "response": {
+    "status": 400,
+    "headers": {"content-type": "application/json"},
+    "body_json": {"error": "Bad request", "message": "Invalid sorting requested: 'bogus SIDEWAYS'. Valid options are '[rarity, name, date] [ASC, DESC]'."}
+  },
+  "captured_from": "hand-authored from handler source (lambdas_explorer.rs::parse_query)",
+  "captured_at": "2026-05-23T20:00:00Z",
+  "volatile_paths": []
+}

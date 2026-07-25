@@ -1,0 +1,18 @@
+{
+  "description": "GET /lambdas/parcels/{x}/{y}/operators with coords outside the [-150, 150] world bounds must 400 with the same coord-error message (no separate range message).",
+  "request": {
+    "method": "GET",
+    "path": "/lambdas/parcels/151/0/operators",
+    "query": {},
+    "headers": {},
+    "body": null
+  },
+  "response": {
+    "status": 400,
+    "headers": {"content-type": "application/json"},
+    "body_json": {"error": "Bad request", "message": "Coordinates X and Y must be valid numbers in a valid range"}
+  },
+  "captured_from": "hand-authored from handler source (lambdas_land.rs::validate_coords, PARCEL_MIN..=PARCEL_MAX)",
+  "captured_at": "2026-05-23T20:00:00Z",
+  "volatile_paths": []
+}

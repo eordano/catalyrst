@@ -1,0 +1,25 @@
+[package]
+name = "catalyrst-explore"
+version = "0.14.0"
+edition = "2021"
+description = "Bundle binary serving the catalyrst explorer-facing surface (places, events, archipelago, worlds, map, lists) on a single axum port (5143) by merging each member router."
+
+[[bin]]
+name = "catalyrst-explore"
+path = "src/main.rs"
+
+[dependencies]
+catalyrst-places = { path = "../catalyrst-places" }
+catalyrst-events = { path = "../catalyrst-events" }
+catalyrst-archipelago = { path = "../catalyrst-archipelago" }
+catalyrst-worlds = { path = "../catalyrst-worlds" }
+catalyrst-map = { path = "../catalyrst-map" }
+
+tokio = { workspace = true }
+axum = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true, features = ["normalize-path"] }
+anyhow = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }

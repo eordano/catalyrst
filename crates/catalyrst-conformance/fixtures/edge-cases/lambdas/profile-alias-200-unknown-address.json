@@ -1,0 +1,18 @@
+{
+  "description": "GET /lambdas/profile/{id} (singular alias) returns 200 with empty-avatars stub instead of 404 - lamb2 quirk that the alias never 404s.",
+  "request": {
+    "method": "GET",
+    "path": "/lambdas/profile/0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+    "query": {},
+    "headers": {},
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "headers": {"content-type": "application/json"},
+    "body_json": {"avatars": [], "timestamp": 0}
+  },
+  "captured_from": "hand-authored from handler source (lambdas.rs::profile_alias)",
+  "captured_at": "2026-05-23T20:00:00Z",
+  "volatile_paths": []
+}

@@ -1,0 +1,49 @@
+syntax = "proto3";
+
+package decentraland.common;
+
+import "decentraland/common/options.proto";
+
+
+message PositionDelta {
+  uint32 dx        = 1 [(decentraland.common.quantized)  = { min: -100.0, max: 100.0, bits: 16 }];
+  uint32 dy        = 2 [(decentraland.common.quantized)  = { min: -100.0, max: 100.0, bits: 16 }];
+  uint32 dz        = 3 [(decentraland.common.quantized)  = { min: -100.0, max: 100.0, bits: 16 }];
+  uint32 entity_id = 4 [(decentraland.common.bit_packed) = { bits: 20 }];
+  uint32 sequence  = 5 [(decentraland.common.bit_packed) = { bits: 12 }];
+}
+
+message PlayerInput {
+  uint32 move_x   = 1 [(decentraland.common.quantized)  = { min: -1.0,   max: 1.0,   bits:  8 }];
+  uint32 move_z   = 2 [(decentraland.common.quantized)  = { min: -1.0,   max: 1.0,   bits:  8 }];
+
+  uint32 yaw      = 3 [(decentraland.common.quantized)  = { min: -180.0, max: 180.0, bits: 12 }];
+
+  uint32 buttons  = 4 [(decentraland.common.bit_packed) = { bits:  8 }];
+
+  uint32 sequence = 5 [(decentraland.common.bit_packed) = { bits: 12 }];
+}
+
+enum ButtonFlags {
+  BF_NONE      = 0;
+  BF_JUMP      = 1;
+  BF_SPRINT    = 2;
+  BF_INTERACT  = 4;
+  BF_EMOTE     = 8;
+  BF_CROUCH    = 16;
+}
+
+message AvatarStateSnapshot {
+  uint32 x               = 1 [(decentraland.common.quantized)  = { min: -4096.0, max: 4096.0, bits: 16 }];
+  uint32 y               = 2 [(decentraland.common.quantized)  = { min:  -256.0, max:  256.0, bits: 14 }];
+  uint32 z               = 3 [(decentraland.common.quantized)  = { min: -4096.0, max: 4096.0, bits: 16 }];
+
+  uint32 pitch           = 4 [(decentraland.common.quantized)  = { min:  -90.0,  max:   90.0, bits: 10 }];
+  uint32 yaw             = 5 [(decentraland.common.quantized)  = { min: -180.0,  max:  180.0, bits: 12 }];
+
+  uint32 entity_id       = 6 [(decentraland.common.bit_packed) = { bits: 20 }];
+  uint32 animation_state = 7 [(decentraland.common.bit_packed) = { bits:  6 }];
+
+  bool   is_grounded     = 8;
+  double timestamp       = 9;
+}

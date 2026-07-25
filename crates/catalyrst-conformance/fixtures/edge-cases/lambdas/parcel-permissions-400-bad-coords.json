@@ -1,0 +1,18 @@
+{
+  "description": "GET /lambdas/users/{address}/parcels/{x}/{y}/permissions with bad coords must 400 BEFORE the address check (coords are validated first).",
+  "request": {
+    "method": "GET",
+    "path": "/lambdas/users/0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef/parcels/abc/def/permissions",
+    "query": {},
+    "headers": {},
+    "body": null
+  },
+  "response": {
+    "status": 400,
+    "headers": {"content-type": "application/json"},
+    "body_json": {"error": "Bad request", "message": "Coordinates X and Y must be valid numbers in a valid range"}
+  },
+  "captured_from": "hand-authored from handler source (lambdas_land.rs::parcel_permissions)",
+  "captured_at": "2026-05-23T20:00:00Z",
+  "volatile_paths": []
+}

@@ -1,0 +1,18 @@
+{
+  "description": "GET /content/deployments with offset > 5000 must 400 - clients are required to use the 'next' cursor for deep pagination.",
+  "request": {
+    "method": "GET",
+    "path": "/content/deployments",
+    "query": {"offset": ["5001"]},
+    "headers": {},
+    "body": null
+  },
+  "response": {
+    "status": 400,
+    "headers": {"content-type": "application/json"},
+    "body_json": {"error": "Offset can't be higher than 5000. Please use the 'next' property for pagination."}
+  },
+  "captured_from": "re-derived from peer.decentraland.org",
+  "captured_at": "2026-07-03T00:00:00Z",
+  "volatile_paths": []
+}

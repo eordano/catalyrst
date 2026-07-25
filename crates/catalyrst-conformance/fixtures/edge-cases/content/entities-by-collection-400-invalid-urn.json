@@ -1,0 +1,18 @@
+{
+  "description": "GET /content/entities/active/collections/{urn} must 400 on a non-collection URN; the exact phrasing is part of the lamb2 contract.",
+  "request": {
+    "method": "GET",
+    "path": "/content/entities/active/collections/not-a-real-urn",
+    "query": {},
+    "headers": {},
+    "body": null
+  },
+  "response": {
+    "status": 400,
+    "headers": {"content-type": "application/json"},
+    "body_json": {"error": "Invalid URN format: not-a-real-urn"}
+  },
+  "captured_from": "re-derived from peer.decentraland.org 2026-07-03",
+  "captured_at": "2026-05-23T20:00:00Z",
+  "volatile_paths": []
+}

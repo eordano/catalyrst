@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>catalyrst</title>
+<style>
+:root{
+ --bg:#0b0d12;--card:#151925;--line:#222838;
+ --fg:#e7eaf0;--mut:#6b7388;--dim:#3a4053;--ok:#37d39b;--accent:#5b8cff;
+ --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{background:var(--bg);color:var(--fg);font:14px/1.5 var(--mono);min-height:100vh}
+body{
+ background:
+  radial-gradient(1200px 600px at 80% -10%,rgba(91,140,255,.08),transparent 60%),
+  radial-gradient(900px 500px at 0% 0%,rgba(255,45,85,.06),transparent 55%),
+  var(--bg);
+ padding:32px 24px 48px;
+}
+a{color:var(--fg);text-decoration:none;border-bottom:1px solid var(--dim);transition:border-color .15s,color .15s}
+a:hover{color:var(--accent);border-bottom-color:var(--accent)}
+.wrap{max-width:920px;margin:0 auto}
+.dot{display:inline-block;width:10px;height:10px;border-radius:50%;background:var(--mut);vertical-align:middle;margin-right:8px}
+.dot.ok{background:var(--ok);box-shadow:0 0 0 0 rgba(55,211,155,.5);animation:p 2.4s infinite}
+.dot.err{background:#ff5566}
+@keyframes p{0%{box-shadow:0 0 0 0 rgba(55,211,155,.45)}70%{box-shadow:0 0 0 10px rgba(55,211,155,0)}100%{box-shadow:0 0 0 0 rgba(55,211,155,0)}}
+
+.top{display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:12px 24px;padding-bottom:32px;border-bottom:1px solid var(--line)}
+.top h1{font:600 15px var(--mono);letter-spacing:.3px}
+.top nav{color:var(--mut);font-size:13px}
+.top nav a{color:var(--mut);border:0}
+.top nav a:hover{color:var(--accent)}
+
+.hero{display:grid;grid-template-columns:1fr 1fr;gap:24px;padding:32px 0}
+.big{font-size:64px;font-weight:600;line-height:1;letter-spacing:-1px}
+.big .lbl{display:block;font-size:10px;color:var(--mut);letter-spacing:1.4px;margin-bottom:10px;text-transform:uppercase;font-weight:500}
+.big.r{text-align:right}
+.big.r .lbl{text-align:right}
+.big.text{font-size:24px;line-height:1.2;font-weight:500;letter-spacing:0}
+.big.text b{font-weight:600;font-size:32px}
+
+.kv{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px 28px;padding:24px 0;border-top:1px solid var(--line)}
+.kv div b{display:block;font-size:10px;color:var(--mut);letter-spacing:1.4px;text-transform:uppercase;font-weight:500;margin-bottom:4px}
+.kv div span{font-size:15px;word-break:break-all}
+
+.row{padding:14px 0;display:grid;grid-template-columns:80px 1fr;gap:18px;align-items:baseline;border-top:1px solid var(--line);font-size:13px}
+.row .lbl{font-size:10px;color:var(--mut);letter-spacing:1.4px;text-transform:uppercase;font-weight:500}
+.row .v{display:flex;flex-wrap:wrap;gap:4px 16px}
+.row .v.col{flex-direction:column;gap:5px}
+.row .v.col .kind{color:var(--mut);text-transform:uppercase;font-size:10px;letter-spacing:1.2px;margin-right:6px}
+.row .v.col .ago{color:var(--dim);margin-left:8px;font-size:11px}
+
+.ft{margin-top:36px;padding-top:18px;border-top:1px solid var(--line);font-size:12px;color:var(--mut);display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px}
+.ft a{color:var(--mut)}
+.stale .dot.ok{background:var(--mut);animation:none}
+@media (max-width:560px){
+ .hero{grid-template-columns:1fr;gap:18px}
+ .big{font-size:48px}
+ .big.r{text-align:left}
+ .big.r .lbl{text-align:left}
+ .row{grid-template-columns:1fr;gap:6px}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<div class="top">
+ <h1><span class="dot ok" id="dot"></span>catalyrst</h1>
+ <nav>
+  <a href="/about">/about</a> · <a href="/content/status">/status</a> · <a href="/lambdas/status">/lambdas</a> · <a href="https://decentraland.github.io/catalyst-monitor/" target="_blank" rel="noopener">monitor↗</a>
+ </nav>
+</div>
+
+<section class="hero">
+ <div class="big text"><span class="lbl" id="syncLbl">Up to date</span><span id="sync">—</span></div>
+ <div class="big r"><span class="lbl">Users</span><span id="users">—</span></div>
+</section>
+
+<section class="kv">
+ <div><b>Content</b><span id="cv">—</span></div>
+ <div><b>Lambdas</b><span id="lv">—</span></div>
+ <div><b>Archipelago</b><span id="av">—</span></div>
+ <div><b>Failed</b><span id="failed">—</span></div>
+</section>
+
+<div class="row"><span class="lbl">Source</span><span class="v">
+ <a href="https://github.com/eordano/catalyrst" target="_blank" rel="noopener">catalyrst</a>
+ <a href="https://github.com/decentraland/catalyst" target="_blank" rel="noopener">catalyst</a>
+ <a href="https://github.com/decentraland/lamb2" target="_blank" rel="noopener">lamb2</a>
+ <a href="https://github.com/decentraland/archipelago-workers" target="_blank" rel="noopener">archipelago-workers</a>
+ <a href="https://github.com/livekit/livekit" target="_blank" rel="noopener">livekit</a>
+ <a href="https://github.com/nats-io/nats-server" target="_blank" rel="noopener">nats</a>
+ <a href="https://github.com/decentraland/Pulse" target="_blank" rel="noopener">Pulse</a>
+</span></div>
+
+<div class="row"><span class="lbl">Clients</span><span class="v">
+ <a href="https://github.com/decentraland/unity-explorer" target="_blank" rel="noopener">unity</a>
+ <a href="https://github.com/decentraland/godot-explorer" target="_blank" rel="noopener">godot</a>
+ <a href="https://github.com/decentraland/bevy-explorer" target="_blank" rel="noopener">bevy</a>
+</span></div>
+
+<div class="row"><span class="lbl">Protocol</span><span class="v">
+ <a href="https://github.com/decentraland/protocol" target="_blank" rel="noopener">protocol</a>
+ <a href="https://github.com/decentraland/schemas" target="_blank" rel="noopener">schemas</a>
+ <a href="https://github.com/decentraland/adr" target="_blank" rel="noopener">adr</a>
+ <a href="https://github.com/decentraland/catalyst-api-specs" target="_blank" rel="noopener">api-specs</a>
+ <a href="https://github.com/decentraland/js-sdk-toolchain" target="_blank" rel="noopener">js-sdk</a>
+</span></div>
+
+<div class="row"><span class="lbl">API</span><span class="v">
+ <a href="/about">/about</a>
+ <a href="/content/snapshots">/snapshots</a>
+ <a href="/content/failed-deployments">/failed</a>
+ <a href="/content/entities/active">/entities/active</a>
+ <a href="/lambdas/profiles/0x">/profiles/{addr}</a>
+ <a href="/lambdas/contracts/servers">/contracts/servers</a>
+ <a href="/ws">/ws</a>
+</span></div>
+
+<div class="row"><span class="lbl">Latest updates</span><span class="v col" id="latest"></span></div>
+
+<div class="row"><span class="lbl">Decentraland</span><span class="v">
+ <a href="https://decentraland.org/" target="_blank" rel="noopener">decentraland.org</a>
+ <a href="https://docs.decentraland.org/" target="_blank" rel="noopener">docs</a>
+ <a href="https://decentraland.org/governance/" target="_blank" rel="noopener">governance</a>
+ <a href="https://decentraland.org/marketplace/" target="_blank" rel="noopener">marketplace</a>
+ <a href="https://decentraland.org/places/" target="_blank" rel="noopener">places</a>
+ <a href="https://twitter.com/decentraland" target="_blank" rel="noopener">x</a>
+ <a href="https://discord.gg/decentraland" target="_blank" rel="noopener">discord</a>
+ <a href="https://github.com/decentraland" target="_blank" rel="noopener">github</a>
+ <a href="https://forum.decentraland.org/" target="_blank" rel="noopener">forum</a>
+</span></div>
+
+<div class="ft">
+ <span><a href="https://github.com/eordano/catalyrst" target="_blank" rel="noopener">catalyrst</a> · <span id="lu">—</span> · uptime <span id="ut">—</span></span>
+</div>
+
+</div>
+
+<script>
+(function(){
+var $=function(id){return document.getElementById(id)};
+var set=function(id,v){var el=$(id);if(el)el.textContent=(v==null||v===''?'—':v)};
+var setHTML=function(id,h){var el=$(id);if(el)el.innerHTML=h};
+var boot=Date.now();
+var lastOk=null;
+var lastState='—';
+function ut(){
+ var s=Math.floor((Date.now()-boot)/1000),d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60),x=s%60;
+ var z=function(n){return String(n).padStart(2,'0')};
+ set('ut',(d?d+'d ':'')+z(h)+':'+z(m)+':'+z(x));
+ if(lastState==='Syncing' && lastOk){
+  var n=Math.floor((Date.now()-lastOk)/1000);
+  setHTML('sync','<b>'+n+'</b>s since last sync');
+  set('syncLbl','Up to date');
+ }else if(lastState!=='—'){
+  set('sync',lastState);
+  set('syncLbl','Status');
+ }
+}
+async function tick(){
+ try{
+  var r=await fetch('/about',{cache:'no-store'});
+  var j=await r.json();
+  set('cv',j.content&&j.content.version);
+  set('lv',j.lambdas&&j.lambdas.version);
+  set('av',j.comms&&j.comms.version);
+  set('users',j.comms&&j.comms.usersCount!=null?j.comms.usersCount:0);
+  lastState=(j.content&&j.content.synchronizationStatus)||'—';
+  lastOk=Date.now();
+  var d=$('dot');d.className='dot '+(j.healthy?'ok':'err');
+  document.body.classList.remove('stale');
+ }catch(e){document.body.classList.add('stale')}
+ try{
+  var rf=await fetch('/content/failed-deployments',{cache:'no-store'});
+  var jf=await rf.json();
+  set('failed',Array.isArray(jf)?jf.length:'—');
+ }catch(e){}
+ set('lu',new Date().toISOString().slice(11,19)+'Z');
+}
+tick();setInterval(tick,10000);
+ut();setInterval(ut,1000);
+
+function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
+function shortAddr(a){a=String(a||'');return a.length>12?a.slice(0,6)+'..'+a.slice(-4):a}
+function ago(ms){
+ var d=Math.max(0,Date.now()-ms);
+ if(d<60000)return Math.floor(d/1000)+'s ago';
+ if(d<3600000)return Math.floor(d/60000)+'m ago';
+ if(d<86400000)return Math.floor(d/3600000)+'h ago';
+ return Math.floor(d/86400000)+'d ago';
+}
+function fmtItem(d){
+ var t=d.entityType,p=(d.pointers||[])[0]||'',m=d.metadata||{},ts=d.localTimestamp||d.auditInfo&&d.auditInfo.localTimestamp||0;
+ var aTag,kind=t;
+ if(t==='profile'){
+  var name=(m.avatars&&m.avatars[0]&&m.avatars[0].name)||'(anonymous)';
+  aTag='<a target="_blank" rel="noopener" href="https://decentraland.org/profile/?address='+esc(p)+'">'+esc(name)+' ('+esc(shortAddr(p))+')</a>';
+ } else if(t==='scene'){
+  var title=(m.display&&m.display.title)||m.title||'untitled';
+  var base=(m.scene&&m.scene.base)||p;
+  aTag='<a target="_blank" rel="noopener" href="https://decentraland.org/play/?position='+esc(base)+'">'+esc(title)+' ('+esc(base)+')</a>';
+ } else if(t==='wearable'||t==='emote'){
+  var name2=m.name||'untitled '+t;
+  var collAddr=m.collectionAddress||'';
+  // urn:decentraland:matic:collections-v2:0xCONTRACT:ITEM
+  var parts=String(p).split(':'),contract=parts[4]||collAddr,item=parts[5]||'';
+  var url=contract?('https://decentraland.org/marketplace/contracts/'+contract+(item?'/items/'+item:'')):'#';
+  aTag='<a target="_blank" rel="noopener" href="'+esc(url)+'">'+esc(name2)+(contract?' ('+esc(shortAddr(contract))+')':'')+'</a>';
+ } else if(t==='outfits'){
+  aTag='<a target="_blank" rel="noopener" href="https://decentraland.org/profile/?address='+esc(p)+'">'+esc(shortAddr(p))+'</a>';
+ } else {
+  aTag='<span>'+esc(p)+'</span>';
+ }
+ return '<div><span class="kind">'+esc(kind)+'</span>'+aTag+'<span class="ago">'+esc(ago(ts))+'</span></div>';
+}
+async function fetchLatest(){
+ try{
+  var r=await fetch('/content/deployments?limit=6&sortingField=local_timestamp&sortingOrder=DESC',{cache:'no-store'});
+  var j=await r.json();
+  var items=(j.deployments||[]).map(fmtItem).join('');
+  var el=document.getElementById('latest');
+  if(el)el.innerHTML=items;
+ }catch(e){}
+}
+fetchLatest();setInterval(fetchLatest,15000);
+})();
+</script>
+</body>
+</html>

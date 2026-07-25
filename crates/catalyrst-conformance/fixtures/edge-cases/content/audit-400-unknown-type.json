@@ -1,0 +1,18 @@
+{
+  "description": "Audit endpoint must reject unknown entityType with 400; only scene/profile/wearable/store/emote (after singularization) are valid.",
+  "request": {
+    "method": "GET",
+    "path": "/content/audit/foobar/QmDoesNotMatter",
+    "query": {},
+    "headers": {},
+    "body": null
+  },
+  "response": {
+    "status": 400,
+    "headers": {"content-type": "application/json"},
+    "body_json": {"error": "Unrecognized type: foobar"}
+  },
+  "captured_from": "re-derived from peer.decentraland.org 2026-07-03",
+  "captured_at": "2026-05-23T20:00:00Z",
+  "volatile_paths": []
+}

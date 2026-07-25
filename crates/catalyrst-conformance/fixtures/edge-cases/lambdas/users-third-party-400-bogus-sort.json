@@ -1,0 +1,18 @@
+{
+  "description": "GET /lambdas/users/{address}/third-party-wearables only supports orderBy=name; any other value must 400.",
+  "request": {
+    "method": "GET",
+    "path": "/lambdas/users/0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef/third-party-wearables",
+    "query": {"orderBy": ["rarity"]},
+    "headers": {},
+    "body": null
+  },
+  "response": {
+    "status": 400,
+    "headers": {"content-type": "application/json"},
+    "body_json": {"error": "Bad request", "message": "Invalid sorting requested: rarity DESC"}
+  },
+  "captured_from": "hand-authored from handler source (lambdas_user_items.rs::user_third_party_wearables)",
+  "captured_at": "2026-05-23T20:00:00Z",
+  "volatile_paths": []
+}

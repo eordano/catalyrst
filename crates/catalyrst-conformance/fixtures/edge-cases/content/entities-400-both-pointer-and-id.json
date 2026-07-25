@@ -1,0 +1,21 @@
+{
+  "description": "Providing both ids and pointers must also 400 - mutually exclusive set.",
+  "request": {
+    "method": "GET",
+    "path": "/content/entities/scene",
+    "query": {
+      "pointer": ["0,0"],
+      "id": ["bafkreieexampleexampleexample0000000000000000000000"]
+    },
+    "headers": {},
+    "body": null
+  },
+  "response": {
+    "status": 400,
+    "headers": {"content-type": "application/json"},
+    "body_json": {"error": "ids or pointers must be present, but not both"}
+  },
+  "captured_from": "re-derived from peer.decentraland.org",
+  "captured_at": "2026-07-03T00:00:00Z",
+  "volatile_paths": []
+}

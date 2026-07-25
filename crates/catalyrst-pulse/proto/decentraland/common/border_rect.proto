@@ -1,0 +1,16 @@
+﻿syntax = "proto3";
+package decentraland.common;
+
+message BorderRect {
+  float top = 1;
+  float left = 2;
+  float right = 3;
+  float bottom = 4;
+}
+
+message Rect {
+  float x = 1;
+  float y = 2;
+  float width = 3;
+  float height = 4;
+}

@@ -1,0 +1,15 @@
+[Unit]
+Description=abgen (asset-bundle CDN + AB-registry + in-process converter — port 5147)
+After=network.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=exec
+WorkingDirectory=<WORKSPACE>
+EnvironmentFile=<WORKSPACE>/env/catalyrst-abgen.env
+ExecStart=<WORKSPACE>/bin/catalyrst/abgen
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,14 @@
+[Unit]
+Description=lists-daily (dcl-lists.decentraland.org → places_events.lists_*)
+After=network.target postgresql.service
+Wants=postgresql.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=oneshot
+WorkingDirectory=<WORKSPACE>
+EnvironmentFile=<WORKSPACE>/env/db.env
+ExecStart=/bin/sh -c 'exec bash <WORKSPACE>/scripts/sync-lists.sh'
+
+[Install]
+WantedBy=default.target

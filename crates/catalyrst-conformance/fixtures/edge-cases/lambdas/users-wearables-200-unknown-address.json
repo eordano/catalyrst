@@ -1,0 +1,18 @@
+{
+  "description": "GET /lambdas/users/{address}/wearables with a syntactically valid but never-owned address returns 200 with the empty-page shape (pageSize defaults to 100). Note: address validation is NOT enforced here, unlike on /third-party-wearables.",
+  "request": {
+    "method": "GET",
+    "path": "/lambdas/users/0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef/wearables",
+    "query": {},
+    "headers": {},
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "headers": {"content-type": "application/json"},
+    "body_json": {"elements": [], "totalAmount": 0, "pageNum": 1, "pageSize": 100}
+  },
+  "captured_from": "hand-authored from handler source (lambdas_user_items.rs::owned_items_response)",
+  "captured_at": "2026-05-23T20:00:00Z",
+  "volatile_paths": []
+}

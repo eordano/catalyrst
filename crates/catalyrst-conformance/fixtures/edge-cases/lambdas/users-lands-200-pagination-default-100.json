@@ -1,0 +1,18 @@
+{
+  "description": "GET /lambdas/users/{address}/lands with no query params returns pageNum=1 pageSize=100 by default (no oversize cap on this endpoint, but defaults match).",
+  "request": {
+    "method": "GET",
+    "path": "/lambdas/users/0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef/lands",
+    "query": {},
+    "headers": {},
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "headers": {"content-type": "application/json"},
+    "body_json": {"elements": [], "totalAmount": 0, "pageNum": 1, "pageSize": 100}
+  },
+  "captured_from": "hand-authored from handler source (lambdas_land.rs::user_lands)",
+  "captured_at": "2026-05-23T20:00:00Z",
+  "volatile_paths": []
+}

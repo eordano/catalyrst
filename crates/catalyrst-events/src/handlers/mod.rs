@@ -1,0 +1,10 @@
+pub mod attendees;
+pub mod categories;
+pub mod events;
+pub mod federation;
+pub mod ping;
+pub mod poster;
+pub mod profile_settings;
+pub mod profile_subscription;
+pub mod schedules;
+pub mod sitemap;

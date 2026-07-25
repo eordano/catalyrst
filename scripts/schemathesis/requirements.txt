@@ -1,0 +1,2 @@
+schemathesis~=3.36
+hypothesis~=6.118

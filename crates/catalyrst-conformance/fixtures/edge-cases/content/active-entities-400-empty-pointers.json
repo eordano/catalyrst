@@ -1,0 +1,18 @@
+{
+  "description": "POST /content/entities/active with empty pointers array must 400 (lamb2 treats [] as 'no filter provided', NOT as 'return empty result').",
+  "request": {
+    "method": "POST",
+    "path": "/content/entities/active",
+    "query": {},
+    "headers": {"content-type": "application/json"},
+    "body": {"pointers": []}
+  },
+  "response": {
+    "status": 400,
+    "headers": {"content-type": "application/json"},
+    "body_json": {"error": "ids or pointers must be present, but not both. They must be arrays and contain at least one element. None of the elements can be empty."}
+  },
+  "captured_from": "re-derived from peer.decentraland.org 2026-07-03",
+  "captured_at": "2026-05-23T20:00:00Z",
+  "volatile_paths": []
+}

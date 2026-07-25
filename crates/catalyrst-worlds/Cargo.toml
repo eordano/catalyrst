@@ -1,0 +1,46 @@
+[package]
+name = "catalyrst-worlds"
+version = "0.14.0"
+edition = "2021"
+description = "Rust port of decentraland/worlds-content-server — World realm /about, /permissions, LiveKit world/scene comms, content reads, wallet presence. Port 5141."
+
+[[bin]]
+name = "catalyrst-worlds"
+path = "src/main.rs"
+
+[features]
+ts = []
+
+[dependencies]
+catalyrst-types = { workspace = true, features = ["openapi"] }
+catalyrst-crypto = { workspace = true }
+utoipa = { workspace = true }
+utoipa-axum = { workspace = true }
+catalyrst-envcfg = { workspace = true }
+catalyrst-hashing = { workspace = true }
+tokio = { workspace = true }
+tokio-util = { workspace = true }
+axum = { workspace = true }
+tower-http = { workspace = true }
+sqlx = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+reqwest = { workspace = true }
+dashmap = { workspace = true }
+bytes = { workspace = true }
+hmac = "0.13"
+sha2 = { workspace = true }
+base64 = "0.23"
+hex = "0.4"
+bcrypt = "0.19"
+moka = { version = "0.12", features = ["future"] }
+infer = "0.22"
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+catalyrst-contract-gate = { workspace = true }

@@ -1,0 +1,18 @@
+{
+  "description": "GET /lambdas/users/{address}/parcels/{x}/{y}/permissions with an invalid address must 400 (coords are validated first, address validation comes after).",
+  "request": {
+    "method": "GET",
+    "path": "/lambdas/users/not-an-eth-address/parcels/0/0/permissions",
+    "query": {},
+    "headers": {},
+    "body": null
+  },
+  "response": {
+    "status": 400,
+    "headers": {"content-type": "application/json"},
+    "body_json": {"error": "Bad request", "message": "Address must be a valid Ethereum address"}
+  },
+  "captured_from": "hand-authored from handler source (lambdas_land.rs::parcel_permissions)",
+  "captured_at": "2026-05-23T20:00:00Z",
+  "volatile_paths": []
+}

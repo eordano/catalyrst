@@ -1,0 +1,18 @@
+{
+  "description": "Plural 'outfits' is also rejected with 400 (singularization yields 'outfit' which is not in the valid set); proves the canonicalization step happens before validation.",
+  "request": {
+    "method": "GET",
+    "path": "/content/audit/outfits/0x0000000000000000000000000000000000000000",
+    "query": {},
+    "headers": {},
+    "body": null
+  },
+  "response": {
+    "status": 400,
+    "headers": {"content-type": "application/json"},
+    "body_json": {"error": "Unrecognized type: outfits"}
+  },
+  "captured_from": "re-derived from peer.decentraland.org 2026-07-03",
+  "captured_at": "2026-05-23T20:00:00Z",
+  "volatile_paths": []
+}

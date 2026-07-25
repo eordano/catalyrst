@@ -1,0 +1,18 @@
+{
+  "description": "GET /lambdas/users/{address}/lands with absurdly large pageNum must saturate to an empty page (no panic, no crash). The echo'd pageNum is the requested value.",
+  "request": {
+    "method": "GET",
+    "path": "/lambdas/users/0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef/lands",
+    "query": {"pageNum": ["99999999999"]},
+    "headers": {},
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "headers": {"content-type": "application/json"},
+    "body_json": {"elements": [], "totalAmount": 0, "pageNum": 99999999999, "pageSize": 100}
+  },
+  "captured_from": "hand-authored from handler source (lambdas_land.rs::user_lands + page_offset saturating_mul)",
+  "captured_at": "2026-05-23T20:00:00Z",
+  "volatile_paths": []
+}

@@ -1,0 +1,24 @@
+{
+  "description": "GET /lambdas/parcels/{x}/{y}/operators on a valid-but-unowned coordinate returns 404 with a quirky body shape: error key is 'Bad Request' (capital R!) NOT 'Not Found' - this is the lamb2 historical quirk preserved by parcel_or_estate_not_found().",
+  "request": {
+    "method": "GET",
+    "path": "/lambdas/parcels/0/0/operators",
+    "query": {},
+    "headers": {},
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "headers": {"content-type": "application/json"},
+    "body_json": {
+      "owner": "0x5188e308fee25ac49c10f9fd9270d953c4822ce5",
+      "operator": null,
+      "updateOperator": null,
+      "updateManagers": ["0x462ab09f1a75786e0c54ced394e0fb537af03734"],
+      "approvedForAll": []
+    }
+  },
+  "captured_from": "re-derived from peer.decentraland.org 2026-07-03",
+  "captured_at": "2026-05-23T20:00:00Z",
+  "volatile_paths": []
+}

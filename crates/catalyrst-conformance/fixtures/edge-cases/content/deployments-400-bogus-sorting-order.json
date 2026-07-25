@@ -1,0 +1,18 @@
+{
+  "description": "GET /content/deployments with sortingOrder anything other than ASC/DESC must 400.",
+  "request": {
+    "method": "GET",
+    "path": "/content/deployments",
+    "query": {"sortingOrder": ["BOGUS"]},
+    "headers": {},
+    "body": null
+  },
+  "response": {
+    "status": 400,
+    "headers": {"content-type": "application/json"},
+    "body_json": {"error": "Found an unrecognized sort order param"}
+  },
+  "captured_from": "re-derived from peer.decentraland.org",
+  "captured_at": "2026-07-03T00:00:00Z",
+  "volatile_paths": []
+}

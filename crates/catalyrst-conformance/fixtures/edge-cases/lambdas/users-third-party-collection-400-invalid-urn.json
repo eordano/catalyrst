@@ -1,0 +1,18 @@
+{
+  "description": "GET /lambdas/users/{address}/third-party-wearables/{collectionId} must 400 when collectionId is not a urn:decentraland:<chain>:collections-thirdparty:<name> URN.",
+  "request": {
+    "method": "GET",
+    "path": "/lambdas/users/0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef/third-party-wearables/not-a-urn",
+    "query": {},
+    "headers": {},
+    "body": null
+  },
+  "response": {
+    "status": 400,
+    "headers": {"content-type": "application/json"},
+    "body_json": {"error": "Bad request", "message": "Invalid collection id: not-a-urn not a valid URN"}
+  },
+  "captured_from": "hand-authored from handler source (lambdas_user_items.rs::user_third_party_collection_wearables)",
+  "captured_at": "2026-05-23T20:00:00Z",
+  "volatile_paths": []
+}

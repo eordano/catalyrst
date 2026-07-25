@@ -1,0 +1,18 @@
+{
+  "description": "GET /lambdas/outfits/{id} returns 404 'Outfits not found' for an address with no outfits deployment.",
+  "request": {
+    "method": "GET",
+    "path": "/lambdas/outfits/0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+    "query": {},
+    "headers": {},
+    "body": null
+  },
+  "response": {
+    "status": 404,
+    "headers": {"content-type": "application/json"},
+    "body_json": {"error": "Not Found", "message": "Outfits not found"}
+  },
+  "captured_from": "hand-authored from handler source (lambdas_catalog.rs::outfits)",
+  "captured_at": "2026-05-23T20:00:00Z",
+  "volatile_paths": []
+}

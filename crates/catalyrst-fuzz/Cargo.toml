@@ -1,0 +1,20 @@
+[package]
+name = "catalyrst-fuzz"
+version = "0.14.0"
+edition = "2021"
+
+[dependencies]
+catalyrst-crypto = { path = "../catalyrst-crypto" }
+catalyrst-hashing = { path = "../catalyrst-hashing" }
+catalyrst-storage = { path = "../catalyrst-storage" }
+tokio = { workspace = true }
+bytes = { workspace = true }
+async-trait = { workspace = true }
+loom = { version = "0.7", optional = true }
+
+[features]
+loom = ["dep:loom"]
+
+[[bin]]
+name = "stress"
+path = "src/bin/stress/main.rs"

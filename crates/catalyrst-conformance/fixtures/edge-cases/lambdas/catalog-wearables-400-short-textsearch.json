@@ -1,0 +1,18 @@
+{
+  "description": "GET /lambdas/collections/wearables?textSearch=ab must 400 - textSearch requires at least 3 characters.",
+  "request": {
+    "method": "GET",
+    "path": "/lambdas/collections/wearables",
+    "query": {"textSearch": ["ab"]},
+    "headers": {},
+    "body": null
+  },
+  "response": {
+    "status": 400,
+    "headers": {"content-type": "application/json"},
+    "body_json": {"error": "Bad request", "message": "The text search must be at least 3 characters long"}
+  },
+  "captured_from": "hand-authored from handler source (lambdas_catalog.rs::parse_catalog_query)",
+  "captured_at": "2026-05-23T20:00:00Z",
+  "volatile_paths": []
+}

@@ -1,0 +1,18 @@
+{
+  "description": "GET /lambdas/explorer/{address}/wearables with pageSize > 1000 must 400 - the explorer endpoint rejects (not clamps).",
+  "request": {
+    "method": "GET",
+    "path": "/lambdas/explorer/0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef/wearables",
+    "query": {"pageSize": ["10000"]},
+    "headers": {},
+    "body": null
+  },
+  "response": {
+    "status": 400,
+    "headers": {"content-type": "application/json"},
+    "body_json": {"error": "Bad request", "message": "max allowed pageSize is 1000"}
+  },
+  "captured_from": "hand-authored from handler source (lambdas_explorer.rs::parse_query, MAX_PAGE_SIZE=1000)",
+  "captured_at": "2026-05-23T20:00:00Z",
+  "volatile_paths": []
+}
