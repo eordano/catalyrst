@@ -33,7 +33,7 @@ base64 = "0.23"
 openmls = "0.8"
 openmls_rust_crypto = "0.5"
 openmls_traits = "0.5"
-tls_codec = "0.4"
+tls_codec = "0.5"
 ts-rs = { workspace = true, optional = true }
 
 [features]
