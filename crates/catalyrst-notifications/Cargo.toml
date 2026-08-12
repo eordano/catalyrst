@@ -1,12 +1,12 @@
 [package]
 name = "catalyrst-notifications"
-version = "0.16.0"
+version = "0.16.1"
 edition = "2021"
 description = "Rust port of decentraland/notifications (REST API for notifications.decentraland.org), SignedFetch reader/marker over a dedicated notifications DB"
 
 [package.metadata.generated]
-gate = "sites/scripts/gen-ts-check.sh"
-ts-bindings = "ui3/src/generated/catalyst/notifications"
+gate = "catalyrst/sites/scripts/gen-ts-check.sh"
+ts-bindings = "catalyrst/ui3/src/generated/catalyst/notifications"
 
 [[bin]]
 name = "catalyrst-notifications"

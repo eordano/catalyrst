@@ -1,0 +1,26 @@
+[Unit]
+Description=Umbrella catalyrst content core (content DB read/write, port 5141)
+After=network.target umbrella-postgres.service
+StartLimitIntervalSec=0
+Wants=umbrella-postgres.service
+
+[Service]
+Type=exec
+WorkingDirectory=@UMBRELLA_DIR@
+EnvironmentFile=@UMBRELLA_DIR@/env/common.env
+# Optional: until the YubiKey handover runs this file does not exist, and a
+# non-optional EnvironmentFile fails the unit before ExecStartPre. The
+# env/*.env line below is what actually loads today.
+EnvironmentFile=-/run/agenix/umbrella-content-env
+EnvironmentFile=-@UMBRELLA_DIR@/env/content.env
+Environment="HTTP_SERVER_PORT=5141" "READ_ONLY=false" "ENABLE_DEPLOYMENTS=true"
+Environment="COMMS_PROTOCOL=v3" "COMMS_FIXED_ADAPTER=archipelago:archipelago:wss://catalyst.dcl.one/ws"
+Environment="COMMS_WS_CONNECTOR_URL=http://127.0.0.1:5139" "COMMS_STATS_URL=http://127.0.0.1:5139"
+Environment="CATALYRST_SERVICE_URLS=market=http://127.0.0.1:5133,places=http://127.0.0.1:5134,events=http://127.0.0.1:5135,communities=http://127.0.0.1:5136,explorer-api=http://127.0.0.1:5137,comms=http://127.0.0.1:5138,archipelago=http://127.0.0.1:5139,ab-cdn=http://127.0.0.1:5147,telemetry=http://127.0.0.1:5150,governance=http://127.0.0.1:5151,presence=http://127.0.0.1:5152,price=http://127.0.0.1:5156"
+ExecStartPre=@UMBRELLA_DIR@/scripts/wait-pg.sh @BINDIR@
+ExecStart=@BINDIR@/catalyrst-live
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=umbrella.target

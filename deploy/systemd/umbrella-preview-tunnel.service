@@ -1,0 +1,15 @@
+[Unit]
+Description=Umbrella catalyrst-preview-tunnel (creator preview tunnel, port 5168)
+After=network.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=exec
+WorkingDirectory=@UMBRELLA_DIR@
+EnvironmentFile=@UMBRELLA_DIR@/env/preview-tunnel.env
+ExecStart=@BINDIR@/catalyrst-preview-tunnel
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=umbrella.target

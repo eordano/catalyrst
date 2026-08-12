@@ -1,6 +1,6 @@
 [package]
 name = "catalyrst-authenticated-admin"
-version = "0.16.0"
+version = "0.16.1"
 edition = "2021"
 description = "The axum-facing companion to catalyrst-authenticated-principal: an unforgeable AuthenticatedAdminIdentity FromRequestParts extractor over the shared static-bearer admin gate"
 

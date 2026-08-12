@@ -18,7 +18,7 @@ type Opts = {
 
 function parseArgs(argv: string[]): Opts {
   const opts: Opts = {
-    base: "https://catalyst.example.com",
+    base: "https://catalyst.dcl.one",
     wait: 4000,
     json: path.join(HERE, "out", "smoke.json"),
     routes: null,

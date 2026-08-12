@@ -16,7 +16,7 @@
       "available": 3883,
       "price": "1",
       "credits": "1",
-      "image": "https://catalyst.example.com/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0x66194b1abcbfbedd83841775404b245c8f9e4183:0/thumbnail"
+      "image": "https://catalyst.dcl.one/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0x66194b1abcbfbedd83841775404b245c8f9e4183:0/thumbnail"
     },
     {
       "id": "0x66194b1abcbfbedd83841775404b245c8f9e4183-1",
@@ -27,7 +27,7 @@
       "available": 4250,
       "price": "1",
       "credits": "1",
-      "image": "https://catalyst.example.com/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0x66194b1abcbfbedd83841775404b245c8f9e4183:1/thumbnail"
+      "image": "https://catalyst.dcl.one/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0x66194b1abcbfbedd83841775404b245c8f9e4183:1/thumbnail"
     },
     {
       "id": "0x66194b1abcbfbedd83841775404b245c8f9e4183-2",
@@ -38,7 +38,7 @@
       "available": 0,
       "price": "—",
       "credits": "1",
-      "image": "https://catalyst.example.com/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0x66194b1abcbfbedd83841775404b245c8f9e4183:2/thumbnail"
+      "image": "https://catalyst.dcl.one/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0x66194b1abcbfbedd83841775404b245c8f9e4183:2/thumbnail"
     }
   ],
   "stats": {

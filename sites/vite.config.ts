@@ -31,7 +31,7 @@ const reactQuery = fileURLToPath(new URL("./node_modules/@tanstack/react-query",
 export default defineConfig({
   plugins: [reactRouter(), watchUi3(ui)],
   server: {
-    allowedHosts: [".catalyst.example.com", "localhost", "127.0.0.1"],
+    allowedHosts: [".dcl.one", "localhost", "127.0.0.1"],
     hmr: { protocol: "wss", clientPort: 443 },
     strictPort: true,
   },

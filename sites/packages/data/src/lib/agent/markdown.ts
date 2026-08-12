@@ -444,7 +444,7 @@ export function eventDetailToMarkdown(e: Event): string {
   const host = e.user_name || e.scene_name || "Decentraland";
   const jump =
     e.url ||
-    `https://catalyst.example.com/play/?position=${encodeURIComponent(`${e.x ?? 0},${e.y ?? 0}`)}`;
+    `https://dcl.one/play/?position=${encodeURIComponent(`${e.x ?? 0},${e.y ?? 0}`)}`;
 
   const facts: Array<[string, string | number | null | undefined]> = [
     ["When", formatEventWhen(e.start_at ?? e.next_start_at)],

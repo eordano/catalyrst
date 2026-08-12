@@ -1,0 +1,19 @@
+[Unit]
+Description=Weekly upstream-parity sweep (port last week of decentraland behavior changes into catalyrst + bevy-explorer)
+After=network.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=oneshot
+WorkingDirectory=@REPO_DIR@
+# %h/.local/bin first: lore-psql (the sweep's read-only DB inspection path),
+# dcl-smoke and pane-scan live only there, and a login shell's PATH is not
+# inherited by a systemd unit.
+Environment=PATH=%h/.local/bin:/run/current-system/sw/bin:/usr/bin:/bin
+Environment=REPO_DIR=@REPO_DIR@
+ExecStart=@REPO_DIR@/umbrella/scripts/parity-sweep-run.sh
+# The 2026-07-29 sweep ran ~3h of wall clock across three agent rounds and was
+# still not finished when a human stepped in. Budget for a long honest run
+# rather than killing one mid-port and leaving the tree half-edited.
+TimeoutStartSec=21600
+Nice=10

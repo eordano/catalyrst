@@ -32,13 +32,13 @@ describe("unionWorlds", () => {
     expect(byName["elsewhere.dcl.eth"]).toBe("upstream");
   });
 
-  it("keeps a NAME with nothing deployed as a catalyst.example.com-only row", () => {
+  it("keeps a NAME with nothing deployed as a dcl.one-only row", () => {
     const rows = unionWorlds(
       [{ name: "onlyname.dcl.eth", contractAddress: null, tokenId: null }],
       [],
     );
     expect(rows).toHaveLength(1);
-    expect(rows[0].origin).toBe("catalyst.example.com");
+    expect(rows[0].origin).toBe("dcl.one");
     expect(rows[0].name).toBe("onlyname.dcl.eth");
   });
 });
@@ -87,7 +87,7 @@ describe("loadMyWorldsUnion", () => {
     });
     expect(data.bothFailed).toBe(false);
     expect(data.partial).toBe(false);
-    expect(data.rows.map((r) => r.origin).sort()).toEqual(["catalyst.example.com", "upstream"]);
+    expect(data.rows.map((r) => r.origin).sort()).toEqual(["dcl.one", "upstream"]);
   });
 
   it("renders the surviving host's rows and flags the list as incomplete", async () => {

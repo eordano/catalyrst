@@ -1,6 +1,6 @@
 [package]
 name = "catalyrst-authenticated-principal"
-version = "0.16.0"
+version = "0.16.1"
 edition = "2021"
 description = "The shared vocabulary for who a request is from, and by what mechanism that was established"
 

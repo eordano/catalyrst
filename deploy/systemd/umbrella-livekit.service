@@ -1,0 +1,17 @@
+[Unit]
+Description=Umbrella LiveKit SFU (scene comms / voice for catalyst.dcl.one, signaling :7880, media udp :7882)
+After=network.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=exec
+WorkingDirectory=@UMBRELLA_DIR@
+# Own gcroot (not @BINDIR@): livekit is pinned separately from the catalyrst
+# workspace profile so an `abgen`/crate rebuild can't restage the SFU binary
+# under a live call.
+ExecStart=@STATE_DIR@/.gcroots/livekit/bin/livekit-server --config @STATE_DIR@/livekit.yaml
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=umbrella.target

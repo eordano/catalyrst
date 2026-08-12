@@ -27,7 +27,7 @@ export const at = (msAgo: number): string =>
 const READ_AT = at(0);
 
 export const PRESENCE_ENDPOINT =
-  "GET catalyst.example.com/presence/current/worlds";
+  "GET catalyst.dcl.one/presence/current/worlds";
 export const LIVE_DATA_ENDPOINT =
   "GET worlds-content-server.decentraland.org/live-data";
 
@@ -49,7 +49,7 @@ export const datumFixtures = {
   ),
   snapshot: snapshot(
     1_214,
-    "GET creators-data.example.com/api/worlds/petbarn.dcl.eth/metrics",
+    "GET creators-data.dcl.one/api/worlds/petbarn.dcl.eth/metrics",
     at(6 * 86_400_000),
     "metabase",
     READ_AT,

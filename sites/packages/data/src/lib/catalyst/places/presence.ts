@@ -123,11 +123,11 @@ export function parsePointer(pointer: string): [number, number] {
 
 export function sceneJumpUrl(pointer: string): string {
   const pos = (pointer || "0,0").trim();
-  return `https://catalyst.example.com/play/?position=${pos}`;
+  return `https://dcl.one/play/?position=${pos}`;
 }
 
 export function worldJumpUrl(worldName: string): string {
-  return `https://catalyst.example.com/play/?realm=${encodeURIComponent(worldName)}`;
+  return `https://dcl.one/play/?realm=${encodeURIComponent(worldName)}`;
 }
 
 export type OccupancyTotals = {

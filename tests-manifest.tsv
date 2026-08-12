@@ -1,0 +1,105 @@
+# Test targets whose count CI asserts, so a suite that empties itself is caught.
+# Arming the skip gates makes an *unrun* test fail; it cannot catch a target that
+# cargo omits entirely (required-features) or a file whose #[test]s were deleted.
+# This manifest is that backstop: scripts/test-count-gate.sh runs each target and
+# fails when fewer than min_passed tests pass, or when no test binary ran at all.
+#
+# Run it where the dependencies exist. The first block needs a Postgres
+# (CATALYRST_TEST_PG, or the per-crate variable); catalyrst-fed's nats_live also
+# needs FED_NATS_URL. The second block needs nothing at all, so a machine with no
+# services can still run that half by naming those crates on the command line.
+#
+# min_passed is the count observed when the row was added. Adding tests is free.
+# Raise this floor by adding rows or raising a number, never by lowering one: a
+# target that stops meeting its floor is the gate working, not the gate to edit.
+#
+# crate	target	min_passed	features
+catalyrst-testgate	lib	5	-
+catalyrst-server	land_publish	7	-
+catalyrst-server	sync_flush_overwrites	5	-
+catalyrst-economy	meta_tx_sender_binding	3	-
+catalyrst-economy	quota_reservations	3	-
+catalyrst-worlds	env_delegation_pg	2	-
+catalyrst-worlds	lowercase_migration_pg	2	-
+catalyrst-worlds	storage_cache_pg	6	-
+catalyrst-places	contract_gate	1	-
+catalyrst-places	destinations_order	1	-
+catalyrst-places	favorites_world_fallback	1	-
+catalyrst-places	federation_snapshot	3	-
+catalyrst-places	report_upload_authz	3	-
+catalyrst-places	world_name_column	2	-
+catalyrst-camera-reel	metadata_public	2	-
+catalyrst-events	contract_gate	1	-
+catalyrst-events	federation	3	-
+catalyrst-market	contract_gate	1	-
+catalyrst-worlds	contract_gate	1	-
+catalyrst-worlds	deploy_owner_escalation	2	-
+catalyrst-worlds	worlds_surface	3	-
+catalyrst-comms	ban_hardening	2	-
+catalyrst-comms	device_bans	3	-
+catalyrst-comms	mls_group_community_binding	3	-
+catalyrst-comms	player_reports	6	-
+catalyrst-comms	scene_ban_keying	2	-
+catalyrst-telemetry	flag_overrides	1	-
+catalyrst-credits	bucket_flow	6	-
+catalyrst-credits	formal_money	16	-
+catalyrst-credits	mana_topup	3	-
+catalyrst-social-service	lib	74	-
+catalyrst-social-service	content_store	9	-
+catalyrst-social-service	contract_gate	1	-
+catalyrst-social-service	cross_community_writes	8	-
+catalyrst-social-service	error_envelope	2	-
+catalyrst-social-service	federation_smoke	7	-
+catalyrst-social-service	join_and_ban_integrity	4	-
+catalyrst-social-service	listing_visibility	5	-
+catalyrst-social-service	migration_reconciliation	2	-
+catalyrst-social-service	name_color	2	-
+catalyrst-social-service	online_members	3	-
+catalyrst-social-service	v2_address_only	8	-
+catalyrst-social-service	friends_blocks	3	rpc
+catalyrst-social-service	private_voice_busy	5	rpc
+catalyrst-social-service	ws_handshake	4	rpc
+catalyrst-fed	nats_live	1	nats
+#
+# No external dependency below this line.
+#
+catalyrst-archipelago	lib	27	-
+catalyrst-archipelago	ban_check	12	-
+catalyrst-archipelago	heartbeat_presence_spoof	1	-
+catalyrst-archipelago	http_shapes	5	-
+catalyrst-archipelago	proto_wire	9	-
+catalyrst-archipelago	ws_island_dedup	2	-
+catalyrst-authenticated-principal	lib	44	-
+catalyrst-authenticated-principal	source_discipline	11	-
+catalyrst-builder	curation_auth	6	-
+catalyrst-builder	curation_auth_fuzz	1	-
+catalyrst-comms	lib	111	-
+catalyrst-comms	scene_participants_roster	11	-
+catalyrst-comms	server_scene_adapter_auth	3	-
+catalyrst-comms	voice_auth_fail_closed	4	-
+catalyrst-credits	captcha_provider	4	-
+catalyrst-explorer-api	admin_auth	1	-
+catalyrst-explorer-api	auth_ip_binding	2	-
+catalyrst-explorer-api	onboarding	5	-
+catalyrst-fed	gossip_loop	3	-
+catalyrst-fed	hardening	12	-
+catalyrst-fed	peer_file	6	-
+catalyrst-governance	snapshot_submit	8	-
+catalyrst-market	auth_chain	6	-
+catalyrst-preview-tunnel	tunnel_flow	7	-
+catalyrst-pulse	loopback	2	-
+catalyrst-pulse	quantize_differential	7	-
+catalyrst-pulse	webtransport_loopback	1	-
+catalyrst-pulse	webtransport_wire	1	-
+catalyrst-quests	lib	9	-
+catalyrst-quests	proto_byte_parity	6	-
+catalyrst-scene-state	lib	86	-
+catalyrst-scene-state	formal_properties	10	-
+catalyrst-scene-state	formal_refutations	18	-
+catalyrst-scene-state	signed_fetch	3	-
+dcl-one-sdk	lib	166	-
+dcl-one-sdk	comms_ws	4	-
+dcl-one-sdk	context_files	5	-
+dcl-one-sdk	error_contract	31	-
+dcl-one-sdk	land_deploy	5	-
+dcl-one-sdk	tunnel_e2e	2	-

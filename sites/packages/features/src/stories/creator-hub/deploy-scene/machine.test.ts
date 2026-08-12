@@ -17,7 +17,7 @@ import {
 } from "./machine";
 import type { DeployFile } from "@data/lib/catalyst/creator-hub/deploy-world";
 
-const RESULT: DeployResult = { jumpUrl: "https://catalyst.example.com/play/?realm=test.dcl.eth" };
+const RESULT: DeployResult = { jumpUrl: "https://dcl.one/play/?realm=test.dcl.eth" };
 
 const TRACK_CTX = {
   sid: "sid-abc",
@@ -407,7 +407,7 @@ describe("deployWorldMachine — minimal-clicks contract", () => {
 
 describe("deployWorldMachine — LAND destination", () => {
   const LAND = { parcels: ["52,-52", "53,-52"], baseParcel: "52,-52" };
-  const LAND_RESULT: DeployResult = { jumpUrl: "https://catalyst.example.com/play/?position=52,-52" };
+  const LAND_RESULT: DeployResult = { jumpUrl: "https://dcl.one/play/?position=52,-52" };
 
   function landInput(deploy: DeployFn, track: TrackFn) {
     return { ...inputFor(deploy, track), land: LAND };

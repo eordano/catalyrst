@@ -7,6 +7,15 @@ pub const SHOP_DEFAULT_PAGE_SIZE: i64 = 48;
 pub const SHOP_MIN_PAGE_SIZE: i64 = 1;
 pub const SHOP_MAX_PAGE_SIZE: i64 = 1000;
 
+/// Look-back window and size for the shop's creator rail (`/v3/catalog/creators`,
+/// marketplace-server #389). Both the row count and the window are clamped.
+pub const TOP_CREATORS_DEFAULT_LIMIT: i64 = 30;
+pub const TOP_CREATORS_MIN_LIMIT: i64 = 1;
+pub const TOP_CREATORS_MAX_LIMIT: i64 = 60;
+pub const TOP_CREATORS_DEFAULT_DAYS: i64 = 30;
+pub const TOP_CREATORS_MIN_DAYS: i64 = 1;
+pub const TOP_CREATORS_MAX_DAYS: i64 = 365;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ShopSortBy {
     Newest,
@@ -207,6 +216,49 @@ pub(super) struct LegacyListingRow {
     pub(super) network: Option<String>,
     pub(super) created_at: i64,
     pub(super) total: i64,
+}
+
+/// A creator ranked by how much of THEIR catalogue sold in the window.
+///
+/// Deliberately not `/v1/rankings/{entity}/{timeframe}` (entity=creators), which
+/// reads the squid's per-account day rollups and so counts only sales where the
+/// creator's own address was the SELLER. A primary mint is executed by the buyer
+/// against the store, so it never lands there — and for a shop whose creators
+/// sell mostly primary, that undercounts them severalfold (upstream measured 14
+/// vs 35 over the same 30 days). This attributes a sale to whoever CREATED the
+/// item (`sale.item_id = item.id` join), counting mints and resales alike.
+#[derive(Debug, Clone, Serialize)]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "market/", rename_all = "camelCase")
+)]
+pub struct TopCreator {
+    /// Creator wallet address (lowercase).
+    pub id: String,
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
+    pub sales: i64,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+pub(super) struct TopCreatorRow {
+    pub(super) creator: String,
+    pub(super) sales: i64,
+}
+
+/// Clamp the row count to `[TOP_CREATORS_MIN_LIMIT, TOP_CREATORS_MAX_LIMIT]`,
+/// defaulting when absent — mirrors upstream's `clampCount`.
+pub(super) fn top_creators_clamp_first(first: Option<i64>) -> i64 {
+    first
+        .unwrap_or(TOP_CREATORS_DEFAULT_LIMIT)
+        .clamp(TOP_CREATORS_MIN_LIMIT, TOP_CREATORS_MAX_LIMIT)
+}
+
+/// Clamp the look-back window to `[TOP_CREATORS_MIN_DAYS, TOP_CREATORS_MAX_DAYS]`,
+/// defaulting when absent.
+pub(super) fn top_creators_clamp_days(days: Option<i64>) -> i64 {
+    days.unwrap_or(TOP_CREATORS_DEFAULT_DAYS)
+        .clamp(TOP_CREATORS_MIN_DAYS, TOP_CREATORS_MAX_DAYS)
 }
 
 pub(super) fn csv(value: Option<String>) -> Vec<String> {

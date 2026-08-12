@@ -201,6 +201,59 @@ impl ContentStorage {
         Ok(Some(Bytes::from(buf)))
     }
 
+    /// The CIDv1 the stored bytes actually hash to, or `None` when the id is absent.
+    ///
+    /// A key in this store is a claim about its own content, and nothing enforces the claim at
+    /// write time for content that arrived from anywhere but [`store`](Self::store). This is how a
+    /// caller checks the claim rather than assuming it: `exist()` answers "is there a file here",
+    /// which is a different and much weaker question. Streams the file, so a snapshot of hundreds
+    /// of megabytes costs a buffer, not its length.
+    pub async fn stored_content_hash(&self, hash: &str) -> Result<Option<String>, StorageError> {
+        use tokio::io::AsyncReadExt;
+
+        let path = resolve_file_path(&self.root, hash)?;
+        let Some((mut file, _)) = open_for_read(&self.known_shards, &path).await? else {
+            return Ok(None);
+        };
+
+        let mut writer = catalyrst_hashing::HashV1Writer::new();
+        let mut buf = vec![0u8; 256 * 1024];
+        loop {
+            let n = file.read(&mut buf).await?;
+            if n == 0 {
+                break;
+            }
+            writer.update(&buf[..n]);
+        }
+
+        Ok(Some(writer.finish()))
+    }
+
+    /// Moves stored content from one id to another, reporting whether there was anything to move.
+    ///
+    /// For content whose key turned out to misdescribe it: the bytes are worth keeping and the key
+    /// is not. A rename settles that without re-reading a file that can run to hundreds of
+    /// megabytes, and it retires the wrong key in the same step — leaving it in place would keep
+    /// serving bytes under a CID they do not hash to, which is the whole defect being repaired.
+    pub async fn rekey(&self, from: &str, to: &str) -> Result<bool, StorageError> {
+        let src = resolve_file_path(&self.root, from)?;
+        let dst = ensure_file_path(&self.root, to, &self.known_shards).await?;
+
+        match tokio::fs::rename(&src, &dst).await {
+            Ok(()) => {
+                if let Some(parent) = dst.parent() {
+                    if let Ok(dir) = tokio::fs::File::open(parent).await {
+                        let _ = dir.sync_all().await;
+                    }
+                }
+                debug!(from, to, "content re-keyed");
+                Ok(true)
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(false),
+            Err(e) => Err(e.into()),
+        }
+    }
+
     pub async fn file_info(&self, hash: &str) -> Result<Option<FileInfo>, StorageError> {
         let path = resolve_file_path(&self.root, hash)?;
 

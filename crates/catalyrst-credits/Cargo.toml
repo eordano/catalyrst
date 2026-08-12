@@ -1,12 +1,12 @@
 [package]
 name = "catalyrst-credits"
-version = "0.16.0"
+version = "0.16.1"
 edition = "2021"
 description = "Rust port of credits.decentraland.org (Marketplace Credits program API): enrollment, seasons/weeks/goals, per-wallet progress, captcha-gated claims. SignedFetch (AuthChain) auth via catalyrst-crypto."
 
 [package.metadata.generated]
-gate = "sites/scripts/gen-ts-check.sh"
-ts-bindings = "ui3/src/generated/catalyst/credits"
+gate = "catalyrst/sites/scripts/gen-ts-check.sh"
+ts-bindings = "catalyrst/ui3/src/generated/catalyst/credits"
 
 [[bin]]
 name = "catalyrst-credits"

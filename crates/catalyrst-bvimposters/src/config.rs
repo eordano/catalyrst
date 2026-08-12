@@ -51,8 +51,11 @@ impl Config {
             readthrough_timeout_secs: get_u64("BVIMPOSTERS_READTHROUGH_TIMEOUT_SECS", 30)?,
             bake_enabled: env_bool("BVIMPOSTERS_BAKE_ENABLED", false),
             bake_wrapper: env::var("BVIMPOSTERS_BAKE_WRAPPER").unwrap_or_default(),
-            impost_bin: get_str("BVIMPOSTERS_IMPOST_BIN", "impost"),
-            impost_server: get_str("BVIMPOSTERS_IMPOST_SERVER", "https://catalyst.example.com"),
+            impost_bin: get_str(
+                "BVIMPOSTERS_IMPOST_BIN",
+                "/home/dcl/one/bevy-explorer/target/debug/impost",
+            ),
+            impost_server: get_str("BVIMPOSTERS_IMPOST_SERVER", "https://catalyst.dcl.one"),
             impost_content_server: env::var("BVIMPOSTERS_IMPOST_CONTENT_SERVER")
                 .unwrap_or_default()
                 .trim()

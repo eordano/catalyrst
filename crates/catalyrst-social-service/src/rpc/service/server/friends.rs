@@ -4,7 +4,7 @@ use super::super::domain::{
 };
 use super::super::helpers::{
     empty_friends_profiles, friendship_status_invalid, internal_err, invalid_req, is_eth_address,
-    normalize, page, page_number, upsert_internal_error, SocialError,
+    normalize, page_friends, page_of, upsert_internal_error, SocialError,
 };
 use super::SocialServiceImpl;
 use crate::rpc::context::Context;
@@ -21,7 +21,7 @@ impl SocialServiceImpl {
     ) -> Result<PaginatedFriendsProfilesResponse, SocialError> {
         let me = Self::caller(&context)?;
         let db = context.server_context.db();
-        let (limit, offset) = page(&request.pagination);
+        let (limit, offset) = page_friends(&request.pagination);
         let result = async {
             let friends = db.get_friends(&me, limit, offset).await?;
             let total = db.count_friends(&me).await?;
@@ -41,7 +41,7 @@ impl SocialServiceImpl {
             friends: profiles,
             pagination_data: Some(PaginatedResponse {
                 total: total as i32,
-                page: page_number(&request.pagination),
+                page: page_of(limit, offset),
             }),
         })
     }
@@ -57,7 +57,7 @@ impl SocialServiceImpl {
             _ => return Ok(empty_friends_profiles()),
         };
         let db = context.server_context.db();
-        let (limit, offset) = page(&request.pagination);
+        let (limit, offset) = page_friends(&request.pagination);
         let result = async {
             let friends = db.get_mutual_friends(&me, &other, limit, offset).await?;
             let total = db.count_mutual_friends(&me, &other).await?;
@@ -77,7 +77,7 @@ impl SocialServiceImpl {
             friends: profiles,
             pagination_data: Some(PaginatedResponse {
                 total: total as i32,
-                page: page_number(&request.pagination),
+                page: page_of(limit, offset),
             }),
         })
     }

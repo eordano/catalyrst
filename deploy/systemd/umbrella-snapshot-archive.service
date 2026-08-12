@@ -1,0 +1,11 @@
+[Unit]
+Description=Umbrella snapshot-archive (refresh recent + active Snapshot proposals into the :5434 snapshot DB)
+After=network.target umbrella-postgres.service
+Wants=umbrella-postgres.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=oneshot
+WorkingDirectory=@UMBRELLA_DIR@
+EnvironmentFile=@UMBRELLA_DIR@/env/snapshot-archive.env
+ExecStart=/run/current-system/sw/bin/nix-shell -p "python3.withPackages (p: [ p.psycopg2 ])" --run "exec python3 @UMBRELLA_DIR@/scripts/snapshot-archive.py sync"

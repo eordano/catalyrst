@@ -46,7 +46,7 @@ function loaderDataFor(
   url: string,
   loader: typeof namesStubLoader = namesStubLoader,
 ) {
-  return loader({ request: new Request(`https://catalyst.example.com${url}`) });
+  return loader({ request: new Request(`https://dcl.one${url}`) });
 }
 
 export default {

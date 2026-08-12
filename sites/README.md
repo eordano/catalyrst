@@ -85,7 +85,7 @@ All vars are optional; the app degrades gracefully and never throws if any are u
 
 | Var | Used by | When unset |
 | --- | --- | --- |
-| `CATALYST_URL` | Catalyst Places fetches (`packages/data/src/lib/catalyst/*`) | Defaults to `https://catalyst.example.com`. |
+| `CATALYST_URL` | Catalyst Places fetches (`packages/data/src/lib/catalyst/*`) | Defaults to `https://catalyst.dcl.one`. |
 | `TELEMETRY_URL` | catalyrst-telemetry sink (`track` -> `/v1/track`), the runtime-flag probe (`resolveAssignment` -> `/dash/flags`, currently a no-op override layer), and `story:readout`. | Sink + flag probe become safe no-ops; `story:readout` prints a clear message and exits 0. |
 ## Flag-eval + telemetry - roles
 One backend: catalyrst-telemetry - the authoritative event store and the source the readouts query. Flag evaluation has two layers, but the override layer is currently inert (see step 4 note).

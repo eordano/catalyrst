@@ -1,20 +1,20 @@
 BRIDGE_CRATE=bridge_protocol
 
-GENERATED_DIR_REL="ui3/src/generated"
+GENERATED_DIR_REL="catalyrst/ui3/src/generated"
 
 EDITOR_BUS_COPIES=(
   "bevy-explorer/editor-scene/src/generated/editor-bus.ts"
   "tools/scene-editor-mcp/src/generated/editor-bus.ts"
 )
 
-TS_CRATES_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+TS_CRATES_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 
 # Which crates the gate runs is DERIVED from [package.metadata.generated] in
 # each emitting crate's own Cargo.toml — never a list kept here, which is how a
 # crate silently falls off. Lazy, so sourcing this file stays node-free for
 # consumers that only want the constants above.
 load_generated_crates() {
-  local script="$TS_CRATES_ROOT/sites/scripts/generated-artefacts.mts"
+  local script="$TS_CRATES_ROOT/catalyrst/sites/scripts/generated-artefacts.mts"
   local bridge_crates=()
   mapfile -t CATALYRST_CRATES < <(node "$script" --list catalyrst-pkgs) || return 1
   mapfile -t CATALYRST_TS_CRATES < <(node "$script" --list catalyrst-ts) || return 1
@@ -37,7 +37,7 @@ load_generated_crates() {
 ts_rs_shell_run() {
   local area="$1" cmd="$2" flake
   case "$area" in
-    catalyrst) flake="$TS_CRATES_ROOT#ci" ;;
+    catalyrst) flake="$TS_CRATES_ROOT/catalyrst#ci" ;;
     bridge) flake="$TS_CRATES_ROOT/bevy-explorer" ;;
     *)
       echo "ts_rs_shell_run: unknown area $area (expected: catalyrst, bridge)" >&2
@@ -54,7 +54,7 @@ ts_rs_shell_run() {
 assemble_editor_bus() {
   local src_dir="$1" out_file="$2" f
   {
-    echo "// GENERATED from bridge_protocol::editor via ts-rs + sites/scripts/gen-ts-types.sh. Do not edit."
+    echo "// GENERATED from bridge_protocol::editor via ts-rs + catalyrst/sites/scripts/gen-ts-types.sh. Do not edit."
     for f in $(LC_ALL=C ls "$src_dir"/*.ts | LC_ALL=C sort); do
       [[ "$(basename "$f")" == "constants.ts" ]] && continue
       echo ""

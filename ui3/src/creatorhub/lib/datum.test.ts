@@ -38,7 +38,7 @@ const CASES: { state: DatumState; datum: Datum<number>; showable: boolean }[] = 
     state: "sampled",
     datum: sampled(
       2,
-      "GET catalyst.example.com/presence/current/worlds",
+      "GET catalyst.dcl.one/presence/current/worlds",
       iso(2 * 60_000),
       DEFAULT_CADENCE_SECONDS,
       iso(0),
@@ -59,7 +59,7 @@ const CASES: { state: DatumState; datum: Datum<number>; showable: boolean }[] = 
   {
     state: "no-sample",
     datum: noSample(
-      "GET catalyst.example.com/presence/current/worlds",
+      "GET catalyst.dcl.one/presence/current/worlds",
       iso(2 * 60_000),
       "No sample: this world was not live at the last snapshot. Not the same as zero.",
     ),

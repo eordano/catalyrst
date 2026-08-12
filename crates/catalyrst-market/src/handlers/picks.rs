@@ -29,6 +29,10 @@ fn authenticate(
     method: &str,
     fallback_path: &str,
 ) -> Result<String, ApiError> {
+    // @dcl/crypto-middleware ≥5.1.0: reject non-canonical signer/intent metadata
+    // (mixed case or whitespace) with 400 before the signature is validated.
+    auth_chain::require_canonical_metadata(headers)?;
+
     let chain = auth_chain::extract_auth_chain(headers).map_err(auth_chain_error_to_api)?;
 
     let timestamp = headers

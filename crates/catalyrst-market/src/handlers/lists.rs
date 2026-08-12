@@ -175,6 +175,9 @@ pub async fn get_lists(
     headers: HeaderMap,
     Query(pairs): Query<Vec<(String, String)>>,
 ) -> Result<Json<ListsEnvelope>, ApiError> {
+    // @dcl/crypto-middleware ≥5.1.0: reject non-canonical signer/intent metadata
+    // (mixed case or whitespace) with 400 before the signature is validated.
+    auth_chain::require_canonical_metadata(&headers)?;
     let user_address = auth_chain::require_signer(&headers, "get", "/v1/lists")
         .map_err(auth_chain_error_to_api)?
         .as_str()
@@ -238,6 +241,9 @@ fn optional_signer(
     if !headers.contains_key(first_link.as_str()) {
         return Ok(None);
     }
+    // Present-but-invalid credentials are rejected; a non-canonical signer/intent
+    // (mixed case or whitespace) is a 400 before the signature is validated.
+    auth_chain::require_canonical_metadata(headers)?;
     auth_chain::require_signer(headers, method, path)
         .map(|s| Some(s.as_str().to_string()))
         .map_err(auth_chain_error_to_api)

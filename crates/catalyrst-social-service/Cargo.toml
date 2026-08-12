@@ -1,13 +1,13 @@
 [package]
 name = "catalyrst-social-service"
-version = "0.16.0"
+version = "0.16.1"
 edition = "2021"
 description = "Rust port of decentraland/social-service-ea: community REST routes (authority-chain federation) plus the dcl-rpc WebSocket service for friends, blocks, mutes, private/community voice, sharing one communities database and one migration history."
 
 [package.metadata.generated]
-gate = "sites/scripts/gen-ts-check.sh"
-ts-bindings = "ui3/src/generated/catalyst/communities"
-openapi = "ui3/src/generated/catalyst/openapi/communities.openapi.json"
+gate = "catalyrst/sites/scripts/gen-ts-check.sh"
+ts-bindings = "catalyrst/ui3/src/generated/catalyst/communities"
+openapi = "catalyrst/ui3/src/generated/catalyst/openapi/communities.openapi.json"
 
 [[bin]]
 name = "catalyrst-communities"

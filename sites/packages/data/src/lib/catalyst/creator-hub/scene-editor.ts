@@ -559,7 +559,7 @@ export function buildViewportUrl(opts: {
   systemScene?: string | null;
   editorUi?: boolean;
 }): string {
-  const playUrl = (opts.playUrl || "https://catalyst.example.com/play").replace(/\/+$/, "");
+  const playUrl = (opts.playUrl || "https://dcl.one/play").replace(/\/+$/, "");
   const q = new URLSearchParams();
   if (opts.realm) q.set("realm", opts.realm);
   q.set("position", opts.position || "0,0");

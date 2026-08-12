@@ -43,14 +43,14 @@ fresh session, all surfaces incl. /docs) and a wrong route guess (/account ->
 /marketplace/account). Keep `allowConsole` entries NARROW and commented — a
 blanket allow defeats the sweep.
 
-Scheduled: `deploy-smoke.timer` (systemd user, hourly at :06 via OnCalendar,
+Scheduled: `umbrella-smoke.timer` (systemd user, hourly at :06 via OnCalendar,
 Persistent) — a non-zero exit leaves the unit failed, which the manager's
 supervisor ticks and the hourly `lore-drift-check` catch. (Was OnUnitActiveSec=1h: a failed oneshot never re-arms that, so one red sweep silently
 stopped the hourly cadence.)
 
 DEV GOTCHA (proven by the timer's first catch): the vite dev
 server does NOT hot-detect files ADDED to `public/` after it starts — new
-public assets 404 until `deploy-dev-sites` restarts. (Related but distinct
+public assets 404 until `umbrella-dev-sites` restarts. (Related but distinct
 from the boot-race fixed in sync-ui3-public: that killed ALL statics when the
 dir was missing at boot; this is per-file for later additions.) If you add a
 public asset in dev, ask the manager for a dev-sites bounce — smoke will page

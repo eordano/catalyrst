@@ -102,7 +102,7 @@ export const simulateConnect: ConnectFn = async ({ kind, roomId, signal }) => {
       : `voice-chat-private-${roomId}`;
   return {
     roomName,
-    connectionUrl: `livekit:wss://livekit.example.com?access_token=SIMULATED.${kind.toUpperCase()}.STUB`,
+    connectionUrl: `livekit:wss://livekit.dcl.one?access_token=SIMULATED.${kind.toUpperCase()}.STUB`,
   };
 };
 

@@ -74,7 +74,7 @@ satisfiable by a human operator with no secret at all:
   (and it explicitly rejects the scene signer).
 
 `PLATFORM_USER_MODERATORS` **is populated** on this node
-(`deploy/env/catalyrst-comms.env:51`), so the wallet path is live.
+(`umbrella/env/catalyrst-comms.env:51`), so the wallet path is live.
 
 ### The defect is on this side, and this document used to state it backwards
 

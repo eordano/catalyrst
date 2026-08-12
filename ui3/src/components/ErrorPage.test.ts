@@ -34,9 +34,9 @@ describe("parseErrorName", () => {
 
 describe("composeTrace", () => {
   it("appends URL and timestamp beneath the detail", () => {
-    const out = composeTrace("TypeError: boom\n  at x", "https://catalyst.example.com/p", "2026-07-06T00:00:00Z");
+    const out = composeTrace("TypeError: boom\n  at x", "https://dcl.one/p", "2026-07-06T00:00:00Z");
     expect(out).toContain("TypeError: boom");
-    expect(out).toContain("URL:  https://catalyst.example.com/p");
+    expect(out).toContain("URL:  https://dcl.one/p");
     expect(out).toContain("Time: 2026-07-06T00:00:00Z");
   });
 

@@ -13,7 +13,7 @@ const place = {
 };
 
 const launch: LaunchFn = async ({ place: p }) => ({
-  launchUrl: `https://catalyst.example.com/play/?position=${p.base_position}`,
+  launchUrl: `https://dcl.one/play/?position=${p.base_position}`,
   realm: "main",
 });
 

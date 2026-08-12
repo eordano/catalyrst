@@ -142,10 +142,10 @@ fn unset_peers_file_is_not_configured_and_is_not_an_error() {
 #[test]
 fn shipped_placeholder_file_refuses_to_load() {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../deploy/config/federation-peers.toml");
+        .join("../../../umbrella/config/federation-peers.toml");
     let path = path
         .canonicalize()
-        .unwrap_or_else(|e| panic!("deploy/config/federation-peers.toml must exist: {e}"));
+        .unwrap_or_else(|e| panic!("umbrella/config/federation-peers.toml must exist: {e}"));
 
     let err = WorldsFederationPeers::load_file(&path, &cfg())
         .expect_err("the shipped placeholder must refuse to load");

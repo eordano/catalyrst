@@ -1,6 +1,6 @@
 [package]
 name = "catalyrst-storage"
-version = "0.16.0"
+version = "0.16.1"
 edition = "2021"
 description = "Rust port of the Decentraland catalyst content storage layer"
 
@@ -10,6 +10,7 @@ description = "Rust port of the Decentraland catalyst content storage layer"
 tokio = { workspace = true, features = ["fs", "io-util", "rt", "sync"] }
 bytes = { workspace = true }
 futures = { workspace = true }
+catalyrst-hashing = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 serde = { workspace = true }

@@ -155,7 +155,7 @@ function BackpackEquipInner({
       result={ctx.result}
       onMarketplace={() => {
         if (typeof window !== "undefined")
-          window.open("https://catalyst.example.com/shop", "_blank", "noopener");
+          window.open("https://dcl.one/shop", "_blank", "noopener");
       }}
       onPickCategory={(id) => {
         const first = (grouped[id] ?? [])[0];

@@ -28,6 +28,7 @@ pub(super) const PLACE_COLUMNS: &str = r#"
     world,
     world_name,
     raw->>'world_id' AS world_id,
+    raw->>'deployment_id' AS deployment_id,
     COALESCE((raw->>'is_private')::bool, false) AS is_private,
     COALESCE((raw->>'user_favorite')::bool, false) AS user_favorite,
     COALESCE((raw->>'user_like')::bool, false) AS user_like,
@@ -70,6 +71,9 @@ pub struct PlaceRow {
     pub sdk: Option<String>,
     pub creator_address: Option<String>,
     pub world_id: Option<String>,
+    /// Immutable content-entity identifier for this indexed deployment.
+    /// Null for legacy rows awaiting reconciliation (upstream places #856).
+    pub deployment_id: Option<String>,
     #[cfg_attr(feature = "ts", ts(type = "string | null"))]
     pub deployed_at: Option<DateTime<Utc>>,
     pub world: bool,
@@ -316,6 +320,9 @@ pub(super) fn row_to_place(r: sqlx::postgres::PgRow) -> PlaceRow {
             .try_get::<Option<String>, _>("creator_address")
             .unwrap_or(None),
         world_id: r.try_get::<Option<String>, _>("world_id").unwrap_or(None),
+        deployment_id: r
+            .try_get::<Option<String>, _>("deployment_id")
+            .unwrap_or(None),
         deployed_at: r
             .try_get::<Option<DateTime<Utc>>, _>("deployed_at")
             .unwrap_or(None),

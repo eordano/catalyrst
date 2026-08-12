@@ -1,0 +1,14 @@
+[Unit]
+Description=Umbrella NATS broker (JetStream; archipelago / messaging planes, port 4222 / 8222 mon)
+After=network.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=exec
+WorkingDirectory=@UMBRELLA_DIR@
+ExecStart=@BINDIR@/nats-server -c @STATE_DIR@/config/nats.conf
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=umbrella.target

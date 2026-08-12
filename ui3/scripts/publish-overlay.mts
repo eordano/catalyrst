@@ -39,13 +39,13 @@ const sha256 = (file) => createHash("sha256").update(readFileSync(file)).digest(
 const retainable = (rel) => rel.startsWith("chunks/") || rel.startsWith("assets/");
 
 // Hosts the overlay must never bake: every catalyst/API fetch has to resolve
-// same-origin so the HUD works on any deployment, not just catalyst.example.com. Wallet and
+// same-origin so the HUD works on any deployment, not just dcl.one. Wallet and
 // doc deep-links (metamask, docs.decentraland.org, w3.org, …) are legitimate
 // and deliberately absent here.
 const DENYLISTED_HOSTS = [
-    "catalyst.example.com",
-    "worlds.example.com",
-    "creators-data.example.com",
+    "catalyst.dcl.one",
+    "worlds.dcl.one",
+    "creators-data.dcl.one",
     "peer.decentraland.org",
     "peer-ec1.decentraland.org",
 ];
@@ -131,7 +131,7 @@ function pruneEmptyDirs(dir) {
 }
 
 // The /play pin covers the HUD via the pin's `overlay` block; every publish
-// rewrites its hashes so deploy-dev-health can tell a published HUD from a
+// rewrites its hashes so umbrella-dev-health can tell a published HUD from a
 // swapped one. Missing anchors warn rather than corrupt the pin.
 function bumpPin(fresh) {
     if (!existsSync(PIN)) {

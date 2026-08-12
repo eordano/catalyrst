@@ -29,8 +29,8 @@ export {
 //
 // The thumbnail rewrite could never have lived in a shape anyway — it needs
 // `serviceBase`, so the schema module had to reach into the HTTP client to hold
-// it. Losing it does not blur a null; it sends play.catalyst.example.com to the PROD CDN for
-// an asset catalyst.example.com serves, which is a federation break.
+// it. Losing it does not blur a null; it sends play.dcl.one to the PROD CDN for
+// an asset catalyst.dcl.one serves, which is a federation break.
 
 const PROD_COMMUNITY_CDN = /^https:\/\/cdn\.decentraland\.org(?=\/social\/communities\/)/;
 

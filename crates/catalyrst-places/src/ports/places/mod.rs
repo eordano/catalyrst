@@ -45,6 +45,7 @@ mod wire_tests {
             sdk: None,
             creator_address: None,
             world_id: None,
+            deployment_id: None,
             deployed_at: None,
             world: false,
             world_name: None,
@@ -103,12 +104,15 @@ mod wire_tests {
             "world_name",
             "base_position",
             "positions",
+            "deployment_id",
         ] {
             assert!(obj.contains_key(key), "{key} must be present on base Place");
         }
 
         assert!(obj["is_private"].is_boolean());
         assert!(obj["tags"].is_array());
+        // Nullable per upstream places #856: always present, null until reconciled.
+        assert!(obj["deployment_id"].is_null());
     }
 
     #[test]

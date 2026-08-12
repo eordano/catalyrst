@@ -1,6 +1,6 @@
 [package]
 name = "catalyrst-explore"
-version = "0.16.0"
+version = "0.16.1"
 edition = "2021"
 description = "Bundle binary serving the catalyrst explorer-facing surface (places, events, archipelago, worlds, map, lists) on a single axum port (5143) by merging each member router."
 

@@ -1,0 +1,15 @@
+[Unit]
+Description=Umbrella catalyrst-bvwebgpu (scene pack supply, port 5167)
+After=network.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=exec
+WorkingDirectory=@UMBRELLA_DIR@
+EnvironmentFile=@UMBRELLA_DIR@/env/catalyrst-bvwebgpu.env
+ExecStart=@UMBRELLA_DIR@/data/bin/abgen-bvwebgpu-42b0685
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=umbrella.target

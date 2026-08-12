@@ -16,9 +16,9 @@ const DEFAULT_WCS = "https://worlds-content-server.decentraland.org";
  * worlds-content-server is a different host from the catalyst.
  *
  * Do NOT use `worldsBase()` from `./client` for any of these paths: it rewrites
- * `catalystBase()`'s hostname to `worlds.<domain>` (i.e. `worlds.example.com`),
+ * `catalystBase()`'s hostname to `worlds.<domain>` (i.e. `worlds.dcl.one`),
  * which 404s every path used in this module. `wcs.test.ts` asserts that
- * `wcsBase()` never resolves to a `worlds.` subdomain of `catalyst.example.com`.
+ * `wcsBase()` never resolves to a `worlds.` subdomain of `dcl.one`.
  */
 export function wcsBase(override?: string): string {
   return (

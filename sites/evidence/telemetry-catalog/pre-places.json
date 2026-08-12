@@ -1,0 +1,10 @@
+{
+  "url": "https://catalyst.dcl.one/places",
+  "count": 1,
+  "bodies": [
+    {
+      "url": "http://127.0.0.1:5199/v1/track",
+      "postData": "{\"type\":\"track\",\"event\":\"place_list_viewed\",\"anonymousId\":\"a066ff4f-f0b0-4da5-b868-638fa1ae9541\",\"properties\":{\"count\":60,\"category\":null,\"search\":null,\"story\":\"browse-places\"}}"
+    }
+  ]
+}

@@ -1,6 +1,6 @@
 [package]
 name = "catalyrst-bvimposters"
-version = "0.16.0"
+version = "0.16.1"
 edition = "2021"
 description = "Imposter supply for the bevy-explorer web client: crc-keyed realm-independent zip store with community-CDN read-through and local bake-on-miss"
 

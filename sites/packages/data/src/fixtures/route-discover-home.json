@@ -77,28 +77,28 @@
             "title": "Genesis Plaza",
             "online": 6,
             "image": "https://peer-ec1.decentraland.org/content/contents/bafybeietrfx6arffgapt65jkawued7mcsu75uuloodf3drxbvq2pfpggei",
-            "href": "https://catalyst.example.com/play/?position=-3%2C-2"
+            "href": "https://dcl.one/play/?position=-3%2C-2"
           },
           {
             "id": "3fd69792-b3e1-49c3-8476-482cd42c86d8",
             "title": "Meta GamiMall",
             "online": 4,
             "image": "https://peer-eu1.decentraland.org/content/contents/bafkreiczuewg3pfx3kwc6tmtnzm6qfdr5in7kuux5cjnrfy3owrlk5ejyi",
-            "href": "https://catalyst.example.com/play/?position=1%2C95"
+            "href": "https://dcl.one/play/?position=1%2C95"
           },
           {
             "id": "59cfc6be-d101-47df-aff7-b20067b7b645",
             "title": "WonderMine Crafting Game DCL SDK7",
             "online": 4,
             "image": "https://peer.decentraland.org/content/contents/bafybeia3tkxl35trqzbbxn6pcsi4o7rp7or47tssmapp34pjuihkgu52ua",
-            "href": "https://catalyst.example.com/play/?position=-29%2C55"
+            "href": "https://dcl.one/play/?position=-29%2C55"
           },
           {
             "id": "60fb8d84-8130-42e4-9a34-1210680bf8c1",
             "title": "Grill Master Path",
             "online": 3,
             "image": "https://peer-ec1.decentraland.org/content/contents/bafkreihcnytbcbgqc2m2eehnlgnfmhz3hvkjouupip7zuvpchu6fbz3x5i",
-            "href": "https://catalyst.example.com/play/?position=-150%2C141"
+            "href": "https://dcl.one/play/?position=-150%2C141"
           }
         ]
       },

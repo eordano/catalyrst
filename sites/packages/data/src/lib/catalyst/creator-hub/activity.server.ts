@@ -496,8 +496,8 @@ async function loadPermissionsDatum(
   );
   // `base` is pinned to catalystBase() on purpose. `loadWorldPermissions`
   // otherwise defaults to `worldsBase()`, which rewrites the hostname to
-  // worlds.example.com and 404s every path (verified: catalyst.example.com answers 200
-  // here, worlds.example.com answers 404). Without this the ACL panel would be
+  // worlds.dcl.one and 404s every path (verified: catalyst.dcl.one answers 200
+  // here, worlds.dcl.one answers 404). Without this the ACL panel would be
   // permanently unavailable *and* its note would name an endpoint that was
   // never called — the label and the request must be the same URL.
   const res = await settled(

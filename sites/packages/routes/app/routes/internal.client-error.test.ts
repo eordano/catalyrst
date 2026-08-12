@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { action, normalizeReport } from "./internal.client-error";
 
 function post(body: string): Request {
-  return new Request("https://catalyst.example.com/internal/client-error", {
+  return new Request("https://dcl.one/internal/client-error", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body,
@@ -20,7 +20,7 @@ describe("normalizeReport", () => {
       message: "  boom   happened ",
       name: "TypeError",
       stack: "x".repeat(20000),
-      url: "https://catalyst.example.com/marketplace",
+      url: "https://dcl.one/marketplace",
       ua: "jsdom",
       ts: "2026-07-06T00:00:00.000Z",
     });
@@ -28,11 +28,11 @@ describe("normalizeReport", () => {
     expect(r!.message).toBe("boom happened");
     expect(r!.name).toBe("TypeError");
     expect(r!.stack.length).toBe(8000);
-    expect(r!.url).toBe("https://catalyst.example.com/marketplace");
+    expect(r!.url).toBe("https://dcl.one/marketplace");
   });
 
   it("drops a report with no message and no stack", () => {
-    expect(normalizeReport({ url: "https://catalyst.example.com" })).toBeNull();
+    expect(normalizeReport({ url: "https://dcl.one" })).toBeNull();
     expect(normalizeReport({ message: "   ", stack: "  " })).toBeNull();
     expect(normalizeReport(null)).toBeNull();
     expect(normalizeReport("nope")).toBeNull();
@@ -72,14 +72,14 @@ describe("action (client-error ingest)", () => {
 
   it("rejects non-POST with 405 and records nothing", async () => {
     const res = await action({
-      request: new Request("https://catalyst.example.com/internal/client-error", { method: "GET" }),
+      request: new Request("https://dcl.one/internal/client-error", { method: "GET" }),
     } as unknown as Parameters<typeof action>[0]);
     expect(res.status).toBe(405);
     expect(errSpy).not.toHaveBeenCalled();
   });
 
   it("accepts an empty/no-signal body with 204 and records nothing", async () => {
-    const res = await call(post(JSON.stringify({ url: "https://catalyst.example.com" })));
+    const res = await call(post(JSON.stringify({ url: "https://dcl.one" })));
     expect(res.status).toBe(204);
     expect(errSpy).not.toHaveBeenCalled();
   });

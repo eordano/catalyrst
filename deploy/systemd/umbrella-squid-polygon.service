@@ -1,0 +1,21 @@
+[Unit]
+Description=Umbrella marketplace-squid polygon (L2) processor
+After=network.target umbrella-postgres.service
+StartLimitIntervalSec=0
+Wants=umbrella-postgres.service
+
+[Service]
+Type=exec
+WorkingDirectory=@UMBRELLA_DIR@
+# Fallback first, agenix last so the encrypted copy still wins when present.
+# Both optional: a missing agenix generation must not hard-fail the unit — an
+# empty /run/agenix took both processors down on 2026-07-30.
+EnvironmentFile=-@UMBRELLA_DIR@/env/squid.env
+EnvironmentFile=-/run/agenix/umbrella-squid-env
+ExecStartPre=@UMBRELLA_DIR@/scripts/wait-pg.sh @BINDIR@
+ExecStart=@BINDIR@/squid-polygon
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=umbrella.target

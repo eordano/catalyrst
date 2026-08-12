@@ -1,0 +1,21 @@
+[Unit]
+Description=Umbrella catalyrst-camera-reel (photo reel: upload/list/serve user photos, port 5163)
+After=network.target umbrella-postgres.service umbrella-catalyrst-places.service
+StartLimitIntervalSec=0
+Wants=umbrella-postgres.service
+
+[Service]
+Type=exec
+WorkingDirectory=@UMBRELLA_DIR@
+# Optional: until the YubiKey handover runs this file does not exist, and a
+# non-optional EnvironmentFile fails the unit before ExecStartPre. The
+# env/*.env line below is what actually loads today.
+EnvironmentFile=-/run/agenix/umbrella-catalyrst-camera-reel-env
+EnvironmentFile=-@UMBRELLA_DIR@/env/catalyrst-camera-reel.env
+ExecStartPre=@UMBRELLA_DIR@/scripts/wait-pg.sh @BINDIR@
+ExecStart=@BINDIR@/catalyrst-camera-reel
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=umbrella.target

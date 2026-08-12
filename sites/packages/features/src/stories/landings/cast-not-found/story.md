@@ -107,7 +107,7 @@ sets is coerced to the default) so the readout dimensions stay clean.
 **No data fetch.** This is a static fallback surface. There is nothing to resolve:
 Cast stream links are minted on-demand by the in-scene Admin Smart Item
 (decentraland/unity-explorer + decentraland/cast), so a bare `/cast` (and any
-stale link) has no backing record on the live catalyst (`catalyst.example.com`). All
+stale link) has no backing record on the live catalyst (`catalyst.dcl.one`). All
 copy is verbatim from ui3 `StCastNotFound` (decentraland sites intl
 `page.cast.not_found.*` / `page.cast.app.view_docs`). The CTAs are instrumented on
 the **consumer** side (a delegated `onClick` wrapper) so telemetry fires without

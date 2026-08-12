@@ -141,7 +141,7 @@ export function placeToHotspotItem(p: Place): HotspotRailItem {
     title: p.title ?? "Untitled place",
     online: p.user_count ?? null,
     image: p.image ?? null,
-    href: `https://catalyst.example.com/play/?position=${encodeURIComponent(p.base_position)}`,
+    href: `https://dcl.one/play/?position=${encodeURIComponent(p.base_position)}`,
   };
 }
 

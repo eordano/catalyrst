@@ -1,6 +1,6 @@
 [package]
 name = "catalyrst-conformance"
-version = "0.16.0"
+version = "0.16.1"
 edition = "2021"
 description = "Side-by-side conformance / parity tester for two catalyst hosts (local catalyrst, TS catalyst, public peers, in any combination)"
 

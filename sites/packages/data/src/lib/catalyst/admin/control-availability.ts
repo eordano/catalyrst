@@ -238,7 +238,7 @@ export const ADMIN_CONTROLS = {
       serverCheck:
         "catalyrst-comms/src/handlers/user_bans.rs:241 -> moderator.rs:65-116 authorize_moderator (MODERATOR_TOKEN bearer OR signer in moderator_addresses; rejects the scene signer)",
       fix:
-        "The wallet allowlist IS populated (deploy/env/catalyrst-comms.env:51), so this " +
+        "The wallet allowlist IS populated (umbrella/env/catalyrst-comms.env:51), so this " +
         "gate is live and wallet-satisfiable. But user-bans.ts:135-139 passes " +
         "`signPath: path` — the un-prefixed /users/0x…/bans — while nginx sets " +
         "x-original-path on /comms/ (01-catalyst.conf:127) and catalyrst-crypto " +

@@ -178,7 +178,7 @@ pub async fn get_about(
 /// so anything not named here has to be hardcoded by every client — and a
 /// hardcoded path silently points at whichever node the constant was written
 /// for. That is not hypothetical: bevy-explorer shipped
-/// `catalyst.example.com/comms/get-scene-adapter`, so on this node it minted scene
+/// `catalyst.dcl.one/comms/get-scene-adapter`, so on this node it minted scene
 /// rooms against a different federation entirely, joined a LiveKit the
 /// authoritative server was not in, and every scene showed "Server
 /// Disconnected" while looking healthy from the outside.

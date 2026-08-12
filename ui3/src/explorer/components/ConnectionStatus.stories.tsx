@@ -30,7 +30,7 @@ export const Healthy: Story = {
     <Frame>
       <ConnectionStatus
         connection={{ sceneHealth: "ok", sceneRoom: false, globalRoom: true }}
-        realm="catalyst.example.com"
+        realm="catalyst.dcl.one"
       />
     </Frame>
   ),
@@ -41,7 +41,7 @@ export const Degraded: Story = {
     <Frame>
       <ConnectionStatus
         connection={{ sceneHealth: "error", sceneRoom: true, globalRoom: false }}
-        realm="catalyst.example.com"
+        realm="catalyst.dcl.one"
       />
     </Frame>
   ),

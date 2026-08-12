@@ -1,4 +1,4 @@
-use super::helpers::{page, requests_page_number, SocialError};
+use super::helpers::{page_friendship_requests, page_of, SocialError};
 use super::server::SocialServiceImpl;
 use crate::rpc::context::Context;
 use crate::rpc::db::Db;
@@ -217,7 +217,7 @@ pub(super) async fn friendship_requests(
 ) -> Result<PaginatedFriendshipRequestsResponse, SocialError> {
     let me = SocialServiceImpl::caller(context)?;
     let db = context.server_context.db();
-    let (limit, offset) = page(&request.pagination);
+    let (limit, offset) = page_friendship_requests(&request.pagination);
     let fetched = async {
         let rows = db
             .get_friendship_requests(&me, incoming, limit, offset)
@@ -274,7 +274,7 @@ pub(super) async fn friendship_requests(
         )),
         pagination_data: Some(PaginatedResponse {
             total: total as i32,
-            page: requests_page_number(&request.pagination, total),
+            page: page_of(limit, offset),
         }),
     })
 }
@@ -352,6 +352,133 @@ pub(super) async fn require_moderator(
             message: Some("requires moderator or owner role".into()),
         }))
     }
+}
+
+/// Reads one wallet's tier in one community from the same `community_members` row the REST
+/// paths read. An absent or unrecognised value is [`CommunityMembershipTier::NotAMemberOfThisCommunity`].
+async fn community_tier(
+    db: &Db,
+    community_id: &str,
+    address: &str,
+) -> Result<crate::rest::community_membership_authority::CommunityMembershipTier, SocialError> {
+    use crate::rest::community_membership_authority::CommunityMembershipTier;
+    Ok(match db.community_role(community_id, address).await? {
+        Some(text) => CommunityMembershipTier::parse_role_text_as_stored_in_a_table(&text),
+        None => CommunityMembershipTier::NotAMemberOfThisCommunity,
+    })
+}
+
+/// Privacy-aware participation gate for the self-service community-voice actions — raising a hand
+/// (`request_to_speak`) and self-unmute. Mirrors the reachable half of upstream
+/// `validateCommunityVoiceChatParticipation` (social-service-ea #447).
+///
+/// Enforces the two rules this crate's data model can decide locally: the actor must not be banned,
+/// and a **private** community requires membership while a **public** community admits a guest who
+/// holds no role. In this crate a ban is a `community_members.role = 'banned'` row, so it surfaces
+/// as [`CommunityMembershipTier::BannedFromThisCommunity`] through the shared tier parse.
+///
+/// **OWED divergence:** the room-live check (upstream `getCommunityVoiceChatStatus(communityId)`)
+/// is not ported. Our gatekeeper client exposes only a per-user `is_user_in_community_voice_chat`,
+/// not a per-community room-status endpoint, and this pass does not invent a new external client.
+/// A missing/inactive room is therefore not rejected here.
+pub(super) async fn validate_community_voice_participation(
+    db: &Db,
+    community_id: &str,
+    address: &str,
+) -> Result<Result<(), ForbiddenError>, SocialError> {
+    use crate::rest::community_membership_authority::CommunityMembershipTier;
+
+    let tier = community_tier(db, community_id, address).await?;
+    if tier == CommunityMembershipTier::BannedFromThisCommunity {
+        return Ok(Err(ForbiddenError {
+            message: Some("banned from this community".into()),
+        }));
+    }
+    // Absent privacy (community row gone) defaults to public: there is nothing to protect, and the
+    // owed room-live gate is what would reject a non-existent room.
+    let private = db
+        .community_is_private(community_id)
+        .await?
+        .unwrap_or(false);
+    if private && tier == CommunityMembershipTier::NotAMemberOfThisCommunity {
+        return Ok(Err(ForbiddenError {
+            message: Some("not a community member".into()),
+        }));
+    }
+    Ok(Ok(()))
+}
+
+/// Privacy-aware target-membership gate for the community-voice moderation actions that grant or
+/// move a capability (promote/demote/reject), mirroring upstream
+/// `validateCommunityVoiceChatTargetMembership` (#447). A public community admits any target the
+/// live room already holds — comms-gatekeeper owns presence — while a private community requires
+/// the target to be a member. Called only after the actor has cleared the moderator/owner gate.
+pub(super) async fn validate_community_voice_target_membership(
+    db: &Db,
+    community_id: &str,
+    target: &str,
+) -> Result<Result<(), ForbiddenError>, SocialError> {
+    use crate::rest::community_membership_authority::CommunityMembershipTier;
+
+    let private = db
+        .community_is_private(community_id)
+        .await?
+        .unwrap_or(false);
+    if private {
+        let tier = community_tier(db, community_id, target).await?;
+        if tier == CommunityMembershipTier::NotAMemberOfThisCommunity {
+            return Ok(Err(ForbiddenError {
+                message: Some("not a community member".into()),
+            }));
+        }
+    }
+    Ok(Ok(()))
+}
+
+/// Like [`require_moderator`], but additionally protects the community owner: a voice-room
+/// moderation aimed at the owner is refused unless the actor **is** the owner, mirroring
+/// upstream's `validateCommunityVoiceChatModerator` (social-service-ea #447). A self-action
+/// still bypasses only the owner-protection clause — the capability gate always applies, so a
+/// non-moderator cannot promote/kick/reject even themselves.
+///
+/// `action` is the human-readable verb woven into the refusal message, matching upstream
+/// ("promote speakers", "kick players", ...).
+pub(super) async fn require_moderator_protecting_owner(
+    db: &Db,
+    community_id: &str,
+    actor: &str,
+    target: &str,
+    action: &str,
+) -> Result<Result<(), ForbiddenError>, SocialError> {
+    if let Err(f) = require_moderator(db, community_id, actor).await? {
+        return Ok(Err(f));
+    }
+
+    let is_self_action = actor.trim().to_lowercase() == target.trim().to_lowercase();
+    if is_self_action {
+        return Ok(Ok(()));
+    }
+
+    let actor_tier = community_tier(db, community_id, actor).await?;
+    let target_tier = community_tier(db, community_id, target).await?;
+    if targeting_the_owner_as_a_non_owner(actor_tier, target_tier) {
+        return Ok(Err(ForbiddenError {
+            message: Some(format!("Not enough permissions to {} this user", action)),
+        }));
+    }
+    Ok(Ok(()))
+}
+
+/// The owner-protection predicate, factored out for testing: only the owner may be acted on,
+/// and only by the owner. Peer moderators may still moderate each other, since these actions
+/// are confined to the live room and are reversible. Callers exempt self-actions before this.
+fn targeting_the_owner_as_a_non_owner(
+    actor_tier: crate::rest::community_membership_authority::CommunityMembershipTier,
+    target_tier: crate::rest::community_membership_authority::CommunityMembershipTier,
+) -> bool {
+    use crate::rest::community_membership_authority::CommunityMembershipTier;
+    target_tier == CommunityMembershipTier::OwnerOfThisCommunity
+        && actor_tier != CommunityMembershipTier::OwnerOfThisCommunity
 }
 
 #[cfg(test)]
@@ -563,5 +690,37 @@ mod tests {
             resolve(Some(&last("", ME)), ME, false, false),
             FriendshipStatus::None
         );
+    }
+
+    #[test]
+    fn owner_protection_only_bites_a_non_owner_targeting_the_owner() {
+        use crate::rest::community_membership_authority::CommunityMembershipTier as T;
+
+        // A moderator may not act on the owner.
+        assert!(targeting_the_owner_as_a_non_owner(
+            T::ModeratorOfThisCommunity,
+            T::OwnerOfThisCommunity
+        ));
+        // Neither may a non-member (the capability gate catches this first, but the predicate
+        // must still refuse it).
+        assert!(targeting_the_owner_as_a_non_owner(
+            T::NotAMemberOfThisCommunity,
+            T::OwnerOfThisCommunity
+        ));
+        // The owner may act on the owner (the self-action exemption is applied by the caller,
+        // and an owner acting on an owner is only ever a self-action).
+        assert!(!targeting_the_owner_as_a_non_owner(
+            T::OwnerOfThisCommunity,
+            T::OwnerOfThisCommunity
+        ));
+        // Peer moderators may moderate each other, and anyone privileged may act on a member.
+        assert!(!targeting_the_owner_as_a_non_owner(
+            T::ModeratorOfThisCommunity,
+            T::ModeratorOfThisCommunity
+        ));
+        assert!(!targeting_the_owner_as_a_non_owner(
+            T::ModeratorOfThisCommunity,
+            T::OrdinaryMemberOfThisCommunity
+        ));
     }
 }

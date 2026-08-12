@@ -20,7 +20,7 @@ const PLACE: JumpInPlace = {
 };
 
 const TARGET: LaunchTarget = {
-  launchUrl: "https://catalyst.example.com/play/?position=-3%2C-2&realm=dcl-one",
+  launchUrl: "https://dcl.one/play/?position=-3%2C-2&realm=dcl-one",
   realm: "dcl-one",
 };
 

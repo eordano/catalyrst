@@ -1,5 +1,5 @@
 {
-  "_source": "https://catalyst.example.com/places/api/places?limit=24 (live 200; same surface as /places). Map tile raster is GPU/engine-only — catalyst /v1/tiles and /v2/tiles both 404 on the public edge — so pins render over the ui3 CSS parcel-grid placeholder. Pin rows below are raw catalyst place fields (re-projected by lib/catalyst/map-jump.ts rowToPin) so the fixture and live read stay identical.",
+  "_source": "https://catalyst.dcl.one/places/api/places?limit=24 (live 200; same surface as /places). Map tile raster is GPU/engine-only — catalyst /v1/tiles and /v2/tiles both 404 on the public edge — so pins render over the ui3 CSS parcel-grid placeholder. Pin rows below are raw catalyst place fields (re-projected by lib/catalyst/map-jump.ts rowToPin) so the fixture and live read stay identical.",
   "_fetched_at": "2026-06-23",
   "pins": [
     {

@@ -1,4 +1,8 @@
-use super::super::domain::{fan_community_voice, require_moderator};
+use super::super::domain::{
+    fan_community_voice, require_moderator, require_moderator_protecting_owner,
+    validate_community_voice_participation, validate_community_voice_target_membership,
+};
+use super::super::helpers::normalize;
 use super::super::helpers::SocialError;
 use super::SocialServiceImpl;
 use crate::rpc::context::Context;
@@ -101,20 +105,22 @@ impl SocialServiceImpl {
     ) -> Result<RequestToSpeakInCommunityVoiceChatResponse, SocialError> {
         let me = Self::caller(&context)?;
         let db = context.server_context.db();
-        if db
-            .community_role(&request.community_id, &me)
-            .await?
-            .is_none()
-        {
-            return Ok(RequestToSpeakInCommunityVoiceChatResponse {
-                response: Some(
-                    request_to_speak_in_community_voice_chat_response::Response::ForbiddenError(
-                        ForbiddenError {
-                            message: Some("not a community member".into()),
-                        },
+        // Entitlement gates gaining a capability, never giving one up: only raising a hand runs the
+        // participation gate, so lowering a hand keeps working for someone since banned or gone.
+        // Privacy-aware: a public community admits a guest holding no role (upstream now permits
+        // this); a private community still requires membership; a banned actor is refused.
+        if request.is_raising_hand {
+            if let Err(f) =
+                validate_community_voice_participation(db, &request.community_id, &me).await?
+            {
+                return Ok(RequestToSpeakInCommunityVoiceChatResponse {
+                    response: Some(
+                        request_to_speak_in_community_voice_chat_response::Response::ForbiddenError(
+                            f,
+                        ),
                     ),
-                ),
-            });
+                });
+            }
         }
         let _ = context
             .server_context
@@ -139,7 +145,28 @@ impl SocialServiceImpl {
     ) -> Result<PromoteSpeakerInCommunityVoiceChatResponse, SocialError> {
         let me = Self::caller(&context)?;
         let db = context.server_context.db();
-        if let Err(f) = require_moderator(db, &request.community_id, &me).await? {
+        if let Err(f) = require_moderator_protecting_owner(
+            db,
+            &request.community_id,
+            &me,
+            &request.user_address,
+            "promote speakers",
+        )
+        .await?
+        {
+            return Ok(PromoteSpeakerInCommunityVoiceChatResponse {
+                response: Some(
+                    promote_speaker_in_community_voice_chat_response::Response::ForbiddenError(f),
+                ),
+            });
+        }
+        if let Err(f) = validate_community_voice_target_membership(
+            db,
+            &request.community_id,
+            &request.user_address,
+        )
+        .await?
+        {
             return Ok(PromoteSpeakerInCommunityVoiceChatResponse {
                 response: Some(
                     promote_speaker_in_community_voice_chat_response::Response::ForbiddenError(f),
@@ -169,7 +196,28 @@ impl SocialServiceImpl {
     ) -> Result<DemoteSpeakerInCommunityVoiceChatResponse, SocialError> {
         let me = Self::caller(&context)?;
         let db = context.server_context.db();
-        if let Err(f) = require_moderator(db, &request.community_id, &me).await? {
+        if let Err(f) = require_moderator_protecting_owner(
+            db,
+            &request.community_id,
+            &me,
+            &request.user_address,
+            "demote other speakers",
+        )
+        .await?
+        {
+            return Ok(DemoteSpeakerInCommunityVoiceChatResponse {
+                response: Some(
+                    demote_speaker_in_community_voice_chat_response::Response::ForbiddenError(f),
+                ),
+            });
+        }
+        if let Err(f) = validate_community_voice_target_membership(
+            db,
+            &request.community_id,
+            &request.user_address,
+        )
+        .await?
+        {
             return Ok(DemoteSpeakerInCommunityVoiceChatResponse {
                 response: Some(
                     demote_speaker_in_community_voice_chat_response::Response::ForbiddenError(f),
@@ -199,7 +247,15 @@ impl SocialServiceImpl {
     ) -> Result<KickPlayerFromCommunityVoiceChatResponse, SocialError> {
         let me = Self::caller(&context)?;
         let db = context.server_context.db();
-        if let Err(f) = require_moderator(db, &request.community_id, &me).await? {
+        if let Err(f) = require_moderator_protecting_owner(
+            db,
+            &request.community_id,
+            &me,
+            &request.user_address,
+            "kick players",
+        )
+        .await?
+        {
             return Ok(KickPlayerFromCommunityVoiceChatResponse {
                 response: Some(
                     kick_player_from_community_voice_chat_response::Response::ForbiddenError(f),
@@ -229,7 +285,30 @@ impl SocialServiceImpl {
     ) -> Result<RejectSpeakRequestInCommunityVoiceChatResponse, SocialError> {
         let me = Self::caller(&context)?;
         let db = context.server_context.db();
-        if let Err(f) = require_moderator(db, &request.community_id, &me).await? {
+        if let Err(f) = require_moderator_protecting_owner(
+            db,
+            &request.community_id,
+            &me,
+            &request.user_address,
+            "reject speak requests",
+        )
+        .await?
+        {
+            return Ok(RejectSpeakRequestInCommunityVoiceChatResponse {
+                response: Some(
+                    reject_speak_request_in_community_voice_chat_response::Response::ForbiddenError(
+                        f,
+                    ),
+                ),
+            });
+        }
+        if let Err(f) = validate_community_voice_target_membership(
+            db,
+            &request.community_id,
+            &request.user_address,
+        )
+        .await?
+        {
             return Ok(RejectSpeakRequestInCommunityVoiceChatResponse {
                 response: Some(
                     reject_speak_request_in_community_voice_chat_response::Response::ForbiddenError(
@@ -297,7 +376,34 @@ impl SocialServiceImpl {
     ) -> Result<MuteSpeakerFromCommunityVoiceChatResponse, SocialError> {
         let me = Self::caller(&context)?;
         let db = context.server_context.db();
-        if let Err(f) = require_moderator(db, &request.community_id, &me).await? {
+        // Acting on someone else needs the moderator gate. A self-action does not — but it is not
+        // an unconditional bypass either: only self-UNMUTE gains a capability, so it runs the same
+        // privacy-aware participation gate as request-to-speak (self-mute always works, so that a
+        // member since banned or gone can still silence themselves), mirroring upstream #447.
+        let is_self_action = normalize(&request.user_address) == me;
+        if is_self_action {
+            if !request.muted {
+                if let Err(f) =
+                    validate_community_voice_participation(db, &request.community_id, &me).await?
+                {
+                    return Ok(MuteSpeakerFromCommunityVoiceChatResponse {
+                        response: Some(
+                            mute_speaker_from_community_voice_chat_response::Response::ForbiddenError(
+                                f,
+                            ),
+                        ),
+                    });
+                }
+            }
+        } else if let Err(f) = require_moderator_protecting_owner(
+            db,
+            &request.community_id,
+            &me,
+            &request.user_address,
+            "mute/unmute speakers",
+        )
+        .await?
+        {
             return Ok(MuteSpeakerFromCommunityVoiceChatResponse {
                 response: Some(
                     mute_speaker_from_community_voice_chat_response::Response::ForbiddenError(f),

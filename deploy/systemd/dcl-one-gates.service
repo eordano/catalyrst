@@ -1,0 +1,14 @@
+[Unit]
+Description=dcl-one drift gates (check-all + both ts-rs halves over the served tree; red = a change would ship broken)
+After=network.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=oneshot
+WorkingDirectory=@REPO_DIR@
+Environment=PATH=/run/current-system/sw/bin:/usr/bin:/bin
+ExecStart=@REPO_DIR@/umbrella/scripts/gates-run.sh
+# Cold runs evaluate two devShells and can rebuild the catalyrst workspace from
+# scratch; warm runs are minutes. Budget for cold rather than fail a true verdict.
+TimeoutStartSec=3600
+Nice=10

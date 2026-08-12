@@ -1,0 +1,20 @@
+[Unit]
+Description=Umbrella catalyrst-archipelago (clustering + ws-connector + stats, port 5139)
+After=network.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=exec
+WorkingDirectory=@UMBRELLA_DIR@
+# Optional: until the YubiKey handover runs this file does not exist, and a
+# non-optional EnvironmentFile fails the unit before ExecStartPre. The
+# env/*.env line below is what actually loads today.
+EnvironmentFile=-/run/agenix/umbrella-catalyrst-archipelago-env
+EnvironmentFile=-@UMBRELLA_DIR@/env/catalyrst-archipelago.env
+EnvironmentFile=@UMBRELLA_DIR@/env/catalyrst-archipelago.env
+ExecStart=@BINDIR@/catalyrst-archipelago
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=umbrella.target

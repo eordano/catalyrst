@@ -1,0 +1,18 @@
+[Unit]
+Description=Run the upstream-parity sweep weekly
+
+[Timer]
+# OnCalendar, not OnUnitActiveSec: a FAILED oneshot never goes active, so
+# OnUnitActiveSec silently stops re-arming after the first red run — the bug
+# that killed umbrella-smoke's cadence on 2026-07-08. This unit goes red on a
+# held lock by design, so that trap would bite it immediately.
+# Monday 07:14 keeps it clear of umbrella-smoke (:06), dcl-one-gates (:22) and
+# lore-drift-check (:52), and off the :00 mark everything else piles onto.
+OnCalendar=Mon *-*-* 07:14:00
+# saturn lost power three times on 2026-07-29. Persistent=true runs a missed
+# sweep once the box is back rather than skipping the week silently.
+Persistent=true
+Unit=dcl-parity-sweep.service
+
+[Install]
+WantedBy=timers.target

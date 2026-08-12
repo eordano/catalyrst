@@ -12,7 +12,7 @@
       "price": "999",
       "rarity": "unique",
       "network": "polygon",
-      "image": "https://catalyst.example.com/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0x023a73d1cf10ed196f39700312a498b27c36e88e:0/thumbnail"
+      "image": "https://catalyst.dcl.one/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0x023a73d1cf10ed196f39700312a498b27c36e88e:0/thumbnail"
     },
     {
       "id": "0xf3db9b37b791890443a15cd16423f4e35c82d513-39",
@@ -21,7 +21,7 @@
       "price": null,
       "rarity": "rare",
       "network": "polygon",
-      "image": "https://catalyst.example.com/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0xf3db9b37b791890443a15cd16423f4e35c82d513:0/thumbnail"
+      "image": "https://catalyst.dcl.one/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0xf3db9b37b791890443a15cd16423f4e35c82d513:0/thumbnail"
     },
     {
       "id": "0x2ff26b63653c4d390472a0b263822965ce923f0d-189",
@@ -30,7 +30,7 @@
       "price": "100",
       "rarity": "epic",
       "network": "polygon",
-      "image": "https://catalyst.example.com/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0x2ff26b63653c4d390472a0b263822965ce923f0d:0/thumbnail"
+      "image": "https://catalyst.dcl.one/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0x2ff26b63653c4d390472a0b263822965ce923f0d:0/thumbnail"
     },
     {
       "id": "0xa51ad64dd372eb44573fe1a7c22f315cd3f7a577-9",
@@ -39,7 +39,7 @@
       "price": null,
       "rarity": "exotic",
       "network": "polygon",
-      "image": "https://catalyst.example.com/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0xa51ad64dd372eb44573fe1a7c22f315cd3f7a577:0/thumbnail"
+      "image": "https://catalyst.dcl.one/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0xa51ad64dd372eb44573fe1a7c22f315cd3f7a577:0/thumbnail"
     },
     {
       "id": "0xbdf24869d59f36e3c1b312181b08f7f623d79441-101",
@@ -48,7 +48,7 @@
       "price": null,
       "rarity": "rare",
       "network": "polygon",
-      "image": "https://catalyst.example.com/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0xbdf24869d59f36e3c1b312181b08f7f623d79441:0/thumbnail"
+      "image": "https://catalyst.dcl.one/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0xbdf24869d59f36e3c1b312181b08f7f623d79441:0/thumbnail"
     },
     {
       "id": "0x89279ede6280cf64a6cf9b4b88d9ea852dfa93a4-82",
@@ -57,7 +57,7 @@
       "price": "50",
       "rarity": "legendary",
       "network": "polygon",
-      "image": "https://catalyst.example.com/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0x89279ede6280cf64a6cf9b4b88d9ea852dfa93a4:0/thumbnail"
+      "image": "https://catalyst.dcl.one/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0x89279ede6280cf64a6cf9b4b88d9ea852dfa93a4:0/thumbnail"
     },
     {
       "id": "0xc310120b36d9ecdca1e318497254e204cd21c70f-72",
@@ -66,7 +66,7 @@
       "price": "60",
       "rarity": "epic",
       "network": "polygon",
-      "image": "https://catalyst.example.com/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0xc310120b36d9ecdca1e318497254e204cd21c70f:0/thumbnail"
+      "image": "https://catalyst.dcl.one/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0xc310120b36d9ecdca1e318497254e204cd21c70f:0/thumbnail"
     },
     {
       "id": "0x844a933934fba88434dfade0b04b1d211e92d7c4-650",
@@ -75,7 +75,7 @@
       "price": "500",
       "rarity": "rare",
       "network": "polygon",
-      "image": "https://catalyst.example.com/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0x844a933934fba88434dfade0b04b1d211e92d7c4:0/thumbnail"
+      "image": "https://catalyst.dcl.one/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0x844a933934fba88434dfade0b04b1d211e92d7c4:0/thumbnail"
     },
     {
       "id": "0x844a933934fba88434dfade0b04b1d211e92d7c4-647",
@@ -84,7 +84,7 @@
       "price": "500",
       "rarity": "rare",
       "network": "polygon",
-      "image": "https://catalyst.example.com/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0x844a933934fba88434dfade0b04b1d211e92d7c4:0/thumbnail"
+      "image": "https://catalyst.dcl.one/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0x844a933934fba88434dfade0b04b1d211e92d7c4:0/thumbnail"
     },
     {
       "id": "0x844a933934fba88434dfade0b04b1d211e92d7c4-651",
@@ -93,7 +93,7 @@
       "price": "500",
       "rarity": "rare",
       "network": "polygon",
-      "image": "https://catalyst.example.com/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0x844a933934fba88434dfade0b04b1d211e92d7c4:0/thumbnail"
+      "image": "https://catalyst.dcl.one/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0x844a933934fba88434dfade0b04b1d211e92d7c4:0/thumbnail"
     },
     {
       "id": "0x844a933934fba88434dfade0b04b1d211e92d7c4-633",
@@ -102,7 +102,7 @@
       "price": "500",
       "rarity": "rare",
       "network": "polygon",
-      "image": "https://catalyst.example.com/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0x844a933934fba88434dfade0b04b1d211e92d7c4:0/thumbnail"
+      "image": "https://catalyst.dcl.one/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0x844a933934fba88434dfade0b04b1d211e92d7c4:0/thumbnail"
     },
     {
       "id": "0x844a933934fba88434dfade0b04b1d211e92d7c4-644",
@@ -111,7 +111,7 @@
       "price": "500",
       "rarity": "rare",
       "network": "polygon",
-      "image": "https://catalyst.example.com/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0x844a933934fba88434dfade0b04b1d211e92d7c4:0/thumbnail"
+      "image": "https://catalyst.dcl.one/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0x844a933934fba88434dfade0b04b1d211e92d7c4:0/thumbnail"
     }
   ],
   "ownedTotal": 1531,

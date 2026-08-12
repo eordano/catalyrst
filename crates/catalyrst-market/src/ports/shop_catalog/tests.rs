@@ -1,10 +1,13 @@
 use super::component::{network_and_chain, top_level_category};
 use super::sql::{
     build_importable_listings_sql, build_legacy_listings_sql, build_shop_listings_sql,
-    credits_to_wei, escape_like, to_credits, Bind, ASSET_TYPE_ERC20, ASSET_TYPE_USD_PEGGED_MANA,
-    USD_WEI_PER_CREDIT,
+    build_top_creators_sql, credits_to_wei, escape_like, to_credits, Bind, ASSET_TYPE_ERC20,
+    ASSET_TYPE_USD_PEGGED_MANA, USD_WEI_PER_CREDIT,
 };
-use super::types::{parse_shop_filters, LegacyCatalogFilters, ShopCatalogFilters, ShopSortBy};
+use super::types::{
+    parse_shop_filters, LegacyCatalogFilters, ShopCatalogFilters, ShopSortBy,
+    TOP_CREATORS_MAX_DAYS, TOP_CREATORS_MAX_LIMIT, TOP_CREATORS_MIN_DAYS, TOP_CREATORS_MIN_LIMIT,
+};
 use super::unified::{
     build_reference_item_sql, build_related_items_sql, build_unified_items_sql,
     build_unified_listings_sql, parse_unified_filters, parse_unified_group_by,
@@ -1271,4 +1274,60 @@ fn related_inherits_the_overflow_bound_and_trade_over_store_tiebreak_from_the_co
         price < tie,
         "trade-over-store tiebreak must follow price: {sql}"
     );
+}
+
+/// The creator rail attributes a sale to whoever CREATED the item, joining
+/// `sale.item_id = item.id` — the whole point, since the seller-attribution
+/// ranking never counts a primary mint (marketplace-server #389).
+#[test]
+fn top_creators_attributes_to_the_item_creator() {
+    let (sql, _) = build_top_creators_sql(None, None);
+    assert!(sql.contains("item.creator AS creator"), "{sql}");
+    assert!(sql.contains("GROUP BY item.creator"), "{sql}");
+    assert!(sql.contains("item.id = sale.item_id"), "{sql}");
+    assert!(
+        sql.contains("ORDER BY sales DESC, item.creator ASC"),
+        "{sql}"
+    );
+    // Sales with no item cannot be attributed; unapproved collections are not
+    // browsable so their creators are not introducible.
+    assert!(sql.contains("sale.item_id IS NOT NULL"), "{sql}");
+    assert!(
+        sql.contains("item.search_is_collection_approved = true"),
+        "{sql}"
+    );
+}
+
+/// The window is bound as a unix SECONDS anchor (not milliseconds) and both the
+/// row count and window are clamped to the supported range.
+#[test]
+fn top_creators_binds_a_seconds_window_and_clamps() {
+    use crate::ports::trendings::midnight_days_ago;
+
+    // Defaults: 30-day window (seconds), 30-row limit.
+    let (_, binds) = build_top_creators_sql(None, None);
+    let ints = bind_ints(&binds);
+    let expected_default = midnight_days_ago(30);
+    assert!(ints.contains(&expected_default), "seconds window: {ints:?}");
+    // A milliseconds bound would be ~1000x larger and match every sale ever.
+    assert!(!ints.contains(&(expected_default * 1000)), "{ints:?}");
+    assert!(ints.contains(&30), "default row limit: {ints:?}");
+
+    // Over the max clamps to the max window + max rows.
+    let (_, binds) = build_top_creators_sql(Some(9999), Some(9999));
+    let ints = bind_ints(&binds);
+    assert!(
+        ints.contains(&midnight_days_ago(TOP_CREATORS_MAX_DAYS)),
+        "{ints:?}"
+    );
+    assert!(ints.contains(&TOP_CREATORS_MAX_LIMIT), "{ints:?}");
+
+    // Under the min clamps to the min window + min rows.
+    let (_, binds) = build_top_creators_sql(Some(0), Some(0));
+    let ints = bind_ints(&binds);
+    assert!(
+        ints.contains(&midnight_days_ago(TOP_CREATORS_MIN_DAYS)),
+        "{ints:?}"
+    );
+    assert!(ints.contains(&TOP_CREATORS_MIN_LIMIT), "{ints:?}");
 }

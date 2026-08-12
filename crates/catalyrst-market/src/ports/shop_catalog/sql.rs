@@ -1,8 +1,9 @@
 use super::types::{
-    LegacyCatalogFilters, ShopCatalogFilters, ShopSortBy, SHOP_DEFAULT_PAGE_SIZE,
-    SHOP_MAX_PAGE_SIZE, SHOP_MIN_PAGE_SIZE,
+    top_creators_clamp_days, top_creators_clamp_first, LegacyCatalogFilters, ShopCatalogFilters,
+    ShopSortBy, SHOP_DEFAULT_PAGE_SIZE, SHOP_MAX_PAGE_SIZE, SHOP_MIN_PAGE_SIZE,
 };
 use crate::logic::sql_filters::where_from;
+use crate::ports::trendings::midnight_days_ago;
 use crate::MARKETPLACE_SQUID_SCHEMA;
 
 pub(super) const ASSET_TYPE_USD_PEGGED_MANA: i64 = 2;
@@ -76,6 +77,36 @@ pub(super) fn emit(b: Bind, bs: &mut Vec<Bind>, idx: &mut usize) -> String {
     let s = format!("${}", *idx);
     *idx += 1;
     s
+}
+
+/// The shop's creator rail (`/v3/catalog/creators`, marketplace-server #389):
+/// creators ranked by how many of THEIR items sold in the window, attributing
+/// each sale to `item.creator` via the `sale.item_id = item.id` join rather than
+/// to the seller (which a primary mint never reaches — see [`super::types::TopCreator`]).
+/// `sale.timestamp` is unix SECONDS, so the window anchor is bound as seconds.
+pub(super) fn build_top_creators_sql(first: Option<i64>, days: Option<i64>) -> (String, Vec<Bind>) {
+    let first = top_creators_clamp_first(first);
+    let from_seconds = midnight_days_ago(top_creators_clamp_days(days));
+
+    let mut binds: Vec<Bind> = Vec::new();
+    let mut next_idx = 1usize;
+    let from_p = emit(Bind::Int(from_seconds), &mut binds, &mut next_idx);
+    let limit_p = emit(Bind::Int(first), &mut binds, &mut next_idx);
+
+    let sql = format!(
+        "SELECT item.creator AS creator, COUNT(*)::int8 AS sales\n\
+         FROM {schema}.sale sale\n\
+         JOIN {schema}.item item ON item.id = sale.item_id\n\
+         WHERE sale.timestamp > {from_p}\n\
+           AND sale.item_id IS NOT NULL\n\
+           AND item.search_is_collection_approved = true\n\
+         GROUP BY item.creator\n\
+         ORDER BY sales DESC, item.creator ASC\n\
+         LIMIT {limit_p}",
+        schema = MARKETPLACE_SQUID_SCHEMA,
+    );
+
+    (sql, binds)
 }
 
 /// The metadata joins, keyed off whatever relation is aliased `mv`. Split out

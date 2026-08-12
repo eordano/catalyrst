@@ -16,5 +16,5 @@ export function searchHref(path: StaticRoutePath, params: Record<string, string>
 }
 
 export function playUrl(position: string): string {
-  return `https://catalyst.example.com/play/?position=${encodeURIComponent(position)}`;
+  return `https://dcl.one/play/?position=${encodeURIComponent(position)}`;
 }

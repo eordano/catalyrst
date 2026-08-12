@@ -47,7 +47,7 @@ const VOTE_STORY = makeStory([
 ]);
 
 function requestWithSid(sid: string): Request {
-  return new Request("https://sites.example.com/", {
+  return new Request("https://sites.dcl.one/", {
     headers: { cookie: `sid=${sid}` },
   });
 }

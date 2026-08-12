@@ -25,7 +25,7 @@ type Opts = {
 
 function parseArgs(argv: string[]): Opts {
   const opts: Opts = {
-    base: "https://catalyst.example.com",
+    base: "https://catalyst.dcl.one",
     sbBase: "http://localhost:5006",
     update: false,
     viewports: [[1440, 900]],

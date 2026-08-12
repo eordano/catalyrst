@@ -1,7 +1,7 @@
 import type { PurchaseIntentIn as RsPurchaseIntentIn } from "@ui/generated/catalyst/credits/PurchaseIntentIn";
 
 
-export const PURCHASE_INTENT_DOMAIN_NAME = "catalyst.example.com Checkout";
+export const PURCHASE_INTENT_DOMAIN_NAME = "dcl.one Checkout";
 export const PURCHASE_INTENT_DOMAIN_VERSION = "1";
 export const PURCHASE_INTENT_CHAIN_ID = 137;
 export const PURCHASE_INTENT_CURRENCY = "CREDITS";

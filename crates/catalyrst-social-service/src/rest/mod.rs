@@ -10,6 +10,7 @@ pub mod handlers;
 pub mod http;
 pub mod openapi;
 pub mod ports;
+pub mod thumbnail_signature;
 pub mod validate;
 
 pub use openapi::api_router_with_spec;

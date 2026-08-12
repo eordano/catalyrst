@@ -1,7 +1,9 @@
+use std::collections::HashSet;
 use std::io::Write;
+use std::sync::{LazyLock, Mutex};
 
 use sqlx::PgPool;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 use crate::snapshots_repository::{self, SnapshotMetadata, TimeRange};
 
@@ -45,6 +47,109 @@ pub fn divide_time_in_years_months_weeks_and_days(
 
     let remainder = TimeRange::new(init_interval, time_range.end_timestamp);
     (intervals, remainder)
+}
+
+/// Hashes whose stored bytes have been re-read and matched during this process's life.
+///
+/// Content-addressed storage is immutable, so a match is permanent — the file under a key cannot
+/// change, so the verdict cannot expire. Re-deriving it every cycle would mean re-reading every
+/// reused snapshot, gigabytes an hour, to learn the same fact.
+static VERIFIED: LazyLock<Mutex<HashSet<String>>> = LazyLock::new(|| Mutex::new(HashSet::new()));
+
+fn remember_verified(hash: &str) {
+    if let Ok(mut seen) = VERIFIED.lock() {
+        seen.insert(hash.to_owned());
+    }
+}
+
+fn already_verified(hash: &str) -> bool {
+    VERIFIED
+        .lock()
+        .map(|seen| seen.contains(hash))
+        .unwrap_or(false)
+}
+
+/// The metadata to reuse for `candidate`, or `None` when the interval has to be regenerated.
+///
+/// Reuse is the one path that republishes a hash without recomputing it, so it is the one path that
+/// has to check. `exist()` answers "is there a file at this key", which is not the same question: a
+/// bulk import in 2026-05 wrote five snapshots whose CIDs it had computed with a broken multi-level
+/// DAG, and because those intervals are frozen history the reuse gate re-advertised them every cycle
+/// for months. Every peer that fetched one got bytes that did not hash to the CID we had named, and
+/// rejected the payload.
+///
+/// When bytes and key disagree the bytes are the truth — the snapshot is good and only its name is
+/// wrong, so this re-keys rather than throwing away valid content.
+async fn reusable_snapshot(
+    pool: &PgPool,
+    content_storage: &catalyrst_storage::ContentStorage,
+    candidate: &SnapshotMetadata,
+) -> Option<SnapshotMetadata> {
+    let advertised = candidate.hash.as_deref()?;
+
+    if already_verified(advertised) {
+        return Some(candidate.clone());
+    }
+
+    let actual = match content_storage.stored_content_hash(advertised).await {
+        Ok(Some(actual)) => actual,
+        Ok(None) => return None,
+        Err(e) => {
+            error!(hash = advertised, %e, "Failed to read snapshot content to verify its hash");
+            return None;
+        }
+    };
+
+    if actual == advertised {
+        remember_verified(advertised);
+        return Some(candidate.clone());
+    }
+
+    warn!(
+        advertised,
+        actual, "Stored snapshot does not hash to its advertised CID; re-keying"
+    );
+
+    // Renamed before the row moves: a crash in between leaves the row pointing at a key that is now
+    // absent, which regenerates on the next cycle. The other order would leave the wrong CID still
+    // serving its mismatched bytes, which is the defect itself.
+    match content_storage.rekey(advertised, &actual).await {
+        Ok(true) => {}
+        Ok(false) => return None,
+        Err(e) => {
+            error!(advertised, actual, %e, "Failed to re-key snapshot content");
+            return None;
+        }
+    }
+
+    match snapshots_repository::update_snapshot_hash(
+        pool,
+        candidate.time_range,
+        advertised,
+        &actual,
+    )
+    .await
+    {
+        Ok(true) => {}
+        Ok(false) => {
+            warn!(
+                advertised,
+                "Snapshot row already moved by another writer; regenerating"
+            );
+            return None;
+        }
+        Err(e) => {
+            error!(advertised, actual, %e, "Failed to re-key snapshot row");
+            return None;
+        }
+    }
+
+    remember_verified(&actual);
+
+    Some(SnapshotMetadata {
+        hash: Some(actual),
+        ..candidate.clone()
+    })
 }
 
 pub async fn generate_snapshot(
@@ -146,14 +251,11 @@ pub async fn generate_snapshots_multi(
         let mut reused: Option<SnapshotMetadata> = None;
         if exact.len() == 1 {
             let candidate = exact[0];
-            if let Some(h) = &candidate.hash {
-                let stored = content_storage.exist(h).await.unwrap_or(false);
-                let outdated = snapshots_repository::snapshot_is_outdated(pool, candidate)
-                    .await
-                    .unwrap_or(true);
-                if stored && !outdated {
-                    reused = Some(candidate.clone());
-                }
+            let outdated = snapshots_repository::snapshot_is_outdated(pool, candidate)
+                .await
+                .unwrap_or(true);
+            if !outdated {
+                reused = reusable_snapshot(pool, content_storage, candidate).await;
             }
         }
 

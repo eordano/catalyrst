@@ -8,7 +8,7 @@
   outputs = { self, nixpkgs, ui3 }:
     let
       # The `sites` server package (a buildNpmPackage whose react-router-serve
-      # output is deployed as a Linux systemd unit by the deployment) stays pinned to
+      # output is deployed as a Linux systemd unit by umbrella) stays pinned to
       # the Linux systems below. The dev shell, however, evaluates on every
       # default system — notably aarch64-darwin, so `nix develop ~/one/catalyrst/sites`
       # works on this Mac.
@@ -37,7 +37,7 @@
             #   nix run nixpkgs#prefetch-npm-deps -- catalyrst/sites/package-lock.json
             # A stale value fails the build with "npmDepsHash is out of date", and
             # because `nix profile upgrade` is all-or-nothing that aborts the whole
-            # the deployment profile transaction — so the entire prod stack silently stops
+            # umbrella profile transaction — so the entire prod stack silently stops
             # tracking source. That is half of how prod ended up 407 commits behind
             # by 2026-07-27; the other half was a retired catalyrst-registry entry
             # still installed in the profile.

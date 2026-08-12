@@ -6,7 +6,7 @@
 //! [`catalyrst_fed::FederationRegistry::from_file`] is well built and, before this
 //! module, was never called anywhere in the workspace. `PeerCert::mtls_root_pem` was
 //! declared and never read. `PeerCert::gossip_pubkey` was declared and never read.
-//! The shipped `deploy/config/federation-peers.toml` has been sitting on disk
+//! The shipped `umbrella/config/federation-peers.toml` has been sitting on disk
 //! containing a `TODO:` placeholder that nothing would have rejected, because nothing
 //! looked. An allowlist nobody consults is not an allowlist; it is a comment that
 //! costs a file.

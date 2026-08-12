@@ -41,7 +41,7 @@ decision:
 
 The visitor opens a public member profile at `/profile/:address`. The page
 attempts the LIVE catalyst lambdas profile entity
-(`GET https://catalyst.example.com/lambdas/profile/{address}` ->
+(`GET https://catalyst.dcl.one/lambdas/profile/{address}` ->
 `{ avatars: Avatar[], timestamp }`, the deployed Profile/Avatar shape from
 decentraland/schemas `src/platform/profile/{profile,avatar}.ts`) and, when that
 is empty/unreachable, falls back to the bundled fixture

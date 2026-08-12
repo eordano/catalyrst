@@ -26,9 +26,9 @@ describe("config resolution", () => {
 
   test("sign proxy defaults to the same-origin sites route", () => {
     expect(thirdwebSignProxyUrl()).toBe("/internal/thirdweb-sign");
-    window.__DCL_PUBLIC__ = { thirdwebSignProxy: "https://catalyst.example.com/internal/thirdweb-sign" };
+    window.__DCL_PUBLIC__ = { thirdwebSignProxy: "https://catalyst.dcl.one/internal/thirdweb-sign" };
     expect(thirdwebSignProxyUrl()).toBe(
-      "https://catalyst.example.com/internal/thirdweb-sign",
+      "https://catalyst.dcl.one/internal/thirdweb-sign",
     );
   });
 });

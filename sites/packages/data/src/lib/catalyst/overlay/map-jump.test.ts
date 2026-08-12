@@ -107,7 +107,7 @@ describe("findPinByCoords", () => {
 describe("buildJumpUrl", () => {
   it("uses a LITERAL comma for genesis-city parcels (no %2C)", () => {
     const pin = pinFromRaw({ id: "a", base_position: "12,-7" });
-    expect(buildJumpUrl(pin)).toBe("https://catalyst.example.com/play/?position=12,-7");
+    expect(buildJumpUrl(pin)).toBe("https://dcl.one/play/?position=12,-7");
   });
   it("uses realm for Worlds", () => {
     const pin = pinFromRaw({
@@ -116,7 +116,7 @@ describe("buildJumpUrl", () => {
       world: true,
       world_name: "my-world.dcl.eth",
     });
-    expect(buildJumpUrl(pin)).toBe("https://catalyst.example.com/play/?realm=my-world.dcl.eth");
+    expect(buildJumpUrl(pin)).toBe("https://dcl.one/play/?realm=my-world.dcl.eth");
   });
 });
 

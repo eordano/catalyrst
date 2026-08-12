@@ -61,7 +61,7 @@ the legacy `src/pages/debug.tsx` Admin/Debug panels).
   `giveAndRevokeLandOwnerBadges`, `giveTopVoterBadges`,
   `restoreMissingUpdatesForumPost`).
 
-Both `/governance/*` paths 404 on `https://catalyst.example.com` today (the crate is
+Both `/governance/*` paths 404 on `https://catalyst.dcl.one` today (the crate is
 staged but not yet deployed), so the loader degrades to
 `app/fixtures/admin-debug-console.json`. The fetcher never throws.
 

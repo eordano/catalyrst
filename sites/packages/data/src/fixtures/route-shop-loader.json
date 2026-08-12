@@ -17,7 +17,7 @@
       "credits": null,
       "rarity": "common",
       "network": "polygon",
-      "image": "https://catalyst.example.com/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0x66194b1abcbfbedd83841775404b245c8f9e4183:2/thumbnail"
+      "image": "https://catalyst.dcl.one/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0x66194b1abcbfbedd83841775404b245c8f9e4183:2/thumbnail"
     },
     {
       "id": "0x7ca53130fe63099f15e21022cbbc6b988a8863df-3",
@@ -27,7 +27,7 @@
       "credits": null,
       "rarity": "rare",
       "network": "polygon",
-      "image": "https://catalyst.example.com/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0x7ca53130fe63099f15e21022cbbc6b988a8863df:3/thumbnail"
+      "image": "https://catalyst.dcl.one/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0x7ca53130fe63099f15e21022cbbc6b988a8863df:3/thumbnail"
     },
     {
       "id": "0x7ca53130fe63099f15e21022cbbc6b988a8863df-0",
@@ -37,7 +37,7 @@
       "credits": null,
       "rarity": "rare",
       "network": "polygon",
-      "image": "https://catalyst.example.com/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0x7ca53130fe63099f15e21022cbbc6b988a8863df:0/thumbnail"
+      "image": "https://catalyst.dcl.one/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0x7ca53130fe63099f15e21022cbbc6b988a8863df:0/thumbnail"
     },
     {
       "id": "0xf7733f9c8b22e2cd8dbd4ca9acd9666a6ab2f092-0",
@@ -47,7 +47,7 @@
       "credits": null,
       "rarity": "rare",
       "network": "polygon",
-      "image": "https://catalyst.example.com/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0xf7733f9c8b22e2cd8dbd4ca9acd9666a6ab2f092:0/thumbnail"
+      "image": "https://catalyst.dcl.one/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0xf7733f9c8b22e2cd8dbd4ca9acd9666a6ab2f092:0/thumbnail"
     },
     {
       "id": "0xf7733f9c8b22e2cd8dbd4ca9acd9666a6ab2f092-2",
@@ -57,7 +57,7 @@
       "credits": null,
       "rarity": "rare",
       "network": "polygon",
-      "image": "https://catalyst.example.com/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0xf7733f9c8b22e2cd8dbd4ca9acd9666a6ab2f092:2/thumbnail"
+      "image": "https://catalyst.dcl.one/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0xf7733f9c8b22e2cd8dbd4ca9acd9666a6ab2f092:2/thumbnail"
     },
     {
       "id": "0xfc7ac322c93c990016c3bac209ac6dc3341dfa73-2",
@@ -67,7 +67,7 @@
       "credits": null,
       "rarity": "rare",
       "network": "polygon",
-      "image": "https://catalyst.example.com/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0xfc7ac322c93c990016c3bac209ac6dc3341dfa73:2/thumbnail"
+      "image": "https://catalyst.dcl.one/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0xfc7ac322c93c990016c3bac209ac6dc3341dfa73:2/thumbnail"
     },
     {
       "id": "0xfc7ac322c93c990016c3bac209ac6dc3341dfa73-0",
@@ -77,7 +77,7 @@
       "credits": null,
       "rarity": "rare",
       "network": "polygon",
-      "image": "https://catalyst.example.com/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0xfc7ac322c93c990016c3bac209ac6dc3341dfa73:0/thumbnail"
+      "image": "https://catalyst.dcl.one/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0xfc7ac322c93c990016c3bac209ac6dc3341dfa73:0/thumbnail"
     },
     {
       "id": "0x2446291de7975872a93ecbdaaf229156362300f1-0",
@@ -87,7 +87,7 @@
       "credits": null,
       "rarity": "rare",
       "network": "polygon",
-      "image": "https://catalyst.example.com/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0x2446291de7975872a93ecbdaaf229156362300f1:0/thumbnail"
+      "image": "https://catalyst.dcl.one/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0x2446291de7975872a93ecbdaaf229156362300f1:0/thumbnail"
     },
     {
       "id": "0x2446291de7975872a93ecbdaaf229156362300f1-1",
@@ -97,7 +97,7 @@
       "credits": null,
       "rarity": "rare",
       "network": "polygon",
-      "image": "https://catalyst.example.com/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0x2446291de7975872a93ecbdaaf229156362300f1:1/thumbnail"
+      "image": "https://catalyst.dcl.one/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0x2446291de7975872a93ecbdaaf229156362300f1:1/thumbnail"
     },
     {
       "id": "0x2446291de7975872a93ecbdaaf229156362300f1-2",
@@ -107,7 +107,7 @@
       "credits": null,
       "rarity": "rare",
       "network": "polygon",
-      "image": "https://catalyst.example.com/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0x2446291de7975872a93ecbdaaf229156362300f1:2/thumbnail"
+      "image": "https://catalyst.dcl.one/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0x2446291de7975872a93ecbdaaf229156362300f1:2/thumbnail"
     },
     {
       "id": "0x2446291de7975872a93ecbdaaf229156362300f1-3",
@@ -117,7 +117,7 @@
       "credits": null,
       "rarity": "rare",
       "network": "polygon",
-      "image": "https://catalyst.example.com/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0x2446291de7975872a93ecbdaaf229156362300f1:3/thumbnail"
+      "image": "https://catalyst.dcl.one/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0x2446291de7975872a93ecbdaaf229156362300f1:3/thumbnail"
     },
     {
       "id": "0x0e075b87aad63920bdb5a0d4a07b2e026d106462-0",
@@ -127,7 +127,7 @@
       "credits": null,
       "rarity": "rare",
       "network": "polygon",
-      "image": "https://catalyst.example.com/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0x0e075b87aad63920bdb5a0d4a07b2e026d106462:0/thumbnail"
+      "image": "https://catalyst.dcl.one/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0x0e075b87aad63920bdb5a0d4a07b2e026d106462:0/thumbnail"
     }
   ],
   "topCards": [
@@ -139,7 +139,7 @@
       "credits": null,
       "rarity": "legendary",
       "network": "polygon",
-      "image": "https://catalyst.example.com/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0xf61d27b7899d2641b02c56f4617f2d01f63f7ee5:3/thumbnail"
+      "image": "https://catalyst.dcl.one/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0xf61d27b7899d2641b02c56f4617f2d01f63f7ee5:3/thumbnail"
     },
     {
       "id": "0xd14026bf5e455f3487dc57cbff3d408d4c11949f-1",
@@ -149,7 +149,7 @@
       "credits": null,
       "rarity": "epic",
       "network": "polygon",
-      "image": "https://catalyst.example.com/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0xd14026bf5e455f3487dc57cbff3d408d4c11949f:1/thumbnail"
+      "image": "https://catalyst.dcl.one/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0xd14026bf5e455f3487dc57cbff3d408d4c11949f:1/thumbnail"
     },
     {
       "id": "0xddc05f2ca687ae48d4efc013b41f21284605327e-0",
@@ -159,7 +159,7 @@
       "credits": null,
       "rarity": "exotic",
       "network": "polygon",
-      "image": "https://catalyst.example.com/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0xddc05f2ca687ae48d4efc013b41f21284605327e:0/thumbnail"
+      "image": "https://catalyst.dcl.one/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0xddc05f2ca687ae48d4efc013b41f21284605327e:0/thumbnail"
     },
     {
       "id": "0x89841f4ca30b48d5a7574f02b3d84049fe4b4d7b-1",
@@ -169,7 +169,7 @@
       "credits": null,
       "rarity": "rare",
       "network": "polygon",
-      "image": "https://catalyst.example.com/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0x89841f4ca30b48d5a7574f02b3d84049fe4b4d7b:1/thumbnail"
+      "image": "https://catalyst.dcl.one/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0x89841f4ca30b48d5a7574f02b3d84049fe4b4d7b:1/thumbnail"
     },
     {
       "id": "0x2c363fb15c0f98e26add137dcacf24463915095b-2",
@@ -179,7 +179,7 @@
       "credits": null,
       "rarity": "common",
       "network": "polygon",
-      "image": "https://catalyst.example.com/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0x2c363fb15c0f98e26add137dcacf24463915095b:2/thumbnail"
+      "image": "https://catalyst.dcl.one/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0x2c363fb15c0f98e26add137dcacf24463915095b:2/thumbnail"
     },
     {
       "id": "0x89841f4ca30b48d5a7574f02b3d84049fe4b4d7b-0",
@@ -189,7 +189,7 @@
       "credits": null,
       "rarity": "rare",
       "network": "polygon",
-      "image": "https://catalyst.example.com/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0x89841f4ca30b48d5a7574f02b3d84049fe4b4d7b:0/thumbnail"
+      "image": "https://catalyst.dcl.one/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0x89841f4ca30b48d5a7574f02b3d84049fe4b4d7b:0/thumbnail"
     }
   ],
   "trendingCards": [
@@ -201,7 +201,7 @@
       "credits": null,
       "rarity": "epic",
       "network": "polygon",
-      "image": "https://catalyst.example.com/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0xc78d22b25514ebef5cdb34ccc4bf85f28c30f8c4:0/thumbnail"
+      "image": "https://catalyst.dcl.one/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0xc78d22b25514ebef5cdb34ccc4bf85f28c30f8c4:0/thumbnail"
     },
     {
       "id": "0xd14026bf5e455f3487dc57cbff3d408d4c11949f-0",
@@ -211,7 +211,7 @@
       "credits": null,
       "rarity": "common",
       "network": "polygon",
-      "image": "https://catalyst.example.com/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0xd14026bf5e455f3487dc57cbff3d408d4c11949f:0/thumbnail"
+      "image": "https://catalyst.dcl.one/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0xd14026bf5e455f3487dc57cbff3d408d4c11949f:0/thumbnail"
     },
     {
       "id": "0xb53081d7db78456eb436702c2f50a90436c8633f-0",
@@ -221,7 +221,7 @@
       "credits": null,
       "rarity": "common",
       "network": "polygon",
-      "image": "https://catalyst.example.com/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0xb53081d7db78456eb436702c2f50a90436c8633f:0/thumbnail"
+      "image": "https://catalyst.dcl.one/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0xb53081d7db78456eb436702c2f50a90436c8633f:0/thumbnail"
     },
     {
       "id": "0x875ca7967ef77d3686e1a47263d45282e8d64765-0",
@@ -231,7 +231,7 @@
       "credits": null,
       "rarity": "common",
       "network": "polygon",
-      "image": "https://catalyst.example.com/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0x875ca7967ef77d3686e1a47263d45282e8d64765:0/thumbnail"
+      "image": "https://catalyst.dcl.one/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0x875ca7967ef77d3686e1a47263d45282e8d64765:0/thumbnail"
     },
     {
       "id": "0x0bf8870be2d6cd80c814b70738e8d0648fe0f86f-2",
@@ -241,7 +241,7 @@
       "credits": null,
       "rarity": "rare",
       "network": "polygon",
-      "image": "https://catalyst.example.com/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0x0bf8870be2d6cd80c814b70738e8d0648fe0f86f:2/thumbnail"
+      "image": "https://catalyst.dcl.one/lambdas/collections/contents/urn:decentraland:matic:collections-v2:0x0bf8870be2d6cd80c814b70738e8d0648fe0f86f:2/thumbnail"
     }
   ],
   "total": 7409,

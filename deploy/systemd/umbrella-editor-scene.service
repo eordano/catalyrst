@@ -1,0 +1,16 @@
+[Unit]
+Description=Umbrella Creator Hub editor SYSTEM scene preview via dcl-one-sdk (loopback :5171, fronted at /_editor-scene; builds on start + watch)
+After=network.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=exec
+WorkingDirectory=@REPO_DIR@/bevy-explorer/editor-scene
+Environment=PATH=/run/current-system/sw/bin:/usr/bin:/bin
+ExecStart=@REPO_DIR@/catalyrst/target/release/dcl-one-sdk start \
+    --port 5171 --no-browser --ci
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=umbrella.target

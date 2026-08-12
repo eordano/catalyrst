@@ -44,11 +44,11 @@ const ENV_DOCS: &[(&str, &str)] = &[
     ),
     (
         "BVIMPOSTERS_IMPOST_BIN",
-        "impost binary (default impost)",
+        "impost binary (default /home/dcl/one/bevy-explorer/target/debug/impost)",
     ),
     (
         "BVIMPOSTERS_IMPOST_SERVER",
-        "realm server passed to impost (default https://catalyst.example.com)",
+        "realm server passed to impost (default https://catalyst.dcl.one)",
     ),
     (
         "BVIMPOSTERS_IMPOST_CONTENT_SERVER",

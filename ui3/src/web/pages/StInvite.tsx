@@ -17,7 +17,7 @@ const FAQS: Faq[] = [
   },
   {
     q: "How do I enter Decentraland?",
-    a: "Step 1: Open Decentraland in Your Browser\nNothing to install — go to catalyst.example.com/play and the world loads right in your browser.\n\nStep 2: Create your Account\nWhen you enter Decentraland, you can use a standard web3 wallet such as Metamask, or log in with a Social account (Google, Discord, X, or Apple).\n\nStep 3: Customize Your Avatar\nOnce you enter Decentraland you'll first be asked to customize your avatar.\n\nStep 4: Explore!\nAfter completing a quick tutorial, Decentraland is yours to explore!\n\nStep 5: Have fun!\nWalk around, talk to others via the chat box, and pop into some events!",
+    a: "Step 1: Open Decentraland in Your Browser\nNothing to install — go to dcl.one/play and the world loads right in your browser.\n\nStep 2: Create your Account\nWhen you enter Decentraland, you can use a standard web3 wallet such as Metamask, or log in with a Social account (Google, Discord, X, or Apple).\n\nStep 3: Customize Your Avatar\nOnce you enter Decentraland you'll first be asked to customize your avatar.\n\nStep 4: Explore!\nAfter completing a quick tutorial, Decentraland is yours to explore!\n\nStep 5: Have fun!\nWalk around, talk to others via the chat box, and pop into some events!",
   },
   {
     q: "Do I need cryptocurrency or a digital wallet to use Decentraland?",

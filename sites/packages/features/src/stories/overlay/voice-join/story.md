@@ -69,7 +69,7 @@ Voice tokens come from catalyrst-comms voice handlers
 Those routes are gated by `voice_auth_layer` (a `COMMS_GATEKEEPER_AUTH_TOKEN`
 bearer) and `verify_signed_fetch` requiring a `dcl:explorer`-signed auth chain,
 so they are **not browser-reachable from the public edge**
-(`catalyst.example.com/comms/status` -> 404). Tokens + mic state normally arrive
+(`catalyst.dcl.one/comms/status` -> 404). Tokens + mic state normally arrive
 via `window.dclBridge` (`GetMicState` / `SetMicEnabled`), not a browser fetch.
 
 So token issuance, the LiveKit connect, and mic state are **SIMULATED** in the

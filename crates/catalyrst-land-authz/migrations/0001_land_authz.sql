@@ -1,4 +1,4 @@
--- The schema itself is created by the deployment's land-authz bootstrap.
+-- The schema itself is created by umbrella/scripts/bootstrap-land-authz.sh.
 -- Do not add CREATE SCHEMA here: this role holds CREATE on the schema but not
 -- on the database, and even the IF NOT EXISTS form demands the latter.
 CREATE TABLE IF NOT EXISTS land_authz.authz_event (

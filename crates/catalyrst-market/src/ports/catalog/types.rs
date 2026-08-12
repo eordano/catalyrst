@@ -153,6 +153,18 @@ pub struct CatalogItem {
     pub available: i64,
     #[serde(rename = "isOnSale")]
     pub is_on_sale: bool,
+    /// The trade the `price` came from, present iff the price was set by an open
+    /// v3 trade rather than the store minter (see `row_to_catalog_item`). A v3
+    /// trade can be USD-pegged MANA, so `price` may be USD wei; a consumer needs
+    /// this id to resolve the unit and not render dollars with a MANA glyph.
+    /// `/v1/items` already carries it — omitting it here is what made a USD-pegged
+    /// listing show in the browse grid with a MANA glyph on a figure that is
+    /// dollars (marketplace-server #387). Omitted whenever the store minter set
+    /// the price (even alongside an open trade) or nothing is available.
+    #[serde(rename = "tradeId")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub trade_id: Option<String>,
     pub creator: String,
     #[cfg_attr(feature = "ts", ts(type = "Record<string, unknown>"))]
     pub data: ItemData,

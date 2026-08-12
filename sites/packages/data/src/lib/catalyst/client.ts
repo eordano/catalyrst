@@ -37,7 +37,7 @@ async function errorFromResponse(res: Response, url: string): Promise<CatalystEr
       );
 }
 
-const DEFAULT_BASE = "https://catalyst.example.com";
+const DEFAULT_BASE = "https://catalyst.dcl.one";
 
 // A browser build reads the catalyst API same-origin: the catalyrst edge fronts
 // it at the deployment's own origin, so a baked foreign host is CSP-refused under

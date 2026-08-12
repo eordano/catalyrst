@@ -1,0 +1,11 @@
+[Unit]
+Description=Umbrella discourse-archive (scan yesterday UTC into the :5434 discourse DB)
+After=network.target umbrella-postgres.service
+Wants=umbrella-postgres.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=oneshot
+WorkingDirectory=@UMBRELLA_DIR@
+EnvironmentFile=@UMBRELLA_DIR@/env/discourse-archive.env
+ExecStart=/run/current-system/sw/bin/nix-shell -p "python3.withPackages (p: [ p.psycopg2 ])" --run "exec python3 @UMBRELLA_DIR@/scripts/discourse-archive.py day"

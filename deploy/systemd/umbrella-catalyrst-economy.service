@@ -1,0 +1,21 @@
+[Unit]
+Description=Umbrella catalyrst-economy (meta-transaction relay + collections, port 5155)
+After=network.target umbrella-postgres.service
+StartLimitIntervalSec=0
+Wants=umbrella-postgres.service
+
+[Service]
+Type=exec
+WorkingDirectory=@UMBRELLA_DIR@
+# Optional: until the YubiKey handover runs this file does not exist, and a
+# non-optional EnvironmentFile fails the unit before ExecStartPre. The
+# env/*.env line below is what actually loads today.
+EnvironmentFile=-/run/agenix/umbrella-catalyrst-economy-env
+EnvironmentFile=-@UMBRELLA_DIR@/env/catalyrst-economy.env
+ExecStartPre=@UMBRELLA_DIR@/scripts/wait-pg.sh @BINDIR@
+ExecStart=@BINDIR@/catalyrst-economy
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=umbrella.target

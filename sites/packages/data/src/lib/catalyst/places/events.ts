@@ -258,7 +258,7 @@ export function effectiveStartAt(e: Event, now = new Date()): string | null {
 export function eventJumpUrl(e: Event): string | null {
   const [x, y] = eventPosition(e);
   if (x === null || y === null) return null;
-  return `https://catalyst.example.com/play/?position=${x},${y}`;
+  return `https://dcl.one/play/?position=${x},${y}`;
 }
 
 function eventPosition(e: Event): [number | null, number | null] {

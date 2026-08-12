@@ -63,7 +63,7 @@ the share of community views that reach a membership commit.
 The `catalyrst-communities` crate implements the full surface — `get_communities`
 (browse), `get_community` + `get_members` (detail), `writes::add_member`
 (`CommunityJoin`) and `writes::create_request` (`CommunityRequest`) — and
-`GET /v1/communities` is now routed on `catalyst.example.com` (probed →
+`GET /v1/communities` is now routed on `catalyst.dcl.one` (probed →
 200). The loader is wired **live-only**: on failure the route renders the
 honest empty state ("No communities found."), never fixture data.
 

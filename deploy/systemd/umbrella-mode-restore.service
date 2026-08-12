@@ -1,0 +1,23 @@
+[Unit]
+Description=Umbrella boot-mode restore (re-enter dev mode when data/mode says dev)
+# Boot restores last mode: umbrella.target (WantedBy=default.target, linger)
+# always brings up PROD; this oneshot then re-enters the transient dev-twin
+# stack iff the operator left the box in dev mode (@STATE_DIR@/mode == "dev",
+# written by up-dev.sh; .#up / .#up-prod / .#install-units write "prod").
+# Wants= (not Requires=) network-online: up-dev's nix/npm fetches need the
+# network, but a degraded network must never keep the unit from running —
+# mode-restore.sh no-ops on a non-dev marker and always exits 0.
+Wants=network-online.target
+After=umbrella.target network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=@UMBRELLA_DIR@
+Environment=PATH=/run/current-system/sw/bin:/usr/bin:/bin
+# A cold boot-restore may rebuild the cargo debug workspace (minutes); never
+# let a start timeout kill the switch halfway through.
+TimeoutStartSec=infinity
+ExecStart=@UMBRELLA_DIR@/scripts/mode-restore.sh
+
+[Install]
+WantedBy=default.target

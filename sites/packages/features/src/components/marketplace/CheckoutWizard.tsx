@@ -346,7 +346,7 @@ export default function CheckoutWizard({
           </p>
           <MkCheckoutSummary heading="You bought" lines={lines ?? []} />
           <MkCheckoutActions>
-            <a href="https://catalyst.example.com/play/" className="btn btn--primary btn--md">
+            <a href="https://dcl.one/play/" className="btn btn--primary btn--md">
               Jump in world →
             </a>
             <Link to={href("/marketplace/account")} className="btn btn--secondary btn--md">

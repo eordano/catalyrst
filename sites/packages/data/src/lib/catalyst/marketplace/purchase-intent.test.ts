@@ -157,7 +157,7 @@ describe("signPurchaseIntent routing", () => {
 
   it("throws (no fake signature) when no signer is available", async () => {
     vi.stubGlobal("window", {
-      location: { hostname: "catalyst.example.com" },
+      location: { hostname: "dcl.one" },
       localStorage: fakeLocalStorage(),
     });
     await expect(signPurchaseIntent(VECTOR_INTENT)).rejects.toThrow(/wallet/i);

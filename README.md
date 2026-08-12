@@ -176,8 +176,3 @@ deployment configs in [`nixos/`](./nixos).
 ## License
 
 GNU Affero General Public License v3.0 (AGPL-3.0). See [LICENSE](./LICENSE).
-
-## Related repositories
-
-The standalone asset-bundle converter + AB-parity compare pipeline is
-maintained separately at [decentraland/abgen](https://github.com/decentraland/abgen).

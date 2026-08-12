@@ -62,7 +62,7 @@ export type Divergence =
 export const DIVERGENCE_LEGEND: Record<Divergence, string> = {
   "federated-cdn":
     "a cdn.decentraland.org thumbnail must be repointed at the federated CDN base " +
-    "(schemas/communities.ts:16-22). Stubbed, play.catalyst.example.com loads it from the PROD CDN.",
+    "(schemas/communities.ts:16-22). Stubbed, play.dcl.one loads it from the PROD CDN.",
   normalization:
     "transforms must run in both modes: `nullish().transform((v) => v ?? null)` and the " +
     "emote-category reshape (schemas/backpack.ts:87). Stubbed, the field arrives undefined " +
@@ -812,7 +812,7 @@ export const ANCHORS: ParityAnchor[] = [
     ],
     why:
       "The prod-CDN row must be rewritten to the federated host, the N/A sentinel must " +
-      "become null, and the already-federated row must pass through unchanged. play.catalyst.example.com " +
+      "become null, and the already-federated row must pass through unchanged. play.dcl.one " +
       "must never reach cdn.decentraland.org; a differential cannot see this because " +
       "deleting the rewrite loses it in BOTH modes.",
   },

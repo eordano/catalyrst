@@ -85,7 +85,7 @@ XState snapshot, so none of the funnel telemetry double-fires.
 ## Data reality (sources + what is simulated)
 
 The editor is seeded from a LIVE deployment:
-`POST https://catalyst.example.com/content/entities/active {"pointers":["0,0"]}`
+`POST https://catalyst.dcl.one/content/entities/active {"pointers":["0,0"]}`
 returns the active scene entity (title + content mappings) which seeds the
 editor header; on any failure we fall back to
 `app/fixtures/creator-hub-scene-editor-place-items.json`. The entity/component

@@ -83,7 +83,7 @@ export function fixture<T>(name: string): T {
   return hit as T;
 }
 
-export const CATALYST_BASE = "https://catalyst.example.com";
+export const CATALYST_BASE = "https://catalyst.dcl.one";
 
 type JsonHandlerInit = { status?: number; delayMs?: number };
 

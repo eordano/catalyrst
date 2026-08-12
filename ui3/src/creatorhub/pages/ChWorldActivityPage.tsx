@@ -485,7 +485,7 @@ export default function ChWorldActivityPage({
           ) : null}
           <p className="wa__storagecaption">
             Deployed-content bytes on worlds-content-server. Worlds deployed to
-            catalyst.example.com are not counted here.
+            dcl.one are not counted here.
           </p>
           <DatumNote datum={storage} now={now} />
         </div>

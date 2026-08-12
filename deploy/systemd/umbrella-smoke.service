@@ -1,0 +1,9 @@
+[Unit]
+Description=Umbrella sites smoke sweep (P4 degradation-paging) — non-zero exit = a route regressed
+After=network.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=@REPO_DIR@/catalyrst/sites
+Environment=PATH=/run/current-system/sw/bin:/usr/bin:/bin
+ExecStart=/run/current-system/sw/bin/nix shell nixpkgs#nodejs_22 --command npm run smoke

@@ -1,0 +1,15 @@
+[Unit]
+Description=Umbrella catalyrst-bvimposters (imposter supply, port 5154)
+After=network.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=exec
+WorkingDirectory=@UMBRELLA_DIR@
+EnvironmentFile=@UMBRELLA_DIR@/env/catalyrst-bvimposters.env
+ExecStart=@BINDIR@/catalyrst-bvimposters
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=umbrella.target

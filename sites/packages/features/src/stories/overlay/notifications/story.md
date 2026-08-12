@@ -72,7 +72,7 @@ by category and mark a card — or all cards — read.
 The feed is served by the `catalyrst-notifications` crate
 (`GET /notifications` -> `{ notifications: NotificationItem[] }`,
 `PUT /notifications/read`). Both routes require a signed auth-chain header
-(`require_signer`); the public edge `https://catalyst.example.com/notifications`
+(`require_signer`); the public edge `https://catalyst.dcl.one/notifications`
 returns a **301 redirect** and is not fetchable unauthenticated. So the loader
 attempts the live read best-effort and falls back to the bundled fixture
 (`app/fixtures/bevy-overlay-notifications.json`, derived from the

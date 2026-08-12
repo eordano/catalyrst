@@ -66,7 +66,7 @@ so every journey step can be deep-linked and screenshotted:
    entity at pointer `urn:decentraland:off-chain:marketplace-stores:{address}`
    (`store/utils.ts` `getStoreUrn` + `fetchStoreEntity` ->
    `POST /content/entities/active`). The loader attempts that LIVE read first;
-   the gateway at https://catalyst.example.com returns `[]` for store pointers (no
+   the gateway at https://catalyst.dcl.one returns `[]` for store pointers (no
    off-chain store entities mounted — verified live), so it degrades
    to the bundled fixture (`app/fixtures/marketplace-settings.json`). `source`
    (`live` | `fixture`) is reported in `mk_settings_viewed`.

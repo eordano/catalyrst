@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use crate::http::ApiError;
 use crate::ports::checkout::RepricedLine;
 
-pub const INTENT_DOMAIN_NAME: &str = "Catalyst Checkout";
+pub const INTENT_DOMAIN_NAME: &str = "dcl.one Checkout";
 pub const INTENT_DOMAIN_VERSION: &str = "1";
 pub const INTENT_CHAIN_ID: u64 = 137;
 pub const INTENT_CURRENCY: &str = "CREDITS";

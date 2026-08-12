@@ -465,28 +465,30 @@ async fn flush_batch(pool: &PgPool, entities: &[ParsedEntity]) -> Result<(), Syn
     .map_err(|e| SyncError::Storage(e.to_string()))?;
 
     sqlx::query(
-        // The OFFSET 0 fence is load-bearing: without it the planner matches
-        // ORDER BY .. LIMIT 1 to the (entity_type, entity_timestamp, entity_id)
-        // btree and walks the whole type in timestamp order testing && per row —
-        // a full-table scan per batch entity whenever no newer overlap exists
-        // (60s statement timeouts, sync wedged; 2026-08-06). Fenced, candidates
-        // come from the (entity_type, entity_pointers) gin first (~1ms/row).
+        // The OFFSET 0 fence is load-bearing, and entity_type must stay OUTSIDE
+        // it: with both predicates inside, the planner may still index-drive the
+        // (entity_type, entity_timestamp, entity_id) btree and test && per row -
+        // a whole-type walk per batch entity (60s statement timeouts, sync
+        // wedged; 2026-08-06, and again 2026-08-11 on a stats-less bootstrap DB
+        // where the gin loses on cost). With && as the only sargable predicate
+        // inside the fence, candidates can only come from the entity_pointers
+        // gin (or a seqscan), regardless of table statistics.
         r#"
         UPDATE deployments AS n
         SET deleter_deployment = sub.newer_id
         FROM (
             SELECT nr.id,
                    (SELECT c.id FROM (
-                        SELECT d2.id, d2.entity_timestamp, d2.entity_id
+                        SELECT d2.id, d2.entity_timestamp, d2.entity_id, d2.entity_type
                         FROM deployments d2
-                        WHERE d2.entity_type = nr.entity_type
-                          AND d2.entity_pointers && nr.entity_pointers
+                        WHERE d2.entity_pointers && nr.entity_pointers
                           AND d2.id <> nr.id
                           AND (d2.entity_timestamp > nr.entity_timestamp
                                OR (d2.entity_timestamp = nr.entity_timestamp
                                    AND d2.entity_id > nr.entity_id))
                         OFFSET 0
                     ) c
+                    WHERE c.entity_type = nr.entity_type
                     ORDER BY c.entity_timestamp, c.entity_id
                     LIMIT 1) AS newer_id
             FROM deployments nr

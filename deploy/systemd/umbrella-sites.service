@@ -1,0 +1,21 @@
+[Unit]
+Description=Umbrella sites SSR (public realm web front, port 5158)
+After=network.target umbrella-catalyrst.service
+StartLimitIntervalSec=0
+Wants=umbrella-catalyrst.service
+
+[Service]
+Type=exec
+WorkingDirectory=@UMBRELLA_DIR@
+EnvironmentFile=@UMBRELLA_DIR@/env/common.env
+# Optional: until the YubiKey handover runs this file does not exist, and a
+# non-optional EnvironmentFile fails the unit before ExecStartPre. The
+# env/*.env line below is what actually loads today.
+EnvironmentFile=-/run/agenix/umbrella-sites-env
+EnvironmentFile=-@UMBRELLA_DIR@/env/sites.env
+ExecStart=@BINDIR@/sites-server
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=umbrella.target

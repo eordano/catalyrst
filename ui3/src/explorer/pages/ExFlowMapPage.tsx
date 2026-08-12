@@ -22,7 +22,7 @@ export default function ExFlowMapPage({ LinkComponent = undefined }: ExFlowMapPa
         crumb: "sites / explorer / map",
         lede: (
           <>
-            The complete click/state sitemap of the Explorer — the catalyst.example.com/play web
+            The complete click/state sitemap of the Explorer — the dcl.one/play web
             client. Nodes are URLs and component states; every edge is{" "}
             <strong>one user click</strong> — or a{" "}
             <strong className="fm-lede-load">

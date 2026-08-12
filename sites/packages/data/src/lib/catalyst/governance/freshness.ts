@@ -4,7 +4,7 @@
  * Everything catalyrst-governance serves on the read side is a mirror of an
  * upstream DAO API, populated by its sync loop. That loop is off by default
  * (`poll_enabled` defaults false — catalyrst-governance/src/config.rs:133) and
- * `GOVERNANCE_POLL_ENABLED` is set nowhere in deploy/, nixos/ or
+ * `GOVERNANCE_POLL_ENABLED` is set nowhere in deploy/, nixos/, umbrella/ or
  * rig/, so on this deployment the mirror is frozen at the last manual
  * backfill/sync. A page that shows year-old rows with no date reads as current.
  *

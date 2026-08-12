@@ -1,0 +1,27 @@
+CREATOR-SCOPED METRICS — REAL SALES PROOF
+captured with squid sync frontier ~now; window = trailing 7 days
+backend: catalyst.dcl.one /market/v1/sales == localhost:5133 /v1/sales (same
+         catalyrst-market; global total 298744 identical on both)
+ground truth: squid GraphQL localhost:5130, Sale entity
+              where { searchContractAddress_in:[<creator collection contracts>],
+                      timestamp_gte:<cutoff_seconds> }
+loader under test: sites/app/lib/catalyst/creator-metrics.server.ts
+                   loadCreatorMetrics(address) via tsx, CATALYST_URL=catalyst.dcl.one
+
+GLOBAL sales total (contrast, NOT the creator's): 298744
+
+--- Creator A: The Fabricant 0x45d73eb638925844b41555ef6e3d7c789cde22b3 (7 collections) ---
+squid GraphQL :        count=2   volumeMANA=8
+loadCreatorMetrics:    sales7d=2 salesVolumeMana7d=8   salesUnavailable=false
+MATCH: yes   strictly < global (2 << 298744)
+
+--- Creator B: Samsung 837x 0xaeb7f56a40106174cc2048aae05af17e9ec7029d (9 collections) ---
+squid GraphQL :        count=20  volumeMANA=78
+loadCreatorMetrics:    sales7d=20 salesVolumeMana7d=78  salesUnavailable=false
+MATCH: yes   strictly < global (20 << 298744)
+
+Both numbers are produced by summing the REST COUNT(*) per collection contract
+(search_contract_address) within the 7d window and rolling up MANA from the
+in-window sale prices — a real per-creator figure, not the global feed, not null.
+A genuine 0 (creator had no sales) renders as 0; only a sales-fetch ERROR sets
+salesUnavailable=true (degrade-to-0, labeled honestly).

@@ -92,7 +92,7 @@ whether the guided flow increases the share of opened cast links that reach LIVE
 
 ## Data reality (SIMULATED)
 
-There is no streaming-token mint on the live catalyst (`catalyst.example.com`): the
+There is no streaming-token mint on the live catalyst (`catalyst.dcl.one`): the
 `comms-gatekeeper` service (which issues `POST /cast/streamer-token` ->
 `{ url, token, roomId, identity }`) is not deployed there, and the catalyst comms
 crate handles WebRTC RPC, not browser cast. So token resolution + the LiveKit

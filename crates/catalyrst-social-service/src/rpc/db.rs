@@ -459,7 +459,8 @@ impl Db {
     ) -> Result<Vec<BlockedRow>, DbError> {
         let rows = sqlx::query(
             r#"SELECT blocked_address, blocked_at FROM blocks
-               WHERE blocker_address = $1 ORDER BY blocked_at DESC LIMIT $2 OFFSET $3"#,
+               WHERE blocker_address = $1
+               ORDER BY blocked_at DESC, blocked_address ASC LIMIT $2 OFFSET $3"#,
         )
         .bind(blocker.to_lowercase())
         .bind(limit)
@@ -473,6 +474,14 @@ impl Db {
                 blocked_at: r.get::<chrono::NaiveDateTime, _>("blocked_at").and_utc(),
             })
             .collect())
+    }
+
+    pub async fn count_blocked_users(&self, blocker: &str) -> Result<i64, DbError> {
+        let row = sqlx::query(r#"SELECT COUNT(*) AS c FROM blocks WHERE blocker_address = $1"#)
+            .bind(blocker.to_lowercase())
+            .fetch_one(&self.pool)
+            .await?;
+        Ok(row.get::<i64, _>("c"))
     }
 
     pub async fn get_blocking_status(
@@ -824,6 +833,22 @@ impl Db {
             .fetch_optional(&self.pool)
             .await?;
         Ok(row.map(|r| r.get::<String, _>("name")))
+    }
+
+    /// Whether a community is private. `None` when the community row does not exist. Mirrors the
+    /// federated read in `rest::fed::authority::community_is_private`, but parses the id like the
+    /// sibling voice-chat reads (`community_role`, `community_name`) in this module rather than
+    /// via the hex helper, since the voice RPC payloads carry a canonical UUID string.
+    pub async fn community_is_private(&self, community_id: &str) -> Result<Option<bool>, DbError> {
+        let cid = match Uuid::parse_str(community_id) {
+            Ok(u) => u,
+            Err(_) => return Ok(None),
+        };
+        let row = sqlx::query(r#"SELECT private FROM communities WHERE id = $1"#)
+            .bind(cid)
+            .fetch_optional(&self.pool)
+            .await?;
+        Ok(row.map(|r| r.get::<bool, _>("private")))
     }
 
     pub async fn friend_addresses(&self, address: &str) -> Result<Vec<String>, DbError> {

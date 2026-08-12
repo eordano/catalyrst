@@ -1,6 +1,6 @@
 type SiteWindow = Window & typeof globalThis & { __SITE_BASE__?: string };
 
-const SITE_DEFAULT_BASE = "https://catalyst.example.com";
+const SITE_DEFAULT_BASE = "https://dcl.one";
 
 export function siteBase(override?: string): string {
   const fromEnv: string | undefined =

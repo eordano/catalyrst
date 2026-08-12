@@ -45,7 +45,7 @@ const PIN_B: MapPin = {
   category: "live",
 };
 
-const RESULT: JumpResult = { jumpUrl: "https://catalyst.example.com/play/?position=0,0" };
+const RESULT: JumpResult = { jumpUrl: "https://dcl.one/play/?position=0,0" };
 
 const okJump: JumpFn = async () => RESULT;
 

@@ -1,8 +1,8 @@
 {
   "_source": {
     "note": "SIMULATED — client settings are engine/local-only. There is NO Catalyst endpoint: a scan of catalyrst (governance/presence/price + the explorer-api lambdas) confirms no settings route, and the real client persists these to disk/local store, never the server. The UI inventory + default values below are derived faithfully from the ui3 SettingsView composition (which itself mirrors the Decentraland unity-explorer SettingsView prefab strings).",
-    "ui3_settings": "https://catalyst.example.com (ui3) app/pages/Settings.jsx — Graphics/Sounds/Chat groups + defaults.",
-    "ui3_controls": "https://catalyst.example.com (ui3) app/islands/Controls.jsx — Controls (Mouse sensitivity, Head Sync, Point At) group + defaults.",
+    "ui3_settings": "https://catalyst.dcl.one (ui3) app/pages/Settings.jsx — Graphics/Sounds/Chat groups + defaults.",
+    "ui3_controls": "https://catalyst.dcl.one (ui3) app/islands/Controls.jsx — Controls (Mouse sensitivity, Head Sync, Point At) group + defaults.",
     "upstream_attempted": "github.com/decentraland/unity-explorer SettingsView/SettingsAsset — 404 (Unity prefab/.asset files are not in the public raw tree); inventory derived from ui3 SettingsView strings as the spec directs.",
     "persistence": "Client-side only: localStorage key `dcl:settings` and window.dclBridge.setSetting(section, key, value). No server write.",
     "fetchedAt": "2026-06-23"

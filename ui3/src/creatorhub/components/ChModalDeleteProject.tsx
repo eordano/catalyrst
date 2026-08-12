@@ -10,7 +10,7 @@ const COPY = {
   localConsequence:
     "This removes the scene from 'My Scenes' in this browser. Files on your computer are kept unless you also tick the box below.",
   networkConsequence:
-    "This also unpublishes the scene from this network (catalyst.example.com): its live deployment is removed from the catalyst, so visitors will no longer find it — Genesis City on decentraland.org is not affected. Files on your computer are kept unless you also tick the box below.",
+    "This also unpublishes the scene from this network (dcl.one): its live deployment is removed from the catalyst, so visitors will no longer find it — Genesis City on decentraland.org is not affected. Files on your computer are kept unless you also tick the box below.",
   filesCheckbox: "Also delete this scene's files from my computer",
   filesWarning:
     "Deleting scene files from your computer is permanent, you won't be able to access this scene again.",

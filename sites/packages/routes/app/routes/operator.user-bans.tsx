@@ -34,7 +34,7 @@ const FALLBACK: Assignment = {
  *      (and it explicitly rejects the scene signer).
  *
  * The wallet allowlist is populated on this node
- * (`deploy/env/catalyrst-comms.env:51`), so the gate is live and
+ * (`umbrella/env/catalyrst-comms.env:51`), so the gate is live and
  * wallet-satisfiable. What is broken is on this side: `user-bans.ts:135-139`
  * and `:233-263` sign the un-prefixed `/users/0x…/bans`, while nginx sets
  * `x-original-path` on `/comms/` (`01-catalyst.conf:127`) and

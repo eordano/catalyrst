@@ -15,13 +15,13 @@ for crate in "${CATALYRST_CRATES[@]}"; do
   for ts_crate in "${CATALYRST_TS_CRATES[@]}"; do
     if [[ "$ts_crate" == "$crate" ]]; then features="--features ts"; fi
   done
-  catalyrst_cmd+="; cargo test $features -p '$crate' export_bindings"
+  catalyrst_cmd+="; cargo test $features -p '$crate' --lib export_bindings"
 done
 ts_rs_shell_run catalyrst "$catalyrst_cmd"
 node "$SITES/scripts/gen-openapi-ts.mts" "$GENERATED/catalyst/openapi" "${OPENAPI_SPECS[@]}"
 
 ts_rs_shell_run bridge "set -e; export TS_RS_EXPORT_DIR='$GENERATED'; cd '$ROOT/bevy-explorer'; \
-cargo test --features ts -p '$BRIDGE_CRATE' export_bindings"
+cargo test --features ts -p '$BRIDGE_CRATE' --lib export_bindings"
 
 assemble_editor_bus "$GENERATED/editor-bus" "$GENERATED/editor-bus.ts"
 rm -rf "$GENERATED/editor-bus"

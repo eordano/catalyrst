@@ -36,7 +36,7 @@ function errMessage(err: unknown, fallback: string): string {
   return (err as { message?: string } | null)?.message ?? fallback;
 }
 
-const DEFAULT_BASE = "https://catalyst.example.com";
+const DEFAULT_BASE = "https://catalyst.dcl.one";
 
 // The overlay is a client-only build served from the origin that also fronts
 // the catalyst API, so the served origin is the portable default. DEFAULT_BASE

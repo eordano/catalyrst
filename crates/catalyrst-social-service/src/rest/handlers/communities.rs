@@ -83,7 +83,13 @@ pub async fn get_raw_thumbnail(
     match state.content_store.get(&hash).await {
         Ok(Some(bytes)) => {
             let mut headers = HeaderMap::new();
-            headers.insert(header::CONTENT_TYPE, HeaderValue::from_static("image/png"));
+            // Serve the media type the bytes actually are, not a hardcoded one. New uploads are
+            // signature-validated on write; a legacy blob with no recognised signature falls back
+            // to image/png, matching the previous behaviour.
+            let content_type = crate::rest::thumbnail_signature::detect_image_mime_type(&bytes)
+                .map(|m| m.as_str())
+                .unwrap_or("image/png");
+            headers.insert(header::CONTENT_TYPE, HeaderValue::from_static(content_type));
             if let Ok(v) = HeaderValue::from_str(&bytes.len().to_string()) {
                 headers.insert(header::CONTENT_LENGTH, v);
             }

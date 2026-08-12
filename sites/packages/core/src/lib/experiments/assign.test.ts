@@ -36,7 +36,7 @@ function makeStory(
 }
 
 function requestWithSid(sid: string): Request {
-  return new Request("https://sites.example.com/", {
+  return new Request("https://sites.dcl.one/", {
     headers: { cookie: `sid=${sid}` },
   });
 }
@@ -49,7 +49,7 @@ describe("sid cookie helpers", () => {
   });
 
   it("creates a stable sid when none is present", () => {
-    const req = new Request("https://sites.example.com/");
+    const req = new Request("https://sites.dcl.one/");
     expect(readSid(req)).toBeNull();
     const { sid, created } = ensureSid(req);
     expect(created).toBe(true);
@@ -210,7 +210,7 @@ describe("resolveAssignment (no backends configured)", () => {
       { id: "control", weight: 1 },
       { id: "treatment", weight: 1 },
     ]);
-    const req = new Request("https://sites.example.com/");
+    const req = new Request("https://sites.dcl.one/");
     const assignment = await resolveAssignment(req, story);
     expect(["control", "treatment"]).toContain(assignment.variant);
   });

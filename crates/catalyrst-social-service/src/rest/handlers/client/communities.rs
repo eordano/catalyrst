@@ -14,7 +14,7 @@ use crate::rest::AppState;
 
 use super::{
     auth, boundary, err, map_api, map_db, parse_multipart, parse_uuid, store_thumbnail,
-    validate_places_ownership, ClientCommunityWriteAuthority,
+    validate_places_ownership, validate_thumbnail_field, ClientCommunityWriteAuthority,
 };
 
 pub async fn create_community(
@@ -41,6 +41,14 @@ pub async fn create_community(
     let place_ids = fields.place_ids;
     let thumbnail = fields.thumbnail;
     let has_thumbnail = thumbnail.is_some();
+
+    // Validate the thumbnail bytes (size bounds + magic-byte signature) before any DB write, so
+    // an arbitrary blob is rejected with a 400 rather than stored and served as a fake image.
+    if let Some(bytes) = thumbnail.as_deref() {
+        if let Err(e) = validate_thumbnail_field(bytes) {
+            return e;
+        }
+    }
 
     if let Err(e) = crate::rest::validate::validate_name(&name) {
         return err(StatusCode::BAD_REQUEST, e);
@@ -188,6 +196,13 @@ pub async fn update_community(
     let privacy: Option<bool> = fields.privacy.map(|p| p == "private");
     let visibility: Option<bool> = fields.visibility.map(|v| v == "unlisted");
     let thumbnail = fields.thumbnail;
+
+    // Reject a non-image / out-of-bounds thumbnail before the DB write (port of #444).
+    if let Some(bytes) = thumbnail.as_deref() {
+        if let Err(e) = validate_thumbnail_field(bytes) {
+            return e;
+        }
+    }
 
     let upd = sqlx::query(
         "UPDATE communities SET \

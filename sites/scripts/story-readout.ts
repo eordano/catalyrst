@@ -319,7 +319,7 @@ async function main(): Promise<void> {
     const msg =
       `TELEMETRY_URL is not set — cannot read experiment data for "${args.id}".\n` +
       `Set TELEMETRY_URL to your catalyrst-telemetry base URL and re-run, e.g.\n` +
-      `  TELEMETRY_URL=https://telemetry.example.com npm run story:readout -- ${args.id}\n`;
+      `  TELEMETRY_URL=https://telemetry.dcl.one npm run story:readout -- ${args.id}\n`;
     if (args.json) {
       process.stdout.write(
         JSON.stringify({ id: args.id, error: "TELEMETRY_URL unset" }) + "\n",

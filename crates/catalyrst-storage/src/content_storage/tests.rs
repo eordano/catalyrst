@@ -1072,3 +1072,61 @@ async fn exist_multiple_aborts_on_real_storage_fault() {
 
     let _ = tokio::fs::remove_dir_all(&tmp).await;
 }
+
+/// The exact shape of the 2026-05 snapshot incident: content sitting under a key it does not hash
+/// to. `exist` is happy — there is a file there — and only re-reading the bytes tells them apart.
+#[tokio::test]
+async fn stored_content_hash_reports_the_bytes_not_the_key() {
+    let tmp = std::env::temp_dir().join(format!("catalyrst-verify-{}", std::process::id()));
+    let _ = tokio::fs::remove_dir_all(&tmp).await;
+    let storage = ContentStorage::new(&tmp).await.unwrap();
+
+    // Multi-level: past 174 leaves the DAG gains an interior layer, which is precisely where the
+    // import's hasher went wrong and where a single-block implementation would agree by luck.
+    let data = Bytes::from(
+        (0..200u32 * 262_144)
+            .map(|i| (i % 251) as u8)
+            .collect::<Vec<u8>>(),
+    );
+    let truth = catalyrst_hashing::hash_bytes_v1(&data);
+    let wrong = "bafkreihdwdcefgh4dqkjv67uzcmw7ojee6xedzdetojuzjevtenosa7776";
+
+    storage.store(wrong, data.clone()).await.unwrap();
+
+    assert!(storage.exist(wrong).await.unwrap(), "the file is present");
+    assert_eq!(
+        storage.stored_content_hash(wrong).await.unwrap().unwrap(),
+        truth,
+        "verification must report what the bytes hash to, not the key they were filed under"
+    );
+
+    assert!(storage.rekey(wrong, &truth).await.unwrap());
+    assert!(
+        !storage.exist(wrong).await.unwrap(),
+        "the wrong key must stop serving; a 404 beats bytes under a CID they contradict"
+    );
+    assert_eq!(storage.retrieve(&truth).await.unwrap().unwrap(), data);
+    assert_eq!(
+        storage.stored_content_hash(&truth).await.unwrap().unwrap(),
+        truth
+    );
+
+    assert!(
+        !storage.rekey(wrong, &truth).await.unwrap(),
+        "re-keying what is no longer there reports false rather than inventing a move"
+    );
+
+    let _ = tokio::fs::remove_dir_all(&tmp).await;
+}
+
+#[tokio::test]
+async fn stored_content_hash_of_absent_id_is_none() {
+    let tmp = std::env::temp_dir().join(format!("catalyrst-verify-abs-{}", std::process::id()));
+    let _ = tokio::fs::remove_dir_all(&tmp).await;
+    let storage = ContentStorage::new(&tmp).await.unwrap();
+
+    let absent = "bafkreie4eisvkzyjuqrcendydk6vikqs2vco5lmib4nlzsxtjzofiqy2pa";
+    assert!(storage.stored_content_hash(absent).await.unwrap().is_none());
+
+    let _ = tokio::fs::remove_dir_all(&tmp).await;
+}

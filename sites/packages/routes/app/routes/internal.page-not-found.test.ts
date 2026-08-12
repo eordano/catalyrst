@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { action } from "./internal.page-not-found";
 
 function post(body: string): Request {
-  return new Request("https://catalyst.example.com/internal/page-not-found", {
+  return new Request("https://dcl.one/internal/page-not-found", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body,
@@ -16,7 +16,7 @@ function call(request: Request) {
 
 describe("internal.page-not-found action", () => {
   it("rejects non-POST", async () => {
-    const res = await call(new Request("https://catalyst.example.com/internal/page-not-found"));
+    const res = await call(new Request("https://dcl.one/internal/page-not-found"));
     expect(res.status).toBe(405);
   });
 
@@ -27,7 +27,7 @@ describe("internal.page-not-found action", () => {
   });
 
   it("accepts a well-formed spa 404 report", async () => {
-    const res = await call(post(JSON.stringify({ path: "/missing-page?q=1", referrer: "https://catalyst.example.com/" })));
+    const res = await call(post(JSON.stringify({ path: "/missing-page?q=1", referrer: "https://dcl.one/" })));
     expect(res.status).toBe(202);
   });
 });

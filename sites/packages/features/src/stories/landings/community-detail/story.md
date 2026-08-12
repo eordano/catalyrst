@@ -52,7 +52,7 @@ via `?id` and `?tab` (and `?gate=private` to force the private teaser for QA).
 `dataSource: upstream`. The `catalyrst-communities` crate
 (`crates/catalyrst-communities`, `src/lib.rs` `api_router`) defines
 `GET /v1/communities/{id}` / `/members` / `/posts`, and those routes are now
-proxied on live `catalyst.example.com` (probed → 200).
+proxied on live `catalyst.dcl.one` (probed → 200).
 `app/lib/catalyst/overlay/communities.ts` is wired **live-only**: with no
 explicit `?id=`, the loader picks the most-populated real community from
 `GET /v1/communities` (`loadDefaultCommunity`); on any failure or when the

@@ -1,0 +1,16 @@
+[Unit]
+Description=Umbrella Creator Hub empty-project realm preview via dcl-one-sdk (loopback :5172, fronted at /_project; builds on start + watch)
+After=network.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=exec
+WorkingDirectory=@REPO_DIR@/bevy-explorer/project-realm-template
+Environment=PATH=/run/current-system/sw/bin:/usr/bin:/bin
+ExecStart=@REPO_DIR@/catalyrst/target/release/dcl-one-sdk start \
+    --port 5172 --no-browser --ci
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=umbrella.target

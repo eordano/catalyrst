@@ -49,7 +49,7 @@ export const SOURCE_GROUP_NOTES: Partial<Record<SourceClass, string>> = {
 };
 
 const WCS = "worlds-content-server.decentraland.org";
-const CAT = "catalyst.example.com";
+const CAT = "catalyst.dcl.one";
 
 export const SOURCE_REGISTRY: SourceEntry[] = [
   /* ------------------------------------------------------------------ live */
@@ -67,7 +67,7 @@ export const SOURCE_REGISTRY: SourceEntry[] = [
     endpoint: `GET ${WCS}/wallet/{address}/stats`,
     usedBy: ["/creator-hub/activity/:world", "/creator-hub/worlds-storage"],
     klass: "live",
-    note: "Deployed-content bytes per NAME plus the wallet allowance. Byte counts are decimal strings and are parsed with BigInt. Worlds deployed to catalyst.example.com are not counted here.",
+    note: "Deployed-content bytes per NAME plus the wallet allowance. Byte counts are decimal strings and are parsed with BigInt. Worlds deployed to dcl.one are not counted here.",
   },
   {
     id: "wcs-live-data",
@@ -308,7 +308,7 @@ export const SOURCE_REGISTRY: SourceEntry[] = [
   {
     id: "worlds-base",
     datum: "worldsBase() as a worlds host",
-    endpoint: "GET worlds.example.com/*",
+    endpoint: "GET worlds.dcl.one/*",
     usedBy: [],
     klass: "excluded",
     note: "It rewrites the catalyst hostname to worlds.<domain>, which 404s every path. worlds-content-server.decentraland.org is a different, real host.",

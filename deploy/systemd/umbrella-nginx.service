@@ -1,0 +1,21 @@
+[Unit]
+Description=Umbrella nginx (TLS terminator + catalyst router, ports 5080/5443)
+After=network.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=exec
+# Soft limit only: systemd defaults it to 1024, and nginx.conf's worker_rlimit_nofile
+# reaches workers only — never the master, which holds 2 channel fds per worker per
+# reload generation and is the process that hits EMFILE on reload.
+LimitNOFILE=65536:524288
+Environment=PATH=@BINDIR@:/run/current-system/sw/bin:/usr/bin:/bin
+WorkingDirectory=@UMBRELLA_DIR@
+ExecStartPre=@UMBRELLA_DIR@/scripts/render-nginx.sh
+ExecStart=@BINDIR@/nginx -e stderr -p @STATE_DIR@/nginx -c nginx.conf -g 'daemon off;'
+ExecReload=@BINDIR@/nginx -e stderr -p @STATE_DIR@/nginx -c nginx.conf -s reload
+Restart=on-failure
+RestartSec=30
+
+[Install]
+WantedBy=umbrella.target

@@ -11,7 +11,7 @@ import { normCdf, twoProportionZTest } from "../../scripts/story-readout";
 import { CREATE_FIXTURE } from "./create-telemetry-seed";
 
 const READOUT_SQL = fileURLToPath(
-  new URL("../../../../deploy/metabase/experiment-readout.sql", import.meta.url),
+  new URL("../../../../umbrella/metabase/experiment-readout.sql", import.meta.url),
 );
 
 const d = describeRequiringPg();

@@ -1,5 +1,5 @@
 -- Creator-authored text enters this archive unfiltered. Both writers sit
--- outside catalyrst-places: the deployment's world-places sync copies
+-- outside catalyrst-places: umbrella/scripts/sync-world-places.sh copies
 -- scene.description and scene.thumbnail straight off our own worlds index, and
 -- sync-archive-copies.sh TRUNCATE+reloads `place` from the upstream Genesis
 -- City catalog. The crate can therefore only gate what it serves, and every

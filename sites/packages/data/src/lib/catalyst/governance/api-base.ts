@@ -17,7 +17,7 @@ import { catalystBase } from "../client";
  * alias because it is set on the deployed host today, but it is overloaded:
  * catalyrst-governance itself uses `GOVERNANCE_API_URL` to mean the upstream
  * DAO API it *syncs from* (catalyrst-governance/src/config.rs:130). Neither
- * name is checked into deploy/, nixos/ or rig/ — see the governance
+ * name is checked into deploy/, nixos/, umbrella/ or rig/ — see the governance
  * report; the working deployment is not reproducible from the repo.
  */
 export type GovernanceEnv = Record<string, string | undefined>;

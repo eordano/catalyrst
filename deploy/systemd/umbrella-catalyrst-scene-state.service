@@ -1,0 +1,15 @@
+[Unit]
+Description=Umbrella catalyrst-scene-state (authoritative SDK7 scene state, port 5209)
+After=network.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=exec
+WorkingDirectory=@UMBRELLA_DIR@
+EnvironmentFile=@UMBRELLA_DIR@/env/catalyrst-scene-state.env
+ExecStart=@BINDIR@/catalyrst-scene-state
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=umbrella.target

@@ -1,6 +1,6 @@
 [package]
 name = "catalyrst-land-authz"
-version = "0.16.0"
+version = "0.16.1"
 edition = "2021"
 description = "Local index of LAND/Estate authorization events, so the operator, update-operator, update-manager and approved-for-all legs of a LAND right resolve without a remote subgraph"
 

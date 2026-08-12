@@ -50,13 +50,13 @@ describe("wcsBase", () => {
     expect(wcsBase()).toBe("https://worlds-content-server.decentraland.org");
   });
 
-  it("never resolves to a worlds. subdomain of catalyst.example.com", () => {
+  it("never resolves to a worlds. subdomain of dcl.one", () => {
     // `worldsBase()` in client.ts rewrites catalystBase()'s hostname to
     // worlds.<domain>, which 404s every path used here. wcsBase must not.
-    vi.stubEnv("CATALYST_URL", "https://catalyst.example.com");
+    vi.stubEnv("CATALYST_URL", "https://catalyst.dcl.one");
     const host = new URL(wcsBase()).hostname;
-    expect(host).not.toBe("worlds.example.com");
-    expect(host.endsWith("catalyst.example.com")).toBe(false);
+    expect(host).not.toBe("worlds.dcl.one");
+    expect(host.endsWith("dcl.one")).toBe(false);
   });
 
   it("honours an explicit override and strips its trailing slash", () => {

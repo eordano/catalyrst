@@ -386,7 +386,7 @@ function GatedStep({
             className="bpo__getname"
             onClick={() => {
               if (typeof window !== "undefined")
-                window.open("https://catalyst.example.com/marketplace/claim-name", "_blank", "noopener");
+                window.open("https://dcl.one/marketplace/claim-name", "_blank", "noopener");
             }}
           >
             GET A NAME

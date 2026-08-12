@@ -157,6 +157,10 @@ fn read_router() -> Router<AppState> {
             get(handlers::shop_catalog::get_related_catalog),
         )
         .route(
+            "/v3/catalog/creators",
+            get(handlers::shop_catalog::get_top_creators),
+        )
+        .route(
             "/v3/catalog/importable",
             get(handlers::shop_catalog::get_importable_listings),
         )

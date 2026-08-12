@@ -1,12 +1,12 @@
 use sqlx::PgPool;
 
 use super::sql::{
-    build_importable_listings_sql, build_legacy_listings_sql, build_shop_listings_sql, to_credits,
-    Bind,
+    build_importable_listings_sql, build_legacy_listings_sql, build_shop_listings_sql,
+    build_top_creators_sql, to_credits, Bind,
 };
 use super::types::{
     ImportableListing, ImportableListingRow, LegacyCatalogFilters, LegacyListing, LegacyListingRow,
-    ShopCatalogFilters, ShopListing, ShopListingRow,
+    ShopCatalogFilters, ShopListing, ShopListingRow, TopCreator, TopCreatorRow,
 };
 use crate::dcl_schemas::{ethereum_chain_id, polygon_chain_id, ChainId, Network};
 use crate::http::response::ApiError;
@@ -174,5 +174,26 @@ impl ShopCatalogComponent {
             })
             .collect();
         Ok((data, total))
+    }
+
+    /// Creators ranked by how many of THEIR items sold in the window
+    /// (`/v3/catalog/creators`). Attribution is by `item.creator`, not the
+    /// seller — see [`TopCreator`] for why the seller-attribution ranking
+    /// undercounts a primary-sales shop. `first`/`days` are clamped inside the
+    /// query builder.
+    pub async fn get_top_creators(
+        &self,
+        first: Option<i64>,
+        days: Option<i64>,
+    ) -> Result<Vec<TopCreator>, ApiError> {
+        let (sql, binds) = build_top_creators_sql(first, days);
+        let rows: Vec<TopCreatorRow> = self.fetch(sql, binds).await?;
+        Ok(rows
+            .into_iter()
+            .map(|r| TopCreator {
+                id: r.creator,
+                sales: r.sales,
+            })
+            .collect())
     }
 }

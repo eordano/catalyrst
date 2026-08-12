@@ -1,13 +1,13 @@
 [package]
 name = "catalyrst-events"
-version = "0.16.0"
+version = "0.16.1"
 edition = "2021"
 description = "Rust port of decentraland/events (REST API for events.decentraland.org), HTTP-snapshot federation per docs/federation/events.md"
 
 [package.metadata.generated]
-gate = "sites/scripts/gen-ts-check.sh"
-ts-bindings = "ui3/src/generated/catalyst/events"
-openapi = "ui3/src/generated/catalyst/openapi/events.openapi.json"
+gate = "catalyrst/sites/scripts/gen-ts-check.sh"
+ts-bindings = "catalyrst/ui3/src/generated/catalyst/events"
+openapi = "catalyrst/ui3/src/generated/catalyst/openapi/events.openapi.json"
 
 [[bin]]
 name = "catalyrst-events"

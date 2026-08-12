@@ -20,8 +20,8 @@
  * `.server.ts` and the reason the browser-side write in `places-moderation.ts`
  * was removed.
  *
- * On this node the token is unset: it appears in no `deploy/env/*.env` file
- * and not in `deploy/env/sites.env`. Every export below therefore answers
+ * On this node the token is unset: it appears in no `umbrella/env/*.env` file
+ * and not in `umbrella/env/sites.env`. Every export below therefore answers
  * `not-configured` today. That is the correct, fail-closed outcome —
  * provisioning the token is a separate, deliberate act and is not part of this
  * change.

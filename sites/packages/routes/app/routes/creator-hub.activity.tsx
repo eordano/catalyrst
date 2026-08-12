@@ -305,7 +305,7 @@ export default function CreatorHubActivityRoute({
       <CreatorHubChrome active="activity">
         <UpstreamUnavailable
           title="Activity is unreadable right now"
-          message="worlds-content-server and catalyst.example.com/presence both failed on this request. Rather than show you numbers we could not read, this page is showing nothing. Try again in a moment."
+          message="worlds-content-server and catalyst.dcl.one/presence both failed on this request. Rather than show you numbers we could not read, this page is showing nothing. Try again in a moment."
           backHref="/creator-hub/manage"
           backLabel="Back to Worlds"
         />

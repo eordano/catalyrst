@@ -1,4 +1,6 @@
-use super::super::helpers::{internal_err, invalid_req, normalize, page_number, SocialError};
+use super::super::helpers::{
+    internal_err, invalid_req, normalize, page_blocked_users, page_of, SocialError,
+};
 use super::SocialServiceImpl;
 use crate::rpc::context::Context;
 use crate::rpc::proto::v2::*;
@@ -187,7 +189,17 @@ impl SocialServiceImpl {
     ) -> Result<GetBlockedUsersResponse, SocialError> {
         let me = Self::caller(&context)?;
         let db = context.server_context.db();
-        let rows = match db.get_blocked_users(&me, i64::MAX, 0).await {
+        // Bound the page with the blocked-users caps (default = max = 200); the blocklist is
+        // otherwise fetched unbounded and every returned address then hits the profile lookup.
+        let (limit, offset) = page_blocked_users(&request.pagination);
+        let result = async {
+            let rows = db.get_blocked_users(&me, limit, offset).await?;
+            // total is the real row count, not the page length: clients page until they reach it.
+            let total = db.count_blocked_users(&me).await?;
+            Ok::<_, crate::rpc::db::DbError>((rows, total))
+        }
+        .await;
+        let (rows, total) = match result {
             Ok(v) => v,
             Err(_) => {
                 return Ok(GetBlockedUsersResponse {
@@ -196,7 +208,6 @@ impl SocialServiceImpl {
                 })
             }
         };
-        let total = rows.len() as i64;
         let addrs: Vec<String> = rows.iter().map(|r| r.address.clone()).collect();
         let map = context.server_context.profiles().get_profiles(&addrs).await;
         let profiles = rows
@@ -227,7 +238,7 @@ impl SocialServiceImpl {
             profiles,
             pagination_data: Some(PaginatedResponse {
                 total: total as i32,
-                page: page_number(&request.pagination),
+                page: page_of(limit, offset),
             }),
         })
     }

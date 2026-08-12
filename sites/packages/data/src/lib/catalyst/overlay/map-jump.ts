@@ -164,8 +164,8 @@ export function isWorldPin(pin: MapPin): boolean {
 
 export function buildJumpUrl(pin: MapPin): string {
   if (isWorldPin(pin) && pin.worldName) {
-    return `https://catalyst.example.com/play/?realm=${encodeURIComponent(pin.worldName)}`;
+    return `https://dcl.one/play/?realm=${encodeURIComponent(pin.worldName)}`;
   }
   const pos = (pin.coords || "0,0").trim();
-  return `https://catalyst.example.com/play/?position=${pos}`;
+  return `https://dcl.one/play/?position=${pos}`;
 }

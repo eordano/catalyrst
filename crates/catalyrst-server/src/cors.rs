@@ -127,13 +127,13 @@ mod tests {
     #[tokio::test]
     async fn origin_is_reflected_without_credentials_and_with_vary() {
         let resp = app()
-            .oneshot(req(Method::GET, Some("https://catalyst.example.com")))
+            .oneshot(req(Method::GET, Some("https://dcl.one")))
             .await
             .unwrap();
         let h = resp.headers();
         assert_eq!(
             h.get(header::ACCESS_CONTROL_ALLOW_ORIGIN).unwrap(),
-            "https://catalyst.example.com"
+            "https://dcl.one"
         );
         assert!(h.get(header::ACCESS_CONTROL_ALLOW_CREDENTIALS).is_none());
         assert_eq!(h.get(header::VARY).unwrap(), "Origin");
@@ -142,7 +142,7 @@ mod tests {
     #[tokio::test]
     async fn preflight_is_204_with_full_allowlist() {
         let resp = app()
-            .oneshot(req(Method::OPTIONS, Some("https://catalyst.example.com")))
+            .oneshot(req(Method::OPTIONS, Some("https://dcl.one")))
             .await
             .unwrap();
         assert_eq!(resp.status(), StatusCode::NO_CONTENT);
@@ -158,7 +158,7 @@ mod tests {
         assert_eq!(h.get(header::ACCESS_CONTROL_MAX_AGE).unwrap(), MAX_AGE);
         assert_eq!(
             h.get(header::ACCESS_CONTROL_ALLOW_ORIGIN).unwrap(),
-            "https://catalyst.example.com"
+            "https://dcl.one"
         );
         assert!(h.get(header::ACCESS_CONTROL_ALLOW_CREDENTIALS).is_none());
     }

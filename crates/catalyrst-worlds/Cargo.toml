@@ -1,13 +1,13 @@
 [package]
 name = "catalyrst-worlds"
-version = "0.16.0"
+version = "0.16.1"
 edition = "2021"
 description = "Rust port of decentraland/worlds-content-server — World realm /about, /permissions, LiveKit world/scene comms, content reads, wallet presence. Port 5141."
 
 [package.metadata.generated]
-gate = "sites/scripts/gen-ts-check.sh"
-ts-bindings = "ui3/src/generated/catalyst/worlds catalyrst/ui3/src/generated/catalyst/world-storage"
-openapi = "ui3/src/generated/catalyst/openapi/worlds.openapi.json"
+gate = "catalyrst/sites/scripts/gen-ts-check.sh"
+ts-bindings = "catalyrst/ui3/src/generated/catalyst/worlds catalyrst/ui3/src/generated/catalyst/world-storage"
+openapi = "catalyrst/ui3/src/generated/catalyst/openapi/worlds.openapi.json"
 
 [[bin]]
 name = "catalyrst-worlds"

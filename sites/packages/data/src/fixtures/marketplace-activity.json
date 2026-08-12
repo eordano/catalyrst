@@ -1,5 +1,5 @@
 {
-  "_source": "https://catalyst.example.com/credits/v1/sales?first=8 + https://catalyst.example.com/credits/v1/trades?first=8 (live, 2026-06-23). /credits/v1/activity 400s without an Auth Chain, so the feed is composed from sales+trades. trades is ~46MB so it MUST be first-limited.",
+  "_source": "https://catalyst.dcl.one/credits/v1/sales?first=8 + https://catalyst.dcl.one/credits/v1/trades?first=8 (live, 2026-06-23). /credits/v1/activity 400s without an Auth Chain, so the feed is composed from sales+trades. trades is ~46MB so it MUST be first-limited.",
   "sales": {
     "total": 298412,
     "data": [

@@ -1,0 +1,14 @@
+[Unit]
+Description=Run the dcl-one drift gates hourly
+
+[Timer]
+# OnCalendar, not OnUnitActiveSec: a FAILED oneshot never goes active, so
+# OnUnitActiveSec silently stops re-arming after the first red run — the bug
+# that killed umbrella-smoke's cadence on 2026-07-08.
+# :22 keeps it clear of umbrella-smoke (:06) and lore-drift-check (:52).
+OnCalendar=*-*-* *:22:00
+Persistent=true
+Unit=dcl-one-gates.service
+
+[Install]
+WantedBy=timers.target

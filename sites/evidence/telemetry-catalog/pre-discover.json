@@ -1,0 +1,10 @@
+{
+  "url": "https://catalyst.dcl.one/discover",
+  "count": 1,
+  "bodies": [
+    {
+      "url": "http://127.0.0.1:5199/v1/track",
+      "postData": "{\"type\":\"track\",\"event\":\"lp_discover_viewed\",\"anonymousId\":\"bdbe0b16-40ba-4a40-a689-a67b960fd87e\",\"properties\":{\"story\":\"discover\"}}"
+    }
+  ]
+}

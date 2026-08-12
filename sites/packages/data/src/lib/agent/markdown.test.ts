@@ -621,7 +621,7 @@ describe("eventDetailToMarkdown", () => {
       id: "e3", name: "Meetup", x: 5, y: 6,
     } as unknown as Parameters<typeof eventDetailToMarkdown>[0];
     const md = eventDetailToMarkdown(e);
-    expect(md).toContain("catalyst.example.com/play/?position=");
+    expect(md).toContain("dcl.one/play/?position=");
     expect(md).toContain("5%2C6");
   });
 });

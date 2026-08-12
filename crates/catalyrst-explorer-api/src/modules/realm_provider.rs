@@ -33,7 +33,7 @@ pub(crate) struct CatalystStatus {
 
 // Reject any address that points back at this host or an internal network.
 // A caller-supplied `?catalyst=` must never let a public request reach cloud
-// IMDS (the cloud-metadata IMDS), loopback, or a private/tailnet service.
+// IMDS (169.254.169.254), loopback, or a private/tailnet service.
 fn ip_blocked(ip: IpAddr) -> bool {
     match ip {
         IpAddr::V4(v4) => {

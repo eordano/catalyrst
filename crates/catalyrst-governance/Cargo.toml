@@ -1,12 +1,12 @@
 [package]
 name = "catalyrst-governance"
-version = "0.16.0"
+version = "0.16.1"
 edition = "2021"
 description = "Governance API component for the catalyrst stack"
 
 [package.metadata.generated]
-gate = "sites/scripts/gen-ts-check.sh"
-ts-bindings = "ui3/src/generated/catalyst/governance"
+gate = "catalyrst/sites/scripts/gen-ts-check.sh"
+ts-bindings = "catalyrst/ui3/src/generated/catalyst/governance"
 
 [[bin]]
 name = "catalyrst-governance"

@@ -1,0 +1,14 @@
+[Unit]
+Description=Umbrella slides gallery (slides.dcl.one, port 5190)
+After=network.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=exec
+WorkingDirectory=/home/dcl/one/design/slides
+ExecStart=/run/current-system/sw/bin/python3 /home/dcl/one/design/slides/serve-gallery.py 5190
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=umbrella.target

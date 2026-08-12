@@ -1,0 +1,17 @@
+[Unit]
+Description=Umbrella postgres (shared cluster, port 5434)
+After=network.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=exec
+WorkingDirectory=@UMBRELLA_DIR@
+ExecStartPre=@UMBRELLA_DIR@/scripts/pg-clean-stale-lock.sh
+ExecStart=@BINDIR@/postgres -D @STATE_DIR@/postgres --config-file=@STATE_DIR@/postgres/postgresql.conf
+KillSignal=SIGINT
+TimeoutStopSec=30
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=umbrella.target

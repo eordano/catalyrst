@@ -75,7 +75,7 @@ export function ResumeDoneCard() {
       <p className="mkco__lead mkco__lead--success">Purchase complete!</p>
       <p className="mkco__text">Your items are on the way to your account.</p>
       <MkCheckoutActions>
-        <a href="https://catalyst.example.com/play/" className="btn btn--primary btn--md">
+        <a href="https://dcl.one/play/" className="btn btn--primary btn--md">
           Jump in world →
         </a>
         <Link to={href("/marketplace/account")} className="btn btn--secondary btn--md">

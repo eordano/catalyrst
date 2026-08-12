@@ -1,13 +1,13 @@
 [package]
 name = "catalyrst-places"
-version = "0.16.0"
+version = "0.16.1"
 edition = "2021"
 description = "Rust port of decentraland/places (REST API for places.decentraland.org), federation-aware via catalyrst-fed"
 
 [package.metadata.generated]
-gate = "sites/scripts/gen-ts-check.sh"
-ts-bindings = "ui3/src/generated/catalyst/places"
-openapi = "ui3/src/generated/catalyst/openapi/places.openapi.json"
+gate = "catalyrst/sites/scripts/gen-ts-check.sh"
+ts-bindings = "catalyrst/ui3/src/generated/catalyst/places"
+openapi = "catalyrst/ui3/src/generated/catalyst/openapi/places.openapi.json"
 
 [[bin]]
 name = "catalyrst-places"

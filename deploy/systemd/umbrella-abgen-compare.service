@@ -1,0 +1,21 @@
+[Unit]
+Description=Umbrella abgen-compare (live JIT parity watch + site, port 5198)
+# Companion of catalyrst-abgen (:5147): tails its generated-output tree and
+# maintains the rolling AB-parity run served at abgen.<host>. The watch loop
+# tolerates the JIT server being down (retries with backoff), so only
+# soft-ordered after it.
+After=network.target umbrella-catalyrst-abgen.service
+Wants=umbrella-catalyrst-abgen.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=exec
+WorkingDirectory=@UMBRELLA_DIR@
+EnvironmentFile=@UMBRELLA_DIR@/env/abgen-compare.env
+ExecStartPre=/bin/sh -c 'mkdir -p @STATE_DIR@/abgen-compare/runs'
+ExecStart=@BINDIR@/abgen-compare watch --serve 5198 --host 127.0.0.1
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=umbrella.target

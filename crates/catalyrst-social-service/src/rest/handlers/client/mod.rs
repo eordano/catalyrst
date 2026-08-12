@@ -162,6 +162,17 @@ fn map_api(e: crate::rest::http::ApiError) -> Response {
     }
 }
 
+/// Rejects a thumbnail whose bytes are not a bounded, signature-valid PNG/JPEG/GIF/WebP.
+///
+/// Callers MUST run this on any uploaded thumbnail before the community-authorization / DB
+/// write, so an arbitrary blob never reaches [`store_thumbnail`] and the content store. Port of
+/// upstream #444.
+fn validate_thumbnail_field(bytes: &[u8]) -> Result<(), Response> {
+    crate::rest::thumbnail_signature::validate_thumbnail(bytes)
+        .map(|_| ())
+        .map_err(|e| err(StatusCode::BAD_REQUEST, e.message()))
+}
+
 async fn store_thumbnail<'a, E>(
     executor: E,
     store: &crate::rest::content_store::ContentStore,

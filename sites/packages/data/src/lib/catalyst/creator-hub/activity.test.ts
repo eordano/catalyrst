@@ -17,7 +17,7 @@ import type { LiveData } from "../wcs";
 import type { ManagedWorld } from "./manage-worlds";
 
 const TAKEN = "2026-08-01T09:50:32.602Z";
-const ENDPOINT = "GET catalyst.example.com/presence/current/worlds";
+const ENDPOINT = "GET catalyst.dcl.one/presence/current/worlds";
 
 function world(over: Partial<ManagedWorld> = {}): ManagedWorld {
   return {

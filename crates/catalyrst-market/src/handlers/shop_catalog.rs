@@ -7,7 +7,7 @@ use crate::http::params::Params;
 use crate::http::response::{ApiError, DataTotal};
 use crate::ports::shop_catalog::{
     parse_legacy_filters, parse_shop_filters, parse_unified_filters, parse_unified_group_by,
-    ImportableListing, LegacyListing, ShopListing, UnifiedGroupBy, UnifiedItem,
+    ImportableListing, LegacyListing, ShopListing, TopCreator, UnifiedGroupBy, UnifiedItem,
 };
 use crate::AppState;
 
@@ -109,6 +109,33 @@ pub async fn get_related_catalog(
         _ => Vec::new(),
     };
     Ok(Json(RelatedResponseBody { data }))
+}
+
+#[derive(Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "market/"))]
+pub struct TopCreatorsResponseBody {
+    pub data: Vec<TopCreator>,
+}
+
+/// GET /v3/catalog/creators — the shop's creator rail: who has sold the most of
+/// their own catalogue lately. Attributes each sale to `item.creator` rather
+/// than the seller, so primary mints count (see `TopCreator`). `first` (rows)
+/// and `days` (window) are clamped in the component. Unpaginated: `{ data }`.
+pub async fn get_top_creators(
+    State(state): State<AppState>,
+    Query(pairs): Query<Vec<(String, String)>>,
+) -> Result<Json<TopCreatorsResponseBody>, ApiError> {
+    let params = Params::new(&pairs);
+    let first = params
+        .get_number("first", None)
+        .filter(|n| n.is_finite())
+        .map(|n| n as i64);
+    let days = params
+        .get_number("days", None)
+        .filter(|n| n.is_finite())
+        .map(|n| n as i64);
+    let data = state.shop_catalog.get_top_creators(first, days).await?;
+    Ok(Json(TopCreatorsResponseBody { data }))
 }
 
 #[cfg(test)]

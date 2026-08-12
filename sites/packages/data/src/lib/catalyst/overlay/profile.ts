@@ -138,7 +138,7 @@ export function emptyProfile(address: string): ProfileVM {
     mutualCount: 0,
     bio: "",
     accountUrl: addr
-      ? "https://catalyst.example.com/shop"
+      ? "https://dcl.one/shop"
       : "",
     info: [],
     links: [],
@@ -175,7 +175,7 @@ export function mapProfile(avatar: Avatar, address: string): ProfileVM {
     nameColor,
     mutualCount: 0,
     bio: avatar.description ?? "",
-    accountUrl: "https://catalyst.example.com/shop",
+    accountUrl: "https://dcl.one/shop",
     info,
     links,
     equipped: [],

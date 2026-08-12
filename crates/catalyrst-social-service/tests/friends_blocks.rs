@@ -116,6 +116,45 @@ async fn block_with_no_friendship_action_surfaces_via_blocks_table() {
 }
 
 #[tokio::test]
+async fn get_blocked_users_pages_and_counts_the_full_set() {
+    let Some((db, scratch)) = connect().await else {
+        return;
+    };
+    const A: &str = "0x00000000000000000000000000000000f1e9d5a0";
+    let targets = [
+        "0x00000000000000000000000000000000f1e9d5b1",
+        "0x00000000000000000000000000000000f1e9d5b2",
+        "0x00000000000000000000000000000000f1e9d5b3",
+    ];
+    for t in targets {
+        cleanup(&db, A, t).await;
+    }
+    for t in targets {
+        db.block_user(A, t).await.expect("block");
+    }
+
+    // A bounded page returns at most `limit` rows.
+    let page = db.get_blocked_users(A, 2, 0).await.expect("page");
+    assert_eq!(page.len(), 2, "limit bounds the page size");
+
+    // The count reports the true total, independent of the page.
+    let total = db.count_blocked_users(A).await.expect("count");
+    assert_eq!(
+        total, 3,
+        "count is the full blocklist size, not the page length"
+    );
+
+    // The second page returns the remainder past the offset.
+    let rest = db.get_blocked_users(A, 2, 2).await.expect("page2");
+    assert_eq!(rest.len(), 1, "offset walks past the first page");
+
+    for t in targets {
+        cleanup(&db, A, t).await;
+    }
+    scratch.drop().await;
+}
+
+#[tokio::test]
 async fn friendship_action_outranks_a_block_row() {
     let Some((db, scratch)) = connect().await else {
         return;

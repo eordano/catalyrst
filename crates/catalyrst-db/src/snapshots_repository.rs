@@ -140,6 +140,36 @@ pub async fn save_snapshot(pool: &PgPool, snap: &SnapshotMetadata) -> Result<(),
     Ok(())
 }
 
+/// Points a snapshot row at the hash its content actually has, reporting whether it moved.
+///
+/// Pinned to the old hash as well as the range so two generators racing the same repair cannot both
+/// claim it: the second matches nothing, sees `false`, and regenerates instead of overwriting a row
+/// the first already corrected.
+pub async fn update_snapshot_hash(
+    pool: &PgPool,
+    time_range: TimeRange,
+    old_hash: &str,
+    new_hash: &str,
+) -> Result<bool, sqlx::Error> {
+    let result = sqlx::query(
+        r#"
+        UPDATE snapshots
+        SET hash = $1
+        WHERE hash = $2
+          AND init_timestamp = to_timestamp($3 / 1000.0)
+          AND end_timestamp = to_timestamp($4 / 1000.0)
+        "#,
+    )
+    .bind(new_hash)
+    .bind(old_hash)
+    .bind(time_range.init_timestamp)
+    .bind(time_range.end_timestamp)
+    .execute(pool)
+    .await?;
+
+    Ok(result.rows_affected() > 0)
+}
+
 pub async fn get_snapshot_hashes_not_in_time_range(
     pool: &PgPool,
     snapshot_hashes: &[String],

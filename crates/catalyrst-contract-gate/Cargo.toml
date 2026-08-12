@@ -1,6 +1,6 @@
 [package]
 name = "catalyrst-contract-gate"
-version = "0.16.0"
+version = "0.16.1"
 edition = "2021"
 description = "Route-level OpenAPI contract-test harness for the pilot services: spec-driven request runner, response schema validation, coverage ledger, scratch-schema PG setup"
 

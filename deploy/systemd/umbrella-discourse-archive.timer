@@ -1,0 +1,12 @@
+[Unit]
+Description=Trigger umbrella-discourse-archive.service hourly
+
+[Timer]
+# Hourly at :15 UTC — the cadence inherited from the retired lore-discourse-daily
+# timer this unit replaces (the day scan is idempotent; hourly keeps today's
+# tail fresh once the UTC day rolls over).
+OnCalendar=*-*-* *:15:00 UTC
+Persistent=true
+
+[Install]
+WantedBy=timers.target

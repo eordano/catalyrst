@@ -84,10 +84,10 @@ describe("parsePointer + jump urls", () => {
   });
   it("builds genesis + world jump links", () => {
     expect(sceneJumpUrl("-3,-2")).toBe(
-      "https://catalyst.example.com/play/?position=-3,-2",
+      "https://dcl.one/play/?position=-3,-2",
     );
     expect(worldJumpUrl("a b.dcl.eth")).toBe(
-      "https://catalyst.example.com/play/?realm=a%20b.dcl.eth",
+      "https://dcl.one/play/?realm=a%20b.dcl.eth",
     );
   });
 });

@@ -66,7 +66,7 @@ database, no unit, no port.
   mirrored and pinned by a cross-crate test, not by proximity.
 - Types, envcfg, hashing, and storage stay four separate leaf crates.
   Eleven crates take envcfg alone, so "always pulled together" does not
-  hold; the export tooling's version-source line depends on the exact
+  hold; export-catalyrst.sh's version-source line depends on the exact
   crate path; folding storage in forces sqlx onto the sqlx-free dcl-one-sdk
   export.
 - Types, crypto, envcfg, and hashing stay separate leaf crates, plus:

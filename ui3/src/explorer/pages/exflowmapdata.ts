@@ -890,7 +890,7 @@ export const SECTIONS: FlowSection[] = [
 
 export const STATS = computeStats(SECTIONS);
 
-export const ASCII_SOURCE = `# Explorer (catalyst.example.com/play) — click/state sitemap
+export const ASCII_SOURCE = `# Explorer (dcl.one/play) — click/state sitemap
 
 Every edge is one user CLICK, or a LOAD⏳ when the transition invokes work >100ms
 (engine boot, signed deploys, teleports). States in CAPS are component/machine

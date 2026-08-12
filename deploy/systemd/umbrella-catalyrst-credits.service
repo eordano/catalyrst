@@ -1,0 +1,21 @@
+[Unit]
+Description=Umbrella catalyrst-credits (marketplace credits seasons/claims, port 5146)
+After=network.target umbrella-postgres.service
+StartLimitIntervalSec=0
+Wants=umbrella-postgres.service
+
+[Service]
+Type=exec
+WorkingDirectory=@UMBRELLA_DIR@
+# Optional: until the YubiKey handover runs this file does not exist, and a
+# non-optional EnvironmentFile fails the unit before ExecStartPre. The
+# env/*.env line below is what actually loads today.
+EnvironmentFile=-/run/agenix/umbrella-catalyrst-credits-env
+EnvironmentFile=-@UMBRELLA_DIR@/env/catalyrst-credits.env
+ExecStartPre=@UMBRELLA_DIR@/scripts/wait-pg.sh @BINDIR@
+ExecStart=@BINDIR@/catalyrst-credits
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=umbrella.target

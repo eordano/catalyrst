@@ -1,0 +1,22 @@
+[Unit]
+Description=Umbrella catalyrst sync replica (peers -> content DB, port 5166)
+After=network.target umbrella-postgres.service
+StartLimitIntervalSec=0
+Wants=umbrella-postgres.service
+
+[Service]
+Type=exec
+WorkingDirectory=@UMBRELLA_DIR@
+EnvironmentFile=@UMBRELLA_DIR@/env/common.env
+# Optional: until the YubiKey handover runs this file does not exist, and a
+# non-optional EnvironmentFile fails the unit before ExecStartPre. The
+# env/*.env line below is what actually loads today.
+EnvironmentFile=-/run/agenix/umbrella-catalyrst-sync-env
+EnvironmentFile=-@UMBRELLA_DIR@/env/catalyrst-sync.env
+ExecStartPre=@UMBRELLA_DIR@/scripts/wait-pg.sh @BINDIR@
+ExecStart=@BINDIR@/catalyrst-live
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=umbrella.target

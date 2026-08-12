@@ -39,7 +39,7 @@ export type BlogPost = {
 
 const DCL_ONE = {
   id: "dcl-one",
-  title: "catalyst.example.com",
+  title: "dcl.one",
   slug: "dcl-one",
   image: { url: "" },
   url: "/blog?author=dcl-one",
@@ -53,7 +53,7 @@ export const BLOG_POSTS: BlogPost[] = [
   {
     id: "explore-from-your-browser",
     slug: "explore-from-your-browser",
-    title: "Explore Decentraland From Your Browser at catalyst.example.com/play",
+    title: "Explore Decentraland From Your Browser at dcl.one/play",
     description:
       "The web explorer is live: jump into the world directly from a browser tab — no download or install required.",
     publishedDate: "JUL 2, 2026",
@@ -65,7 +65,7 @@ export const BLOG_POSTS: BlogPost[] = [
       {
         type: "p",
         content:
-          "You can now walk into Decentraland straight from a browser tab. The web explorer at catalyst.example.com/play loads the world without any download or install — open the page, pick a spot, and you're in.",
+          "You can now walk into Decentraland straight from a browser tab. The web explorer at dcl.one/play loads the world without any download or install — open the page, pick a spot, and you're in.",
       },
       { type: "h3", content: "What you need" },
       {
@@ -78,7 +78,7 @@ export const BLOG_POSTS: BlogPost[] = [
       {
         type: "p",
         content:
-          "The web explorer connects to the same content network as the rest of catalyst.example.com, so the scenes, avatars, and events you see are the real thing. Head to catalyst.example.com/play and have a look around.",
+          "The web explorer connects to the same content network as the rest of dcl.one, so the scenes, avatars, and events you see are the real thing. Head to dcl.one/play and have a look around.",
       },
     ],
   },

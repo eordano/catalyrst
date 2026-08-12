@@ -1,0 +1,41 @@
+[Unit]
+Description=Umbrella DCL stack (catalyst node + indexers + analytics bundle)
+# Wants= the full bundle. Ordering is expressed per-unit via After=/Wants=
+# (postgres + backing services first, then the catalyrst plane, then the front).
+Wants=umbrella-postgres.service
+Wants=umbrella-catalyrst.service
+Wants=umbrella-catalyrst-sync.service
+Wants=umbrella-catalyrst-places.service
+Wants=umbrella-catalyrst-events.service
+Wants=umbrella-catalyrst-communities.service
+Wants=umbrella-catalyrst-comms.service
+Wants=umbrella-catalyrst-archipelago.service
+Wants=umbrella-catalyrst-worlds.service
+Wants=umbrella-catalyrst-builder.service
+Wants=umbrella-catalyrst-world-storage.service
+Wants=umbrella-catalyrst-explorer-api.service
+Wants=umbrella-catalyrst-market.service
+Wants=umbrella-catalyrst-abgen.service
+Wants=umbrella-abgen-compare.service
+Wants=umbrella-catalyrst-telemetry.service
+Wants=umbrella-catalyrst-governance.service
+Wants=umbrella-catalyrst-presence.service
+Wants=umbrella-catalyrst-price.service
+Wants=umbrella-catalyrst-notifications.service
+Wants=umbrella-catalyrst-badges.service
+Wants=umbrella-catalyrst-economy.service
+Wants=umbrella-catalyrst-media.service
+Wants=umbrella-catalyrst-credits.service
+Wants=umbrella-nats.service
+Wants=umbrella-livekit.service
+Wants=umbrella-nginx.service
+Wants=umbrella-sites.service
+Wants=umbrella-editor-scene.service
+Wants=umbrella-project-realm.service
+Wants=umbrella-squid-eth.service
+Wants=umbrella-squid-polygon.service
+Wants=umbrella-metabase.service
+After=umbrella-postgres.service
+
+[Install]
+WantedBy=default.target

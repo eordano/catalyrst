@@ -8,7 +8,7 @@ import {
 } from "./discover-deployed";
 import { discoverDeployedScenes } from "./discover-deployed.server";
 
-const BASE = "https://catalyst.example.com";
+const BASE = "https://catalyst.dcl.one";
 
 const landComposite: RawDeployment = {
   entityId: "bafkland1",

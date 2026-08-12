@@ -50,7 +50,7 @@ const config = {
     const server = (config.server ??= {});
     server.allowedHosts = [
       ...(server.allowedHosts === true ? [] : server.allowedHosts ?? []),
-      "catalyst.example.com", "catalyst.example.com", ".catalyst.example.com",
+      "dcl.one", "catalyst.dcl.one", ".dcl.one",
     ];
     const fs = (server.fs ??= {});
     fs.allow = [...(fs.allow ?? []), REPO_ROOT];

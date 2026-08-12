@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 import type { Pool } from "pg";
 
 const FUNCTIONS_SQL = fileURLToPath(
-  new URL("../../../../deploy/metabase/functions.sql", import.meta.url),
+  new URL("../../../../umbrella/metabase/functions.sql", import.meta.url),
 );
 
 export const FIXTURE = {

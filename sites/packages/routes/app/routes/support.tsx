@@ -13,7 +13,7 @@ import type { Route } from "./+types/support";
 const STORY = "support";
 
 const SUPPORT_EMAIL =
-  (typeof process !== "undefined" ? process.env?.SUPPORT_EMAIL : undefined) ?? "hello@catalyst.example.com";
+  (typeof process !== "undefined" ? process.env?.SUPPORT_EMAIL : undefined) ?? "hello@dcl.one";
 
 const PROBE_TIMEOUT_MS = 3000;
 const SLOW_THRESHOLD_MS = 1500;

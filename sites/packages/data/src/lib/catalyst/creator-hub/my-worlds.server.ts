@@ -28,7 +28,7 @@ import {
  * every row carries where it came from, and a host that failed is named instead
  * of silently shrinking the list.
  */
-export type WorldOrigin = "catalyst.example.com" | "upstream" | "both";
+export type WorldOrigin = "dcl.one" | "upstream" | "both";
 
 export type UnionedWorld = ManagedWorld & { origin: WorldOrigin };
 
@@ -105,8 +105,8 @@ function blankWorld(name: string): ManagedWorld {
  * Unions the two lists on world name.
  *
  * `deployedScenes` is only ever taken from the upstream row, because only
- * worlds-content-server measures it. A catalyst.example.com-only row keeps 0 *and* is marked
- * `origin: "catalyst.example.com"`, which is the signal the UI needs to avoid printing a
+ * worlds-content-server measures it. A dcl.one-only row keeps 0 *and* is marked
+ * `origin: "dcl.one"`, which is the signal the UI needs to avoid printing a
  * scene count that nobody reported.
  */
 export function unionWorlds(
@@ -123,7 +123,7 @@ export function unionWorlds(
     const key = world.trim().toLowerCase();
     const existing = byName.get(key);
     if (existing) byName.set(key, { ...existing, origin: "both" });
-    else byName.set(key, { ...blankWorld(world), origin: "catalyst.example.com" });
+    else byName.set(key, { ...blankWorld(world), origin: "dcl.one" });
   }
 
   return [...byName.values()].sort((a, b) => {

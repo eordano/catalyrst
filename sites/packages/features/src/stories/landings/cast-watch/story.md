@@ -116,7 +116,7 @@ the live watch view.
 
 ## Data reality (SIMULATED)
 
-There is no watcher-token mint on the live catalyst (`catalyst.example.com`): the
+There is no watcher-token mint on the live catalyst (`catalyst.dcl.one`): the
 `comms-gatekeeper` service (which issues `POST /cast/watcher-token` ->
 `{ url, token, roomId, identity, placeName? }` and `GET /cast/stream-info/:streamingKey`)
 is not deployed there, and the catalyst comms crate handles WebRTC RPC, not browser

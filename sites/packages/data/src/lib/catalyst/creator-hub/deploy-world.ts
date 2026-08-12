@@ -124,9 +124,9 @@ export function formatSize(size: number): string {
 }
 
 export function worldJumpUrl(name: string): string {
-  return `https://catalyst.example.com/play/?realm=${encodeURIComponent(name)}`;
+  return `https://dcl.one/play/?realm=${encodeURIComponent(name)}`;
 }
 
 export function landJumpUrl(baseParcel: string): string {
-  return `https://catalyst.example.com/play/?position=${encodeURIComponent(baseParcel)}`;
+  return `https://dcl.one/play/?position=${encodeURIComponent(baseParcel)}`;
 }

@@ -42,7 +42,7 @@ const READ_AT = at(0);
 const TAKEN_AT = at(2 * 60_000);
 
 export const WCS = "worlds-content-server.decentraland.org";
-export const CATALYST = "catalyst.example.com";
+export const CATALYST = "catalyst.dcl.one";
 
 const E = {
   worlds: `GET ${WCS}/worlds?authorized_deployer=`,
@@ -430,7 +430,7 @@ export const sourceGroups: SourceLedgerGroup[] = [
         "Your NAMEs",
         E.names,
         ["Worlds"],
-        "The catalyst.example.com half of the split stack.",
+        "The dcl.one half of the split stack.",
         l(3, E.names),
       ),
     ],

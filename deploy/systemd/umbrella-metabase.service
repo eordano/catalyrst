@@ -1,0 +1,25 @@
+[Unit]
+Description=Umbrella Metabase (BI + experiment dashboards over catalyrst-telemetry, port 5153)
+After=network.target umbrella-postgres.service umbrella-catalyrst-telemetry.service
+StartLimitIntervalSec=0
+Wants=umbrella-postgres.service
+
+[Service]
+Type=exec
+WorkingDirectory=@UMBRELLA_DIR@
+Environment=MB_JETTY_HOST=127.0.0.1
+Environment=MB_JETTY_PORT=5153
+Environment=HOME=@STATE_DIR@/metabase
+Environment=MB_PLUGINS_DIR=@STATE_DIR@/metabase/plugins
+# Optional: until the YubiKey handover runs this file does not exist, and a
+# non-optional EnvironmentFile fails the unit before ExecStartPre. The
+# env/*.env line below is what actually loads today.
+EnvironmentFile=-/run/agenix/umbrella-metabase-env
+EnvironmentFile=-@UMBRELLA_DIR@/env/metabase.env
+ExecStartPre=@UMBRELLA_DIR@/scripts/wait-pg.sh @BINDIR@
+ExecStart=@BINDIR@/metabase
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=umbrella.target

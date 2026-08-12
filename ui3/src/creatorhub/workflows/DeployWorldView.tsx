@@ -39,7 +39,7 @@ type DeployWorldViewProps = {
 };
 
 const LAND_NETWORK_NOTE =
-  "Publishing updates LAND on this network (catalyst.example.com's catalyst) only. " +
+  "Publishing updates LAND on this network (dcl.one's catalyst) only. " +
   "Genesis City on decentraland.org is not affected.";
 
 export default function DeployWorldView({
@@ -112,7 +112,7 @@ export default function DeployWorldView({
                   {landOption.parcelCount > 1
                     ? `Updates all ${landOption.parcelCount} parcels of this scene `
                     : "Updates this parcel "}
-                  on catalyst.example.com&apos;s catalyst. Genesis City on decentraland.org
+                  on dcl.one&apos;s catalyst. Genesis City on decentraland.org
                   is not affected.
                 </span>
               </button>

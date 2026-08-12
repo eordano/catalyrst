@@ -1,0 +1,13 @@
+[Unit]
+Description=Run the sites smoke sweep hourly (P4 continuous degradation-paging)
+
+[Timer]
+OnBootSec=5min
+# OnCalendar, not OnUnitActiveSec: a FAILED oneshot never re-arms
+# OnUnitActiveSec (unit never went active), silently killing the hourly cadence
+# after one red sweep (bit 2026-07-08, caught by lore-drift-check's first run).
+OnCalendar=*-*-* *:06:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

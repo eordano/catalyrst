@@ -40,7 +40,7 @@ function compositeWith(srcs: string[]): string {
 describe("packageSceneAssets", () => {
   it("rewrites absolute builder srcs to seeded relative paths and fetches the bytes", async () => {
     const out = await packageSceneAssets({
-      compositeText: compositeWith([`https://catalyst.example.com/builder-items/${CID}`]),
+      compositeText: compositeWith([`https://catalyst.dcl.one/builder-items/${CID}`]),
       fileKeys: ["scene.json"],
       fetchImpl: stubFetch({ "/builder-items/": GLB_BYTES }),
     });

@@ -1,10 +1,10 @@
 -- place_indexed is the read surface for every place/world query in this crate.
 --
 -- `place` is a TRUNCATE+reload mirror of the upstream Genesis City catalog
--- and upstream carries no worlds at
+-- (umbrella/scripts/sync-archive-copies.sh) and upstream carries no worlds at
 -- all, so world-scoped queries over it match nothing. place_world_local holds
 -- the worlds our own catalyrst-worlds serves; it sits outside that reload's
--- table list and survives it. Refilled by the deployment's own world-places sync.
+-- table list and survives it. Refilled by umbrella/scripts/sync-world-places.sh.
 
 CREATE TABLE IF NOT EXISTS place_world_local (LIKE place INCLUDING DEFAULTS);
 

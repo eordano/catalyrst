@@ -270,13 +270,13 @@ function SceneCard({
                   </button>
                   <span className="chms__note">
                     Republishing updates {scene.baseParcel || "this LAND"} on this
-                    network (catalyst.example.com) only — Genesis City on decentraland.org is not
+                    network (dcl.one) only — Genesis City on decentraland.org is not
                     affected. Your wallet&apos;s LAND rights are checked before publish.
                   </span>
                 </>
               ) : scene.kind === "land" ? (
                 <span className="chms__note">
-                  Publishing from here updates this network (catalyst.example.com) only, never
+                  Publishing from here updates this network (dcl.one) only, never
                   Genesis City on decentraland.org.
                 </span>
               ) : null}
@@ -311,7 +311,7 @@ function SceneCard({
                 Code scene — not editable here. Work on the files with the SDK CLI
                 (<code className="chms__code">npx @dcl/sdk-commands start</code>).
                 {scene.kind === "land"
-                  ? " Republishing updates this network (catalyst.example.com) only — Genesis City on decentraland.org is not affected."
+                  ? " Republishing updates this network (dcl.one) only — Genesis City on decentraland.org is not affected."
                   : ""}
               </span>
             </div>

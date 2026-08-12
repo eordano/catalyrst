@@ -116,7 +116,7 @@ const EMOTES: Record<string, string> = {
   dab: dabUrl,
 };
 
-const DEFAULT_BASE = "https://catalyst.example.com";
+const DEFAULT_BASE = "https://catalyst.dcl.one";
 const DEFAULT_BODY = "urn:decentraland:off-chain:base-avatars:BaseMale";
 
 // Shipped in the /play overlay (client-only build), so the served origin — which

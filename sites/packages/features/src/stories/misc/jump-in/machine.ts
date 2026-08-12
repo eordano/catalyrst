@@ -66,7 +66,7 @@ export function buildLaunchUrl(place: JumpInPlace, realm?: string): string {
     params.set("position", pos);
     if (realm) params.set("realm", realm);
   }
-  return `https://catalyst.example.com/play/?${params.toString()}`;
+  return `https://dcl.one/play/?${params.toString()}`;
 }
 
 export const resolveLaunch: LaunchFn = async ({ place, signal }) => {

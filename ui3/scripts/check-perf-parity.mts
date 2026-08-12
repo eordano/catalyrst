@@ -170,7 +170,7 @@ if (setup.length > 0) {
 const LEGEND = {
   "federated-cdn":
     "the cdn.decentraland.org -> federated CDN rewrite stops running, so thumbnails load " +
-    "from the PROD CDN. play.catalyst.example.com must reach catalyst.example.com only, so this is a " +
+    "from the PROD CDN. play.dcl.one must reach catalyst.dcl.one only, so this is a " +
     "federation break, not a cosmetic one (schemas/communities.ts:16-22)",
   normalization:
     "transforms stop running: `nullish().transform((v) => v ?? null)` leaves the field " +

@@ -66,7 +66,7 @@ operational step (deploy an update, open scene-admin, issue a ban) is obvious:
   future scene-admin surface (catalyst comms `/scene-admin`, `/users/{addr}/bans`).
 
 Presence is not yet routed on the public catalyst edge
-(`https://catalyst.example.com/presence/current` → 404), so the reader
+(`https://catalyst.dcl.one/presence/current` → 404), so the reader
 (`app/lib/catalyst/presence.ts` + `presence.server.ts`) falls back to the bundled
 `app/fixtures/operator-metrics.json`. That fixture's **scene occupancy is REAL**
 — derived from `GET /places/api/places?order_by=most_active` (live 200:

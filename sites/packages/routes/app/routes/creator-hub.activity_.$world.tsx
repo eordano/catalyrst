@@ -59,7 +59,7 @@ const FALLBACK: Assignment = {
 const SERIES_COLOR = "var(--brand)";
 
 const KV_STORAGE_ENDPOINT =
-  "GET catalyst.example.com/world-storage/usage/{world|players|env}";
+  "GET catalyst.dcl.one/world-storage/usage/{world|players|env}";
 
 const WCS_WORLDS_ENDPOINT =
   "GET worlds-content-server.decentraland.org/worlds?authorized_deployer=";
@@ -473,7 +473,7 @@ export default function CreatorHubWorldActivityRoute({
       <CreatorHubChrome active="activity">
         <UpstreamUnavailable
           title={`${d.world} is unreadable right now`}
-          message="worlds-content-server, catalyst.example.com and the Places API all failed on this request. Nothing is shown rather than numbers we could not read."
+          message="worlds-content-server, catalyst.dcl.one and the Places API all failed on this request. Nothing is shown rather than numbers we could not read."
           backHref={origin.to}
           backLabel={origin.label}
         />

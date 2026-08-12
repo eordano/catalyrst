@@ -97,7 +97,7 @@ export async function loader({ request }: Route.LoaderArgs) {
   const publicRealm =
     process.env.REALM_URL ||
     process.env.PUBLIC_CATALYST_URL ||
-    "https://catalyst.example.com";
+    "https://catalyst.dcl.one";
   const projectBase = seed.scene.base || "0,0";
   const viewportSrc = buildViewportUrl({
     playUrl: process.env.BEVY_PLAY_URL || "/_play",
