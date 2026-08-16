@@ -1354,9 +1354,9 @@ checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
 
 [[package]]
 name = "base64"
-version = "0.23.0"
+version = "0.23.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b25655df2c3cdd83c5e5b293b88acd880332b2ddadd7c30ac43144fdc0033da9"
+checksum = "ac07cdecf99051d9a5238b80f35af32cdeba5b336e55d957b318b50137e18da5"
 
 [[package]]
 name = "base64-simd"
@@ -1380,7 +1380,7 @@ version = "0.19.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a0cd0bd35a28836d528d2b58ad499bc3c5641d59379421b1be9eeb0c2f2b912a"
 dependencies = [
- "base64 0.23.0",
+ "base64 0.23.1",
  "blowfish",
  "getrandom 0.4.3",
  "subtle",
@@ -1684,7 +1684,7 @@ dependencies = [
  "alloy",
  "anyhow",
  "axum",
- "base64 0.23.0",
+ "base64 0.23.1",
  "catalyrst-crypto",
  "catalyrst-db",
  "catalyrst-envcfg",
@@ -1834,7 +1834,7 @@ version = "0.16.8"
 dependencies = [
  "anyhow",
  "axum",
- "base64 0.23.0",
+ "base64 0.23.1",
  "bytes",
  "catalyrst-crypto",
  "catalyrst-db",
@@ -1865,7 +1865,7 @@ version = "0.16.8"
 dependencies = [
  "anyhow",
  "axum",
- "base64 0.23.0",
+ "base64 0.23.1",
  "catalyrst-authenticated-principal",
  "catalyrst-contract-gate",
  "catalyrst-crypto",
@@ -1902,7 +1902,7 @@ name = "catalyrst-conformance"
 version = "0.16.8"
 dependencies = [
  "anyhow",
- "base64 0.23.0",
+ "base64 0.23.1",
  "catalyrst-types",
  "chrono",
  "clap",
@@ -2039,7 +2039,7 @@ dependencies = [
  "alloy",
  "anyhow",
  "axum",
- "base64 0.23.0",
+ "base64 0.23.1",
  "catalyrst-envcfg",
  "catalyrst-hashing",
  "chrono",
@@ -2261,7 +2261,7 @@ dependencies = [
 name = "catalyrst-livekit"
 version = "0.16.8"
 dependencies = [
- "base64 0.23.0",
+ "base64 0.23.1",
  "hmac 0.13.0",
  "serde",
  "serde_json",
@@ -2385,7 +2385,7 @@ name = "catalyrst-oracle-tests"
 version = "0.16.8"
 dependencies = [
  "anyhow",
- "base64 0.23.0",
+ "base64 0.23.1",
  "catalyrst-crypto",
  "catalyrst-hashing",
  "catalyrst-validator",
@@ -2403,7 +2403,7 @@ version = "0.16.8"
 dependencies = [
  "anyhow",
  "axum",
- "base64 0.23.0",
+ "base64 0.23.1",
  "catalyrst-authenticated-principal",
  "catalyrst-contract-gate",
  "catalyrst-crypto",
@@ -2587,7 +2587,7 @@ version = "0.16.8"
 dependencies = [
  "anyhow",
  "axum",
- "base64 0.23.0",
+ "base64 0.23.1",
  "catalyrst-crypto",
  "catalyrst-envcfg",
  "catalyrst-types",
@@ -2616,7 +2616,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "axum",
- "base64 0.23.0",
+ "base64 0.23.1",
  "bytes",
  "catalyrst-crypto",
  "catalyrst-db",
@@ -2829,7 +2829,7 @@ dependencies = [
  "aes-gcm 0.11.0",
  "anyhow",
  "axum",
- "base64 0.23.0",
+ "base64 0.23.1",
  "bcrypt",
  "bytes",
  "catalyrst-contract-gate",
@@ -3546,7 +3546,7 @@ version = "0.16.8"
 dependencies = [
  "anyhow",
  "axum",
- "base64 0.23.0",
+ "base64 0.23.1",
  "catalyrst-crypto",
  "catalyrst-hashing",
  "catalyrst-preview-tunnel",
@@ -6825,7 +6825,7 @@ version = "0.142.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e74da984fb38c22be1d251a73ade35359eab4400292f28e50cf7f1432f2b12b8"
 dependencies = [
- "base64 0.23.0",
+ "base64 0.23.1",
  "compact_str 0.10.0",
  "hmac-sha1-compact",
  "indexmap 2.14.0",
