@@ -1,0 +1,21 @@
+{
+  "name": "@one/template-games",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Prebuilt game runtime for the Creator Hub starter templates. One SDK7 scene bundle containing the five template starter games (tower-defense, nft-art-wall, escape-room, memory-game, castaway-2048); which game runs is selected by scene metadata (one_play.template). Built once with `npm run build` and committed as ui3/public/template-bundles/games.js (sites/public is REGENERATED from ui3/public by scripts/sync-ui3-public.mts on every dev/build, so the tracked copy must live in ui3); the Creator Hub editor serves it as the project realm's bin/index.js for template projects so the Play button runs real game logic. Dependency versions are PINNED to match bevy-explorer/project-realm-template (the realm runtime this bundle replaces).",
+  "scripts": {
+    "build": "sdk-commands build --production",
+    "postbuild": "mkdir -p ../../ui3/public/template-bundles && cp bin/index.js ../../ui3/public/template-bundles/games.js && node ../scripts/sync-ui3-public.mts"
+  },
+  "devDependencies": {
+    "@dcl/asset-packs": "2.17.2",
+    "@dcl/ecs": "7.26.0",
+    "@dcl/js-runtime": "7.26.0",
+    "@dcl/sdk": "7.26.0",
+    "@dcl/sdk-commands": "7.26.0"
+  },
+  "engines": {
+    "node": ">=24",
+    "npm": ">=10"
+  }
+}

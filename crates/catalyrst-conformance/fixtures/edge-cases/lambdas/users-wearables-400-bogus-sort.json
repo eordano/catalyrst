@@ -1,0 +1,18 @@
+{
+  "description": "GET /lambdas/users/{address}/wearables with an unsupported orderBy must 400 with the exact lamb2 message including UPPERCASED direction.",
+  "request": {
+    "method": "GET",
+    "path": "/lambdas/users/0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef/wearables",
+    "query": {"orderBy": ["bogus"], "direction": ["asc"]},
+    "headers": {},
+    "body": null
+  },
+  "response": {
+    "status": 400,
+    "headers": {"content-type": "application/json"},
+    "body_json": {"error": "Bad request", "message": "Invalid sorting requested: bogus ASC"}
+  },
+  "captured_from": "hand-authored from handler source (lambdas_user_items.rs::validate_and_sort) + unit test reference",
+  "captured_at": "2026-05-23T20:00:00Z",
+  "volatile_paths": []
+}

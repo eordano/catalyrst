@@ -1,0 +1,18 @@
+{
+  "description": "GET /lambdas/users/{address}/names with pageSize=99999 must clamp to 1000 (OversizePolicy::Clamp, max 1000).",
+  "request": {
+    "method": "GET",
+    "path": "/lambdas/users/0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef/names",
+    "query": {"pageSize": ["99999"]},
+    "headers": {},
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "headers": {"content-type": "application/json"},
+    "body_json": {"elements": [], "totalAmount": 0, "pageNum": 1, "pageSize": 1000}
+  },
+  "captured_from": "hand-authored from handler source (lambdas_land.rs::user_names with max=1000)",
+  "captured_at": "2026-05-23T20:00:00Z",
+  "volatile_paths": []
+}

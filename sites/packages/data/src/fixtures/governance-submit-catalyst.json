@@ -1,0 +1,94 @@
+{
+  "_source": "Derived from decentraland/governance-ui (DAO governance dapp). Primary sources: src/pages/submit/catalyst.tsx (?request -> toCatalystType(add|remove) -> ProposalSubmitCatalystPage, else <NotFound/>), src/components/Proposal/Submit/ProposalSubmitCatalystPage.tsx (fields owner/domain/description + CoAuthors; live domain checks GET https://<domain>/content/status and /lambdas/status; Governance.createProposalCatalyst on submit; LogIn gate when signed out), src/types/proposals.ts (CatalystType { Add='catalyst_add', Remove='catalyst_remove' }, NewProposalCatalyst { owner, domain, description, type, coAuthors? }, newProposalCatalystScheme: owner format=address, domain format=hostname, description minLength 20 maxLength 250 \u2014 NOTE the ui3 GvSubmitCatalyst.jsx mirror shows a 7000 limit; the upstream scheme is authoritative at 250 and is used here; coAuthors items minLength/maxLength 42 i.e. 0x-address), src/utils/proposal.ts (isAlreadyACatalyst / isValidDomainName). The upstream decentraland/governance repo paths 404; the live source is decentraland/governance-ui. Governance is NOT a Catalyst service (the DAO runs on Snapshot + Aragon externally), so domain status checks and createProposal are SIMULATED/derived here \u2014 no remote calls.",
+  "request_param": "request",
+  "valid_requests": [
+    "add",
+    "remove"
+  ],
+  "requests": {
+    "add": {
+      "request": "add",
+      "type": "catalyst_add",
+      "title": "Add a catalyst node",
+      "description": "Instead of using central servers, Decentraland is run on a network of community-operated nodes. These nodes store copies of all scenes deployed to Decentraland, and they handle the messaging and interactions by establishing peer-to-peer connections between users.",
+      "description_2": "To propose the addition of a new node, please provide the following details.",
+      "description_detail": "Explain why this node should be added to the Catalyst network. Why would this addition be beneficial to the network? For example, adding nodes in new geographic areas helps to provide a better experience to more users.",
+      "submit_label": "Submit proposal"
+    },
+    "remove": {
+      "request": "remove",
+      "type": "catalyst_remove",
+      "title": "Remove a catalyst node",
+      "description": "Instead of using central servers, Decentraland is run on a network of community-operated nodes. These nodes store copies of all scenes deployed to Decentraland, and they handle the messaging and interactions by establishing peer-to-peer connections between users.",
+      "description_2": "To propose the removal of a node, please provide the following details.",
+      "description_detail": "Explain why this node should be removed from the Catalyst network. Please, be as descriptive and objective as possible.",
+      "submit_label": "Submit proposal"
+    }
+  },
+  "fields": {
+    "owner": {
+      "label": "Ethereum address of the owner of the Catalyst Node",
+      "placeholder": "Example: 0x06012c8cf97bead5deae237070f9587f8e7a266d",
+      "format": "address",
+      "required": true
+    },
+    "domain": {
+      "label": "Domain for the Catalyst Node",
+      "placeholder": "Example: catalyst.yourdomainname.com",
+      "format": "hostname",
+      "required": true
+    },
+    "description": {
+      "label": "Description",
+      "placeholder": "Write your description using markdown...",
+      "markdown": true,
+      "min_length": 20,
+      "max_length": 250,
+      "required": true
+    },
+    "coAuthors": {
+      "label": "Co-authors",
+      "optional": true,
+      "max": 5,
+      "address_length": 42,
+      "help": "If you co-authored this proposal with someone else, you can add their wallet addresses to acknowledge their work. After you publish the proposal, co-authors will be asked to confirm or reject the request. Only if they confirm, they will be listed publicly on the proposal page."
+    }
+  },
+  "domain_status": {
+    "content_ok": "Content server is ready.",
+    "lambdas_ok": "Lambda server is ready.",
+    "content_label": "Content server status",
+    "lambdas_label": "Lambda server status",
+    "invalid": "Couldn't get the status of the servers running on the provided domain.",
+    "already_a_catalyst": "This domain is already part of the Catalyst network.",
+    "not_a_catalyst": "This domain is not part of the Catalyst network."
+  },
+  "sample_nodes": [
+    {
+      "domain": "peer.decentraland.org",
+      "owner": "0x06012c8cf97bead5deae237070f9587f8e7a266d",
+      "label": "peer.decentraland.org (Foundation)"
+    },
+    {
+      "domain": "peer-ec1.decentraland.org",
+      "owner": "0x4eac6325e1dbf1ac90434d39766e164dca71139e",
+      "label": "peer-ec1.decentraland.org (Foundation)"
+    },
+    {
+      "domain": "peer.decentral.io",
+      "owner": "0x9596344d0d3010e571c33856b95558cb1ba34a8e",
+      "label": "peer.decentral.io (Community)"
+    },
+    {
+      "domain": "peer.melonwave.com",
+      "owner": "0x71b27fa8d97c2f9e30e8e25e75c0c2d7e4f4c0fa",
+      "label": "peer.melonwave.com (Community)"
+    }
+  ],
+  "submit_error": "There was an error while trying to create the proposal, please try again later.",
+  "success": {
+    "title": "Proposal created",
+    "lead": "Your Catalyst node proposal is now live for the DAO to vote on.",
+    "note": "This proposal was created in a simulation \u2014 no on-chain transaction or Snapshot proposal was submitted."
+  }
+}

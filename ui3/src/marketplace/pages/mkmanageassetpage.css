@@ -1,0 +1,403 @@
+.mma {
+  min-height: 100%;
+  box-sizing: border-box;
+  --mma-card: #242129;
+  --mma-primary: var(--brand);
+  --mma-text: #fff;
+  --mma-muted: #676370;
+  --mma-label: #99939f;
+  --mma-gray: rgba(115, 110, 125, 0.4);
+  --mma-rented: rgba(115, 110, 125, 0.24);
+  --mma-rented-msg: #161419;
+  color: var(--mma-text);
+}
+
+.mma__main {
+  position: relative;
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 28px 24px 64px;
+}
+
+.mma__back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  background: none;
+  color: var(--mma-text);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 500;
+  cursor: pointer;
+  padding: 0;
+  margin-bottom: 18px;
+}
+.mma__back:hover { color: var(--mma-primary); }
+
+.mma__mainRow {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+}
+
+.mma__leftMenu {
+  width: 256px;
+  flex: 1 0 auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.mma__map {
+  position: relative;
+  width: 256px;
+  height: 256px;
+  border-radius: 12px;
+  overflow: hidden;
+  background:
+    radial-gradient(120% 120% at 50% 0%, rgba(255, 45, 85, 0.18), transparent 60%),
+    #18141a;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.mma__mapGrid {
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.06) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.06) 1px, transparent 1px);
+  background-size: 22px 22px;
+}
+.mma__mapPlot {
+  position: relative;
+  z-index: 1;
+  width: 64px;
+  height: 64px;
+  border-radius: 6px;
+  background: var(--mma-primary);
+  box-shadow: 0 0 0 4px rgba(255, 45, 85, 0.25), 0 0 26px rgba(255, 45, 85, 0.5);
+}
+.mma__mapBadge {
+  position: absolute;
+  z-index: 2;
+  left: 10px;
+  top: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: rgba(0, 0, 0, 0.55);
+  border-radius: var(--r-pill);
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.mma__builderButton {
+  margin-top: 12px;
+  width: 100%;
+  height: 44px;
+  font-size: 15px;
+  border-radius: 6px;
+}
+
+.mma__box {
+  border: 2px solid var(--mma-card);
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+}
+.mma__highlights { margin-top: 12px; }
+.mma__details { margin-top: 12px; }
+
+.mma__boxHeader {
+  margin: 13px 0 13px 20px;
+  text-transform: uppercase;
+  color: var(--mma-label);
+  font-weight: 600;
+  font-size: 13px;
+}
+.mma__boxChildren { margin-bottom: 8px; }
+
+.mma__highlight {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  margin-left: 24px;
+  margin-bottom: 18px;
+}
+.mma__highlightIcon {
+  width: 24px;
+  height: 24px;
+  flex: 0 0 auto;
+  color: var(--mma-primary);
+}
+.mma__highlightTitle {
+  margin-left: 12px;
+  font-weight: 500;
+  font-size: 17px;
+  line-height: 26px;
+}
+
+.mma__detailsContent {
+  padding-left: 24px;
+  padding-right: 24px;
+}
+.mma__info {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+.mma__infoTitle {
+  font-weight: 400;
+  font-size: 17px;
+  color: var(--mma-text);
+}
+.mma__infoContent { color: #979797; }
+.mma__infoLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #979797;
+}
+.mma__infoAvatar { flex: 0 0 auto; }
+
+.mma__content {
+  margin-left: 24px;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.mma__warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  background: color-mix(in srgb, var(--warning) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--warning) 45%, transparent);
+  border-radius: 8px;
+  color: var(--warning);
+  font-size: 13px;
+  line-height: 1.4;
+  padding: 10px 12px;
+  width: 100%;
+  margin: 8px 0;
+}
+.mma__warningIcon { flex-shrink: 0; margin-top: 1px; color: var(--warning); }
+
+.mma__assetDescription {
+  display: flex;
+  flex-direction: column;
+  background: var(--mma-card);
+  border-radius: 12px;
+  padding: 24px;
+}
+.mma__assetDescriptionHeader {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+}
+.mma__assetDescriptionTitle {
+  margin: 0;
+  font-weight: 600;
+  font-size: 34px;
+  line-height: 1.15;
+}
+.mma__assetDescriptionContent {
+  margin: 16px 0 0;
+  font-weight: 400;
+  font-size: 17px;
+  color: var(--mma-text);
+}
+
+.mma__transfer {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  border: 1px solid var(--mma-gray);
+  background: transparent;
+  border-radius: var(--r-pill);
+  padding: 7px 15px;
+  min-width: unset;
+  color: var(--brand-ink, #ff6b87);
+  font: inherit;
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+}
+.mma__transfer:hover { color: var(--brand-ink, #ff6b87); background: rgba(255, 45, 85, 0.08); }
+
+.mma__sellbox,
+.mma__rentbox {
+  display: flex;
+  flex-direction: column;
+  background: var(--mma-card);
+  border-radius: 12px;
+  padding: 24px;
+  margin-top: 24px;
+}
+.mma__cardHeader {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.mma__cardLeft {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 16px;
+}
+.mma__cardTitle {
+  margin: 0;
+  font-weight: 500;
+  font-size: 21px;
+}
+
+.mma__iconButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 0;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--mma-primary);
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+.mma__iconButton:hover { background: rgba(255, 255, 255, 0.12); }
+.mma__iconButton:disabled { opacity: 0.5; cursor: default; }
+
+.mma__roundedButton {
+  border: 1px solid var(--mma-gray);
+  background: transparent;
+  border-radius: var(--r-pill);
+  padding: 7px 15px;
+  min-width: unset;
+  color: var(--brand-ink, #ff6b87);
+  font: inherit;
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.mma__roundedButton:hover { color: var(--brand-ink, #ff6b87); background: rgba(255, 45, 85, 0.08); }
+
+.mma__flatButton {
+  border: 0;
+  background: transparent;
+  padding: 7px 0;
+  min-width: unset;
+  color: var(--brand-ink, #ff6b87);
+  font: inherit;
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.mma__flatButton:hover { color: var(--brand-ink, #ff6b87); text-decoration: underline; }
+
+.mma__cardContent {
+  display: flex;
+  flex-direction: column;
+  margin-top: 30px;
+}
+.mma__summary {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+}
+.mma__column {
+  display: flex;
+  flex-direction: column;
+}
+.mma__column:not(:last-child) { margin-right: 68px; }
+.mma__columnHeader {
+  font-weight: 500;
+  font-size: 13px;
+  text-transform: uppercase;
+  color: var(--mma-label);
+  padding-bottom: 4px;
+}
+.mma__columnContent {
+  font-style: normal;
+  font-weight: 600;
+  font-size: 16px;
+  color: var(--mma-text);
+  display: flex;
+  align-items: center;
+}
+.mma__date {
+  margin-top: 5px;
+  color: var(--mma-label);
+  font-size: 15px;
+  font-weight: 600;
+}
+.mma__notShrink { flex: 1 0 auto; }
+.mma__shrinkAndExpand { flex: 1 1 auto; }
+.mma__isLandLocked { opacity: 0.5; }
+
+.mma__mana {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 16px;
+  line-height: 24px;
+  font-weight: 600;
+}
+.mma__manamark { display: inline-flex; color: currentColor; }
+
+.mma__activeRent {
+  display: flex;
+  flex-direction: column;
+  background-color: var(--mma-rented);
+  border-radius: 6px;
+  font-weight: 400;
+  font-size: 15px;
+  padding: 12px;
+  margin-bottom: 24px;
+}
+.mma__rentMessage {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.mma__rentedBy {
+  margin-left: 7px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--mma-text);
+  font-weight: 600;
+}
+.mma__activeRentActions {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: row;
+  gap: 16px;
+}
+
+@media (max-width: 992px) {
+  .mma__summary { flex-wrap: wrap; }
+  .mma__column { margin-top: 12px; }
+}
+
+@media (max-width: 768px) {
+  .mma__mainRow { flex-direction: column; }
+  .mma__leftMenu { width: 100%; }
+  .mma__map { width: 100%; height: 280px; }
+  .mma__content { margin-left: 0; margin-top: 12px; }
+  .mma__sellbox,
+  .mma__rentbox { margin-top: 12px; }
+  .mma__assetDescriptionTitle { font-size: 28px; }
+  .mma__columnContent { font-size: 21px; }
+  .mma__summary { flex-direction: column; }
+  .mma__column:not(:last-child) { margin-right: 0; }
+}

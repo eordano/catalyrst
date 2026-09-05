@@ -1,0 +1,278 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<!-- SSR-injected <base>+window.__BASE__ so the page works behind a stripped /telemetry/ mount. -->
+<!--SSR:base-->
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>telemetry &#xB7; experiments</title>
+<style>
+  @font-face{font-family:'Archivo';font-style:normal;font-weight:400;font-display:swap;src:url('fonts/archivo-400.woff2') format('woff2')}
+  @font-face{font-family:'Archivo';font-style:normal;font-weight:500;font-display:swap;src:url('fonts/archivo-500.woff2') format('woff2')}
+  @font-face{font-family:'Archivo';font-style:normal;font-weight:600;font-display:swap;src:url('fonts/archivo-600.woff2') format('woff2')}
+  @font-face{font-family:'Archivo';font-style:normal;font-weight:700;font-display:swap;src:url('fonts/archivo-700.woff2') format('woff2')}
+  @font-face{font-family:'Archivo';font-style:normal;font-weight:800;font-display:swap;src:url('fonts/archivo-800.woff2') format('woff2')}
+  @font-face{font-family:'IBM Plex Mono';font-style:normal;font-weight:400;font-display:swap;src:url('fonts/ibm-plex-mono-400.woff2') format('woff2')}
+  @font-face{font-family:'IBM Plex Mono';font-style:normal;font-weight:500;font-display:swap;src:url('fonts/ibm-plex-mono-500.woff2') format('woff2')}
+  @font-face{font-family:'IBM Plex Mono';font-style:normal;font-weight:600;font-display:swap;src:url('fonts/ibm-plex-mono-600.woff2') format('woff2')}
+  :root{
+    --bg:#efe9db; --bg2:#f6f1e6; --bg3:#e7e0cf; --card:#f6f1e6; --line:#d4cdbb;
+    --fg:#16130c; --mut:#6c6655; --mut2:#9a9382;
+    --acc:#d6312b; --acc2:#a1211c;
+    --err:#d6312b; --warn:#9a6a12; --info:#1f55c9; --ok:#2f7d32; --dbg:#9a9382;
+    --mono:'IBM Plex Mono',ui-monospace,Menlo,Consolas,monospace;
+    --display:'Archivo',system-ui,-apple-system,Segoe UI,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.45 var(--display);-webkit-font-smoothing:antialiased;border-top:3px solid var(--acc);
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E")}
+  a{color:var(--acc);text-decoration:none;cursor:pointer;border-bottom:1px solid transparent}
+  a:hover{border-bottom-color:var(--acc)}
+  .row{display:flex;align-items:center;gap:10px}
+  header{display:flex;align-items:center;gap:18px;padding:14px 20px;border-bottom:2px solid var(--fg);background:var(--bg2);position:sticky;top:0;z-index:5}
+  header h1{font-family:var(--display);font-size:15px;margin:0;font-weight:800;letter-spacing:-.02em}
+  header h1 .dot{display:inline-block;width:10px;height:10px;border-radius:0;background:var(--acc);margin-right:9px;animation:pulse 2.4s ease-in-out infinite}
+  header h1::after{content:'/ experiments';font-family:var(--mono);font-size:10px;font-weight:500;letter-spacing:.14em;text-transform:uppercase;color:var(--mut2);margin-left:11px;vertical-align:middle}
+  header .spacer{flex:1}
+  .total{font-family:var(--mono);font-variant-numeric:tabular-nums;color:var(--mut);font-size:11px;text-transform:uppercase;letter-spacing:.06em}
+  .total b{color:var(--fg);font-size:12px;font-weight:600}
+  select,input,button{background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:0;padding:6px 10px;font:inherit;font-family:var(--mono);font-size:12px;outline:none}
+  input:focus,select:focus{border-color:var(--fg)}
+  button{cursor:pointer;text-transform:uppercase;letter-spacing:.06em;font-size:11px;transition:.12s}
+  button:hover{border-color:var(--fg);background:var(--bg3)}
+  button.on{background:var(--fg);border-color:var(--fg);color:var(--bg);font-weight:600}
+  .tabs{display:flex;border:1px solid var(--fg);border-radius:0;overflow:hidden}
+  .tabs button{border:0;border-right:1px solid var(--line);border-radius:0;background:transparent}
+  .tabs button:last-child{border-right:0}
+  .tabs button.on{background:var(--fg);color:var(--bg)}
+  .stats{display:flex;gap:0;align-items:stretch;padding:0;border-bottom:2px solid var(--fg);flex-wrap:wrap}
+  .card{background:var(--bg2);border-right:1px solid var(--line);border-radius:0;padding:14px 18px;min-width:130px}
+  .card .lab{color:var(--mut);font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.12em}
+  .card .big{font-family:var(--display);font-size:32px;font-weight:800;letter-spacing:-.03em;font-variant-numeric:tabular-nums;margin-top:4px;line-height:1}
+  .stats>.card:first-child{background:var(--bg)}
+  .stats>.card:first-child .big{font-size:46px;color:var(--acc)}
+  .toolbar{display:flex;gap:10px;align-items:center;padding:12px 18px;border-bottom:1px solid var(--line);flex-wrap:wrap;background:var(--bg2)}
+  .toolbar label{font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.12em;color:var(--mut);display:flex;align-items:center;gap:6px}
+  main{padding:0 18px 60px}
+  table{width:100%;border-collapse:collapse}
+  th{text-align:left;color:var(--mut);font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.12em;font-weight:600;padding:9px 12px;border-bottom:2px solid var(--fg);background:var(--bg2)}
+  td{padding:11px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+  .cnt{font-family:var(--mono);font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}
+  .chip{font-family:var(--mono);font-size:11px;padding:2px 8px;border-radius:0;background:transparent;border:1px solid var(--line);color:var(--mut);white-space:nowrap}
+  .chip b{color:var(--fg);font-variant-numeric:tabular-nums}
+  .when{color:var(--mut);white-space:nowrap;font-family:var(--mono);font-size:12px;font-variant-numeric:tabular-nums}
+  .empty{padding:60px;text-align:center;color:var(--mut2);font-family:var(--mono);text-transform:uppercase;letter-spacing:.08em;font-size:12px}
+  h3.sec{font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.14em;color:var(--mut);margin:26px 0 10px;padding-bottom:5px;border-bottom:1px solid var(--line)}
+  .sbadge{font-family:var(--mono);font-size:9px;text-transform:uppercase;letter-spacing:.08em;padding:1px 6px;border-radius:0;border:1px solid var(--line);color:var(--mut)}
+  .verdict{font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.08em;padding:2px 8px;border:1px solid var(--mut);color:var(--mut);font-weight:600;white-space:nowrap}
+  .verdict.ship{color:var(--bg);background:var(--ok);border-color:var(--ok)}
+  .verdict.kill{color:var(--bg);background:var(--err);border-color:var(--err)}
+  .fstep{position:relative;background:var(--bg2);border:1px solid var(--line);border-radius:0;overflow:hidden;min-height:38px;display:flex;align-items:center;margin-bottom:8px;max-width:760px}
+  .fbar{position:absolute;left:0;top:0;bottom:0;background:var(--acc);opacity:.16}
+  .fstep.ctl .fbar{background:var(--fg);opacity:.12}
+  .flab{position:relative;padding:9px 12px;font-size:13px;font-variant-numeric:tabular-nums}
+  .chart{display:flex;align-items:flex-end;gap:6px;height:120px;padding:12px 0 0;overflow-x:auto}
+  .day{display:flex;align-items:flex-end;gap:1px;height:100%;flex:1;min-width:14px}
+  .day .bx{flex:1;background:var(--fg);opacity:.32;min-height:2px}
+  .day .bc{flex:1;background:var(--acc);min-height:2px}
+  .day:hover .bx{opacity:.55}
+  .xlab{display:flex;justify-content:space-between;max-width:100%;font-family:var(--mono);font-size:10px;color:var(--mut2);padding-top:4px}
+  @keyframes rise{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+  body>header{animation:rise .42s ease both}
+  body>.stats{animation:rise .5s ease .06s both}
+  body>.toolbar{animation:rise .5s ease .12s both}
+  body>main{animation:rise .55s ease .18s both}
+  @media (prefers-reduced-motion:reduce){*{animation:none!important}}
+</style>
+</head>
+<body>
+<header>
+  <h1><span class="dot"></span>telemetry</h1>
+  <div class="tabs" style="margin-left:4px">
+    <button id="surf-errors" title="Sentry error tracking">Errors</button>
+    <button id="surf-metrics" title="Segment product analytics">Metrics</button>
+    <button id="surf-health" title="Release health (sessions)">Health</button>
+    <button id="surf-flags" title="Feature flags">Flags</button>
+    <button class="on" title="A/B experiment readouts">Experiments</button>
+    <button id="surf-sql" title="Ad-hoc read-only SQL">SQL</button>
+  </div>
+  <span class="total" id="total">&#x2014;</span>
+  <span class="spacer"></span>
+</header>
+
+<div class="toolbar">
+  <label>experiment <select id="c-exp"><option value="">loading&#x2026;</option></select></label>
+  <label>metric <select id="c-metric"></select></label>
+  <label>control <select id="c-control"></select></label>
+  <label>alpha <input id="c-alpha" type="number" min="0" max="1" step="0.01" value="0.05" style="width:80px"></label>
+  <label>min sample <input id="c-min" type="number" min="0" step="1" value="0" style="width:90px"></label>
+</div>
+
+<div class="stats" id="kpis" style="display:none">
+  <div class="card"><div class="lab">exposed users</div><div class="big" id="k-exposed">&#x2014;</div></div>
+  <div class="card"><div class="lab">converted users</div><div class="big" id="k-converted">&#x2014;</div></div>
+  <div class="card"><div class="lab">variants</div><div class="big" id="k-variants">&#x2014;</div></div>
+</div>
+
+<main>
+  <div id="out"><div class="empty">loading experiments&#x2026;</div></div>
+  <div id="unreadable"></div>
+</main>
+
+<script>
+const $=s=>document.querySelector(s);
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const BASE=(typeof window.__BASE__==='string')?window.__BASE__.replace(/\/+$/,''):
+  (location.pathname.endsWith('/experiments')?location.pathname.slice(0,-'/experiments'.length):'');
+async function jget(u){const r=await fetch(BASE+u);if(!r.ok)throw new Error(await r.text());return r.json();}
+const NAV={'surf-errors':'/','surf-metrics':'/metrics','surf-health':'/health','surf-flags':'/flags','surf-sql':'/sql'};
+for(const id in NAV)$('#'+id).onclick=()=>{location.href=(BASE+NAV[id])||'/';};
+
+const pct=x=>(x*100).toFixed(2)+'%';
+const num=x=>(+x).toLocaleString();
+const pfmt=p=>p<0.0001?(+p).toExponential(2):(+p).toFixed(4);
+const state={list:[],exp:null,metric:'',control:'',alpha:0.05,minSample:0};
+const expOf=k=>state.list.find(x=>x.exp_key===k);
+
+function syncUrl(){
+  const p=new URLSearchParams();
+  if(state.exp)p.set('exp_key',state.exp);
+  if(state.metric)p.set('metric',state.metric);
+  if(state.control)p.set('control',state.control);
+  if(state.alpha!==0.05)p.set('alpha',state.alpha);
+  if(state.minSample)p.set('min_sample',state.minSample);
+  const q=p.toString();
+  history.replaceState(null,'',location.pathname+(q?'?'+q:''));
+}
+function fillSelect(el,opts,cur){
+  el.innerHTML=opts.map(o=>`<option value="${esc(o.v)}"${o.v===cur?' selected':''}>${esc(o.t)}</option>`).join('');
+}
+function pickExperiment(key){
+  const e=expOf(key); if(!e)return;
+  state.exp=key;
+  const metrics=e.metrics.map(m=>({v:m.event,t:`${m.event} (${num(m.count)})`}));
+  if(!metrics.length){$('#out').innerHTML='<div class="empty">this experiment has no metric events yet</div>';$('#kpis').style.display='none';fillSelect($('#c-metric'),[],'');fillSelect($('#c-control'),e.variants.map(v=>({v,t:v})),e.control);syncUrl();return;}
+  if(!metrics.some(m=>m.v===state.metric))state.metric=metrics[0].v;
+  fillSelect($('#c-metric'),metrics,state.metric);
+  if(!e.variants.includes(state.control))state.control=e.control;
+  fillSelect($('#c-control'),e.variants.map(v=>({v,t:v})),state.control);
+  syncUrl();
+  fetchAll();
+}
+function qsData(){
+  const p=new URLSearchParams({exp_key:state.exp,metric:state.metric});
+  return p.toString();
+}
+async function fetchAll(){
+  $('#out').innerHTML='<div class="empty">crunching&#x2026;</div>';
+  try{
+    const rq=new URLSearchParams({exp_key:state.exp,metric:state.metric,control:state.control,
+      alpha:state.alpha,min_sample:state.minSample}).toString();
+    const [ro,ts,ra]=await Promise.all([
+      jget('/dash/experiments/readout?'+rq),
+      jget('/dash/experiments/timeseries?'+qsData()),
+      jget('/dash/experiments/rates?'+qsData()),
+    ]);
+    render(ro,ts,ra);
+  }catch(e){$('#out').innerHTML=`<div class="empty">error: ${esc(e.message)}</div>`;$('#kpis').style.display='none';}
+}
+function render(ro,ts,ra){
+  const exposed=ra.rows.reduce((s,r)=>s+r.exposures,0);
+  const converted=ra.rows.reduce((s,r)=>s+r.successes,0);
+  $('#kpis').style.display='';
+  $('#k-exposed').textContent=num(exposed);
+  $('#k-converted').textContent=num(converted);
+  $('#k-variants').textContent=ra.rows.length;
+  $('#total').innerHTML=`<b>${esc(state.exp)}</b> &#xB7; ${esc(state.metric)} vs ${esc(state.control)}`;
+
+  const vclass=v=>v==='SHIP'?'ship':v==='KILL'?'kill':'';
+  const ctl=ra.rows.find(r=>r.variant===state.control);
+  const vrows=ro.rows.map(r=>`<tr>
+    <td>${esc(r.variant)}</td>
+    <td class="cnt">${num(r.n_exposures)}</td>
+    <td class="cnt">${num(r.successes)}</td>
+    <td class="cnt">${pct(r.rate)}</td>
+    <td class="cnt">${pct(r.control_rate)}</td>
+    <td class="cnt" style="color:${r.diff>0?'var(--ok)':r.diff<0?'var(--err)':'inherit'}">${r.diff>0?'+':''}${pct(r.diff)}</td>
+    <td class="cnt">${pfmt(r.p_value)}</td>
+    <td class="cnt">${r.significant?'<span class="sbadge" style="color:var(--ok);border-color:var(--ok)">yes</span>':'<span class="sbadge">no</span>'}</td>
+    <td class="cnt">${pct(r.bayes_mean)}</td>
+    <td class="cnt">${pct(r.bayes_ci_low)} &#x2013; ${pct(r.bayes_ci_high)}</td>
+    <td class="cnt">${pct(r.p_beats_control)}</td>
+    <td><span class="verdict ${vclass(r.verdict)}">${esc(r.verdict)}</span></td></tr>`).join('');
+  const verdictBlock=ro.rows.length
+    ? `<div class="when" style="margin-bottom:8px">control <b>${esc(state.control)}</b>${ctl?` &#xB7; ${num(ctl.exposures)} exposed &#xB7; ${num(ctl.successes)} converted (${pct(ctl.rate)})`:''} &#xB7; two-sided z-test at &#x3B1;=${state.alpha} &#xB7; min sample ${state.minSample}</div>
+      <div style="overflow-x:auto"><table><thead><tr><th>variant</th><th class="cnt">exposures</th><th class="cnt">successes</th><th class="cnt">rate</th><th class="cnt">control rate</th><th class="cnt">diff</th><th class="cnt">p-value</th><th class="cnt">significant</th><th class="cnt">bayes mean</th><th class="cnt">95% CrI</th><th class="cnt">P(beats control)</th><th>verdict</th></tr></thead><tbody>${vrows}</tbody></table></div>`
+    : `<div class="empty">no treatment arms to compare (control "${esc(state.control)}" missing or only arm)</div>`;
+
+  const maxRate=Math.max(1e-9,...ra.rows.map(r=>r.rate));
+  const bars=ra.rows.map(r=>`<div class="fstep${r.variant===state.control?' ctl':''}">
+      <div class="fbar" style="width:${Math.max(2,Math.round(r.rate/maxRate*100))}%"></div>
+      <div class="flab"><b>${esc(r.variant)}</b>${r.variant===state.control?' <span class="sbadge">control</span>':''} &#xB7; ${pct(r.rate)} &#xB7; ${num(r.successes)}/${num(r.exposures)} users</div>
+    </div>`).join('')||'<div class="empty">no variants</div>';
+
+  const days={};
+  for(const r of ts.rows){
+    const d=days[r.day]||(days[r.day]={e:0,c:0,parts:[]});
+    d.e+=r.exposures;d.c+=r.conversions;
+    d.parts.push(`${r.variant}: ${r.exposures}e/${r.conversions}c`);
+  }
+  const dkeys=Object.keys(days).sort();
+  const maxE=Math.max(1,...dkeys.map(k=>days[k].e));
+  const series=dkeys.map(k=>{const d=days[k];
+    return `<div class="day" title="${esc(k)} &#x2014; ${d.e} exposures, ${d.c} conversions (${esc(d.parts.join(' &#xB7; '))})">
+      <div class="bx" style="height:${Math.max(2,Math.round(d.e/maxE*100))}%"></div>
+      <div class="bc" style="height:${Math.max(2,Math.round(d.c/maxE*100))}%"></div></div>`;}).join('');
+  const tsBlock=dkeys.length
+    ? `<div class="row" style="gap:8px;margin-bottom:2px"><span class="chip"><span style="display:inline-block;width:8px;height:8px;background:var(--fg);opacity:.32;margin-right:5px"></span>exposures</span>
+       <span class="chip"><span style="display:inline-block;width:8px;height:8px;background:var(--acc);margin-right:5px"></span>conversions</span></div>
+       <div class="chart">${series}</div>
+       <div class="xlab"><span>${esc(dkeys[0])}</span><span>${esc(dkeys[dkeys.length-1])}</span></div>`
+    : '<div class="empty">no daily activity</div>';
+
+  $('#out').innerHTML=`<h3 class="sec">verdict vs control</h3>${verdictBlock}
+    <h3 class="sec">conversion rate by variant</h3>${bars}
+    <h3 class="sec">exposures / conversions per day</h3>${tsBlock}`;
+}
+function renderUnreadable(list){
+  if(!list.length){$('#unreadable').innerHTML='';return;}
+  $('#unreadable').innerHTML=`<h3 class="sec">unreadable experiment keys (${list.length})</h3>
+    <div class="when" style="margin-bottom:8px">present in event data but not readable as an A/B &#x2014; shown so nothing is silently hidden</div>
+    <table><thead><tr><th>exp_key</th><th>reason</th><th class="cnt">exposure events</th><th>variants</th></tr></thead><tbody>${
+      list.map(u=>`<tr><td>${esc(u.exp_key)}</td><td class="when">${esc(u.reason)}</td>
+        <td class="cnt">${num(u.exposures)}</td>
+        <td>${u.variants.map(v=>`<span class="chip">${esc(v)}</span>`).join(' ')||'&#x2014;'}</td></tr>`).join('')}</tbody></table>`;
+}
+async function boot(){
+  const q=new URLSearchParams(location.search);
+  state.alpha=+(q.get('alpha')??0.05)||0.05;
+  state.minSample=+(q.get('min_sample')??0)||0;
+  state.metric=q.get('metric')||'';
+  state.control=q.get('control')||'';
+  $('#c-alpha').value=state.alpha; $('#c-min').value=state.minSample;
+  let d;
+  try{d=await jget('/dash/experiments');}
+  catch(e){$('#out').innerHTML=`<div class="empty">error loading experiments: ${esc(e.message)}</div>`;return;}
+  state.list=d.experiments||[];
+  renderUnreadable(d.unreadable||[]);
+  if(!state.list.length){
+    $('#out').innerHTML='<div class="empty">no readable experiments (need experiment_exposed events + &#x2265;2 variants)</div>';
+    $('#c-exp').innerHTML='<option value="">none</option>';
+    return;
+  }
+  const want=q.get('exp_key');
+  const first=expOf(want)?want:state.list[0].exp_key;
+  fillSelect($('#c-exp'),state.list.map(e=>({v:e.exp_key,t:`${e.exp_key} &#xB7; ${num(e.exposures)} exposures`})),first);
+  pickExperiment(first);
+}
+$('#c-exp').onchange=e=>{state.metric='';state.control='';pickExperiment(e.target.value);};
+$('#c-metric').onchange=e=>{state.metric=e.target.value;syncUrl();fetchAll();};
+$('#c-control').onchange=e=>{state.control=e.target.value;syncUrl();fetchAll();};
+$('#c-alpha').onchange=e=>{state.alpha=+e.target.value||0.05;syncUrl();fetchAll();};
+$('#c-min').onchange=e=>{state.minSample=Math.max(0,+e.target.value||0);syncUrl();fetchAll();};
+boot();
+</script>
+</body>
+</html>

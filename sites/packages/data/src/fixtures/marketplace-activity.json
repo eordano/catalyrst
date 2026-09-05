@@ -1,0 +1,301 @@
+{
+  "_source": "https://catalyst.example.com/credits/v1/sales?first=8 + https://catalyst.example.com/credits/v1/trades?first=8 (live, 2026-06-23). /credits/v1/activity 400s without an Auth Chain, so the feed is composed from sales+trades. trades is ~46MB so it MUST be first-limited.",
+  "sales": {
+    "total": 298412,
+    "data": [
+      {
+        "id": "271016-POLYGON",
+        "itemId": "0",
+        "contractAddress": "0xb83d43349aec5fed662f6062e1bcf4ca1a220d84",
+        "buyer": "0x9db59920d3776c2d8a3aa0cbd7b16d81fcab0a2b",
+        "chainId": 137,
+        "network": "MATIC",
+        "price": "20000000000000000000",
+        "seller": "0x6042a0368f7bf354b44aab2fad70c4977dc24afb",
+        "timestamp": 1782252590000,
+        "tokenId": "356",
+        "txHash": "0xf7ed4a8dc318caeb41aadf9a0e3c092014e4a41c16f6cde6af0d1e91b8fff451",
+        "type": "mint"
+      },
+      {
+        "id": "271015-POLYGON",
+        "itemId": "0",
+        "contractAddress": "0x0c48b3b83676707dfd92577ad72969dfe6ff7505",
+        "buyer": "0x03e7fad1eba1d18c371a502154898587f488097c",
+        "chainId": 137,
+        "network": "MATIC",
+        "price": "100000000000000000000",
+        "seller": "0xf5a3e3709b4a08b4d95a22ecbb74363eddac4ef8",
+        "timestamp": 1782248620000,
+        "tokenId": "6",
+        "txHash": "0x5fc828be043c937f9947b6a571ec8be9523ae45bf614cab2aa4945938f599dbe",
+        "type": "order"
+      },
+      {
+        "id": "271014-POLYGON",
+        "itemId": "0",
+        "contractAddress": "0x5d4e9061f3e3c5d3c5da7f6cd80dfb77eeb01815",
+        "buyer": "0x6a77883ed4e65a1df591fda2f5252fd7c548f198",
+        "chainId": 137,
+        "network": "MATIC",
+        "price": "4000000000000000000",
+        "seller": "0xdb0863c7dce0b236f59a0ec4e5d920f044147535",
+        "timestamp": 1782247868000,
+        "tokenId": "85",
+        "txHash": "0x25b22f0c2f10f152a0a23b24825cccaa2909c8a135ea34b4a098a6634fe8a440",
+        "type": "order"
+      },
+      {
+        "id": "271013-POLYGON",
+        "itemId": "0",
+        "contractAddress": "0x19272c29ec326686191e353b0ba9648a74665870",
+        "buyer": "0x03e7fad1eba1d18c371a502154898587f488097c",
+        "chainId": 137,
+        "network": "MATIC",
+        "price": "2000000000000000000",
+        "seller": "0xfe2d424af0df49bb3316cb2e9f574b0d09cf98ad",
+        "timestamp": 1782246239000,
+        "tokenId": "29",
+        "txHash": "0x5853ac9704c0145e2f1b030a6bd1a49033cee7e048dc9be9251009c27eade76b",
+        "type": "mint"
+      },
+      {
+        "id": "271012-POLYGON",
+        "itemId": "0",
+        "contractAddress": "0xf7733f9c8b22e2cd8dbd4ca9acd9666a6ab2f092",
+        "buyer": "0x29fb0d1b0836f9963f963b0bb07c49d2d61370b4",
+        "chainId": 137,
+        "network": "MATIC",
+        "price": "2000000000000000000",
+        "seller": "0x00009dc8aac69accf38e87ab42a82a28be68f2a0",
+        "timestamp": 1782245536000,
+        "tokenId": "180",
+        "txHash": "0xc1a17367db0167bbdb1d4116c36e4c767c04ce40fecaca64f08ceefa2e1c6971",
+        "type": "order"
+      },
+      {
+        "id": "271011-POLYGON",
+        "itemId": "0",
+        "contractAddress": "0x5bbee1dc82d403f76882baaff723bc72f4f2c4f4",
+        "buyer": "0x29fb0d1b0836f9963f963b0bb07c49d2d61370b4",
+        "chainId": 137,
+        "network": "MATIC",
+        "price": "5000000000000000000",
+        "seller": "0x7eec58f777f1920ba4a54b2861597efdc3852da0",
+        "timestamp": 1782245077000,
+        "tokenId": "53",
+        "txHash": "0xf98c1e030ab3d7d77981a023218bc6c9fa6ab77f13cb900958475f92aa8a423e",
+        "type": "mint"
+      },
+      {
+        "id": "27396-ETHEREUM",
+        "itemId": null,
+        "contractAddress": "0xf87e31492faf9a91b02ee0deaad50d51d56d5d4d",
+        "buyer": "0x03e7fad1eba1d18c371a502154898587f488097c",
+        "chainId": 1,
+        "network": "ETHEREUM",
+        "price": "1200000000000000000000",
+        "seller": "0xbc02db030361121dd43bbb2fcbcb4f9f98c1dc7d",
+        "timestamp": 1782243695000,
+        "tokenId": "22458636216781938588582724090496701956226",
+        "txHash": "0x0d4b0e5b232a36796a8bbe15ff25feacd7257e3b4ae4621a9046de1caae8cacc",
+        "type": "bid"
+      },
+      {
+        "id": "271010-POLYGON",
+        "itemId": "0",
+        "contractAddress": "0xd5284e30575805cad580a8f72664ede57293182d",
+        "buyer": "0x6f11e78b1871bdc5c6724134cba9a952b822a7e5",
+        "chainId": 137,
+        "network": "MATIC",
+        "price": "30000000000000000000",
+        "seller": "0xd6eff8f07caf3443a1178407d3de4129149d6ef6",
+        "timestamp": 1782243485000,
+        "tokenId": "53",
+        "txHash": "0x2ec220b80aac8a11f6cf37fd5618e870b3c1cbf3e0e8c8c42fce79ee886d8945",
+        "type": "mint"
+      }
+    ]
+  },
+  "trades": {
+    "count": 69093,
+    "data": [
+      {
+        "id": "6aa4130b-42b1-4ee5-84c1-6bac9e6b63f5",
+        "chain_id": 137,
+        "checks": {
+          "salt": "0x988c1638e5",
+          "uses": 1,
+          "effective": 1733691659485,
+          "expiration": 1736204400000,
+          "allowedRoot": "0x",
+          "externalChecks": [],
+          "signerSignatureIndex": 0,
+          "contractSignatureIndex": 0
+        },
+        "created_at": "2024-12-08T21:01:07.473Z",
+        "effective_since": "2024-12-08T21:00:59.485Z",
+        "expires_at": "2025-01-06T23:00:00.000Z",
+        "network": "MATIC",
+        "signature": "0x7fd2afc813e91b1b5ddabe66cd81b132a881ff9a5d73440c100afe0a338d2d6b3598857ffa3add6acc1389d4b9d067ea14b138d9ad7488865b966920ee7e41181b",
+        "signer": "0x747c6f502272129bf1ba872a1903045b837ee86c",
+        "type": "public_nft_order",
+        "contract": "0x540fb08eDb56AaE562864B390542C97F562825BA"
+      },
+      {
+        "id": "628e798c-f4ed-4cd8-bcd3-3095ab6d6c2a",
+        "chain_id": 137,
+        "checks": {
+          "salt": "0x18e9993344",
+          "uses": 1,
+          "effective": 1733740729083,
+          "expiration": 1736287200000,
+          "allowedRoot": "0x",
+          "externalChecks": [],
+          "signerSignatureIndex": 0,
+          "contractSignatureIndex": 0
+        },
+        "created_at": "2024-12-09T10:38:58.478Z",
+        "effective_since": "2024-12-09T10:38:49.083Z",
+        "expires_at": "2025-01-07T22:00:00.000Z",
+        "network": "MATIC",
+        "signature": "0xf35b63308fe035880cf180a1e3234df6e11cafa47b17ffe9e5d63b616aa69a03497f16d1786f0b4a4f742536b5495be64c14a8de4c995accb4fc3e0bb84e11051c",
+        "signer": "0x3385c05ca0ddb46b51f9c2d99fc597cf6f0da891",
+        "type": "public_nft_order",
+        "contract": "0x540fb08eDb56AaE562864B390542C97F562825BA"
+      },
+      {
+        "id": "7b2544a0-2880-4a24-888b-664847ecbe0b",
+        "chain_id": 137,
+        "checks": {
+          "salt": "0xd0cf816873",
+          "uses": 1,
+          "effective": 1733749262719,
+          "expiration": 1736290800000,
+          "allowedRoot": "0x",
+          "externalChecks": [],
+          "signerSignatureIndex": 0,
+          "contractSignatureIndex": 0
+        },
+        "created_at": "2024-12-09T13:01:11.447Z",
+        "effective_since": "2024-12-09T13:01:02.719Z",
+        "expires_at": "2025-01-07T23:00:00.000Z",
+        "network": "MATIC",
+        "signature": "0x57f98428b838b525d10254db88b2e8bde8315d4443bb678da585fbc1898582e67567c63e17cd387888c45d236d357ab3158293162d8342868ec1f438452f300b1b",
+        "signer": "0x747c6f502272129bf1ba872a1903045b837ee86c",
+        "type": "public_nft_order",
+        "contract": "0x540fb08eDb56AaE562864B390542C97F562825BA"
+      },
+      {
+        "id": "18a5e489-67f4-4291-9b7b-5abd78e8f2dc",
+        "chain_id": 137,
+        "checks": {
+          "salt": "0xe222700082",
+          "uses": 1,
+          "effective": 1733759531830,
+          "expiration": 1736305200000,
+          "allowedRoot": "0x",
+          "externalChecks": [],
+          "signerSignatureIndex": 0,
+          "contractSignatureIndex": 0
+        },
+        "created_at": "2024-12-09T15:53:42.549Z",
+        "effective_since": "2024-12-09T15:52:11.830Z",
+        "expires_at": "2025-01-08T03:00:00.000Z",
+        "network": "MATIC",
+        "signature": "0x07f4d92f42145bdfd1cc883e05b8ef1d6f12059ceab3aa3472e03f88f2c4d3fa51b9e95c60a2502079cbe3d030507b680739ad2d4ca243030f0ebe32a5eddfe81b",
+        "signer": "0xd0fd3e5f4c5bb6d5b58b5ed4a4c7ddd589c06f1b",
+        "type": "bid",
+        "contract": "0x540fb08eDb56AaE562864B390542C97F562825BA"
+      },
+      {
+        "id": "dcb27e76-a1ae-4a86-b66a-bd5c7e15cdb0",
+        "chain_id": 137,
+        "checks": {
+          "salt": "0xc99313253d",
+          "uses": 1,
+          "effective": 1733792077900,
+          "expiration": 1736305200000,
+          "allowedRoot": "0x",
+          "externalChecks": [],
+          "signerSignatureIndex": 0,
+          "contractSignatureIndex": 0
+        },
+        "created_at": "2024-12-10T00:55:12.653Z",
+        "effective_since": "2024-12-10T00:54:37.900Z",
+        "expires_at": "2025-01-08T03:00:00.000Z",
+        "network": "MATIC",
+        "signature": "0x9cf6c0f79365c591a1513ecdf3866ed594bfad320057caea3e4f118908a7d6d0756b0b12dd4de5c9dc6b38ae16753c1c7ec3163c3d2667904c135bec871b1b571b",
+        "signer": "0x24e5f44999c151f08609f8e27b2238c773c4d020",
+        "type": "public_nft_order",
+        "contract": "0x540fb08eDb56AaE562864B390542C97F562825BA"
+      },
+      {
+        "id": "46966341-d871-4373-9a68-03dcbdce86db",
+        "chain_id": 137,
+        "checks": {
+          "salt": "0xb9058eee5f",
+          "uses": 1,
+          "effective": 1733824757585,
+          "expiration": 1736377200000,
+          "allowedRoot": "0x",
+          "externalChecks": [],
+          "signerSignatureIndex": 0,
+          "contractSignatureIndex": 0
+        },
+        "created_at": "2024-12-10T09:59:25.393Z",
+        "effective_since": "2024-12-10T09:59:17.585Z",
+        "expires_at": "2025-01-08T23:00:00.000Z",
+        "network": "MATIC",
+        "signature": "0x435ef018d9227dc1c54e824d56a8d5386fc98e8b1667a4617b8e415429ae3ab3575ba9934ef0a71dde13d0f3dfd0f9ca333493fb20f750c4cec978be7f012b851b",
+        "signer": "0x747c6f502272129bf1ba872a1903045b837ee86c",
+        "type": "bid",
+        "contract": "0x540fb08eDb56AaE562864B390542C97F562825BA"
+      },
+      {
+        "id": "7d52d965-a439-4c77-9edd-cb92a8b2801c",
+        "chain_id": 137,
+        "checks": {
+          "salt": "0xa502ba8919",
+          "uses": 1,
+          "effective": 1733831817219,
+          "expiration": 1736398800000,
+          "allowedRoot": "0x",
+          "externalChecks": [],
+          "signerSignatureIndex": 0,
+          "contractSignatureIndex": 0
+        },
+        "created_at": "2024-12-10T11:57:12.706Z",
+        "effective_since": "2024-12-10T11:56:57.219Z",
+        "expires_at": "2025-01-09T05:00:00.000Z",
+        "network": "MATIC",
+        "signature": "0x0d33ebb831b97e8282e6dd266b683c6b337a3488f7689d59654ace7ed4db62c91da2f58c2234587011179ddbdb076a72b61802834c75bb0fba950638f874af651c",
+        "signer": "0x5d327dcd9b4dae70ebf9c4ebb0576a1de97da520",
+        "type": "bid",
+        "contract": "0x540fb08eDb56AaE562864B390542C97F562825BA"
+      },
+      {
+        "id": "5d92d466-2c42-45f9-ba9d-213b7e142047",
+        "chain_id": 137,
+        "checks": {
+          "salt": "0xaf9b31181d",
+          "uses": 1,
+          "effective": 1733832000817,
+          "expiration": 1736377200000,
+          "allowedRoot": "0x",
+          "externalChecks": [],
+          "signerSignatureIndex": 0,
+          "contractSignatureIndex": 0
+        },
+        "created_at": "2024-12-10T12:00:06.649Z",
+        "effective_since": "2024-12-10T12:00:00.817Z",
+        "expires_at": "2025-01-08T23:00:00.000Z",
+        "network": "MATIC",
+        "signature": "0x774f1a1eed3701090c6f35b40d3ebaaff08201a44cbca362bf68ea9d6c920e2835ecbdcbd8e76205bbac2867d5973c5240cd06c6c896bdad6138077380f2290e1b",
+        "signer": "0x747c6f502272129bf1ba872a1903045b837ee86c",
+        "type": "public_nft_order",
+        "contract": "0x540fb08eDb56AaE562864B390542C97F562825BA"
+      }
+    ]
+  }
+}

@@ -1,0 +1,44 @@
+syntax = "proto3";
+package decentraland.common;
+import "decentraland/common/vectors.proto";
+
+enum TextureWrapMode {
+  TWM_REPEAT = 0;
+  TWM_CLAMP = 1;
+  TWM_MIRROR = 2;
+}
+
+enum TextureFilterMode {
+  TFM_POINT = 0;
+  TFM_BILINEAR = 1;
+  TFM_TRILINEAR = 2;
+}
+
+message Texture {
+  string src = 1;
+  optional TextureWrapMode wrap_mode = 2;
+  optional TextureFilterMode filter_mode = 3;
+
+  optional Vector2 offset = 4;
+  optional Vector2 tiling = 5;
+}
+
+message AvatarTexture {
+  string user_id = 1;
+  optional TextureWrapMode wrap_mode = 2;
+  optional TextureFilterMode filter_mode = 3;
+}
+
+message VideoTexture {
+  uint32 video_player_entity = 1;
+  optional TextureWrapMode wrap_mode = 2;
+  optional TextureFilterMode filter_mode = 3;
+}
+
+message TextureUnion {
+  oneof tex {
+    Texture texture = 1;
+    AvatarTexture avatar_texture = 2;
+    VideoTexture video_texture = 3;
+  }
+}

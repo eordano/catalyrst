@@ -1,0 +1,18 @@
+{
+  "description": "POST /lambdas/profiles without an 'ids' field must 400 with the exact lamb2 message - empty object body, not malformed JSON.",
+  "request": {
+    "method": "POST",
+    "path": "/lambdas/profiles",
+    "query": {},
+    "headers": {"content-type": "application/json"},
+    "body": {}
+  },
+  "response": {
+    "status": 400,
+    "headers": {"content-type": "application/json"},
+    "body_json": {"error": "Bad request", "message": "No profile ids were specified. Expected ids:string[] in body"}
+  },
+  "captured_from": "hand-authored from handler source (lambdas.rs::profiles)",
+  "captured_at": "2026-05-23T20:00:00Z",
+  "volatile_paths": []
+}

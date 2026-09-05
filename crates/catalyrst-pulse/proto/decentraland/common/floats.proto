@@ -1,0 +1,7 @@
+syntax = "proto3";
+package decentraland.common;
+
+message FloatRange {
+  float start = 1;
+  float end = 2;
+}

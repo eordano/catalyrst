@@ -1,0 +1,23 @@
+/* The provenance footnote: the endpoint, then why the value is what it is. */
+
+.dv-note {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 8px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--ink-45);
+}
+
+.dv-note__endpoint {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: -0.01em;
+  color: var(--ink-6);
+  overflow-wrap: anywhere;
+}
+
+.dv-note__line {
+  overflow-wrap: anywhere;
+}

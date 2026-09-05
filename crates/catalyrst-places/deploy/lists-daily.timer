@@ -1,0 +1,12 @@
+[Unit]
+Description=Trigger lists-daily.service daily
+
+[Timer]
+# Daily at 04:15 UTC. The curated lists change rarely (admin-managed upstream),
+# so daily is plenty; staggered off the hourly places/events pulls.
+OnCalendar=*-*-* 04:15:00 UTC
+Persistent=true
+Unit=lists-daily.service
+
+[Install]
+WantedBy=timers.target

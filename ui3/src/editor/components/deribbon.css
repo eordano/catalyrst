@@ -1,0 +1,400 @@
+/* Ribbon chrome. Tokens only -- ui3 is dark-first (:root in atoms/primitives.css
+   is the dark palette, html.theme-light overrides it), so any literal colour
+   here would vanish in one of the two themes. */
+
+/* The band's height is owned by the frame (--eui-ribbon-h in
+   frames/dcleditorchrome.css) so the layer that reserves the space and the
+   layer that fills it cannot disagree. The fallback is for hosts with no
+   .eui-root, such as Storybook and the tests. */
+.rb {
+  --rb-ease: cubic-bezier(0.2, 0.9, 0.3, 1);
+  --rb-fast: 0.12s;
+  display: flex;
+  flex-direction: column;
+  height: var(--eui-ribbon-h, 152px);
+  min-height: 0;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+  color: var(--text);
+  font: 13px/1.2 var(--font-sans);
+  user-select: none;
+}
+
+.rb-chrome {
+  flex: none;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.rb-qat,
+.rb-always {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+}
+
+/* Full-height tabs put the active underline exactly on the chrome/deck seam,
+   which is what makes the deck read as belonging to the selected tab. */
+.rb-tabs {
+  display: flex;
+  align-self: stretch;
+  align-items: stretch;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.rb-tab {
+  appearance: none;
+  background: transparent;
+  border: none;
+  border-radius: var(--r-control) var(--r-control) 0 0;
+  color: var(--ink-7);
+  padding: 0 12px;
+  font: 600 12.5px/1 var(--font-sans);
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    background var(--rb-fast) var(--rb-ease),
+    color var(--rb-fast) var(--rb-ease);
+}
+.rb-tab:hover {
+  background: var(--panel-2);
+  color: var(--text);
+}
+.rb-tab.active {
+  background: var(--panel-2);
+  color: var(--text);
+  box-shadow: inset 0 -2px 0 var(--brand);
+}
+.rb-tab:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring-color);
+  outline-offset: -2px;
+}
+
+.rb-icon,
+.rb-btn {
+  appearance: none;
+  border: 1px solid var(--line);
+  border-radius: var(--r-control);
+  background: var(--panel-2);
+  color: var(--text);
+  cursor: pointer;
+  font: 600 12.5px/1 var(--font-sans);
+  transition:
+    background var(--rb-fast) var(--rb-ease),
+    border-color var(--rb-fast) var(--rb-ease),
+    opacity var(--rb-fast) var(--rb-ease);
+}
+.rb-icon {
+  width: 30px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+}
+.rb-btn {
+  height: 28px;
+  padding: 0 12px;
+}
+.rb-btn.primary {
+  background: var(--brand-cta);
+  border-color: var(--brand-cta);
+  color: var(--on-brand);
+}
+.rb-icon:focus-visible,
+.rb-btn:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring-color);
+  outline-offset: 2px;
+}
+.rb-icon:hover:not(:disabled),
+.rb-btn:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--text) 28%, transparent);
+}
+.rb-icon.on {
+  border-color: var(--brand);
+  color: var(--brand-ink);
+}
+.rb-icon:disabled,
+.rb-btn:disabled,
+.rb-cmd:disabled {
+  opacity: 0.38;
+  cursor: not-allowed;
+}
+
+.rb-save {
+  font: 600 11px/1 var(--font-mono);
+  padding: 4px 8px;
+  border-radius: var(--r-pill);
+  background: var(--fill-2);
+  color: var(--ink-7);
+  white-space: nowrap;
+}
+.rb-save.ok {
+  color: var(--success);
+}
+.rb-save.dim {
+  color: var(--ink-45);
+}
+.rb-save.error {
+  color: var(--error);
+}
+
+/* The deck. Groups are separated by a rule and labelled underneath, which is
+   what makes a ribbon scannable as bands of related work rather than a wall.
+   The two inner gradients are attached `local`, so the edge shadow only appears
+   on the side that still has content hidden past the clip. */
+.rb-deck {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  padding: 8px 12px 4px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  background:
+    linear-gradient(to right, var(--panel-2) 30%, transparent) left / 24px 100% no-repeat local,
+    linear-gradient(to left, var(--panel-2) 30%, transparent) right / 24px 100% no-repeat local,
+    radial-gradient(farthest-side at 0 50%, var(--scrim), transparent) left / 12px 100% no-repeat
+      scroll,
+    radial-gradient(farthest-side at 100% 50%, var(--scrim), transparent) right / 12px 100% no-repeat
+      scroll,
+    var(--panel-2);
+}
+
+.rb-group {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  flex: none;
+  padding: 0 11px;
+  border-right: 1px solid var(--line);
+  min-width: 0;
+}
+.rb-group:last-child {
+  border-right: none;
+}
+
+/* Column-major on purpose: items fill downward and wrap into a NEW COLUMN, so a
+   group of N reads as ceil(N/2) columns of 2 and its reading order survives.
+   A row-major grid would reorder every group. */
+.rb-cmds {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  align-items: stretch;
+  gap: 4px 8px;
+  max-height: 58px;
+  max-width: 430px;
+}
+
+.rb-slot {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  max-width: 430px;
+}
+
+.rb-grouplabel {
+  margin-top: 6px;
+  text-align: center;
+  font: 700 9.5px/1 var(--font-sans);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-45);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rb-cmd {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  height: 24px;
+  border: 1px solid color-mix(in srgb, var(--text) 14%, transparent);
+  border-radius: var(--r-control);
+  background: var(--fill-2);
+  color: var(--ink-85);
+  padding: 0 8px;
+  font: 600 11.5px/1 var(--font-sans);
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    background var(--rb-fast) var(--rb-ease),
+    border-color var(--rb-fast) var(--rb-ease);
+}
+.rb-cmd:hover:not(:disabled) {
+  background: var(--fill-3);
+  border-color: color-mix(in srgb, var(--text) 24%, transparent);
+}
+.rb-cmd:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring-color);
+  outline-offset: -1px;
+}
+/* Frequency -> prominence, carried down to the individual command. */
+.rb-cmd.big {
+  height: 29px;
+  padding: 0 10px;
+  font-weight: 700;
+  font-size: 12.5px;
+  background: var(--fill-3);
+  color: var(--text);
+}
+/* Dashed is the off signal, so a toggle reads as a toggle before it is read. */
+.rb-cmd.rb-toggle {
+  border-style: dashed;
+}
+.rb-cmd.on {
+  background: color-mix(in srgb, var(--brand) 18%, transparent);
+  border-style: solid;
+  border-color: var(--brand);
+  color: var(--text);
+}
+
+.rb-kbd {
+  margin-left: 6px;
+  padding: 1px 4px;
+  border: 1px solid color-mix(in srgb, var(--text) 20%, transparent);
+  border-radius: 3px;
+  font: 600 9.5px/1 var(--font-mono);
+  color: var(--ink-45);
+}
+
+.rb-hint {
+  display: inline-block;
+  max-width: 190px;
+  font: 400 11.5px/1.3 var(--font-sans);
+  color: var(--ink-45);
+}
+.rb-empty {
+  align-self: center;
+  max-width: none;
+}
+
+.rb-numeric {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.rb-num {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 25px;
+  padding: 0 6px;
+  border: 1px solid color-mix(in srgb, var(--text) 14%, transparent);
+  border-radius: var(--r-control);
+  background: var(--fill-2);
+}
+.rb-num:focus-within {
+  border-color: var(--brand);
+  outline: var(--focus-ring-width) solid var(--focus-ring-color);
+  outline-offset: 1px;
+}
+/* The no-selection camera readout: same chrome as the editable fields, minus
+   the input affordances, so the slot reads as one instrument in both states. */
+.rb-num.rb-num-readonly {
+  border-style: dashed;
+  background: transparent;
+}
+.rb-num-value {
+  color: var(--ink-7);
+  font: 600 12px/1 var(--font-mono);
+  white-space: nowrap;
+}
+.rb-num-ax {
+  font: 700 10px/1 var(--font-sans);
+  color: var(--ink-45);
+}
+.rb-num-in {
+  width: 46px;
+  height: 100%;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font: 600 12px/1 var(--font-mono);
+  padding: 0;
+}
+.rb-num-in:focus {
+  outline: none;
+}
+
+.rb-wiring {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 25px;
+  padding: 0 4px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  color: var(--ink-6);
+  font: 600 11px/1 var(--font-sans);
+}
+.rb-wiring:disabled {
+  cursor: default;
+}
+.rb-wire-chip {
+  display: inline-flex;
+  align-items: center;
+  height: 21px;
+  padding: 0 8px;
+  border-radius: var(--r-control);
+  font: 600 11px/1 var(--font-mono);
+}
+.rb-wire-chip.trigger {
+  background: color-mix(in srgb, var(--gold) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--gold) 50%, transparent);
+  color: var(--gold);
+}
+.rb-wire-chip.action {
+  background: color-mix(in srgb, var(--success) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--success) 50%, transparent);
+  color: var(--success);
+}
+.rb-wire-arrow {
+  color: var(--ink-45);
+}
+.rb-wire-state {
+  color: var(--gold);
+}
+.rb-wire-state.on {
+  color: var(--success);
+}
+
+.rb-status {
+  flex: none;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 0 14px;
+  border-top: 1px solid var(--line);
+  font: 500 11px/1 var(--font-mono);
+  color: var(--ink-6);
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+.rb-meter {
+  white-space: nowrap;
+}
+.rb-meter.over {
+  color: var(--error);
+}
+.rb-meter.muted {
+  color: var(--ink-45);
+  font-style: italic;
+}

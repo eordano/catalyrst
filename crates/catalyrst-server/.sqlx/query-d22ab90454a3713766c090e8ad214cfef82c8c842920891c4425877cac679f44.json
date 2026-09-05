@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE active_pointers SET entity_id = $2 WHERE pointer = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "d22ab90454a3713766c090e8ad214cfef82c8c842920891c4425877cac679f44"
+}

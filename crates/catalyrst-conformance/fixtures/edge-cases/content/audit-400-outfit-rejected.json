@@ -1,0 +1,18 @@
+{
+  "description": "Audit endpoint must reject 'outfit'/'outfits' as an entity type with 400; outfits live under /lambdas/outfits and are deliberately not deployable via /content.",
+  "request": {
+    "method": "GET",
+    "path": "/content/audit/outfit/0x0000000000000000000000000000000000000000",
+    "query": {},
+    "headers": {},
+    "body": null
+  },
+  "response": {
+    "status": 400,
+    "headers": {"content-type": "application/json"},
+    "body_json": {"error": "Unrecognized type: outfit"}
+  },
+  "captured_from": "re-derived from peer.decentraland.org 2026-07-03",
+  "captured_at": "2026-05-23T20:00:00Z",
+  "volatile_paths": []
+}

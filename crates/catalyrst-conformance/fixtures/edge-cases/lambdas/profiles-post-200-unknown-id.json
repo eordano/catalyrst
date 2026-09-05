@@ -1,0 +1,18 @@
+{
+  "description": "POST /lambdas/profiles with a never-deployed address returns 200 + empty array (no entity matches, but valid request).",
+  "request": {
+    "method": "POST",
+    "path": "/lambdas/profiles",
+    "query": {},
+    "headers": {"content-type": "application/json"},
+    "body": {"ids": ["0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"]}
+  },
+  "response": {
+    "status": 200,
+    "headers": {"content-type": "application/json"},
+    "body_json": []
+  },
+  "captured_from": "hand-authored from handler source (lambdas.rs::profiles)",
+  "captured_at": "2026-05-23T20:00:00Z",
+  "volatile_paths": []
+}

@@ -1,0 +1,19 @@
+[package]
+name = "catalyrst-db"
+version = "0.22.3"
+edition = "2021"
+
+[dependencies]
+sqlx = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+bytes = { workspace = true }
+catalyrst-hashing = { workspace = true }
+catalyrst-storage = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+catalyrst-contract-gate = { workspace = true }

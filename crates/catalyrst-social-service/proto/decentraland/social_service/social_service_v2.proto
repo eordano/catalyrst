@@ -1,0 +1,671 @@
+syntax = "proto3";
+package decentraland.social_service.v2;
+
+import "google/protobuf/empty.proto";
+import "decentraland/common/colors.proto";
+import "decentraland/social_service/errors.proto";
+
+message User { string address = 1; }
+
+message FriendProfile {
+  string address = 1;
+  string name = 2;
+  bool has_claimed_name = 3;
+  string profile_picture_url = 4;
+  optional decentraland.common.Color3 name_color = 5;
+}
+
+message BlockedUserProfile {
+  string address = 1;
+  string name = 2;
+  bool has_claimed_name = 3;
+  string profile_picture_url = 4;
+  optional int64 blocked_at = 5;
+  optional decentraland.common.Color3 name_color = 6;
+}
+
+message Pagination {
+  int32 limit = 1;
+  int32 offset = 2;
+}
+
+message FriendshipRequestResponse {
+  FriendProfile friend = 1;
+  int64 created_at = 2;
+  optional string message = 3;
+  string id = 4;
+}
+
+message FriendshipRequests {
+  repeated FriendshipRequestResponse requests = 1;
+}
+
+enum ConnectivityStatus {
+  ONLINE = 0;
+  OFFLINE = 1;
+  AWAY = 2;
+}
+
+message GetFriendsPayload {
+  optional Pagination pagination = 1;
+}
+
+message GetFriendshipRequestsPayload {
+  optional Pagination pagination = 1;
+}
+
+message UpsertFriendshipPayload {
+  message RequestPayload {
+    User user = 1;
+    optional string message = 3;
+  }
+  message AcceptPayload { User user = 1; }
+  message RejectPayload { User user = 1; }
+  message DeletePayload { User user = 1; }
+  message CancelPayload { User user = 1; }
+
+  oneof action {
+    RequestPayload request = 1;
+    AcceptPayload accept = 2;
+    RejectPayload reject = 4;
+    DeletePayload delete = 5;
+    CancelPayload cancel = 6;
+  }
+}
+
+message GetMutualFriendsPayload {
+  User user = 1;
+  optional Pagination pagination = 2;
+}
+
+message PaginatedResponse {
+  int32 total = 1;
+  int32 page = 2;
+}
+
+message PaginatedFriendsProfilesResponse {
+  repeated FriendProfile friends = 1;
+  PaginatedResponse pagination_data = 2;
+}
+
+message PaginatedFriendshipRequestsResponse {
+  oneof response {
+    FriendshipRequests requests = 1;
+    InternalServerError internal_server_error = 2;
+  }
+  optional PaginatedResponse pagination_data = 3;
+}
+
+message UpsertFriendshipResponse {
+  message Accepted {
+    string id = 1;
+    int64 created_at = 2;
+    FriendProfile friend = 3;
+    optional string message = 4;
+  }
+  oneof response {
+    Accepted accepted = 1;
+    InvalidFriendshipAction invalid_friendship_action = 2;
+    InternalServerError internal_server_error = 3;
+    InvalidRequest invalid_request = 4;
+  }
+}
+
+message FriendshipUpdate {
+  message RequestResponse {
+    FriendProfile friend = 1;
+    int64 created_at = 2;
+    optional string message = 3;
+    string id = 4;
+  }
+  message AcceptResponse { User user = 1; }
+  message RejectResponse { User user = 1; }
+  message DeleteResponse { User user = 1; }
+  message CancelResponse { User user = 1; }
+  message BlockResponse { User user = 1; }
+
+  oneof update {
+    RequestResponse request = 1;
+    AcceptResponse accept = 2;
+    RejectResponse reject = 3;
+    DeleteResponse delete = 4;
+    CancelResponse cancel = 5;
+    BlockResponse block = 6;
+  }
+}
+
+message FriendConnectivityUpdate {
+  FriendProfile friend = 1;
+  ConnectivityStatus status = 2;
+}
+
+message GetFriendshipStatusPayload {
+  User user = 1;
+}
+
+enum FriendshipStatus {
+  REQUEST_SENT = 0;
+  REQUEST_RECEIVED = 1;
+  CANCELED = 2;
+  ACCEPTED = 3;
+  REJECTED = 4;
+  DELETED = 5;
+  BLOCKED = 6;
+  NONE = 7;
+  BLOCKED_BY = 8;
+}
+
+message GetFriendshipStatusResponse {
+  message Ok {
+    FriendshipStatus status = 1;
+    optional string message = 2;
+  }
+  oneof response {
+    Ok accepted = 1;
+    InternalServerError internal_server_error = 2;
+    InvalidRequest invalid_request = 3;
+  }
+}
+
+message BlockUserPayload {
+  User user = 1;
+}
+
+message BlockUserResponse {
+  message Ok {
+    BlockedUserProfile profile = 1;
+  }
+
+  oneof response {
+    Ok ok = 1;
+    InternalServerError internal_server_error = 2;
+    InvalidRequest invalid_request = 3;
+    ProfileNotFound profile_not_found = 4;
+  }
+}
+
+message UnblockUserPayload {
+  User user = 1;
+}
+
+message UnblockUserResponse {
+  message Ok {
+    BlockedUserProfile profile = 1;
+  }
+
+  oneof response {
+    Ok ok = 1;
+    InternalServerError internal_server_error = 2;
+    InvalidRequest invalid_request = 3;
+    ProfileNotFound profile_not_found = 4;
+  }
+}
+
+enum PrivateMessagePrivacySetting {
+  ALL = 0;
+  ONLY_FRIENDS = 1;
+}
+
+enum BlockedUsersMessagesVisibilitySetting {
+  SHOW_MESSAGES = 0;
+  DO_NOT_SHOW_MESSAGES = 1;
+}
+
+enum SituationReactionsVisibility {
+  SHOW = 0;
+  HIDE = 1;
+}
+
+message SocialSettings {
+  PrivateMessagePrivacySetting private_messages_privacy = 1;
+  BlockedUsersMessagesVisibilitySetting blocked_users_messages_visibility = 2;
+  SituationReactionsVisibility show_situation_reactions = 3;
+}
+
+message GetSocialSettingsResponse {
+  message Ok {
+    SocialSettings settings = 1;
+  }
+
+  oneof response {
+    Ok ok = 1;
+    InternalServerError internal_server_error = 2;
+  }
+}
+
+message UpsertSocialSettingsPayload {
+  optional PrivateMessagePrivacySetting private_messages_privacy = 1;
+  optional BlockedUsersMessagesVisibilitySetting blocked_users_messages_visibility = 2;
+  optional SituationReactionsVisibility show_situation_reactions = 3;
+}
+
+message UpsertSocialSettingsResponse {
+  oneof response {
+    SocialSettings ok = 1;
+    InternalServerError internal_server_error = 2;
+    InvalidRequest invalid_request = 3;
+  }
+}
+
+message GetPrivateMessagesSettingsPayload {
+  repeated User user = 1;
+}
+
+message GetPrivateMessagesSettingsResponse {
+  message PrivateMessagesSettings {
+    User user = 1;
+    PrivateMessagePrivacySetting private_messages_privacy = 2;
+    bool is_friend = 3;
+  }
+
+  message Ok {
+    repeated PrivateMessagesSettings settings = 1;
+  }
+
+  oneof response {
+    Ok ok = 1;
+    InternalServerError internal_server_error = 2;
+    InvalidRequest invalid_request = 3;
+    ProfileNotFound profile_not_found = 4;
+  }
+}
+
+message GetBlockedUsersPayload {
+  optional Pagination pagination = 1;
+}
+
+message GetBlockedUsersResponse {
+  repeated BlockedUserProfile profiles = 1;
+  PaginatedResponse pagination_data = 2;
+}
+
+message GetBlockingStatusResponse {
+  repeated string blocked_users = 1;
+  repeated string blocked_by_users = 2;
+}
+
+message BlockUpdate {
+  string address = 1;
+  bool is_blocked = 2;
+}
+
+message CommunityMemberConnectivityUpdate {
+  string community_id = 1;
+  User member = 2;
+  ConnectivityStatus status = 3;
+}
+
+
+
+message StartPrivateVoiceChatPayload {
+  User callee = 1;
+}
+
+message StartPrivateVoiceChatResponse {
+  message Ok {
+    string call_id = 1;
+  }
+  
+  oneof response {
+    Ok ok = 1;
+    InternalServerError internal_server_error = 2;
+    InvalidRequest invalid_request = 3;
+    ConflictingError conflicting_error = 4;
+    ForbiddenError forbidden_error = 5;
+  }
+}
+
+
+message AcceptPrivateVoiceChatPayload {
+  string call_id = 1;
+}
+
+message AcceptPrivateVoiceChatResponse {
+  message Ok {
+    string call_id = 1;
+    PrivateVoiceChatCredentials credentials = 2;
+  }
+  
+  oneof response {
+    Ok ok = 1;
+    InternalServerError internal_server_error = 2;
+    InvalidRequest invalid_request = 3;
+    NotFoundError not_found = 4;
+    ForbiddenError forbidden_error = 5;
+  }
+}
+
+
+message RejectPrivateVoiceChatPayload {
+  string call_id = 1;
+}
+
+message RejectPrivateVoiceChatResponse {
+  message Ok {
+    string call_id = 1;
+  }
+  
+  oneof response {
+    Ok ok = 1;
+    InternalServerError internal_server_error = 2;
+    InvalidRequest invalid_request = 3;
+    NotFoundError not_found = 4;
+  }
+}
+
+
+enum PrivateVoiceChatStatus {
+  VOICE_CHAT_REQUESTED = 0;
+  VOICE_CHAT_ACCEPTED = 1;
+  VOICE_CHAT_REJECTED = 2;
+  VOICE_CHAT_ENDED = 3;
+  VOICE_CHAT_EXPIRED = 4;
+}
+
+message PrivateVoiceChatCredentials {
+  string connection_url = 1;
+}
+
+message PrivateVoiceChatUpdate {
+  string call_id = 1;
+  PrivateVoiceChatStatus status = 2;
+  optional User caller = 3;
+  optional User callee = 4;
+  optional PrivateVoiceChatCredentials credentials = 5;
+}
+
+
+message EndPrivateVoiceChatPayload {
+  string call_id = 1;
+}
+
+message EndPrivateVoiceChatResponse {
+  message Ok {
+    string call_id = 1;
+  }
+  
+  oneof response {
+    Ok ok = 1;
+    InternalServerError internal_server_error = 2;
+    NotFoundError not_found = 3;
+  }
+}
+
+
+message GetIncomingPrivateVoiceChatRequestResponse {
+  message Ok {
+    User caller = 1;
+    string call_id = 2;
+  }
+
+  oneof response {
+    Ok ok = 1;
+    NotFoundError not_found = 2;
+    InternalServerError internal_server_error = 3;
+  }
+}
+
+
+message CommunityVoiceChatCredentials {
+  string connection_url = 1;
+}
+
+message StartCommunityVoiceChatPayload {
+  string community_id = 1;
+}
+
+message StartCommunityVoiceChatResponse {
+  message Ok {
+    CommunityVoiceChatCredentials credentials = 1;
+  }
+
+  oneof response {
+    Ok ok = 1;
+    InvalidRequest invalid_request = 2;
+    ForbiddenError forbidden_error = 3;
+    ConflictingError conflicting_error = 4;
+    InternalServerError internal_server_error = 5;
+  }
+}
+
+message JoinCommunityVoiceChatPayload {
+  string community_id = 1;
+}
+
+message JoinCommunityVoiceChatResponse {
+  message Ok {
+    string voice_chat_id = 1;
+    CommunityVoiceChatCredentials credentials = 2;
+  }
+
+  oneof response {
+    Ok ok = 1;
+    InvalidRequest invalid_request = 2;
+    ForbiddenError forbidden_error = 3;
+    NotFoundError not_found_error = 4;
+    ConflictingError conflicting_error = 5;
+    InternalServerError internal_server_error = 6;
+  }
+}
+
+message RequestToSpeakInCommunityVoiceChatPayload {
+  string community_id = 1;
+  bool is_raising_hand = 2;
+}
+
+message RequestToSpeakInCommunityVoiceChatResponse {
+  message Ok {
+    string message = 1;
+  }
+
+  oneof response {
+    Ok ok = 1;
+    InvalidRequest invalid_request = 2;
+    ForbiddenError forbidden_error = 3;
+    NotFoundError not_found_error = 4;
+    InternalServerError internal_server_error = 5;
+  }
+}
+
+message PromoteSpeakerInCommunityVoiceChatPayload {
+  string community_id = 1;
+  string user_address = 2;
+}
+
+message PromoteSpeakerInCommunityVoiceChatResponse {
+  message Ok {
+    string message = 1;
+  }
+
+  oneof response {
+    Ok ok = 1;
+    InvalidRequest invalid_request = 2;
+    ForbiddenError forbidden_error = 3;
+    NotFoundError not_found_error = 4;
+    InternalServerError internal_server_error = 5;
+  }
+}
+
+message DemoteSpeakerInCommunityVoiceChatPayload {
+  string community_id = 1;
+  string user_address = 2;
+}
+
+message DemoteSpeakerInCommunityVoiceChatResponse {
+  message Ok {
+    string message = 1;
+  }
+
+  oneof response {
+    Ok ok = 1;
+    InvalidRequest invalid_request = 2;
+    ForbiddenError forbidden_error = 3;
+    NotFoundError not_found_error = 4;
+    InternalServerError internal_server_error = 5;
+  }
+}
+
+message KickPlayerFromCommunityVoiceChatPayload {
+  string community_id = 1;
+  string user_address = 2;
+}
+
+message KickPlayerFromCommunityVoiceChatResponse {
+  message Ok {
+    string message = 1;
+  }
+
+  oneof response {
+    Ok ok = 1;
+    InvalidRequest invalid_request = 2;
+    ForbiddenError forbidden_error = 3;
+    NotFoundError not_found_error = 4;
+    InternalServerError internal_server_error = 5;
+  }
+}
+
+message RejectSpeakRequestInCommunityVoiceChatPayload {
+  string community_id = 1;
+  string user_address = 2;
+}
+
+message RejectSpeakRequestInCommunityVoiceChatResponse {
+  message Ok {
+    string message = 1;
+  }
+
+  oneof response {
+    Ok ok = 1;
+    InvalidRequest invalid_request = 2;
+    ForbiddenError forbidden_error = 3;
+    NotFoundError not_found_error = 4;
+    InternalServerError internal_server_error = 5;
+  }
+}
+
+message MuteSpeakerFromCommunityVoiceChatPayload {
+  string community_id = 1;
+  string user_address = 2;
+  bool muted = 3;
+}
+
+message MuteSpeakerFromCommunityVoiceChatResponse {
+  message Ok {
+    bool muted = 1;
+  }
+  
+  oneof response {
+    Ok ok = 1;
+    ForbiddenError forbidden_error = 2;
+    NotFoundError not_found_error = 3;
+    InvalidRequest invalid_request = 4;
+    InternalServerError internal_server_error = 5;
+  }
+}
+
+message EndCommunityVoiceChatPayload {
+  string community_id = 1;
+}
+
+message EndCommunityVoiceChatResponse {
+  message Ok {
+    string message = 1;
+  }
+
+  oneof response {
+    Ok ok = 1;
+    InvalidRequest invalid_request = 2;
+    ForbiddenError forbidden_error = 3;
+    NotFoundError not_found_error = 4;
+    InternalServerError internal_server_error = 5;
+  }
+}
+
+enum CommunityVoiceChatStatus {
+  COMMUNITY_VOICE_CHAT_STARTED = 0;
+  COMMUNITY_VOICE_CHAT_ENDED = 1;
+}
+
+message CommunityVoiceChatUpdate {
+  string community_id = 1;
+  int64 created_at = 2;
+  CommunityVoiceChatStatus status = 3;
+  optional int64 ended_at = 4;
+  repeated string positions = 5;
+  bool is_member = 6;
+  string community_name = 7;
+  optional string community_image = 8;
+  repeated string worlds = 9;
+}
+
+service SocialService {  
+  rpc GetFriends(GetFriendsPayload) returns (PaginatedFriendsProfilesResponse) {}
+
+  rpc GetMutualFriends(GetMutualFriendsPayload) returns (PaginatedFriendsProfilesResponse) {}
+
+  rpc GetPendingFriendshipRequests(GetFriendshipRequestsPayload) returns (PaginatedFriendshipRequestsResponse) {}
+
+  rpc GetSentFriendshipRequests(GetFriendshipRequestsPayload) returns (PaginatedFriendshipRequestsResponse) {}
+
+  rpc UpsertFriendship(UpsertFriendshipPayload)
+      returns (UpsertFriendshipResponse) {}
+
+  rpc SubscribeToFriendshipUpdates(google.protobuf.Empty)
+      returns (stream FriendshipUpdate) {}
+
+  rpc GetFriendshipStatus(GetFriendshipStatusPayload) returns (GetFriendshipStatusResponse) {}
+
+  rpc SubscribeToFriendConnectivityUpdates(google.protobuf.Empty)
+      returns (stream FriendConnectivityUpdate) {}
+
+  rpc BlockUser(BlockUserPayload) returns (BlockUserResponse) {}
+
+  rpc UnblockUser(UnblockUserPayload) returns (UnblockUserResponse) {}
+
+  rpc GetBlockedUsers(GetBlockedUsersPayload) returns (GetBlockedUsersResponse) {}
+
+  rpc GetBlockingStatus(google.protobuf.Empty) returns (GetBlockingStatusResponse) {}
+
+  rpc SubscribeToBlockUpdates(google.protobuf.Empty) returns (stream BlockUpdate) {}
+  
+  rpc GetSocialSettings(google.protobuf.Empty) returns (GetSocialSettingsResponse) {}
+
+  rpc UpsertSocialSettings(UpsertSocialSettingsPayload) returns (UpsertSocialSettingsResponse) {}
+
+  rpc GetPrivateMessagesSettings(GetPrivateMessagesSettingsPayload) returns (GetPrivateMessagesSettingsResponse) {}
+
+  rpc SubscribeToCommunityMemberConnectivityUpdates(google.protobuf.Empty)
+      returns (stream CommunityMemberConnectivityUpdate) {}
+
+  rpc StartPrivateVoiceChat(StartPrivateVoiceChatPayload) returns (StartPrivateVoiceChatResponse) {}
+
+  rpc AcceptPrivateVoiceChat(AcceptPrivateVoiceChatPayload) returns (AcceptPrivateVoiceChatResponse) {}
+
+  rpc RejectPrivateVoiceChat(RejectPrivateVoiceChatPayload) returns (RejectPrivateVoiceChatResponse) {}
+
+  rpc EndPrivateVoiceChat(EndPrivateVoiceChatPayload) returns (EndPrivateVoiceChatResponse) {}
+
+  rpc GetIncomingPrivateVoiceChatRequest(google.protobuf.Empty) returns (GetIncomingPrivateVoiceChatRequestResponse) {}
+
+  rpc SubscribeToPrivateVoiceChatUpdates(google.protobuf.Empty) returns (stream PrivateVoiceChatUpdate) {}
+
+  rpc StartCommunityVoiceChat(StartCommunityVoiceChatPayload) returns (StartCommunityVoiceChatResponse) {}
+
+  rpc JoinCommunityVoiceChat(JoinCommunityVoiceChatPayload) returns (JoinCommunityVoiceChatResponse) {}
+
+  rpc RequestToSpeakInCommunityVoiceChat(RequestToSpeakInCommunityVoiceChatPayload) returns (RequestToSpeakInCommunityVoiceChatResponse) {}
+
+  rpc PromoteSpeakerInCommunityVoiceChat(PromoteSpeakerInCommunityVoiceChatPayload) returns (PromoteSpeakerInCommunityVoiceChatResponse) {}
+
+  rpc DemoteSpeakerInCommunityVoiceChat(DemoteSpeakerInCommunityVoiceChatPayload) returns (DemoteSpeakerInCommunityVoiceChatResponse) {}
+
+  rpc KickPlayerFromCommunityVoiceChat(KickPlayerFromCommunityVoiceChatPayload) returns (KickPlayerFromCommunityVoiceChatResponse) {}
+
+  rpc RejectSpeakRequestInCommunityVoiceChat(RejectSpeakRequestInCommunityVoiceChatPayload) returns (RejectSpeakRequestInCommunityVoiceChatResponse) {}
+
+  rpc EndCommunityVoiceChat(EndCommunityVoiceChatPayload) returns (EndCommunityVoiceChatResponse) {}
+
+  rpc SubscribeToCommunityVoiceChatUpdates(google.protobuf.Empty) returns (stream CommunityVoiceChatUpdate) {}
+
+  rpc MuteSpeakerFromCommunityVoiceChat(MuteSpeakerFromCommunityVoiceChatPayload) returns (MuteSpeakerFromCommunityVoiceChatResponse) {}
+}

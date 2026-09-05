@@ -1,0 +1,69 @@
+[package]
+name = "catalyrst-market"
+version = "0.22.3"
+edition = "2021"
+description = "Rust port of decentraland/marketplace-server REST API -- reads from squid_marketplace schema"
+
+[package.metadata.generated]
+gate = "sites/scripts/gen-ts-check.sh"
+ts-bindings = "ui3/src/generated/catalyst/market"
+openapi = "ui3/src/generated/catalyst/openapi/market.openapi.json"
+
+[[bin]]
+name = "catalyrst-market"
+path = "src/main.rs"
+
+[dependencies]
+bytes = { workspace = true }
+axum = { workspace = true }
+tokio = { workspace = true }
+tokio-util = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sqlx = { workspace = true, features = ["uuid"] }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+tower = { workspace = true }
+chrono = { workspace = true }
+url = { workspace = true }
+catalyrst-authenticated-admin = { workspace = true }
+catalyrst-authenticated-principal = { workspace = true }
+catalyrst-commons = { workspace = true, features = ["cache", "http", "pg"] }
+catalyrst-db = { workspace = true }
+catalyrst-envcfg = { workspace = true }
+catalyrst-types = { workspace = true, features = ["sqlx"] }
+catalyrst-crypto = { workspace = true }
+alloy-primitives = { workspace = true, features = ["k256"] }
+catalyrst-fed = { workspace = true }
+utoipa = { workspace = true }
+utoipa-axum = { workspace = true }
+sha2 = { workspace = true }
+hex = "0.4"
+parking_lot = { workspace = true }
+uuid = { workspace = true, features = ["serde"] }
+reqwest = { workspace = true }
+ts-rs = { workspace = true, optional = true }
+
+[features]
+ts = ["dep:ts-rs"]
+
+[dev-dependencies]
+catalyrst-testgate = { workspace = true }
+alloy = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+rand = "0.10"
+catalyrst-contract-gate = { workspace = true }
+serde_json = { workspace = true }
+tower = { workspace = true, features = ["util"] }
+
+[[example]]
+name = "smoke_bid"
+path = "examples/smoke_bid.rs"
+
+[[example]]
+name = "smoke_order"
+path = "examples/smoke_order.rs"
+
+[[example]]
+name = "smoke_trade"
+path = "examples/smoke_trade.rs"

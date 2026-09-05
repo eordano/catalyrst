@@ -1,0 +1,40 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/catalyrst-auth-chain",
+    "crates/catalyrst-hashing",
+    "crates/catalyrst-crypto",
+    "crates/catalyrst-tunnel-protocol",
+    "crates/dcl-one-sdk",
+]
+
+# Every `{ workspace = true }` dependency the five members inherit, spelled
+# exactly as in the monorepo root Cargo.toml (version and features): drift here
+# resolves a different tree from the one the monorepo tests.
+[workspace.dependencies]
+alloy = { version = "2", default-features = false, features = ["std", "signer-local"] }
+alloy-primitives = "1"
+tokio = { version = "1", features = ["full"] }
+axum = { version = "0.8", features = ["multipart"] }
+tower-http = { version = "0.7", features = ["cors", "trace", "timeout", "fs"] }
+reqwest = { version = "0.13", default-features = false, features = ["json", "stream", "rustls", "http2", "charset", "query", "multipart", "form"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["float_roundtrip"] }
+sha2 = "0.11"
+base64 = "0.23"
+bs58 = "0.5"
+chrono = { version = "0.4", features = ["serde"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+anyhow = "1"
+thiserror = "2"
+clap = { version = "4", features = ["derive"] }
+url = { version = "2", features = ["serde"] }
+futures = "0.3"
+async-trait = "0.1"
+parking_lot = "0.12"
+tokio-tungstenite = "=0.30.0"
+catalyrst-auth-chain = { path = "crates/catalyrst-auth-chain" }
+catalyrst-hashing = { path = "crates/catalyrst-hashing" }
+catalyrst-crypto = { path = "crates/catalyrst-crypto" }
+catalyrst-tunnel-protocol = { path = "crates/catalyrst-tunnel-protocol" }

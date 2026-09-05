@@ -1,0 +1,38 @@
+[package]
+name = "catalyrst-scene-state"
+version = "0.22.3"
+edition = "2021"
+description = "Rust port of decentraland/scene-state-server -- authoritative server-side scene state for SDK7 multiplayer scenes (HTTP + WebSocket, CRDT relay). Port 5209."
+
+[[bin]]
+name = "catalyrst-scene-state"
+path = "src/main.rs"
+
+[dependencies]
+catalyrst-types = { workspace = true }
+catalyrst-crypto = { workspace = true }
+catalyrst-envcfg = { workspace = true }
+catalyrst-commons = { workspace = true, features = ["http"] }
+tokio = { workspace = true }
+axum = { workspace = true, features = ["ws"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+base64 = { workspace = true }
+chrono = { workspace = true }
+tracing = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+reqwest = { workspace = true }
+url = { workspace = true }
+parking_lot = { workspace = true }
+dashmap = { workspace = true }
+futures = { workspace = true }
+v8 = "=152.2.0"
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+catalyrst-worlds = { path = "../catalyrst-worlds" }
+# tests/formal_properties.rs -- property encodings of the CRDT invariants (merge
+# convergence, entity masking, range ownership). These tests ARE the spec; the
+# scratch formalization that derived them is gone.
+proptest = "1"

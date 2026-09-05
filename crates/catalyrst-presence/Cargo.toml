@@ -1,0 +1,35 @@
+[package]
+name = "catalyrst-presence"
+version = "0.22.3"
+edition = "2021"
+description = "Presence API component for the catalyrst stack"
+
+[package.metadata.generated]
+gate = "sites/scripts/gen-ts-check.sh"
+ts-bindings = "ui3/src/generated/catalyst/presence"
+
+[[bin]]
+name = "catalyrst-presence"
+path = "src/main.rs"
+
+[dependencies]
+catalyrst-db = { workspace = true }
+catalyrst-types = { workspace = true, features = ["sqlx"] }
+catalyrst-commons = { workspace = true, features = ["worker"] }
+tokio = { workspace = true }
+tokio-util = { workspace = true }
+axum = { workspace = true }
+reqwest = { workspace = true }
+sqlx = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+tracing = { workspace = true }
+anyhow = { workspace = true }
+catalyrst-envcfg = { workspace = true }
+clap = { workspace = true }
+url = { workspace = true }
+ts-rs = { workspace = true, optional = true }
+
+[features]
+ts = ["dep:ts-rs"]

@@ -1,0 +1,18 @@
+{
+  "description": "GET /lambdas/users/{address}/wearables with BOTH includeDefinitions and includeEntities must 400 - the two flags are mutually exclusive.",
+  "request": {
+    "method": "GET",
+    "path": "/lambdas/users/0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef/wearables",
+    "query": {"includeDefinitions": ["true"], "includeEntities": ["true"]},
+    "headers": {},
+    "body": null
+  },
+  "response": {
+    "status": 400,
+    "headers": {"content-type": "application/json"},
+    "body_json": {"error": "Bad request", "message": "Cannot use includeEntities and includeDefinitions together"}
+  },
+  "captured_from": "hand-authored from handler source (lambdas_user_items.rs::owned_items_response)",
+  "captured_at": "2026-05-23T20:00:00Z",
+  "volatile_paths": []
+}

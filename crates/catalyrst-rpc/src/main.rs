@@ -1,0 +1,90 @@
+use anyhow::Result;
+use axum::Router;
+
+use catalyrst_rpc::config::Config;
+use catalyrst_rpc::modules;
+use catalyrst_rpc::{api_router, build_state};
+
+const ENV_DOCS: &[(&str, &str)] = &[
+    ("HTTP_SERVER_HOST", "bind address (default 127.0.0.1)"),
+    ("HTTP_SERVER_PORT", "listen port (default 5153)"),
+    (
+        "CATALYRST_RPC_ADMIN_TOKEN",
+        "optional -- bearer token for /admin/rpc/*; unset fails closed (403)",
+    ),
+    (
+        "RPC_UPSTREAM_MAINNET",
+        "upstream for mainnet (unset leaves the network unsupported; no default)",
+    ),
+    (
+        "RPC_UPSTREAM_ETHEREUM",
+        "upstream for ethereum (unset leaves the network unsupported; no default)",
+    ),
+    (
+        "RPC_UPSTREAM_SEPOLIA",
+        "upstream for sepolia (unset leaves the network unsupported; no default)",
+    ),
+    (
+        "RPC_UPSTREAM_POLYGON",
+        "upstream for polygon (unset leaves the network unsupported; no default)",
+    ),
+    (
+        "RPC_UPSTREAM_MATIC",
+        "upstream for matic (unset leaves the network unsupported; no default)",
+    ),
+    (
+        "RPC_UPSTREAM_AMOY",
+        "upstream for amoy (unset leaves the network unsupported; no default)",
+    ),
+    (
+        "RPC_UPSTREAM_MUMBAI",
+        "upstream for mumbai (unset leaves the network unsupported; no default)",
+    ),
+    (
+        "RPC_UPSTREAM_ARBITRUM",
+        "upstream for arbitrum (unset leaves the network unsupported; no default)",
+    ),
+    (
+        "RPC_UPSTREAM_OPTIMISM",
+        "upstream for optimism (unset leaves the network unsupported; no default)",
+    ),
+    (
+        "RPC_UPSTREAM_AVALANCHE",
+        "upstream for avalanche (unset leaves the network unsupported; no default)",
+    ),
+    (
+        "RPC_UPSTREAM_BINANCE",
+        "upstream for binance (unset leaves the network unsupported; no default)",
+    ),
+    (
+        "RPC_UPSTREAM_FANTOM",
+        "upstream for fantom (unset leaves the network unsupported; no default)",
+    ),
+    (
+        "RUST_LOG",
+        "tracing filter (default catalyrst_rpc=info,tower_http=info)",
+    ),
+];
+
+#[tokio::main]
+async fn main() -> Result<()> {
+    catalyrst_envcfg::handle_standard_args("catalyrst-rpc", ENV_DOCS);
+
+    catalyrst_envcfg::init_tracing("catalyrst_rpc=info,tower_http=info");
+
+    let cfg = Config::from_env()?;
+    let host = cfg.http_host.clone();
+    let port = cfg.http_port;
+
+    let state = build_state(cfg).await?;
+
+    let app = catalyrst_envcfg::service_scaffold::finish_app(
+        Router::new()
+            .merge(modules::ping::routes())
+            .merge(api_router()),
+        state,
+        None,
+    );
+
+    catalyrst_envcfg::run_service("catalyrst-rpc", host, port, app).await
+}

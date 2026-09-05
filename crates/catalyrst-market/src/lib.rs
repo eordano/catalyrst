@@ -1,0 +1,581 @@
+pub mod auth_chain;
+pub mod config;
+pub mod dcl_schemas;
+pub mod fed;
+pub mod handlers;
+pub mod http;
+pub mod logic;
+pub mod marketplace_contracts;
+pub mod ports;
+pub mod trades_sync;
+
+use std::convert::Infallible;
+use std::sync::Arc;
+use std::time::Duration;
+
+use anyhow::{anyhow, Context, Result};
+use axum::routing::get;
+use axum::Router;
+use catalyrst_commons::worker::{spawn_periodic, PeriodicCfg};
+use catalyrst_db::database::{Database, DatabaseConfig};
+use catalyrst_fed::sig::Eip712Domain;
+use catalyrst_fed::RateLimiter;
+use sqlx::PgPool;
+use tokio_util::sync::CancellationToken;
+use utoipa::OpenApi;
+use utoipa_axum::router::OpenApiRouter;
+use utoipa_axum::routes;
+
+use crate::config::Config;
+use crate::fed::market_domain;
+use crate::fed::replay::Replay;
+use crate::ports::accounts::AccountsComponent;
+use crate::ports::activity::ActivityComponent;
+use crate::ports::analytics_day_data::AnalyticsDayDataComponent;
+use crate::ports::bids::BidsComponent;
+use crate::ports::catalog::CatalogComponent;
+use crate::ports::collections::CollectionsComponent;
+use crate::ports::contracts::ContractsComponent;
+use crate::ports::items::ItemsComponent;
+use crate::ports::lists::ListsComponent;
+use crate::ports::mana_rate::ManaUsdRateComponent;
+use crate::ports::nfts::NftsComponent;
+use crate::ports::orders::OrdersComponent;
+use crate::ports::owners::OwnersComponent;
+use crate::ports::prices::PricesComponent;
+use crate::ports::rankings::RankingsComponent;
+use crate::ports::sales::SalesComponent;
+use crate::ports::shop_catalog::ShopCatalogComponent;
+use crate::ports::stats::StatsComponent;
+use crate::ports::trades::TradesComponent;
+use crate::ports::trendings::TrendingsComponent;
+use crate::ports::usage_grants::UsageGrantsComponent;
+use crate::ports::user_assets::UserAssetsComponent;
+use crate::ports::volume::VolumeComponent;
+
+pub const MARKETPLACE_SQUID_SCHEMA: &str = "squid_marketplace";
+
+pub const BUILDER_SERVER_TABLE_SCHEMA: &str = "marketplace";
+
+pub struct AppStateInner {
+    pub accounts: AccountsComponent,
+    pub activity: ActivityComponent,
+    pub analytics_day_data: AnalyticsDayDataComponent,
+    pub bids: BidsComponent,
+    pub catalog: CatalogComponent,
+    pub collections: CollectionsComponent,
+    pub contracts: ContractsComponent,
+    pub items: ItemsComponent,
+    pub lists: ListsComponent,
+    pub mana_usd_rate: ManaUsdRateComponent,
+    pub nfts: NftsComponent,
+    pub orders: OrdersComponent,
+    pub owners: OwnersComponent,
+    pub prices: PricesComponent,
+    pub rankings: RankingsComponent,
+    pub sales: SalesComponent,
+    pub shop_catalog: ShopCatalogComponent,
+    pub stats: StatsComponent,
+    pub trades: TradesComponent,
+    pub trendings: TrendingsComponent,
+    pub user_assets: UserAssetsComponent,
+
+    pub usage_grants: UsageGrantsComponent,
+    pub volume: VolumeComponent,
+    pub pool: PgPool,
+    /// Serializes every `REFRESH MATERIALIZED VIEW CONCURRENTLY marketplace.mv_trades`
+    /// -- Postgres refuses two concurrent CONCURRENTLY refreshes of the same view -- so
+    /// the periodic ticker and the post-listing forced refresh can never collide.
+    pub mv_trades_refresh_lock: Arc<tokio::sync::Mutex<()>>,
+    pub replay: Arc<Replay>,
+    pub limiter: Arc<RateLimiter>,
+    pub domain: Eip712Domain,
+
+    pub admin_token: Option<String>,
+    pub trade_rpc: crate::ports::trades::RpcEndpoints,
+    pub http: reqwest::Client,
+}
+
+pub type AppState = Arc<AppStateInner>;
+
+#[derive(OpenApi)]
+#[openapi(info(title = "catalyrst-market"))]
+struct ApiDoc;
+
+pub fn api_router_with_spec() -> (Router<AppState>, utoipa::openapi::OpenApi) {
+    OpenApiRouter::with_openapi(ApiDoc::openapi())
+        .routes(routes!(handlers::lists::get_lists))
+        .routes(routes!(handlers::lists::get_list_picks))
+        .routes(routes!(handlers::activity::get_activity))
+        .routes(routes!(
+            handlers::picks::pick_unpick_in_bulk,
+            handlers::picks::unpick_everywhere
+        ))
+        .routes(routes!(handlers::federation::place_bid))
+        .routes(routes!(handlers::federation::cancel_bid))
+        .routes(routes!(handlers::federation::accept_bid))
+        .routes(routes!(handlers::federation::create_order))
+        .routes(routes!(handlers::federation::cancel_order))
+        .routes(routes!(handlers::federation::record_trade))
+        .routes(routes!(handlers::federation::list_bids))
+        .routes(routes!(handlers::federation::list_orders))
+        .routes(routes!(handlers::federation::list_trades))
+        .routes(routes!(handlers::federation::snapshot))
+        .routes(routes!(handlers::federation::changes))
+        .routes(routes!(handlers::admin::list_flags))
+        .routes(routes!(
+            handlers::admin::set_flag,
+            handlers::admin::clear_flag
+        ))
+        .routes(routes!(handlers::admin::list_disputes))
+        .routes(routes!(handlers::admin::open_dispute))
+        .routes(routes!(handlers::admin::resolve_dispute))
+        .routes(routes!(handlers::admin::force_cancel))
+        .routes(routes!(handlers::admin::list_audit))
+        .split_for_parts()
+}
+
+fn read_router() -> Router<AppState> {
+    Router::new()
+        .route("/v1/contracts", get(handlers::contracts::get_contracts))
+        .route(
+            "/v1/collections",
+            get(handlers::collections::get_collections),
+        )
+        .route("/v1/accounts", get(handlers::accounts::get_accounts))
+        .route("/v1/owners", get(handlers::owners::get_owners))
+        .route("/v1/catalog", get(handlers::catalog::get_catalog_v1))
+        .route("/v2/catalog", get(handlers::catalog::get_catalog_v2))
+        .route(
+            "/v3/catalog/shop",
+            get(handlers::shop_catalog::get_shop_catalog),
+        )
+        .route(
+            "/v3/catalog/legacy",
+            get(handlers::shop_catalog::get_legacy_catalog),
+        )
+        .route(
+            "/v3/catalog/unified",
+            get(handlers::shop_catalog::get_unified_catalog),
+        )
+        .route("/v3/catalog/items", get(handlers::items::get_catalog_items))
+        .route(
+            "/v3/catalog/related",
+            get(handlers::shop_catalog::get_related_catalog),
+        )
+        .route(
+            "/v3/catalog/trending",
+            get(handlers::shop_catalog::get_trending_catalog),
+        )
+        .route(
+            "/v3/catalog/creators",
+            get(handlers::shop_catalog::get_top_creators),
+        )
+        .route(
+            "/v3/catalog/importable",
+            get(handlers::shop_catalog::get_importable_listings),
+        )
+        .route("/v1/nfts", get(handlers::nfts::get_nfts))
+        .route("/v1/items", get(handlers::items::get_items))
+        .route(
+            "/v1/users/{address}/wearables",
+            get(handlers::user_assets::wearables::get_user_wearables),
+        )
+        .route(
+            "/v1/users/{address}/wearables/grouped",
+            get(handlers::user_assets::wearables::get_user_grouped_wearables),
+        )
+        .route(
+            "/v1/users/{address}/wearables/urn-token",
+            get(handlers::user_assets::wearables::get_user_wearables_urn_token),
+        )
+        .route(
+            "/v1/users/{address}/emotes",
+            get(handlers::user_assets::emotes::get_user_emotes),
+        )
+        .route(
+            "/v1/users/{address}/emotes/grouped",
+            get(handlers::user_assets::emotes::get_user_grouped_emotes),
+        )
+        .route(
+            "/v1/users/{address}/emotes/urn-token",
+            get(handlers::user_assets::emotes::get_user_emotes_urn_token),
+        )
+        .route(
+            "/v1/users/{address}/names",
+            get(handlers::user_assets::names::get_user_names),
+        )
+        .route(
+            "/v1/users/{address}/names/names-only",
+            get(handlers::user_assets::names::get_user_names_only),
+        )
+        .route("/v1/orders", get(handlers::orders::get_orders))
+        .route("/v1/bids", get(handlers::bids::get_bids))
+        .route("/v1/sales", get(handlers::sales::get_sales))
+        .route("/v1/prices", get(handlers::prices::get_prices))
+        .route("/v1/trendings", get(handlers::trendings::get_trendings))
+        .route(
+            "/v1/rankings/{entity}/{timeframe}",
+            get(handlers::rankings::get_rankings),
+        )
+        .route(
+            "/v1/stats/{category}/{stat}",
+            get(handlers::stats::get_stats),
+        )
+        .route("/v1/volume/{timeframe}", get(handlers::volume::get_volume))
+        .route(
+            "/v1/trades",
+            get(handlers::trades::get_trades).post(handlers::trades::post_trade),
+        )
+        .route("/v1/trades/{id}", get(handlers::trades::get_trade))
+        .route(
+            "/v1/trades/{hashed_signature}/accept",
+            get(handlers::trades::get_trade_accepted_event),
+        )
+}
+
+pub fn api_router() -> Router<AppState> {
+    let (spec_router, _spec) = api_router_with_spec();
+    spec_router
+        .merge(read_router())
+        .layer(catalyrst_envcfg::service_scaffold::request_timeout_layer(
+            30,
+        ))
+        .layer(tower::limit::GlobalConcurrencyLimitLayer::new(256))
+}
+
+fn db_config_from_url(url_str: &str, max_connections: u32) -> Result<DatabaseConfig> {
+    let url =
+        url::Url::parse(url_str).with_context(|| format!("invalid postgres URL: {url_str}"))?;
+    if url.scheme() != "postgres" && url.scheme() != "postgresql" {
+        return Err(anyhow!(
+            "unexpected URL scheme {:?}, want postgres://",
+            url.scheme()
+        ));
+    }
+    let host = url
+        .host_str()
+        .ok_or_else(|| anyhow!("postgres URL missing host: {url_str}"))?
+        .to_string();
+    let port = url.port().unwrap_or(5432);
+    let user = if url.username().is_empty() {
+        "postgres".to_string()
+    } else {
+        url::form_urlencoded::parse(url.username().as_bytes())
+            .map(|(k, _)| k.into_owned())
+            .next()
+            .unwrap_or_else(|| url.username().to_string())
+    };
+    let password = url
+        .password()
+        .map(|p| {
+            url::form_urlencoded::parse(p.as_bytes())
+                .map(|(k, _)| k.into_owned())
+                .next()
+                .unwrap_or_else(|| p.to_string())
+        })
+        .unwrap_or_default();
+    let database = url.path().trim_start_matches('/').to_string();
+    if database.is_empty() {
+        return Err(anyhow!("postgres URL missing database name: {url_str}"));
+    }
+    Ok(DatabaseConfig {
+        host,
+        port,
+        database,
+        user,
+        password,
+        max_connections,
+        idle_timeout_secs: 30,
+        query_timeout_secs: 60,
+    })
+}
+
+pub async fn build_state(cfg: &Config) -> Result<AppState> {
+    let dapps_db = Database::connect(&db_config_from_url(&cfg.dapps_database_url, 10)?)
+        .await
+        .context("failed to connect dapps pool")?;
+    let dapps_read_db = Database::connect(&db_config_from_url(&cfg.dapps_read_database_url, 20)?)
+        .await
+        .context("failed to connect dapps_read pool")?;
+
+    let dapps_read = dapps_read_db.pool().clone();
+    let dapps_write = dapps_db.pool().clone();
+
+    sqlx::query(sqlx::AssertSqlSafe(format!(
+        "SET search_path TO {}, public",
+        cfg.dapps_read_schema
+    )))
+    .execute(&dapps_read)
+    .await
+    .ok();
+    sqlx::query(sqlx::AssertSqlSafe(format!(
+        "SET search_path TO {}, public",
+        cfg.dapps_schema
+    )))
+    .execute(&dapps_write)
+    .await
+    .ok();
+
+    if let Err(e) = sqlx::migrate!("./migrations").run(&dapps_write).await {
+        tracing::error!(error = %e, "federation migration failed");
+        return Err(e.into());
+    }
+
+    let mv_trades_refresh_lock = Arc::new(tokio::sync::Mutex::new(()));
+    spawn_mv_trades_refresh(dapps_write.clone(), mv_trades_refresh_lock.clone());
+    match &cfg.trades_sync_upstream_url {
+        Some(url) => trades_sync::spawn_trades_upstream_sync(
+            dapps_write.clone(),
+            url.clone(),
+            cfg.trades_sync_interval_secs,
+        ),
+        None => tracing::info!(
+            "TRADES_SYNC_UPSTREAM_URL is empty: upstream trades freshness sync is off; \
+             marketplace.trades stays at its last imported snapshot"
+        ),
+    }
+    match &cfg.content_database_url {
+        Some(url) => spawn_wearable_last_seen_refresh(dapps_write.clone(), url.clone()),
+        None => tracing::info!(
+            "CONTENT_PG_COMPONENT_PSQL_CONNECTION_STRING unset: wearable_last_seen refresher off; \
+             sortBy=suggested ranks on whatever the table already holds"
+        ),
+    }
+
+    let mana_usd_rate = ManaUsdRateComponent::new(
+        cfg.price_base_url.clone(),
+        cfg.mana_usd_fallback_rate,
+        cfg.mana_oracle_max_staleness_secs,
+    );
+    mana_usd_rate
+        .start(
+            Duration::from_millis(cfg.mana_rate_startup_timeout_ms),
+            Duration::from_millis(cfg.mana_rate_refresh_interval_ms.max(1)),
+        )
+        .await;
+
+    let replay = Replay::new(dapps_write.clone())
+        .await
+        .context("failed to load federation replay state")?;
+    let limiter = Arc::new(RateLimiter::new(120, Duration::from_secs(60)));
+
+    let pool = dapps_read.clone();
+
+    let grants_present = crate::ports::user_assets::usage_grants_present(&pool).await;
+
+    let activity_sales = Arc::new(SalesComponent::new(pool.clone()));
+    let activity_bids = Arc::new(BidsComponent::new(pool.clone()));
+    let activity_orders = Arc::new(OrdersComponent::new(pool.clone()));
+
+    let activity_trades = Arc::new(TradesComponent::new(pool.clone(), false));
+    let analytics_for_volume = AnalyticsDayDataComponent::new(pool.clone());
+
+    Ok(Arc::new(AppStateInner {
+        accounts: AccountsComponent::new(pool.clone()),
+        activity: ActivityComponent::new(
+            activity_sales.clone(),
+            activity_bids.clone(),
+            activity_orders.clone(),
+            activity_trades.clone(),
+        ),
+        analytics_day_data: AnalyticsDayDataComponent::new(pool.clone()),
+        bids: BidsComponent::new(pool.clone()),
+        catalog: CatalogComponent::new(pool.clone()),
+        collections: CollectionsComponent::new(pool.clone()),
+        contracts: ContractsComponent::new(pool.clone()),
+        items: ItemsComponent::new(pool.clone()),
+        lists: ListsComponent::new(pool.clone()).with_write(dapps_write.clone()),
+        mana_usd_rate,
+        nfts: NftsComponent::new(pool.clone()),
+        orders: OrdersComponent::new(pool.clone()),
+        owners: OwnersComponent::new(pool.clone()),
+        prices: PricesComponent::new(pool.clone()),
+        rankings: RankingsComponent::new(pool.clone()),
+        sales: SalesComponent::new(pool.clone()),
+        shop_catalog: ShopCatalogComponent::new(pool.clone()),
+        stats: StatsComponent::new(pool.clone()),
+        trades: TradesComponent::new(pool.clone(), cfg.trades_pagination),
+        trendings: TrendingsComponent::new(pool.clone()),
+        user_assets: UserAssetsComponent::new(pool.clone(), grants_present),
+        usage_grants: UsageGrantsComponent::new(Some(pool.clone())),
+        volume: VolumeComponent::new(analytics_for_volume),
+        pool: dapps_write.clone(),
+        mv_trades_refresh_lock,
+        replay,
+        limiter,
+        domain: market_domain(),
+        admin_token: cfg.admin_token.clone(),
+        trade_rpc: crate::ports::trades::RpcEndpoints::from_env(
+            std::env::var("TRADE_RPC_URLS").ok().as_deref(),
+        ),
+        http: reqwest::Client::new(),
+    }))
+}
+
+const MV_TRADES_REFRESH_INTERVAL: Duration = Duration::from_secs(30);
+
+/// One `REFRESH MATERIALIZED VIEW CONCURRENTLY`, retried plain if the concurrent
+/// form is refused (e.g. the view has never been populated), then a dirty notify
+/// so listeners re-read. The caller holds the refresh lock, so no two of these run
+/// at once.
+async fn run_mv_trades_refresh(pool: &PgPool) {
+    let concurrent = sqlx::query("REFRESH MATERIALIZED VIEW CONCURRENTLY marketplace.mv_trades")
+        .execute(pool)
+        .await;
+    let mut refreshed = concurrent.is_ok();
+    if let Err(e) = concurrent {
+        tracing::debug!(error = %e, "concurrent mv_trades refresh failed; retrying plain");
+        match sqlx::query("REFRESH MATERIALIZED VIEW marketplace.mv_trades")
+            .execute(pool)
+            .await
+        {
+            Ok(_) => refreshed = true,
+            Err(e) => tracing::warn!(error = %e, "mv_trades refresh failed"),
+        }
+    }
+    if refreshed {
+        if let Err(e) = sqlx::query("SELECT pg_notify('catalyrst_market_dirty', 'mv_trades')")
+            .execute(pool)
+            .await
+        {
+            tracing::debug!(error = %e, "mv_trades dirty notify failed");
+        }
+    }
+}
+
+fn spawn_mv_trades_refresh(pool: PgPool, refresh_lock: Arc<tokio::sync::Mutex<()>>) {
+    spawn_periodic(
+        "mv-trades-refresh",
+        MV_TRADES_REFRESH_INTERVAL,
+        PeriodicCfg::default(),
+        CancellationToken::new(),
+        move || {
+            let pool = pool.clone();
+            let refresh_lock = refresh_lock.clone();
+            async move {
+                let _guard = refresh_lock.lock().await;
+                run_mv_trades_refresh(&pool).await;
+                Ok::<(), Infallible>(())
+            }
+        },
+    );
+}
+
+/// Reflect a just-created listing in `mv_trades` NOW, rather than up to 30s from
+/// now: every price read (`/v1/items`, the catalog) goes through the view, and the
+/// signer's next request is one of those reads. Fire-and-forget -- the trade is
+/// already committed and a ~2s REFRESH must not be charged to the request that
+/// created it.
+///
+/// `try_lock` mirrors upstream's `FOR UPDATE SKIP LOCKED`: if a refresh already
+/// holds the lock this SKIPS rather than queuing a second refresh, and losing that
+/// race is harmless -- the periodic ticker unconditionally refreshes on its next
+/// tick, so this can only ever make staleness shorter, never longer.
+pub(crate) fn spawn_forced_mv_trades_refresh(
+    pool: PgPool,
+    refresh_lock: Arc<tokio::sync::Mutex<()>>,
+) {
+    tokio::spawn(async move {
+        let Ok(_guard) = refresh_lock.try_lock() else {
+            tracing::debug!("mv_trades forced refresh skipped: another refresh holds the lock");
+            return;
+        };
+        run_mv_trades_refresh(&pool).await;
+    });
+}
+
+const WEARABLE_LAST_SEEN_REFRESH_INTERVAL: Duration = Duration::from_secs(600);
+
+fn spawn_wearable_last_seen_refresh(dapps: PgPool, content_url: String) {
+    tokio::spawn(async move {
+        let content = match catalyrst_db::connect_pool(
+            &content_url,
+            &catalyrst_db::PoolSettings {
+                max_connections: 2,
+                idle_timeout_secs: 600,
+                ..catalyrst_db::PoolSettings::default()
+            },
+        )
+        .await
+        {
+            Ok(p) => p,
+            Err(e) => {
+                tracing::error!(error = %e, "content DB unreachable: wearable_last_seen refresher off");
+                return;
+            }
+        };
+        spawn_periodic(
+            "wearable-last-seen-refresh",
+            WEARABLE_LAST_SEEN_REFRESH_INTERVAL,
+            PeriodicCfg::default(),
+            CancellationToken::new(),
+            move || {
+                let content = content.clone();
+                let dapps = dapps.clone();
+                async move {
+                    match refresh_wearable_last_seen(&content, &dapps).await? {
+                        0 => tracing::warn!(
+                            "wearable_last_seen refresh: content DB returned no worn URNs"
+                        ),
+                        n => tracing::debug!(rows = n, "wearable_last_seen refreshed"),
+                    }
+                    Ok::<(), anyhow::Error>(())
+                }
+            },
+        );
+    });
+}
+
+async fn refresh_wearable_last_seen(content: &PgPool, dapps: &PgPool) -> Result<u64> {
+    let rows: Vec<(String, chrono::NaiveDateTime)> = sqlx::query_as(
+        "SELECT lower(array_to_string((string_to_array(w.urn, ':'))[1:6], ':')) AS urn,
+                max(d.entity_timestamp) AS last_seen
+         FROM deployments d,
+              json_array_elements(d.entity_metadata->'v'->'avatars') a,
+              json_array_elements_text(a->'avatar'->'wearables') w(urn)
+         WHERE d.entity_type = 'profile' AND d.deleter_deployment IS NULL
+           AND d.entity_timestamp > now() - interval '30 days'
+         GROUP BY 1",
+    )
+    .fetch_all(content)
+    .await?;
+    if rows.is_empty() {
+        return Ok(0);
+    }
+    let (urns, seen): (Vec<String>, Vec<chrono::NaiveDateTime>) = rows.into_iter().unzip();
+    sqlx::query(
+        "INSERT INTO marketplace.wearable_last_seen (urn, last_seen, refreshed_at)
+         SELECT u, ts, now() FROM unnest($1::text[], $2::timestamp[]) AS t(u, ts)
+         ON CONFLICT (urn) DO UPDATE
+           SET last_seen = EXCLUDED.last_seen, refreshed_at = now()",
+    )
+    .bind(&urns)
+    .bind(&seen)
+    .execute(dapps)
+    .await?;
+    sqlx::query("SELECT pg_notify('catalyrst_market_dirty', 'wearable_last_seen')")
+        .execute(dapps)
+        .await
+        .ok();
+    Ok(urns.len() as u64)
+}
+
+#[cfg(test)]
+mod openapi_export {
+    #[test]
+    fn export_bindings_openapi() {
+        let spec = super::api_router_with_spec().1;
+        let rendered = serde_json::to_string_pretty(&spec).expect("spec serialises");
+        catalyrst_contract_gate::assert_usable_spec(
+            "market",
+            &serde_json::from_str(&rendered).expect("spec round-trips through JSON"),
+        );
+        let Ok(dir) = std::env::var("TS_RS_EXPORT_DIR") else {
+            return;
+        };
+        let out = std::path::Path::new(&dir).join("openapi");
+        std::fs::create_dir_all(&out).unwrap();
+        std::fs::write(out.join("market.openapi.json"), rendered).unwrap();
+    }
+}

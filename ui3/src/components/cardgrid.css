@@ -1,0 +1,19 @@
+.cardgrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(var(--cg-min, 240px), 1fr));
+  gap: var(--cg-gap, 16px);
+}
+
+.cardgrid--fixed {
+  grid-template-columns: repeat(var(--cg-cols, 4), 1fr);
+}
+@media (max-width: 1100px) {
+  .cardgrid--fixed { grid-template-columns: repeat(var(--cg-cols-lg, var(--cg-cols, 4)), 1fr); }
+}
+@media (max-width: 760px) {
+  .cardgrid--fixed { grid-template-columns: repeat(var(--cg-cols-md, var(--cg-cols-lg, var(--cg-cols, 4))), 1fr); }
+}
+
+.cardgrid--reserve { min-height: var(--cg-minh); }
+
+.cardgrid > * { min-width: 0; }

@@ -1,0 +1,97 @@
+.loading {
+  position: relative; width: 100vw; height: 100vh; overflow: hidden;
+  background:
+    radial-gradient(ellipse 55% 60% at 30% 48%, rgba(206,72,232,.35) 0%, rgba(206,72,232,0) 62%),
+    #a31fd6;
+  color: #fff;
+}
+.loading::before {
+  content: ""; position: absolute; inset: 0;
+  background: url(./loading-tips/DCL_LogoPattern.png) repeat;
+  background-size: 480px;
+  opacity: .07; pointer-events: none;
+}
+
+.loading__header {
+  position: absolute; top: 0; left: 0; right: 0; height: 44px;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 clamp(16px, 1.9vw, 36px); background: #141319; z-index: 3;
+}
+.loading__brand { display: flex; align-items: center; gap: 9px; font-weight: 700; font-size: var(--fs-lg); }
+.loading__gem { width: 24px; height: 24px; display: block; flex: none; }
+.loading__pct {
+  font-weight: 800; font-size: var(--fs-lg); letter-spacing: 1px; color: #fff;
+  text-transform: uppercase;
+}
+
+.loading__bar {
+  position: absolute; top: 44px; left: 0; right: 0;
+  height: clamp(12px, 2.4vh, 20px);
+  background: rgba(0,0,0,.85); z-index: 4; pointer-events: none;
+}
+.loading__bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #ff6e00, #ffa61b);
+  transition: width .3s;
+}
+
+.loading__stage { position: absolute; inset: 64px 6vw 0; }
+.loading__pane {
+  position: absolute; inset: 0;
+  display: grid; grid-template-columns: 47% 1fr; align-items: center; gap: 4vw;
+  opacity: 0; transition: opacity .3s; pointer-events: none;
+}
+.loading__pane.is-active { opacity: 1; pointer-events: auto; }
+.loading__art { width: 100%; max-height: 62vh; object-fit: contain; justify-self: center; }
+.loading__title {
+  font-weight: 900; font-size: clamp(40px, 5vw, 72px); line-height: .98; color: #fff;
+  letter-spacing: -1px;
+}
+.loading__body {
+  margin-top: 16px; max-width: 520px;
+  font-weight: 600; font-size: clamp(16px, 1.6vw, 24px); line-height: 1.4;
+  color: #fff;
+}
+
+.loading__dots {
+  position: absolute; left: calc(47% + 4vw); bottom: 14vh;
+  display: flex; flex-wrap: wrap; gap: 14px;
+}
+.loading__dot {
+  width: 13px; height: 13px; border-radius: 50%; border: none; padding: 0;
+  cursor: pointer; background: rgba(255,255,255,.55);
+  transition: transform .2s, background .2s;
+}
+.loading__dot.is-active {
+  background: #ffd21f; box-shadow: 0 0 6px rgba(255,210,31,.55);
+  transform: scale(1.4);
+}
+
+.loading__arrow {
+  position: absolute; top: 50%; transform: translateY(-50%);
+  width: 48px; height: 48px; border-radius: 10px; border: none; cursor: pointer;
+  background: rgba(255,255,255,.25); color: #fff; font-size: 32px; line-height: 1; font-weight: 800;
+  display: flex; align-items: center; justify-content: center; z-index: 3;
+  backdrop-filter: blur(2px);
+}
+.loading__arrow:hover { background: rgba(255,255,255,.4); }
+.loading__arrow--left { left: 16px; }
+.loading__arrow--right { right: 16px; }
+
+@media (max-width: 900px) {
+  .loading__stage { inset: 72px 8vw 0; }
+  .loading__pane {
+    grid-template-columns: 1fr; grid-template-rows: minmax(0, 1fr) auto;
+    align-items: center; justify-items: center; gap: 3vh;
+    padding-bottom: 16vh;
+  }
+  .loading__art { max-height: 38vh; }
+  .loading__text { text-align: center; }
+  .loading__title { font-size: clamp(28px, 6.5vw, 44px); }
+  .loading__body { font-size: clamp(14px, 3.6vw, 17px); }
+  .loading__dots {
+    left: 50%; transform: translateX(-50%); bottom: 6vh;
+    justify-content: center;
+  }
+  .loading__arrow { display: none; }
+}

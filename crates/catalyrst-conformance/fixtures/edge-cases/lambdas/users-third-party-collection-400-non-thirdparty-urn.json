@@ -1,0 +1,18 @@
+{
+  "description": "GET /lambdas/users/{address}/third-party-wearables/{collectionId} must 400 when URN is well-formed but is NOT a collections-thirdparty URN (e.g. collections-v2). The cleaned-to-5-parts URN appears in the message.",
+  "request": {
+    "method": "GET",
+    "path": "/lambdas/users/0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef/third-party-wearables/urn:decentraland:matic:collections-v2:0xabcdefabcdefabcdefabcdefabcdefabcdefabcd",
+    "query": {},
+    "headers": {},
+    "body": null
+  },
+  "response": {
+    "status": 400,
+    "headers": {"content-type": "application/json"},
+    "body_json": {"error": "Bad request", "message": "Invalid collection id: urn:decentraland:matic:collections-v2:0xabcdefabcdefabcdefabcdefabcdefabcdefabcd not a valid URN"}
+  },
+  "captured_from": "hand-authored from handler source (lambdas_user_items.rs::user_third_party_collection_wearables)",
+  "captured_at": "2026-05-23T20:00:00Z",
+  "volatile_paths": []
+}

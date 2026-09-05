@@ -1,0 +1,205 @@
+.streportsuccess {
+  --streportsuccess-card: rgba(22, 7, 35, 0.92);
+  --streportsuccess-inner: #bf00ff;
+  --streportsuccess-outer: #510684;
+  --streportsuccess-field: #0c0212;
+  --streportsuccess-glow: #920fa3;
+  --streportsuccess-secondary: rgba(255, 255, 255, 0.6);
+
+  position: relative;
+  width: 100%;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 96px 32px 96px;
+  box-sizing: border-box;
+  overflow: hidden;
+  font-family: var(--font-sans);
+}
+
+.streportsuccess__bg {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background:
+    radial-gradient(40% 40% at 68% 50%, rgba(146, 15, 163, 0.45) 0%, rgba(146, 15, 163, 0) 70%),
+    radial-gradient(
+      52% 52% at 50% 50%,
+      var(--streportsuccess-inner) 0%,
+      var(--streportsuccess-outer) 42%,
+      var(--streportsuccess-field) 88%
+    );
+}
+
+.streportsuccess__content {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.streportsuccess__card {
+  background-color: var(--streportsuccess-card);
+  border-radius: 8px;
+  padding: 56px 32px;
+  max-width: 608px;
+  width: 100%;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.streportsuccess__logowrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+
+.streportsuccess__logo {
+  width: 64px;
+  height: 64px;
+  flex: 0 0 auto;
+  display: block;
+}
+
+.streportsuccess__title {
+  margin: 0;
+  font-size: 3rem;
+  line-height: 1.167;
+  font-weight: 600;
+  text-align: center;
+  color: var(--text);
+}
+
+.streportsuccess__textgroup {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 24px;
+  text-align: center;
+}
+
+.streportsuccess__body {
+  margin: 0;
+  font-size: 1rem;
+  line-height: 1.5;
+  font-weight: 400;
+  color: var(--text);
+}
+
+.streportsuccess__secondary {
+  margin: 0;
+  font-size: 0.875rem;
+  line-height: 1.43;
+  font-weight: 400;
+  color: var(--streportsuccess-secondary);
+}
+
+.streportsuccess__scenes {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-top: 8px;
+  padding-top: 24px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.streportsuccess__scenestitle {
+  margin: 0;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  text-align: center;
+  color: var(--streportsuccess-secondary);
+}
+
+.streportsuccess__scenelist {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 12px;
+}
+
+.streportsuccess__scene {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1 1 150px;
+  min-width: 0;
+  max-width: 100%;
+  padding: 8px 12px 8px 8px;
+  border-radius: 10px;
+  background-color: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  text-decoration: none;
+  transition: background-color 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
+}
+
+.streportsuccess__scene:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+  border-color: rgba(191, 0, 255, 0.55);
+  transform: translateY(-1px);
+}
+
+.streportsuccess__scenethumb {
+  flex: 0 0 auto;
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  background:
+    radial-gradient(120% 120% at 25% 20%, rgba(255, 255, 255, 0.35), rgba(255, 255, 255, 0) 55%),
+    linear-gradient(135deg, var(--streportsuccess-inner) 0%, var(--streportsuccess-outer) 100%);
+}
+
+.streportsuccess__scenemeta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.streportsuccess__scenename {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.streportsuccess__sceneloc {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.75rem;
+  font-weight: 400;
+  color: var(--streportsuccess-secondary);
+}
+
+.streportsuccess__scenepin {
+  flex: 0 0 auto;
+  color: var(--streportsuccess-inner);
+}
+
+@media (min-width: 900px) {
+  .streportsuccess {
+    padding: 128px 32px 96px;
+  }
+  .streportsuccess__card {
+    padding: 56px 72px;
+  }
+}
+
+@media (max-width: 600px) {
+  .streportsuccess__title {
+    font-size: 2.25rem;
+  }
+}

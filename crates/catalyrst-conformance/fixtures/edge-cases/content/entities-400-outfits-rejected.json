@@ -1,0 +1,18 @@
+{
+  "description": "GET /content/entities/outfits is also rejected (singularization yields 'outfit', not in the valid set).",
+  "request": {
+    "method": "GET",
+    "path": "/content/entities/outfits",
+    "query": {"pointer": ["0x0000000000000000000000000000000000000000"]},
+    "headers": {},
+    "body": null
+  },
+  "response": {
+    "status": 400,
+    "headers": {"content-type": "application/json"},
+    "body_json": {"error": "Unrecognized type: outfits"}
+  },
+  "captured_from": "re-derived from peer.decentraland.org",
+  "captured_at": "2026-07-03T00:00:00Z",
+  "volatile_paths": []
+}

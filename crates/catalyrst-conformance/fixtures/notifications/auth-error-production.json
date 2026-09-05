@@ -1,0 +1,4 @@
+{
+  "error": "Invalid Auth Chain",
+  "message": "This endpoint requires a signed fetch request. See ADR-44."
+}

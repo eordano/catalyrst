@@ -1,0 +1,23 @@
+[package]
+name = "catalyrst-rpc"
+version = "0.22.3"
+edition = "2021"
+description = "Rust port of rpc.decentraland.org -- a method-filtered read-only EVM JSON-RPC relay over HTTP POST + WebSocket (Unity DappWeb3Authenticator path). Port 5141."
+
+[[bin]]
+name = "catalyrst-rpc"
+path = "src/main.rs"
+
+[dependencies]
+tokio = { workspace = true }
+axum = { workspace = true, features = ["ws"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+anyhow = { workspace = true }
+catalyrst-envcfg = { workspace = true }
+catalyrst-commons = { workspace = true, features = ["http"] }
+reqwest = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

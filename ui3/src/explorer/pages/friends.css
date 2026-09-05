@@ -1,0 +1,106 @@
+.fr {
+  position: fixed; left: 12px; top: 118px;
+  width: 280px; height: 360px; max-height: calc(100vh - 130px);
+  background: rgba(30, 9, 18, .94);
+  backdrop-filter: blur(14px) saturate(120%);
+  border: 1px solid rgba(255, 255, 255, .06);
+  border-radius: 8px;
+  overflow: hidden; color: #fff;
+  display: flex; flex-direction: column;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, .38);
+}
+
+.fr__tabs {
+  display: flex; align-items: stretch; gap: 2px;
+  padding: 0 4px; border-bottom: 1px solid rgba(255, 255, 255, .08);
+  background: rgba(18, 5, 11, .92);
+  flex: 0 0 auto;
+}
+.fr__tab {
+  position: relative; background: none; border: none; cursor: pointer;
+  color: rgba(255, 255, 255, .5); font-family: inherit;
+  font-size: var(--fs-2xs); font-weight: 800; letter-spacing: .06em; text-transform: uppercase;
+  padding: 10px 9px 9px; display: inline-flex; align-items: center; gap: 6px;
+}
+.fr__tab:hover { color: #fff; }
+.fr__tab.is-active { color: #fff; }
+.fr__tab.is-active::after {
+  content: ""; position: absolute; left: 9px; right: 9px; bottom: -1px;
+  height: 2px; border-radius: 2px; background: var(--brand);
+}
+
+.fr__close {
+  align-self: center; margin-left: auto; margin-right: 2px;
+  width: 24px; height: 24px;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: none; border: none; cursor: pointer;
+  color: rgba(255, 255, 255, .65); line-height: 1; border-radius: 7px;
+  font-size: var(--fs-lg);
+}
+.fr__close:hover { color: #fff; background: rgba(255, 255, 255, .1); }
+
+.fr__body { flex: 1; overflow: auto; padding: 6px 6px 14px; }
+
+.fr__group {
+  display: flex; align-items: center; gap: 6px; width: 100%;
+  background: none; border: none; cursor: pointer; font-family: inherit; text-align: left;
+  font-size: var(--fs-xs); font-weight: 700; letter-spacing: .05em; text-transform: uppercase;
+  color: var(--ink-45); padding: 11px 8px 5px;
+}
+.fr__group:hover { color: rgba(255, 255, 255, .6); }
+.fr__caret { font-size: var(--fs-2xs); transition: transform .12s ease; transform: translateY(-1px); }
+.fr__group.is-collapsed .fr__caret { transform: rotate(-90deg); }
+
+.fr__row {
+  display: flex; align-items: center; gap: 9px; padding: 5px 8px; border-radius: 9px;
+}
+.fr__row:hover { background: rgba(255, 255, 255, .06); }
+.fr__av--off { filter: grayscale(.5) brightness(.8); }
+
+.fr__info { flex: 1; min-width: 0; }
+.fr__infobtn {
+  border: none; background: none; padding: 0; margin: 0; width: 100%;
+  display: block; text-align: left; font: inherit; color: inherit; cursor: pointer;
+}
+.fr__infobtn:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring-color);
+  outline-offset: var(--focus-ring-offset);
+  border-radius: 4px;
+}
+.fr__name { font-size: var(--fs-sm); font-weight: 700; color: var(--text); display: flex; align-items: center; gap: 3px; }
+.fr__verified { width: 12px; height: 12px; flex: none; }
+.fr__tag { color: var(--ink-45); font-weight: 600; }
+.fr__status { font-size: var(--fs-xs); color: var(--ink-45); }
+.fr__status--on { color: var(--online); }
+
+.fr__actions { flex: 0 0 auto; display: flex; align-items: center; gap: 5px; }
+.fr__row:not(:hover) .fr__act { opacity: 0; }
+.fr__act {
+  width: 28px; height: 28px; border-radius: 8px; cursor: pointer; font-size: var(--fs-sm); line-height: 1;
+  background: var(--fill-3); border: none; color: #fff; transition: opacity .12s ease;
+}
+.fr__act:hover { background: rgba(255, 255, 255, .16); }
+
+.fr__accept, .fr__reject {
+  width: 28px; height: 28px; border-radius: 8px; cursor: pointer; font-size: var(--fs-md); line-height: 1; border: none; color: #fff;
+}
+.fr__accept { background: var(--online); }
+.fr__accept:hover { background: #6ee856; }
+.fr__reject { background: var(--fill-4); }
+.fr__reject:hover { background: var(--error); }
+
+.fr__cancel, .fr__unblock {
+  background: var(--fill-4); border: none; color: #fff; cursor: pointer;
+  font-family: inherit; font-size: var(--fs-xs); font-weight: 700; padding: 6px 12px; border-radius: var(--r-pill);
+}
+.fr__cancel:hover, .fr__unblock:hover { background: rgba(255, 255, 255, .18); }
+
+.fr__empty {
+  font-size: var(--fs-xs); color: var(--ink-45);
+  padding: 6px 8px 8px 22px;
+}
+
+@media (max-width: 520px) {
+  .fr { left: 8px; right: 8px; width: auto; }
+  .fr__act { opacity: 1; }
+}

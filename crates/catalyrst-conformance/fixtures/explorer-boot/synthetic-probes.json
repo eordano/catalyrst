@@ -1,0 +1,489 @@
+{
+  "description": "Dynamic probe evidence captured 2026-08-15 against live production, for source-inventory shapes not present in the boot+idle dynamic corpus. Each probe pairs a foundation baseline (<host>.decentraland.org) with the interconnected candidate (<host>.interconnected.online). Unauthenticated probes: curl. Signed probes: rig/scripts/signed-fetch.sh (eth auth chain, wallet-1 throwaway identity) against baseline and candidate. status = observed HTTP status; 'value-add' = candidate serves an endpoint the TS baseline 404s; 'candidate-gap' = candidate lacks a baseline capability (tracked by the conformance sibling lane).",
+  "instrument": {
+    "unauth": "curl (no identity)",
+    "signed": "rig/scripts/signed-fetch.sh wallet-1.key (x-identity auth chain, ephemeral)"
+  },
+  "probes": [
+    {
+      "id": "probe:api-map-png",
+      "instrument": "unauth",
+      "method": "GET",
+      "host": "api.decentraland.org",
+      "path": "/v1/map.png",
+      "baseline": 200,
+      "candidate": 200,
+      "note": "minimap chunks"
+    },
+    {
+      "id": "probe:archipelago-hot-scenes",
+      "instrument": "unauth",
+      "method": "GET",
+      "host": "archipelago-ea-stats.decentraland.org",
+      "path": "/hot-scenes",
+      "baseline": 200,
+      "candidate": 200,
+      "note": "minimap hot scenes"
+    },
+    {
+      "id": "probe:archipelago-status-get",
+      "instrument": "unauth",
+      "method": "GET",
+      "host": "archipelago-ea-stats.decentraland.org",
+      "path": "/status",
+      "baseline": 200,
+      "candidate": 200,
+      "note": "health probe (GET form; corpus captures HEAD)"
+    },
+    {
+      "id": "probe:gatekeeper-status-get",
+      "instrument": "unauth",
+      "method": "GET",
+      "host": "comms-gatekeeper.decentraland.org",
+      "path": "/status",
+      "baseline": 200,
+      "candidate": 200,
+      "note": "health probe (GET form; corpus captures HEAD)"
+    },
+    {
+      "id": "probe:badges-categories",
+      "instrument": "unauth",
+      "method": "GET",
+      "host": "badges.decentraland.org",
+      "path": "/categories",
+      "baseline": 200,
+      "candidate": 200,
+      "note": "badge categories"
+    },
+    {
+      "id": "probe:badges-user-badges",
+      "instrument": "unauth",
+      "method": "GET",
+      "host": "badges.decentraland.org",
+      "path": "/users/{address}/badges",
+      "baseline": 200,
+      "candidate": 200,
+      "note": "passport badges"
+    },
+    {
+      "id": "probe:badges-user-preview",
+      "instrument": "unauth",
+      "method": "GET",
+      "host": "badges.decentraland.org",
+      "path": "/users/{address}/preview",
+      "baseline": 200,
+      "candidate": 200,
+      "note": "passport badge preview"
+    },
+    {
+      "id": "probe:config-denylist",
+      "instrument": "unauth",
+      "method": "GET",
+      "host": "config.decentraland.org",
+      "path": "/denylist.json",
+      "baseline": 200,
+      "candidate": 200,
+      "note": "boot moderation denylist (DecentralandUrl.Blocklist)"
+    },
+    {
+      "id": "probe:feature-flags",
+      "instrument": "unauth",
+      "method": "GET",
+      "host": "feature-flags.decentraland.org",
+      "path": "/explorer.json",
+      "baseline": 200,
+      "candidate": 200,
+      "note": "boot feature flags (referer decentraland.org)"
+    },
+    {
+      "id": "probe:peer-about",
+      "instrument": "unauth",
+      "method": "GET",
+      "host": "peer.decentraland.org",
+      "path": "/about",
+      "baseline": 200,
+      "candidate": 200,
+      "note": "realm about (PeerAbout)"
+    },
+    {
+      "id": "probe:lambdas-servers",
+      "instrument": "unauth",
+      "method": "GET",
+      "host": "peer.decentraland.org",
+      "path": "/lambdas/contracts/servers",
+      "baseline": 200,
+      "candidate": 200,
+      "note": "realm/catalyst list (DecentralandUrl.Servers)"
+    },
+    {
+      "id": "probe:lambdas-profiles",
+      "instrument": "unauth",
+      "method": "GET",
+      "host": "peer.decentraland.org",
+      "path": "/lambdas/profiles/{address}",
+      "baseline": 200,
+      "candidate": 200,
+      "note": "profile lambda"
+    },
+    {
+      "id": "probe:lambdas-names",
+      "instrument": "unauth",
+      "method": "GET",
+      "host": "peer.decentraland.org",
+      "path": "/lambdas/users/{address}/names",
+      "baseline": 200,
+      "candidate": 200,
+      "note": "claimed names"
+    },
+    {
+      "id": "probe:lambdas-outfits",
+      "instrument": "unauth",
+      "method": "GET",
+      "host": "peer.decentraland.org",
+      "path": "/lambdas/outfits/{address}",
+      "baseline": 200,
+      "candidate": 200,
+      "note": "saved outfits"
+    },
+    {
+      "id": "probe:lambdas-tpi",
+      "instrument": "unauth",
+      "method": "GET",
+      "host": "peer.decentraland.org",
+      "path": "/lambdas/third-party-integrations",
+      "baseline": 200,
+      "candidate": 200,
+      "note": "third-party wearable integrations"
+    },
+    {
+      "id": "probe:lambdas-explorer-wearables",
+      "instrument": "unauth",
+      "method": "GET",
+      "host": "peer.decentraland.org",
+      "path": "/lambdas/explorer/{address}/wearables",
+      "baseline": 404,
+      "candidate": 200,
+      "note": "candidate value-add (TS baseline lacks /lambdas/explorer/*)"
+    },
+    {
+      "id": "probe:lambdas-explorer-emotes",
+      "instrument": "unauth",
+      "method": "GET",
+      "host": "peer.decentraland.org",
+      "path": "/lambdas/explorer/{address}/emotes",
+      "baseline": 404,
+      "candidate": 200,
+      "note": "candidate value-add (TS baseline lacks /lambdas/explorer/*)"
+    },
+    {
+      "id": "probe:places-destinations",
+      "instrument": "unauth",
+      "method": "GET",
+      "host": "places.decentraland.org",
+      "path": "/api/destinations",
+      "baseline": 200,
+      "candidate": 200,
+      "note": "featured destinations"
+    },
+    {
+      "id": "probe:places-map",
+      "instrument": "unauth",
+      "method": "GET",
+      "host": "places.decentraland.org",
+      "path": "/api/map",
+      "baseline": 200,
+      "candidate": 200,
+      "note": "places map overlay"
+    },
+    {
+      "id": "probe:worlds-status",
+      "instrument": "unauth",
+      "method": "GET",
+      "host": "worlds-content-server.decentraland.org",
+      "path": "/status",
+      "baseline": 200,
+      "candidate": 200,
+      "note": "worlds server health"
+    },
+    {
+      "id": "probe:ab-registry-versions",
+      "instrument": "unauth",
+      "method": "POST",
+      "host": "asset-bundle-registry.decentraland.org",
+      "path": "/entities/versions",
+      "baseline": 405,
+      "candidate": 405,
+      "note": "POST-only endpoint; GET rejected identically (parity)"
+    },
+    {
+      "id": "probe:credits-packs",
+      "instrument": "unauth",
+      "method": "GET",
+      "host": "credits.decentraland.org",
+      "path": "/credits/packs",
+      "baseline": 200,
+      "candidate": 404,
+      "note": "candidate-gap: credits service unimplemented on box (shares root cause with sibling's /credits/users/{a}/credits row)"
+    },
+    {
+      "id": "probe:renderer-sdk7-adaption",
+      "instrument": "unauth",
+      "method": "GET",
+      "host": "renderer-artifacts.decentraland.org",
+      "path": "/sdk7-adaption-layer/main/index.js",
+      "baseline": 200,
+      "candidate": 404,
+      "note": "candidate-gap: SDK6 adaption-layer JS CDN not served by candidate"
+    },
+    {
+      "id": "probe:signed-mutes",
+      "instrument": "signed",
+      "method": "GET",
+      "host": "social-api.decentraland.org",
+      "path": "/v1/mutes",
+      "baseline": 200,
+      "candidate": 200,
+      "note": "authenticated parity (unauth both 401/400 = sibling's row)"
+    },
+    {
+      "id": "probe:signed-communities",
+      "instrument": "signed",
+      "method": "GET",
+      "host": "social-api.decentraland.org",
+      "path": "/v1/communities",
+      "baseline": 200,
+      "candidate": 200,
+      "note": "authenticated parity"
+    },
+    {
+      "id": "probe:signed-voicechats",
+      "instrument": "signed",
+      "method": "GET",
+      "host": "social-api.decentraland.org",
+      "path": "/v1/community-voice-chats/active",
+      "baseline": 200,
+      "candidate": 200,
+      "note": "authenticated parity (unauth both 400/401 = sibling's row)"
+    },
+    {
+      "id": "probe:signed-notifications",
+      "instrument": "signed",
+      "method": "GET",
+      "host": "notifications.decentraland.org",
+      "path": "/notifications",
+      "baseline": 200,
+      "candidate": 200,
+      "note": "authenticated parity (unauth both 400/401 = sibling's row)"
+    },
+    {
+      "id": "probe:signed-credits",
+      "instrument": "signed",
+      "method": "GET",
+      "host": "credits.decentraland.org",
+      "path": "/users/{address}/credits",
+      "baseline": 200,
+      "candidate": 404,
+      "note": "candidate-gap even when authenticated (sibling's credits row)"
+    },
+    {
+      "id": "probe:signed-camera-reel-user",
+      "instrument": "signed",
+      "method": "GET",
+      "host": "camera-reel-service.decentraland.org",
+      "path": "/api/users/{address}",
+      "baseline": 200,
+      "candidate": 200,
+      "note": "authenticated parity"
+    },
+    {
+      "id": "probe:signed-gatekeeper-token",
+      "instrument": "signed",
+      "method": "GET",
+      "host": "comms-gatekeeper.decentraland.org",
+      "path": "/private-messages/token",
+      "baseline": 200,
+      "candidate": 200,
+      "note": "authenticated parity with realm/scene metadata; candidate rewrites livekit adapter host to its own domain"
+    },
+    {
+      "id": "probe:signed-gatekeeper-bans",
+      "instrument": "signed",
+      "method": "GET",
+      "host": "comms-gatekeeper.decentraland.org",
+      "path": "/users/{address}/bans",
+      "baseline": 200,
+      "candidate": 200,
+      "note": "authenticated parity"
+    },
+    {
+      "id": "probe:signed-gatekeeper-scene-admin",
+      "instrument": "signed",
+      "method": "GET",
+      "host": "comms-gatekeeper.decentraland.org",
+      "path": "/scene-admin",
+      "baseline": 400,
+      "candidate": 400,
+      "note": "parity: both require scene-owner metadata; shape parity"
+    },
+    {
+      "id": "probe:signed-gatekeeper-scene-bans",
+      "instrument": "signed",
+      "method": "GET",
+      "host": "comms-gatekeeper.decentraland.org",
+      "path": "/scene-bans",
+      "baseline": 400,
+      "candidate": 400,
+      "note": "parity"
+    },
+    {
+      "id": "probe:signed-gatekeeper-scene-adapter",
+      "instrument": "signed",
+      "method": "POST",
+      "host": "comms-gatekeeper.decentraland.org",
+      "path": "/get-scene-adapter",
+      "baseline": 200,
+      "candidate": 200,
+      "note": "authenticated parity"
+    },
+    {
+      "id": "probe:signed-events",
+      "instrument": "signed",
+      "method": "GET",
+      "host": "events.decentraland.org",
+      "path": "/api/events",
+      "baseline": 200,
+      "candidate": 500,
+      "note": "candidate-gap: events service returns 'database error' on box"
+    },
+    {
+      "id": "probe:signed-entities-active",
+      "instrument": "signed",
+      "method": "POST",
+      "host": "asset-bundle-registry.decentraland.org",
+      "path": "/entities/active",
+      "baseline": 200,
+      "candidate": 200,
+      "note": "active entity resolution parity (also peer content/entities/active 200/200)"
+    },
+    {
+      "id": "probe:signed-exploration-missions",
+      "instrument": "signed",
+      "method": "GET",
+      "host": "exploration-games.decentraland.org",
+      "path": "/api/missions/in_progress",
+      "baseline": 400,
+      "candidate": 404,
+      "note": "candidate-gap: exploration-games unrouted (sibling's row)"
+    },
+    {
+      "id": "probe:realm-provider-main",
+      "instrument": "unauth",
+      "method": "GET",
+      "host": "realm-provider-ea.decentraland.org",
+      "path": "/main",
+      "baseline": 404,
+      "candidate": 200,
+      "note": "candidate value-add (bare /main; client uses /main/about which is corpus 200/200)"
+    },
+    {
+      "id": "probe:worlds-about",
+      "instrument": "unauth",
+      "method": "GET",
+      "host": "worlds-content-server.decentraland.org",
+      "path": "/world/{name}/about",
+      "baseline": 200,
+      "candidate": 200,
+      "note": "per-world about (globalpx.dcl.eth; candidate backfilled via worlds-mirror)"
+    },
+    {
+      "id": "probe:worlds-permissions",
+      "instrument": "unauth",
+      "method": "GET",
+      "host": "worlds-content-server.decentraland.org",
+      "path": "/world/{name}/permissions",
+      "baseline": 200,
+      "candidate": 200,
+      "note": "per-world permissions"
+    },
+    {
+      "id": "probe:worlds-connected-world",
+      "instrument": "unauth",
+      "method": "GET",
+      "host": "worlds-content-server.decentraland.org",
+      "path": "/wallet/{address}/connected-world",
+      "baseline": 404,
+      "candidate": 404,
+      "note": "parity: 404 for a wallet with no connected world"
+    },
+    {
+      "id": "probe:assets-cdn-thumbnail",
+      "instrument": "unauth",
+      "method": "GET",
+      "host": "assets-cdn.decentraland.org",
+      "path": "/social/communities/{id}/raw-thumbnail.png",
+      "baseline": 404,
+      "candidate": 404,
+      "note": "parity: 404 for a nonexistent community id (CDN present both sides)"
+    },
+    {
+      "id": "probe:rpc-mainnet",
+      "instrument": "unauth",
+      "method": "POST",
+      "host": "rpc.decentraland.org",
+      "path": "/mainnet",
+      "baseline": 200,
+      "candidate": 200,
+      "note": "first-party ethereum RPC proxy routed on candidate (eth_blockNumber 200/200)"
+    },
+    {
+      "id": "probe:rpc-ws",
+      "instrument": "unauth",
+      "method": "WS",
+      "host": "rpc.decentraland.org",
+      "path": "/mainnet",
+      "baseline": 426,
+      "candidate": 400,
+      "note": "rpc vhost routed; incomplete WS handshake returns baseline 426 / candidate 400 \u2014 vhost present, full WS-upgrade parity ESCALATED to conformance lane"
+    },
+    {
+      "id": "probe:metamorph-convert",
+      "instrument": "unauth",
+      "method": "GET",
+      "host": "metamorph-api.decentraland.org",
+      "path": "/convert",
+      "baseline": 302,
+      "candidate": 403,
+      "note": "candidate-gap ESCALATED: media converter returns 403 vs baseline 302 redirect"
+    },
+    {
+      "id": "probe:marketplace-unified",
+      "instrument": "unauth",
+      "method": "GET",
+      "host": "marketplace-api.decentraland.org",
+      "path": "/v1/catalog/unified",
+      "baseline": 404,
+      "candidate": 404,
+      "note": "parity-404 (endpoint likely v2/other; both 404 for /v1 form)"
+    },
+    {
+      "id": "probe:marketplace-trades",
+      "instrument": "unauth",
+      "method": "GET",
+      "host": "marketplace-api.decentraland.org",
+      "path": "/v1/trades/{address}",
+      "baseline": 500,
+      "candidate": 404,
+      "note": "candidate-gap ESCALATED: marketplace-api absent on candidate (same root as sibling's /v{n}/catalog)"
+    },
+    {
+      "id": "probe:badges-tiers",
+      "instrument": "unauth",
+      "method": "GET",
+      "host": "badges.decentraland.org",
+      "path": "/badges/{id}/tiers",
+      "baseline": 200,
+      "candidate": 404,
+      "note": "candidate-gap ESCALATED: badges service serves categories/users but not /badges/{id}/tiers"
+    }
+  ]
+}

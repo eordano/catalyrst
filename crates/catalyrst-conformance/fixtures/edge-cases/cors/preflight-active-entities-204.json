@@ -1,0 +1,29 @@
+{
+  "description": "CORS preflight for POST /content/entities/active. Must short-circuit to 204; Allow-Methods lists the actual methods the server accepts including OPTIONS for preflight.",
+  "request": {
+    "method": "OPTIONS",
+    "path": "/content/entities/active",
+    "query": {},
+    "headers": {
+      "origin": "https://catalyst.example.com",
+      "access-control-request-method": "POST",
+      "access-control-request-headers": "content-type"
+    },
+    "body": null
+  },
+  "response": {
+    "status": 204,
+    "headers": {
+      "access-control-allow-methods": "GET,HEAD,POST,PUT,DELETE,PATCH,OPTIONS",
+      "access-control-allow-headers": "content-type",
+      "access-control-max-age": "86400",
+      "access-control-allow-origin": "https://catalyst.example.com",
+      "access-control-allow-credentials": "true",
+      "vary": "Origin"
+    },
+    "body_bytes_b64": ""
+  },
+  "captured_from": "INTENTIONAL DIVERGENCE from upstream \u2014 allow-headers are REFLECTED from Access-Control-Request-Headers (the nginx _cors.inc behavior the transparent front used to provide): auth chains are open-ended (X-Identity-Auth-Chain-N grows with delegation/EIP-1654 links), so any enumerated list is a ceiling that breaks signed login. Decision 2026-07-31, transparent-front cutover gate. Golden asserts OUR (post-reflect) headers.",
+  "captured_at": "2026-05-23T20:30:00Z",
+  "volatile_paths": []
+}

@@ -1,0 +1,266 @@
+{
+  "description": "GET /lambdas/collections/wearables with limit=10000 must clamp to the MAX_LIMIT of 500; pagination.limit echoes the clamped value. The wearables array is LIVE marketplace catalog data (a textSearch for 'abc') and will drift, so it is marked volatile - only the deterministic filters + clamped pagination.limit are asserted.",
+  "request": {
+    "method": "GET",
+    "path": "/lambdas/collections/wearables",
+    "query": {
+      "textSearch": [
+        "abc"
+      ],
+      "limit": [
+        "10000"
+      ]
+    },
+    "headers": {},
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body_json": {
+      "wearables": [
+        {
+          "id": "urn:decentraland:matic:collections-v2:0x315fd67cd55574f80c5ce7851b15f510bc3e4fa0:0",
+          "name": "Snail Helmet",
+          "description": "Slow crown of glory. Last place legend of ABC's Duck Races.",
+          "collectionAddress": "0x315fd67cd55574f80c5ce7851b15f510bc3e4fa0",
+          "rarity": "legendary",
+          "i18n": [
+            {
+              "code": "en",
+              "text": "Snail Helmet"
+            }
+          ],
+          "data": {
+            "replaces": [],
+            "hides": [
+              "hair",
+              "hat"
+            ],
+            "removesDefaultHiding": [],
+            "tags": [
+              "ABC",
+              "ABCDecentraland",
+              "Duck",
+              "Race",
+              "DuckRace",
+              "Snail",
+              "Shell",
+              "LastPlace",
+              "Awedjob",
+              "BillyTeacoin",
+              "!quack",
+              "Slow",
+              "Prize",
+              "Gold",
+              "Brown",
+              "Bronze",
+              "ABC's",
+              "Spiral"
+            ],
+            "category": "helmet",
+            "representations": [
+              {
+                "bodyShapes": [
+                  "urn:decentraland:off-chain:base-avatars:BaseMale"
+                ],
+                "mainFile": "male/SnailHelmet16.glb",
+                "contents": [
+                  {
+                    "key": "male/SnailHelmet16.glb",
+                    "url": "https://peer-eu1.decentraland.org/content/contents/bafybeieqwidzeq3e6ibrgh2o7mqhxtjwbt26sqq7mxyt5lniefzd352ci4"
+                  }
+                ],
+                "overrideHides": [
+                  "hair",
+                  "hat"
+                ],
+                "overrideReplaces": []
+              },
+              {
+                "bodyShapes": [
+                  "urn:decentraland:off-chain:base-avatars:BaseFemale"
+                ],
+                "mainFile": "female/SnailHelmet16.glb",
+                "contents": [
+                  {
+                    "key": "female/SnailHelmet16.glb",
+                    "url": "https://peer-eu1.decentraland.org/content/contents/bafybeieqwidzeq3e6ibrgh2o7mqhxtjwbt26sqq7mxyt5lniefzd352ci4"
+                  }
+                ],
+                "overrideHides": [
+                  "hair",
+                  "hat"
+                ],
+                "overrideReplaces": []
+              }
+            ],
+            "blockVrmExport": false,
+            "outlineCompatible": true
+          },
+          "image": "https://peer-eu1.decentraland.org/content/contents/bafybeigeyac3cps3okcuc262gmqc733ayhm74alk5fseqx6j7uydipkc6a",
+          "thumbnail": "https://peer-eu1.decentraland.org/content/contents/bafybeicqdo6qbji7o6e2yztiyxtpccfpst3hdcrray6wlhxqgza3bgmi5e",
+          "metrics": {
+            "triangles": 504,
+            "materials": 1,
+            "meshes": 3,
+            "textures": 2,
+            "bodies": 3,
+            "entities": 1
+          }
+        },
+        {
+          "id": "urn:decentraland:matic:collections-v2:0x8f6726fff0e1b200e4162b7c6ba5384bd3d834fc:0",
+          "name": "ABC Backpack",
+          "description": "The perfect pack to carry all of your gear on an ABC DCL tour",
+          "collectionAddress": "0x8f6726fff0e1b200e4162b7c6ba5384bd3d834fc",
+          "rarity": "legendary",
+          "i18n": [
+            {
+              "code": "en",
+              "text": "ABC Backpack"
+            }
+          ],
+          "data": {
+            "replaces": [],
+            "hides": [],
+            "removesDefaultHiding": [],
+            "tags": [
+              "ABC",
+              "ABC's",
+              "ABCDCL",
+              "ABCDECENTRALAND",
+              "Bag",
+              "Backpack",
+              "pack",
+              "Awedjob",
+              "BillyTeacoin",
+              "Adventure",
+              "Tour",
+              "Red",
+              "Yellow",
+              "Blue",
+              "Accessory"
+            ],
+            "category": "tiara",
+            "representations": [
+              {
+                "bodyShapes": [
+                  "urn:decentraland:off-chain:base-avatars:BaseMale"
+                ],
+                "mainFile": "male/ABCbackpack06.glb",
+                "contents": [
+                  {
+                    "key": "male/ABCbackpack06.glb",
+                    "url": "https://peer-eu1.decentraland.org/content/contents/bafybeicvvqi3jkr6q46676kumgz76zd53v7inn4zczi6nhwkpjiumydxvm"
+                  }
+                ],
+                "overrideHides": [],
+                "overrideReplaces": []
+              },
+              {
+                "bodyShapes": [
+                  "urn:decentraland:off-chain:base-avatars:BaseFemale"
+                ],
+                "mainFile": "female/ABCbackpack06.glb",
+                "contents": [
+                  {
+                    "key": "female/ABCbackpack06.glb",
+                    "url": "https://peer-eu1.decentraland.org/content/contents/bafybeicvvqi3jkr6q46676kumgz76zd53v7inn4zczi6nhwkpjiumydxvm"
+                  }
+                ],
+                "overrideHides": [],
+                "overrideReplaces": []
+              }
+            ],
+            "blockVrmExport": false,
+            "outlineCompatible": true
+          },
+          "image": "https://peer-eu1.decentraland.org/content/contents/bafybeibommk3gi5oqrafxzu2zeoa3cvvczhberrudc2tclf6ompe3mea5m",
+          "thumbnail": "https://peer-eu1.decentraland.org/content/contents/bafybeib4kkju3de3vl46blxufcfbrwnbgnbcp6texoah6xowsjkhwaqaiq",
+          "metrics": {
+            "triangles": 312,
+            "materials": 1,
+            "meshes": 3,
+            "textures": 2,
+            "bodies": 3,
+            "entities": 1
+          }
+        },
+        {
+          "id": "urn:decentraland:matic:collections-v2:0xa4fa3485e276c59c80d26d79adad13bcaa4e6d3a:0",
+          "name": "Blackthorn Stick",
+          "description": "Collab wearable between Soul Magic and ABC DCL",
+          "collectionAddress": "0xa4fa3485e276c59c80d26d79adad13bcaa4e6d3a",
+          "rarity": "legendary",
+          "i18n": [
+            {
+              "code": "en",
+              "text": "Blackthorn Stick"
+            }
+          ],
+          "data": {
+            "replaces": [],
+            "hides": [],
+            "removesDefaultHiding": [],
+            "tags": [],
+            "category": "hands_wear",
+            "representations": [
+              {
+                "bodyShapes": [
+                  "urn:decentraland:off-chain:base-avatars:BaseMale"
+                ],
+                "mainFile": "male/magicstick (3).glb",
+                "contents": [
+                  {
+                    "key": "male/magicstick (3).glb",
+                    "url": "https://peer-eu1.decentraland.org/content/contents/bafybeibvkoxh3nw7pdcvmbdagk5jgjg2kmzkedrxvk7tivltoemxkwpupe"
+                  }
+                ],
+                "overrideHides": [],
+                "overrideReplaces": []
+              },
+              {
+                "bodyShapes": [
+                  "urn:decentraland:off-chain:base-avatars:BaseFemale"
+                ],
+                "mainFile": "female/magicstick (3).glb",
+                "contents": [
+                  {
+                    "key": "female/magicstick (3).glb",
+                    "url": "https://peer-eu1.decentraland.org/content/contents/bafybeibvkoxh3nw7pdcvmbdagk5jgjg2kmzkedrxvk7tivltoemxkwpupe"
+                  }
+                ],
+                "overrideHides": [],
+                "overrideReplaces": []
+              }
+            ]
+          },
+          "image": "https://peer-eu1.decentraland.org/content/contents/bafkreicozjjyeogpc5p5qucgnlatg6hegxtglsqy3ch6qa2cnyy6prwmiy",
+          "thumbnail": "https://peer-eu1.decentraland.org/content/contents/bafkreiegpyflpxbincppf4ri6enkorw3v2auniwnxvc5gxnc32rwswsbk4",
+          "metrics": {
+            "triangles": 498,
+            "materials": 1,
+            "meshes": 3,
+            "textures": 2,
+            "bodies": 3,
+            "entities": 1
+          }
+        }
+      ],
+      "filters": {
+        "textSearch": "abc"
+      },
+      "pagination": {
+        "limit": 500
+      }
+    }
+  },
+  "captured_from": "re-derived from peer.decentraland.org",
+  "captured_at": "2026-07-03T00:00:00Z",
+  "volatile_paths": [
+    "wearables"
+  ]
+}

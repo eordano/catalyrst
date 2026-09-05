@@ -1,0 +1,158 @@
+{
+  "_source": "https://governance.decentraland.org/api/updates/f03b76f1-2314-4eb6-a6bd-06f23848d42b",
+  "_projects_source": "https://governance.decentraland.org/api/projects (id b783aa8f-ebf2-4792-b3eb-8dfccf369dfb)",
+  "_comments_source": "https://governance.decentraland.org/api/proposals/8ce24f4d-ed98-421b-a04e-dd71876bf9a2/comments",
+  "_schema_source": "https://raw.githubusercontent.com/decentraland/governance/master/src/entities/Updates/types.ts",
+  "_note": "Live Decentraland governance API snapshot (no auth). Single published update f03b76f1 (Update #6) for the Protocol Squad - Alternative Explorers grant project. financial_records, sections, and Discourse comments are verbatim from upstream; comment HTML cooked->plain text, list capped at 6. funds projection derived from the project funding/vesting + the disclosed financial_records sum.",
+  "project": {
+    "id": "b783aa8f-ebf2-4792-b3eb-8dfccf369dfb",
+    "proposal_id": "8ce24f4d-ed98-421b-a04e-dd71876bf9a2",
+    "title": "Protocol Squad - Alternative Explorers (Desktop, Mobile & VR)",
+    "type": "grant",
+    "status": "finished",
+    "category": "Platform",
+    "tier": "Higher Tier",
+    "size": 226500,
+    "author": "0x83f9192d59b393c8789b55d446e5d4a77075c820",
+    "authorHue": 268
+  },
+  "update": {
+    "id": "f03b76f1-2314-4eb6-a6bd-06f23848d42b",
+    "proposal_id": "8ce24f4d-ed98-421b-a04e-dd71876bf9a2",
+    "project_id": "b783aa8f-ebf2-4792-b3eb-8dfccf369dfb",
+    "index": 6,
+    "health": "onTrack",
+    "introduction": "Welcome to the sixth and last grant update. This team has the primary goal of developing an explorer version using two different technologies:\n- Bevy targeting to Desktop: featuring experimental and developer features to enhance the creator's possibilities\n- Godot targeting to Mobile and VR: pointing to have a reliable and production-ready explorer.\n\nThis post is the typical one, but we've elaborated a forum post with more readable and understable information, the link is in the links section.",
+    "highlights": "### Bevy (Desktop)\n - **Rendering & World View**:\n    - **Depth-of-field distant imposters**: seamlessly blends baked imposters with live parcels.\n    - Imposters optional ZIP bundling and hot-download support.\n    - Configurable GPU bytes-per-frame + antialias defaults.\n- **Camera & Visual Tools**:\n    - `TextureCamera` + `CameraLayer` routing finalised.\n    - Scenes can now render \u201clive security cams\u201d, mirrors, and picture-in-picture UI.\n- **System-UI APIs**:\n    - New runtime calls: `reloadUI`, `hideUI`, `listScenes`, `getHome`, `setHome`, `getRealmProvider`, `systemActionStream`, `chatSend/Receive`.\n- **Scene-UI Modules**:\n    - **Emote-wheel merged** with animation-loop metadata support.\n    - **Backpack Search & Filter** live.\n    - **Outfits** feature-complete (load/equip) \u2014 PR opened for review.\n    - Scene-info card/sidebar polished; likes, favs, rating, photos.\n- **Input & UX**:\n    - Browser-spec `onMouseLeave/Exit` behaviour, editable input profiles, extended gamepad bindings.\n- **Fixes & Polish**:\n    - 30+ bug-fixes (permission dialogs, nametag distortion, drag-out, Steam Deck quirks, video flicker, minimap realm check, etc.).\n\n\n### Godot (Mobile)\n- **Engine Upgrade**\n    - Rolled **Godot 4.4.1** to *all* platforms.\n    - Automated artifact pipeline (GitHub Actions + hashed buckets).\n- **Performance**\n    - Enabled Metal on iOS/macOS.\n    - Introduced a **3.5 GB \u201cHigh-Memory\u201d flag** \u2192 *Genesis Plaza now holds ~45 FPS on an iPhone 14 Pro*.\n- **Satellite Map MVP**\n    - Low-res tile rendering, pinch-zoom, one-finger pan, parcel tap-select.\n    - POIs, category bar, places-API, hot-scenes, search.\n    - Responsive layout (portrait / landscape) and clearer plot markers.\n- **VR Track**\n    - **Jet-pack showcase world demo** built with new input rig.\n    - Fixed controller ray jitter, UI focus issues, and several Quest-specific crashes.\n- **Publishing**\n    - New iOS & Android builds pushed to TestFlight / Internal testing, including Metal and asset-pipeline optimisations.\n",
+    "blockers": "Without blockers",
+    "next_steps": "1. **Merge Backpack \u2192 Outfits** with Catalyst persistence.  \n2. **Satellite Map 1.1** \u2014 multi-res tiles, clustering, and larger info cards.  \n3. **VR Beta** \u2014 polish jet-pack demo, Quest store submission, performance profiling.  \n4. **Photo/Share Panel** and additional system-UI APIs (permissions, notifications).  \n5. Continue upstreaming fixes to Bevy & Godot, and cultivating external contributors.",
+    "additional_notes": "# Final Report Forum Post\nhttps://forum.decentraland.org/t/protocol-squad-full-report/24317\n\n# Links\n- Join us on our Discord server: https://discord.com/invite/6mGqPnjujT\n- Public home page to get links: https://dclexplorer.com/\n- Public roadmap: https://github.com/orgs/decentraland/projects/43\n- Godot project: https://github.com/decentraland/godot-explorer/\n- Bevy project: https://github.com/decentraland/bevy-explorer/\n- X Account: https://twitter.com/DclDaoExplorers/",
+    "status": "late",
+    "author": "0x83f9192d59b393c8789b55d446e5d4a77075c820",
+    "due_date": "2025-05-01T00:00:00.000Z",
+    "completion_date": "2025-05-12T11:42:28.600Z",
+    "created_at": "2024-11-11T17:36:35.183Z",
+    "updated_at": "2025-05-12T11:42:28.600Z",
+    "discourse_topic_id": 24318,
+    "discourse_topic_slug": "dao-848d42b-update-6-for-project-protocol-squad-alternative-explorers-desktop-mobile-vr",
+    "financial_records": [
+      {
+        "category": "Team Compensation",
+        "description": "Explorer Development",
+        "token": "DAI",
+        "amount": 13750,
+        "receiver": "0x85bc980eB632434C562414791146cc86CEa12c51",
+        "link": "https://etherscan.io/tx/0xa7889a23e43c02ed18c0c469974156163905eae75cb569c77a45b2349beb5320"
+      },
+      {
+        "category": "Team Compensation",
+        "description": "Explorer Development",
+        "token": "DAI",
+        "amount": 10500,
+        "receiver": "0xBCae59FF0Aa916B6C38adDE712c39dA3eB5443C4",
+        "link": "https://etherscan.io/tx/0xa7889a23e43c02ed18c0c469974156163905eae75cb569c77a45b2349beb5320"
+      },
+      {
+        "category": "Team Compensation",
+        "description": "Explorer Development",
+        "token": "DAI",
+        "amount": 10500,
+        "receiver": "0x5e367dBab5521529a1221b44E1F2ab7F534C55D5",
+        "link": "https://etherscan.io/tx/0xa7889a23e43c02ed18c0c469974156163905eae75cb569c77a45b2349beb5320"
+      },
+      {
+        "category": "Team Compensation",
+        "description": "Scene Development",
+        "token": "DAI",
+        "amount": 3000,
+        "receiver": "0xae185e420a7b0e82963f6edb80078d0ce9d40b40",
+        "link": "https://etherscan.io/tx/0xa7889a23e43c02ed18c0c469974156163905eae75cb569c77a45b2349beb5320"
+      },
+      {
+        "category": "Team Compensation",
+        "description": "Scene Development consultant",
+        "token": "DAI",
+        "amount": 2025,
+        "receiver": "0x75b5c9ca87336a6c2474e1ddc1cc2a4c62092e74",
+        "link": "https://etherscan.io/tx/0xa7889a23e43c02ed18c0c469974156163905eae75cb569c77a45b2349beb5320"
+      },
+      {
+        "category": "Team Compensation",
+        "description": "Godot Development consultant",
+        "token": "DAI",
+        "amount": 1300,
+        "receiver": "0x8bed6193d2a149a925ed11303328199b0e5ddfa0",
+        "link": "https://etherscan.io/tx/0xa7889a23e43c02ed18c0c469974156163905eae75cb569c77a45b2349beb5320"
+      },
+      {
+        "category": "Other",
+        "description": "Legal structure mantainance (Pending)",
+        "token": "DAI",
+        "amount": 4460,
+        "receiver": "0xffffffffffffffffffffffffffffffffffffffff",
+        "link": "https://etherscan.io/tx/0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+      },
+      {
+        "category": "Other",
+        "description": "Server mantainance (Pending)",
+        "token": "DAI",
+        "amount": 174,
+        "receiver": "0xffffffffffffffffffffffffffffffffffffffff",
+        "link": "https://etherscan.io/tx/0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+      }
+    ]
+  },
+  "comments": [
+    {
+      "user_forum_id": 4638,
+      "username": "leangodotdev",
+      "avatar_url": "https://avatars.discourse-cdn.com/v4/letter/l/d78d45/45.png",
+      "created_at": "2024-10-13T13:57:51.192Z",
+      "text": "Hi everyone, If you have a minute to spare, we\u2019d really appreciate hearing your reasoning behind the votes, whether for or against. Regarding the BitcoinETF\u2019s comment, it\u2019s a valid point, and I\u2019d like to address it: Our previous grants had clear objectives, all of which have been successfully met. You can check our progress in the roadmap here , and the clients are available for download here . Additionally, you can review how funds were allocated for each project in the transparency section of the following document . Each project was built from the scratch with a budget of under $260k over a"
+    },
+    {
+      "user_forum_id": 3848,
+      "username": "MetaRyuk",
+      "avatar_url": "https://forum.decentraland.org/user_avatar/forum.decentraland.org/metaryuk/45/27603_2.png",
+      "created_at": "2024-10-14T00:27:38.969Z",
+      "text": "Voted yes. After testing both the mobile client and VR firsthand, I recognized the importance of ensuring Decentraland remains aligned with open-source, decentralized development principles while also being prepared for mass mobile adoption. When sharing scenes for others to explore on both computers and mobile devices, I noticed that many people don\u2019t have high-performance computers with ample RAM or advanced graphics capabilities. However, they do often have the latest mobile phones. Therefore, it\u2019s essential to have a mobile client updated with the latest features and optimized code, capabl"
+    },
+    {
+      "user_forum_id": 184,
+      "username": "BET",
+      "avatar_url": "https://forum.decentraland.org/user_avatar/forum.decentraland.org/bet/45/29843_2.png",
+      "created_at": "2024-10-14T12:46:04.402Z",
+      "text": "What\u2019s the plan on releasing these things to the public?"
+    },
+    {
+      "user_forum_id": 4638,
+      "username": "leangodotdev",
+      "avatar_url": "https://avatars.discourse-cdn.com/v4/letter/l/d78d45/45.png",
+      "created_at": "2024-10-14T12:53:54.205Z",
+      "text": "If you can extend your question on what you mean by releasing and to the public, so I can give you a broader answer We have a dev-stage cycle with releases after milestones, you can find the releases on our landing https://dclexplorer.com , and keep informed in our grant updates, X account and/or Discord. Also we develop the both client publicly, you have the repos: GitHub - decentraland/godot-explorer GitHub - decentraland/bevy-explorer"
+    },
+    {
+      "user_forum_id": 5009,
+      "username": "Matthew",
+      "avatar_url": "https://avatars.discourse-cdn.com/v4/letter/m/ed655f/45.png",
+      "created_at": "2024-10-15T02:15:42.022Z",
+      "text": "I am also interested in the timeline for mobile release. You have done great work in what I have seen so far. I am interested in the communication from one person to another via the phone app. Based on the current timeline I see the release may be soon. Is this accurate and the new proposal is just enhancements? IMG_4492 1179\u00d72376 173 KB External Image GitHub External Image DAO Explorers \u2022 decentraland aka Protocol Squad"
+    },
+    {
+      "user_forum_id": 4638,
+      "username": "leangodotdev",
+      "avatar_url": "https://avatars.discourse-cdn.com/v4/letter/l/d78d45/45.png",
+      "created_at": "2024-10-15T10:44:49.847Z",
+      "text": "Yes, we\u2019ll need to adjust the timeline since that task has already been addressed. Also, the current title might not be entirely accurate. It would be better to rename it to something like \u201cOfficially Publish Releases for Mobile,\u201d as this refers to creating official store pages in the Play Store and App Store. We\u2019ve successfully done this for the Play Store, and we just have four remaining issues to fix for the App Store. Regarding the feature you mentioned, it\u2019s already in place. Players can see others connected in the same realm, interact through emotes, and use voice chat. However, if you\u2019r"
+    }
+  ],
+  "totalComments": 10,
+  "funds": {
+    "released": "$24,170.00",
+    "releasedTxCount": 6,
+    "releasedTime": "May 02, 2025",
+    "disclosed": "$45,709.00",
+    "undisclosed": "$0.00"
+  },
+  "_funds_note": "funds.released derived from the project vesting logs (6 tx, sum 24170 DAI, last 2025-05-02). funds.disclosed = sum of this update financial_records (45709 DAI). undisclosed clamped to 0 (this update discloses more than the in-window vesting release)."
+}

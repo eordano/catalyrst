@@ -1,0 +1,20 @@
+{
+  "description": "GET /content/available-content with a bogus cid returns 200 + a single object marked available:false (not 404). Asking is always safe.",
+  "request": {
+    "method": "GET",
+    "path": "/content/available-content",
+    "query": {"cid": ["bafkreieebogusvaluedoesnotexistanywherelmnopqrstuvwx"]},
+    "headers": {},
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "headers": {"content-type": "application/json"},
+    "body_json": [
+      {"cid": "bafkreieebogusvaluedoesnotexistanywherelmnopqrstuvwx", "available": false}
+    ]
+  },
+  "captured_from": "hand-authored from handler source (get_available_content.rs)",
+  "captured_at": "2026-05-23T20:00:00Z",
+  "volatile_paths": []
+}

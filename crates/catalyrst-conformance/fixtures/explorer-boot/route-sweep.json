@@ -1,0 +1,1982 @@
+{
+ "description": "Route-existence sweep of every first-party needs-real-wallet shape against the production candidate ORIGIN (198.51.100.21), probed via curl --resolve <vhost>:443:198.51.100.21 to BYPASS Cloudflare. Reads: unauthenticated GET. Writes: OPTIONS (never mutates). Each form judged INDEPENDENTLY; routePresent is True (service/nginx non-routing response), False (nginx routing 404/405: text/plain 'not found'|empty or nginx html), or null=UNPROVEN (Cloudflare/WAF signature or 502/503 upstream-down). Cloudflare responses (server: cloudflare, cf-ray, 'error code: NNNN') are NEVER counted as present. mapping=dual requires subdomain AND gateway both True; subdomain-only requires subdomain True. authEvidence links committed signed-flow evidence and never substitutes for a route form. Gaps are exact-path fix items for the conformance lane and may not be waived.",
+ "candidateDomain": "interconnected.online",
+ "candidateOriginIp": "198.51.100.21",
+ "mappingRule": "dual => subdomainPresent AND gatewayPresent (both strictly True); subdomain-only => subdomainPresent True. Any missing/unproven required form is a gap.",
+ "sweptShapeCount": 68,
+ "gapCount": 2,
+ "gaps": [
+  {
+   "id": "POST autotranslate-server.decentraland.org /translate",
+   "mapping": "dual",
+   "method": "POST",
+   "concretePath": "/translate",
+   "missingForms": [
+    "subdomain",
+    "gateway"
+   ],
+   "subdomain": {
+    "url": "https://autotranslate-server.interconnected.online/translate",
+    "status": 404,
+    "routePresent": false
+   },
+   "gateway": {
+    "url": "https://gateway.interconnected.online/autotranslate-server/translate",
+    "status": 404,
+    "routePresent": false
+   }
+  },
+  {
+   "id": "POST transactions-api.decentraland.org /v{n}/transactions",
+   "mapping": "dual",
+   "method": "POST",
+   "concretePath": "/v1/transactions",
+   "missingForms": [
+    "subdomain",
+    "gateway"
+   ],
+   "subdomain": {
+    "url": "https://transactions-api.interconnected.online/v1/transactions",
+    "status": 404,
+    "routePresent": false
+   },
+   "gateway": {
+    "url": "https://gateway.interconnected.online/transactions-api/v1/transactions",
+    "status": 404,
+    "routePresent": false
+   }
+  }
+ ],
+ "rows": [
+  {
+   "id": "DELETE camera-reel-service.decentraland.org /api/images/{v}",
+   "method": "DELETE",
+   "host": "camera-reel-service.decentraland.org",
+   "concretePath": "/api/images/00000000-0000-0000-0000-000000000000",
+   "mapping": "dual",
+   "probeMethod": "OPTIONS",
+   "subdomain": {
+    "url": "https://camera-reel-service.interconnected.online/api/images/00000000-0000-0000-0000-000000000000",
+    "method": "OPTIONS",
+    "status": 200,
+    "server": "nginx",
+    "contentType": "",
+    "body": "",
+    "routePresent": true
+   },
+   "gateway": {
+    "url": "https://gateway.interconnected.online/camera-reel-service/api/images/00000000-0000-0000-0000-000000000000",
+    "method": "OPTIONS",
+    "status": 200,
+    "server": "nginx",
+    "contentType": "",
+    "body": "",
+    "routePresent": true
+   },
+   "authEvidence": null,
+   "missingForms": [],
+   "pass": true
+  },
+  {
+   "id": "DELETE events.decentraland.org /api/events/{v}/attendees",
+   "method": "DELETE",
+   "host": "events.decentraland.org",
+   "concretePath": "/api/events/00000000-0000-0000-0000-000000000000/attendees",
+   "mapping": "subdomain-only",
+   "probeMethod": "OPTIONS",
+   "subdomain": {
+    "url": "https://events.interconnected.online/api/events/00000000-0000-0000-0000-000000000000/attendees",
+    "method": "OPTIONS",
+    "status": 200,
+    "server": "nginx",
+    "contentType": "",
+    "body": "",
+    "routePresent": true
+   },
+   "gateway": null,
+   "authEvidence": null,
+   "missingForms": [],
+   "pass": true
+  },
+  {
+   "id": "DELETE notifications.decentraland.org /subscription/opt-outs/community/{v}",
+   "method": "DELETE",
+   "host": "notifications.decentraland.org",
+   "concretePath": "/subscription/opt-outs/community/00000000-0000-0000-0000-000000000000",
+   "mapping": "dual",
+   "probeMethod": "OPTIONS",
+   "subdomain": {
+    "url": "https://notifications.interconnected.online/subscription/opt-outs/community/00000000-0000-0000-0000-000000000000",
+    "method": "OPTIONS",
+    "status": 200,
+    "server": "nginx",
+    "contentType": "",
+    "body": "",
+    "routePresent": true
+   },
+   "gateway": {
+    "url": "https://gateway.interconnected.online/notifications/subscription/opt-outs/community/00000000-0000-0000-0000-000000000000",
+    "method": "OPTIONS",
+    "status": 200,
+    "server": "nginx",
+    "contentType": "",
+    "body": "",
+    "routePresent": true
+   },
+   "authEvidence": null,
+   "missingForms": [],
+   "pass": true
+  },
+  {
+   "id": "DELETE social-api.decentraland.org /v{n}/communities/{v}",
+   "method": "DELETE",
+   "host": "social-api.decentraland.org",
+   "concretePath": "/v1/communities/00000000-0000-0000-0000-000000000000",
+   "mapping": "dual",
+   "probeMethod": "OPTIONS",
+   "subdomain": {
+    "url": "https://social-api.interconnected.online/v1/communities/00000000-0000-0000-0000-000000000000",
+    "method": "OPTIONS",
+    "status": 200,
+    "server": "nginx",
+    "contentType": "",
+    "body": "",
+    "routePresent": true
+   },
+   "gateway": {
+    "url": "https://gateway.interconnected.online/social-api/v1/communities/00000000-0000-0000-0000-000000000000",
+    "method": "OPTIONS",
+    "status": 200,
+    "server": "nginx",
+    "contentType": "",
+    "body": "",
+    "routePresent": true
+   },
+   "authEvidence": null,
+   "missingForms": [],
+   "pass": true
+  },
+  {
+   "id": "DELETE social-api.decentraland.org /v{n}/communities/{v}/members/{v}",
+   "method": "DELETE",
+   "host": "social-api.decentraland.org",
+   "concretePath": "/v1/communities/00000000-0000-0000-0000-000000000000/members/0x8d6f63e382d73cf53858864f673f39e9ff915a1e",
+   "mapping": "dual",
+   "probeMethod": "OPTIONS",
+   "subdomain": {
+    "url": "https://social-api.interconnected.online/v1/communities/00000000-0000-0000-0000-000000000000/members/0x8d6f63e382d73cf53858864f673f39e9ff915a1e",
+    "method": "OPTIONS",
+    "status": 200,
+    "server": "nginx",
+    "contentType": "",
+    "body": "",
+    "routePresent": true
+   },
+   "gateway": {
+    "url": "https://gateway.interconnected.online/social-api/v1/communities/00000000-0000-0000-0000-000000000000/members/0x8d6f63e382d73cf53858864f673f39e9ff915a1e",
+    "method": "OPTIONS",
+    "status": 200,
+    "server": "nginx",
+    "contentType": "",
+    "body": "",
+    "routePresent": true
+   },
+   "authEvidence": null,
+   "missingForms": [],
+   "pass": true
+  },
+  {
+   "id": "DELETE social-api.decentraland.org /v{n}/communities/{v}/members/{v}/bans",
+   "method": "DELETE",
+   "host": "social-api.decentraland.org",
+   "concretePath": "/v1/communities/00000000-0000-0000-0000-000000000000/members/0x8d6f63e382d73cf53858864f673f39e9ff915a1e/bans",
+   "mapping": "dual",
+   "probeMethod": "OPTIONS",
+   "subdomain": {
+    "url": "https://social-api.interconnected.online/v1/communities/00000000-0000-0000-0000-000000000000/members/0x8d6f63e382d73cf53858864f673f39e9ff915a1e/bans",
+    "method": "OPTIONS",
+    "status": 200,
+    "server": "nginx",
+    "contentType": "",
+    "body": "",
+    "routePresent": true
+   },
+   "gateway": {
+    "url": "https://gateway.interconnected.online/social-api/v1/communities/00000000-0000-0000-0000-000000000000/members/0x8d6f63e382d73cf53858864f673f39e9ff915a1e/bans",
+    "method": "OPTIONS",
+    "status": 200,
+    "server": "nginx",
+    "contentType": "",
+    "body": "",
+    "routePresent": true
+   },
+   "authEvidence": null,
+   "missingForms": [],
+   "pass": true
+  },
+  {
+   "id": "DELETE social-api.decentraland.org /v{n}/communities/{v}/places/{v}",
+   "method": "DELETE",
+   "host": "social-api.decentraland.org",
+   "concretePath": "/v1/communities/00000000-0000-0000-0000-000000000000/places/00000000-0000-0000-0000-000000000000",
+   "mapping": "dual",
+   "probeMethod": "OPTIONS",
+   "subdomain": {
+    "url": "https://social-api.interconnected.online/v1/communities/00000000-0000-0000-0000-000000000000/places/00000000-0000-0000-0000-000000000000",
+    "method": "OPTIONS",
+    "status": 200,
+    "server": "nginx",
+    "contentType": "",
+    "body": "",
+    "routePresent": true
+   },
+   "gateway": {
+    "url": "https://gateway.interconnected.online/social-api/v1/communities/00000000-0000-0000-0000-000000000000/places/00000000-0000-0000-0000-000000000000",
+    "method": "OPTIONS",
+    "status": 200,
+    "server": "nginx",
+    "contentType": "",
+    "body": "",
+    "routePresent": true
+   },
+   "authEvidence": null,
+   "missingForms": [],
+   "pass": true
+  },
+  {
+   "id": "DELETE social-api.decentraland.org /v{n}/communities/{v}/posts/{v}",
+   "method": "DELETE",
+   "host": "social-api.decentraland.org",
+   "concretePath": "/v1/communities/00000000-0000-0000-0000-000000000000/posts/00000000-0000-0000-0000-000000000000",
+   "mapping": "dual",
+   "probeMethod": "OPTIONS",
+   "subdomain": {
+    "url": "https://social-api.interconnected.online/v1/communities/00000000-0000-0000-0000-000000000000/posts/00000000-0000-0000-0000-000000000000",
+    "method": "OPTIONS",
+    "status": 200,
+    "server": "nginx",
+    "contentType": "",
+    "body": "",
+    "routePresent": true
+   },
+   "gateway": {
+    "url": "https://gateway.interconnected.online/social-api/v1/communities/00000000-0000-0000-0000-000000000000/posts/00000000-0000-0000-0000-000000000000",
+    "method": "OPTIONS",
+    "status": 200,
+    "server": "nginx",
+    "contentType": "",
+    "body": "",
+    "routePresent": true
+   },
+   "authEvidence": null,
+   "missingForms": [],
+   "pass": true
+  },
+  {
+   "id": "DELETE social-api.decentraland.org /v{n}/communities/{v}/posts/{v}/like",
+   "method": "DELETE",
+   "host": "social-api.decentraland.org",
+   "concretePath": "/v1/communities/00000000-0000-0000-0000-000000000000/posts/00000000-0000-0000-0000-000000000000/like",
+   "mapping": "dual",
+   "probeMethod": "OPTIONS",
+   "subdomain": {
+    "url": "https://social-api.interconnected.online/v1/communities/00000000-0000-0000-0000-000000000000/posts/00000000-0000-0000-0000-000000000000/like",
+    "method": "OPTIONS",
+    "status": 200,
+    "server": "nginx",
+    "contentType": "",
+    "body": "",
+    "routePresent": true
+   },
+   "gateway": {
+    "url": "https://gateway.interconnected.online/social-api/v1/communities/00000000-0000-0000-0000-000000000000/posts/00000000-0000-0000-0000-000000000000/like",
+    "method": "OPTIONS",
+    "status": 200,
+    "server": "nginx",
+    "contentType": "",
+    "body": "",
+    "routePresent": true
+   },
+   "authEvidence": null,
+   "missingForms": [],
+   "pass": true
+  },
+  {
+   "id": "DELETE social-api.decentraland.org /v{n}/mutes",
+   "method": "DELETE",
+   "host": "social-api.decentraland.org",
+   "concretePath": "/v1/mutes",
+   "mapping": "dual",
+   "probeMethod": "OPTIONS",
+   "subdomain": {
+    "url": "https://social-api.interconnected.online/v1/mutes",
+    "method": "OPTIONS",
+    "status": 200,
+    "server": "nginx",
+    "contentType": "",
+    "body": "",
+    "routePresent": true
+   },
+   "gateway": {
+    "url": "https://gateway.interconnected.online/social-api/v1/mutes",
+    "method": "OPTIONS",
+    "status": 200,
+    "server": "nginx",
+    "contentType": "",
+    "body": "",
+    "routePresent": true
+   },
+   "authEvidence": null,
+   "missingForms": [],
+   "pass": true
+  },
+  {
+   "id": "GET camera-reel-service.decentraland.org /api/images",
+   "method": "GET",
+   "host": "camera-reel-service.decentraland.org",
+   "concretePath": "/api/images",
+   "mapping": "dual",
+   "probeMethod": "GET",
+   "subdomain": {
+    "url": "https://camera-reel-service.interconnected.online/api/images",
+    "method": "GET",
+    "status": 405,
+    "server": "nginx",
+    "contentType": "",
+    "body": "",
+    "routePresent": true
+   },
+   "gateway": {
+    "url": "https://gateway.interconnected.online/camera-reel-service/api/images",
+    "method": "GET",
+    "status": 405,
+    "server": "nginx",
+    "contentType": "",
+    "body": "",
+    "routePresent": true
+   },
+   "authEvidence": null,
+   "missingForms": [],
+   "pass": true
+  },
+  {
+   "id": "GET camera-reel-service.decentraland.org /api/images/{v}/metadata",
+   "method": "GET",
+   "host": "camera-reel-service.decentraland.org",
+   "concretePath": "/api/images/00000000-0000-0000-0000-000000000000/metadata",
+   "mapping": "dual",
+   "probeMethod": "GET",
+   "subdomain": {
+    "url": "https://camera-reel-service.interconnected.online/api/images/00000000-0000-0000-0000-000000000000/metadata",
+    "method": "GET",
+    "status": 404,
+    "server": "nginx",
+    "contentType": "application/json",
+    "body": "{\"ok\":false,\"error\":\"image not found\",\"message\":",
+    "routePresent": true
+   },
+   "gateway": {
+    "url": "https://gateway.interconnected.online/camera-reel-service/api/images/00000000-0000-0000-0000-000000000000/metadata",
+    "method": "GET",
+    "status": 404,
+    "server": "nginx",
+    "contentType": "application/json",
+    "body": "{\"ok\":false,\"error\":\"image not found\",\"message\":",
+    "routePresent": true
+   },
+   "authEvidence": null,
+   "missingForms": [],
+   "pass": true
+  },
+  {
+   "id": "GET camera-reel-service.decentraland.org /api/places",
+   "method": "GET",
+   "host": "camera-reel-service.decentraland.org",
+   "concretePath": "/api/places",
+   "mapping": "dual",
+   "probeMethod": "GET",
+   "subdomain": {
+    "url": "https://camera-reel-service.interconnected.online/api/places",
+    "method": "GET",
+    "status": 404,
+    "server": "nginx",
+    "contentType": "",
+    "body": "",
+    "routePresent": true
+   },
+   "gateway": {
+    "url": "https://gateway.interconnected.online/camera-reel-service/api/places",
+    "method": "GET",
+    "status": 404,
+    "server": "nginx",
+    "contentType": "",
+    "body": "",
+    "routePresent": true
+   },
+   "authEvidence": null,
+   "missingForms": [],
+   "pass": true
+  },
+  {
+   "id": "GET camera-reel-service.decentraland.org /api/users",
+   "method": "GET",
+   "host": "camera-reel-service.decentraland.org",
+   "concretePath": "/api/users",
+   "mapping": "dual",
+   "probeMethod": "GET",
+   "subdomain": {
+    "url": "https://camera-reel-service.interconnected.online/api/users",
+    "method": "GET",
+    "status": 404,
+    "server": "nginx",
+    "contentType": "",
+    "body": "",
+    "routePresent": true
+   },
+   "gateway": {
+    "url": "https://gateway.interconnected.online/camera-reel-service/api/users",
+    "method": "GET",
+    "status": 404,
+    "server": "nginx",
+    "contentType": "",
+    "body": "",
+    "routePresent": true
+   },
+   "authEvidence": null,
+   "missingForms": [],
+   "pass": true
+  },
+  {
+   "id": "GET camera-reel-service.decentraland.org /api/users/{v}/images",
+   "method": "GET",
+   "host": "camera-reel-service.decentraland.org",
+   "concretePath": "/api/users/0x8d6f63e382d73cf53858864f673f39e9ff915a1e/images",
+   "mapping": "dual",
+   "probeMethod": "GET",
+   "subdomain": {
+    "url": "https://camera-reel-service.interconnected.online/api/users/0x8d6f63e382d73cf53858864f673f39e9ff915a1e/images",
+    "method": "GET",
+    "status": 200,
+    "server": "nginx",
+    "contentType": "application/json",
+    "body": "{\"images\":[],\"currentImages\":0,\"maxImages\":500}",
+    "routePresent": true
+   },
+   "gateway": {
+    "url": "https://gateway.interconnected.online/camera-reel-service/api/users/0x8d6f63e382d73cf53858864f673f39e9ff915a1e/images",
+    "method": "GET",
+    "status": 200,
+    "server": "nginx",
+    "contentType": "application/json",
+    "body": "{\"images\":[],\"currentImages\":0,\"maxImages\":500}",
+    "routePresent": true
+   },
+   "authEvidence": null,
+   "missingForms": [],
+   "pass": true
+  },
+  {
+   "id": "GET comms-gatekeeper.decentraland.org /get-scene-adapter",
+   "method": "GET",
+   "host": "comms-gatekeeper.decentraland.org",
+   "concretePath": "/get-scene-adapter",
+   "mapping": "dual",
+   "probeMethod": "GET",
+   "subdomain": {
+    "url": "https://comms-gatekeeper.interconnected.online/get-scene-adapter",
+    "method": "GET",
+    "status": 405,
+    "server": "nginx",
+    "contentType": "",
+    "body": "",
+    "routePresent": true
+   },
+   "gateway": {
+    "url": "https://gateway.interconnected.online/comms-gatekeeper/get-scene-adapter",
+    "method": "GET",
+    "status": 405,
+    "server": "nginx",
+    "contentType": "",
+    "body": "",
+    "routePresent": true
+   },
+   "authEvidence": null,
+   "missingForms": [],
+   "pass": true
+  },
+  {
+   "id": "GET credits.decentraland.org /captcha",
+   "method": "GET",
+   "host": "credits.decentraland.org",
+   "concretePath": "/captcha",
+   "mapping": "dual",
+   "probeMethod": "GET",
+   "subdomain": {
+    "url": "https://credits.interconnected.online/captcha",
+    "method": "GET",
+    "status": 401,
+    "server": "nginx",
+    "contentType": "application/json",
+    "body": "{\"ok\":false,\"error\":\"Invalid Auth Chain\",\"messag",
+    "routePresent": true
+   },
+   "gateway": {
+    "url": "https://gateway.interconnected.online/credits/captcha",
+    "method": "GET",
+    "status": 401,
+    "server": "nginx",
+    "contentType": "application/json",
+    "body": "{\"ok\":false,\"error\":\"Invalid Auth Chain\",\"messag",
+    "routePresent": true
+   },
+   "authEvidence": null,
+   "missingForms": [],
+   "pass": true
+  },
+  {
+   "id": "GET credits.decentraland.org /credits/orders/{v}",
+   "method": "GET",
+   "host": "credits.decentraland.org",
+   "concretePath": "/credits/orders/0x8d6f63e382d73cf53858864f673f39e9ff915a1e",
+   "mapping": "dual",
+   "probeMethod": "GET",
+   "subdomain": {
+    "url": "https://credits.interconnected.online/credits/orders/0x8d6f63e382d73cf53858864f673f39e9ff915a1e",
+    "method": "GET",
+    "status": 404,
+    "server": "nginx",
+    "contentType": "",
+    "body": "",
+    "routePresent": true
+   },
+   "gateway": {
+    "url": "https://gateway.interconnected.online/credits/credits/orders/0x8d6f63e382d73cf53858864f673f39e9ff915a1e",
+    "method": "GET",
+    "status": 404,
+    "server": "nginx",
+    "contentType": "",
+    "body": "",
+    "routePresent": true
+   },
+   "authEvidence": null,
+   "missingForms": [],
+   "pass": true
+  },
+  {
+   "id": "GET credits.decentraland.org /seasons",
+   "method": "GET",
+   "host": "credits.decentraland.org",
+   "concretePath": "/seasons",
+   "mapping": "dual",
+   "probeMethod": "GET",
+   "subdomain": {
+    "url": "https://credits.interconnected.online/seasons",
+    "method": "GET",
+    "status": 200,
+    "server": "nginx",
+    "contentType": "application/json",
+    "body": "{\"lastSeason\":{\"id\":0,\"name\":\"\",\"startDate\":\"\",\"",
+    "routePresent": true
+   },
+   "gateway": {
+    "url": "https://gateway.interconnected.online/credits/seasons",
+    "method": "GET",
+    "status": 200,
+    "server": "nginx",
+    "contentType": "application/json",
+    "body": "{\"lastSeason\":{\"id\":0,\"name\":\"\",\"startDate\":\"\",\"",
+    "routePresent": true
+   },
+   "authEvidence": null,
+   "missingForms": [],
+   "pass": true
+  },
+  {
+   "id": "GET credits.decentraland.org /users/{v}/progress",
+   "method": "GET",
+   "host": "credits.decentraland.org",
+   "concretePath": "/users/0x8d6f63e382d73cf53858864f673f39e9ff915a1e/progress",
+   "mapping": "dual",
+   "probeMethod": "GET",
+   "subdomain": {
+    "url": "https://credits.interconnected.online/users/0x8d6f63e382d73cf53858864f673f39e9ff915a1e/progress",
+    "method": "GET",
+    "status": 401,
+    "server": "nginx",
+    "contentType": "application/json",
+    "body": "{\"ok\":false,\"error\":\"Invalid Auth Chain\",\"messag",
+    "routePresent": true
+   },
+   "gateway": {
+    "url": "https://gateway.interconnected.online/credits/users/0x8d6f63e382d73cf53858864f673f39e9ff915a1e/progress",
+    "method": "GET",
+    "status": 401,
+    "server": "nginx",
+    "contentType": "application/json",
+    "body": "{\"ok\":false,\"error\":\"Invalid Auth Chain\",\"messag",
+    "routePresent": true
+   },
+   "authEvidence": null,
+   "missingForms": [],
+   "pass": true
+  },
+  {
+   "id": "GET notifications.decentraland.org /subscription",
+   "method": "GET",
+   "host": "notifications.decentraland.org",
+   "concretePath": "/subscription",
+   "mapping": "dual",
+   "probeMethod": "GET",
+   "subdomain": {
+    "url": "https://notifications.interconnected.online/subscription",
+    "method": "GET",
+    "status": 401,
+    "server": "nginx",
+    "contentType": "application/json",
+    "body": "{\"ok\":false,\"error\":\"Invalid Auth Chain\",\"messag",
+    "routePresent": true
+   },
+   "gateway": {
+    "url": "https://gateway.interconnected.online/notifications/subscription",
+    "method": "GET",
+    "status": 401,
+    "server": "nginx",
+    "contentType": "application/json",
+    "body": "{\"ok\":false,\"error\":\"Invalid Auth Chain\",\"messag",
+    "routePresent": true
+   },
+   "authEvidence": null,
+   "missingForms": [],
+   "pass": true
+  },
+  {
+   "id": "GET notifications.decentraland.org /subscription/opt-outs/community/{v}",
+   "method": "GET",
+   "host": "notifications.decentraland.org",
+   "concretePath": "/subscription/opt-outs/community/00000000-0000-0000-0000-000000000000",
+   "mapping": "dual",
+   "probeMethod": "GET",
+   "subdomain": {
+    "url": "https://notifications.interconnected.online/subscription/opt-outs/community/00000000-0000-0000-0000-000000000000",
+    "method": "GET",
+    "status": 401,
+    "server": "nginx",
+    "contentType": "application/json",
+    "body": "{\"ok\":false,\"error\":\"Invalid Auth Chain\",\"messag",
+    "routePresent": true
+   },
+   "gateway": {
+    "url": "https://gateway.interconnected.online/notifications/subscription/opt-outs/community/00000000-0000-0000-0000-000000000000",
+    "method": "GET",
+    "status": 401,
+    "server": "nginx",
+    "contentType": "application/json",
+    "body": "{\"ok\":false,\"error\":\"Invalid Auth Chain\",\"messag",
+    "routePresent": true
+   },
+   "authEvidence": null,
+   "missingForms": [],
+   "pass": true
+  },
+  {
+   "id": "GET places.decentraland.org /api/report",
+   "method": "GET",
+   "host": "places.decentraland.org",
+   "concretePath": "/api/report",
+   "mapping": "dual",
+   "probeMethod": "GET",
+   "subdomain": {
+    "url": "https://places.interconnected.online/api/report",
+    "method": "GET",
+    "status": 405,
+    "server": "nginx",
+    "contentType": "",
+    "body": "",
+    "routePresent": true
+   },
+   "gateway": {
+    "url": "https://gateway.interconnected.online/places/api/report",
+    "method": "GET",
+    "status": 405,
+    "server": "nginx",
+    "contentType": "",
+    "body": "",
+    "routePresent": true
+   },
+   "authEvidence": null,
+   "missingForms": [],
+   "pass": true
+  },
+  {
+   "id": "GET social-api.decentraland.org /v{n}/communities/{v}",
+   "method": "GET",
+   "host": "social-api.decentraland.org",
+   "concretePath": "/v1/communities/00000000-0000-0000-0000-000000000000",
+   "mapping": "dual",
+   "probeMethod": "GET",
+   "subdomain": {
+    "url": "https://social-api.interconnected.online/v1/communities/00000000-0000-0000-0000-000000000000",
+    "method": "GET",
+    "status": 404,
+    "server": "nginx",
+    "contentType": "application/json",
+    "body": "{\"ok\":false,\"error\":\"Not Found\",\"message\":\"Commu",
+    "routePresent": true
+   },
+   "gateway": {
+    "url": "https://gateway.interconnected.online/social-api/v1/communities/00000000-0000-0000-0000-000000000000",
+    "method": "GET",
+    "status": 404,
+    "server": "nginx",
+    "contentType": "application/json",
+    "body": "{\"ok\":false,\"error\":\"Not Found\",\"message\":\"Commu",
+    "routePresent": true
+   },
+   "authEvidence": null,
+   "missingForms": [],
+   "pass": true
+  },
+  {
+   "id": "GET social-api.decentraland.org /v{n}/communities/{v}/bans",
+   "method": "GET",
+   "host": "social-api.decentraland.org",
+   "concretePath": "/v1/communities/00000000-0000-0000-0000-000000000000/bans",
+   "mapping": "dual",
+   "probeMethod": "GET",
+   "subdomain": {
+    "url": "https://social-api.interconnected.online/v1/communities/00000000-0000-0000-0000-000000000000/bans",
+    "method": "GET",
+    "status": 401,
+    "server": "nginx",
+    "contentType": "application/json",
+    "body": "{\"ok\":false,\"error\":\"Not Authorized\",\"message\":\"",
+    "routePresent": true
+   },
+   "gateway": {
+    "url": "https://gateway.interconnected.online/social-api/v1/communities/00000000-0000-0000-0000-000000000000/bans",
+    "method": "GET",
+    "status": 401,
+    "server": "nginx",
+    "contentType": "application/json",
+    "body": "{\"ok\":false,\"error\":\"Not Authorized\",\"message\":\"",
+    "routePresent": true
+   },
+   "authEvidence": null,
+   "missingForms": [],
+   "pass": true
+  },
+  {
+   "id": "GET social-api.decentraland.org /v{n}/communities/{v}/members",
+   "method": "GET",
+   "host": "social-api.decentraland.org",
+   "concretePath": "/v1/communities/00000000-0000-0000-0000-000000000000/members",
+   "mapping": "dual",
+   "probeMethod": "GET",
+   "subdomain": {
+    "url": "https://social-api.interconnected.online/v1/communities/00000000-0000-0000-0000-000000000000/members",
+    "method": "GET",
+    "status": 404,
+    "server": "nginx",
+    "contentType": "application/json",
+    "body": "{\"ok\":false,\"error\":\"Not Found\",\"message\":\"Commu",
+    "routePresent": true
+   },
+   "gateway": {
+    "url": "https://gateway.interconnected.online/social-api/v1/communities/00000000-0000-0000-0000-000000000000/members",
+    "method": "GET",
+    "status": 404,
+    "server": "nginx",
+    "contentType": "application/json",
+    "body": "{\"ok\":false,\"error\":\"Not Found\",\"message\":\"Commu",
+    "routePresent": true
+   },
+   "authEvidence": null,
+   "missingForms": [],
+   "pass": true
+  },
+  {
+   "id": "GET social-api.decentraland.org /v{n}/communities/{v}/places",
+   "method": "GET",
+   "host": "social-api.decentraland.org",
+   "concretePath": "/v1/communities/00000000-0000-0000-0000-000000000000/places",
+   "mapping": "dual",
+   "probeMethod": "GET",
+   "subdomain": {
+    "url": "https://social-api.interconnected.online/v1/communities/00000000-0000-0000-0000-000000000000/places",
+    "method": "GET",
+    "status": 404,
+    "server": "nginx",
+    "contentType": "application/json",
+    "body": "{\"ok\":false,\"error\":\"Not Found\",\"message\":\"Commu",
+    "routePresent": true
+   },
+   "gateway": {
+    "url": "https://gateway.interconnected.online/social-api/v1/communities/00000000-0000-0000-0000-000000000000/places",
+    "method": "GET",
+    "status": 404,
+    "server": "nginx",
+    "contentType": "application/json",
+    "body": "{\"ok\":false,\"error\":\"Not Found\",\"message\":\"Commu",
+    "routePresent": true
+   },
+   "authEvidence": null,
+   "missingForms": [],
+   "pass": true
+  },
+  {
+   "id": "GET social-api.decentraland.org /v{n}/communities/{v}/posts",
+   "method": "GET",
+   "host": "social-api.decentraland.org",
+   "concretePath": "/v1/communities/00000000-0000-0000-0000-000000000000/posts",
+   "mapping": "dual",
+   "probeMethod": "GET",
+   "subdomain": {
+    "url": "https://social-api.interconnected.online/v1/communities/00000000-0000-0000-0000-000000000000/posts",
+    "method": "GET",
+    "status": 404,
+    "server": "nginx",
+    "contentType": "application/json",
+    "body": "{\"ok\":false,\"error\":\"Not Found\",\"message\":\"Commu",
+    "routePresent": true
+   },
+   "gateway": {
+    "url": "https://gateway.interconnected.online/social-api/v1/communities/00000000-0000-0000-0000-000000000000/posts",
+    "method": "GET",
+    "status": 404,
+    "server": "nginx",
+    "contentType": "application/json",
+    "body": "{\"ok\":false,\"error\":\"Not Found\",\"message\":\"Commu",
+    "routePresent": true
+   },
+   "authEvidence": null,
+   "missingForms": [],
+   "pass": true
+  },
+  {
+   "id": "GET social-api.decentraland.org /v{n}/communities/{v}/requests",
+   "method": "GET",
+   "host": "social-api.decentraland.org",
+   "concretePath": "/v1/communities/00000000-0000-0000-0000-000000000000/requests",
+   "mapping": "dual",
+   "probeMethod": "GET",
+   "subdomain": {
+    "url": "https://social-api.interconnected.online/v1/communities/00000000-0000-0000-0000-000000000000/requests",
+    "method": "GET",
+    "status": 401,
+    "server": "nginx",
+    "contentType": "application/json",
+    "body": "{\"ok\":false,\"error\":\"Not Authorized\",\"message\":\"",
+    "routePresent": true
+   },
+   "gateway": {
+    "url": "https://gateway.interconnected.online/social-api/v1/communities/00000000-0000-0000-0000-000000000000/requests",
+    "method": "GET",
+    "status": 401,
+    "server": "nginx",
+    "contentType": "application/json",
+    "body": "{\"ok\":false,\"error\":\"Not Authorized\",\"message\":\"",
+    "routePresent": true
+   },
+   "authEvidence": null,
+   "missingForms": [],
+   "pass": true
+  },
+  {
+   "id": "GET social-api.decentraland.org /v{n}/members",
+   "method": "GET",
+   "host": "social-api.decentraland.org",
+   "concretePath": "/v1/members",
+   "mapping": "dual",
+   "probeMethod": "GET",
+   "subdomain": {
+    "url": "https://social-api.interconnected.online/v1/members",
+    "method": "GET",
+    "status": 404,
+    "server": "nginx",
+    "contentType": "",
+    "body": "",
+    "routePresent": true
+   },
+   "gateway": {
+    "url": "https://gateway.interconnected.online/social-api/v1/members",
+    "method": "GET",
+    "status": 404,
+    "server": "nginx",
+    "contentType": "",
+    "body": "",
+    "routePresent": true
+   },
+   "authEvidence": null,
+   "missingForms": [],
+   "pass": true
+  },
+  {
+   "id": "GET social-api.decentraland.org /v{n}/members/{v}/invites",
+   "method": "GET",
+   "host": "social-api.decentraland.org",
+   "concretePath": "/v1/members/0x8d6f63e382d73cf53858864f673f39e9ff915a1e/invites",
+   "mapping": "dual",
+   "probeMethod": "GET",
+   "subdomain": {
+    "url": "https://social-api.interconnected.online/v1/members/0x8d6f63e382d73cf53858864f673f39e9ff915a1e/invites",
+    "method": "GET",
+    "status": 401,
+    "server": "nginx",
+    "contentType": "application/json",
+    "body": "{\"ok\":false,\"error\":\"Not Authorized\",\"message\":\"",
+    "routePresent": true
+   },
+   "gateway": {
+    "url": "https://gateway.interconnected.online/social-api/v1/members/0x8d6f63e382d73cf53858864f673f39e9ff915a1e/invites",
+    "method": "GET",
+    "status": 401,
+    "server": "nginx",
+    "contentType": "application/json",
+    "body": "{\"ok\":false,\"error\":\"Not Authorized\",\"message\":\"",
+    "routePresent": true
+   },
+   "authEvidence": null,
+   "missingForms": [],
+   "pass": true
+  },
+  {
+   "id": "GET social-api.decentraland.org /v{n}/members/{v}/requests",
+   "method": "GET",
+   "host": "social-api.decentraland.org",
+   "concretePath": "/v1/members/0x8d6f63e382d73cf53858864f673f39e9ff915a1e/requests",
+   "mapping": "dual",
+   "probeMethod": "GET",
+   "subdomain": {
+    "url": "https://social-api.interconnected.online/v1/members/0x8d6f63e382d73cf53858864f673f39e9ff915a1e/requests",
+    "method": "GET",
+    "status": 401,
+    "server": "nginx",
+    "contentType": "application/json",
+    "body": "{\"ok\":false,\"error\":\"Not Authorized\",\"message\":\"",
+    "routePresent": true
+   },
+   "gateway": {
+    "url": "https://gateway.interconnected.online/social-api/v1/members/0x8d6f63e382d73cf53858864f673f39e9ff915a1e/requests",
+    "method": "GET",
+    "status": 401,
+    "server": "nginx",
+    "contentType": "application/json",
+    "body": "{\"ok\":false,\"error\":\"Not Authorized\",\"message\":\"",
+    "routePresent": true
+   },
+   "authEvidence": null,
+   "missingForms": [],
+   "pass": true
+  },
+  {
+   "id": "GET worlds-content-server.decentraland.org /worlds/{v}/scenes/{v}/comms",
+   "method": "GET",
+   "host": "worlds-content-server.decentraland.org",
+   "concretePath": "/worlds/0/scenes/0/comms",
+   "mapping": "dual",
+   "probeMethod": "GET",
+   "subdomain": {
+    "url": "https://worlds-content-server.interconnected.online/worlds/0/scenes/0/comms",
+    "method": "GET",
+    "status": 405,
+    "server": "nginx",
+    "contentType": "",
+    "body": "",
+    "routePresent": true
+   },
+   "gateway": {
+    "url": "https://gateway.interconnected.online/worlds-content-server/worlds/0/scenes/0/comms",
+    "method": "GET",
+    "status": 405,
+    "server": "nginx",
+    "contentType": "",
+    "body": "",
+    "routePresent": true
+   },
+   "authEvidence": null,
+   "missingForms": [],
+   "pass": true
+  },
+  {
+   "id": "PATCH camera-reel-service.decentraland.org /api/images/{v}/visibility",
+   "method": "PATCH",
+   "host": "camera-reel-service.decentraland.org",
+   "concretePath": "/api/images/00000000-0000-0000-0000-000000000000/visibility",
+   "mapping": "dual",
+   "probeMethod": "OPTIONS",
+   "subdomain": {
+    "url": "https://camera-reel-service.interconnected.online/api/images/00000000-0000-0000-0000-000000000000/visibility",
+    "method": "OPTIONS",
+    "status": 200,
+    "server": "nginx",
+    "contentType": "",
+    "body": "",
+    "routePresent": true
+   },
+   "gateway": {
+    "url": "https://gateway.interconnected.online/camera-reel-service/api/images/00000000-0000-0000-0000-000000000000/visibility",
+    "method": "OPTIONS",
+    "status": 200,
+    "server": "nginx",
+    "contentType": "",
+    "body": "",
+    "routePresent": true
+   },
+   "authEvidence": null,
+   "missingForms": [],
+   "pass": true
+  },
+  {
+   "id": "PATCH places.decentraland.org /api/places/{v}/favorites",
+   "method": "PATCH",
+   "host": "places.decentraland.org",
+   "concretePath": "/api/places/00000000-0000-0000-0000-000000000000/favorites",
+   "mapping": "dual",
+   "probeMethod": "OPTIONS",
+   "subdomain": {
+    "url": "https://places.interconnected.online/api/places/00000000-0000-0000-0000-000000000000/favorites",
+    "method": "OPTIONS",
+    "status": 200,
+    "server": "nginx",
+    "contentType": "",
+    "body": "",
+    "routePresent": true
+   },
+   "gateway": {
+    "url": "https://gateway.interconnected.online/places/api/places/00000000-0000-0000-0000-000000000000/favorites",
+    "method": "OPTIONS",
+    "status": 200,
+    "server": "nginx",
+    "contentType": "",
+    "body": "",
+    "routePresent": true
+   },
+   "authEvidence": null,
+   "missingForms": [],
+   "pass": true
+  },
+  {
+   "id": "PATCH places.decentraland.org /api/places/{v}/likes",
+   "method": "PATCH",
+   "host": "places.decentraland.org",
+   "concretePath": "/api/places/00000000-0000-0000-0000-000000000000/likes",
+   "mapping": "dual",
+   "probeMethod": "OPTIONS",
+   "subdomain": {
+    "url": "https://places.interconnected.online/api/places/00000000-0000-0000-0000-000000000000/likes",
+    "method": "OPTIONS",
+    "status": 200,
+    "server": "nginx",
+    "contentType": "",
+    "body": "",
+    "routePresent": true
+   },
+   "gateway": {
+    "url": "https://gateway.interconnected.online/places/api/places/00000000-0000-0000-0000-000000000000/likes",
+    "method": "OPTIONS",
+    "status": 200,
+    "server": "nginx",
+    "contentType": "",
+    "body": "",
+    "routePresent": true
+   },
+   "authEvidence": null,
+   "missingForms": [],
+   "pass": true
+  },
+  {
+   "id": "PATCH social-api.decentraland.org /v{n}/communities/{v}/members/{v}",
+   "method": "PATCH",
+   "host": "social-api.decentraland.org",
+   "concretePath": "/v1/communities/00000000-0000-0000-0000-000000000000/members/0x8d6f63e382d73cf53858864f673f39e9ff915a1e",
+   "mapping": "dual",
+   "probeMethod": "OPTIONS",
+   "subdomain": {
+    "url": "https://social-api.interconnected.online/v1/communities/00000000-0000-0000-0000-000000000000/members/0x8d6f63e382d73cf53858864f673f39e9ff915a1e",
+    "method": "OPTIONS",
+    "status": 200,
+    "server": "nginx",
+    "contentType": "",
+    "body": "",
+    "routePresent": true
+   },
+   "gateway": {
+    "url": "https://gateway.interconnected.online/social-api/v1/communities/00000000-0000-0000-0000-000000000000/members/0x8d6f63e382d73cf53858864f673f39e9ff915a1e",
+    "method": "OPTIONS",
+    "status": 200,
+    "server": "nginx",
+    "contentType": "",
+    "body": "",
+    "routePresent": true
+   },
+   "authEvidence": null,
+   "missingForms": [],
+   "pass": true
+  },
+  {
+   "id": "PATCH social-api.decentraland.org /v{n}/communities/{v}/requests/{v}",
+   "method": "PATCH",
+   "host": "social-api.decentraland.org",
+   "concretePath": "/v1/communities/00000000-0000-0000-0000-000000000000/requests/00000000-0000-0000-0000-000000000000",
+   "mapping": "dual",
+   "probeMethod": "OPTIONS",
+   "subdomain": {
+    "url": "https://social-api.interconnected.online/v1/communities/00000000-0000-0000-0000-000000000000/requests/00000000-0000-0000-0000-000000000000",
+    "method": "OPTIONS",
+    "status": 200,
+    "server": "nginx",
+    "contentType": "",
+    "body": "",
+    "routePresent": true
+   },
+   "gateway": {
+    "url": "https://gateway.interconnected.online/social-api/v1/communities/00000000-0000-0000-0000-000000000000/requests/00000000-0000-0000-0000-000000000000",
+    "method": "OPTIONS",
+    "status": 200,
+    "server": "nginx",
+    "contentType": "",
+    "body": "",
+    "routePresent": true
+   },
+   "authEvidence": null,
+   "missingForms": [],
+   "pass": true
+  },
+  {
+   "id": "POST asset-bundle-registry.decentraland.org /profiles/metadata",
+   "method": "POST",
+   "host": "asset-bundle-registry.decentraland.org",
+   "concretePath": "/profiles/metadata",
+   "mapping": "dual",
+   "probeMethod": "OPTIONS",
+   "subdomain": {
+    "url": "https://asset-bundle-registry.interconnected.online/profiles/metadata",
+    "method": "OPTIONS",
+    "status": 405,
+    "server": "nginx",
+    "contentType": "",
+    "body": "",
+    "routePresent": true
+   },
+   "gateway": {
+    "url": "https://gateway.interconnected.online/asset-bundle-registry/profiles/metadata",
+    "method": "OPTIONS",
+    "status": 405,
+    "server": "nginx",
+    "contentType": "",
+    "body": "",
+    "routePresent": true
+   },
+   "authEvidence": null,
+   "missingForms": [],
+   "pass": true
+  },
+  {
+   "id": "POST autotranslate-server.decentraland.org /translate",
+   "method": "POST",
+   "host": "autotranslate-server.decentraland.org",
+   "concretePath": "/translate",
+   "mapping": "dual",
+   "probeMethod": "OPTIONS",
+   "subdomain": {
+    "url": "https://autotranslate-server.interconnected.online/translate",
+    "method": "OPTIONS",
+    "status": 404,
+    "server": "nginx",
+    "contentType": "text/plain; charset=utf-8",
+    "body": "not found",
+    "routePresent": false
+   },
+   "gateway": {
+    "url": "https://gateway.interconnected.online/autotranslate-server/translate",
+    "method": "OPTIONS",
+    "status": 404,
+    "server": "nginx",
+    "contentType": "text/html",
+    "body": "<html>\r\n<head><title>404 Not Found</title></head",
+    "routePresent": false
+   },
+   "authEvidence": null,
+   "missingForms": [
+    "subdomain",
+    "gateway"
+   ],
+   "pass": false
+  },
+  {
+   "id": "POST camera-reel-service.decentraland.org /api/images",
+   "method": "POST",
+   "host": "camera-reel-service.decentraland.org",
+   "concretePath": "/api/images",
+   "mapping": "dual",
+   "probeMethod": "OPTIONS",
+   "subdomain": {
+    "url": "https://camera-reel-service.interconnected.online/api/images",
+    "method": "OPTIONS",
+    "status": 200,
+    "server": "nginx",
+    "contentType": "",
+    "body": "",
+    "routePresent": true
+   },
+   "gateway": {
+    "url": "https://gateway.interconnected.online/camera-reel-service/api/images",
+    "method": "OPTIONS",
+    "status": 200,
+    "server": "nginx",
+    "contentType": "",
+    "body": "",
+    "routePresent": true
+   },
+   "authEvidence": null,
+   "missingForms": [],
+   "pass": true
+  },
+  {
+   "id": "POST camera-reel-service.decentraland.org /api/places/images",
+   "method": "POST",
+   "host": "camera-reel-service.decentraland.org",
+   "concretePath": "/api/places/images",
+   "mapping": "dual",
+   "probeMethod": "OPTIONS",
+   "subdomain": {
+    "url": "https://camera-reel-service.interconnected.online/api/places/images",
+    "method": "OPTIONS",
+    "status": 200,
+    "server": "nginx",
+    "contentType": "",
+    "body": "",
+    "routePresent": true
+   },
+   "gateway": {
+    "url": "https://gateway.interconnected.online/camera-reel-service/api/places/images",
+    "method": "OPTIONS",
+    "status": 200,
+    "server": "nginx",
+    "contentType": "",
+    "body": "",
+    "routePresent": true
+   },
+   "authEvidence": null,
+   "missingForms": [],
+   "pass": true
+  },
+  {
+   "id": "POST credits.decentraland.org /captcha",
+   "method": "POST",
+   "host": "credits.decentraland.org",
+   "concretePath": "/captcha",
+   "mapping": "dual",
+   "probeMethod": "OPTIONS",
+   "subdomain": {
+    "url": "https://credits.interconnected.online/captcha",
+    "method": "OPTIONS",
+    "status": 200,
+    "server": "nginx",
+    "contentType": "",
+    "body": "",
+    "routePresent": true
+   },
+   "gateway": {
+    "url": "https://gateway.interconnected.online/credits/captcha",
+    "method": "OPTIONS",
+    "status": 200,
+    "server": "nginx",
+    "contentType": "",
+    "body": "",
+    "routePresent": true
+   },
+   "authEvidence": null,
+   "missingForms": [],
+   "pass": true
+  },
+  {
+   "id": "POST credits.decentraland.org /credits/authorize",
+   "method": "POST",
+   "host": "credits.decentraland.org",
+   "concretePath": "/credits/authorize",
+   "mapping": "dual",
+   "probeMethod": "OPTIONS",
+   "subdomain": {
+    "url": "https://credits.interconnected.online/credits/authorize",
+    "method": "OPTIONS",
+    "status": 200,
+    "server": "nginx",
+    "contentType": "",
+    "body": "",
+    "routePresent": true
+   },
+   "gateway": {
+    "url": "https://gateway.interconnected.online/credits/credits/authorize",
+    "method": "OPTIONS",
+    "status": 200,
+    "server": "nginx",
+    "contentType": "",
+    "body": "",
+    "routePresent": true
+   },
+   "authEvidence": null,
+   "missingForms": [],
+   "pass": true
+  },
+  {
+   "id": "POST credits.decentraland.org /credits/authorize/cancel",
+   "method": "POST",
+   "host": "credits.decentraland.org",
+   "concretePath": "/credits/authorize/cancel",
+   "mapping": "dual",
+   "probeMethod": "OPTIONS",
+   "subdomain": {
+    "url": "https://credits.interconnected.online/credits/authorize/cancel",
+    "method": "OPTIONS",
+    "status": 200,
+    "server": "nginx",
+    "contentType": "",
+    "body": "",
+    "routePresent": true
+   },
+   "gateway": {
+    "url": "https://gateway.interconnected.online/credits/credits/authorize/cancel",
+    "method": "OPTIONS",
+    "status": 200,
+    "server": "nginx",
+    "contentType": "",
+    "body": "",
+    "routePresent": true
+   },
+   "authEvidence": null,
+   "missingForms": [],
+   "pass": true
+  },
+  {
+   "id": "POST credits.decentraland.org /credits/checkout",
+   "method": "POST",
+   "host": "credits.decentraland.org",
+   "concretePath": "/credits/checkout",
+   "mapping": "dual",
+   "probeMethod": "OPTIONS",
+   "subdomain": {
+    "url": "https://credits.interconnected.online/credits/checkout",
+    "method": "OPTIONS",
+    "status": 200,
+    "server": "nginx",
+    "contentType": "",
+    "body": "",
+    "routePresent": true
+   },
+   "gateway": {
+    "url": "https://gateway.interconnected.online/credits/credits/checkout",
+    "method": "OPTIONS",
+    "status": 200,
+    "server": "nginx",
+    "contentType": "",
+    "body": "",
+    "routePresent": true
+   },
+   "authEvidence": null,
+   "missingForms": [],
+   "pass": true
+  },
+  {
+   "id": "POST credits.decentraland.org /users",
+   "method": "POST",
+   "host": "credits.decentraland.org",
+   "concretePath": "/users",
+   "mapping": "dual",
+   "probeMethod": "OPTIONS",
+   "subdomain": {
+    "url": "https://credits.interconnected.online/users",
+    "method": "OPTIONS",
+    "status": 200,
+    "server": "nginx",
+    "contentType": "",
+    "body": "",
+    "routePresent": true
+   },
+   "gateway": {
+    "url": "https://gateway.interconnected.online/credits/users",
+    "method": "OPTIONS",
+    "status": 200,
+    "server": "nginx",
+    "contentType": "",
+    "body": "",
+    "routePresent": true
+   },
+   "authEvidence": null,
+   "missingForms": [],
+   "pass": true
+  },
+  {
+   "id": "POST events.decentraland.org /api/events/search",
+   "method": "POST",
+   "host": "events.decentraland.org",
+   "concretePath": "/api/events/search",
+   "mapping": "subdomain-only",
+   "probeMethod": "OPTIONS",
+   "subdomain": {
+    "url": "https://events.interconnected.online/api/events/search",
+    "method": "OPTIONS",
+    "status": 200,
+    "server": "nginx",
+    "contentType": "",
+    "body": "",
+    "routePresent": true
+   },
+   "gateway": null,
+   "authEvidence": null,
+   "missingForms": [],
+   "pass": true
+  },
+  {
+   "id": "POST events.decentraland.org /api/events/{v}/attendees",
+   "method": "POST",
+   "host": "events.decentraland.org",
+   "concretePath": "/api/events/00000000-0000-0000-0000-000000000000/attendees",
+   "mapping": "subdomain-only",
+   "probeMethod": "OPTIONS",
+   "subdomain": {
+    "url": "https://events.interconnected.online/api/events/00000000-0000-0000-0000-000000000000/attendees",
+    "method": "OPTIONS",
+    "status": 200,
+    "server": "nginx",
+    "contentType": "",
+    "body": "",
+    "routePresent": true
+   },
+   "gateway": null,
+   "authEvidence": null,
+   "missingForms": [],
+   "pass": true
+  },
+  {
+   "id": "POST notifications.decentraland.org /subscription/opt-outs",
+   "method": "POST",
+   "host": "notifications.decentraland.org",
+   "concretePath": "/subscription/opt-outs",
+   "mapping": "dual",
+   "probeMethod": "OPTIONS",
+   "subdomain": {
+    "url": "https://notifications.interconnected.online/subscription/opt-outs",
+    "method": "OPTIONS",
+    "status": 200,
+    "server": "nginx",
+    "contentType": "",
+    "body": "",
+    "routePresent": true
+   },
+   "gateway": {
+    "url": "https://gateway.interconnected.online/notifications/subscription/opt-outs",
+    "method": "OPTIONS",
+    "status": 200,
+    "server": "nginx",
+    "contentType": "",
+    "body": "",
+    "routePresent": true
+   },
+   "authEvidence": null,
+   "missingForms": [],
+   "pass": true
+  },
+  {
+   "id": "POST peer.decentraland.org /content/entities",
+   "method": "POST",
+   "host": "peer.decentraland.org",
+   "concretePath": "/content/entities",
+   "mapping": "subdomain-only",
+   "probeMethod": "OPTIONS",
+   "subdomain": {
+    "url": "https://peer.interconnected.online/content/entities",
+    "method": "OPTIONS",
+    "status": 204,
+    "server": "nginx",
+    "contentType": "",
+    "body": "",
+    "routePresent": true
+   },
+   "gateway": null,
+   "authEvidence": null,
+   "missingForms": [],
+   "pass": true
+  },
+  {
+   "id": "POST peer.decentraland.org /content/entities/active/",
+   "method": "POST",
+   "host": "peer.decentraland.org",
+   "concretePath": "/content/entities/active/",
+   "mapping": "subdomain-only",
+   "probeMethod": "OPTIONS",
+   "subdomain": {
+    "url": "https://peer.interconnected.online/content/entities/active/",
+    "method": "OPTIONS",
+    "status": 204,
+    "server": "nginx",
+    "contentType": "",
+    "body": "",
+    "routePresent": true
+   },
+   "gateway": null,
+   "authEvidence": null,
+   "missingForms": [],
+   "pass": true
+  },
+  {
+   "id": "POST peer.decentraland.org /lambdas/profiles",
+   "method": "POST",
+   "host": "peer.decentraland.org",
+   "concretePath": "/lambdas/profiles",
+   "mapping": "subdomain-only",
+   "probeMethod": "OPTIONS",
+   "subdomain": {
+    "url": "https://peer.interconnected.online/lambdas/profiles",
+    "method": "OPTIONS",
+    "status": 204,
+    "server": "nginx",
+    "contentType": "",
+    "body": "",
+    "routePresent": true
+   },
+   "gateway": null,
+   "authEvidence": null,
+   "missingForms": [],
+   "pass": true
+  },
+  {
+   "id": "POST places.decentraland.org /api/destinations",
+   "method": "POST",
+   "host": "places.decentraland.org",
+   "concretePath": "/api/destinations",
+   "mapping": "dual",
+   "probeMethod": "OPTIONS",
+   "subdomain": {
+    "url": "https://places.interconnected.online/api/destinations",
+    "method": "OPTIONS",
+    "status": 200,
+    "server": "nginx",
+    "contentType": "",
+    "body": "",
+    "routePresent": true
+   },
+   "gateway": {
+    "url": "https://gateway.interconnected.online/places/api/destinations",
+    "method": "OPTIONS",
+    "status": 200,
+    "server": "nginx",
+    "contentType": "",
+    "body": "",
+    "routePresent": true
+   },
+   "authEvidence": null,
+   "missingForms": [],
+   "pass": true
+  },
+  {
+   "id": "POST places.decentraland.org /api/places",
+   "method": "POST",
+   "host": "places.decentraland.org",
+   "concretePath": "/api/places",
+   "mapping": "dual",
+   "probeMethod": "OPTIONS",
+   "subdomain": {
+    "url": "https://places.interconnected.online/api/places",
+    "method": "OPTIONS",
+    "status": 200,
+    "server": "nginx",
+    "contentType": "",
+    "body": "",
+    "routePresent": true
+   },
+   "gateway": {
+    "url": "https://gateway.interconnected.online/places/api/places",
+    "method": "OPTIONS",
+    "status": 200,
+    "server": "nginx",
+    "contentType": "",
+    "body": "",
+    "routePresent": true
+   },
+   "authEvidence": null,
+   "missingForms": [],
+   "pass": true
+  },
+  {
+   "id": "POST places.decentraland.org /api/report",
+   "method": "POST",
+   "host": "places.decentraland.org",
+   "concretePath": "/api/report",
+   "mapping": "dual",
+   "probeMethod": "OPTIONS",
+   "subdomain": {
+    "url": "https://places.interconnected.online/api/report",
+    "method": "OPTIONS",
+    "status": 200,
+    "server": "nginx",
+    "contentType": "",
+    "body": "",
+    "routePresent": true
+   },
+   "gateway": {
+    "url": "https://gateway.interconnected.online/places/api/report",
+    "method": "OPTIONS",
+    "status": 200,
+    "server": "nginx",
+    "contentType": "",
+    "body": "",
+    "routePresent": true
+   },
+   "authEvidence": null,
+   "missingForms": [],
+   "pass": true
+  },
+  {
+   "id": "POST social-api.decentraland.org /v{n}/communities",
+   "method": "POST",
+   "host": "social-api.decentraland.org",
+   "concretePath": "/v1/communities",
+   "mapping": "dual",
+   "probeMethod": "OPTIONS",
+   "subdomain": {
+    "url": "https://social-api.interconnected.online/v1/communities",
+    "method": "OPTIONS",
+    "status": 200,
+    "server": "nginx",
+    "contentType": "",
+    "body": "",
+    "routePresent": true
+   },
+   "gateway": {
+    "url": "https://gateway.interconnected.online/social-api/v1/communities",
+    "method": "OPTIONS",
+    "status": 200,
+    "server": "nginx",
+    "contentType": "",
+    "body": "",
+    "routePresent": true
+   },
+   "authEvidence": null,
+   "missingForms": [],
+   "pass": true
+  },
+  {
+   "id": "POST social-api.decentraland.org /v{n}/communities/{v}/members",
+   "method": "POST",
+   "host": "social-api.decentraland.org",
+   "concretePath": "/v1/communities/00000000-0000-0000-0000-000000000000/members",
+   "mapping": "dual",
+   "probeMethod": "OPTIONS",
+   "subdomain": {
+    "url": "https://social-api.interconnected.online/v1/communities/00000000-0000-0000-0000-000000000000/members",
+    "method": "OPTIONS",
+    "status": 200,
+    "server": "nginx",
+    "contentType": "",
+    "body": "",
+    "routePresent": true
+   },
+   "gateway": {
+    "url": "https://gateway.interconnected.online/social-api/v1/communities/00000000-0000-0000-0000-000000000000/members",
+    "method": "OPTIONS",
+    "status": 200,
+    "server": "nginx",
+    "contentType": "",
+    "body": "",
+    "routePresent": true
+   },
+   "authEvidence": null,
+   "missingForms": [],
+   "pass": true
+  },
+  {
+   "id": "POST social-api.decentraland.org /v{n}/communities/{v}/members/{v}/bans",
+   "method": "POST",
+   "host": "social-api.decentraland.org",
+   "concretePath": "/v1/communities/00000000-0000-0000-0000-000000000000/members/0x8d6f63e382d73cf53858864f673f39e9ff915a1e/bans",
+   "mapping": "dual",
+   "probeMethod": "OPTIONS",
+   "subdomain": {
+    "url": "https://social-api.interconnected.online/v1/communities/00000000-0000-0000-0000-000000000000/members/0x8d6f63e382d73cf53858864f673f39e9ff915a1e/bans",
+    "method": "OPTIONS",
+    "status": 200,
+    "server": "nginx",
+    "contentType": "",
+    "body": "",
+    "routePresent": true
+   },
+   "gateway": {
+    "url": "https://gateway.interconnected.online/social-api/v1/communities/00000000-0000-0000-0000-000000000000/members/0x8d6f63e382d73cf53858864f673f39e9ff915a1e/bans",
+    "method": "OPTIONS",
+    "status": 200,
+    "server": "nginx",
+    "contentType": "",
+    "body": "",
+    "routePresent": true
+   },
+   "authEvidence": null,
+   "missingForms": [],
+   "pass": true
+  },
+  {
+   "id": "POST social-api.decentraland.org /v{n}/communities/{v}/posts",
+   "method": "POST",
+   "host": "social-api.decentraland.org",
+   "concretePath": "/v1/communities/00000000-0000-0000-0000-000000000000/posts",
+   "mapping": "dual",
+   "probeMethod": "OPTIONS",
+   "subdomain": {
+    "url": "https://social-api.interconnected.online/v1/communities/00000000-0000-0000-0000-000000000000/posts",
+    "method": "OPTIONS",
+    "status": 200,
+    "server": "nginx",
+    "contentType": "",
+    "body": "",
+    "routePresent": true
+   },
+   "gateway": {
+    "url": "https://gateway.interconnected.online/social-api/v1/communities/00000000-0000-0000-0000-000000000000/posts",
+    "method": "OPTIONS",
+    "status": 200,
+    "server": "nginx",
+    "contentType": "",
+    "body": "",
+    "routePresent": true
+   },
+   "authEvidence": null,
+   "missingForms": [],
+   "pass": true
+  },
+  {
+   "id": "POST social-api.decentraland.org /v{n}/communities/{v}/posts/{v}/like",
+   "method": "POST",
+   "host": "social-api.decentraland.org",
+   "concretePath": "/v1/communities/00000000-0000-0000-0000-000000000000/posts/00000000-0000-0000-0000-000000000000/like",
+   "mapping": "dual",
+   "probeMethod": "OPTIONS",
+   "subdomain": {
+    "url": "https://social-api.interconnected.online/v1/communities/00000000-0000-0000-0000-000000000000/posts/00000000-0000-0000-0000-000000000000/like",
+    "method": "OPTIONS",
+    "status": 200,
+    "server": "nginx",
+    "contentType": "",
+    "body": "",
+    "routePresent": true
+   },
+   "gateway": {
+    "url": "https://gateway.interconnected.online/social-api/v1/communities/00000000-0000-0000-0000-000000000000/posts/00000000-0000-0000-0000-000000000000/like",
+    "method": "OPTIONS",
+    "status": 200,
+    "server": "nginx",
+    "contentType": "",
+    "body": "",
+    "routePresent": true
+   },
+   "authEvidence": null,
+   "missingForms": [],
+   "pass": true
+  },
+  {
+   "id": "POST social-api.decentraland.org /v{n}/communities/{v}/requests",
+   "method": "POST",
+   "host": "social-api.decentraland.org",
+   "concretePath": "/v1/communities/00000000-0000-0000-0000-000000000000/requests",
+   "mapping": "dual",
+   "probeMethod": "OPTIONS",
+   "subdomain": {
+    "url": "https://social-api.interconnected.online/v1/communities/00000000-0000-0000-0000-000000000000/requests",
+    "method": "OPTIONS",
+    "status": 200,
+    "server": "nginx",
+    "contentType": "",
+    "body": "",
+    "routePresent": true
+   },
+   "gateway": {
+    "url": "https://gateway.interconnected.online/social-api/v1/communities/00000000-0000-0000-0000-000000000000/requests",
+    "method": "OPTIONS",
+    "status": 200,
+    "server": "nginx",
+    "contentType": "",
+    "body": "",
+    "routePresent": true
+   },
+   "authEvidence": null,
+   "missingForms": [],
+   "pass": true
+  },
+  {
+   "id": "POST social-api.decentraland.org /v{n}/mutes",
+   "method": "POST",
+   "host": "social-api.decentraland.org",
+   "concretePath": "/v1/mutes",
+   "mapping": "dual",
+   "probeMethod": "OPTIONS",
+   "subdomain": {
+    "url": "https://social-api.interconnected.online/v1/mutes",
+    "method": "OPTIONS",
+    "status": 200,
+    "server": "nginx",
+    "contentType": "",
+    "body": "",
+    "routePresent": true
+   },
+   "gateway": {
+    "url": "https://gateway.interconnected.online/social-api/v1/mutes",
+    "method": "OPTIONS",
+    "status": 200,
+    "server": "nginx",
+    "contentType": "",
+    "body": "",
+    "routePresent": true
+   },
+   "authEvidence": null,
+   "missingForms": [],
+   "pass": true
+  },
+  {
+   "id": "POST transactions-api.decentraland.org /v{n}/transactions",
+   "method": "POST",
+   "host": "transactions-api.decentraland.org",
+   "concretePath": "/v1/transactions",
+   "mapping": "dual",
+   "probeMethod": "OPTIONS",
+   "subdomain": {
+    "url": "https://transactions-api.interconnected.online/v1/transactions",
+    "method": "OPTIONS",
+    "status": 404,
+    "server": "nginx",
+    "contentType": "text/plain; charset=utf-8",
+    "body": "not found",
+    "routePresent": false
+   },
+   "gateway": {
+    "url": "https://gateway.interconnected.online/transactions-api/v1/transactions",
+    "method": "OPTIONS",
+    "status": 404,
+    "server": "nginx",
+    "contentType": "text/html",
+    "body": "<html>\r\n<head><title>404 Not Found</title></head",
+    "routePresent": false
+   },
+   "authEvidence": null,
+   "missingForms": [
+    "subdomain",
+    "gateway"
+   ],
+   "pass": false
+  },
+  {
+   "id": "POST worlds-content-server.decentraland.org /worlds/{v}/comms",
+   "method": "POST",
+   "host": "worlds-content-server.decentraland.org",
+   "concretePath": "/worlds/0/comms",
+   "mapping": "dual",
+   "probeMethod": "OPTIONS",
+   "subdomain": {
+    "url": "https://worlds-content-server.interconnected.online/worlds/0/comms",
+    "method": "OPTIONS",
+    "status": 200,
+    "server": "nginx",
+    "contentType": "",
+    "body": "",
+    "routePresent": true
+   },
+   "gateway": {
+    "url": "https://gateway.interconnected.online/worlds-content-server/worlds/0/comms",
+    "method": "OPTIONS",
+    "status": 200,
+    "server": "nginx",
+    "contentType": "",
+    "body": "",
+    "routePresent": true
+   },
+   "authEvidence": null,
+   "missingForms": [],
+   "pass": true
+  },
+  {
+   "id": "PUT notifications.decentraland.org /notifications/read",
+   "method": "PUT",
+   "host": "notifications.decentraland.org",
+   "concretePath": "/notifications/read",
+   "mapping": "dual",
+   "probeMethod": "OPTIONS",
+   "subdomain": {
+    "url": "https://notifications.interconnected.online/notifications/read",
+    "method": "OPTIONS",
+    "status": 200,
+    "server": "nginx",
+    "contentType": "",
+    "body": "",
+    "routePresent": true
+   },
+   "gateway": {
+    "url": "https://gateway.interconnected.online/notifications/notifications/read",
+    "method": "OPTIONS",
+    "status": 200,
+    "server": "nginx",
+    "contentType": "",
+    "body": "",
+    "routePresent": true
+   },
+   "authEvidence": null,
+   "missingForms": [],
+   "pass": true
+  },
+  {
+   "id": "PUT notifications.decentraland.org /set-email",
+   "method": "PUT",
+   "host": "notifications.decentraland.org",
+   "concretePath": "/set-email",
+   "mapping": "dual",
+   "probeMethod": "OPTIONS",
+   "subdomain": {
+    "url": "https://notifications.interconnected.online/set-email",
+    "method": "OPTIONS",
+    "status": 200,
+    "server": "nginx",
+    "contentType": "",
+    "body": "",
+    "routePresent": true
+   },
+   "gateway": {
+    "url": "https://gateway.interconnected.online/notifications/set-email",
+    "method": "OPTIONS",
+    "status": 200,
+    "server": "nginx",
+    "contentType": "",
+    "body": "",
+    "routePresent": true
+   },
+   "authEvidence": null,
+   "missingForms": [],
+   "pass": true
+  },
+  {
+   "id": "PUT social-api.decentraland.org /v{n}/communities/{v}",
+   "method": "PUT",
+   "host": "social-api.decentraland.org",
+   "concretePath": "/v1/communities/00000000-0000-0000-0000-000000000000",
+   "mapping": "dual",
+   "probeMethod": "OPTIONS",
+   "subdomain": {
+    "url": "https://social-api.interconnected.online/v1/communities/00000000-0000-0000-0000-000000000000",
+    "method": "OPTIONS",
+    "status": 200,
+    "server": "nginx",
+    "contentType": "",
+    "body": "",
+    "routePresent": true
+   },
+   "gateway": {
+    "url": "https://gateway.interconnected.online/social-api/v1/communities/00000000-0000-0000-0000-000000000000",
+    "method": "OPTIONS",
+    "status": 200,
+    "server": "nginx",
+    "contentType": "",
+    "body": "",
+    "routePresent": true
+   },
+   "authEvidence": null,
+   "missingForms": [],
+   "pass": true
+  }
+ ]
+}

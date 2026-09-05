@@ -1,0 +1,114 @@
+/* Provenance badge. Glyph + word always; colour is never the only signal. */
+
+.dv-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  border-radius: var(--r-pill);
+  border: 1px solid transparent;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.6;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.dv-badge__glyph {
+  font-size: 10px;
+  line-height: 1;
+}
+
+/* Live is deliberately the loudest and the scarcest thing on the page. */
+.dv-badge--live {
+  color: var(--online);
+  background: color-mix(in srgb, var(--online) 14%, transparent);
+}
+.dv-badge--live .dv-badge__glyph {
+  animation: dv-badge-pulse 2s ease-in-out infinite;
+}
+
+/* Sampled is hollow so a page of 5-minute data never reads as a live feed. */
+.dv-badge--sampled {
+  color: var(--ink-85);
+  background: transparent;
+  border-color: color-mix(in srgb, var(--info) 40%, transparent);
+}
+
+.dv-badge--snapshot {
+  color: var(--warning);
+  background: color-mix(in srgb, var(--warning) 14%, transparent);
+}
+
+.dv-badge--nosample {
+  color: var(--ink-45);
+  background: transparent;
+  border-style: dashed;
+  border-color: var(--line);
+}
+
+/* Mixed toward --text rather than raw --error: on the tinted background the
+   pure token lands at 4.47:1, just under the 4.5 the a11y gate enforces. */
+.dv-badge--unavailable {
+  color: color-mix(in srgb, var(--error) 62%, var(--text));
+  background: color-mix(in srgb, var(--error) 12%, transparent);
+}
+
+.dv-badge--unbuilt {
+  color: var(--offline);
+  background: var(--fill-2);
+  border-style: dashed;
+  border-color: var(--line);
+}
+
+/* Stale is a skin over sampled/snapshot, never a state of its own. */
+.dv-badge--stale {
+  color: var(--warning);
+  background: color-mix(in srgb, var(--warning) 12%, transparent);
+  border-style: solid;
+  border-color: var(--warning);
+}
+.dv-badge--stale .dv-badge__glyph {
+  animation: none;
+}
+
+/* The status tokens are tuned for a dark surface; on white they fall under the
+   4.5:1 the a11y gate enforces. Mix them toward --text rather than hard-coding
+   a second palette -- a raw hex would break one theme or the other. */
+html.theme-light .dv-badge--live {
+  color: color-mix(in srgb, var(--online) 45%, var(--text));
+}
+html.theme-light .dv-badge--snapshot,
+html.theme-light .dv-badge--stale {
+  color: color-mix(in srgb, var(--warning) 45%, var(--text));
+}
+html.theme-light .dv-badge--unbuilt {
+  color: color-mix(in srgb, var(--offline) 40%, var(--text));
+}
+
+@keyframes dv-badge-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dv-badge--live .dv-badge__glyph {
+    animation: none;
+  }
+}
+
+/* The header strip -- also the legend that keeps "--" from ever standing alone. */
+.dv-tally {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+}

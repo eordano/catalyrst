@@ -1,0 +1,18 @@
+{
+  "description": "GET /lambdas/collections/wearables-by-owner/{owner} returns 200 + empty array for a never-owning address. Does NOT validate the address - this is the simple grouped owners endpoint, not the explorer.",
+  "request": {
+    "method": "GET",
+    "path": "/lambdas/collections/wearables-by-owner/0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+    "query": {},
+    "headers": {},
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "headers": {"content-type": "application/json"},
+    "body_json": []
+  },
+  "captured_from": "hand-authored from handler source (lambdas.rs::wearables_by_owner -> items_by_owner)",
+  "captured_at": "2026-05-23T20:00:00Z",
+  "volatile_paths": []
+}

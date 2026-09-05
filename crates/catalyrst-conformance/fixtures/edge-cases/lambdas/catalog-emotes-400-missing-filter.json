@@ -1,0 +1,18 @@
+{
+  "description": "GET /lambdas/collections/emotes mirrors the wearables endpoint - 400 if no filter provided, with 'emoteId' in the message.",
+  "request": {
+    "method": "GET",
+    "path": "/lambdas/collections/emotes",
+    "query": {},
+    "headers": {},
+    "body": null
+  },
+  "response": {
+    "status": 400,
+    "headers": {"content-type": "application/json"},
+    "body_json": {"error": "Bad request", "message": "You must use one of the filters: 'textSearch', 'collectionId' or 'emoteId'"}
+  },
+  "captured_from": "hand-authored from handler source (lambdas_catalog.rs)",
+  "captured_at": "2026-05-23T20:00:00Z",
+  "volatile_paths": []
+}

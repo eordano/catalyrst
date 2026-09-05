@@ -1,0 +1,38 @@
+[package]
+name = "catalyrst-builder"
+version = "0.22.3"
+edition = "2021"
+description = "Rust port of decentraland/builder-server (builder-api.decentraland.org): the explorer BuilderApiDtos slice only (collection items, content redirect, newsletter); the creator-hub project/scene/asset lifecycle is deliberately out of scope"
+
+[package.metadata.generated]
+gate = "sites/scripts/gen-ts-check.sh"
+ts-bindings = "ui3/src/generated/catalyst/builder"
+
+[[bin]]
+name = "catalyrst-builder"
+path = "src/main.rs"
+
+[dependencies]
+catalyrst-types = { workspace = true, features = ["sqlx"] }
+catalyrst-crypto = { workspace = true }
+catalyrst-hashing = { workspace = true }
+catalyrst-envcfg = { workspace = true }
+catalyrst-db = { workspace = true }
+tokio = { workspace = true }
+axum = { workspace = true }
+tower-http = { workspace = true }
+reqwest = { workspace = true }
+sqlx = { workspace = true, features = ["uuid"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+tracing = { workspace = true }
+anyhow = { workspace = true }
+uuid = { workspace = true }
+ts-rs = { workspace = true, optional = true }
+
+[features]
+ts = ["dep:ts-rs"]
+
+[dev-dependencies]
+alloy = { workspace = true }

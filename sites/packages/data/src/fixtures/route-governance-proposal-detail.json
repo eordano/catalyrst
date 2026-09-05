@@ -1,0 +1,127 @@
+{
+  "finished": {
+    "id": "9ee1965f-6a96-45f9-bb20-f60baa13607f",
+    "proposal": {
+      "id": "9ee1965f-6a96-45f9-bb20-f60baa13607f",
+      "type": "poll",
+      "toneClass": "orange",
+      "catLabel": "Poll",
+      "catTone": "orange",
+      "status": "finished",
+      "statusLabel": "Finished",
+      "statusTone": "neutral",
+      "title": "Removing the 'District' demarcation on all Maps",
+      "author": "0x8218\u20260d59",
+      "authorHue": 105,
+      "published": "Jun 27, 2026 00:27",
+      "start": "Jun 27, 2026 00:27",
+      "finish": "Jul 02, 2026 00:27",
+      "snapshot": "#7d74e0f",
+      "threshold": "500,000",
+      "thresholdReached": false,
+      "yourVp": "0",
+      "description": "Districts are mostly, if not all defunct. In the past 3 years, we've seen Dragon City,Vegas City, DCL Uni and Aetheria either return LANDs to their contributors, or sell them away.\n\nI petition to remove the purple \"fog of war\" so that everyone who owns LAND in said areas can see where our LAND/ESTATEs are located side by !"
+    },
+    "votes": {
+      "choices": [
+        {
+          "id": "1",
+          "label": "Remove District demarkation(purple FOW)",
+          "pct": 100,
+          "vp": "765,203",
+          "tone": "yes",
+          "voted": false
+        },
+        {
+          "id": "2",
+          "label": "Leave it as it is",
+          "pct": 0,
+          "vp": "0",
+          "tone": "no",
+          "voted": false
+        },
+        {
+          "id": "3",
+          "label": "Invalid question/options",
+          "pct": 0,
+          "vp": "2,053",
+          "tone": "no",
+          "voted": false
+        }
+      ],
+      "totalVotesLabel": "5 total votes",
+      "rationales": [
+        {
+          "id": 1,
+          "name": "0xA5F9\u2026fE32",
+          "hue": 82,
+          "choice": "Remove District demarkation(purple FOW)",
+          "tone": "yes",
+          "vp": "137,200",
+          "text": "District boundaries are no longer accurate on the map. I'd be in favor of a toggle to reveal the LAND or faster map updates."
+        }
+      ]
+    },
+    "comments": [
+      {
+        "id": 1,
+        "name": "dao",
+        "hue": 218,
+        "time": "3 d ago",
+        "text": "Removing the 'District' demarcation on all Maps\n\nThis proposal is now in status: FINISHED.\n\nVoting Results:\n* Remove district demarkation(purple fow) 98% 1,450,968 VP (8 votes)\n* Leave it as it is 1% 5,000 VP (1 votes)\n* Invalid question/options 1% 2,053 VP (2 votes)"
+      },
+      {
+        "id": 2,
+        "name": "3Point1Four",
+        "hue": 194,
+        "time": "6 d ago",
+        "text": "\nThe purple \"fog of war\" is as such\n\n*I stand corrected, its blue.. (mehh its the purple to me.. maybe blueish purple)\n![0d8581b656b047fe21f38ae86b6cb229|500x500](upload://aSKBMYfrg3nBRMMlbA4vfo22zVt.png)"
+      }
+    ],
+    "commentsTotal": 2,
+    "sid": "storybook-sid",
+    "assignment": {
+      "variant": "control",
+      "flags": {
+        "guided": false
+      },
+      "experimentKey": "gv_vote_flow"
+    },
+    "authorName": "Noob"
+  },
+  "active": {
+    "id": "add-eu-catalyst-node",
+    "proposal": {
+      "id": "add-eu-catalyst-node",
+      "title": "Add a new Catalyst node operated by the DAO in the EU region",
+      "status": "active",
+      "author": "0x7c\u2026a4e1",
+      "authorHue": 210,
+      "type": "catalyst",
+      "toneClass": "blue",
+      "catLabel": "Catalyst Node",
+      "catTone": "blue",
+      "statusLabel": "Active",
+      "statusTone": "neutral",
+      "published": "Jun 19, 2026 09:30",
+      "start": "Jun 21, 2026 00:00",
+      "finish": "Jun 25, 2026 00:00",
+      "snapshot": "#a4e1c2f",
+      "threshold": "2,000,000",
+      "thresholdReached": false,
+      "yourVp": "12,480"
+    },
+    "votes": null,
+    "comments": [],
+    "commentsTotal": 0,
+    "sid": "storybook-sid",
+    "assignment": {
+      "variant": "control",
+      "flags": {
+        "guided": false
+      },
+      "experimentKey": "gv_vote_flow"
+    },
+    "authorName": "0x7c\u2026a4e1"
+  }
+}

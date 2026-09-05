@@ -1,0 +1,18 @@
+{
+  "description": "GET /content/entities/{type} must require ids or pointers - omitting both yields 400 with the exact lamb2 message.",
+  "request": {
+    "method": "GET",
+    "path": "/content/entities/scene",
+    "query": {},
+    "headers": {},
+    "body": null
+  },
+  "response": {
+    "status": 400,
+    "headers": {"content-type": "application/json"},
+    "body_json": {"error": "ids or pointers must be present, but not both"}
+  },
+  "captured_from": "re-derived from peer.decentraland.org 2026-07-03",
+  "captured_at": "2026-05-23T20:00:00Z",
+  "volatile_paths": []
+}

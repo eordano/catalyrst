@@ -1,0 +1,45 @@
+[package]
+name = "catalyrst-quests"
+version = "0.22.3"
+edition = "2021"
+description = "Port of decentraland/quests -- quests/achievements backend. REST surface carries the protobuf-defined message shapes (decentraland.quests definitions.proto via prost). The Decentraland-RPC QuestsService (StartQuest/Abort/SendEvent/Subscribe/GetAllQuests/GetQuestDefinition) is served over a signed-auth-chain WebSocket transport."
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "catalyrst-quests"
+path = "src/main.rs"
+
+[dependencies]
+catalyrst-crypto = { workspace = true }
+catalyrst-commons = { workspace = true, features = ["http"] }
+catalyrst-db = { workspace = true }
+catalyrst-envcfg = { workspace = true }
+
+catalyrst-drpc = { workspace = true }
+prost = "0.14"
+
+tokio = { workspace = true }
+axum = { workspace = true, features = ["ws"] }
+reqwest = { workspace = true }
+sqlx = { workspace = true, features = ["uuid"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+uuid = { workspace = true, features = ["v4"] }
+tracing = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+async-trait = { workspace = true }
+futures = { workspace = true }
+dashmap = { workspace = true }
+
+[dev-dependencies]
+alloy = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+
+[build-dependencies]
+catalyrst-drpc = { workspace = true, features = ["codegen"] }
+prost-build = "0.14"
+protox = "0.9"
