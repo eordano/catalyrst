@@ -5,6 +5,20 @@
 
 
 export interface paths {
+  "/about": {
+    /**
+     * `GET /about` on the server itself, catalyst-shaped: the one thing a client
+     * that knows only catalysts asks first. A stock worlds-content-server answers
+     * 404 here, which left `dcl-one-sdk deploy --target-server https://worlds....`
+     * with nowhere to go (a bare host resolves through `/about` ->
+     * `content.publicUrl`). Unlike `/world/{name}/about`, whose `content` block
+     * names the catalyst that serves profiles and wearables, this `content` block
+     * names this server: `/entities`, `/contents/` and `/available-content` live
+     * here. There is no world to enter at the root, so `comms` is offline and
+     * `scenesUrn` is empty.
+     */
+    get: operations["get_server_about"];
+  };
   "/admin/access-log": {
     get: operations["access_log"];
   };
@@ -485,6 +499,23 @@ export interface components {
       /** Format: int64 */
       total: number;
     };
+    ServerAboutConfigurations: {
+      globalScenesUrn: string[];
+      /** Format: int64 */
+      networkId: number;
+      realmName: string;
+      scenesUrn: string[];
+    };
+    /** @description The server's own `/about`, catalyst-shaped. */
+    ServerAboutResponse: {
+      acceptingUsers: boolean;
+      catalyrst: unknown;
+      comms: components["schemas"]["AboutComms"];
+      configurations: components["schemas"]["ServerAboutConfigurations"];
+      content: components["schemas"]["AboutContentStatus"];
+      healthy: boolean;
+      lambdas: components["schemas"]["AboutServiceStatus"];
+    };
     SetMirrorHiddenRequest: {
       hidden: boolean;
     };
@@ -559,6 +590,26 @@ export type external = Record<string, never>;
 
 export interface operations {
 
+  /**
+   * `GET /about` on the server itself, catalyst-shaped: the one thing a client
+   * that knows only catalysts asks first. A stock worlds-content-server answers
+   * 404 here, which left `dcl-one-sdk deploy --target-server https://worlds....`
+   * with nowhere to go (a bare host resolves through `/about` ->
+   * `content.publicUrl`). Unlike `/world/{name}/about`, whose `content` block
+   * names the catalyst that serves profiles and wearables, this `content` block
+   * names this server: `/entities`, `/contents/` and `/available-content` live
+   * here. There is no world to enter at the root, so `comms` is offline and
+   * `scenesUrn` is empty.
+   */
+  get_server_about: {
+    responses: {
+      200: {
+        content: {
+          "application/json": components["schemas"]["ServerAboutResponse"];
+        };
+      };
+    };
+  };
   access_log: {
     parameters: {
       query?: {

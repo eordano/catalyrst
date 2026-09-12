@@ -33,6 +33,8 @@ import type { PermissionsResponse } from "@ui/generated/catalyst/worlds/Permissi
 import type { PermissionSummaryEntry } from "@ui/generated/catalyst/worlds/PermissionSummaryEntry";
 import type { RemoteWorldView } from "@ui/generated/catalyst/worlds/RemoteWorldView";
 import type { SceneListResponse } from "@ui/generated/catalyst/worlds/SceneListResponse";
+import type { ServerAboutConfigurations } from "@ui/generated/catalyst/worlds/ServerAboutConfigurations";
+import type { ServerAboutResponse } from "@ui/generated/catalyst/worlds/ServerAboutResponse";
 import type { SetMirrorHiddenRequest } from "@ui/generated/catalyst/worlds/SetMirrorHiddenRequest";
 import type { SetMirrorHiddenResponse } from "@ui/generated/catalyst/worlds/SetMirrorHiddenResponse";
 import type { SkyboxConfig } from "@ui/generated/catalyst/worlds/SkyboxConfig";
@@ -296,6 +298,23 @@ export const SceneListResponseSchema = z.object({
   total: z.number(),
 });
 
+export const ServerAboutConfigurationsSchema = z.object({
+  networkId: z.number(),
+  realmName: z.string(),
+  globalScenesUrn: z.array(z.string()),
+  scenesUrn: z.array(z.string()),
+});
+
+export const ServerAboutResponseSchema = z.object({
+  healthy: z.boolean(),
+  acceptingUsers: z.boolean(),
+  configurations: ServerAboutConfigurationsSchema,
+  content: AboutContentStatusSchema,
+  lambdas: AboutServiceStatusSchema,
+  comms: AboutCommsSchema,
+  catalyrst: z.record(z.string(), z.unknown()),
+});
+
 export const SetMirrorHiddenRequestSchema = z.object({
   hidden: z.boolean(),
 });
@@ -347,6 +366,8 @@ export type _AssertPermissionsResponse = Assert<Mutual<PermissionsResponse, z.in
 export type _AssertPermissionSummaryEntry = Assert<Mutual<PermissionSummaryEntry, z.infer<typeof PermissionSummaryEntrySchema>>>;
 export type _AssertRemoteWorldView = Assert<Mutual<RemoteWorldView, z.infer<typeof RemoteWorldViewSchema>>>;
 export type _AssertSceneListResponse = Assert<Mutual<SceneListResponse, z.infer<typeof SceneListResponseSchema>>>;
+export type _AssertServerAboutConfigurations = Assert<Mutual<ServerAboutConfigurations, z.infer<typeof ServerAboutConfigurationsSchema>>>;
+export type _AssertServerAboutResponse = Assert<Mutual<ServerAboutResponse, z.infer<typeof ServerAboutResponseSchema>>>;
 export type _AssertSetMirrorHiddenRequest = Assert<Mutual<SetMirrorHiddenRequest, z.infer<typeof SetMirrorHiddenRequestSchema>>>;
 export type _AssertSetMirrorHiddenResponse = Assert<Mutual<SetMirrorHiddenResponse, z.infer<typeof SetMirrorHiddenResponseSchema>>>;
 export type _AssertSkyboxConfig = Assert<Mutual<SkyboxConfig, z.infer<typeof SkyboxConfigSchema>>>;

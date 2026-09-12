@@ -979,6 +979,53 @@ async fn every_spec_route_answers_its_contract() {
     )
     .await;
 
+    // The whole-ranking replace runs last: it rewrites every place and world
+    // ranking, so nothing above may depend on the values it leaves behind.
+    let replace_entries = json!({
+        "entries": [
+            { "entity_type": "place", "id": PLACE_ID, "ranking": 10 },
+            { "entity_type": "world", "id": WORLD_NAME, "ranking": 20 }
+        ]
+    });
+    let replaced = gate
+        .hit(
+            &app,
+            Case::new("put", "/api/destinations/ranking")
+                .bearer(DATA_TOKEN)
+                .json(&replace_entries)
+                .expect(201),
+        )
+        .await;
+    assert!(
+        replaced["data"]["places"].is_object() && replaced["data"]["worlds"].is_object(),
+        "a completed replace reports both legs: {replaced}"
+    );
+    gate.hit(
+        &app,
+        Case::new("put", "/api/destinations/ranking")
+            .bearer(ADMIN_TOKEN)
+            .json(&replace_entries)
+            .expect(201),
+    )
+    .await;
+    gate.hit(
+        &app,
+        Case::new("put", "/api/destinations/ranking")
+            .bearer(DATA_TOKEN)
+            .json(&json!({
+                "entries": [{ "entity_type": "place", "id": PLACE_ID, "ranking": -1 }]
+            }))
+            .expect(400),
+    )
+    .await;
+    gate.hit(
+        &app,
+        Case::new("put", "/api/destinations/ranking")
+            .json(&replace_entries)
+            .expect(401),
+    )
+    .await;
+
     gate.assert_covered();
 
     scratch.drop().await;
