@@ -24,10 +24,8 @@ pub struct ThirdPartyProps {
     pub id: String,
 }
 
-/// Hashing keys a third-party wearable's merkle proof must commit for the checks to be trustworthy.
 pub const WEARABLE_REQUIRED_HASHING_KEYS: &[&str] = &["id", "content", "data"];
 
-/// Hashing keys a third-party emote's merkle proof must commit for the checks to be trustworthy.
 pub const EMOTE_REQUIRED_HASHING_KEYS: &[&str] = &["id", "content", "emoteDataADR74"];
 
 pub fn validate_third_party_merkle_proof_content(
@@ -159,12 +157,10 @@ pub fn verify_third_party_merkle_proof(proof: &MerkleProof, root: &[u8; 32]) -> 
 }
 
 /// The reference algorithm (`@dcl/hashing` `keccak256Hash`) hashes
-/// `JSON.stringify(pick(metadata, hashingKeys))` where the pick preserves the metadata's own
-/// insertion order and `JSON.stringify` reproduces ECMAScript serialization. `serde_json::Value`
-/// re-sorts object keys under the shipped (no `preserve_order`) build, which produces a different
-/// byte string and rejects every legitimate third-party deployment. To be independent of that
-/// feature flag, the hash is recomputed from the raw uploaded entity bytes through this
-/// order-preserving representation rather than through `serde_json::Value`.
+/// `JSON.stringify(pick(metadata, hashingKeys))`, preserving the metadata's own insertion order.
+/// `serde_json::Value` re-sorts object keys under the shipped (no `preserve_order`) build, which
+/// produces a different byte string and rejects every legitimate third-party deployment; this
+/// order-preserving representation keeps the hash independent of that feature flag.
 enum OrderedJson {
     Null,
     Bool(bool),
@@ -246,11 +242,6 @@ impl<'de> Deserialize<'de> for OrderedJson {
                 while let Some((key, value)) = map.next_entry::<String, OrderedJson>()? {
                     entries.push((key, value));
                 }
-                // Under serde_json's `arbitrary_precision` feature (which any
-                // workspace member's dependency can unify into a build) a number
-                // reaches `deserialize_any` as a one-entry map keyed by this token
-                // and carrying the literal digits. Fold it back into a number so
-                // the recomputed hash does not depend on that feature flag.
                 if let [(key, OrderedJson::String(digits))] = entries.as_slice() {
                     if key == "$serde_json::private::Number" {
                         if let Ok(n) = digits.parse::<f64>() {
@@ -307,9 +298,8 @@ impl OrderedJson {
     }
 }
 
-/// Recompute the third-party entity hash from the raw uploaded entity JSON, reproducing
-/// `keccak256(JSON.stringify(pick(entity.metadata, hashingKeys)))`. Returns `None` when the bytes
-/// are not valid JSON or carry no `metadata` object.
+/// Reproduces `keccak256(JSON.stringify(pick(entity.metadata, hashingKeys)))` from the raw
+/// uploaded entity JSON. `None` when the bytes are not valid JSON or carry no `metadata` object.
 fn entity_hash_from_entity_bytes(entity_bytes: &[u8], hashing_keys: &[String]) -> Option<String> {
     let root: OrderedJson = serde_json::from_slice(entity_bytes).ok()?;
     let metadata = root
@@ -339,8 +329,6 @@ fn entity_hash_from_entity_bytes(entity_bytes: &[u8], hashing_keys: &[String]) -
     )))
 }
 
-// Must reproduce JS `JSON.stringify` string escaping exactly, or the recomputed
-// entityHash diverges from the merkleProof's.
 fn push_js_string(out: &mut String, value: &str) {
     out.push('"');
     for ch in value.chars() {
@@ -359,8 +347,6 @@ fn push_js_string(out: &mut String, value: &str) {
     out.push('"');
 }
 
-// Must reproduce JS `Number::toString` semantics exactly, or the recomputed
-// entityHash diverges from the merkleProof's.
 fn js_number_to_string(value: f64) -> String {
     if value == 0.0 {
         return "0".to_string();

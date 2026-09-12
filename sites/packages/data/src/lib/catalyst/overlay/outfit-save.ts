@@ -10,16 +10,6 @@ export function normalizeAddress(addr: string | null | undefined): string {
   return (addr ?? "").trim().toLowerCase();
 }
 
-/**
- * `Color3` requires all three channels, and an `Outfits` entry requires
- * `bodyShape`, `eyes`, `hair`, `skin` and `wearables` (`@dcl/schemas`
- * `platform/outfits`). None of them get a fallback here.
- *
- * `wearables: []` is the destructive one: an outfit slot that lists no items
- * is a *naked* outfit, and the wizard offers to apply it. A slot whose
- * wearables could not be read is dropped instead, so nothing offers to undress
- * an avatar on the strength of a truncated read.
- */
 const Color3Schema = NameColorSchema.passthrough();
 
 export const OutfitSchema = z
@@ -40,10 +30,6 @@ export const OutfitSlotSchema = z.object({
 });
 export type OutfitSlot = z.infer<typeof OutfitSlotSchema>;
 
-/** `outfits` and `namesForExtraSlots` are both required on the entity. The
- *  names list is what unlocks slots 6-10, so defaulting it to `[]` answered
- *  "you own no NAME" for a read that never happened, and the wizard refused a
- *  save the wallet was entitled to. */
 export const OutfitsSchema = z
   .object({
     outfits: z.array(OutfitSlotSchema),
@@ -63,9 +49,6 @@ const AvatarInfoSchema = z
   })
   .passthrough();
 
-/** `name`, `hasClaimedName` and `avatars` are all required on a profile
- *  (`@dcl/schemas` `platform/profile`); `hasClaimedName` in particular decides
- *  whether the extra outfit slots unlock at all. */
 const AvatarSchema = z
   .object({
     name: z.string(),

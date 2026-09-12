@@ -1,6 +1,3 @@
-//! Shared LiveKit token primitives: the HS256 JWT signing core, the video-grant
-//! and access-token shapes, admin tokens, and webhook verification.
-//!
 //! Policy decisions (which grants a joiner gets, room naming) stay in the
 //! service crates; this crate owns only the mechanics, and callers that build
 //! their own claim structs serialize them themselves so the signed payload
@@ -50,8 +47,10 @@ pub fn is_placeholder_cred(value: &str) -> bool {
 /// (`devkey`/`devsecret`, any case) credentials all count as *unconfigured*.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ResolvedCreds {
-    /// Real credentials: mint against them, `livekit_configured = true`.
-    Configured { api_key: String, api_secret: String },
+    Configured {
+        api_key: String,
+        api_secret: String,
+    },
     /// No real credentials but the dev opt-in is set: run on
     /// `devkey`/`devsecret` with `livekit_configured = false`; the caller
     /// should warn that no real SFU will accept the minted tokens.
@@ -63,9 +62,6 @@ pub enum ResolvedCreds {
 pub const DEV_API_KEY: &str = "devkey";
 pub const DEV_API_SECRET: &str = "devsecret";
 
-/// Shared `livekit_configured` policy for the service configs: both values
-/// must be present, non-blank, and not the dev placeholders before LiveKit
-/// counts as configured.
 pub fn resolve_creds(api_key: String, api_secret: String, allow_dev_creds: bool) -> ResolvedCreds {
     let real = |v: &str| !v.trim().is_empty() && !is_placeholder_cred(v);
     if real(&api_key) && real(&api_secret) {
@@ -80,7 +76,6 @@ pub fn resolve_creds(api_key: String, api_secret: String, allow_dev_creds: bool)
     }
 }
 
-/// Signs pre-serialized JSON header/payload bytes as an HS256 JWT.
 pub fn sign_hs256(
     api_secret: &str,
     header_json: &[u8],
@@ -265,8 +260,6 @@ fn split_scheme(host: &str) -> (Option<&str>, &str) {
     }
 }
 
-/// Client signaling form of `host`: `ws(s)://` kept, `http(s)://` mapped to
-/// its websocket twin, a bare host assumed TLS.
 pub fn client_ws_url(host: &str) -> String {
     let (scheme, rest) = split_scheme(host);
     let scheme = match scheme {
@@ -277,9 +270,8 @@ pub fn client_ws_url(host: &str) -> String {
     format!("{scheme}://{rest}")
 }
 
-/// Server API form of `host`, the scheme mapping the LiveKit server SDK
-/// applies: `ws(s)://` mapped to `http(s)://`, `http(s)://` kept, a bare host
-/// assumed TLS. Trailing slashes are dropped so twirp paths can be appended.
+/// The scheme mapping the LiveKit server SDK itself applies. Trailing slashes
+/// are dropped so twirp paths can be appended.
 pub fn api_base_url(host: &str) -> String {
     let (scheme, rest) = split_scheme(host);
     let scheme = match scheme {
@@ -294,10 +286,9 @@ fn present(value: Option<&str>) -> Option<&str> {
     value.map(str::trim).filter(|v| !v.is_empty())
 }
 
-/// Resolves the client and API endpoints from `host` with each side
-/// overridable on its own. An empty `host` passes through empty so a
-/// deployment that deliberately leaves LiveKit off still boots; the
-/// missing configuration surfaces when a room operation is attempted.
+/// An empty `host` passes through empty so a deployment that deliberately
+/// leaves LiveKit off still boots; the missing configuration surfaces when a
+/// room operation is attempted.
 pub fn resolve_endpoints(
     host: &str,
     api_host: Option<&str>,
@@ -497,8 +488,6 @@ mod tests {
 
     #[test]
     fn placeholder_creds_count_as_unset() {
-        // The literal dev pair, any casing, and a placeholder on either side
-        // alone must all fail to count as configured.
         for (k, s) in [
             ("devkey", "devsecret"),
             ("DEVKEY", "DEVSECRET"),

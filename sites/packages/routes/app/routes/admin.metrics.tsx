@@ -21,27 +21,6 @@ const DEFAULT_ASSIGNMENT: Assignment = {
   experimentKey: "admin_moderation_metrics",
 };
 
-/**
- * The fixture no longer ships as numbers.
- *
- * `loadAdminMetrics` returns two live counts (approved / featured events, from
- * the public `GET /events/api/events?list=all` --
- * `catalyrst-events/src/handlers/events.rs:345-362`, `optional_user`, no gate)
- * and an explicit unavailable state for everything else. This route renders
- * exactly that; it does not fill gaps.
- *
- * `src/fixtures/admin-metrics.json` is not deleted. It is reachable only
- * through `loadSampleAdminMetrics()`, which is off by default, is not called
- * from here, and requires the caller to render a persistent "sample data"
- * banner.
- *
- * `operator-metrics.server.ts` is deliberately not used as a substitute: it is
- * creator-hub-owned, and it serves aggregate telemetry to any visitor with no
- * authorization at all. That is a finding to report, not a data source.
- *
- * The 7d/30d range toggle is gone. Nothing on the page is windowed, so it was a
- * control over data that does not exist.
- */
 const SURFACES: AdMetricsSurfaceLink[] = [
   { key: "places", label: "Places moderation", deepLink: "/admin/places-moderation" },
   {

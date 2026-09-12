@@ -171,8 +171,6 @@ const CreatedTradeSchema = z.object({
 
 const SIGNATURE_HEX_LENGTH = 132;
 
-// Declared verbatim: catalyrst-market compares these unfolded, so a re-spelled
-// value is refused rather than normalised (upstream marketplace-server #393).
 export const TRADE_AUTH_METADATA = {
   signer: "dcl:marketplace",
   intent: "dcl:create-trade",

@@ -9,8 +9,6 @@ type SliderProps = {
   max?: number;
   step?: number;
   onChange?: (value: number) => void;
-  // Commit-on-release: drag updates render locally (and still fire onChange if
-  // given), onCommit fires once when the pointer or key is released.
   onCommit?: (value: number) => void;
   format?: (value: number) => number | string;
   label?: string;

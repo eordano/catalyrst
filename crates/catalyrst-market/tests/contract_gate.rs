@@ -164,9 +164,8 @@ fn with_signed_for(mut case: Case, wallet: &Wallet, method: &str, sign_path: &st
     case
 }
 
-/// The signer /v1/activity demands (upstream routes.ts:165). Without it the
-/// route answers 400 at the metadata gate, which would mask every auth case
-/// asserted below.
+/// The signer /v1/activity demands (upstream routes.ts:165). Without it the route answers 400
+/// at the metadata gate, masking every auth case asserted below.
 const ACTIVITY_METADATA: &str = r#"{"signer":"dcl:marketplace"}"#;
 
 fn with_signed_meta_for(
@@ -200,11 +199,6 @@ async fn every_spec_route_answers_its_contract() {
     scratch
         .apply_sql(include_str!("../migrations/0006_favorites_lists.sql"))
         .await;
-    // 0010 (favorites.acl + the picks PK widened to item_id/user_address/
-    // list_id + the shared Wishlist seed) carries a DO $$ guard block that the
-    // line-splitting `apply_sql` helper cannot parse; raw_sql runs it whole.
-    // Without it POST /v1/picks 500s: pick_in_lists' ON CONFLICT targets the
-    // widened key.
     sqlx::raw_sql(include_str!(
         "../migrations/0010_favorites_shared_default_list.sql"
     ))
@@ -510,9 +504,6 @@ async fn every_spec_route_answers_its_contract() {
     )
     .await;
 
-    // GET /v1/lists/{id}/picks: optional signed-fetch auth -- anonymous reads
-    // are allowed (ACL-scoped visibility), present-but-invalid credentials
-    // are rejected, non-UUID ids are a 400 before hitting the database.
     let list_picks_path = format!(
         "/v1/lists/{}/picks",
         catalyrst_market::ports::lists::DEFAULT_LIST_ID

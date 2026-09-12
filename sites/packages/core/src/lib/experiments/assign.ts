@@ -36,13 +36,8 @@ export function readSid(request: Request): string | null {
   return sid && sid.length > 0 ? sid : null;
 }
 
-// The one parent domain sid cookies may be widened to. Widening exists so a
-// session minted on any *.catalyst.example.com surface is the same session on every other
-//; hosts outside the parent always stay host-scope.
 const SID_SHARED_PARENT = "catalyst.example.com";
 
-/** The shared parent domain the request's host sits under, or undefined -- the
- *  only value callers may pass as serializeSidCookie's widening opt-in. */
 export function sharedSidDomain(request: Request): string | undefined {
   let hostname: string;
   try {
@@ -56,10 +51,6 @@ export function sharedSidDomain(request: Request): string | undefined {
     : undefined;
 }
 
-/** True when the Cookie header carries `sid` more than once -- a host-scope and
- *  a wide-scope cookie coexisting. The browser's send order for same-named
- *  same-path cookies is not stable across restarts, so which one readSid keeps
- *  can flip between sessions; a response should converge the pair. */
 export function hasSplitSidCookie(request: Request): boolean {
   const header = request.headers.get("cookie");
   if (!header) return false;
@@ -99,23 +90,11 @@ export function serializeSidCookie(
     `Max-Age=${SID_MAX_AGE}`,
     "SameSite=Lax",
     "HttpOnly",
-    // Secure, like the wallet cookie next door: this is a year-lived
-    // identifier and without the flag a single plaintext request (a typed
-    // URL, an http:// link, a downgrade) sends it in the clear. Every host
-    // that serves this app is HTTPS.
     "Secure",
-    // Domain widening is opt-in per response: only a caller that knows the
-    // request host sits under the shared parent may ask for it, so a session
-    // minted on an unrelated host never sets a cookie the browser would
-    // reject (a mismatched Domain drops the whole cookie, killing the
-    // session).
     ...(opts?.domain ? [`Domain=${opts.domain}`] : []),
   ].join("; ");
 }
 
-/** The expiry twin of serializeSidCookie: same attributes, empty value,
- *  Max-Age=0. Emitted beside a wide-scope re-issue to delete the host-scope
- *  cookie of the same name, so exactly one sid survives the response. */
 export function expireSidCookie(opts?: { domain?: string }): string {
   return [
     `${SID_COOKIE}=`,

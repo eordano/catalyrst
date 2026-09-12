@@ -34,14 +34,6 @@ export {
 export type { WearableCategory };
 export { EMOTE_CATEGORIES, RARITIES, SLOT_ORDER, WEARABLE_CATEGORIES } from "./taxonomy";
 
-// The wire -> exported-type normalization, which the schema module cannot
-// carry: a perf build replaces it with an accepting stub, and a stub reproduces
-// no transform. Here it runs whether or not validation did.
-//
-// Every field a schema marks nullish is restated, so each type below is exactly
-// what a caller gets and a field added to a schema shows up as its honest
-// `| undefined` until it is normalized here too.
-
 export function normalizeWearable(w: WearableWire) {
   return {
     ...w,
@@ -60,11 +52,6 @@ export function normalizeSlotBinding(b: SlotBindingWire) {
 
 export type SlotBinding = ReturnType<typeof normalizeSlotBinding>;
 
-/**
- * The nulls here are the ones `UNKNOWN_EQUIPPED` is made of: `fetchEquipped`
- * deliberately builds its candidate with `|| undefined`, so without this an
- * unreadable profile and a readable one that says nothing stop matching.
- */
 export function normalizeEquipped(e: EquippedWire) {
   return {
     ...e,
@@ -113,18 +100,6 @@ export function isSlotNumber(n: unknown): boolean {
   return typeof n === "number" && Number.isInteger(n) && n >= 0 && n <= 9;
 }
 
-// What the backpack readers can USE, as opposed to what their schemas declare.
-// A perf build strips the schemas and keeps the row; these keep the row from
-// reaching a consumer that cannot survive it. See rows.ts.
-
-/**
- * `byCategory` indexes on `category`, `rarityLabel` calls `.charAt` on `rarity`,
- * `findWearable` and the owned set match on `urn`, and the equip path iterates
- * `bodyShapes`. The remaining four fields are nullish and already normalized,
- * which is why they are absent here -- schemas/backpack.ts says the same of the
- * checking build, in the same words: an item that cannot supply one of these is
- * an item nothing can render.
- */
 export function isRenderableWearable(row: unknown): boolean {
   return (
     isRecord(row) &&
@@ -137,7 +112,6 @@ export function isRenderableWearable(row: unknown): boolean {
   );
 }
 
-/** An emote is addressed by `urn` and labelled by `name`; the rest normalizes. */
 export function isRenderableEmote(row: unknown): boolean {
   return (
     isRecord(row) &&
@@ -147,12 +121,6 @@ export function isRenderableEmote(row: unknown): boolean {
   );
 }
 
-/**
- * `sortLoadout` ranks by `slot` and the wheel positions by it, so a non-number
- * makes the comparator NaN and puts the binding wherever the service happened to
- * send it -- the wrong emote under a key the user pressed on purpose. `urn` is
- * what actually plays.
- */
 export function isUsableSlotBinding(row: unknown): boolean {
   return (
     isRecord(row) &&
@@ -162,7 +130,6 @@ export function isUsableSlotBinding(row: unknown): boolean {
   );
 }
 
-/** The owned lists keep nothing but the urn, so that is the whole requirement. */
 function hasUrn(row: unknown): boolean {
   return isRecord(row) && typeof row.urn === "string";
 }
@@ -300,11 +267,6 @@ export function parseOwnedEmotes(raw: unknown): string[] {
   return keepRows(raw, OwnedEmoteElementSchema, hasUrn, (r) => r.urn);
 }
 
-/**
- * Called on wire data (`fetchEquipped`) and again on an array this module built
- * (`loadBackpackEmotes`), so it has to be idempotent: schema and guard are both
- * pure predicates over a row, and a binding that passed once passes again.
- */
 export function parseLoadout(raw: unknown): SlotBinding[] {
   return keepRows(raw, SlotBindingSchema, isUsableSlotBinding, normalizeSlotBinding);
 }
@@ -517,9 +479,6 @@ export const BASE_EMOTE_IDS = [
   "confettipopper",
 ];
 
-// The classic decentraland emote-wheel default belt (slots 1-9 then 0) --
-// used only as a fallback when the profile carries no real per-slot
-// assignment (anon/guest, or a legacy profile that never saved one).
 export const DEFAULT_EMOTE_BELT = [
   "wave",
   "clap",
@@ -823,9 +782,6 @@ export async function loadBackpackEmotes(address?: string | null, opts: RequestO
 
   const ownedUrns = ownedEmotes.map((e) => e.urn);
 
-  // Real per-slot equip data from the profile wins when present; otherwise
-  // fall back to the classic default belt so a fresh/guest wheel still
-  // shows something playable.
   const catalogByUrn = new Map(catalog.map((e) => [e.urn, e]));
   const rawLoadout = equippedSlots?.length
     ? equippedSlots.map((b) => ({
@@ -929,9 +885,6 @@ function pushVarint(buf: number[], v: number): void {
   }
 }
 
-// Catalyst entity id: CIDv1, raw codec (0x55), sha256 (0x12) multihash, base32-lower
-// multibase -- the same construction the server deploy path uses, but hashed with
-// SubtleCrypto so it runs in the browser bundle.
 async function computeEntityId(bytes: Uint8Array): Promise<string> {
   const digest = new Uint8Array(
     await crypto.subtle.digest("SHA-256", bytes as BufferSource),
@@ -944,12 +897,6 @@ async function computeEntityId(bytes: Uint8Array): Promise<string> {
   return multibaseBase32Lower(Uint8Array.from(cid));
 }
 
-// Deploys the user's own signed outfits entity to /content/entities. Signing uses
-// the wallet-delegated ephemeral identity already persisted by the engine login
-// (the same key that authorizes signed-fetch writes), appending an
-// ECDSA_SIGNED_ENTITY link over the entity id. Fail-closed: with no valid stored
-// identity or non-eth address the deploy is skipped and a reason is returned --
-// never a silent fake success.
 export async function saveOutfits(
   address: string | null | undefined,
   outfits: OutfitInput[],

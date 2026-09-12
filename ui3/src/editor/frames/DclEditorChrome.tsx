@@ -154,13 +154,6 @@ export default function DclEditorChrome({
       : bootOverlay(boot);
   const overlayLoading = overlay.show && overlay.kind === "loading";
 
-  // The curtain has to outlive its own condition. It used to unmount on the frame
-  // the engine reported ready, so the busiest visual moment in the editor -- a
-  // full-bleed blurred overlay over a canvas that has just appeared -- ended with
-  // a hard cut. Keeping it mounted for one animation lets .is-leaving fade it out
-  // over the first frame instead. wasLoading, not a plain !overlayLoading, so the
-  // very first render does not play a leave animation for a curtain that was
-  // never shown.
   const wasLoading = useRef(false);
   const [bootLeaving, setBootLeaving] = useState(false);
   useEffect(() => {

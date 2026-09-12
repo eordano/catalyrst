@@ -155,10 +155,6 @@ pub async fn reconcile_escrow_actions_once(
     state: &AppState,
     signer: &DirectSigner,
 ) -> Result<u64, sqlx::Error> {
-    // Escrow actions (reclaim/release) are recorded 'sent' on MEMPOOL acceptance
-    // and are never otherwise confirmed on-chain -- so settle them from receipts
-    // exactly like name transfers. Keyless calls leave `idempotency_key` NULL,
-    // so drive the UPDATE off the primary key `id`, not the idempotency key.
     let rows = sqlx::query(
         "SELECT id, tx_hash \
          FROM escrow_actions \

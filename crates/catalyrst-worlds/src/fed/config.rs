@@ -1,11 +1,8 @@
-//! The five `WORLDS_FED_*` environment keys, parsed once at boot.
-//!
-//! Every one of these is validated here rather than at the point of use, because the
-//! point of use is a background poller: a bad value discovered there degrades a
-//! running process instead of refusing to start one. `get_u64` already returns
-//! `Result`, so an unparseable value is a boot failure for free; zero is rejected
-//! explicitly, since a zero poll interval is a busy loop against a peer and a zero
-//! byte or row cap is a mirror that silently stores nothing.
+//! The five `WORLDS_FED_*` environment keys, parsed once at boot rather than at the
+//! point of use, which is a background poller: a bad value discovered there degrades a
+//! running process instead of refusing to start one. Zero is rejected explicitly --
+//! a zero poll interval is a busy loop against a peer, and a zero byte or row cap is a
+//! mirror that silently stores nothing.
 
 use anyhow::{anyhow, Result};
 use catalyrst_envcfg::{env_bool, get_u64};
@@ -14,19 +11,16 @@ use std::path::PathBuf;
 /// 5 minutes. Slow enough that a peer never sees us as load, fast enough that a
 /// world published on a peer shows up within one coffee.
 pub const DEFAULT_POLL_INTERVAL_SECS: u64 = 300;
-/// 4 MiB. The production worlds corpus (`worlds-content-server/index`, 1552 worlds)
-/// is ~2.1 MB, so this is roughly 2x head-room over the largest listing known to
-/// exist. Enforced by a streaming byte counter *before* parse, never after.
+/// 4 MiB, ~2x head-room over the largest listing known to exist (the production corpus
+/// `worlds-content-server/index`, 1552 worlds, is ~2.1 MB). Enforced by a streaming
+/// byte counter *before* parse, never after.
 pub const DEFAULT_MAX_RESPONSE_BYTES: u64 = 4 * 1024 * 1024;
 /// 10000 rows per peer. Same corpus is 1552.
 pub const DEFAULT_MAX_WORLDS_PER_PEER: u64 = 10_000;
 
-/// Resolved worlds-federation configuration.
-///
-/// `peers_file` being `None` is the *only* representation of "federation was never
-/// requested". It is never conflated with "the file loaded and yielded nothing" --
-/// that distinction is carried by
-/// [`crate::fed::peers::WorldsFederationPeers`], not by this struct.
+/// `peers_file: None` is the *only* representation of "federation was never requested",
+/// never conflated with "the file loaded and yielded nothing" -- that distinction is
+/// carried by [`crate::fed::peers::WorldsFederationPeers`].
 #[derive(Debug, Clone)]
 pub struct WorldsFedConfig {
     /// `WORLDS_FED_PEERS_FILE`. `None` when unset or empty.
@@ -37,10 +31,9 @@ pub struct WorldsFedConfig {
     pub max_response_bytes: u64,
     /// `WORLDS_FED_MAX_WORLDS_PER_PEER`, always >= 1.
     pub max_worlds_per_peer: u64,
-    /// `WORLDS_FED_ALLOW_INSECURE_LOOPBACK_PEERS`. Permits a `http://127.0.0.1:*`
-    /// peer with no pinned root, and nothing else. Follows the existing
-    /// `LIVEKIT_ALLOW_DEV_CREDS` precedent in [`crate::config`]: a dev escape hatch
-    /// that is named in its own warning line every time it fires.
+    /// `WORLDS_FED_ALLOW_INSECURE_LOOPBACK_PEERS`. Permits a `http://127.0.0.1:*` peer
+    /// with no pinned root, and nothing else. Follows the `LIVEKIT_ALLOW_DEV_CREDS`
+    /// precedent in [`crate::config`]: named in its own warning line every time it fires.
     pub allow_insecure_loopback_peers: bool,
 }
 
@@ -102,8 +95,6 @@ mod tests {
 
     #[test]
     fn zero_is_refused_for_every_cap_with_the_crate_message_shape() {
-        // Same wording as `config::positive_limit`, so the two families of knobs
-        // read identically in a boot log.
         for key in [
             "WORLDS_FED_POLL_INTERVAL_SECS",
             "WORLDS_FED_MAX_RESPONSE_BYTES",

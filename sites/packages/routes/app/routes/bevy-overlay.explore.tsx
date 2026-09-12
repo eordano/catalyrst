@@ -100,8 +100,6 @@ export async function loader({ request }: Route.LoaderArgs) {
       }))
       .catch(() => ({ items: [], failed: true }));
   } else if (tab === "credits") {
-    // loadSeasons maps every failure to null and a live read always parses,
-    // so null means the service never answered, not an empty season.
     const seasons = await loadSeasons(request.signal);
     credits = {
       hub: seasons ? seasonsToShellVM(seasons) : null,

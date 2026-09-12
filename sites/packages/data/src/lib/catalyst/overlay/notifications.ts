@@ -32,12 +32,6 @@ export function categoryForType(type: string): NotificationCategory {
   return "system";
 }
 
-/**
- * Validation truth is the generated NotificationItemSchema: every field of
- * catalyrst-notifications' NotificationItem is required on the wire, so a row
- * with no `read` or no `timestamp` is dropped instead of arriving as an
- * unread notification from 1970 that nobody sent.
- */
 export const NotificationSchema = NotificationItemSchema;
 export type Notification = z.infer<typeof NotificationSchema>;
 
@@ -53,8 +47,6 @@ export function parseNotifications(raw: unknown): Notification[] {
     const r = NotificationSchema.safeParse(item);
     if (r.success) out.push(r.data);
   }
-  // The wire carries timestamp as an epoch-millis STRING (i64 serialized as
-  // str for JS precision); epoch millis fit a double, so Number() is exact.
   out.sort((a, b) => Number(b.timestamp) - Number(a.timestamp));
   return out;
 }

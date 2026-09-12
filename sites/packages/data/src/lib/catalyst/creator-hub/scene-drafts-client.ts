@@ -1,11 +1,3 @@
-// Client-side access to the server scene-draft store (api/creator-hub/drafts).
-// Direct GET-then-PUT with the caller's signed identity: the shared sync
-// engine's outbox is deliberately bypassed here because its conflict states
-// have no resolve UI in the editor; last-write-wins against the server copy
-// is the contract for editor saves. All functions are best-effort and return
-// null / false instead of throwing when signed out or offline -- the local
-// (FSA/IndexedDB) save path is the availability floor, the server copy is
-// the durability floor.
 import { getIdentity } from "../../auth/session";
 import { signRequest } from "../../auth/signer";
 import type { Draft } from "./scene-drafts";
@@ -41,7 +33,6 @@ export function parseServerDraftBlob(blob: unknown): ServerDraftBlob | null {
   return out;
 }
 
-/** Newer-wins pick between a local and a server timestamp (0 = absent). */
 export function serverCopyIsNewer(
   localUpdatedAt: number | null | undefined,
   serverUpdatedAt: number | null | undefined,
@@ -64,7 +55,6 @@ export type ServerDraftMeta = {
   title: string;
 };
 
-/** djb2 over the composite text -- deterministic, so identical saves dedupe. */
 export function hashComposite(text: string): string {
   let h = 5381;
   for (let i = 0; i < text.length; i++) {
@@ -77,7 +67,6 @@ function draftPath(id: string): string {
   return `/api/creator-hub/drafts/${encodeURIComponent(id)}`;
 }
 
-/** List the signed-in account's server drafts; null when signed out/offline. */
 export async function listServerDrafts(): Promise<ServerDraftMeta[] | null> {
   const identity = getIdentity();
   if (!identity || typeof fetch === "undefined") return null;
@@ -127,12 +116,6 @@ export async function fetchServerDraft(id: string): Promise<ServerDraft | null> 
   }
 }
 
-/**
- * Push the current editor state as the server draft. Reads the server
- * version first so the PUT's baseVersion matches (the API is
- * compare-and-swap); one retry on 409 re-reads and overwrites -- for editor
- * saves the user's just-written copy wins.
- */
 export async function pushServerDraft(
   id: string,
   blob: ServerDraftBlob,

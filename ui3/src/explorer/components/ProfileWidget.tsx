@@ -19,13 +19,8 @@ type ProfileWidgetProps = {
   address?: string;
   avatarSrc?: string | null;
   isGuest?: boolean;
-  /** Dismiss the popover without leaving the world/menu (Close). */
   onClose?: () => void;
-  /** Ends the session (bridge `Logout`) and dismisses the popover. Omit to keep
-   *  the SIGN OUT action disabled (e.g. in Storybook without a live bridge). */
   onSignOut?: () => void;
-  /** Positions the popover near the world rail's profile button (default) or the
-   *  Explore top-bar's profile chip. */
   anchor?: "rail" | "topbar";
 };
 

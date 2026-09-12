@@ -26,8 +26,6 @@ pub trait TranslationBackend: Send + Sync {
     ) -> Result<Vec<TranslatedItem>, String>;
 }
 
-// Config::from_env has already enforced that http/llm carry their required URL, so the unwraps
-// here cannot fire; mock stays the fail-closed default when nothing is configured.
 pub fn build_backend(cfg: &Config) -> Arc<dyn TranslationBackend> {
     match cfg.backend_kind {
         BackendKind::Mock => Arc::new(mock::MockBackend),

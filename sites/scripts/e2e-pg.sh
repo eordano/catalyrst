@@ -1,14 +1,4 @@
 #!/usr/bin/env bash
-# Provision a throwaway Postgres cluster in a temp dir, export SITES_E2E_PG_URL
-# at it, run the given command, then stop and delete the cluster. globalSetup's
-# "provided" path does the rest (scratch database, schema, seed, drop).
-#
-#   scripts/e2e-pg.sh vitest run --config vitest.e2e.config.ts
-#
-# A server the operator already pointed the suite at wins: with SITES_E2E_PG_URL
-# set, the command runs untouched. With no usable initdb the command also runs
-# untouched, and globalSetup degrades exactly as before. The cluster listens on
-# a unix socket only -- no TCP port, nothing shared, nothing near a real database.
 set -euo pipefail
 
 if [ $# -eq 0 ]; then
@@ -23,9 +13,6 @@ fi
 resolve_bindir() {
   local found real
   found=$(command -v initdb 2>/dev/null) || return 1
-  # NixOS trap: the profile wrapper (/run/current-system/sw/bin/initdb) fails
-  # its own relocation check. The store path it links to works, and on any
-  # ordinary install readlink -f is the identity.
   real=$(readlink -f "$found")
   dirname "$real"
 }
@@ -69,9 +56,6 @@ if ! "$BINDIR/pg_ctl" -D "$DATA" \
   exec "$@"
 fi
 
-# `localhost` keeps the string parseable by WHATWG `new URL` (globalSetup edits
-# its pathname); pg-connection-string gives the `?host=` socket dir precedence,
-# so nothing ever dials TCP.
 export SITES_E2E_PG_URL="postgresql://postgres@localhost/postgres?host=$SOCK"
 echo "[e2e-pg] throwaway cluster up at $SOCK (removed on exit)" >&2
 

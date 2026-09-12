@@ -44,7 +44,6 @@ pub struct Host {
     inner: enet::Host<UdpSocket>,
 }
 
-// Thread-local so parallel test threads do not cross-count.
 #[cfg(test)]
 thread_local! {
     pub static HOST_FLUSH_CALLS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
@@ -205,7 +204,6 @@ mod tests {
         }
         let peer = server_peer.expect("enet loopback handshake did not complete");
 
-        // Count only the per-tick outbox drain: M queued sends + one coalesced flush.
         HOST_FLUSH_CALLS.with(|c| c.set(0));
         const M: usize = 20;
         for _ in 0..M {

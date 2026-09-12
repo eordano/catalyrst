@@ -23,15 +23,6 @@ export {
   CommunitySchema,
 };
 
-// The wire -> exported-type normalization, which the schema module cannot
-// carry: a perf build replaces it with an accepting stub, and a stub reproduces
-// no transform. Here it runs whether or not validation did.
-//
-// The thumbnail rewrite could never have lived in a shape anyway -- it needs
-// `serviceBase`, so the schema module had to reach into the HTTP client to hold
-// it. Losing it does not blur a null; it sends play.catalyst.example.com to the PROD CDN for
-// an asset catalyst.example.com serves, which is a federation break.
-
 const PROD_COMMUNITY_CDN = /^https:\/\/cdn\.decentraland\.org(?=\/social\/communities\/)/;
 
 export function normalizeCommunityThumbnail(v: unknown): string | null {
@@ -88,30 +79,10 @@ export type CommunityDetail = {
   source: string;
 };
 
-// What these readers can USE, as opposed to what their schemas declare. Every
-// normalizer above is total -- it spreads the row and fills the nullish fields --
-// and no view mapper dereferences a community, so identity is the whole
-// requirement: a card with no name renders blank, a card with no id renders
-// under a duplicate key and its detail panel can never be opened. `hasId`
-// (rows.ts) covers the community, its posts, its events and its places; a member
-// is addressed by wallet instead.
-//
-// The consequence is deliberate and is what the perf-parity gate's
-// `communities/loadCommunities+badRow` case records: a node that is not a
-// community but does carry an id survives into perf mode as an empty card. That
-// is the mode trusting the wire, which is inside its contract; taking the other
-// cards down with it would not be.
-
 function hasMemberAddress(row: unknown): boolean {
   return isRecord(row) && typeof row.memberAddress === "string";
 }
 
-/**
- * Members and events stay beside the community rather than being merged into it
- * and parsed as one node: a schema hands back only the keys it declares, but a
- * perf build's stub hands back everything it was given, so a reader that
- * over-feeds its schema is asking validation to do the projection for it.
- */
 function projectDetail(
   raw: unknown,
   rawMembers: unknown,
@@ -130,9 +101,6 @@ function projectDetail(
 
   return {
     community: normalizeCommunity(community.data),
-    // Per-row, so one malformed member cannot erase the roster: an
-    // all-or-nothing array parse turns "one bad row" into "this community has
-    // no members".
     members: keepRows(rawMembers, CommunityMemberSchema, hasMemberAddress, normalizeCommunityMember),
     events: keepRows(rawEvents, CommunityEventSchema, hasId, normalizeCommunityEvent),
     source,

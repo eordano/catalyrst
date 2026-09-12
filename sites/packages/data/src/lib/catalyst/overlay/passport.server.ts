@@ -56,14 +56,6 @@ export type PassportBadgeSection = {
   label: string;
   badges: PassportBadgeCard[];
 };
-/**
- * `unavailable` is the reason the badge read failed, and is the only thing that
- * separates "this player has earned no badges" from "we never got an answer" --
- * both used to arrive here as an empty `earned`.
- *
- * `categories` is null when the category list itself was not read; an empty
- * array would claim this node publishes no badge categories.
- */
 export type PassportBadges = {
   categories: string[] | null;
   earned: PassportBadgeMedallion[];
@@ -86,11 +78,8 @@ export type PassportData = {
   profile: PassportProfile;
   badges: PassportBadges;
   photos: PassportPhoto[];
-  /** Set when the photo read failed. `photos` is then empty and means nothing. */
   photosUnavailable: string | null;
-  /** True only when a profile was actually read and carried nothing. */
   profileEmpty: boolean;
-  /** Set when the profile read failed; the fields below are placeholders. */
   profileUnavailable: string | null;
   usedFixture: boolean;
 };

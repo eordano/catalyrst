@@ -1,5 +1,3 @@
-//! Shared test-support for the catalyrst-comms optimization perf tests.
-//!
 //! SQL statement counting for these tests is `catalyrst_testgate::sql_capture`.
 //! It still requires every counting test to use a plain `#[tokio::test]`
 //! (current-thread flavor -- never `flavor = "multi_thread"`), because routing

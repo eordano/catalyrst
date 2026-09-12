@@ -172,7 +172,6 @@ pub async fn build_state(cfg: &Config) -> Result<AppState> {
     let fed_peer_id = match &cfg.fed_peer_id {
         Some(id) => id.clone(),
         None => {
-            // Row guaranteed by migration 0009, which ran above.
             let (id,): (String,) = sqlx::query_as("SELECT peer_id FROM fed_instance_identity")
                 .fetch_one(&pool)
                 .await

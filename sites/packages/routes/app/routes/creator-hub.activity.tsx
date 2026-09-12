@@ -51,29 +51,10 @@ const FALLBACK: Assignment = {
 
 const BUSIEST_LIMIT = 8;
 
-/* ------------------------------------------------------------ derivations --
- * These run in the loader, on the server, because they build `Datum`s and the
- * only sanctioned constructors live behind `datum.server.ts`. Each one either
- * derives from a reading it actually has, or hands back the very datum that
- * blocked it -- so the reason the screen shows `--` always names a real endpoint.
- */
-
-/**
- * The sum of `/live-data`'s per-world figures across the caller's worlds.
- *
- * Deliberately NOT `data.totalUsers`: that is every world on the platform, and
- * labelling it "people in your worlds" would be the exact kind of quiet
- * relabelling this feature exists to stop. Needs both the world list and
- * `/live-data`; without either it propagates the datum that is missing rather
- * than summing over a partial list.
- */
 function peopleInYourWorlds(d: ActivityIndexData): Datum<number> {
   if (!showable(d.liveData)) return d.liveData as Datum<number>;
   if (!showable(d.worlds)) return d.worlds as Datum<number>;
   if (d.rows.length === 0) {
-    // A sum over no worlds is not a measurement of nobody. Reporting `0` here
-    // would read as "the worlds server looked and found no one", when in fact
-    // there was nothing to look at.
     return noSample(
       d.liveData.endpoint,
       d.liveData.readAt,
@@ -88,7 +69,6 @@ function peopleInYourWorlds(d: ActivityIndexData): Datum<number> {
   return liveNow(total, d.liveData.endpoint, d.liveData.readAt);
 }
 
-/** `"22 peers, 8 islands"`, rendered verbatim. */
 function networkPresence(d: ActivityIndexData): Datum<string> {
   const current = d.current;
   if (!showable(current)) return current as Datum<string>;
@@ -118,12 +98,6 @@ function worldRows(d: ActivityIndexData): Datum<ActivityWorldRowView[]> {
   return liveNow(rows, worlds.endpoint, worlds.readAt);
 }
 
-/**
- * `busiest` lists drop rows whose count is 0. That is a presentation choice on
- * a "busiest right now" list, not a repair: an all-zero snapshot yields an
- * empty showable list, which the page renders as "the last snapshot found
- * nobody anywhere in this realm -- that is a reading, not a failure".
- */
 function busiestScenes(d: ActivityIndexData): Datum<BusiestRow[]> {
   const scenes = d.presenceScenes;
   if (!showable(scenes)) return scenes as Datum<BusiestRow[]>;
@@ -158,7 +132,6 @@ function busiestWorlds(d: ActivityIndexData): Datum<BusiestRow[]> {
   return sampledDerived(worlds, rows);
 }
 
-/** Re-wraps a derived value in the provenance of the reading it came from. */
 function sampledDerived<S, T>(source: Datum<S>, value: T): Datum<T> {
   if (source.state === "sampled") {
     return sampledAt(
@@ -176,7 +149,6 @@ function sampledDerived<S, T>(source: Datum<S>, value: T): Datum<T> {
 
 const SERIES_COLOR = "var(--brand)";
 
-/** The `?pointer=x,y` lookup: a parcel can be looked up, never listed. */
 function parcelView(scene: SceneActivityData): ParcelActivity {
   const history = scene.history;
   const jumpUrl = sceneJumpUrl(scene.pointer);
@@ -211,8 +183,6 @@ function parcelView(scene: SceneActivityData): ParcelActivity {
       },
     ],
     gapBands: h.gapBands,
-    // `peak === null` means no sample at all. A peak of 0 would read as
-    // "nobody ever came", which is a different fact, so it is never coerced.
     peak:
       h.peak === null
         ? noSample(history.endpoint, takenAt, noneNote)
@@ -234,8 +204,6 @@ function parcelView(scene: SceneActivityData): ParcelActivity {
 
 export async function loader({ request }: Route.LoaderArgs) {
   const url = new URL(request.url);
-  // Scoping, not auth. No route in this app rejects an unauthenticated request
-  // and `dcl_wallet` is written client-side; the address only picks rows.
   const address =
     url.searchParams.get("address")?.trim() || readWallet(request) || "";
   const pointer = url.searchParams.get("pointer")?.trim() || "";
@@ -262,8 +230,6 @@ export async function loader({ request }: Route.LoaderArgs) {
       usedBy: pointer
         ? ["/creator-hub/activity", "/creator-hub/activity?pointer="]
         : ["/creator-hub/activity"],
-      // Endpoints this screen touched and deliberately does not render, plus
-      // the ones nobody should rediscover and wire up.
       alsoIds: [
         "creators-scenes-stats",
         "hot-scenes",

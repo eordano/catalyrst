@@ -204,7 +204,6 @@ type MkBuyFlowProps = LabelSuffixProps & {
   state?: BuyState;
   chains?: ChainOption[];
   tokens?: TokenOption[];
-  /** Forwarded to `Modal`. `false` renders the dialog in place instead of portalling it. */
   portal?: boolean;
   onChainChange?: (id: string) => void;
   onTokenChange?: (symbol: string) => void;

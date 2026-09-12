@@ -8,6 +8,4 @@ export const RPC_TIMEOUT_MS = 8_000;
 
 export const EXPORT_COMPOSITE_TIMEOUT_MS = 12_000;
 
-// Must match the .eui-boot.is-leaving animation in dcleditorchrome-shell.css:
-// the element stays mounted exactly long enough to finish fading out.
 export const BOOT_LEAVE_MS = 260;

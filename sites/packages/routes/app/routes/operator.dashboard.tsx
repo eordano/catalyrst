@@ -23,25 +23,6 @@ import type { StoryId } from "@core/lib/telemetry/story-id";
 const STORY: StoryId = "admin/operator-dashboard";
 const STORY_DIR = path.join(process.cwd(), "packages", "features", "src", "stories", STORY);
 
-/**
- * The place list here is a PUBLIC read, and the page now says so.
- *
- * `GET /places/api/places?owner=` is unauthenticated:
- * `catalyrst-places/src/handlers/places.rs:66-73` (`get_place_list`) calls
- * `crate::auth::auth_address_optional` and gates nothing. Anyone gets the same
- * answer for any address.
- *
- * `?owner=` is therefore kept -- it is a legitimate filter over public data --
- * but demoted and relabelled. It is not an identity claim and it grants
- * nothing, so the page renders "viewing places for <address>", flags the
- * built-in `DEMO_OWNER` fallback as "demo address, not you", and does not
- * describe any of this as privileged. Every privileged control reachable from
- * here (scene admins, scene bans) is unavailable on this node regardless of the
- * value -- see `control-availability.ts`.
- *
- * A failed read is reported as a reason, not as an empty dashboard: the two
- * used to render nearly identically.
- */
 export async function loader({ request }: Route.LoaderArgs) {
   const url = new URL(request.url);
   const range = coerceRange(url.searchParams.get("range"));

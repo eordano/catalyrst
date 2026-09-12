@@ -57,9 +57,6 @@ fn test_config(contents_dir: std::path::PathBuf) -> Config {
             catalyrst_worlds::upload_limits::DEFAULT_MULTIPART_UPLOAD_TIMEOUT_MS,
         deployment_processing_timeout_ms:
             catalyrst_worlds::upload_limits::DEFAULT_DEPLOYMENT_PROCESSING_TIMEOUT_MS,
-        // Federation off. These suites assert the *unfederated* behaviour of every
-        // route they touch, and that behaviour must be identical with the mirror
-        // compiled in -- which is exactly what leaving this at the default proves.
         federation: catalyrst_worlds::fed::config::WorldsFedConfig::default(),
     }
 }
@@ -93,9 +90,6 @@ fn build_state(pool: PgPool, contents_dir: std::path::PathBuf) -> AppState {
     })
 }
 
-// Mirrors the squid's real shape: `ens.owner_id` holds the registrar caller and
-// is NOT the owner, while `nft.owner_id` is the ERC-721 owner. The fixture keeps
-// them distinct so a query reading the wrong column fails these tests.
 const ENS_ROW_ID: &str = "ens-0xregistrar-1";
 const REGISTRAR_CALLER: &str = "0xbe92b49aee993adea3a002adcda189a2b7dec56c-ETHEREUM";
 

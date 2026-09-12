@@ -58,8 +58,7 @@ fn wire_id_is_always_contract_dash_blockchain_id() {
     assert_eq!(item.item_id, "3");
 }
 
-/// A catalog row whose price comes from an open v3 trade, per upstream's
-/// `catalog-utils.spec.ts` fixture (marketplace-server #387).
+/// Upstream's `catalog-utils.spec.ts` fixture (marketplace-server #387).
 fn trade_priced_row() -> DbRow {
     DbRow {
         id: "0xcollection-0".into(),
@@ -94,15 +93,11 @@ fn trade_priced_row() -> DbRow {
 
 #[test]
 fn catalog_carries_trade_id_only_when_the_price_came_from_a_trade() {
-    // Priced by the open trade: the id travels so the caller can read the unit
-    // (a v3 trade can be USD-pegged MANA), and price is the trade's amount.
     let item = from_db_row_to_catalog_item(trade_priced_row(), None);
     assert_eq!(item.trade_id.as_deref(), Some("trade-1"));
     assert_eq!(item.price, "20100000000000000000");
     assert!(item.is_on_sale);
 
-    // Store minter set the price (MANA) even though an open trade exists -- the id
-    // is withheld so a correct MANA figure is not mislabelled as dollars.
     let store = DbRow {
         search_is_marketplace_v3_minter: false,
         search_is_store_minter: true,
@@ -121,7 +116,6 @@ fn catalog_carries_trade_id_only_when_the_price_came_from_a_trade() {
     assert_eq!(item.price, "0");
     assert!(!item.is_on_sale);
 
-    // No open trade: nothing to attach even when the store sets the price.
     let no_trade = DbRow {
         open_item_trade_id: None,
         open_item_trade_price: None,
@@ -133,8 +127,7 @@ fn catalog_carries_trade_id_only_when_the_price_came_from_a_trade() {
     assert_eq!(item.price, "1000000000000000000000");
 }
 
-/// `tradeId` is omitted from the JSON entirely (not `null`) when absent, and
-/// present as the id when the price is trade-sourced.
+/// Omitted from the JSON entirely, not `null`.
 #[test]
 fn catalog_trade_id_is_skipped_when_none() {
     let present =
@@ -402,9 +395,8 @@ fn v1_two_pass_shape() {
     );
 }
 
-/// Upstream getItemIdsByTagOrNameQuery: the search pre-pass matches WORDS of
-/// the item's name and of its collection's name by trigram similarity, one
-/// row per item carrying its best word, never a name substring.
+/// Upstream getItemIdsByTagOrNameQuery: trigram similarity over WORDS of the item's and its
+/// collection's name, one row per item carrying its best word, never a name substring.
 #[test]
 fn catalog_search_prepass_matches_name_and_collection_words() {
     let f = CatalogFilters {

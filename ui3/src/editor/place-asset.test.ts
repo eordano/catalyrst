@@ -1,7 +1,3 @@
-// Pins the two catalog shapes placement must serve: the live builder catalog
-// (glbUrl) and the bundled seed catalog (src). The seed path shipped placing
-// EMPTY entities -- a named Transform with no GltfContainer -- because only
-// glbUrl was read.
 import { describe, expect, it } from "vitest";
 import { placeAssetOnBus } from "./project-cache";
 

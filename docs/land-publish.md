@@ -1,15 +1,14 @@
 # LAND publish + unpublish (content core)
 
 Status: IMPLEMENTED server-side (catalyrst-server, catalyrst-validator,
-catalyrst-worlds); live behavior gated on applying migration 0003 and bumping
-the :5141 binary (restart request). Binding design:
-`~/one/docs/land-publish-design.md`.
+catalyrst-worlds); live behavior gated on applying migration 0003 and bumping the
+:5141 binary (restart request). Binding design: `~/one/docs/land-publish-design.md`.
 
 ## Publish
 
 `POST /content/entities` (already mounted; nginx `01-catalyst.conf` proxies
-`/content/` to `cat_content` :5141) accepts a catalyst-standard multipart
-scene deployment; no edge changes, only these publish-side additions:
+`/content/` to `cat_content` :5141) accepts a catalyst-standard multipart scene
+deployment. No edge changes, only these publish-side additions:
 
 - Auth rule per pointer parcel `(x,y)`, all legs against the LOCAL indexers,
   fail-closed:

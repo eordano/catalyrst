@@ -1110,9 +1110,6 @@ async fn write_surface(
     )
     .await;
 
-    // Referral progress: the signer is the invited user for POST/PATCH and the
-    // referrer for GET. POST is idempotent for a same-referrer duplicate and
-    // first-wins for a different referrer; PATCH walks pending -> signed_up once.
     gate.hit(app, Case::new("get", "/v1/referral-progress").signed(user))
         .await;
     gate.hit(app, Case::new("get", "/v1/referral-progress").expect(401))

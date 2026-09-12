@@ -16,7 +16,6 @@ export type ShopOpenTarget = "pill" | "rail_cta" | "rail_item";
 
 export type PlacesShopEntryProps = {
   arm: PlacesShopEntryArm;
-  /** Rail reading from the live catalog; null = reading unavailable. */
   items: CollectibleCard[] | null;
   trackCtx: TrackContext;
   track?: TrackFn;

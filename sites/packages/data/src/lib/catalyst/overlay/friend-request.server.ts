@@ -2,14 +2,6 @@ import { z } from "zod";
 
 import { NameColorSchema } from "../generated-schemas/communities";
 
-/**
- * These schemas only ever declare the panel's types -- nothing on this surface
- * parses a payload yet, `loadFriendRequest` below builds every row in process.
- * The `.default()`s therefore never ran; they only promised that a missing
- * `online`, `where` or `hasClaimedName` would silently become "offline" /
- * "Offline" / "unverified" the day a wire read is added here. Every field is
- * required so that day starts with a parse that can fail.
- */
 const ColorSchema = NameColorSchema;
 
 const FriendProfileSchema = z.object({

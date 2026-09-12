@@ -1,9 +1,9 @@
 # Conformance fixtures
 
-Reference (request, response) pairs captured against a known-good catalyst
-peer (typically `https://peer.decentraland.org`). `catalyrst-conformance-replay`
-loads every `*.json` under this tree, re-issues each request against a
-candidate host, and diffs the response - CI parity without a live network.
+Reference (request, response) pairs captured against a known-good catalyst peer
+(typically `https://peer.decentraland.org`). `catalyrst-conformance-replay` loads
+every `*.json` under this tree, re-issues each request against a candidate host and
+diffs the response - CI parity without a live network.
 
 ## Capture
 
@@ -89,15 +89,9 @@ JSON has no comments - annotate via `description`.
 
 ## Layout
 
-```
-fixtures/
-  edge-cases/
-    content/          # /content/* endpoints
-    lambdas/          # /lambdas/* endpoints
-    cors/             # CORS preflight / no-origin cases
-    fallback/         # unknown-path 404 cases
-  example/            # template fixtures (shipped with the crate)
-```
+`edge-cases/{content,lambdas,cors,fallback}/` = `/content/*`, `/lambdas/*`, CORS
+preflight / no-origin, unknown-path 404. `example/` = template fixtures shipped
+with the crate.
 
 One request per file; short descriptive names: `about-golden.json`,
 `active-entities-pointer-00.json`, `profiles-by-address-vitalik.json`.

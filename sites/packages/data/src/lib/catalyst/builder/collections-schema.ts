@@ -29,19 +29,6 @@ export const COLLECTION_SORTS = [
 ] as const;
 export type CollectionSort = (typeof COLLECTION_SORTS)[number];
 
-/**
- * `count` and `thumbs` are required, and that is the point of this schema.
- *
- * `catalyrst-builder/src/ports/marketplace.rs:205-226` emits them on every row.
- * Defaulting `count` to 0 would have made a truncated or error-shaped row
- * render as "0 items" on a collection the creator has just filled, and
- * `thumbs: []` would have read as "we looked and this collection is empty". A
- * row that does not carry them is not a collection we can describe, so it is
- * dropped with a warning by `parseCollections` instead.
- *
- * `pending` is the exception: it marks a publish in flight and is written only
- * when there is one, so its absence is the fact, not a gap.
- */
 export const BuilderCollectionSchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -84,14 +71,6 @@ export const OrphanItemSchema = z.object({
 });
 export type OrphanItem = z.infer<typeof OrphanItemSchema>;
 
-/**
- * A row that fails is dropped, not cast.
- *
- * This used to `return raw as z.infer<S>` on failure, which handed the caller
- * an unvalidated object wearing the parsed type -- so `c.thumbs.length` and
- * `c.count` were reading whatever the upstream happened to send. Dropping is
- * the only option that keeps the returned type true.
- */
 function parseRows<S extends z.ZodTypeAny>(
   schema: S,
   kind: string,
@@ -118,8 +97,6 @@ export function parseOrphanItems(raw: unknown): OrphanItem[] {
   return parseRows(OrphanItemSchema, "OrphanItem", raw);
 }
 
-// Directional drift guards: everything catalyrst-builder serves must be
-// accepted by the (nullable-tolerant) Zod schemas above.
 type AssignableTo<Sub, Sup> = Sub extends Sup ? true : false;
 type Assert<T extends true> = T;
 

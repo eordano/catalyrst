@@ -153,22 +153,9 @@ describe("vendored thirdweb client \u{2014} request contract", () => {
   });
 });
 
-// Every case below is drift the shipped code accepted, and each asserts BOTH
-// halves: the schema rejects it, and what shipped did not. Three guards shipped
-// and none of them looked at a type -- `return parsed as T` in twFetch checked
-// nothing, `out.result.signature` dereferenced whatever came back, and
-// getWalletForToken wrapped the lot in one try/catch that turned any surprise
-// into "no wallet".
 describe("upstream drift at the thirdweb boundaries", () => {
-  /** twFetch's `return parsed as T`: a cast, so every payload got through. */
   const oldTwFetchGuard = (_v: unknown) => true;
 
-  /**
-   * getWalletForToken as it shipped: the whole body inside one try/catch, so
-   * an address of the wrong type threw on `.toLowerCase()` and came out as
-   * null -- indistinguishable from a token that had genuinely expired, which
-   * is what the callback route then told the user.
-   */
   const oldWalletRead = (body: unknown): string | null => {
     try {
       const out = body as { result?: { address?: string }; address?: string };
@@ -199,20 +186,15 @@ describe("upstream drift at the thirdweb boundaries", () => {
     ).toBe(true);
   });
 
-  /** `out.result.signature`, typed `string` and never checked. */
   const oldEnclaveRead = (body: unknown): string =>
     (body as { result: { signature: string } }).result.signature;
 
-  // A signing failure reported in-band. The old deref handed `null` back typed
-  // as `string`, and it went into the auth chain as the signature.
   it("enclave-sign: a null signature inside a 200", () => {
     const drift = { result: { signature: null } };
     expect(EnclaveSignatureSchema.safeParse(drift).success).toBe(false);
     expect(oldEnclaveRead(drift)).toBeNull();
   });
 
-  // This one the old code did notice, but only as a TypeError from a property
-  // access, naming neither thirdweb nor the endpoint that changed.
   it("enclave-sign: the result envelope flattened away", () => {
     const drift = { signature: "0xdead" };
     expect(EnclaveSignatureSchema.safeParse(drift).success).toBe(false);
@@ -222,7 +204,6 @@ describe("upstream drift at the thirdweb boundaries", () => {
   it("wallets-me: an address that arrived as an object", () => {
     const drift = { result: { address: { value: "0xabc" } } };
     expect(WalletsMeSchema.safeParse(drift).success).toBe(false);
-    // The old read did not reject it -- it answered "no wallet".
     expect(oldWalletRead(drift)).toBeNull();
   });
 
@@ -248,8 +229,6 @@ describe("upstream drift at the thirdweb boundaries", () => {
     );
   });
 
-  // The request catch must keep swallowing a transport failure: that is the
-  // signed-out path, not drift.
   it("getWalletForToken still answers null when the request itself fails", async () => {
     stubFetch(async () => {
       throw new Error("network down");
@@ -257,9 +236,6 @@ describe("upstream drift at the thirdweb boundaries", () => {
     await expect(getWalletForToken("jwt-123")).resolves.toBeNull();
   });
 
-  // The order inside proxySign is load-bearing: validating the success shape
-  // before the status test would answer a configuration failure with a
-  // complaint about a missing signature.
   it("a 503 from the sign proxy stays a ThirdwebError", async () => {
     stubFetch(
       async () =>

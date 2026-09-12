@@ -354,9 +354,6 @@ export default function MapPanel() {
     return () => ro.disconnect();
   }, []);
 
-  // Pointer capture waits for the drag threshold: capturing on pointerdown
-  // would retarget the eventual click away from pins, and a drag can start on
-  // any pin -- pins select on click, they never swallow a pan.
   const onTilesPointerDown = (e: ReactPointerEvent) => {
     if (e.button != null && e.button !== 0) return;
     dragRef.current = {
@@ -534,8 +531,6 @@ export default function MapPanel() {
     [beginJump],
   );
 
-  // Worlds are a full realm change (leaves the current server), so confirm before jumping --
-  // unlike a Genesis City parcel teleport, which stays on the same realm.
   const requestJumpIn = useCallback(
     (view: (PlaceView & { name?: string }) | null) => {
       if (!view) return;

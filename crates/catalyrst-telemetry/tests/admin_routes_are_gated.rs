@@ -1,29 +1,22 @@
 //! Every `/dash/admin/*` route's handler must name the `TelemetryAdmin` extractor, asserted
 //! against the crate's own source text.
 //!
-//! The compiler forces the bearer check *if* a handler names `TelemetryAdmin` -- its only
-//! constructor runs the shared chokepoint. What the compiler cannot force is that a *new*
-//! admin route declares the argument at all: a developer can register `/dash/admin/whatever`
-//! whose handler omits it, and the crate compiles. This scan closes that residual gap,
-//! the same species of guard the workspace already trusts in
-//! `catalyrst-server/tests/source_discipline.rs`.
+//! The compiler forces the bearer check *if* a handler names `TelemetryAdmin`, but it cannot
+//! force a *new* admin route to declare the argument at all. This scan closes that residual
+//! gap, the same species of guard as `catalyrst-server/tests/source_discipline.rs`. It is a
+//! convention with a script attached, not a type guarantee -- say so when citing it.
 //!
-//! This is a convention with a script attached, not a type guarantee. Say so when citing it.
-//!
-//! Note the deliberate coexistence it does NOT flag: the `/dash` gated reads/writes are still
-//! guarded by the `require_telemetry_admin` route-layer middleware (which calls `authorize`),
-//! left as a documented follow-on. That is a router-construction gate, not a per-handler
-//! argument, so it is out of this scan's scope by design.
+//! Deliberately not flagged: the `/dash` gated reads/writes are still guarded by the
+//! `require_telemetry_admin` route-layer middleware, a router-construction gate rather than a
+//! per-handler argument, so it is out of scope by design.
 
 const LIB: &str = include_str!("../src/lib.rs");
 const ADMIN: &str = include_str!("../src/handlers/admin.rs");
 
-/// The handler fn names registered under `/dash/admin/`, read straight from `lib.rs`.
-///
-/// Each admin route is `\.route("/dash/admin/...", <method>(handlers::admin::<fn>))`, possibly
-/// split across lines. For every `"/dash/admin/` path literal we take the next
-/// `handlers::admin::<ident>` that follows it -- there is exactly one per route, and nothing
-/// else sits between a route's path and its handler.
+/// The handler fn names registered under `/dash/admin/`, read straight from `lib.rs`. For
+/// every `"/dash/admin/` path literal we take the next `handlers::admin::<ident>` that follows
+/// it -- there is exactly one per route, and nothing else sits between a route's path and its
+/// handler.
 fn admin_route_handlers(lib: &str) -> Vec<String> {
     const HANDLER_PREFIX: &str = "handlers::admin::";
     let mut names = Vec::new();
@@ -49,8 +42,7 @@ fn admin_route_handlers(lib: &str) -> Vec<String> {
     names
 }
 
-/// The full parameter list of `fn <name>` in `admin.rs`, balanced across nested parens
-/// (`Query(aq): Query<...>`, `Json(b): Json<...>`).
+/// Balanced across nested parens (`Query(aq): Query<...>`, `Json(b): Json<...>`).
 fn handler_signature<'a>(src: &'a str, name: &str) -> &'a str {
     let needle = format!("fn {name}(");
     let start = src
@@ -74,7 +66,6 @@ fn handler_signature<'a>(src: &'a str, name: &str) -> &'a str {
     panic!("unterminated parameter list for `{name}`");
 }
 
-/// The scan must not be vacuously satisfiable.
 #[test]
 fn the_scan_is_reading_real_sources() {
     assert!(

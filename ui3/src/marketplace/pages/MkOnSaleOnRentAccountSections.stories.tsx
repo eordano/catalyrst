@@ -58,12 +58,6 @@ const CASES: { label: string; args: Partial<Props> }[] = [
   { label: "Loading", args: { type: "sale", isLoading: true } },
 ];
 
-/**
- * Every state at once. `Default` flips between them from the Controls panel; this keeps all four
- * in the render + a11y + visual-diff gates, since the rent table, the empty state and the loading
- * skeleton are structurally different subtrees. `chrome={false}` because stacking N copies of
- * `MarketplaceChrome` would emit N `<main>` landmarks and fail axe's landmark-unique.
- */
 export const Catalog: Story = {
   name: "Catalog (every state)",
   parameters: { controls: { disable: true } },

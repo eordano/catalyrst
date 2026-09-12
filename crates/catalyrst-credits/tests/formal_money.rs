@@ -83,7 +83,7 @@ async fn seed_wallet(pool: &sqlx::PgPool, addr: &str, earned: &str, paid: &str) 
     }
 }
 
-/// Balance as exact NUMERIC text -- never f64, which is the whole point.
+/// Balance as exact NUMERIC text -- never f64.
 async fn available(pool: &sqlx::PgPool, addr: &str) -> String {
     sqlx::query_scalar::<_, String>(
         "SELECT COALESCE((SELECT available::text FROM user_credits WHERE address = $1), '0')",
@@ -195,8 +195,6 @@ async fn cleanup(pool: &sqlx::PgPool, addr: &str) {
 /// `refund_in_tx`, and refund ADDS credits. On `charge.dispute.*` the buyer got
 /// the fiat back from Stripe, KEPT the credits, and was credited that amount
 /// AGAIN -- a 100-credit purchase left the wallet at 200.
-///
-/// CORRECT: a reversed fiat payment REVOKES the credits it granted.
 #[tokio::test]
 async fn dispute_revokes_granted_credits_instead_of_paying_the_buyer_twice() {
     let _serial = SERIAL.lock().await;
@@ -316,10 +314,8 @@ async fn charge_refund_revokes_and_reports_the_unrecoverable_shortfall() {
 /// INTENT PIN, not a defect. `revoke_in_tx` debits **paid-first** -- the
 /// opposite of the earned-first spend rule -- and its doc comment used to claim
 /// earned-first, contradicting its own SQL. The SQL is the correct half: a
-/// chargeback reverses a PURCHASE, a purchase grants PAID credits, so the paid
-/// bucket is what a reversal takes back first. A buyer who charges back a pack
-/// must not lose credits they earned by playing while paid credits sit
-/// untouched.
+/// chargeback reverses a PURCHASE, a purchase grants PAID credits, and a buyer
+/// who charges back a pack must not lose credits they earned by playing.
 ///
 /// The witness: earned 40 / paid 60, revoke 50 -> earned 40 / paid 10. Under
 /// earned-first it would be earned 0 / paid 50.
@@ -367,8 +363,6 @@ async fn revoke_debits_the_paid_bucket_first() {
         "the whole debit came out of the paid bucket: {debits:?}"
     );
 
-    // The spill-over half of the rule: revoking more than the paid bucket holds
-    // reaches into earned for the remainder, and no further.
     let pi2 = format!("pi_paidfirst2_{addr}");
     seed_paid_purchase(&pool, &addr, &pi2, "30", 300).await;
     credits
@@ -395,13 +389,11 @@ async fn revoke_debits_the_paid_bucket_first() {
 /// DEFECT: when `revoke_in_tx` found no `user_credits` row it early-returned a
 /// full-amount shortfall with NO audit row and NO ledger row -- so a chargeback
 /// against an address that never had a wallet vanished from every record, even
-/// though it is a 100% unrecovered loss and the single worst outcome the
-/// function can produce.
+/// though it is a 100% unrecovered loss.
 ///
-/// CORRECT: the no-wallet path writes the same audit trail as the normal path,
-/// recording an explicit zero removal and a full shortfall. It still writes no
-/// LEDGER row, deliberately: the balance did not move, and the ledger's
-/// contract is that its signed replay reproduces the balance.
+/// The no-wallet path now writes the same audit trail as the normal path. It
+/// still writes no LEDGER row, deliberately: the balance did not move, and the
+/// ledger's contract is that its signed replay reproduces the balance.
 #[tokio::test]
 async fn revoke_without_a_wallet_row_is_still_audited_as_a_total_loss() {
     let _serial = SERIAL.lock().await;
@@ -465,8 +457,6 @@ async fn revoke_without_a_wallet_row_is_still_audited_as_a_total_loss() {
 /// tx_ref had no `spend` rows (`ELSE $2::numeric`), and `ports/packs.rs` passed
 /// a Stripe EVENT ID as tx_ref -- event ids never have spend rows. Every Stripe
 /// reversal was therefore an UNBOUNDED credit.
-///
-/// CORRECT: a refund restores what was spent under its tx_ref, and nothing else.
 #[tokio::test]
 async fn refund_under_a_tx_ref_with_no_spend_applies_nothing() {
     let _serial = SERIAL.lock().await;
@@ -588,11 +578,10 @@ async fn over_revocation_is_rejected_by_the_database() {
 /// DEFECT: `spend` had no amount guard while `refund_in_tx` did. A negative
 /// amount MINTED credits: `100 >= -5` passed the sufficiency check,
 /// `LEAST(earned_available, -5)` was -5, and `available := available + 5`.
-/// `pub fn spend` is a public entry point.
 ///
 /// NOTE the guard is `parse_non_negative`, not `parse_positive`: zero is a
 /// legitimate spend (see `zero_spend_is_a_no_op_not_an_error`). The anti-mint
-/// property is about NEGATIVES, and it is what this test pins.
+/// property is about NEGATIVES.
 #[tokio::test]
 async fn spend_rejects_non_positive_amounts_and_never_mints() {
     let _serial = SERIAL.lock().await;
@@ -625,7 +614,6 @@ async fn spend_rejects_non_positive_amounts_and_never_mints() {
     }
     assert_reconciles(&pool, &addr, "after rejected spends").await;
 
-    // The admin paths carry the same guard: a negative revoke would mint too.
     for bad in ["-5", "0"] {
         assert_eq!(
             common::status_of(
@@ -664,10 +652,9 @@ async fn spend_rejects_non_positive_amounts_and_never_mints() {
 /// spend amount as `COALESCE(SUM(unit_price_credits * qty), 0)`, so an all-free
 /// cart legitimately spends 0 and got a 400.
 ///
-/// DECIDED SEMANTICS: a zero spend is a NO-OP. It succeeds, it changes no
-/// balance, and it writes NO ledger row -- a zero-amount row would be noise on a
-/// wallet that did not move, and the ledger's contract is that its signed
-/// replay reproduces the balance.
+/// DECIDED SEMANTICS: a zero spend is a NO-OP. It changes no balance and writes
+/// NO ledger row -- the ledger's contract is that its signed replay reproduces
+/// the balance.
 #[tokio::test]
 async fn zero_spend_is_a_no_op_not_an_error() {
     let _serial = SERIAL.lock().await;
@@ -677,7 +664,6 @@ async fn zero_spend_is_a_no_op_not_an_error() {
     seed_wallet(&pool, &addr, "20", "80").await;
     let ledger_before = ledger_kinds(&pool, &addr).await;
 
-    // Every spelling of exact zero PostgreSQL would accept as NUMERIC 0.
     for zero in ["0", "0.00", "0e10", "-0", "+0", ".0"] {
         let outcome = credits
             .spend(&addr, zero, "checkout:formal-zero", None)
@@ -707,7 +693,6 @@ async fn zero_spend_is_a_no_op_not_an_error() {
     );
     assert_reconciles(&pool, &addr, "after zero spends").await;
 
-    // Zero on a wallet that has no row at all is still a no-op, not a 402.
     let fresh = scratch_addr();
     let outcome = credits
         .spend(&fresh, "0", "checkout:formal-zero-fresh", None)
@@ -716,8 +701,6 @@ async fn zero_spend_is_a_no_op_not_an_error() {
     assert_eq!(outcome.available, "0");
     assert!(ledger_kinds(&pool, &fresh).await.is_empty());
 
-    // A zero spend must NOT burn an idempotency key: there is no effect to
-    // deduplicate, and a later real spend under that key must still work.
     let key = format!("t:zero-{addr}");
     credits
         .spend(&addr, "0", "checkout:formal-zero", Some(&key))
@@ -737,8 +720,7 @@ async fn zero_spend_is_a_no_op_not_an_error() {
 
 /// The end-to-end shape of the same defect: a cart of free items produces
 /// `total = 0`, and the whole checkout must complete rather than 400 (or, on a
-/// wallet with no `user_credits` row, 402 for "insufficient" against a total of
-/// zero).
+/// wallet with no `user_credits` row, 402 for "insufficient" against zero).
 #[tokio::test]
 async fn zero_total_checkout_completes_and_moves_nothing() {
     let _serial = SERIAL.lock().await;
@@ -887,8 +869,6 @@ async fn clamped_backfill_origin_is_recorded_as_an_adjustment_row() {
     let addr = scratch_addr();
     let credits = CreditsComponent::new(pool.clone());
 
-    // Reproduce a 0012-clamped wallet: the earned ledger says 50, but the
-    // backfill stored LEAST(available, 50) = 10.
     sqlx::query(
         "INSERT INTO user_credits (address, available, earned_available) VALUES ($1,10,10)",
     )
@@ -949,22 +929,18 @@ async fn clamped_backfill_origin_is_recorded_as_an_adjustment_row() {
 /// The realignment is BATCHED, and that is a correctness-of-operations
 /// property, not a micro-optimisation: the first version took `FOR UPDATE` over
 /// the ENTIRE `user_credits` table, twice, in one transaction, with a
-/// correlated per-wallet ledger aggregate and no LIMIT -- a long exclusive lock
-/// across every wallet on the money path.
+/// correlated per-wallet ledger aggregate and no LIMIT.
 ///
 /// This drives the walk with a chunk size of ONE so the multi-chunk path is
 /// exercised without seeding thousands of wallets, and pins what batching must
 /// not break: every divergent wallet is still realigned, the result is still
-/// idempotent, and each chunk commits on its own (so a rerun resumes rather
-/// than redoing).
+/// idempotent, and each chunk commits on its own (so a rerun resumes).
 #[tokio::test]
 async fn realignment_batches_the_walk_and_stays_idempotent() {
     let _serial = SERIAL.lock().await;
     let Some(pool) = pool().await else { return };
     let credits = CreditsComponent::new(pool.clone());
 
-    // Three wallets, each divergent in a different direction, so a chunk
-    // boundary cannot hide behind a uniform delta.
     let addrs: Vec<String> = (0..3).map(|_| scratch_addr()).collect();
     for (i, addr) in addrs.iter().enumerate() {
         sqlx::query(
@@ -989,7 +965,6 @@ async fn realignment_batches_the_walk_and_stays_idempotent() {
         assert!(!ok, "wallet {addr} must start out divergent");
     }
 
-    // Chunk size 1: at least one transaction per wallet in the table.
     let applied = credits
         .realign_ledger_to_balances_in_batches("test: batched walk", 1)
         .await
@@ -1053,8 +1028,6 @@ async fn refund_restores_earned_first_by_design() {
     .unwrap();
     assert_eq!((av.as_str(), ea.as_str()), ("10", "0"));
 
-    // Refund 5: earned-FIRST restore, so all 5 land in earned -- NOT the 4:1
-    // proportional split (4 earned / 1 paid) the refuted property expected.
     credits
         .refund(&addr, "5", "checkout:formal-earned-first", None)
         .await
@@ -1112,7 +1085,6 @@ async fn cumulative_refund_never_exceeds_cumulative_spend_in_any_order() {
     seed_wallet(&pool, &addr, "0", "1000").await;
     let tx_ref = format!("checkout:formal-window-{addr}");
 
-    // a refund BEFORE any spend under this tx_ref applies nothing at all
     let early = credits
         .refund(&addr, "100", &tx_ref, Some(&format!("t:w1-{addr}")))
         .await
@@ -1126,7 +1098,6 @@ async fn cumulative_refund_never_exceeds_cumulative_spend_in_any_order() {
     credits.spend(&addr, "50", &tx_ref, None).await.unwrap();
     assert_eq!(available(&pool, &addr).await, "950");
 
-    // ...and the honest refund that follows the real spend is NOT starved by it
     let honest = credits
         .refund(&addr, "50", &tx_ref, Some(&format!("t:w2-{addr}")))
         .await
@@ -1139,7 +1110,6 @@ async fn cumulative_refund_never_exceeds_cumulative_spend_in_any_order() {
          consumed the window"
     );
 
-    // over-refunding past the window is clamped, not applied
     let over = credits
         .refund(&addr, "50", &tx_ref, Some(&format!("t:w3-{addr}")))
         .await

@@ -1,12 +1,4 @@
 #!/usr/bin/env bash
-# Sync skills/ with decentraland/sdk-skills.
-#
-# Upstream-owned skill directories are mirrored exactly (including deletions);
-# the LOCAL_ONLY skills are ours alone and never touched. build.rs embeds
-# whatever sits in skills/ at compile time, so a sync followed by a build is
-# the whole update.
-#
-#   scripts/sync-sdk-skills.sh [path-to-sdk-skills-checkout]
 set -euo pipefail
 
 upstream="${1:-$HOME/github.com-decentraland/sdk-skills}"

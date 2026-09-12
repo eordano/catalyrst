@@ -310,9 +310,6 @@ function renderBlocks(blocks: Block[]): ReactNode[] {
       case "rule":
         return <hr key={i} />;
       case "table":
-        // The wrapper, not the table, scrolls: a scrollable region needs
-        // keyboard access (axe scrollable-region-focusable), and display:block
-        // on the table itself would strip its table semantics.
         return (
           <div key={i} className="mdlite__tablescroll" tabIndex={0}>
             <table>

@@ -93,14 +93,6 @@ export type LoadCatalogOptions = {
   fetchImpl?: typeof fetch;
 };
 
-/**
- * null when the builder asset packs could not be read.
- *
- * `[]` meant "this deployment ships no smart items", which the editor draws as
- * an empty asset palette -- the same picture a creator gets when the builder API
- * is simply down. The caller falls back to the bundled seed catalog on null
- * instead of showing a browser with nothing in it.
- */
 export async function loadAssetCatalog(
   opts: LoadCatalogOptions = {},
 ): Promise<CatalogItem[] | null> {

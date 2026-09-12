@@ -19,10 +19,6 @@ impl SnapshotStorage {
     pub async fn new(base_path: impl Into<PathBuf>) -> Result<Self, StorageError> {
         let root = base_path.into().join("snapshots");
         tokio::fs::create_dir_all(&root).await?;
-        // Staging files whose writer died before the rename have no other reaper.
-        // Backgrounded for the reason given in ContentStorage::new: it is a
-        // reaper, not a precondition for serving, and its 1h age threshold is
-        // what already made it safe against a live store.
         let sweep_root = root.clone();
         tokio::spawn(async move {
             crate::sweep_stale_staging(&sweep_root, "snapshot").await;
@@ -41,12 +37,9 @@ impl SnapshotStorage {
     pub async fn store(&self, hash: &str, data: Bytes) -> Result<(), StorageError> {
         use tokio::io::AsyncWriteExt;
 
-        // The one path that creates the shard directory.
         let path = ensure_file_path(&self.root, hash, &self.known_shards).await?;
 
         let seq = TMP_SEQ.fetch_add(1, Ordering::Relaxed);
-        // The guard arrives with the file, so from the instant the staging file exists every exit
-        // -- an error, a `?`, or this future being dropped mid-write -- removes it.
         let (mut file, mut staging) =
             create_staging_file(staging_path(&path, "snapshot", seq)).await?;
         file.write_all(&data).await?;
@@ -95,13 +88,11 @@ impl SnapshotStorage {
         Ok(())
     }
 
-    /// Every snapshot id this store actually holds, pulled one at a time.
-    ///
-    /// Same walk and same contract as
+    /// Same walk and contract as
     /// [`ContentStorage::all_file_ids`](crate::ContentStorage::all_file_ids) -- see [`FileIds`]. The
     /// round-trip filter earns its keep here too: a staging file left by a cancelled store is named
-    /// `<id>.<pid>.<seq>.tmp`, which no read can ever resolve, and offering it as an id makes a
-    /// consumer that syncs from this list act on content that does not exist.
+    /// `<id>.<pid>.<seq>.tmp`, which no read can resolve, and offering it as an id makes a consumer
+    /// that syncs from this list act on content that does not exist.
     pub fn all_file_ids<'a>(&'a self, prefix: Option<&'a str>) -> FileIds<'a> {
         FileIds::new(&self.root, &self.known_shards, "snapshot", prefix)
     }
@@ -112,8 +103,6 @@ mod tests {
     use super::*;
     use bytes::Bytes;
 
-    /// Drains the walk into a `Vec`, which is what a test wants and what the walk itself refuses to
-    /// decide for its callers.
     async fn collect_ids(storage: &SnapshotStorage, prefix: Option<&str>) -> Vec<String> {
         let mut walk = storage.all_file_ids(prefix);
         let mut ids = Vec::new();
@@ -174,7 +163,6 @@ mod tests {
             .to_path_buf()
     }
 
-    /// A shard nothing was ever stored in is an ordinary miss, and probing it creates nothing.
     #[tokio::test]
     async fn snapshot_read_of_never_created_shard_is_a_plain_miss() {
         let tmp =
@@ -203,7 +191,6 @@ mod tests {
         let _ = tokio::fs::remove_dir_all(&tmp).await;
     }
 
-    /// A shard destroyed underneath us is damage, not an empty node.
     #[tokio::test]
     async fn snapshot_destroyed_shard_is_a_fault_not_a_miss() {
         let tmp =
@@ -240,9 +227,6 @@ mod tests {
         let _ = tokio::fs::remove_dir_all(&tmp).await;
     }
 
-    /// Enumeration yields ids, not whatever happens to be lying in a shard. A staging file left by
-    /// a cancelled store is named `<id>.<pid>.<seq>.tmp`, which no read can resolve; offering it as
-    /// an id makes a consumer that syncs or GCs from this list act on content that does not exist.
     #[tokio::test]
     async fn snapshot_all_file_ids_yields_only_real_ids() {
         let tmp = std::env::temp_dir().join(format!("catalyrst-snap-junk-{}", std::process::id()));
@@ -275,7 +259,6 @@ mod tests {
         let _ = tokio::fs::remove_dir_all(&tmp).await;
     }
 
-    /// A cancelled store leaves nothing behind for enumeration to trip over.
     #[tokio::test]
     async fn snapshot_cancelled_store_leaves_no_staging_file() {
         let tmp =
@@ -291,9 +274,6 @@ mod tests {
         )
         .await;
 
-        // Cleanup is eventually-consistent by construction -- the guard rides back through a oneshot
-        // owned by a detached task, so the unlink lands when that task next runs, not the instant
-        // the caller is cancelled. Sampling immediately would be flaky in both directions.
         let leaked = crate::wait_for_staging_cleanup(&shard_dir_of(&storage, hash)).await;
         assert!(
             leaked.is_empty(),

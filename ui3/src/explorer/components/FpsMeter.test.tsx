@@ -31,8 +31,6 @@ describe("FpsMeter", () => {
     expect(meter(container)).toContain("is-good");
   });
 
-  // the whole point of showing both: a healthy engine behind a stalling page means
-  // the HUD is eating the frame budget, not the renderer
   test("reports page and engine independently", () => {
     const { container } = render(<FpsMeter stats={{ page: 34, engine: 59, ms: 29.4 }} />);
     expect(meter(container)).toContain("is-warn");

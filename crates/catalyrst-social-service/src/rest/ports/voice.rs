@@ -46,9 +46,6 @@ impl VoiceComponent {
         Self { pool }
     }
 
-    // A non-member only sees a room in a community anyone could have found: public AND listed.
-    // Privacy alone let an unlisted community's name, image and live head-count reach any
-    // authenticated caller (upstream #476).
     pub async fn active_for_user(
         &self,
         user_address: &str,

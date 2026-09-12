@@ -142,9 +142,6 @@ impl CommunitiesComponent {
         .flatten()
         .unwrap_or(false);
 
-        // A row here means a live community voice chat; its participant/moderator counts are the
-        // real Gatekeeper-mirrored state (upstream #448). Whether it is exposed is decided below by
-        // the privacy gate, once the caller's role is known.
         let voice_row: Option<(i32, i32)> = sqlx::query_as(
             "SELECT participants, moderators FROM community_voice_chats WHERE community_id = $1",
         )
@@ -193,10 +190,6 @@ impl CommunitiesComponent {
             detail.is_banned = Some(banned.unwrap_or(false));
         }
 
-        // Voice-chat visibility (upstream #448 `isVoiceChatVisible`): a non-private community shows
-        // it to anyone; a private one only to a member. The active-rooms LISTING gate in
-        // ports/voice.rs additionally requires `listed` -- that is #476's rule for a different
-        // endpoint, deliberately not applied here.
         let role_str = detail.role.as_deref().unwrap_or("none");
         let voice_visible = privacy != "private" || role_str != "none";
         if voice_visible {
@@ -381,8 +374,6 @@ impl CommunitiesComponent {
                 )| {
                     let privacy = if private { "private" } else { "public" };
                     let visibility = if unlisted { "unlisted" } else { "all" };
-                    // Same voice-chat visibility gate as get_by_id / upstream #448: public to all,
-                    // private only to a member (role != none). Hidden falls back to idle().
                     let voice_visible = !private || role != "none";
                     let (is_live, voice_chat_status) = if voice_visible && has_voice {
                         (
@@ -689,9 +680,6 @@ impl CommunitiesComponent {
         let lower = user_address.to_lowercase();
         let mut params: Vec<String> = vec![lower];
 
-        // The ban exclusion mirrors visible_communities_by_ids: a community that disappears from a
-        // banned caller's listing must not resurface through search (upstream #466). Both the row
-        // and count queries carry the join so total keeps matching the rows.
         let mut where_sql = String::from(
             "c.active = TRUE AND c.suspended = FALSE \
              AND cb.banned_address IS NULL \

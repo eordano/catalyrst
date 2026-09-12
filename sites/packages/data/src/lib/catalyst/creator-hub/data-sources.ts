@@ -1,12 +1,3 @@
-/*
- * The source ledger: every datum the creator hub can show, its state, and the
- * endpoint behind it -- including the ones deliberately NOT displayed and why.
- *
- * The registry rows here are constants with no probes attached, so this module
- * stays client-safe. `data-sources.server.ts` attaches a probe to every `live`
- * and `sampled` row and runs them, which is what stops the ledger from claiming
- * "live" for something that is down.
- */
 
 export type SourceClass =
   | "live"
@@ -18,15 +9,11 @@ export type SourceClass =
 
 export type SourceEntry = {
   id: string;
-  /** what the datum is, in the creator's words */
   datum: string;
-  /** `GET host/path`, verbatim */
   endpoint: string;
-  /** screens that read it */
   usedBy: string[];
   klass: SourceClass;
   note: string;
-  /** only for `unbuilt` rows: the escape hatch that exists today */
   today?: string;
 };
 
@@ -225,8 +212,6 @@ export const SOURCE_REGISTRY: SourceEntry[] = [
     usedBy: [],
     klass: "unbuilt",
     note: "catalyrst-telemetry ingests Sentry-shaped events and groups them into issues, but every read is behind an admin guard and the data carries no scene or owner dimension. There is no query that means 'my world'.",
-    // get_scene_logs is on the explorer's own MCP surface, so it works for
-    // anyone already running with --mcp -- no separate unpublished tooling.
     today:
       "Start your explorer with --mcp, then read its scene log directly: POST get_scene_logs to http://127.0.0.1:8123/unity-explorer-mcp.",
   },

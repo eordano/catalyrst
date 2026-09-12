@@ -1,18 +1,5 @@
 import { assertNotNull } from "@subsquid/util-internal";
 
-// Resolves the deployment's schema identity. Upstream reads SQUID_SCHEMA alone
-// because indexer.sh / restart.sh always export it before starting a processor. Our
-// units exec the nix wrappers (catalyrst/nix/squid.nix) straight onto lib/*/main.js
-// with an EnvironmentFile, so those scripts never run and the deployed environment
-// still carries the old name. Keep DB_SCHEMA as a DEPRECATED read-only fallback until
-// the deployment's squid env is renamed: without it a rebuild would start both processors
-// with stateSchema `<chain>_processor_undefined`, losing the sync cursor and
-// re-indexing from genesis over the live data. Drop the fallback once the deployed
-// environment sets SQUID_SCHEMA.
-//
-// Reading DB_SCHEMA does NOT restore the search_path pin upstream removed in #118:
-// @subsquid/typeorm-config only emits `options=-c search_path="<name>"` when
-// DB_SCHEMA is SET in the process environment, which is orthogonal to reading it here.
 let fallbackWarned = false;
 
 export const deploymentSchema = (): string | undefined => {

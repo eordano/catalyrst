@@ -7,10 +7,6 @@ import "./explorechrome.css";
 
 const ChromeNestedContext = createContext(false);
 
-// Mirrors upstream MainMenuShell's openShells guard: counts how many ExploreChrome
-// instances are mounted so a route switch (unmount+remount somewhere in the tree,
-// e.g. Suspense/StrictMode) doesn't replay the entrance fade -- only a truly fresh
-// open (nothing else mounted yet) animates in.
 let openChromes = 0;
 
 export type TabId =
@@ -120,8 +116,6 @@ export default function ExploreChrome({
   onSignOut,
 }: ExploreChromeProps) {
   const nested = useContext(ChromeNestedContext);
-  // A fresh open (nothing else already mounted) fades in; a remount while another
-  // instance is still up (route swap under the same layout) doesn't replay it.
   const [animate] = useState(() => !nested && openChromes === 0);
   useEffect(() => {
     if (nested) return undefined;

@@ -45,8 +45,6 @@
   stroke-width: 1;
 }
 
-/* A hole in the line where the collector produced no sample at all. Hatched,
-   not shaded, so it never reads as a plotted value of zero. */
 .AnalyticsChart .gap-hatch {
   stroke: var(--ink-45);
   stroke-width: 1;

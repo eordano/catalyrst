@@ -6,11 +6,6 @@ type DeployProps = ComponentProps<typeof ChPublishWizardDeployProgressResult>;
 
 const noop = () => {};
 
-/**
- * Story args: the three "what happens next" callbacks are a single synthetic switch, since a
- * Controls panel cannot supply functions and their presence is what renders the Jump In /
- * Copy / Keep editing affordances.
- */
 type DeployStoryArgs = Omit<DeployProps, "onJumpIn" | "onCopy" | "onKeepEditing"> & {
   withActions: boolean;
 };

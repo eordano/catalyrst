@@ -16,21 +16,6 @@ export type CommitteeData = {
   usedFallback: boolean;
 };
 
-
-/**
- * Rows validate against the generated `CurationCollectionsOutSchema` -- the
- * ts-rs image of what `catalyrst-builder`'s `GET /v1/collections/curation`
- * actually serialises (`handlers/curation.rs` -> `ports/marketplace.rs`).
- *
- * The hand copy this replaces defaulted `is_approved`, `has_reviews`,
- * `is_programmatic` to `false`, `item_count` to `0`, and `committee` /
- * `collections` to `[]`. Every one of those is a curation fact: a queue that
- * failed to parse arrived as "no collections awaiting review, nobody on the
- * committee", and a single drifted row arrived as an unapproved, unreviewed,
- * hand-made collection holding zero items. All of them are required on the
- * Rust structs, so the generated schema simply refuses the payload and
- * `loadCommitteeCuration` reports `error: true`.
- */
 const BackendListSchema = CurationCollectionsOutSchema;
 
 type BackendRow = z.infer<typeof BackendListSchema>["collections"][number];

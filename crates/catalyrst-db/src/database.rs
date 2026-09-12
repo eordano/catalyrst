@@ -52,8 +52,6 @@ pub enum DatabaseError {
     ConnectionFailed(sqlx::Error),
 }
 
-/// Knobs for [`connect_pool`]. Defaults mirror the canonical service pool:
-/// 10 connections, 30s idle timeout, no acquire timeout, 60s statement timeout.
 #[derive(Debug, Clone)]
 pub struct PoolSettings {
     pub max_connections: u32,
@@ -74,11 +72,8 @@ impl Default for PoolSettings {
 }
 
 impl PoolSettings {
-    /// Preset for a small auxiliary/side pool -- profile enrichment, marketplace
-    /// reads, usage-grant writes, and similar low-traffic secondary connections:
-    /// 5 connections, 60s idle timeout, 10s acquire timeout, 60s statement
-    /// timeout. Consolidates the previously-duplicated `5 / 60 / Some(10)` inline
-    /// literal so the numbers live in one place.
+    /// Low-traffic secondary pools: profile enrichment, marketplace reads,
+    /// usage-grant writes.
     pub fn side_pool() -> Self {
         Self {
             max_connections: 5,
@@ -88,9 +83,6 @@ impl PoolSettings {
         }
     }
 
-    /// Preset for a service's primary request-serving pool: 20 connections, 60s
-    /// idle timeout, 10s acquire timeout, 60s statement timeout. Consolidates the
-    /// previously-duplicated `20 / 60 / Some(10)` inline literal.
     pub fn standard_service() -> Self {
         Self {
             max_connections: 20,
@@ -110,9 +102,6 @@ pub enum PoolError {
     Connect(sqlx::Error),
 }
 
-/// URL-form pool constructor: parses a postgres connection URL, applies the
-/// canonical `statement_timeout` / `idle_in_transaction_session_timeout`
-/// connect options, and builds the pool with the given knobs.
 pub async fn connect_pool(url: &str, settings: &PoolSettings) -> Result<PgPool, PoolError> {
     let statement_timeout = settings.statement_timeout_ms.to_string();
     let connect_opts: PgConnectOptions = url
@@ -136,9 +125,6 @@ pub async fn connect_pool(url: &str, settings: &PoolSettings) -> Result<PgPool, 
         .map_err(PoolError::Connect)
 }
 
-/// Shared health-check core: a plain round trip to confirm the pool can still
-/// reach postgres. Callers map the `Result` onto their own status code / JSON
-/// body shape.
 pub async fn ping_health(pool: &PgPool) -> Result<(), sqlx::Error> {
     sqlx::query_scalar::<_, i32>("SELECT 1")
         .fetch_one(pool)
@@ -215,7 +201,6 @@ mod tests {
         assert_eq!(s.max_connections, 5);
         assert_eq!(s.idle_timeout_secs, 60);
         assert_eq!(s.acquire_timeout_secs, Some(10));
-        // statement_timeout inherits the canonical 60s default.
         assert_eq!(s.statement_timeout_ms, 60_000);
     }
 

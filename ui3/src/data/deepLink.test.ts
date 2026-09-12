@@ -2,10 +2,6 @@ import { describe, expect, it } from "vitest";
 
 import { realmDeepLink, worldRealmUrl } from "./deepLink";
 
-// These expectations are duplicated verbatim in catalyrst-types::deep_link's
-// tests. The two encoders sit on opposite sides of the stack and must agree:
-// a link that differs by one escape opens the client into the wrong realm
-// rather than failing visibly.
 describe("when building explorer deep links", () => {
   it("should form-encode the realm URL and the position separator", () => {
     expect(realmDeepLink("http://127.0.0.1:5600", "52,-68")).toBe(

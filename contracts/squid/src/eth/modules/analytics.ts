@@ -19,11 +19,10 @@ import { Block, Context } from "../processor";
 export let BID_SALE_TYPE = "bid";
 export let ORDER_SALE_TYPE = "order";
 
-// check if the buyer in a sale was a third party provider (to pay with credit card, cross chain, etc)
 export function isThirdPartySale(buyer: string): boolean {
   if (
-    buyer == "0xea749fd6ba492dbc14c24fe8a3d08769229b896c" || // Axelar Ethereum old contract
-    buyer == "0xad6cea45f98444a922a2b4fe96b8c90f0862d2f4" // Axelar Ethereum new contract
+    buyer == "0xea749fd6ba492dbc14c24fe8a3d08769229b896c" ||
+    buyer == "0xad6cea45f98444a922a2b4fe96b8c90f0862d2f4"
   ) {
     return true;
   }
@@ -80,7 +79,6 @@ export async function trackSale(
       nft.itemBlockchainId !== undefined &&
       nft.itemBlockchainId !== null
     ) {
-      // Item ID format is typically: collectionAddress-blockchainId
       const itemId = `${nft.contractAddress}-${nft.itemBlockchainId}`;
       item = items.get(itemId);
     }

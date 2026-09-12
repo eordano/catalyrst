@@ -31,14 +31,7 @@ function walletDeepLinks(pageUrl: string): WalletDeepLink[] {
   try {
     origin = new URL(pageUrl).origin;
   } catch {
-    /* fall back to empty Phantom ref */
   }
-  // MetaMask: metamask.app.link, not link.metamask.io -- the current-docs
-  // domain opens the wallet but not its in-app browser on many builds
-  // (metamask-mobile #4760-class bugs); the legacy universal link routes
-  // correctly. None of these need LibreConnect/WalletConnect support: each
-  // just opens the https pair page in the wallet's dapp browser, where the
-  // injected provider signs.
   return [
     { name: "MetaMask", href: `https://metamask.app.link/dapp/${schemeless}` },
     { name: "Coinbase Wallet", href: `https://go.cb-w.com/dapp?cb_url=${encoded}` },

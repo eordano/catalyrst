@@ -106,9 +106,6 @@ fn as_ts(v: &Value) -> Option<DateTime<Utc>> {
         .map(|t| t.with_timezone(&Utc))
 }
 
-// Upstream serializes whole-number floats as JSON integers (ranking: 0,
-// like_rate: 1) while the served rows are typed f64; the values are equal
-// even though the JSON number variants differ.
 fn json_eq(a: &Value, b: &Value) -> bool {
     match (a.as_f64(), b.as_f64()) {
         (Some(x), Some(y)) => x == y,
@@ -137,8 +134,6 @@ async fn mirrored_worlds_serve_the_upstream_shape() {
     let served = body["data"].as_array().expect("data array");
     assert_eq!(served.len(), rows.len());
 
-    // Field-for-field parity with the captured upstream page, for every field
-    // upstream serves on a world row and the explorer's PlaceInfo DTO reads.
     for upstream in &rows {
         let id = upstream["id"].as_str().unwrap();
         let world = served
@@ -214,8 +209,6 @@ async fn sweep_deletes_unseen_worlds_but_spares_locals_and_places() {
     for row in &rows {
         upsert_world(&scratch.pool, row).await.expect("upsert");
     }
-    // A genesis place and a locally served world, both outside the mirror's
-    // ownership, made stale enough that only ownership can spare them.
     sqlx::query(
         "INSERT INTO place (id, base_position, raw, fetched_at) \
          VALUES ('genesis', '1,1', '{}', now() - interval '3 days')",
@@ -349,9 +342,6 @@ async fn a_world_missed_once_survives_and_missed_twice_is_swept() {
     };
     migrate(&scratch.pool).await;
 
-    // With interval = 1h the cutoff sits 2h before the pass: a world last
-    // seen 90 minutes ago (missed by exactly one pass) survives, while one
-    // last seen 3 hours ago (missed by two consecutive passes) is deleted.
     sqlx::query(
         "INSERT INTO place (id, base_position, raw, fetched_at) VALUES \
          ('missed-once.dcl.eth', '0,0', \
@@ -421,8 +411,6 @@ async fn sweep_fuse_refuses_mass_deletion_but_allows_small_sweeps() {
     };
     assert_eq!(world_count().await, 100);
 
-    // 60 of 100 mirrored rows go stale: candidates 60 > max(50, 20% of 100),
-    // so the fuse trips and nothing is deleted.
     sqlx::query("UPDATE place SET fetched_at = now() - interval '3 hours' WHERE id = ANY($1)")
         .bind(&synthetic[..60])
         .execute(&scratch.pool)
@@ -438,8 +426,6 @@ async fn sweep_fuse_refuses_mass_deletion_but_allows_small_sweeps() {
     );
     assert_eq!(world_count().await, 100, "a refused sweep deletes zero");
 
-    // Refreshing 50 of the stale rows drops the candidate set under the
-    // threshold and the sweep proceeds.
     sqlx::query("UPDATE place SET fetched_at = now() WHERE id = ANY($1)")
         .bind(&synthetic[..50])
         .execute(&scratch.pool)

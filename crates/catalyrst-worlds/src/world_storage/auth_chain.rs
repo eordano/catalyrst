@@ -16,10 +16,10 @@ pub use catalyrst_crypto::signed_fetch::{
 
 pub const ONE_MINUTE: i64 = 60;
 
-/// The metadata fields this surface authorizes on or derives the scene context
-/// from. Only these are pinned to their declared spelling on the legacy payload,
-/// where folding leaves key casing outside the signature; adding a field that a
-/// handler starts reading belongs here too.
+/// The metadata fields this surface authorizes on or derives the scene context from.
+/// Only these are pinned to their declared spelling on the legacy payload, where
+/// folding leaves key casing outside the signature; a field a handler starts reading
+/// belongs here too.
 pub const CANONICAL_METADATA_KEYS: &[&str] = &[
     "signer",
     "realmName",
@@ -170,11 +170,10 @@ pub struct VerifiedRequest {
     pub metadata: SceneAuthMetadata,
 }
 
-/// A scene-signed request must never reach this surface. The gate refuses a
-/// `signer` that is not already canonical instead of folding it before
-/// comparing: padding survives the signature (it was there when signed), so a
-/// folded comparison would read ` decentraland-kernel-scene` as "not a scene"
-/// and serve it as an ordinary user-signed request.
+/// A scene-signed request must never reach this surface. The gate refuses a `signer`
+/// that is not already canonical rather than folding before comparing: padding survives
+/// the signature, so a folded comparison would read ` decentraland-kernel-scene` as
+/// "not a scene" and serve it as an ordinary user-signed request.
 fn scene_signer_gate() -> &'static SignerGate {
     static GATE: OnceLock<SignerGate> = OnceLock::new();
     GATE.get_or_init(|| {
@@ -183,8 +182,7 @@ fn scene_signer_gate() -> &'static SignerGate {
     })
 }
 
-/// The gate is only meaningful over an object, and a non-object metadata header
-/// carries no `signer` for it to read either way.
+/// A non-object metadata header carries no `signer` for the gate to read either way.
 fn metadata_object(raw: &str) -> serde_json::Value {
     match serde_json::from_str::<serde_json::Value>(raw) {
         Ok(value @ serde_json::Value::Object(_)) => value,
@@ -300,9 +298,9 @@ mod tests {
         assert!(matches!(err, AuthChainError::Expired { .. }));
     }
 
-    /// The window used to be skipped whenever the timestamp did not parse, which
-    /// minted a credential that never expired. Every shape that is not plain
-    /// integer milliseconds is now refused outright.
+    /// The window used to be skipped whenever the timestamp did not parse, minting a
+    /// credential that never expired. Anything but plain integer milliseconds is now
+    /// refused outright.
     #[test]
     fn freshness_rejects_timestamps_that_are_not_plain_integer_milliseconds() {
         for raw in [

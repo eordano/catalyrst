@@ -12,17 +12,6 @@ const SceneParcelsSchema = z.object({
   parcels: z.array(z.string()),
 });
 
-/**
- * The delete-confirmation row. `sceneToProject` and the bundled fixture are the
- * only producers, so every field is required and the ones a caller cannot
- * establish are nullable rather than zeroed.
- *
- * `published` and `hasDeployments` are why: the dialog uses them to decide
- * whether deleting the project also drops a live deployment, and `false` said
- * "nothing is deployed" about a project nobody asked about. `size` and the
- * three timestamps are measurements -- `0` is a byte count and an epoch date,
- * both of which the card renders as fact.
- */
 export const ProjectSchema = z.object({
   id: z.string().min(1),
   path: z.string(),
@@ -57,8 +46,6 @@ export const DeleteProjectDataSchema = z.object({
 });
 export type DeleteProjectData = z.infer<typeof DeleteProjectDataSchema>;
 
-/** The copy deck is bundled at build time, so a throw here is a broken build,
- *  not a failed read. Letting it out is the only way anyone finds out. */
 export function deleteCopy(): DeleteCopy {
   return DeleteCopySchema.parse((fixture as { copy: unknown }).copy);
 }
@@ -80,9 +67,6 @@ function sceneHue(id: string): number {
 export function sceneToProject(s: CreatorSceneLike): Project {
   const parcels = Math.max(1, s.parcels ?? 1);
   const h = sceneHue(s.id);
-  // A deployed scene row says nothing about the local project: its size, its
-  // edit times and whether the creator still has files for it are all unread
-  // here, so they travel as null and the card leaves them blank.
   return ProjectSchema.parse({
     id: s.id,
     path: s.base_position ? `Parcel ${s.base_position}` : s.title,

@@ -1,7 +1,3 @@
-// End-to-end SignedFetch pipeline: scene JS -> host op -> fetch worker ->
-// loopback "storage" server, with the produced headers checked against the REAL
-// catalyrst-world-storage verifier in-process.
-
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -262,8 +258,6 @@ async fn signed_fetch_pipeline_signs_caps_and_confines_requests() {
         report("cap")
     );
 
-    // Redirects are not followed; oversized bodies still hit the wire only once;
-    // the off-origin URL never produced a request.
     assert!(
         !reqs.iter().any(|r| r.path_and_query.starts_with("/target")),
         "redirect must not be followed"
@@ -293,8 +287,6 @@ async fn signed_fetch_pipeline_signs_caps_and_confines_requests() {
             .map(|(_, v)| v.clone())
     };
 
-    // Scene header-override attempt: host identity headers win, scene copies of
-    // credential/transport headers are dropped, benign headers pass through.
     assert_eq!(header("x-custom").as_deref(), Some("yes"));
     assert!(header("cookie").is_none());
     assert!(header("authorization").is_none());
@@ -305,7 +297,6 @@ async fn signed_fetch_pipeline_signs_caps_and_confines_requests() {
     let metadata = header("x-identity-metadata").expect("identity metadata");
     assert_ne!(metadata, "evil");
 
-    // Metadata is built from the delegation's derived claim fields.
     let meta: serde_json::Value = serde_json::from_str(&metadata).unwrap();
     assert_eq!(meta["realmName"], WORLD);
     assert_eq!(meta["realm"]["serverName"], WORLD);
@@ -313,7 +304,6 @@ async fn signed_fetch_pipeline_signs_caps_and_confines_requests() {
     assert_eq!(meta["parcel"], PARCEL);
     assert_eq!(meta["isGuest"], false);
 
-    // The chain signs path?query with the ephemeral key.
     let ts = header("x-identity-timestamp").expect("timestamp");
     let link0: serde_json::Value =
         serde_json::from_str(&header("x-identity-auth-chain-0").unwrap()).unwrap();
@@ -336,8 +326,6 @@ async fn signed_fetch_pipeline_signs_caps_and_confines_requests() {
     .unwrap();
     assert_eq!(recovered.to_lowercase(), ephemeral_address.to_lowercase());
 
-    // The scope header on the wire verifies against the REAL verifier for the
-    // matching target -- and fails for wrong world / scene / parcel.
     let authoritative = Wallet::from_hex(AUTHORITATIVE_KEY).unwrap();
     let trusted = vec![authoritative.address()];
     let wire_scope = header("x-authoritative-scope").unwrap();
@@ -458,8 +446,6 @@ async fn expired_delegation_fails_closed_without_touching_the_wire() {
 async fn near_expiry_delegation_is_renewed_before_the_request() {
     let (base, captured) = start_storage_server().await;
 
-    // Fake minter answering with a fresh delegation for the SAME scene under a
-    // new ephemeral key.
     let fresh = mint_envelope(EPHEMERAL2_KEY, WORLD, SCENE_ID, PARCEL, 3600);
     let minter_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let minter_url = format!("http://{}", minter_listener.local_addr().unwrap());

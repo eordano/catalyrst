@@ -1,6 +1,3 @@
-// Pure data model + derivation math for creator scene analytics, ported from
-// the upstream Creator Hub (packages/creator-hub, feat/scene-metrics).
-// All numeric fields are nullable: null means masked / not enough data.
 
 import { realmDeepLink, worldRealmUrl } from "../../data/deepLink";
 
@@ -262,9 +259,6 @@ export function buildSocialSeries(
   };
 }
 
-// Percent change of the daily mean of a picked field between the current
-// window and the immediately preceding window of equal length, rounded to one
-// decimal. Null when either window has no data or the previous mean is zero.
 export function dailyMeanDelta(
   scenes: SceneStats[],
   asOf: string,
@@ -332,8 +326,6 @@ export function formatMinutes(seconds: number | null): string {
     : `${Math.round((seconds / 60) * 10) / 10} min`;
 }
 
-// Accepts a plain date ("2026-07-12", rendered as a UTC calendar date) or a
-// full ISO timestamp (rendered as a date in the viewer's timezone).
 export function formatDate(date: string): string {
   const isTimestamp = date.includes("T");
   return new Intl.DateTimeFormat(undefined, {
@@ -363,11 +355,6 @@ export { truncateAddress } from "../../data/format";
 
 export const SUBMIT_EVENT_URL = "https://decentraland.org/events/submit";
 
-/**
- * Pass `realmBaseUrl` for anything self-hosted: without it the only link this
- * can offer is decentraland.org's, which forwards `realm` solely for realms it
- * whitelists and otherwise drops it, landing the visitor in Genesis.
- */
 export function jumpInUrl(scene: SceneStats, realmBaseUrl?: string): string {
   const position =
     scene.sceneType === "world" ? "0,0" : scene.sceneId.replace("|", ",");

@@ -69,13 +69,11 @@ fn already_verified(hash: &str) -> bool {
         .unwrap_or(false)
 }
 
-/// The metadata to reuse for `candidate`, or `None` when the interval has to be regenerated.
-///
 /// Reuse is the one path that republishes a hash without recomputing it, so it is the one path that
 /// has to check. `exist()` answers "is there a file at this key", which is not the same question: a
 /// bulk import in 2026-05 wrote five snapshots whose CIDs it had computed with a broken multi-level
 /// DAG, and because those intervals are frozen history the reuse gate re-advertised them every cycle
-/// for months. Every peer that fetched one got bytes that did not hash to the CID we had named, and
+/// for months; every peer that fetched one got bytes that did not hash to the CID we had named, and
 /// rejected the payload.
 ///
 /// When bytes and key disagree the bytes are the truth -- the snapshot is good and only its name is
@@ -110,9 +108,6 @@ async fn reusable_snapshot(
         actual, "Stored snapshot does not hash to its advertised CID; re-keying"
     );
 
-    // Renamed before the row moves: a crash in between leaves the row pointing at a key that is now
-    // absent, which regenerates on the next cycle. The other order would leave the wrong CID still
-    // serving its mismatched bytes, which is the defect itself.
     match content_storage.rekey(advertised, &actual).await {
         Ok(true) => {}
         Ok(false) => return None,

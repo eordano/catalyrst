@@ -18,14 +18,6 @@ export type CreatorsDataOptions = {
   fetchImpl?: typeof fetch;
 };
 
-/**
- * `GET {creators-data}/worlds/{world}/metrics`.
- *
- * There is no retry affordance anywhere above this: the service is not deployed
- * (the host serves the marketing SPA) and the artifact behind it reports
- * `source: "fixture"`, so a retry cannot succeed and offering one would imply a
- * transient failure. It stays in the ledger under UNAVAILABLE, not SNAPSHOT.
- */
 export async function loadWorldMetricsArtifact(
   world: string,
   opts: CreatorsDataOptions = {},

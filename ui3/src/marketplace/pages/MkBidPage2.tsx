@@ -80,7 +80,6 @@ type MkBidPage2Props = {
   confirming?: boolean;
   lowPriceWarn?: boolean;
   chrome?: boolean;
-  /** Forwarded to `Modal`. `false` renders the confirm dialog in place instead of portalling it. */
   portal?: boolean;
   banner?: ReactNode;
   onBack?: () => void;

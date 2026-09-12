@@ -40,11 +40,6 @@ type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {};
 
-/**
- * Same args as `Default`; kept as its own export because the story id
- * `marketplace-newshop-herobanner--purple` is a screen-tour deep link
- * (`tools/screen-tour/sb-links.mts`).
- */
 export const Purple: Story = {};
 
 const CASES: { label: string; args: Partial<BannerProps> }[] = [
@@ -61,7 +56,6 @@ const CASES: { label: string; args: Partial<BannerProps> }[] = [
   { label: "No art, no CTA", args: { cta: undefined, subtitle: undefined } },
 ];
 
-/** Every tone plus the trimmed variant, all kept in the render + a11y + visual-diff gates. */
 export const Catalog: Story = {
   name: "Catalog (every tone)",
   parameters: { controls: { disable: true } },

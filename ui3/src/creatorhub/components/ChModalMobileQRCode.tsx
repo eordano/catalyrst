@@ -10,7 +10,6 @@ const COPY = {
   noAddress: "No preview address to share yet.",
 };
 
-
 export type MobileDebugSession = { id: number; messageCount: number };
 
 type ChModalMobileQRCodeProps = {
@@ -18,7 +17,6 @@ type ChModalMobileQRCodeProps = {
   url?: string;
   sessions?: MobileDebugSession[];
   simulateLive?: boolean;
-  /** Forwarded to `Modal`. `false` renders the dialog in place instead of portalling it. */
   portal?: boolean;
   onClose?: () => void;
 };
@@ -34,9 +32,6 @@ export default function ChModalMobileQRCode({
   const titleId = useId();
   const [qr, setQr] = useState<string | null>(null);
 
-  // A real encoder, the same one data/auth/pair.ts uses. This modal previously
-  // drew an xorshift matrix with fake finder patterns: it looked like a QR,
-  // scanned as nothing, and sat under copy telling the user to scan it.
   useEffect(() => {
     if (!open || !url) {
       setQr(null);

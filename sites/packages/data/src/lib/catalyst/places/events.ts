@@ -17,15 +17,6 @@ import type { EventRecord as RsEvent } from "@ui/generated/catalyst/events/Event
 import type { EventCategoryRecord as RsEventCategory } from "@ui/generated/catalyst/events/EventCategoryRecord";
 import { warnInvalid } from "../warn";
 
-/**
- * Validation truth is the generated `EventRecordSchema` (the ts-rs image of
- * catalyrst-events' `EventRecord`): every flag and every measurement is
- * required on the wire, so nothing here defaults an unread value into a
- * reading. `Event` keeps the historical, wider view type (nullable name,
- * coordinates, attendee count) that every consumer was written against; a
- * parsed wire record satisfies it structurally, so "normalization" is the
- * widening itself and no field is rewritten.
- */
 export type EventRecord = z.infer<typeof EventRecordSchema>;
 
 export type Event = {
@@ -55,7 +46,6 @@ export type Event = {
   place_id: string | null;
 };
 
-/** The UI reads one localized label out of the wire record's open i18n map. */
 export type EventCategory = {
   name: string;
   active: boolean;
@@ -64,12 +54,6 @@ export type EventCategory = {
 
 export type EventAttendee = z.infer<typeof EventAttendeeRecordSchema>;
 
-/**
- * Throws when the payload is not an `EventRecord`. The old fallback cast a
- * rejected payload to `Event` and shipped it; callers that can degrade already
- * wrap the fetch in try/catch, so a validation failure now surfaces the same
- * way an unreachable service does.
- */
 export function parseEvent(raw: unknown): Event {
   const r = EventRecordSchema.safeParse(raw);
   if (r.success) return r.data;
@@ -77,7 +61,6 @@ export function parseEvent(raw: unknown): Event {
   throw new CatalystError("event payload failed validation", "events");
 }
 
-/** Rows that do not parse are dropped with a warning, never cast. */
 export function parseEvents(raw: unknown[]): Event[] {
   const out: Event[] = [];
   for (const row of raw ?? []) {
@@ -225,14 +208,11 @@ function hueFor(id: string): number {
 export type LiveNowCard = {
   id: string;
   title: string;
-  /** null when the event carries no attendee count; the badge says so rather
-   *  than showing a zero nobody counted */
   users: number | null;
   isEvent: boolean;
   creator: string;
   hue: number;
   image?: string;
-  /** absent when the event has no map position -- see `eventJumpUrl` */
   jumpUrl?: string;
 };
 
@@ -252,9 +232,6 @@ export function effectiveStartAt(e: Event, now = new Date()): string | null {
   return e.next_start_at ?? e.start_at;
 }
 
-/** Null when the event carries no map position. `0,0` is a real parcel in
- *  Genesis City, so defaulting to it does not mean "unknown" -- it drops the
- *  visitor somewhere the organiser never chose. */
 export function eventJumpUrl(e: Event): string | null {
   const [x, y] = eventPosition(e);
   if (x === null || y === null) return null;
@@ -296,8 +273,6 @@ export function formatEventWhen(iso: string | null): string {
     .toUpperCase();
 }
 
-/** Null, not `(0,0)`, when the event has no position: every caller either omits
- *  the location line or names it as unpublished. */
 export function eventCoords(e: Event): string | null {
   const [x, y] = eventPosition(e);
   return x === null || y === null ? null : `(${x},${y})`;

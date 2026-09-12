@@ -153,9 +153,6 @@ impl CreditsComponent {
         .fetch_all(&self.pool)
         .await?;
 
-        // The empty cart returns zero rows, so the window sum has nowhere to
-        // ride out -- reproduce the old `COALESCE(SUM(...), 0)` branch with the
-        // literal "0" here.
         let total: String = rows
             .first()
             .map(|r| r.get("total"))
@@ -318,10 +315,6 @@ impl CreditsComponent {
         let qtys: Vec<i32> = repriced.iter().map(|l| l.qty).collect();
         let modes: Vec<String> = repriced.iter().map(|l| l.mode.clone()).collect();
 
-        // `total` can legitimately be 0 -- an all-free cart. `total_is_zero` is
-        // decided by PostgreSQL in NUMERIC because the text form may render as
-        // "0.00", and it is needed below: a wallet with no `user_credits` row
-        // can still afford a zero total.
         let total_row = sqlx::query(
             "SELECT COALESCE(SUM(p::numeric * q), 0)::text AS total, \
                     (COALESCE(SUM(p::numeric * q), 0) = 0) AS is_zero \
@@ -350,9 +343,6 @@ impl CreditsComponent {
         .bind(&total)
         .fetch_optional(&mut *tx)
         .await?;
-        // No wallet row means a zero balance, which is sufficient for a zero
-        // total and nothing else. Returning `false` unconditionally used to
-        // 402 a brand-new wallet checking out an all-free cart.
         let sufficient = bal
             .map(|r| r.get::<bool, _>("sufficient"))
             .unwrap_or(total_is_zero);
@@ -1213,13 +1203,11 @@ mod tests {
 /// `characterization_*` tests in money.rs, ports/pricing.rs, handlers/packs.rs,
 /// and purchase_intent.rs). This grammar -- trim, split on the first `.`,
 /// require both spans all-ASCII-digit and not both empty -- is byte-identical
-/// to `charge_is_positive`'s prefix (that shared prefix is what
-/// `split_validated_decimal` now extracts), which is why the None/Some split
-/// below matches `charge_is_positive`'s reject/accept split on every input:
-/// scientific notation and a stray extra `.` are rejected, but there is no
-/// magnitude bound (a huge digit string parses fine) and, unlike
-/// `CreditAmount`, surrounding whitespace is tolerated because of the
-/// leading `.trim()`.
+/// to `charge_is_positive`'s prefix (extracted as `split_validated_decimal`),
+/// so the None/Some split below matches its reject/accept split on every
+/// input: scientific notation and a stray extra `.` are rejected, there is no
+/// magnitude bound, and unlike `CreditAmount` surrounding whitespace is
+/// tolerated.
 #[cfg(test)]
 mod characterization_parse_nonneg_decimal {
     use super::parse_nonneg_decimal;

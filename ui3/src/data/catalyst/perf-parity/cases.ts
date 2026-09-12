@@ -1,35 +1,3 @@
-// The payloads and reader calls the perf-parity gate compares across the two
-// build modes.
-//
-// The requirement being stated here: performance mode (DCL_PERF=1) removes
-// VALIDATION and nothing else. For a payload the default build accepts, both
-// modes must produce byte-identical reader output. Everything a reader does
-// besides deciding whether to reject -- repointing a CDN host, turning an absent
-// field into null, filing an unknown emote category under the catch-all -- has to
-// run in both, which means it cannot live inside a module the perf build
-// replaces with an accepting stub.
-//
-// Split into three groups, because only the first two can demand equality:
-//
-//   parity      every row is valid, so validation has nothing to reject and the
-//               two outputs must be identical.
-//   guarded     one row is malformed in a way the READER's own structural guard
-//               rejects (rows.ts). A guard is written without zod and lives
-//               beside the mapper it protects, so nothing strips it -- both modes
-//               drop the row and the two outputs must be identical. This is the
-//               group that proves a guard actually runs in perf mode; without it
-//               "the guard survives the stub" is a claim about source code.
-//   robustness  one row is malformed in a way only the SCHEMA rejects. The
-//               default build drops it and perf keeps it -- that difference IS
-//               "what is checked" and is allowed. What is not allowed is losing
-//               the VALID rows: a reader that throws because a stub handed a bad
-//               row to a view mapper returns nothing at all, which is a crash,
-//               not a relaxed check.
-//
-// Kept out of `src/**/*.test.ts` on purpose: a single vitest process resolves
-// one mode (vite.validate.js reads DCL_PERF at config time), so these run twice
-// under vitest.perf-parity.config.ts and scripts/check-perf-parity.mts diffs the
-// two captures.
 
 import {
   parseCatalog,
@@ -47,11 +15,6 @@ import { parseNotifications } from "../notifications";
 import { fetchCategories, fetchPlace, fetchPlaces } from "../placesSchema";
 import { fetchProfile, parseProfileEnvelope } from "../profile";
 
-/**
- * The confirmed ways perf mode changes behaviour today. A case declares what it
- * probes so the runner can report a failure as the divergence it is rather than
- * as an anonymous field diff.
- */
 export type Divergence =
   | "federated-cdn"
   | "normalization"
@@ -79,30 +42,14 @@ export const DIVERGENCE_LEGEND: Record<Divergence, string> = {
     "them; the accepting stub returns them all.",
 };
 
-/**
- * A value the DEFAULT build must produce, checked against a literal rather than
- * against the other mode.
- *
- * The differential alone is blind in the one direction that matters: delete a
- * normalization outright and BOTH modes lose it, so they still agree and the
- * gate stays green. Confirmed by probe -- removing the CDN rewrite from
- * `normalizeCommunityThumbnail` left this harness reporting 27/27 identical
- * while pointing community thumbnails back at the prod CDN.
- *
- * An anchor is what a differential cannot be: a statement about the RIGHT
- * answer, not merely a matching one. Only normalizations whose loss is a
- * production incident need one.
- */
 export type ParityAnchor = {
   id: string;
-  /** Pulled out of the default-mode capture for this case id. */
   select: (output: unknown) => unknown;
   expect: unknown;
   why: string;
 };
 
 export type ParityCase = {
-  /** Stable across runs -- the runner joins the two captures on it. */
   id: string;
   group: "parity" | "guarded" | "robustness";
   probes: Divergence[];
@@ -129,8 +76,6 @@ const COMMUNITY_ID = "e99471aa-31c4-4952-abf6-99905445f43b";
 const OTHER_COMMUNITY_ID = "b6f0a2c1-4a55-4a0e-9a19-6c5f2b7d1e33";
 const ADDR = "0x6b7c0c4e28d1a1eff3fd0f5fca69ab0b1f5f9c1a";
 
-// A signed read: the service fills in every optional field, and the thumbnail
-// still points at the PROD CDN the way the social service writes it.
 const communitySigned = {
   id: COMMUNITY_ID,
   name: "Winterfest Crew",
@@ -145,8 +90,6 @@ const communitySigned = {
   role: "member",
 };
 
-// The same service, read anonymously: viewer-relative fields are omitted and the
-// thumbnail is the literal sentinel. Both normalize to null.
 const communityAnonymous = {
   id: OTHER_COMMUNITY_ID,
   name: "Parkour Guild",
@@ -158,9 +101,6 @@ const communityAnonymous = {
   isLive: false,
 };
 
-// Every field present, on a host the rewrite must leave alone -- so a fix that
-// rewrites unconditionally is not a fix, and so this row is identical in both
-// modes and can serve as the robustness group's known-good element.
 const communityFederated = {
   ...communityAnonymous,
   id: "3f5a1d90-77b2-4a1c-8a1f-9c2e4b6d8a70",
@@ -201,8 +141,6 @@ const postFull = {
   authorHasClaimedName: true,
 };
 
-// The same post as stored before the service backfilled createdAt: the key is
-// absent, not null.
 const postNoDate = {
   id: "0a4b8c12-3d5e-4f60-9a71-c2d3e4f50222",
   authorAddress: postFull.authorAddress,
@@ -237,8 +175,6 @@ const placeFull = {
   updated_at: "2026-07-28T09:12:00Z",
 };
 
-// The shape catalyrst-places emits for a quiet unnamed parcel: the optional
-// columns are absent rather than null.
 const placeSparse = {
   id: "1c8f4d22-5a6b-4c7d-8e9f-0a1b2c3d4e5f",
   base_position: "12,-4",
@@ -354,7 +290,6 @@ const avatarFull = {
   },
 };
 
-// A profile that has never been edited: the optional strings are simply absent.
 const avatarSparse = {
   ethAddress: "0x0000000000000000000000000000000000000006",
   userId: "0x0000000000000000000000000000000000000006",
@@ -842,30 +777,14 @@ export const CASES: ParityCase[] = [
   },
 ];
 
-/**
- * Default-mode expectations, checked against literals.
- *
- * Deliberately few: an anchor earns its place only where losing the
- * normalization is a production incident rather than a cosmetic change. Both of
- * these were confirmed blind to the differential -- deleting the rewrite left
- * the harness green at 27/27 while sending thumbnails to the prod CDN.
- *
- * `serviceBase` is called rather than hard-coded so the anchor asserts "the
- * federated host, whatever it is configured to be", not one deployment's URL.
- */
 export const ANCHORS: ParityAnchor[] = [
   {
     id: "communities/loadCommunities",
-    // loadCommunities resolves Community[], not an envelope.
     select: (out) =>
       ((out as { thumbnailUrl?: string | null }[]) ?? []).map((r) => r.thumbnailUrl ?? null),
     expect: [
       `${serviceBase("communitiesCdn")}/social/communities/${COMMUNITY_ID}/raw-thumbnail.png`,
       null,
-      // A host the rewrite must LEAVE ALONE -- it only matches the prod CDN
-      // prefix -- so this one is a literal, not a serviceBase() call. Writing it
-      // as serviceBase() was wrong and the anchor caught it: that would assert
-      // the rewrite fires on a URL it must not touch.
       "https://assets-cdn.decentraland.org/social/communities/3f5a1d90-77b2-4a1c-8a1f-9c2e4b6d8a70/raw-thumbnail.png",
     ],
     why:

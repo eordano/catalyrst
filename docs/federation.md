@@ -4,12 +4,7 @@ Federation is catalyrst-peer-to-peer - it never writes back to Decentraland serv
 
 ## Write contract
 
-```
-sign -> verify (signature, session delegation, clock skew)
-     -> authority check -> apply, persist (Postgres)
-     -> publish GossipEnvelope (best-effort)
-     -> peers re-verify, apply, or fall back to snapshot-pull
-```
+Sign, then verify (signature, session delegation, clock skew), authority check, apply + persist to Postgres, publish a `GossipEnvelope` best-effort; peers re-verify and apply, or fall back to snapshot-pull.
 
 Upstream community/social mutations: signed-fetch headers, plain JSON body, `204`/`201 {data:...}`. Catalyrst federated mutations: EIP-712 `Signed<T>` JSON envelope in the body, `200 {ok:true, signature_hash, ...}` - the envelope travels with the payload for peer replay (signed-fetch is request-bound, ungossipable). Community write routes share one path: a body carrying `domain`+`message`+`signature` -> federation path (verify, append to federation log, gossip); anything else -> client-compat (`handlers/client/`): stock-explorer signed-fetch, upstream body shapes, parity responses. Client-compat writes are node-local: never in the federation log, so neither gossip nor snapshot-pull propagates them.
 

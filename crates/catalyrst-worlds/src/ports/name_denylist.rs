@@ -191,7 +191,6 @@ mod tests {
         for list in &lists {
             let set = BannedNames::from_list(list.clone());
             for name in &names {
-                // The exact expression the code used before the HashSet rewrite.
                 let reference = list
                     .iter()
                     .any(|n| n.to_lowercase() == normalize_world_name(name));

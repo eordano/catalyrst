@@ -17,9 +17,6 @@ struct ParsedEntity {
     entity_pointers: Vec<String>,
     auth_chain: Value,
     content: Vec<(String, String)>,
-    // The stream's accounting this entity belongs to, so a loss discovered as late as a failed
-    // batch flush can still be attributed to the pass that scheduled the entity instead of
-    // contaminating every concurrent stream through the global counter.
     report: Option<Arc<DeploymentReport>>,
 }
 
@@ -136,24 +133,12 @@ fn spawn_flush(
         let _permit = flush_sem.acquire().await;
         if let Err(e) = flush_batch(&pool, &entities).await {
             tracing::error!(error = %e, count = entities.len(), "Batch flush failed");
-            // The scheduling side already reported these entities as handed off, so a dropped
-            // batch would be a silent loss: nothing re-delivers them and the sync frontier may
-            // already be waiting to advance past them. Record every entity of the failed batch
-            // in failed_deployments so the retry loop re-deploys them; anything that cannot even
-            // be recorded is counted as lost -- globally as a metric, and on the entity's own
-            // report, which is what holds that stream's frontier back.
             let failed_store = LiveFailedDeploymentsStore::new(pool.clone());
-            // Deduped by entity_id like flush_batch itself, so a duplicate in the batch does not
-            // issue a redundant report_failure.
             let mut seen = std::collections::HashSet::with_capacity(entities.len());
             for entity in &entities {
                 if !seen.insert(entity.entity_id.as_str()) {
                     continue;
                 }
-                // An auth chain that no longer round-trips is a silent loss, not a recordable
-                // failure: a failed_deployments row with an empty auth chain could never be
-                // retried, so writing one would count the entity as handled while guaranteeing
-                // it is not.
                 let auth_chain: AuthChain = match serde_json::from_value(entity.auth_chain.clone())
                 {
                     Ok(chain) => chain,
@@ -239,10 +224,10 @@ impl LiveSyncDeployer {
         );
     }
 
-    /// Cumulative count of entities this deployer dropped without any durable record: their
-    /// batch flush failed AND recording them in failed_deployments failed too. Callers compare
-    /// this before and after a drain -- any growth means the sync frontier must not advance,
-    /// because nothing will ever re-deliver those entities.
+    /// Entities this deployer dropped without any durable record: the batch flush failed AND
+    /// recording them in failed_deployments failed too. Callers compare this before and after a
+    /// drain -- any growth means the sync frontier must not advance, because nothing will
+    /// re-deliver those entities.
     pub fn lost_count(&self) -> u64 {
         self.lost.load(std::sync::atomic::Ordering::SeqCst)
     }
@@ -464,14 +449,6 @@ async fn flush_batch(pool: &PgPool, entities: &[ParsedEntity]) -> Result<(), Syn
     .map_err(|e| SyncError::Storage(e.to_string()))?;
 
     sqlx::query!(
-        // The OFFSET 0 fence is load-bearing, and entity_type must stay OUTSIDE
-        // it: with both predicates inside, the planner may still index-drive the
-        // (entity_type, entity_timestamp, entity_id) btree and test && per row -
-        // a whole-type walk per batch entity (60s statement timeouts, sync
-        // wedged; 2026-08-06, and again 2026-08-11 on a stats-less bootstrap DB
-        // where the gin loses on cost). With && as the only sargable predicate
-        // inside the fence, candidates can only come from the entity_pointers
-        // gin (or a seqscan), regardless of table statistics.
         r#"
         UPDATE deployments AS n
         SET deleter_deployment = sub.newer_id
@@ -615,8 +592,6 @@ impl LiveProcessedSnapshotStore {
     }
 }
 
-// One bounded lookup batch. Upstream (snapshots-fetcher 53e9c07) uses 1000: far under any bind
-// limit while keeping realistic passes to a single round trip.
 const PROCESSED_SNAPSHOT_LOOKUP_CHUNK_SIZE: usize = 1000;
 
 impl LiveProcessedSnapshotStore {
@@ -634,9 +609,8 @@ impl LiveProcessedSnapshotStore {
         Ok(rows.into_iter().collect())
     }
 
-    /// Looks up processed snapshots in bounded batches, merging the results -- the port of
-    /// upstream's `filterProcessedSnapshotsInChunks`. Serial rather than concurrent on purpose:
-    /// the point is to bound the load one decision pass puts on storage, and issuing every
+    /// Port of upstream's `filterProcessedSnapshotsInChunks`. Serial rather than concurrent on
+    /// purpose: the point is to bound the load one decision pass puts on storage, and issuing every
     /// chunk at once would keep the peak it is meant to remove.
     pub async fn filter_processed_in_chunks(
         &self,
@@ -947,8 +921,6 @@ fn warn_cursor_table_missing() {
 
 #[cfg(test)]
 mod tests {
-    // The DB integration suite (tests/sync_frontier_monotonic.rs) only runs with a test
-    // postgres configured; this pin holds the monotonic upsert shape without one.
     #[test]
     fn sync_frontier_upsert_is_greatest_monotonic() {
         assert!(super::ADVANCE_SYNC_FRONTIER_SQL

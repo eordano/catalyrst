@@ -9,23 +9,7 @@ import {
   validationFailures,
 } from "../validate";
 
-// The seam's failure policy is used by all 16 check() call sites, so one set of
-// tests protects every boundary. None of this was covered before: the reporter
-// call, the once-per-boundary suppression and the return-the-original rule
-// could all be deleted with both suites green.
-//
-// Vite inlines import.meta.env.DEV as a literal, so neither vi.stubEnv nor a
-// direct assignment can reach the branch inside checked.ts -- both were tried
-// and both silently kept the dev path. setValidationDevMode is the hook that
-// makes the production branch reachable at all.
-
 const Schema = z.object({ a: z.string() });
-
-// Assigned directly rather than through vi.stubEnv, which coerces to a string:
-// stubEnv("DEV", false) yields "false", and Boolean("false") is true, so the
-// production branch never ran and the two tests below failed against the dev
-// throw. Worth knowing before reaching for stubEnv on any boolean env flag.
-
 
 beforeEach(() => {
   resetValidationFailures();
@@ -44,8 +28,6 @@ describe("check", () => {
 
   test("throws in dev, and the message names the persisted-state cause", () => {
     expect(() => check(Schema, { a: 1 }, "t/bad")).toThrow(/validation failed at t\/bad/);
-    // The branch-switch hint is the whole reason persisted state can keep the
-    // dev throw without being mystifying.
     expect(() => check(Schema, { a: 1 }, "t/bad")).toThrow(/older build/);
   });
 

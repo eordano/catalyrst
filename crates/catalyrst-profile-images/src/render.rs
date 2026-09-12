@@ -100,20 +100,10 @@ impl GodotRenderer {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .kill_on_drop(true)
-            // Its own process group, so a timeout can reap the whole tree. The
-            // binary is a wrapper that starts an X server beside godot, and
-            // kill_on_drop's SIGKILL reaches only the wrapper -- the server and
-            // godot would outlive it, once per timeout, forever.
             .process_group(0);
         if let Some(display) = &self.cfg.display {
             cmd.env("DISPLAY", display);
         }
-        // The payload's baseUrl only steers the profile fetch. Wearable and
-        // emote lookups go through the engine's own peer_base(), which upstream
-        // pins to peer.decentraland.org -- so without this a self-hosted node
-        // resolves its avatars against Decentraland's catalyst. The patched
-        // build reads DCL_PEER_BASE; on an unpatched binary it is ignored and
-        // behaviour is unchanged.
         cmd.env("DCL_PEER_BASE", peer_base_of(content_base));
 
         tracing::debug!(
@@ -138,11 +128,6 @@ impl GodotRenderer {
             }
         };
 
-        // The images decide the outcome, not the exit code. Godot writes both
-        // PNGs and only then tears down its GL context, where the NVIDIA driver
-        // aborts on a double free -- so a run that produced perfectly good
-        // output can still exit non-zero. Verify first, and report the exit
-        // status only when there is nothing usable on disk to serve.
         let body_ok = verify_output(&body_path, ImageKind::Body).await;
         let face_ok = verify_output(&face_path, ImageKind::Face).await;
         if let (Ok(()), Ok(())) = (&body_ok, &face_ok) {
@@ -169,11 +154,8 @@ impl GodotRenderer {
     }
 }
 
-/// The catalyst root a content base belongs to, e.g.
-/// `http://127.0.0.1:5141/content` -> `http://127.0.0.1:5141`.
-///
-/// The engine appends its own `/content/` and `/lambdas/`, so it wants the root
-/// rather than the content endpoint the payload carries.
+/// The engine appends its own `/content/` and `/lambdas/`, so it wants the
+/// catalyst root rather than the content endpoint the payload carries.
 fn peer_base_of(content_base: &str) -> String {
     let trimmed = content_base.trim_end_matches('/');
     trimmed
@@ -182,12 +164,11 @@ fn peer_base_of(content_base: &str) -> String {
         .to_string()
 }
 
-/// SIGKILL every process in `pgid`, which spawn() made a group of its own.
-///
-/// Runs after kill_on_drop has already SIGKILLed the group leader, so this is
-/// what actually reaches the X server and godot beneath it. Best-effort:
-/// the group is simply gone when a render exits between the timeout firing and
-/// this call, and ESRCH is the ordinary result rather than a fault to report.
+/// SIGKILLs the whole group `spawn()` put the child in. Runs after kill_on_drop
+/// has already SIGKILLed the group leader, so this is what actually reaches the
+/// X server and godot beneath it. Best-effort: the group is simply gone when a
+/// render exits between the timeout firing and this call, and ESRCH is the
+/// ordinary result rather than a fault to report.
 fn kill_process_group(pgid: u32) {
     let pgid = pgid as i32;
     if pgid <= 0 {

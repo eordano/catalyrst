@@ -11,17 +11,16 @@ pub const FIVE_MINUTES: i64 = 5 * 60;
 
 pub const KERNEL_SCENE_SIGNER: &str = "decentraland-kernel-scene";
 
-/// The explorer comms handshakes. The js explorers still sign the folded payload
-/// with camelCase metadata; bevy-explorer mints the 6.x payload, which the
-/// guarded fallback already tries first. So the fallback stays on behind exactly
-/// the keys upstream pins; `intent` is not read here but is declared so a re-spelled
-/// `Intent` is refused on the same requests upstream refuses it. Empty the list
-/// once every explorer signs the 6.x payload.
+/// The explorer comms handshakes. The js explorers still sign the folded payload with
+/// camelCase metadata while bevy-explorer mints the 6.x payload, so the fallback stays
+/// on behind exactly the keys upstream pins. `intent` is not read here but is declared
+/// so a re-spelled `Intent` is refused on the same requests upstream refuses it. Empty
+/// the list once every explorer signs the 6.x payload.
 pub const EXPLORER_METADATA_KEYS: &[&str] = &["signer", "intent", "secret"];
 
-/// `POST /world/:name/permissions/:permission` only: creator-hub still signs the
-/// folded payload here and `post_permissions` reads every one of these. A key
-/// list pins spellings, never values, which is why this reaches one route.
+/// `POST /world/:name/permissions/:permission` only: creator-hub still signs the folded
+/// payload here and `post_permissions` reads every one of these. A key list pins
+/// spellings, never values, which is why this reaches one route.
 pub const PERMISSIONS_METADATA_KEYS: &[&str] =
     &["signer", "type", "secret", "wallets", "communities", "nft"];
 
@@ -40,9 +39,9 @@ impl VerifiedAuth {
     }
 }
 
-/// Refuses a `signer` that is not already canonical instead of folding it, and
-/// refuses a key that merely folds to `signer`: either would otherwise read as
-/// "not a scene" on a request whose delivered bytes are exactly what it signed.
+/// Refuses a `signer` that is not already canonical rather than folding it, and refuses
+/// a key that merely folds to `signer`: either would otherwise read as "not a scene" on
+/// a request whose delivered bytes are exactly what it signed.
 fn scene_signer_gate() -> &'static SignerGate {
     static GATE: OnceLock<SignerGate> = OnceLock::new();
     GATE.get_or_init(|| {
@@ -50,10 +49,10 @@ fn scene_signer_gate() -> &'static SignerGate {
     })
 }
 
-/// `canonical_metadata_keys` is the switch for the folded-payload fallback: a
-/// route that names no keys verifies the 6.x payload only. The owner-only
-/// routes (scene delete, undeploy, settings, per-address permissions) name
-/// none, as upstream keeps them strict; the gate still answers there.
+/// `canonical_metadata_keys` is the switch for the folded-payload fallback: a route
+/// naming no keys verifies the 6.x payload only. The owner-only routes (scene delete,
+/// undeploy, settings, per-address permissions) name none, as upstream keeps them
+/// strict; the gate still answers there.
 pub async fn require_verified(
     headers: &HeaderMap,
     method: &str,

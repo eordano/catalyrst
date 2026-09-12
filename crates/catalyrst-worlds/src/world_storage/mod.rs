@@ -472,20 +472,13 @@ mod signer_directly_authorized_tests {
             "0xlast".to_string(),
         ];
         let cases: &[(Option<&str>, &[String], &str)] = &[
-            // signer == authoritative
             (Some("0xauth"), &list, "0xauth"),
-            // signer at first / middle / last of the list
             (Some("0xauth"), &list, "0xfirst"),
             (Some("0xauth"), &list, "0xmiddle"),
             (Some("0xauth"), &list, "0xlast"),
-            // signer in neither
             (Some("0xauth"), &list, "0xnope"),
-            // authoritative None + empty list
             (None, &[], "0xanything"),
-            // case-mismatch trap: comparison stays case-sensitive vs the pre-lowercased
-            // signer, so this is FALSE in both.
             (Some("0xABC"), &[], "0xabc"),
-            // signer present in BOTH
             (Some("0xdup"), &["0xdup".to_string()], "0xdup"),
         ];
         for (auth, l, signer) in cases {

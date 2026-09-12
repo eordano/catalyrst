@@ -31,7 +31,6 @@ test("overlay boots to the lobby with Continue as guest, deferring the engine", 
   await userEvent.click(jump.closest("button") ?? jump);
   expect(screen.queryByText("Continue as guest")).toBeNull();
 
-  // Continue as guest advances to the destination picker; skipping it hands off to the loading gate.
   const skip = await screen.findByText("Skip to Genesis Plaza");
   await userEvent.click(skip.closest("button") ?? skip);
   expect(document.querySelector(".boot")).toBeTruthy();

@@ -13,20 +13,16 @@ pub use catalyrst_crypto::signed_fetch::{
 
 pub const FIVE_MINUTES: i64 = 5 * 60;
 
-/// Mirrors @dcl/crypto-middleware >=5.1.0 (marketplace-server #388): the
-/// signed-fetch `verify()` entrypoint rejects, with HTTP 400 and a message
-/// prefixed `Invalid chain metadata: `, any request whose `x-identity-metadata`
-/// JSON carries a `signer` or `intent` that is not canonical -- i.e. differs from
-/// its own `trim().to_lowercase()` (mixed case or surrounding whitespace). This
-/// fires before any route-specific validator. A request with no `signer`/`intent`
-/// (or non-JSON metadata) is unaffected.
+/// Mirrors @dcl/crypto-middleware >=5.1.0 (marketplace-server #388): rejects, with the
+/// route-facing 400 message prefixed `Invalid chain metadata: `, any `x-identity-metadata`
+/// whose `signer` or `intent` differs from its own `trim().to_lowercase()`. Fires before any
+/// route-specific validator; metadata with no `signer`/`intent`, or non-JSON, is unaffected.
 ///
-/// Why it matters: the signed-fetch client lowercases the payload before signing
-/// but delivers the metadata header with its original casing, so a mixed-case
-/// `signer` produces a signature byte-identical to the canonical spelling's -- a
-/// scene-signed request (`Decentraland-Kernel-Scene`) could otherwise slip past a
-/// case-sensitive service gate as if directly user-signed. Returns the full
-/// route-facing 400 message on rejection.
+/// Why it matters: the signed-fetch client lowercases the payload before signing but delivers
+/// the metadata header with its original casing, so a mixed-case `signer` produces a
+/// signature byte-identical to the canonical spelling's -- a scene-signed request
+/// (`Decentraland-Kernel-Scene`) could otherwise slip past a case-sensitive service gate as
+/// if directly user-signed.
 pub fn check_canonical_metadata(metadata: &str) -> Result<(), String> {
     let Ok(value) = serde_json::from_str::<serde_json::Value>(metadata) else {
         return Ok(());
@@ -34,7 +30,6 @@ pub fn check_canonical_metadata(metadata: &str) -> Result<(), String> {
     for key in ["signer", "intent"] {
         if let Some(raw) = value.get(key).and_then(serde_json::Value::as_str) {
             if raw != raw.trim().to_lowercase() {
-                // Upstream echoes the raw metadata back, truncated at 64 chars.
                 let echo: String = metadata.chars().take(64).collect();
                 return Err(format!("Invalid chain metadata: {echo}"));
             }
@@ -43,16 +38,14 @@ pub fn check_canonical_metadata(metadata: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// Header-facing wrapper for [`check_canonical_metadata`]: reads
-/// `x-identity-metadata` (defaulting to `{}`, like the signature path) and
-/// surfaces a 400 `ApiError` on a non-canonical `signer`/`intent`.
+/// Reads `x-identity-metadata`, defaulting to `{}` like the signature path does.
 pub fn require_canonical_metadata(headers: &HeaderMap) -> Result<(), ApiError> {
     let metadata = signed_fetch::header_str(headers, AUTH_METADATA_HEADER).unwrap_or("{}");
     check_canonical_metadata(metadata).map_err(ApiError::bad_request)
 }
 
-/// The signer allow-list upstream installs on the routes a marketplace or
-/// builder client is the only legitimate caller of (routes.ts:122,165).
+/// Upstream installs this on the routes a marketplace or builder client is the only
+/// legitimate caller of (routes.ts:122,165).
 pub const MARKETPLACE_AUTH_SIGNERS: &[&str] = &["dcl:marketplace", "dcl:builder"];
 
 /// The intent upstream demands of POST /v1/trades (routes.ts:122).
@@ -62,13 +55,11 @@ pub const CREATE_TRADE_INTENT: &str = "dcl:create-trade";
 /// src/controllers/utils.ts), the route-level policy behind POST /v1/trades and
 /// GET /v1/activity.
 ///
-/// Both comparisons are exact against canonical declarations and nothing is
-/// folded first: @dcl/crypto-middleware 6.x hands the validator the metadata
-/// exactly as it was signed, and the legacy payload lowercases the metadata
-/// before signing, so a re-spelled `Dcl:Marketplace` or
-/// `Decentraland-Kernel-Scene` carries a byte-identical signature. Comparing
-/// after folding would authorize a request as something it is not; comparing
-/// without folding refuses it, which is the whole point of upstream #393.
+/// Both comparisons are exact against canonical declarations, with nothing folded first:
+/// @dcl/crypto-middleware 6.x hands the validator the metadata exactly as signed, and the
+/// legacy payload lowercases it before signing, so a re-spelled `Dcl:Marketplace` or
+/// `Decentraland-Kernel-Scene` carries a byte-identical signature. Folding before comparing
+/// would authorize a request as something it is not -- the whole point of upstream #393.
 pub fn require_auth_metadata(
     headers: &HeaderMap,
     allowed_signers: &[&str],
@@ -95,8 +86,8 @@ pub fn require_auth_metadata(
     Ok(())
 }
 
-/// Route-facing message per error, matching the upstream marketplace-server
-/// wording (everything not explicitly special-cased is "Invalid Auth Chain").
+/// Matches upstream marketplace-server wording; everything not explicitly special-cased is
+/// "Invalid Auth Chain".
 pub trait AuthChainErrorExt {
     fn message(&self) -> String;
 }
@@ -113,8 +104,8 @@ impl AuthChainErrorExt for AuthChainError {
     }
 }
 
-/// market never surfaces ForbiddenSigner: it is folded into InvalidSignature,
-/// preserving the pre-consolidation route behavior (401, not a 400 fallthrough).
+/// market never surfaces ForbiddenSigner: folding it into InvalidSignature preserves the
+/// pre-consolidation route behavior (401, not a 400 fallthrough).
 fn normalize(e: AuthChainError) -> AuthChainError {
     match e {
         AuthChainError::ForbiddenSigner => AuthChainError::InvalidSignature(e.to_string()),
@@ -152,9 +143,8 @@ pub async fn validate_signature(
         .map_err(normalize)
 }
 
-/// [`signed_fetch::validate_signature_either_payload`] under market's error
-/// normalization: the 6.x payload first, the legacy one only on a signature
-/// mismatch, so a legacy-signed request answers exactly as it did before.
+/// The 6.x payload first, the legacy one only on a signature mismatch, so a legacy-signed
+/// request answers exactly as it did before.
 pub async fn validate_signature_either_payload<'a>(
     chain: &AuthChain,
     method: &str,
@@ -241,9 +231,7 @@ pub async fn optional_signer(
 mod canonical_metadata_tests {
     use super::check_canonical_metadata;
 
-    /// The rejection matrix documented by marketplace-server's
-    /// `signed-fetch-authentication.spec.ts`: a mixed-case or whitespace-padded
-    /// `signer`/`intent` is rejected before service authorization.
+    /// The rejection matrix of marketplace-server's `signed-fetch-authentication.spec.ts`.
     #[test]
     fn rejects_non_canonical_signer_and_intent() {
         for meta in [
@@ -251,7 +239,6 @@ mod canonical_metadata_tests {
             r#"{"signer":" dcl:marketplace","intent":"dcl:marketplace:add-pick"}"#,
             r#"{"signer":"dcl:marketplace","intent":"Dcl:Marketplace:Add-Pick"}"#,
             r#"{"signer":"dcl:marketplace","intent":"dcl:marketplace:add-pick "}"#,
-            // The exploit this closes: a mixed-case kernel-scene signer.
             r#"{"origin":"https://play.decentraland.org","signer":"Decentraland-Kernel-Scene"}"#,
         ] {
             let err = check_canonical_metadata(meta).expect_err(meta);
@@ -268,12 +255,9 @@ mod canonical_metadata_tests {
             r#"{"signer":"dcl:marketplace","intent":"dcl:marketplace:add-pick"}"#
         )
         .is_ok());
-        // The canonical kernel-scene spelling is not a canonicalization failure
-        // (the scene-signer policy is a separate, route-level concern).
         assert!(check_canonical_metadata(r#"{"signer":"decentraland-kernel-scene"}"#).is_ok());
         assert!(check_canonical_metadata(r#"{"intent":"dcl:marketplace:remove-pick"}"#).is_ok());
         assert!(check_canonical_metadata("{}").is_ok());
-        // Non-JSON metadata is not a canonicalization question here.
         assert!(check_canonical_metadata("not json").is_ok());
     }
 }

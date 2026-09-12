@@ -97,8 +97,6 @@ mod tests {
         assert!(check_admin(Some("expected"), &HeaderMap::new()).is_err());
     }
 
-    // Empty configured secret must reject like the canonical gate; an empty
-    // presented bearer is currently ACCEPTED, so this probe fails-open.
     #[test]
     fn probe_fails_closed_when_secret_empty() {
         assert!(check_admin(Some(""), &headers_with_bearer("")).is_err());

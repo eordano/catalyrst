@@ -1,23 +1,3 @@
-// The ribbon's information architecture, transcribed from the dclux editor UX
-// observation study (48 coded videos, 1,741 action events, 17-code intent
-// taxonomy, plus ~60 creator-hub issues).
-//
-// The ordering is not taste. Tabs are ranked by observed frequency, and the
-// three things creators do most -- preview, undo, snap -- are deliberately NOT
-// in any tab: they are pinned chrome, because the corpus's loudest complaints
-// are about exactly those three being modal, hidden, or unreliable.
-//
-// Five tabs, never more and never fewer: a persona split (CODE) is not a
-// surface split, so the code tools ride an opt-in GROUP inside Test & Code, and
-// the selection surfaces as the last group of Home rather than as a tab that
-// appears and disappears under the pointer.
-//
-// Capability gaps are expressed by the host omitting the handler, never by a
-// `pending` string here. `requires` is only ever about state the creator can
-// change: nothing selected, no preview running, no engine yet.
-//
-// Keep `why` on every tab. It is the evidence that justifies the tab existing at
-// that rank, and without it the next person reorders this by taste.
 
 export type RibbonTabId = "home" | "insert" | "interact" | "scene";
 
@@ -26,25 +6,19 @@ export type RibbonCommandKind = "big" | "toggle";
 export type RibbonRequires = "engine" | "selection" | "playing" | "undoable" | "redoable";
 
 export interface RibbonCommand {
-  /** Stable id a host binds a handler to. No handler means the button is not rendered. */
   id: string;
   label: string;
   kind?: RibbonCommandKind;
   requires?: RibbonRequires;
-  /** Study citation. Becomes the button title while the command is usable. */
   hint?: string;
-  /** Keyboard binding shown as a trailing kbd, OUTSIDE the accessible name.
-      shortcuts.ts is canonical; this is its display copy for the ribbon. */
   key?: string;
 }
 
-/** Group bodies that are a bespoke widget rather than a list of commands. */
 export type RibbonSlot = "numeric" | "wiring" | "selection";
 
 export interface RibbonGroup {
   name: string;
   cmds: RibbonCommand[];
-  /** Revealed by the chrome preferences toggle, so scripters opt in once. */
   optIn?: boolean;
   slot?: RibbonSlot;
 }
@@ -52,11 +26,8 @@ export interface RibbonGroup {
 export interface RibbonTab {
   id: RibbonTabId;
   name: string;
-  /** Evidence for this tab's rank. Kept in the source, NOT shown to creators. */
   why: string;
-  /** What a creator reads on hover. Plain; no taxonomy, no event counts. */
   blurb: string;
-  /** Shown when nothing in this tab is wired, instead of a wall of dead chips. */
   empty: string;
   groups: RibbonGroup[];
 }
@@ -242,26 +213,17 @@ export const RIBBON_TABS: RibbonTab[] = [
   },
 ];
 
-
 export const DEFAULT_TAB: RibbonTabId = "home";
 
-// Pinned chrome, reachable from every tab and never repeated inside one: the
-// study's loudest complaints (undo distrust, modal preview) are about exactly
-// these disappearing behind a tab. DeRibbon owns their presentation; this list
-// is the invariant the disjointness test enforces.
 export const RIBBON_CHROME_IDS: readonly string[] = ["undo", "redo", "play", "stop"];
 
 export interface RibbonDeferred {
   id: string;
   label: string;
   tab: RibbonTabId;
-  /** Why this study finding is not a button. One line, and it must stay true. */
   why: string;
 }
 
-// The study's full inventory. Keeping it as data rather than as greyed buttons
-// is what lets the shipped deck be all-live: an entry graduates by gaining a
-// host handler and a row in RIBBON_TABS, never by having its reason deleted.
 export const RIBBON_DEFERRED: RibbonDeferred[] = [
   {
     id: "snapshots",

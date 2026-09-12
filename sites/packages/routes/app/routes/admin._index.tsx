@@ -25,14 +25,6 @@ function toPanel<T>(r: ControlResult<T>): Panel<T> {
   return r.ok ? { ok: true, data: r.data } : { ok: false, message: r.message, fix: r.fix };
 }
 
-/**
- * Committee membership is read through catalyrst-builder's curation endpoint,
- * which is itself gated: with no CATALYRST_BUILDER_ADMIN_TOKEN configured the
- * read fails closed and every wallet reads as non-member. ADMIN_WALLETS is the
- * operator escape hatch -- a comma-separated allowlist checked in addition to
- * committee membership, so this page stays reachable on a node that has not
- * wired the builder token.
- */
 function isAllowlistedWallet(wallet: string): boolean {
   const raw = process.env.ADMIN_WALLETS;
   if (!raw) return false;

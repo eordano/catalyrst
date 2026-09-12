@@ -44,8 +44,6 @@ pub async fn flags(
     let mut overrides = load_flag_overrides(&st.pool)
         .await
         .map_err(|e| db_err("telemetry dashboard", e))?;
-    // A matching group target beats the global override, so "off globally,
-    // on for internal" resolves the way an operator reads it.
     let user_key = p.user.unwrap_or_default();
     let groups = if user_key.is_empty() {
         Vec::new()
@@ -83,8 +81,6 @@ async fn load_flag_overrides(pool: &sqlx::PgPool) -> Result<Vec<FlagOverride>, s
     .await
 }
 
-// Each merged entry marks `overridden` so the /flags page and dashboard can tell
-// an operator-forced value from the upstream one.
 fn merge_flags(config: &Value, overrides: &[FlagOverride]) -> (Value, Value) {
     let up_flags = config
         .get("flags")

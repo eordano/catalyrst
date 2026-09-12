@@ -180,18 +180,13 @@ fn uuid_from_path(s: &str) -> Result<Uuid, (StatusCode, Json<serde_json::Value>)
     Uuid::parse_str(s).map_err(|_| err_json(StatusCode::BAD_REQUEST, "invalid uuid"))
 }
 
-/// Mint the shared verified-wallet type from a signer this request's signed fetch already
-/// produced. See the identical note in `crate::rest::handlers::client`.
 fn verified_wallet_of_the_caller(signer: &catalyrst_crypto::Signer) -> VerifiedWalletAddress {
     VerifiedWalletAddress::from_verified_signed_fetch(signer.clone())
 }
 
-/// Render a refusal for this module's `(StatusCode, Json)` handlers.
-///
 /// Every federation write gate uses the authority's own detail, because merging three
-/// separately-worded refusals into one predicate means no single call-site sentence is
-/// still accurate. The status each gate answers is unchanged. The client write paths,
-/// whose messages a UI actually shows, keep theirs byte for byte -- see
+/// separately-worded refusals into one predicate leaves no call-site sentence accurate.
+/// The client write paths, whose messages a UI shows, keep theirs byte for byte -- see
 /// `crate::rest::handlers::client::refusal_response`.
 fn map_refusal_using_its_own_detail(
     refusal: &AuthorityNotEstablished,
@@ -205,13 +200,9 @@ fn map_refusal_using_its_own_detail(
 }
 
 /// The federation write path's capability gate, proven against `community_role_current`.
-///
-/// Kept as a function rather than folded into
-/// [`FederatedCommunityWriteAuthority`] because its
-/// two refusals answer two different statuses -- 403 for a banned wallet, 401 for a wallet
-/// whose tier lacks the capability -- and collapsing them into one
-/// `AuthorityNotEstablished::RefusedLacksAuthority` would lose that
-/// distinction on the wire. Behaviour-preserving; only the role read moved.
+/// Kept out of [`FederatedCommunityWriteAuthority`] because its two refusals answer two
+/// different statuses -- 403 for a banned wallet, 401 for a tier lacking the capability --
+/// and one `RefusedLacksAuthority` would lose that distinction on the wire.
 async fn require_permission(
     state: &AppState,
     community_id: &str,

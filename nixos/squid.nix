@@ -95,8 +95,6 @@ lib.mkIf (cfg.enable && cfg.subServices.squid) {
   users.groups.squid = { };
   users.users.squid.extraGroups = [ "postgres" ];
 
-  # ordered after postgresql-setup so marketplace_squid + the squid role exist
-  # before the search-path DDL runs (see postgresql.nix).
   systemd.services.squid-search-path = {
     description = "ensure squid processor search_path is set";
     after = [
@@ -147,8 +145,6 @@ lib.mkIf (cfg.enable && cfg.subServices.squid) {
     };
   };
 
-  # One-shot TypeORM migration apply; both processors hard-require it so a
-  # fresh host can't race the schema.
   systemd.services.squid-migrate = mkSquidService {
     description = "marketplace-squid schema migrations";
     exec = "${squidPkg}/bin/squid-migrate";
@@ -156,16 +152,6 @@ lib.mkIf (cfg.enable && cfg.subServices.squid) {
     oneshot = true;
   };
 
-  # The bin wrappers bake node flags and --chdir into the package share dir
-  # (assets/abi resolve relative to it); WorkingDirectory above is only the
-  # pre-exec cwd.
-  # Module-owned env the processors would otherwise want from squid.env:
-  #  - the Prometheus port, pinned to the SocketBindAllow value (they default
-  #    it to 0.0.0.0:3000, which the sandbox denies -> EPERM crash loop);
-  #  - the chain IDs, fixed constants of the networks this module targets
-  #    (mainnet 1 / matic 137). The source already defaults them; setting them
-  #    keeps the operator's squid.env to just RPC + DB. Both processors read
-  #    both ids (cross-network metadata lookups).
   systemd.services.squid-eth = lib.recursiveUpdate (mkSquidService {
     description = "marketplace-squid eth processor";
     exec = "${squidPkg}/bin/squid-eth";
@@ -176,10 +162,6 @@ lib.mkIf (cfg.enable && cfg.subServices.squid) {
       ETH_PROMETHEUS_PORT = toString facts.units.squid-eth.port;
     };
   }) { serviceConfig = squidRpcEgress; };
-  # The public SQD portal caps queries at 256 KiB and the polygon collection
-  # filter exceeds that, so the polygon processor only works against the
-  # authenticated portal. Gate on the key instead of letting the processor
-  # crash-loop with the full filter in every error dump.
   systemd.services.squid-polygon = lib.recursiveUpdate (mkSquidService {
     description = "marketplace-squid polygon processor";
     exec = "${squidPkg}/bin/squid-polygon";

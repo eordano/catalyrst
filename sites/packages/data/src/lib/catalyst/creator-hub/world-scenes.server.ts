@@ -6,16 +6,6 @@ export type WorldScene = {
   baseParcel: string;
 };
 
-/**
- * null when the world's scene list could not be read.
- *
- * `[]` is the answer for a world with nothing deployed, and both callers act on
- * it: `creator-hub.world-permissions` uses `scenes.length` to decide a world
- * does not exist, and `creator-hub.world-settings` renders the unpublish list
- * from it. A failed read must not collapse to `[]` -- that would read as
- * "this world does not exist" on one page and "there is nothing to unpublish"
- * on the other.
- */
 export async function loadWorldScenes(
   worldName: string,
   opts: GetOptions = {},

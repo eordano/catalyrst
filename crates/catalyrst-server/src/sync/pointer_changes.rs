@@ -26,31 +26,25 @@ const MAX_REJECTED_DELTA_LOGS: u64 = 100;
 /// already dedups entities durably.
 const MAX_BOUNDARY_ROWS_TRACKED: usize = 10_000;
 
-/// A remote timestamp we are willing to adopt as sync state (upstream `isUsableTimestamp`).
-///
-/// These values become the stream's high-water mark, and the persisted resume state (the
-/// global frontier and the server's own cursor) only ever moves forward
-/// (`advance_sync_frontier` / `advance_server_sync_cursor` are GREATEST-monotonic), so a
-/// single bad one is permanent:
-/// the node then polls /pointer-changes from a point no real deployment can exceed and silently
-/// stops syncing. `localTimestamp` is exactly what the poll boundary feeds to the frontier,
-/// which is why this is checked before the tentative mark ever sees the value. The JS
-/// safe-integer clause is a non-concern here: i64 covers every value serde hands us, and
-/// anything that saturated on the way in (1e999 -> i64::MAX) fails the upper bound.
+/// Upstream `isUsableTimestamp`. These values become the stream's high-water mark, and the persisted
+/// resume state only ever moves forward (`advance_sync_frontier` / `advance_server_sync_cursor` are
+/// GREATEST-monotonic), so a single bad one is permanent: the node then polls /pointer-changes from a
+/// point no real deployment can exceed and silently stops syncing. Hence the check before the
+/// tentative mark ever sees the value. The JS safe-integer clause is a non-concern here: i64 covers
+/// every value serde hands us, and anything that saturated on the way in (1e999 -> i64::MAX) fails
+/// the upper bound.
 pub(crate) fn is_usable_timestamp(ts: Timestamp, now_ms: Timestamp) -> bool {
     ts >= 0 && ts <= now_ms.saturating_add(MAX_TIMESTAMP_CLOCK_SKEW_MS)
 }
 
-/// Validates one raw /pointer-changes delta and, only when it is acceptable, folds its
-/// `localTimestamp` into the tentative high-water mark. Returns the deployment to schedule, or
-/// None when the delta was rejected -- and a rejected delta never moves the mark, which is the
-/// upstream-53e9c07 guarantee this function exists to keep in one place: the mark becomes the
-/// confirmed timestamp at the next poll boundary and from there the durable, GREATEST-monotonic
+/// Folds a delta's `localTimestamp` into the tentative high-water mark ONLY when the delta is
+/// acceptable -- the upstream-53e9c07 guarantee this function keeps in one place. The mark becomes
+/// the confirmed timestamp at the next poll boundary and from there the durable, GREATEST-monotonic
 /// frontier, so one hostile delta reaching the max() below would poison the node permanently.
 ///
-/// Rejection skips the single delta rather than failing the stream, matching upstream's
-/// deliberate trade: a delta is one entity, and failing on it would let a single
-/// permanently-broken record stall every later deployment from that server.
+/// Rejection skips the single delta rather than failing the stream, matching upstream's deliberate
+/// trade: failing would let one permanently-broken record stall every later deployment from that
+/// server.
 fn accept_delta_and_advance_mark(
     item: serde_json::Value,
     from_timestamp: Timestamp,
@@ -96,7 +90,6 @@ fn accept_delta_and_advance_mark(
 
     if let Some(local_ts) = deployment.local_timestamp {
         if local_ts >= from_timestamp {
-            // Tentative only: committed to `progress` at the next confirmed boundary.
             *greatest_timestamp = (*greatest_timestamp).max(local_ts);
         }
     }
@@ -104,13 +97,11 @@ fn accept_delta_and_advance_mark(
     Some(deployment)
 }
 
-/// Suppresses re-delivery of boundary rows across polls (a set-keyed port of upstream's
-/// `boundaryRowFingerprint` map). `from=` is inclusive and each poll restarts from the
-/// high-water timestamp, so every poll re-returns the rows sitting exactly there; without this,
-/// each of them costs an `is_entity_deployed` round trip per poll, forever. Entity-level
-/// identity (entity_id + entity_timestamp + local_timestamp) is sufficient for our path -- the
-/// deployer dedups by entity_id anyway -- so unlike upstream this never affects correctness,
-/// only wasted work.
+/// Set-keyed port of upstream's `boundaryRowFingerprint` map. `from=` is inclusive and each poll
+/// restarts from the high-water timestamp, so every poll re-returns the rows sitting exactly there;
+/// without this each costs an `is_entity_deployed` round trip per poll, forever. Entity-level
+/// identity suffices here -- the deployer dedups by entity_id anyway -- so unlike upstream this never
+/// affects correctness, only wasted work.
 struct BoundaryTracker {
     /// The timestamp the tracked rows sit at: the stream's current high-water mark.
     ts: Timestamp,
@@ -140,13 +131,12 @@ impl BoundaryTracker {
         })
     }
 
-    /// Called at every poll boundary, before the next poll begins.
     fn begin_poll(&mut self) {
         self.suppress = self.delivered.clone();
     }
 
-    /// Whether an earlier poll already delivered this row at the current boundary. Also advances
-    /// the tracked timestamp: when the mark moves, nothing has been delivered at the new one yet.
+    /// Also advances the tracked timestamp: when the mark moves, nothing has been delivered at the
+    /// new one yet.
     fn already_delivered(&mut self, deployment: &SyncDeployment) -> bool {
         let Some(fp) = Self::fingerprint(deployment) else {
             return false;
@@ -156,12 +146,9 @@ impl BoundaryTracker {
             self.delivered.clear();
             return false;
         }
-        // Spend one allowance per matching row, so a genuinely new identical-identity row in a
-        // later poll is not suppressed.
         fp.2 == self.ts && self.suppress.remove(&fp)
     }
 
-    /// Records a row this poll delivered at the current high-water timestamp.
     fn record_delivered(&mut self, deployment: &SyncDeployment) {
         let Some(fp) = Self::fingerprint(deployment) else {
             return;
@@ -229,18 +216,14 @@ fn resolve_url(server: &str, maybe_relative: &str) -> Result<Option<String>, Syn
     }
 }
 
-/// Streams /pointer-changes into the deployer.
-///
-/// The resume cursor (`progress`, the return value, and the persisted frontier) only ever
-/// reflects CONFIRMED progress: the stream holds its high-water timestamp tentative while
-/// entities are merely scheduled, and commits it at each poll boundary -- the end of a
-/// pagination chain, the only checkpoint a stream designed to keep polling has -- after the
-/// deployer has drained and every deployment scheduled by this stream has been acknowledged
-/// (deployed, or durably recorded in failed_deployments). A boundary where something remains
-/// unacknowledged fails the stream instead, so the caller reconnects from the last confirmed
-/// timestamp and the missing entities are re-delivered. Committing per entity, as this used
-/// to, let a later confirmed entity carry the cursor past an earlier one that was still in
-/// flight -- a crash in that window skipped it forever.
+/// The resume cursor (`progress`, the return value, and the persisted frontier) only ever reflects
+/// CONFIRMED progress: the high-water timestamp stays tentative while entities are merely scheduled
+/// and commits at each poll boundary -- the end of a pagination chain -- after the deployer has
+/// drained and every deployment this stream scheduled has been acknowledged (deployed, or durably
+/// recorded in failed_deployments). A boundary where something remains unacknowledged fails the
+/// stream instead, so the caller reconnects from the last confirmed timestamp. Committing per entity,
+/// as this used to, let a later confirmed entity carry the cursor past an earlier one still in flight
+/// -- a crash in that window skipped it forever.
 pub async fn deploy_entities_from_pointer_changes<S>(
     client: &Client,
     server: &str,
@@ -328,8 +311,6 @@ where
                 return Ok(confirmed_timestamp);
             }
 
-            // Validation and the tentative-mark update live in one function so a rejected
-            // delta provably cannot move the mark (see accept_delta_and_advance_mark).
             let Some(deployment) = accept_delta_and_advance_mark(
                 item,
                 options.from_timestamp,
@@ -340,7 +321,6 @@ where
                 continue;
             };
 
-            // `from=` is inclusive: skip the boundary rows an earlier poll already delivered.
             if tracker.already_delivered(&deployment) {
                 continue;
             }
@@ -351,8 +331,6 @@ where
                 }
             }
 
-            // Recorded before the handoff: if scheduling fails the whole stream fails and the
-            // tracker dies with it, so an over-record cannot outlive the poll it belongs to.
             tracker.record_delivered(&deployment);
             deployer
                 .schedule_entity_deployment(deployment, content_servers, Some(report))
@@ -360,10 +338,6 @@ where
         }
 
         if resolved_next.is_none() {
-            // Poll boundary: drain the deployer, verify everything this stream scheduled came
-            // back acknowledged, and only then commit the tentative high-water mark. The drain
-            // sits at the end of a pagination chain rather than per page, so it only ever
-            // waits for the residual queue.
             deployer.on_idle().await?;
             if !report.is_complete() {
                 return Err(SyncError::Other(format!(
@@ -375,9 +349,6 @@ where
                 )));
             }
             if report.lost() > 0 {
-                // Losses are attributed per report (the batch flush carries each entity's
-                // report), so only the stream that actually lost an entity holds back --
-                // unrelated concurrent streams commit their own boundaries undisturbed.
                 return Err(SyncError::Other(format!(
                     "deployer reported silently lost entities while syncing {}; \
                      reconnecting from the last confirmed timestamp",
@@ -389,9 +360,6 @@ where
             if let Some(repo) = &heartbeat_repo {
                 if confirmed_timestamp > last_persisted {
                     let _ = repo.advance_sync_frontier(confirmed_timestamp).await;
-                    // The same confirmed boundary, recorded for THIS server only: the
-                    // per-server cursor is what bootstrap resumes from, so it must never
-                    // reflect another server's progress the way the global frontier does.
                     let _ = repo
                         .advance_server_sync_cursor(server, confirmed_timestamp)
                         .await;
@@ -403,8 +371,6 @@ where
                 break;
             }
             tokio::time::sleep(std::time::Duration::from_millis(options.wait_time_ms)).await;
-            // The next poll restarts from the (inclusive) high-water timestamp; freeze what this
-            // poll delivered there as its suppression budget.
             tracker.begin_poll();
             url = format!(
                 "{}/pointer-changes?sortingOrder=ASC&sortingField=local_timestamp&from={}",
@@ -479,15 +445,10 @@ mod tests {
     const NOW_MS: i64 = 1_750_000_000_000;
     const FROM_TS: i64 = 1_600_000_000_000;
 
-    // The upstream-53e9c07 poisoning scenario: one delta with an impossible localTimestamp must
-    // not move the tentative high-water mark, because the mark becomes the confirmed timestamp
-    // at the poll boundary and from there the durable GREATEST-monotonic frontier -- a poisoned
-    // value there is permanent and silently kills the whole node's sync.
     #[test]
     fn far_future_local_timestamp_is_rejected_and_never_moves_the_mark() {
         let mut mark = FROM_TS;
         let mut logged = 0;
-        // Year 9999: a plain integer, so serde accepts it without complaint.
         let rejected = accept_delta_and_advance_mark(
             delta(serde_json::json!(253_402_300_799_000i64)),
             FROM_TS,
@@ -511,10 +472,6 @@ mod tests {
 
     #[test]
     fn json_1e999_local_timestamp_cannot_poison_the_mark() {
-        // Without serde_json's arbitrary_precision feature "1e999" fails to parse at all, which
-        // fails the page fetch (safe: the stream errors and reconnects, nothing commits). If a
-        // parse mode ever starts admitting it, the saturating i64 cast lands on i64::MAX, which
-        // the usability guard must reject before the mark update.
         let raw = r#"{
             "entityId": "QmPoisonPoisonPoisonPoisonPoisonPoisonPoison1",
             "entityType": "scene",
@@ -524,7 +481,7 @@ mod tests {
             "localTimestamp": 1e999
         }"#;
         let Ok(item) = serde_json::from_str::<serde_json::Value>(raw) else {
-            return; // rejected at parse time: the poisoned value never reaches the stream
+            return;
         };
         let mut mark = FROM_TS;
         let mut logged = 0;
@@ -535,8 +492,6 @@ mod tests {
 
     #[test]
     fn implausible_entity_timestamp_rejects_the_delta_too() {
-        // entityTimestamp feeds the deployed-entity dedup probe and the deployments row itself;
-        // upstream guards both fields together.
         let mut item = delta(serde_json::json!(FROM_TS + 5));
         item["entityTimestamp"] = serde_json::json!(253_402_300_799_000i64);
         let mut mark = FROM_TS;
@@ -561,7 +516,6 @@ mod tests {
         assert_eq!(mark, FROM_TS + 1000);
         assert_eq!(logged, 0);
 
-        // Within the allowed clock skew: still acceptable.
         let skewed = accept_delta_and_advance_mark(
             delta(serde_json::json!(NOW_MS + MAX_TIMESTAMP_CLOCK_SKEW_MS - 1)),
             FROM_TS,
@@ -600,7 +554,6 @@ mod tests {
     fn boundary_tracker_suppresses_rows_redelivered_at_the_inclusive_boundary() {
         let mut tracker = BoundaryTracker::new(100);
 
-        // Poll 1 delivers two rows at the high-water timestamp 200.
         let a = deployment_at("QmA", 200);
         let b = deployment_at("QmB", 200);
         assert!(!tracker.already_delivered(&a));
@@ -608,7 +561,6 @@ mod tests {
         assert!(!tracker.already_delivered(&b));
         tracker.record_delivered(&b);
 
-        // Poll 2 restarts from the inclusive from=200 and re-serves both, plus a new row there.
         tracker.begin_poll();
         assert!(
             tracker.already_delivered(&a),
@@ -622,8 +574,6 @@ mod tests {
         assert!(!tracker.already_delivered(&c), "new boundary row must pass");
         tracker.record_delivered(&c);
 
-        // Poll 3: everything delivered at 200 so far is budget; the mark then advances, which
-        // resets tracking -- and rows at the OLD boundary no longer match the new timestamp.
         tracker.begin_poll();
         assert!(tracker.already_delivered(&c));
         let d = deployment_at("QmD", 300);

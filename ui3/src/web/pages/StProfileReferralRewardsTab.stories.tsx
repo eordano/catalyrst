@@ -15,7 +15,6 @@ const accepted = (n: number): ReferralData => ({
   rewardImages: [],
 });
 
-/** The referral payload is picked by name; `none` passes `null`, as the non-ready states do. */
 const DATA = {
   none: null,
   invited0: accepted(0),
@@ -24,11 +23,9 @@ const DATA = {
 } satisfies Record<string, ReferralData | null>;
 type DataKey = keyof typeof DATA;
 
-/** Every value the component's `state` prop accepts. */
 const STATES = ["ready", "loading", "error"] as const;
 type StateKey = (typeof STATES)[number];
 
-/** Story args: the referral payload is picked by name, `state` is the real prop. */
 type ReferralStoryArgs = { dataPreset: DataKey; state: StateKey };
 
 const BASE: ReferralStoryArgs = { dataPreset: "invited22", state: "ready" };
@@ -84,14 +81,6 @@ const CATALOG: { label: string; args: ReferralStoryArgs }[] = [
   { label: "anonymous", args: { dataPreset: "none", state: "error" } },
 ];
 
-/**
- * Every state at once. `Default` flips between them from the Controls panel; this keeps all
- * three tier-track positions, the skeleton and the anonymous view in the render + a11y +
- * visual-diff gates. `chrome={false}` so stacking does not emit N `<main>` landmarks, and
- * `labelSuffix` makes each copy's two named landmarks -- `nav[aria-label="Profile sections"]`
- * and the `role="region"` reward-journey scroller -- uniquely named; axe's `landmark-unique`
- * compares accessible names, so fixed labels would fail N times.
- */
 export const Catalog: Story = {
   name: "Catalog (every state)",
   parameters: { controls: { disable: true } },

@@ -24,4 +24,4 @@ cargo +nightly fuzz run entity_parser
 #                           never authorizes via the signature branch)
 ```
 
-Each target keeps a growing corpus under `fuzz/corpus/<target>/` and writes crashing inputs to `fuzz/artifacts/<target>/`; both gitignored. Continuous fuzzing: `cargo fuzz run <target> -- -max_total_time=300` caps each invocation; CI could run this nightly on a separate runner. NOT wired into the main CI workflow (workflow uses stable Rust).
+Each target keeps a growing corpus under `fuzz/corpus/<target>/` and writes crashing inputs to `fuzz/artifacts/<target>/`; both gitignored. `cargo fuzz run <target> -- -max_total_time=300` caps each invocation for continuous runs. NOT wired into the main CI workflow (workflow uses stable Rust).

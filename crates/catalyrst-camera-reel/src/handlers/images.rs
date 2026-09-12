@@ -252,10 +252,9 @@ pub async fn delete_image(
         .into_response())
 }
 
-/// Unlink the image/thumbnail blobs for a just-deleted row, but only for hashes
-/// no other row still references. Blobs are content-addressed with no refcount,
-/// and any user can re-upload another user's public bytes to the same hash, so
-/// an unconditional unlink would 404 every other live row sharing that blob.
+/// Blobs are content-addressed with no refcount, and any user can re-upload another user's
+/// public bytes to the same hash, so an unconditional unlink would 404 every other live row
+/// sharing that blob.
 async fn delete_unreferenced_blobs(
     state: &AppState,
     image: &crate::ports::db::DbImage,
@@ -263,8 +262,6 @@ async fn delete_unreferenced_blobs(
 ) {
     for url in [image.url.as_str(), image.thumbnail_url.as_str()] {
         if let Some(hash) = url.rsplit('/').next() {
-            // On any counting error, fail safe (assume still referenced) and
-            // keep the blob rather than risk destroying shared content.
             let still_referenced = state
                 .db
                 .count_other_images_with_hash(hash, image_id)
@@ -317,11 +314,6 @@ pub async fn get_image(
     State(state): State<AppState>,
     Path(image_id): Path<String>,
 ) -> Result<Response, ApiError> {
-    // Honor moderation before serving any bytes (in both bucket-redirect and
-    // local-store modes). Blobs are content-addressed and can be shared across
-    // rows, so a hash is withheld only when every referencing row was rejected.
-    // Fail closed: if the review lookup errors we cannot confirm the blob is
-    // clean, so we withhold rather than risk leaking rejected content.
     let servable = state.db.hash_is_servable(&image_id).await.map_err(|e| {
         tracing::error!("failed to check image review status: {e}");
         ApiError::NotFound("image not found".to_string())

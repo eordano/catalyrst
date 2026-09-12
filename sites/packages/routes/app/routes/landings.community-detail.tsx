@@ -94,9 +94,6 @@ function CommunityLanding({ id, tab, forcePrivate, detail, sid }: LandingProps) 
   const { community, members, events, source } = detail;
 
   const isPrivate = community.privacy === "private";
-  // A response with no `role` key was not asked on this reader's behalf --
-  // the social service strips it for anonymous requests. Unknown is not
-  // membership, so it must not unlock a private community.
   const isMember =
     community.role != null && community.role !== "none" && community.role !== "";
   const gated = forcePrivate || (isPrivate && !isMember);

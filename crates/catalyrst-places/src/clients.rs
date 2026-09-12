@@ -13,20 +13,11 @@ pub use catalyrst_fed::comms::CommsGatekeeper;
 use crate::http::errors::ApiError;
 
 const CACHE_TTL: Duration = Duration::from_secs(5 * 60);
-// Upstream refreshes its next-event snapshot every 20s; the same horizon
-// keeps a burst of decorated reads from re-asking the events service.
 const NEXT_EVENT_CACHE_TTL: Duration = Duration::from_secs(20);
-// Upstream answers next events with one DISTINCT ON per destination; the
-// search here is a global soonest-first page, so a full page keeps paging
-// until every asked destination has its hit, bounded so one busy catalogue
-// cannot turn a decoration into a scan.
 const NEXT_EVENT_PAGE: usize = 500;
 const NEXT_EVENT_MAX_PAGES: usize = 5;
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 
-// The base is the events service root whether the deployment names it bare
-// or with its legacy `/api` suffix: every route here is spelled from the
-// root, so the suffix would double up.
 fn service_root(base_url: &str) -> String {
     base_url
         .trim_end_matches('/')
@@ -35,8 +26,6 @@ fn service_root(base_url: &str) -> String {
         .to_string()
 }
 
-// The id is caller input that becomes one path segment of an internal
-// request, so it must never be able to add segments, a query or a fragment.
 pub(crate) fn destination_events_url(base_url: &str, id: &str) -> String {
     format!(
         "{}/v1/destinations/{}/events",
@@ -75,10 +64,6 @@ struct EventEntry {
     next_start_at: Option<String>,
 }
 
-// A search is asked by destination key: a place by its id and a world by its
-// name, the way upstream keys its live/next snapshots. A hit names its
-// destination by the wire `place_id` or, for a world event, by the world in
-// `server`, and either resolves case-insensitively to the key asked with.
 struct AskedKeys(HashMap<String, String>);
 
 impl AskedKeys {
@@ -112,8 +97,6 @@ pub struct NextEvent {
     pub next_start_at: String,
 }
 
-// The events service answers a `list=upcoming` search soonest-first, so the
-// first hit per destination is its next event.
 fn record_next_event(
     out: &mut HashMap<String, Option<NextEvent>>,
     asked: &AskedKeys,
@@ -151,9 +134,6 @@ struct CategoriesResponse {
     data: Option<Vec<Value>>,
 }
 
-// Only the caller's identity travels to the events service: its auth chain,
-// the admin bearer, and the proxy's original path so the signature still
-// binds to the route the caller signed.
 fn forwarded_headers(headers: &HeaderMap) -> reqwest::header::HeaderMap {
     let mut out = reqwest::header::HeaderMap::new();
     for (name, value) in headers.iter() {
@@ -392,8 +372,6 @@ impl Events {
                 }
                 offset += page_len;
             }
-            // A failed search says nothing about a destination, so only a
-            // completed one may cache the absence of a next event.
             if fetched {
                 for id in &uncached {
                     let value = out.get(id).cloned().unwrap_or(None);
@@ -486,8 +464,6 @@ impl Events {
             out.insert(id.clone(), None);
         }
 
-        // A failed search says nothing about a destination, so only a
-        // completed one may cache the absence of a live event.
         let Some(events) = self.fetch_live(&uncached).await else {
             return out;
         };

@@ -26,7 +26,6 @@ const SELECTED = {
 type DatasetKey = keyof typeof SCENES;
 type SelectionKey = keyof typeof SELECTED;
 
-/** Story args: the scene fixture and the drilldown selection are picked by name. */
 type AnalyticsStoryArgs = Omit<SceneAnalyticsViewProps, "scenes" | "selected"> & {
   dataset: DatasetKey;
   selection: SelectionKey;

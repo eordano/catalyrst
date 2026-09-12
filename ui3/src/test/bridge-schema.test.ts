@@ -1,13 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { OverlayPushSchema } from "../generated/bridge-schemas";
 
-// Every case below passed the guard that shipped before the schema landed
-// (`typeof push.kind === "string"`), and the reducer's `?? prev.x` reads then
-// kept the previous value rather than reporting anything. That combination is
-// why engine-side drift used to surface as a stale UI rather than an error, so
-// each case asserts BOTH that the schema now rejects it and that the old guard
-// did not -- a case the old guard already caught would prove nothing.
-
 const oldGuard = (v: unknown) =>
   typeof v === "object" && v !== null && typeof (v as { kind?: unknown }).kind === "string";
 
@@ -25,7 +18,6 @@ describe("bridge push validation", () => {
   for (const [name, value, shouldPass] of cases) {
     test(name, () => {
       expect(OverlayPushSchema.safeParse(value).success).toBe(shouldPass);
-      // Every one of these got past the guard that shipped before.
       expect(oldGuard(value)).toBe(true);
     });
   }

@@ -176,11 +176,6 @@ pub(crate) struct CatalystStatus {
     sync_state: String,
 }
 
-// A caller-supplied `?catalyst=` is untrusted: require https, then delegate
-// host resolution + first-address pinning to the shared SSRF guard, which is
-// at least as strict as the former hand-rolled block-list (it additionally
-// rejects CGNAT and obfuscated/internal-name literals). Pinning closes the
-// DNS-rebinding TOCTOU: the connect uses exactly the validated address.
 async fn validate_external_catalyst(base: &str) -> Option<(String, SocketAddr)> {
     let trimmed = base.trim_end_matches('/');
     let parsed = reqwest::Url::parse(trimmed).ok()?;
@@ -204,10 +199,6 @@ fn no_redirect_client() -> &'static reqwest::Client {
     })
 }
 
-// Pins `host` to the exact `addr` the guard approved so the connect cannot
-// re-resolve DNS to a rebound internal IP; the cfg follows no redirects, so a
-// permitted external catalyst cannot 30x-bounce onto an internal target after
-// the pre-flight check.
 fn pinned_client(host: &str, addr: SocketAddr) -> Option<reqwest::Client> {
     catalyst_client_cfg()
         .builder()
@@ -216,11 +207,6 @@ fn pinned_client(host: &str, addr: SocketAddr) -> Option<reqwest::Client> {
         .ok()
 }
 
-// Cache the trusted configured-catalyst status for a short TTL so the HUD's
-// constant /about polling collapses to one upstream fetch per window. Only the
-// no-pin (trusted) path is cached; a validated external ?catalyst= is always
-// fetched fresh through its pinned client, so the cache can never serve one
-// caller's target to another (SSRF isolation preserved).
 async fn fetch_catalyst_status_cached(state: &AppState, base: &str) -> Option<Arc<CatalystStatus>> {
     state
         .catalyst_status_cache
@@ -233,9 +219,6 @@ async fn fetch_catalyst_status_cached(state: &AppState, base: &str) -> Option<Ar
 
 async fn fetch_catalyst_status(base: &str, pin: Option<SocketAddr>) -> Option<CatalystStatus> {
     let base = base.trim_end_matches('/');
-    // Untrusted (caller-supplied) bases carry a pinned addr: rebuild a client
-    // that forces the connect onto the validated IP. The trusted-config path
-    // has no pin and reuses the shared client.
     let client = match pin {
         Some(addr) => {
             let host = reqwest::Url::parse(base)
@@ -294,8 +277,6 @@ async fn main_about(
 ) -> Json<AboutResponse> {
     let cfg = &state.cfg;
 
-    // The caller-supplied ?catalyst= is untrusted (SSRF): validate before use.
-    // On rejection or absence, fall back to the operator-set (trusted) config.
     let validated = match q.catalyst.as_deref() {
         Some(candidate) => match validate_external_catalyst(candidate).await {
             Some(safe) => Some(safe),
@@ -334,8 +315,6 @@ async fn main_about(
     let pkg_version = env!("CARGO_PKG_VERSION");
     let commit_hash = option_env!("GIT_COMMIT").unwrap_or("");
 
-    // Only the trusted configured catalyst (no SSRF pin) is cached; a validated
-    // external ?catalyst= is always fetched fresh through its pinned client.
     let catalyst = if pin.is_none() {
         fetch_catalyst_status_cached(&state, &base).await
     } else {
@@ -576,10 +555,6 @@ mod tests {
             "cached path must collapse 50 polls into 1 fetch"
         );
 
-        // SSRF guard + cache interaction: a caller-supplied ?catalyst= that the
-        // guard rejects (non-https here; loopback is block-listed regardless)
-        // must fall back to the trusted configured catalyst, served from cache --
-        // so the attacker-named host is never fetched and no cache miss occurs.
         for _ in 0..2 {
             let _ = main_about(
                 State(state.clone()),
@@ -600,7 +575,6 @@ mod tests {
             "rejected catalyst falls back to the cached configured status"
         );
 
-        // TTL expiry, deterministic: force the cache stale instead of sleeping
         state.catalyst_status_cache.invalidate().await;
         let _ = main_about(State(state.clone()), Query(AboutQuery { catalyst: None })).await;
         assert_eq!(hits_a.load(SeqCst), 2);

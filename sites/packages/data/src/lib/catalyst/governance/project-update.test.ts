@@ -6,10 +6,6 @@ import { loadEditUpdate } from "./edit-project-update";
 const BASE = "http://gov.test";
 const ID = "p-1";
 
-/**
- * GET /projects/{id} as catalyrst-governance builds it: the project row with
- * "updates" spliced in (parse.rs:151).
- */
 const DETAIL = {
   id: ID,
   proposal_id: "prop-1",

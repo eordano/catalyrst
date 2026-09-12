@@ -31,7 +31,6 @@ interface ChModalDeleteProjectProps {
   chrome?: boolean;
   showFilesOption?: boolean;
   note?: string;
-  /** Forwarded to `Modal`. `false` renders the dialog in place instead of portalling it. */
   portal?: boolean;
   onClose?: () => void;
   onSubmit?: (project: Project, deleteFiles: boolean) => void;

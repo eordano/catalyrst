@@ -94,10 +94,6 @@ impl Scene {
     pub fn remove_client(&self, index: u32) {
         self.clients.remove(&index);
 
-        // Whatever the runtime reclaimed for the departing client is state the
-        // rest of the room has to be told about: without this the players still
-        // connected keep rendering a departed player's objects forever, while a
-        // fresh joiner served from `snapshot()` never sees them.
         for body in self.runtime.on_client_close(index) {
             let frame = crate::runtime::frame_crdt(&body);
             self.broadcast(&frame, index);
@@ -226,7 +222,6 @@ mod tests {
     fn a_client_with_no_representable_range_gets_an_empty_one_and_frees_its_slot() {
         use crate::runtime::EMPTY_RANGE;
 
-        // a config where the server band alone consumes the whole number space
         let cfg = ServerTransportConfig {
             reserved_local_entities: 512,
             server_network_entities_limit: u32::MAX - 512,
@@ -240,8 +235,6 @@ mod tests {
         assert_eq!((init.start, init.size), EMPTY_RANGE);
         assert_eq!(init.size, 0, "this is what ws.rs refuses on");
 
-        // refusal path: remove_client returns the slot, so the next attempt is
-        // handed index 0 again rather than walking the index space
         scene.remove_client(client.index);
         assert_eq!(scene.client_count(), 0);
         let (again, _) = scene.add_client("0x2".into(), tx);

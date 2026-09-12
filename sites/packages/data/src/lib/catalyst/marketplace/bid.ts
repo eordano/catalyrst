@@ -7,7 +7,6 @@ import { warnInvalid } from "../warn";
 
 export { BidSchema, BidsEnvelopeSchema };
 
-/** The wire bid row, exactly as `/market/v1/bids` reports it. */
 export type Bid = z.infer<typeof BidSchema>;
 
 export async function fetchOpenBids(

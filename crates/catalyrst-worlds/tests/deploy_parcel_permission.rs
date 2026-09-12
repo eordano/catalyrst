@@ -298,14 +298,11 @@ async fn a_parcel_scoped_grant_authorizes_only_its_own_parcels() {
         return;
     };
 
-    // Seed the world (and the owner row) from a parcel nothing else touches.
     let seed = deployment(&owner, "Seed", "9,9", &["9,9"]);
     post_entity(&mut f.gate, &f.app, &seed, 200).await;
 
     grant_parcels(&f.scratch.pool, &grantee.address().to_lowercase(), &["0,0"]).await;
 
-    // "0,1" is outside the grant. Before #521 the deployment check never looked at
-    // `world_permission_parcels` at all, so this landed.
     let outside = deployment(&grantee, "Outside", "0,0", &["0,0", "0,1"]);
     post_entity(&mut f.gate, &f.app, &outside, 403).await;
     assert!(
@@ -315,7 +312,6 @@ async fn a_parcel_scoped_grant_authorizes_only_its_own_parcels() {
         "a parcel-scoped grant must not authorize parcels outside it"
     );
 
-    // The same wallet, confined to its own parcel, still deploys.
     let inside = deployment(&grantee, "Inside", "0,0", &["0,0"]);
     post_entity(&mut f.gate, &f.app, &inside, 200).await;
     assert!(deployed_entity_ids(&f.scratch.pool)
@@ -340,8 +336,6 @@ async fn replacing_a_scene_requires_authority_over_its_whole_footprint() {
 
     grant_parcels(&f.scratch.pool, &grantee.address().to_lowercase(), &["0,0"]).await;
 
-    // The pointers are covered by the grant, but deploying here would DELETE a scene that
-    // also occupies "0,1" -- which the grantee has no say over.
     let partial = deployment(&grantee, "Partial", "0,0", &["0,0"]);
     post_entity(&mut f.gate, &f.app, &partial, 403).await;
     let mut ids = deployed_entity_ids(&f.scratch.pool).await;
@@ -350,7 +344,6 @@ async fn replacing_a_scene_requires_authority_over_its_whole_footprint() {
     expected.sort();
     assert_eq!(ids, expected, "the 403 must leave both scenes in place");
 
-    // Widen the grant to the replaced scene's whole footprint and the same deploy lands.
     grant_parcels(
         &f.scratch.pool,
         &grantee.address().to_lowercase(),

@@ -139,11 +139,6 @@
   max-width: 60vw;
   animation: eui-toast 0.22s cubic-bezier(0.2, 0.9, 0.3, 1) both;
 }
-/* Motion tokens. One easing and three durations so panels, overlays and rows
-   move like one surface instead of each picking its own feel. Reduced motion is
-   already neutralised globally by the `*` rule in atoms/primitives.css, which
-   clamps every transition/animation duration -- nothing here needs to restate
-   it, and restating it in each file is how the two drift apart. */
 .eui-root {
   --eui-ease: cubic-bezier(0.2, 0.9, 0.3, 1);
   --eui-fast: 0.12s;
@@ -151,10 +146,6 @@
   --eui-slow: 0.26s;
 }
 
-/* The engine takes a few seconds to show its first frame, and this curtain used
-   to vanish on the frame it became ready -- the single most jarring moment in
-   the editor. It now fades and scales away over the canvas underneath. The
-   component keeps it mounted for exactly this long; see DclEditorChrome. */
 @keyframes eui-boot-out {
   to {
     opacity: 0;
@@ -167,9 +158,6 @@
   animation: eui-boot-out var(--eui-slow, 0.26s) var(--eui-ease, ease) both;
 }
 
-/* Panels mount and unmount as they are toggled, so this runs on show. Opacity
-   and transform only -- animating width would relayout the viewport every frame
-   while the engine is drawing into it. */
 @keyframes eui-panel-in {
   from {
     opacity: 0;
@@ -238,8 +226,6 @@
   position: absolute;
   top: var(--eui-chrome-h, 0px);
   left: 0;
-  /* An absolutely positioned replaced element does not stretch between left
-     and right, so the engine canvas sizes explicitly against the band. */
   width: 100%;
   height: calc(100% - var(--eui-chrome-h, 0px));
   border: 0;

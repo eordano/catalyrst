@@ -91,7 +91,6 @@ impl Transports {
 
     pub async fn disconnect_now(&mut self, peer: u32, reason: u32) -> std::io::Result<()> {
         if self.owns_wt(peer) {
-            // WebTransport has no separate immediate-close path; the session close is prompt.
             if let Some(wt) = &self.wt {
                 wt.disconnect(peer, reason);
             }

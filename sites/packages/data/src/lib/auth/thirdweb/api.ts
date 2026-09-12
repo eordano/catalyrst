@@ -50,11 +50,6 @@ type FetchOpts = {
   secretKey?: string;
 };
 
-/**
- * Returns the decoded body as `unknown`. Each caller validates its own shape:
- * a generic would have this function assert a type it never looked at, which is
- * the claim the schemas exist to stop making.
- */
 async function twFetch(path: string, opts: FetchOpts): Promise<unknown> {
   const clientId = thirdwebClientId();
   if (!clientId) {
@@ -96,9 +91,6 @@ async function twFetch(path: string, opts: FetchOpts): Promise<unknown> {
     }
   }
 
-  // Read loosely and left unvalidated on purpose: an error body is a courtesy,
-  // not a contract, and validating it would replace a real 401 with a complaint
-  // about the shape of its explanation.
   if (!res.ok) {
     const obj = (parsed ?? {}) as { message?: string; correlationId?: string };
     throw new ThirdwebError(
@@ -111,7 +103,6 @@ async function twFetch(path: string, opts: FetchOpts): Promise<unknown> {
   return parsed;
 }
 
-/** Nothing to validate: this endpoint answers 200 with an empty body. */
 export async function initiateEmailLogin(
   email: string,
   signal?: AbortSignal,
@@ -201,9 +192,6 @@ export async function getWalletForToken(
   token: string,
   signal?: AbortSignal,
 ): Promise<string | null> {
-  // The catch covers the REQUEST only. Inside it, a validation throw would be
-  // swallowed into "not signed in" and the callback route would blame the user
-  // for an expired session -- the loud dev failure turned into a plausible lie.
   let raw: unknown;
   try {
     raw = await twFetch("/v1/wallets/me", { method: "GET", token, signal });
@@ -212,9 +200,5 @@ export async function getWalletForToken(
   }
   const out = check(WalletsMeSchema, raw, "external-http/thirdweb/wallets-me");
   const addr = out.result?.address ?? out.address ?? null;
-  // `typeof` rather than truthiness, because in production `check` hands the
-  // rejected value straight back: an address that arrived as an object used to
-  // reach `.toLowerCase()`, throw, and land in the catch above as "no wallet".
-  // Answering null here is the same outcome without the accidental throw.
   return typeof addr === "string" ? addr.toLowerCase() : null;
 }

@@ -8,8 +8,6 @@ const sidebar = () => screen.getByRole("navigation", { name: "Main menu" });
 describe("sidebar toggles", () => {
   test("chat button opens the chat panel; second click collapses it back to the bare bar", async () => {
     const { user } = renderHud();
-    // The translucent input bar is always mounted (Explorer 2.0's collapsed state) -- the
-    // open panel (header + message list) is what the sidebar button actually toggles.
     expect(screen.getByLabelText("Send a message to Nearby chat")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Close chat" })).toBeNull();
 
@@ -119,15 +117,11 @@ describe("sidebar toggles", () => {
   test("ESC closes the chat and profile widgets", async () => {
     const { user } = renderHud();
     await user.click(within(sidebar()).getByRole("button", { name: "Chat" }));
-    // Opening Profile afterwards moves focus off chat's input, collapsing chat's solid
-    // "active" chrome (the header) back to idle -- but the message panel (gated on `open`
-    // alone) stays up, so check that rather than the header's Close button.
     await user.click(within(sidebar()).getByRole("button", { name: "Profile" }));
     expect(screen.getByText(/No messages yet|Connecting to Nearby chat/)).toBeInTheDocument();
     expect(screen.getByText("VIEW PROFILE")).toBeInTheDocument();
 
     await user.keyboard("{Escape}");
-    // Closing collapses chat back to the persistent bare bar rather than unmounting it.
     expect(screen.queryByText(/No messages yet|Connecting to Nearby chat/)).toBeNull();
     expect(screen.getByLabelText("Send a message to Nearby chat")).toBeInTheDocument();
     expect(screen.queryByText("VIEW PROFILE")).toBeNull();

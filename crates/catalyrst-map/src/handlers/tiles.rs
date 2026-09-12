@@ -11,13 +11,12 @@ use crate::cache;
 use crate::map::{coords_to_id, LegacyTile, Tile, TileType};
 use crate::AppState;
 
-/// Params that `filter_tiles` actually consumes. The cache key is built from
-/// exactly these (see `canonical_tiles_key`) so semantically-equal requests
-/// collapse to one entry regardless of raw query-string order or extra params.
+/// The cache key is built from exactly these, so semantically-equal requests collapse to
+/// one entry regardless of raw query-string order or extra params.
 const KEY_PARAMS: &[&str] = &["x1", "x2", "y1", "y2", "exclude", "include"];
 
-/// Canonical, order-independent cache key derived from the parsed params rather than the raw
-/// query string. `include`/`exclude` lists are sorted: projection is key-order-insensitive.
+/// Derived from the parsed params, not the raw query string; `include`/`exclude` are sorted
+/// because projection is key-order-insensitive.
 fn canonical_tiles_key(prefix: &str, q: &HashMap<String, String>) -> String {
     let mut s = String::with_capacity(prefix.len() + 32);
     s.push_str(prefix);
@@ -41,7 +40,6 @@ fn canonical_tiles_key(prefix: &str, q: &HashMap<String, String>) -> String {
     s
 }
 
-// Thread-local so parallel test threads do not cross-count.
 #[cfg(test)]
 thread_local! {
     pub(crate) static FILTER_TILE_VISITS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
@@ -126,8 +124,6 @@ fn filter_tiles<'a>(
         None
     };
 
-    // A bbox smaller than the tile set is cheaper to probe coordinate by coordinate than to
-    // find by scanning every parcel. Ids are `coords_to_id`, so the visited set is identical.
     let use_bbox = match bbox {
         Some((min_x, max_x, min_y, max_y)) => {
             let w = (max_x as i64 - min_x as i64 + 1) as u64;
@@ -547,7 +543,6 @@ mod tests {
         .collect()
     }
 
-    // The full-map scan visits 10_000; the bbox probe visits 25.
     #[test]
     fn bbox_filter_probes_area_not_total() {
         let mut tiles = HashMap::new();
@@ -558,7 +553,7 @@ mod tests {
         }
         assert_eq!(tiles.len(), 10_000);
 
-        let q = bbox_query(0, 4, 0, 4); // area = 5*5 = 25
+        let q = bbox_query(0, 4, 0, 4);
         FILTER_TILE_VISITS.with(|c| c.set(0));
         let out = filter_tiles(&tiles, &q);
         let visits = FILTER_TILE_VISITS.with(|c| c.get());
@@ -574,10 +569,8 @@ mod tests {
         assert_eq!(got, want);
     }
 
-    // The raw-query key forked semantically-equal requests into separate entries.
     #[tokio::test]
     async fn param_order_collapses_to_one_entry() {
-        // extra ignored param must not change the key
         let a = bbox_query(0, 1, 0, 1);
         let mut b = bbox_query(0, 1, 0, 1);
         b.insert("cachebust".to_string(), "xyz".to_string());
@@ -587,7 +580,6 @@ mod tests {
             "ignored params must not fork the cache key"
         );
 
-        // include list order must not change the key
         let c: HashMap<String, String> = [("include".to_string(), "x,y,owner".to_string())]
             .into_iter()
             .collect();
@@ -596,7 +588,6 @@ mod tests {
             .collect();
         assert_eq!(canonical_tiles_key("v2", &c), canonical_tiles_key("v2", &d));
 
-        // and both requests land on a single cache entry within one epoch
         let pool = sqlx::postgres::PgPoolOptions::new()
             .connect_lazy("postgres://u:p@127.0.0.1:5999/db")
             .unwrap();

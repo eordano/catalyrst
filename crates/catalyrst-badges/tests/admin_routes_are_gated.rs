@@ -1,10 +1,8 @@
 //! The badges pilot of the compile-forced admin gate (see `docs/auth-arc-plan.md` S4).
 //!
-//! The compiler forces the bearer check *if* an admin handler names the extractor in its
-//! signature. It cannot force a *new* admin handler to declare it, and it cannot stop someone
-//! re-introducing a hand-rolled `authorize_admin()` body call on a fresh route. This scan
-//! closes that residual gap for badges. It is a convention with a script attached, not a type
-//! guarantee -- the same species of guard the workspace already trusts in
+//! The compiler forces the bearer check only once a handler names the extractor; it cannot
+//! force a *new* handler to declare it. This scan closes that residual gap -- a convention
+//! with a script attached, not a type guarantee, the same species of guard as
 //! `catalyrst-server/tests/source_discipline.rs` and
 //! `catalyrst-authenticated-admin/tests/source_discipline.rs`. Cite it as such.
 
@@ -39,9 +37,8 @@ fn read_src(rel: &str) -> String {
     fs::read_to_string(&path).unwrap_or_else(|e| panic!("reading {}: {e}", path.display()))
 }
 
-/// Source lines with `//` comment and doc-comment lines removed -- the module docs quote the
-/// forbidden constructs (`authorize_admin`, `RequireAdmin(`) on purpose and must not trip a
-/// scan for them.
+/// Comment lines are dropped: module docs quote the forbidden constructs on purpose and must
+/// not trip a scan for them.
 fn code_lines(source: &str) -> impl Iterator<Item = &str> {
     source
         .lines()
@@ -49,9 +46,8 @@ fn code_lines(source: &str) -> impl Iterator<Item = &str> {
         .filter(|line| !line.starts_with("//"))
 }
 
-/// Return the balanced-paren argument list of `fn <name>(...)`, i.e. everything between the
-/// `(` that follows the function name and its matching `)`. Handles the nested parens in
-/// `State<AppState>` / `Path<(String, String)>`.
+/// Balanced-paren scan, so nested parens in `State<AppState>` / `Path<(String, String)>` do
+/// not truncate the argument list.
 fn signature_args(source: &str, fn_name: &str) -> String {
     let needle = format!("fn {fn_name}(");
     let start = source
@@ -74,9 +70,6 @@ fn signature_args(source: &str, fn_name: &str) -> String {
     panic!("unbalanced parens in {fn_name} signature");
 }
 
-/// (1) The old forgeable gate is gone: no `src/` file defines a hand-rolled admin-gate
-/// function. If one comes back, this fails -- a body-call gate is exactly what the extractor
-/// replaces.
 #[test]
 fn no_hand_rolled_admin_gate_function_remains() {
     let banned = [
@@ -103,9 +96,6 @@ fn no_hand_rolled_admin_gate_function_remains() {
     );
 }
 
-/// (2) Both badges mutation handlers name the admin extractor in their signature. axum then
-/// refuses to register either route unless `RequireAdmin` resolves as an extractor, and
-/// `RequireAdmin` only resolves by running the bearer verification.
 #[test]
 fn both_mutation_handlers_take_the_admin_extractor() {
     let handlers = read_src("handlers/badges.rs");
@@ -119,10 +109,8 @@ fn both_mutation_handlers_take_the_admin_extractor() {
     }
 }
 
-/// (3) `RequireAdmin` is an unforgeable proof token: exactly one construction site in the
-/// crate, in `src/admin.rs`, and that file delegates to the shared, verified
-/// `AuthenticatedAdminIdentity` mint. A second construction -- or a public inner field -- would
-/// be a second mint that skips verification.
+/// A second construction site -- or a public inner field -- would be a second mint that skips
+/// verification.
 #[test]
 fn require_admin_is_minted_only_via_the_shared_verified_extractor() {
     let mut constructions: Vec<(PathBuf, String)> = Vec::new();
@@ -153,8 +141,6 @@ fn require_admin_is_minted_only_via_the_shared_verified_extractor() {
         "src/admin.rs no longer delegates to the shared verified extractor; RequireAdmin \
          could be minted without the bearer check"
     );
-    // The inner field stays private (a bare tuple field, no `pub`): a `pub` field would let a
-    // sibling module or downstream crate mint a RequireAdmin from an unverified value.
     assert!(
         admin.contains("pub struct RequireAdmin(AuthenticatedAdminIdentity);"),
         "RequireAdmin's inner identity field changed shape or gained visibility; it must stay \

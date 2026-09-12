@@ -12,22 +12,20 @@ pub(super) const ASSET_TYPE_ERC20: i64 = 1;
 
 pub(super) const USD_WEI_PER_CREDIT: u128 = 100_000_000_000_000_000;
 
-/// uint256 max, which the squid writes into `item.price` to mean "no price set"
-/// rather than leaving it NULL. A `price > 0` guard does NOT exclude it, so a
-/// store item carrying the sentinel would be advertised at ~1.16e42 credits.
-/// ports/catalog guards the same value the same way (`MAX_NUMERIC_NUMBER`);
-/// duplicated here as upstream does rather than coupling the two ports.
+/// uint256 max, which the squid writes into `item.price` to mean "no price set" rather than
+/// leaving it NULL. A `price > 0` guard does NOT exclude it, so a store item carrying the
+/// sentinel would be advertised at ~1.16e42 credits. ports/catalog guards the same value the
+/// same way (`MAX_NUMERIC_NUMBER`); duplicated here as upstream does rather than coupling the
+/// two ports.
 pub(super) const NO_PRICE_SENTINEL: &str =
     "115792089237316195423570985008687907853269984665640564039457584007913129639935";
 
-/// Upper bound on a row's USD-wei price, applied before `price_credits` is cast
-/// to bigint. Without it an absurd price does not merely render badly --
-/// `CEIL(usd_wei / C)::bigint` raises `bigint out of range` and the ENTIRE
-/// query aborts, so one bad item 500s the catalogue for every user. The
-/// sentinel guard above does not cover this: `sentinel - 1` clears it and still
-/// overflows. 1e30 USD wei is $1e12 -- orders of magnitude above any real item
-/// and ~1e6 below the bigint ceiling, so the cast has room. Rows above it are
-/// dropped rather than fatal.
+/// Applied before `price_credits` is cast to bigint. Without it an absurd price does not
+/// merely render badly -- `CEIL(usd_wei / C)::bigint` raises `bigint out of range` and the
+/// ENTIRE query aborts, so one bad item 500s the catalogue for every user. The sentinel guard
+/// above does not cover this: `sentinel - 1` clears it and still overflows. 1e30 USD wei is
+/// $1e12, orders of magnitude above any real item and ~1e6 below the bigint ceiling. Rows
+/// above it are dropped rather than fatal.
 pub(super) const MAX_USD_WEI: &str = "1000000000000000000000000000000";
 
 pub(super) fn to_credits(usd_wei: &str) -> Option<u64> {
@@ -49,28 +47,25 @@ pub(super) fn escape_like(value: &str) -> String {
     crate::logic::search_match::escape_like(value)
 }
 
-/// The item behind a row, whichever side of the trade it came from: primary
-/// listings resolve through item_p, secondary ones through the nft to item_s.
+/// Primary listings resolve through item_p, secondary ones through the nft to item_s.
 pub(super) const SHOP_ITEM_ID_EXPR: &str = "COALESCE(item_p.id, item_s.id)";
 pub(super) const SHOP_COLLECTION_ID_EXPR: &str =
     "COALESCE(item_p.collection_id, item_s.collection_id)";
-/// Rows that are not collection items -- LAND, estates, names -- match on
-/// the asset's own name.
+/// Rows that are not collection items -- LAND, estates, names -- match on the asset's name.
 pub(super) const SHOP_NON_ITEM_NAME_EXPR: &str = "nft.name";
 
-/// A trade whose item belongs to a collection curation did not approve is not
-/// listed, the base WHERE /v2/catalog applies. Two arms rather than one
-/// COALESCE with a default: a row whose sent asset is no collection item at
-/// all (LAND, estates, names) has no collection to judge and stays, an item
-/// whose flag is NULL -- most unapproved items -- goes, and one COALESCE
-/// cannot tell those apart.
+/// A trade whose item belongs to a collection curation did not approve is not listed -- the
+/// base WHERE /v2/catalog applies. Two arms rather than one COALESCE with a default: a row
+/// whose sent asset is no collection item at all (LAND, estates, names) has no collection to
+/// judge and stays, while an item whose flag is NULL -- most unapproved items -- goes, and
+/// one COALESCE cannot tell those apart.
 pub(super) const APPROVED_COLLECTION_PREDICATE: &str = "(\n\
     COALESCE(item_p.id, item_s.id) IS NULL\n\
     OR COALESCE(item_p.search_is_collection_approved, item_s.search_is_collection_approved) = true\n\
   )";
 
-/// The shop search predicate over the `metadata_joins_on` aliases; binds the
-/// raw term and its escaped LIKE pattern, in that order.
+/// Over the `metadata_joins_on` aliases; binds the raw term and its escaped LIKE pattern, in
+/// that order.
 pub(super) fn shop_search_where(
     name_expr: &str,
     search: &str,
@@ -117,26 +112,23 @@ pub(super) fn emit(b: Bind, bs: &mut Vec<Bind>, idx: &mut usize) -> String {
     s
 }
 
-/// The shop's creator rail (`/v3/catalog/creators`, marketplace-server
-/// #389/#390/#394): creators ranked by how much MANA THEIR items took in the
-/// window, attributing each sale to `item.creator` via the `sale.item_id = item.id`
-/// join rather than to the seller (which a primary mint never reaches -- see
-/// [`super::types::TopCreator`]). `sale.timestamp` is unix SECONDS, so the
-/// window anchor is bound as seconds.
+/// The shop's creator rail (`/v3/catalog/creators`, marketplace-server #389/#390/#394). Each
+/// sale is attributed to `item.creator` via the `sale.item_id = item.id` join rather than to
+/// the seller, which a primary mint never reaches (see [`super::types::TopCreator`]).
+/// `sale.timestamp` is unix SECONDS, so the window anchor is bound as seconds.
 ///
-/// The window is a FILTER on the ranking count, not part of the scan's WHERE:
-/// in the WHERE it would bound the all-time `total_sales` too, silently making
-/// it a second copy of the windowed figure. Catalogue counts come from their
-/// own CTE over `item` alone -- joined to `sale`, one item is one row PER SALE,
-/// so a creator's item count would come back multiplied by how well it sold.
-/// The join is LEFT so a creator whose sales are visible but whose catalogue is
-/// not still ranks; the [`top_creators_min_sales`] floor keeps a thin window out
-/// of a REVENUE ranking, and the [`TOP_CREATORS_MIN_ITEMS`] floor keeps out a
-/// one-hit month with nothing to browse.
+/// The window is a FILTER on the ranking count, not part of the scan's WHERE: in the WHERE it
+/// would bound the all-time `total_sales` too, silently making it a second copy of the
+/// windowed figure. Catalogue counts come from their own CTE over `item` alone -- joined to
+/// `sale`, one item is one row PER SALE, so a creator's item count would come back multiplied
+/// by how well it sold. The join is LEFT so a creator whose sales are visible but whose
+/// catalogue is not still ranks; [`top_creators_min_sales`] keeps a thin window out of a
+/// REVENUE ranking and [`TOP_CREATORS_MIN_ITEMS`] keeps out a one-hit month with nothing to
+/// browse.
 ///
-/// The windowed revenue stays NUMERIC through the ORDER BY and is cast to text
-/// only on the way out: sorting the wei as text would put '900...' above
-/// '1000...' and rank a creator by the first digit of their revenue.
+/// The windowed revenue stays NUMERIC through the ORDER BY and is cast to text only on the
+/// way out: sorting the wei as text would put '900...' above '1000...' and rank a creator by
+/// the first digit of their revenue.
 pub(super) fn build_top_creators_sql(first: Option<i64>, days: Option<i64>) -> (String, Vec<Bind>) {
     let first = top_creators_clamp_first(first);
     let days = top_creators_clamp_days(days);
@@ -186,12 +178,11 @@ pub(super) fn build_top_creators_sql(first: Option<i64>, days: Option<i64>) -> (
     (sql, binds)
 }
 
-/// The metadata joins, keyed off whatever relation is aliased `mv`. Split out
-/// from `metadata_joins` so the CollectionStore branch can reuse them verbatim
-/// over its own base relation (see `store_base_relation`): every shared
-/// expression -- `append_unified_filters`, `gender_expr` -- reads these aliases,
-/// so reusing the join chain is what makes the filters provably identical
-/// across branches rather than identical by inspection.
+/// Keyed off whatever relation is aliased `mv`, so the CollectionStore branch can reuse them
+/// verbatim over its own base relation (see `store_base_relation`). Every shared expression --
+/// `append_unified_filters`, `gender_expr` -- reads these aliases, so reusing the join chain
+/// is what makes the filters provably identical across branches rather than identical by
+/// inspection.
 pub(super) fn metadata_joins_on() -> String {
     format!(
         "LEFT JOIN {schema}.item item_p ON mv.type = 'public_item_order'\n\
@@ -213,34 +204,29 @@ pub(super) fn metadata_joins() -> String {
     )
 }
 
-/// The CollectionStore branch's base relation, shaped like `mv_trades` and
-/// aliased `mv`.
+/// Shaped like `mv_trades` and aliased `mv`.
 ///
-/// A store item is NOT a trade: primary minting has no order and no signed
-/// listing. It is a property of the item -- the CollectionStore is a minter for
-/// its collection, and the buyer calls `CollectionStore.buy` at `item.price`.
-/// So it cannot be recovered by filtering `mv_trades`; it needs its own source
-/// relation, which is why the Shop's feed was missing it entirely.
+/// A store item is NOT a trade: primary minting has no order and no signed listing, it is a
+/// property of the item -- the CollectionStore is a minter for its collection and the buyer
+/// calls `CollectionStore.buy` at `item.price`. So it cannot be recovered by filtering
+/// `mv_trades`; it needs its own source relation, which is why the Shop's feed was missing it
+/// entirely. Projecting it into mv_trades' column names lets the metadata joins, the gender
+/// expression and every browse filter apply UNCHANGED.
 ///
-/// Projected into mv_trades' column names rather than given its own branch
-/// shape, so the metadata joins, the gender expression and every browse filter
-/// apply UNCHANGED.
-///
-/// The predicate mirrors the store-minter half of ports/catalog's on-sale
-/// logic (`only_minting` in catalog/queries.rs), minus its V3-minter half --
-/// that half is the offchain primary trade the existing branch already covers,
-/// and including it here would double-count every item. Predicates, and why:
-/// - `search_is_collection_approved` mirrors the base WHERE /v2/catalog
-///   applies; the trade branches carry the same rule through
-///   `APPROVED_COLLECTION_PREDICATE`, which lands on this branch's rows too
-///   and is redundant here.
+/// The predicate mirrors the store-minter half of ports/catalog's on-sale logic
+/// (`only_minting` in catalog/queries.rs), minus its V3-minter half -- that half is the
+/// offchain primary trade the existing branch already covers, and including it here would
+/// double-count every item. Predicates, and why:
+/// - `search_is_collection_approved` mirrors the base WHERE /v2/catalog applies; the trade
+///   branches carry the same rule through `APPROVED_COLLECTION_PREDICATE`, which lands on
+///   this branch's rows too and is redundant here.
 /// - `available > 0` drops sold-out mints: store supply is finite.
 /// - `price > 0` drops free claims.
-/// - `search_emote_outcome_type IS NULL` excludes SOCIAL emotes, which the
-///   marketplace deliberately hides.
+/// - `search_emote_outcome_type IS NULL` excludes SOCIAL emotes, which the marketplace
+///   deliberately hides.
 /// - `network <> 'ETHEREUM'` is insurance: this row tells the client to call
-///   CollectionStore.buy, which exists only on Polygon, so an L1 row would
-///   offer a purchase that cannot settle.
+///   CollectionStore.buy, which exists only on Polygon, so an L1 row would offer a purchase
+///   that cannot settle.
 pub(super) fn store_base_relation() -> String {
     format!(
         "FROM (\n\

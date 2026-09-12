@@ -67,8 +67,8 @@ A dead SFU does not cost you voice, it costs you the realm. The desktop client
 runs the LiveKit handshake as a gate on entry, not as a background task: its
 result overwrites the scene-load result, so on timeout the loading screen never
 completes and the visitor is thrown back to the login screen, retrying every 30
-seconds. Content that is entirely healthy is unreachable for a reason nothing in
-the symptom points at.
+seconds -- healthy content, unreachable, with nothing in the symptom pointing at
+comms.
 
 Both `/about` implementations therefore probe the endpoint they advertise -
 `LIVEKIT_HOST` when set, otherwise whatever `COMMS_FIXED_ADAPTER` points at,
@@ -96,8 +96,8 @@ CONTENTS_UPSTREAM_URL=https://worlds-content-server.decentraland.org \
   worlds-mirror --name myworld.dcl.eth
 ```
 
-It refuses to overwrite a world that was published *here* - a mirror would
-replace signed content with someone else's copy - and says so on its own line:
+It refuses to overwrite a world published *here* (a mirror would replace signed
+content with someone else's copy) and says so on its own line:
 
 ```
 !! REFUSED myworld.dcl.eth: already published to this node by 0xabc... Re-run with --name myworld.dcl.eth --force to overwrite it.
@@ -108,10 +108,9 @@ a whole index run. The run's tail separates `skipped` (nothing upstream) from
 `refused` (a local publish) from `failed` (an error), so a deliberate refusal
 never reads as a broken run.
 
-A mirrored world takes the upstream server's `spawnCoordinates` when it
-publishes one. When it does not, a spawn set locally through
-`PUT /world/<name>/settings` is preserved, and the first scene's base parcel is
-the last resort.
+A mirrored world takes the upstream server's `spawnCoordinates` when it publishes
+one; otherwise a spawn set locally through `PUT /world/<name>/settings` is
+preserved, with the first scene's base parcel as last resort.
 
 4. Realm discovery (`/about`) - clients discover the realm via `GET /about`; point content core's public URLs at the TLS host:
 
@@ -186,9 +185,7 @@ Three layers resolve every backend to catalyrst:
 2. Realm `/about` discovery - `Lambdas`/`Content`/`EntitiesDeployment` (+ `EntitiesActive` fallback) derive from `/about`. Default without a CLI flag: point `Genesis` (`/realm-provider/main`) at a response listing this host.
 3. Edge path-routing - one front host; nginx strips a per-upstream prefix, forwards to the owning bundle.
 
-Prefixes map upstream *subdomains*, not crates: upstreams sharing a bundle are told apart by the prefix nginx strips.
-
-Prefix -> bundle routing (ports deployment-assigned):
+Prefixes map upstream *subdomains*, not crates: upstreams sharing a bundle are told apart by the prefix nginx strips. Ports are deployment-assigned.
 
 | Front-host prefix | Upstream it stands in for | Target |
 |---|---|---|
@@ -204,7 +201,7 @@ Prefix -> bundle routing (ports deployment-assigned):
 
 `location /places/ { proxy_pass http://127.0.0.1:<PORT>/; }` - trailing slash strips prefix. WebSocket prefixes (`/rpc/`, `/social-rpc/`) need `proxy_http_version 1.1` + `Upgrade`/`Connection`.
 
-Not rewritten: web links (`decentraland.org` web-app, Discord/Twitter/OpenSea/docs/reels, the CoinGecko rate URL) pass through unchanged - suffixes match the pattern, self-hosting any is one prefix-map entry. Crate-less services proxy straight to their upstream.
+Not rewritten: web links (`decentraland.org` web-app, Discord/Twitter/OpenSea/docs/reels, the CoinGecko rate URL) pass through unchanged; self-hosting any is one prefix-map entry. Crate-less services proxy straight to their upstream.
 
 ## Gateway mode - the stock explorer's gateway contract
 

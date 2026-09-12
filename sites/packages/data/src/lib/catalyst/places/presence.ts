@@ -10,27 +10,11 @@ import {
 
 export const PRESENCE_BASE = "/presence";
 
-/*
- * The row schemas are the generated images of `catalyrst-presence`'s DTOs
- * (ports/queries.rs), so every field Rust declares non-optional is required
- * here and a payload that is missing one FAILS the parse instead of arriving
- * as a zero. A snapshot without `peers_count`, or an occupancy row without a
- * `pointer`/`count`, is not a degraded reading -- it is not a reading, and the
- * callers below turn that into "unavailable"/"no sample" rather than into a
- * number nobody measured. Only the columns Rust declares `Option<_>`
- * (`worlds_live_total`, `scene_name`, `live_users`) are nullable. The hand
- * copy this replaces was wrong twice about the wire: `realm` is a required
- * `String` (never null) and rows carry a required `taken_at`; it also carried
- * a `parcel_count` column the endpoint never sends, which is gone.
- */
 export { CurrentSnapshotSchema, SceneOccupancyRowSchema, WorldHeadcountRowSchema };
 export type CurrentSnapshot = z.infer<typeof CurrentSnapshotSchema>;
 export type SceneOccupancyRow = z.infer<typeof SceneOccupancyRowSchema>;
 export type WorldHeadcountRow = z.infer<typeof WorldHeadcountRowSchema>;
 
-/** `current: null` means the snapshot header was not read. `source` says which
- *  of the three reads failed at all, so a screen can suppress the numbers
- *  instead of drawing an unmeasured zero. */
 export type PresenceSnapshot = {
   current: CurrentSnapshot | null;
   scenes: SceneOccupancyRow[] | null;
@@ -38,9 +22,6 @@ export type PresenceSnapshot = {
   source: "catalyst" | "unavailable";
 };
 
-/* The `{current}`/`{scenes}`/`{worlds}` wrappers are ad-hoc `json!` envelopes
- * in the Rust handlers (no DTO, so nothing to generate); `current` is an
- * `Option<_>` there and arrives as an explicit null. */
 const CurrentEnvelopeSchema = z.object({
   current: CurrentSnapshotSchema.nullable(),
 });
@@ -92,9 +73,6 @@ export async function fetchCurrentWorlds(opts: GetOptions = {}): Promise<WorldHe
   return out;
 }
 
-/** Each read answers with its own rows or with `null`. A failed read must not
- *  be indistinguishable from an empty one, so it stays null and drags `source`
- *  down to "unavailable" for the whole snapshot. */
 export async function fetchPresenceSnapshot(
   opts: GetOptions = {},
 ): Promise<PresenceSnapshot> {
@@ -144,8 +122,6 @@ export function worldHeadcount(w: WorldHeadcountRow): number {
   return Math.max(w.count, w.live_users ?? 0);
 }
 
-/** Null when any of the three reads is missing: every figure below folds all
- *  three together, so a partial snapshot yields a total nobody measured. */
 export function occupancyTotals(snap: PresenceSnapshot): OccupancyTotals | null {
   const c = snap.current;
   const scenes = snap.scenes;

@@ -268,10 +268,9 @@ impl PricingClient {
 
     /// Batched form of [`Self::compute_credit_price`]: reprices many wei amounts
     /// in ONE round trip. The `ceil(...)` expression is byte-identical to the
-    /// single-row version and the bind roles/types match, so PostgreSQL
-    /// evaluates the same NUMERIC arithmetic per row; `WITH ORDINALITY` + the
-    /// `ORDER BY t.ord` pin the output order to the input order, so element `i`
-    /// of the result is the reprice of `weis[i]`.
+    /// single-row version and the bind roles/types match, so PostgreSQL evaluates
+    /// the same NUMERIC arithmetic per row; `WITH ORDINALITY` + `ORDER BY t.ord`
+    /// pin element `i` of the result to the reprice of `weis[i]`.
     pub async fn compute_credit_prices_batch(
         &self,
         pool: &PgPool,
@@ -547,13 +546,11 @@ fn mint_undercuts_listing(mint_wei: &str, listing_wei: &str) -> bool {
 /// Shared prefix of `charge_is_positive` (below) and `parse_nonneg_decimal`
 /// (ports/checkout.rs): trim whitespace, split on the first `.`, and accept
 /// only `[digits][.[digits]]` with at least one span non-empty. Returns the
-/// two spans unmodified for each caller's own tail (a positivity check here,
-/// a zero-normalized comparison tuple there) -- it does not itself decide
-/// positivity, magnitude, or sign. Deliberately narrower than `CreditAmount`
-/// (crate::money): no sign, no exponent, no magnitude bound. Do NOT widen
-/// this grammar to match `CreditAmount` or any other validator in this crate
-/// -- see the `characterization_*` tests across money.rs, ports/checkout.rs,
-/// purchase_intent.rs, and handlers/packs.rs for the documented divergences.
+/// two spans unmodified for each caller's own tail -- it does not itself
+/// decide positivity, magnitude, or sign. Deliberately narrower than
+/// `CreditAmount` (crate::money): no sign, no exponent, no magnitude bound.
+/// Do NOT widen this grammar to match any other validator in this crate --
+/// see the `characterization_*` tests for the documented divergences.
 pub(crate) fn split_validated_decimal(s: &str) -> Option<(&str, &str)> {
     let s = s.trim();
     let (int_part, frac_part) = s.split_once('.').unwrap_or((s, ""));
@@ -1250,16 +1247,15 @@ mod tests {
 /// ports/checkout.rs, purchase_intent.rs, and handlers/packs.rs).
 ///
 /// `charge_is_positive` shares its accept/reject grammar exactly with
-/// `parse_nonneg_decimal` in ports/checkout.rs (both now call
+/// `parse_nonneg_decimal` in ports/checkout.rs (both call
 /// `split_validated_decimal`): scientific notation and a stray extra `.` are
-/// rejected, surrounding whitespace is tolerated (unlike `CreditAmount`,
-/// which has no `.trim()`), and there is no magnitude bound (a huge digit
-/// string is accepted, unlike `CreditAmount`'s `MAX_MAGNITUDE_EXP`).
+/// rejected, surrounding whitespace is tolerated (unlike `CreditAmount`), and
+/// there is no magnitude bound.
 ///
 /// `payment_is_positive` is a DIFFERENT, much looser function: it operates on
 /// raw wei integer strings, not Credits decimals, and only rejects a string
-/// that is all `'0'` bytes after trimming -- it does no grammar validation at
-/// all, so malformed input like `"1e18"` or `"1.2.3"` reads as "positive".
+/// that is all `'0'` bytes after trimming, so malformed input like `"1e18"`
+/// or `"1.2.3"` reads as "positive".
 #[cfg(test)]
 mod characterization_charge_and_payment_positivity {
     use super::{charge_is_positive, payment_is_positive};
@@ -1280,9 +1276,6 @@ mod characterization_charge_and_payment_positivity {
             "no magnitude bound here, unlike CreditAmount"
         );
 
-        // payment_is_positive has no grammar check at all -- only an
-        // all-zero-bytes rejection -- so it reads every one of these
-        // malformed/exotic literals as positive.
         for s in ["1e18", "1E18", " 1.5 ", ".5", "5.", "01.50", "-1", "1.2.3"] {
             assert!(payment_is_positive(s), "{s:?} must read as positive");
         }

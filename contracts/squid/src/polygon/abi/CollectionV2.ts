@@ -239,7 +239,6 @@ export class Contract extends ContractBase {
     }
 }
 
-/// Event types
 export type AddItemEventArgs = EParams<typeof events.AddItem>
 export type ApprovalEventArgs = EParams<typeof events.Approval>
 export type ApprovalForAllEventArgs = EParams<typeof events.ApprovalForAll>
@@ -259,7 +258,6 @@ export type SetItemMinterEventArgs = EParams<typeof events.SetItemMinter>
 export type TransferEventArgs = EParams<typeof events.Transfer>
 export type UpdateItemDataEventArgs = EParams<typeof events.UpdateItemData>
 
-/// Function types
 export type COLLECTION_HASHParams = FunctionArguments<typeof functions.COLLECTION_HASH>
 export type COLLECTION_HASHReturn = FunctionReturn<typeof functions.COLLECTION_HASH>
 

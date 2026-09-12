@@ -19,7 +19,6 @@ const SAMPLE_ASSET: NonNullable<Props["asset"]> = {
   ],
 };
 
-/** The second asset shape the page has been shown with -- an estate, not a parcel. */
 const ESTATE_ASSET: NonNullable<Props["asset"]> = {
   name: "Skyline Estate",
   category: "estate",
@@ -38,7 +37,6 @@ const ASSETS = { parcel: SAMPLE_ASSET, estate: ESTATE_ASSET } satisfies Record<
 type AssetKey = keyof typeof ASSETS;
 const ASSET_KEYS = Object.keys(ASSETS) as AssetKey[];
 
-/** `none` maps to `null` so "not listed" is a first-class option in the Controls panel. */
 const ORDERS = {
   listed: { price: "1,800", expiresAt: "Jul 20, 2026" },
   none: null,
@@ -46,7 +44,6 @@ const ORDERS = {
 type OrderKey = keyof typeof ORDERS;
 const ORDER_KEYS = Object.keys(ORDERS) as OrderKey[];
 
-/** Every rental shape the page has been shown with, picked by name. */
 const RENTALS = {
   open: { status: "open", price: "25", expiration: "Jul 20, 2026", periods: "7 / 30 / 90" },
   executed: {
@@ -74,7 +71,6 @@ const RENTALS = {
 type RentalKey = keyof typeof RENTALS;
 const RENTAL_KEYS = Object.keys(RENTALS) as RentalKey[];
 
-/** `assetKind` / `orderKind` / `rentalKind` name fixtures; the two booleans stay real props. */
 type ManageStoryArgs = {
   assetKind: AssetKey;
   orderKind: OrderKey;
@@ -128,13 +124,6 @@ const CATALOG: CatalogEntry[] = [
   { label: "LAND locked", assetKind: "parcel", orderKind: "none", rentalKind: "executedLongLease", showUpgradeWarning: false, locked: true },
 ];
 
-/**
- * Every state at once. `Default` flips between them from the Controls panel; this story keeps
- * all seven in the render + a11y + visual-diff gates, since the sell card and the rent card
- * each render a different subtree per order/rental status and `locked` swaps the actions for a
- * lock notice. `chrome={false}` because stacking N copies of `MarketplaceChrome` would emit N
- * `<main>` landmarks and fail axe's landmark-unique.
- */
 export const Catalog: Story = {
   name: "Catalog (every state)",
   parameters: { controls: { disable: true } },

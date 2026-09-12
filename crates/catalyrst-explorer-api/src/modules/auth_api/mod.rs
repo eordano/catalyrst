@@ -183,9 +183,6 @@ pub fn routes() -> Router<AppState> {
         .layer(DefaultBodyLimit::max(DEFAULT_BODY_SIZE_BYTES))
 }
 
-// Preflight for the browser SPA: answer OPTIONS with the allowed methods and
-// headers. Access-Control-Allow-Origin is added by nginx on the auth-api
-// vhost; setting it here as well would duplicate the header and break CORS.
 async fn cors_preflight(req: Request, next: Next) -> Response {
     if req.method() == Method::OPTIONS {
         return Response::builder()
@@ -651,9 +648,6 @@ fn validate_outcome_body(body: &HttpOutcomeMessage) -> Result<(), String> {
 }
 
 fn is_valid_uuid(s: &str) -> bool {
-    // Upstream auth-server accepts only the hyphenated UUID v4 form
-    // (RFC 4122 variant); Uuid::parse_str alone also admits simple, braced,
-    // and urn forms plus other versions, so those must be rejected here.
     s.len() == 36
         && Uuid::parse_str(s).is_ok_and(|u| {
             u.get_version_num() == 4 && matches!(u.get_variant(), uuid::Variant::RFC4122)
@@ -815,19 +809,14 @@ mod tests {
 
     #[test]
     fn uuid_rejects_non_v4_versions_and_nil() {
-        // v1 time-based
         assert!(!is_valid_uuid("c232ab00-9414-11ec-b909-0242ac120002"));
-        // nil UUID (version 0)
         assert!(!is_valid_uuid("00000000-0000-0000-0000-000000000000"));
     }
 
     #[test]
     fn uuid_rejects_non_hyphenated_encodings() {
-        // simple (32-char) form
         assert!(!is_valid_uuid("8c545b52c08e4c39a85446e2b5b03c48"));
-        // braced form
         assert!(!is_valid_uuid("{8c545b52-c08e-4c39-a854-46e2b5b03c48}"));
-        // urn form
         assert!(!is_valid_uuid(
             "urn:uuid:8c545b52-c08e-4c39-a854-46e2b5b03c48"
         ));
@@ -835,9 +824,7 @@ mod tests {
 
     #[test]
     fn uuid_rejects_non_rfc4122_variant_nibbles() {
-        // variant nibble 'c' = Microsoft reserved
         assert!(!is_valid_uuid("8c545b52-c08e-4c39-c854-46e2b5b03c48"));
-        // variant nibble '7' = NCS
         assert!(!is_valid_uuid("8c545b52-c08e-4c39-7854-46e2b5b03c48"));
     }
 

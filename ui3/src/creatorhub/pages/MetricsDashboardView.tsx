@@ -74,15 +74,7 @@ type CmSummaryCard = {
   label: string;
   value: string;
   note?: string;
-  /**
-   * Legacy flag, kept so existing call sites compile unchanged. When `datum`
-   * is supplied it wins: availability is derived from provenance, not asserted.
-   */
   unavailable?: boolean;
-  /**
-   * Provenance for this card. Supplying it makes the card speak the shared
-   * vocabulary -- badge, endpoint, reason -- instead of a bare boolean.
-   */
   datum?: Datum<number | string>;
 };
 
@@ -307,8 +299,6 @@ function SummaryCard({
   unavailable,
   datum,
 }: SummaryCardProps) {
-  // Provenance wins over the boolean: a card cannot claim a value that its
-  // datum says never arrived.
   const absent = datum ? !showable(datum) : Boolean(unavailable);
   const shown = datum && !showable(datum) ? NO_VALUE : value;
 

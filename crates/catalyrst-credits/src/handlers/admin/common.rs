@@ -9,9 +9,8 @@ use catalyrst_authenticated_principal::AuthorityNotEstablished;
 use crate::http::ApiError;
 use crate::AppState;
 
-/// The environment variable that names the credits admin bearer secret. Server-chosen; it
-/// becomes the verified audit actor (`service-token:CATALYRST_CREDITS_ADMIN_TOKEN`) and the
-/// name reported when the secret is unset. Never client-supplied.
+/// Server-chosen: it becomes the verified audit actor and the name reported when the secret
+/// is unset. Never client-supplied.
 const ADMIN_TOKEN_ENV: &str = "CATALYRST_CREDITS_ADMIN_TOKEN";
 
 /// A credits-local carrier for the configured admin secret, so the shared extractor's
@@ -32,24 +31,20 @@ impl FromRef<AdminSecretState> for ConfiguredAdminBearerSecret {
 /// bearer secret.
 ///
 /// The old gate was `authorize_admin(&state, &headers)?` -- a forgettable body call: delete the
-/// line and the handler still compiled and served a production mutation to a stranger.
-/// `RequireAdmin` replaces that with a value every admin handler must *name in its signature*;
-/// axum refuses the handler into `Router::route` unless the argument resolves, and the only way
-/// it resolves is the [`FromRequestParts`] impl below, which runs the shared verified
-/// [`AuthenticatedAdminIdentity`] mint. The check stops being a deletable statement and becomes a
-/// term in the type the router demands. `tests/admin_routes_are_gated.rs` pins the residual gap --
-/// a *new* admin route that forgets to name it.
+/// line and the handler still compiled and served a production mutation to a stranger. axum
+/// refuses a handler into `Router::route` unless every argument resolves, and the only way this
+/// one resolves is the [`FromRequestParts`] impl below, which runs the shared verified
+/// [`AuthenticatedAdminIdentity`] mint. `tests/admin_routes_are_gated.rs` pins the residual gap
+/// -- a *new* admin route that forgets to name it.
 ///
 /// The inner identity is a private tuple field: only this module can mint a `RequireAdmin`, and
-/// only via [`establish_admin`]. It derives nothing -- no `Deserialize` (a request body must never
-/// become an admin identity), no `Clone`/`Default` -- the same discipline as the shared type and
-/// `catalyrst-server`'s `AdminSession`.
+/// only via [`establish_admin`]. It derives nothing -- no `Deserialize` (a request body must
+/// never become an admin identity), no `Clone`/`Default`.
 pub(crate) struct RequireAdmin(AuthenticatedAdminIdentity);
 
 impl RequireAdmin {
-    /// The server-verified audit actor, `service-token:CATALYRST_CREDITS_ADMIN_TOKEN`. Built by
-    /// the principal crate from the `&'static str` the operator configured -- it replaces the old
-    /// client-supplied `x-catalyrst-admin` header value, which the server never verified.
+    /// Built by the principal crate from the `&'static str` the operator configured -- it replaces
+    /// the old client-supplied `x-catalyrst-admin` header value, which the server never verified.
     pub(crate) fn audit_actor_description(&self) -> String {
         self.0.audit_actor_description()
     }
@@ -57,10 +52,8 @@ impl RequireAdmin {
 
 /// Preserve the pre-migration credits wire contract: every admin-auth failure renders as a
 /// **403** carrying the `{ok:false,error,message}` envelope, with the same two messages the
-/// deleted `authorize_with_token` produced -- the unset-token notice when the secret is not
-/// configured, `"invalid admin token"` for a missing or mismatched bearer. This deliberately
-/// collapses the shared extractor's 503-vs-401 distinction back to 403; adopting 401/503 is a
-/// separate follow-on.
+/// deleted `authorize_with_token` produced. This deliberately collapses the shared extractor's
+/// 503-vs-401 distinction back to 403; adopting 401/503 is a separate follow-on.
 fn to_api_error(rejection: AdminAuthRejection) -> ApiError {
     match rejection.refusal() {
         AuthorityNotEstablished::CredentialNotConfigured { .. } => {
@@ -70,10 +63,8 @@ fn to_api_error(rejection: AdminAuthRejection) -> ApiError {
     }
 }
 
-/// The single mint for [`RequireAdmin`]: build the local secret carrier from the configured
-/// token, run the shared verified extractor over the request parts, and map its rejection onto
-/// the credits wire contract. Split out from the trait impl so it is unit-testable without a full
-/// `AppState` (which would require a live database).
+/// Split out from the trait impl so it is unit-testable without a full `AppState` (which would
+/// require a live database).
 async fn establish_admin(
     configured: Option<String>,
     parts: &mut Parts,
@@ -260,9 +251,6 @@ mod tests {
         );
     }
 
-    // The pre-migration wire contract: 403 + the credits error envelope, with the same two
-    // messages the deleted `authorize_with_token` produced, for every failure mode. These lock
-    // the behaviour the old gate had rather than the shared extractor's native 401/503.
     #[tokio::test]
     async fn an_unset_token_fails_closed_as_403_disabled() {
         for presented in [Some("Bearer anything"), None] {
@@ -292,7 +280,6 @@ mod tests {
 
     #[tokio::test]
     async fn a_missing_wrong_or_unprefixed_bearer_is_403_invalid() {
-        // The raw `"secret"` case pins that the exact `"Bearer "` prefix is still required.
         let cases = [
             None,
             Some("Bearer nope"),

@@ -13,20 +13,6 @@ export function isValidAddress(addr: string): boolean {
   return ETH_ADDRESS_RE.test(addr.trim());
 }
 
-/**
- * This is the ACL panel's own shape, not a wire shape: the only thing that
- * reaches it is `adaptBackendPermissions`, which builds every field from a
- * `BackendPermissionsSchema` parse, plus `emptyWorldPermissions` below.
- *
- * Every field is therefore required. A default on any of them was a permission
- * invented for a producer that had stopped supplying it -- an empty `wallets`
- * reads as "nobody is on the allow list", `deployment: "none"` and
- * `streaming: false` strip a collaborator of rights they hold, and defaulted
- * `limits` would let the form accept a password or a wallet count the server
- * then rejects. With them required, a drifted adapter fails this parse and
- * `loadWorldPermissions` answers `fallback: true`, which the route renders as
- * "we could not read this world's permissions" rather than as an ACL.
- */
 const AccessSettingSchema = z.object({
   type: z.enum(ACCESS_TYPES),
   wallets: z.array(z.string()),
@@ -65,8 +51,6 @@ const LimitsSchema = z.object({
 
 export const WorldPermissionsSchema = z.object({
   world: z.object({ name: z.string(), owner: z.string().nullable() }),
-  // The generated wire block, with access narrowed to this page's setting
-  // shape (the wire leaves it unknown).
   permissions: WorldPermissionsBlockSchema.extend({
     access: AccessSettingSchema,
   }),

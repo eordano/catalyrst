@@ -44,10 +44,6 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   const readAt = new Date().toISOString();
 
-  // `live` and `sampled` rows are probed on this request, so the ledger cannot
-  // claim "live" for something that is down. `unbuilt` and `excluded` rows are
-  // constants and are never probed -- probing something that does not exist is
-  // theatre. That invariant is asserted in data-sources.test.ts, not here.
   const probed = await probeSources({ signal: request.signal });
 
   const results: LedgerResults = {};
@@ -57,11 +53,6 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   const groups = buildLedgerGroups(SOURCE_REGISTRY, results);
 
-  // Deliberately always 200, including when every probe comes back
-  // `unavailable`. On the other two screens "all upstreams down" means the page
-  // has nothing to say and 503 is honest; here, "everything is down" IS the
-  // page's content. Swapping it for an UpstreamUnavailable screen would hide
-  // the one report a reader came for.
   return wrap({ sid, filter, readAt, groups });
 }
 

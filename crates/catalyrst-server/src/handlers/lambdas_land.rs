@@ -460,10 +460,9 @@ pub struct BatchParcelPermissionsRequest {
     pub parcels: Vec<String>,
 }
 
-/// The batch's per-entry rule is exactly `validate_coords` (integer parse plus
-/// the +/-150 range); any invalid entry rejects the whole request, naming the
-/// entry. Duplicates collapse silently to their first occurrence, so the
-/// response stays one element per distinct parcel in request order.
+/// Per-entry rule is exactly `validate_coords` (integer parse plus the +/-150 range); any invalid
+/// entry rejects the whole request, naming the entry. Duplicates collapse silently to their first
+/// occurrence, so the response stays one element per distinct parcel in request order.
 fn parse_batch_parcels(entries: &[String]) -> Result<Vec<(i64, i64)>, String> {
     if entries.len() > MAX_BATCH_PARCELS {
         return Err(format!(
@@ -488,12 +487,11 @@ fn parse_batch_parcels(entries: &[String]) -> Result<Vec<(i64, i64)>, String> {
     Ok(parcels)
 }
 
-/// Batch analogue of `parcel_permissions`: the five-leg flags for a whole
-/// footprint in one response, answered from
-/// `catalyrst_validator::squid_checker::parcel_permission_flags_batch` -- the
-/// same validator composition the deploy predicate shares, with ownership for
-/// the whole set resolved in one squid round trip. A parcel with no index row
-/// answers `"permissions": null`, the batch reading of the single route's 404.
+/// Batch analogue of `parcel_permissions`, answered from
+/// `catalyrst_validator::squid_checker::parcel_permission_flags_batch` -- the same validator
+/// composition the deploy predicate shares, with ownership for the whole set resolved in one squid
+/// round trip. A parcel with no index row answers `"permissions": null`, the batch reading of the
+/// single route's 404.
 pub async fn parcels_permissions_batch(
     State(state): State<Arc<AppState>>,
     Path(address): Path<String>,
@@ -640,9 +638,6 @@ mod tests {
         assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
     }
 
-    // The stub state carries no squid pool: the batch must answer the same 503
-    // `land_source_unavailable` as the single route, and only AFTER request
-    // validation (a bad request is a 400 even on a pool-less node).
     #[tokio::test]
     async fn batch_route_without_squid_pool_is_503() {
         let state = crate::test_support::app_state_with_storage(Arc::new(

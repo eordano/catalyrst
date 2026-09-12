@@ -11,10 +11,6 @@ type PlaceCardProps = {
   creator: string;
   hue?: number;
   to?: string;
-  // Render as a non-interactive <article> (no role="button"/tabIndex) even when
-  // titled, for callers that wrap the card in their own <a>/<Link> -- avoids an
-  // interactive control nested inside an interactive control (double tab stop,
-  // invalid ARIA). The wrapping element supplies the accessible name + click.
   presentational?: boolean;
   skeleton?: false;
 };

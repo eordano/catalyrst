@@ -129,10 +129,6 @@ pub async fn post_trade(
     .await
     .map_err(creation_error_to_api)?;
 
-    // A listing has to be visible to the signer's very next read, and every price
-    // read goes through mv_trades -- so force a refresh now instead of waiting out
-    // the 30s periodic cadence. Listings only: a bid never appears in the view, so
-    // refreshing for one would be seconds of I/O for a row that does not exist.
     if trade.trade_type == TRADE_TYPE_PUBLIC_ITEM_ORDER
         || trade.trade_type == TRADE_TYPE_PUBLIC_NFT_ORDER
     {

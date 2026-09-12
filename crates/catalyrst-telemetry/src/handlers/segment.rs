@@ -64,11 +64,6 @@ async fn store_event(state: &AppState, key: &str, event: &Value) {
         .unwrap_or("track")
         .to_string();
 
-    // Contract guard (additive, fail-open): only DCL track events carry a wire
-    // "event" name + "properties". Flag the row with a reason when the shape
-    // defeats the contract, but ALWAYS store it -- quarantine-by-flag, not reject:
-    // no data loss, no client breakage, same 2xx. NULL = valid, or validation
-    // disabled, or a non-contract-governed event (identify/page/screen/...).
     let invalid_reason: Option<String> = match &state.contract {
         Some(contract) => match event.get("event").and_then(|v| v.as_str()) {
             Some(name) if !name.is_empty() => {

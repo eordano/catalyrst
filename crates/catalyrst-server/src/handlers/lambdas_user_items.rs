@@ -470,7 +470,6 @@ pub async fn fetch_all_third_party_wearables(
             collection_entity_lists(state, providers_to_check.iter().map(String::as_str)).await;
         (owned, lists)
     } else {
-        // No indexer: read every provider's mappings, then ask the chain about those ids only.
         let lists = collection_entity_lists(state, providers.iter().map(|p| p.id.as_str())).await;
         let mut candidates =
             nft_ownership::candidates_from_mappings(lists.iter().flat_map(|l| l.iter()));

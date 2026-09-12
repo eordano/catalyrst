@@ -1,4 +1,3 @@
-/* Reel photo-detail lightbox: full-bleed image stage + info/actions sidebar. */
 .rpd__viewer {
   position: fixed;
   inset: 0;
@@ -90,7 +89,6 @@
   align-items: center;
   gap: 6px;
 }
-/* Anchor styled to match the ghost action buttons (download is a real link). */
 .rpd__actionLink {
   height: 32px;
   padding: 0 14px;

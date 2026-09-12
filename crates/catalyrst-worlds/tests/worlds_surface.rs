@@ -971,9 +971,6 @@ async fn active_content_keys_fails_closed_on_an_unreadable_entity() {
     scratch.drop().await;
 }
 
-// A parcel-scoped deployer may replace only the exact scene identities it was authorized
-// for; any other scene overlapping the new parcels at commit time is a 409 conflict, and a
-// name-owner replacement (UnrestrictedOwner) may sweep the overlap unconditionally.
 #[tokio::test]
 async fn scoped_replacement_conflicts_on_unauthorized_overlap() {
     let Some(scratch) = setup_db().await else {
@@ -984,7 +981,6 @@ async fn scoped_replacement_conflicts_on_unauthorized_overlap() {
     let contents_dir = scratch_contents_dir("scoped");
     std::fs::write(contents_dir.join("bafythumb"), PNG_MAGIC).unwrap();
 
-    // Scene A spans two parcels; deployed unrestricted (as the name owner would).
     wc.deploy_scene(
         "scoped.dcl.eth",
         Some(owner),
@@ -1000,7 +996,6 @@ async fn scoped_replacement_conflicts_on_unauthorized_overlap() {
     .await
     .expect("deploy A");
 
-    // A scoped deployer that did NOT authorize A cannot replace it by landing on 0,0.
     let conflict = wc
         .deploy_scene(
             "scoped.dcl.eth",
@@ -1019,12 +1014,10 @@ async fn scoped_replacement_conflicts_on_unauthorized_overlap() {
         matches!(&conflict, Err(e) if e.is_conflict()),
         "unauthorized overlap must 409, got {conflict:?}"
     );
-    // The conflict rolled back: A survives untouched.
     let scenes = wc.get_scenes("scoped.dcl.eth").await.unwrap();
     assert_eq!(scenes.len(), 1);
     assert_eq!(scenes[0].entity_id, "bafyA");
 
-    // Authorizing A's identity lets B replace exactly it.
     wc.deploy_scene(
         "scoped.dcl.eth",
         Some(owner),

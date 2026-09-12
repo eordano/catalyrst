@@ -4,29 +4,12 @@ use axum::http::{header, HeaderValue, Method, StatusCode};
 use axum::middleware::Next;
 use axum::response::Response;
 
-// Advertise only verbs that route somewhere: PUT and PATCH have no handler, so
-// a preflight promising them is a lie a browser would cache. DELETE stays -- it
-// serves scene unpublish (/scenes/{coord}), which upstream's content-server has
-// no equivalent of, so our list is theirs (GET,HEAD,POST,OPTIONS) plus DELETE.
 const ALLOW_METHODS: &str = "GET,HEAD,POST,DELETE,OPTIONS";
 
-// Fallback for preflights that carry no Access-Control-Request-Headers.
-// When the request names its headers we REFLECT them instead (like the nginx
-// _cors.inc this replaces at the transparent-front cutover): auth chains are
-// open-ended -- X-Identity-Auth-Chain-N grows with delegation depth and
-// smart-wallet (EIP-1654) links, so any enumerated list is a ceiling that
-// breaks signed login for someone. Upstream verification reads the headers by
-// prefix, unbounded; upstream's own CORS list omits X-Identity-* entirely,
-// which we already deliberately diverge from (see conformance cors fixtures).
 const ALLOW_HEADERS: &str = "Cache-Control,Content-Type,Origin,Accept,User-Agent,X-Upload-Origin,Range,If-None-Match,If-Modified-Since,X-Identity-Timestamp,X-Identity-Metadata,X-Identity-Auth-Chain-0,X-Identity-Auth-Chain-1,X-Identity-Auth-Chain-2,X-Identity-Auth-Chain-3";
-// 10 minutes, not a day: a wrong preflight verdict cannot linger in a browser
-// cache long enough to outlast a fix. Raise once the ADR-44 header reflection
-// above has settled.
 const MAX_AGE: &str = "600";
 
 pub async fn cors_middleware(req: Request, next: Next) -> Response {
-    // Allow-Origin is the static wildcard, not the caller's Origin echoed back, so
-    // presence is all that matters -- a shared cache need not key on the Origin value.
     let has_origin = req.headers().contains_key(header::ORIGIN);
     let is_preflight = req.method() == Method::OPTIONS;
     let requested_headers = req
@@ -52,9 +35,6 @@ pub async fn cors_middleware(req: Request, next: Next) -> Response {
             header::ACCESS_CONTROL_MAX_AGE,
             HeaderValue::from_static(MAX_AGE),
         );
-        // Allow-Headers is reflected from Access-Control-Request-Headers, so a
-        // shared cache must key the preflight on it. Allow-Origin is a static
-        // wildcard now, so Origin is deliberately absent from Vary.
         h.insert(
             header::VARY,
             HeaderValue::from_static("Access-Control-Request-Headers"),
@@ -77,10 +57,6 @@ pub async fn cors_middleware(req: Request, next: Next) -> Response {
             header::ACCESS_CONTROL_ALLOW_ORIGIN,
             HeaderValue::from_static("*"),
         );
-        // Without this a browser reads only the six CORS-safelisted response headers, hiding
-        // ETag and Retry-After from JS. The wildcard is safe because this API authenticates by
-        // signature, never cookies; it never sets Allow-Credentials, under which * is ignored.
-        // Handlers that set their own list (file serving) keep it.
         if !h.contains_key(header::ACCESS_CONTROL_EXPOSE_HEADERS) {
             h.insert(
                 header::ACCESS_CONTROL_EXPOSE_HEADERS,
@@ -141,7 +117,6 @@ mod tests {
         assert_eq!(h.get(header::ACCESS_CONTROL_ALLOW_ORIGIN).unwrap(), "*");
         assert!(h.get(header::ACCESS_CONTROL_ALLOW_CREDENTIALS).is_none());
         assert_eq!(h.get(header::ACCESS_CONTROL_EXPOSE_HEADERS).unwrap(), "*");
-        // Allow-Origin no longer varies by caller, so the actual response carries no Vary.
         assert!(h.get(header::VARY).is_none());
     }
 
@@ -175,7 +150,6 @@ mod tests {
         let h = resp.headers();
         let methods = h.get(header::ACCESS_CONTROL_ALLOW_METHODS).unwrap();
         assert_eq!(methods, "GET,HEAD,POST,DELETE,OPTIONS");
-        // PUT and PATCH have no route, so a preflight must not promise them; DELETE does.
         assert!(!methods.to_str().unwrap().contains("PUT"));
         assert!(!methods.to_str().unwrap().contains("PATCH"));
         assert!(methods.to_str().unwrap().contains("DELETE"));
@@ -186,8 +160,6 @@ mod tests {
         assert_eq!(h.get(header::ACCESS_CONTROL_MAX_AGE).unwrap(), "600");
         assert_eq!(h.get(header::ACCESS_CONTROL_ALLOW_ORIGIN).unwrap(), "*");
         assert!(h.get(header::ACCESS_CONTROL_ALLOW_CREDENTIALS).is_none());
-        // Allow-Headers is reflected from the request, so a shared cache keys on it;
-        // Allow-Origin is a static wildcard, so Origin stays out of Vary.
         assert_eq!(
             h.get(header::VARY).unwrap(),
             "Access-Control-Request-Headers"

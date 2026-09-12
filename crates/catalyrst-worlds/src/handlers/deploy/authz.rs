@@ -1,6 +1,3 @@
-// `account_id` is `0x<address>-<NETWORK>`; compare only the address segment and
-// compare it whole. A prefix test would let a truncated address ("0x") match
-// every account.
 pub(super) fn address_matches_account_id(address: &str, account_id: &str) -> bool {
     account_id
         .split('-')
@@ -8,10 +5,6 @@ pub(super) fn address_matches_account_id(address: &str, account_id: &str) -> boo
         .is_some_and(|owner| owner.eq_ignore_ascii_case(address))
 }
 
-// Ownership comes from the NFT entity, never from `ens.owner_id`: the squid's
-// ENS handler seeds the owner from the registrar *caller* and never updates it,
-// so a DCLControllerV2 registration records the controller contract rather than
-// the buyer. `nft.owner_id` is the ERC-721 owner and tracks later transfers.
 pub(super) async fn resolve_name_owner_id(
     pool: &sqlx::PgPool,
     label: &str,

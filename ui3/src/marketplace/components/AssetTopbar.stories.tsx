@@ -19,7 +19,6 @@ const AtlasGlyph = (
   </svg>
 );
 
-/** Which sort menu the topbar is given -- `none` drops the sort control entirely. */
 const SORTS = {
   collectibles: [
     { id: "recently_listed", label: "Recently listed" },
@@ -38,7 +37,6 @@ const SORTS = {
   none: undefined,
 } satisfies Record<string, TopbarProps["sortOptions"]>;
 
-/** `default` uses the component's built-in view list; `none` drops the view toggle. */
 const VIEWS = {
   default: undefined,
   gridAtlas: [
@@ -61,7 +59,6 @@ type TopbarStoryArgs = {
   views: ViewKey;
 };
 
-/** Keeps sort/view interactive the way the pre-collapse stories did, seeded from the args. */
 function TopbarDemo({ layout, searchPlaceholder, count, showCount, sortLabel, sorts, views }: TopbarStoryArgs) {
   const sortOptions = SORTS[sorts];
   const [sort, setSort] = useState(sortOptions?.[0]?.id);
@@ -127,11 +124,6 @@ const CASES: { label: string; args: Partial<TopbarStoryArgs> }[] = [
   },
 ];
 
-/**
- * Every layout at once. `Default` flips between them from the Controls panel; this keeps all four
- * in the render + a11y + visual-diff gates, since dropping the sort/view controls and the stacked
- * layout are structurally different subtrees.
- */
 export const Catalog: Story = {
   name: "Catalog (every layout)",
   parameters: { controls: { disable: true } },

@@ -18,17 +18,10 @@ export type OpLinkProps = {
 
 export type OpLinkComponent = ComponentType<OpLinkProps>;
 
-/**
- * Only fields the places API actually serialises appear here. A 24h visit
- * count, a ban count and an admin count are not among them -- see
- * `catalyrst-places/src/ports/places/rows.rs:43-95` -- so this page no longer
- * has props for them and no longer renders them as zeroes.
- */
 export type OpOperatorPlace = {
   id: string;
   title: string | null;
   base_position: string;
-  /** Null when the API reported no headcount for this place; not zero players. */
   user_count: number | null;
   user_visits: number;
   favorites: number;
@@ -37,11 +30,6 @@ export type OpOperatorPlace = {
   disabled: boolean;
   world: boolean;
   world_name: string | null;
-  /**
-   * Null when no presence history was read for this place, which is not the
-   * same as a history of zeroes: the empty sparkline says "sampled, nobody
-   * there", so an unread history must say something else.
-   */
   headcount: number[] | null;
 };
 
@@ -381,29 +369,11 @@ function RangeToggle({
   );
 }
 
-/**
- * The place list behind this page is a PUBLIC, unauthenticated read:
- * `GET /places/api/places?owner=` --
- * `catalyrst-places/src/handlers/places.rs:66-73` calls `auth_address_optional`
- * and gates nothing. Anyone, signed in or not, gets the same answer.
- *
- * So `?owner=` is a *filter*, never an identity claim and never a permission.
- * This component says "viewing places for <address>", not "your places", and
- * calls out the built-in demo address as not being the viewer. Every
- * privileged control reachable from here (scene admins, scene bans) is
- * unavailable on this node regardless of the address in the URL.
- *
- * `unavailableReason` is a string, not a boolean: an empty dashboard and a
- * dashboard that could not be loaded must not look the same.
- */
 export type OpDashboardPageProps = {
   range: OpRange;
   dashboard: OpOperatorDashboard;
-  /** The address the public filter was run for. Not an identity claim. */
   viewedAddress: string;
-  /** True when the address is the built-in demo value, not the viewer. */
   isDemo: boolean;
-  /** Non-null when the public read failed. Renders instead of any figures. */
   unavailableReason: string | null;
   LinkComponent: OpLinkComponent;
   onSelectRange: (next: OpRange) => void;

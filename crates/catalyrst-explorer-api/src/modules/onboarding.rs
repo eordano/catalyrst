@@ -551,7 +551,7 @@ mod tests {
             });
         }
         let start = std::time::Instant::now();
-        let nudges = store.pending_nudges(1, t(13 * 3600)); // 13h > 12h threshold; every row survives to has_later
+        let nudges = store.pending_nudges(1, t(13 * 3600));
         let elapsed = start.elapsed();
         assert_eq!(nudges.len(), 20_000);
         assert!(

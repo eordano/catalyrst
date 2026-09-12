@@ -1,28 +1,19 @@
-//! Signed-fetch (ADR-44) auth for the rentals service, delegated to the shared
-//! `catalyrst_crypto::signed_fetch` path.
+//! Signed-fetch (ADR-44) auth for the rentals service, delegated to
+//! `catalyrst_crypto::signed_fetch`.
 //!
-//! This module used to carry a private fork of the whole signed-fetch module
-//! (chain types, extraction, freshness, verification). The fork verified the
-//! same payloads but skipped the shared extractor's structural checks (SIGNER
-//! only at index 0, first link must be SIGNER, non-first links must carry a
-//! signature, chain-length overflow rejected), so consolidating onto the shared
-//! path is strictly tightening for malformed chains and byte-identical for
-//! well-formed ones.
-//!
-//! The one wire-visible surface this service adds on top is [`wire_message`]:
-//! the fork's error `Display` included the `MalformedChain`/`InvalidSignature`
-//! detail fields that the shared `Display` omits, and the 401 bodies built from
-//! those strings are pinned here so consolidation does not change them.
+//! This replaced a private fork that skipped the shared extractor's structural checks
+//! (SIGNER only at index 0, first link must be SIGNER, non-first links must carry a
+//! signature, chain-length overflow rejected): strictly tightening for malformed chains,
+//! byte-identical for well-formed ones. [`wire_message`] pins the 401 bodies, which the
+//! shared `Display` would otherwise change.
 
 use axum::http::HeaderMap;
 
 pub use catalyrst_crypto::signed_fetch::AuthChainError;
 
-/// The exact error text this service has always put in its 401 bodies.
-///
-/// The shared `AuthChainError` `Display` drops the detail fields; the local
-/// fork's `Display` included them. Callers building responses must go through
-/// this instead of `to_string()`.
+/// The shared `AuthChainError` `Display` drops the `MalformedChain`/`InvalidSignature`
+/// detail fields these 401 bodies have always carried. Build responses through this, not
+/// `to_string()`.
 pub fn wire_message(err: &AuthChainError) -> String {
     match err {
         AuthChainError::MalformedChain { detail } => format!("Invalid Auth Chain: {detail}"),
@@ -110,7 +101,6 @@ mod tests {
         }
     }
 
-    /// The 401 text emitted before consolidation, byte for byte.
     #[test]
     fn wire_message_preserves_the_pre_consolidation_text() {
         assert_eq!(

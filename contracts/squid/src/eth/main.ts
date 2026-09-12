@@ -86,46 +86,23 @@ const tokenURIs: Map<string, string> = new Map();
 
 let bytesRead = 0;
 
-//  BULK INDEX MODE: Drop the ETH-owned indices during initial sync and recreate
-// them when caught up. Opt-in and default off; enable via env var BULK_INDEX_MODE=true.
-// The ETH processor manages only its exclusive tables (parcel, estate, ens, data);
-// tables shared with Polygon are managed by the Polygon processor. See indexManager.
 const BULK_INDEX_MODE = process.env.BULK_INDEX_MODE === "true";
 let bulkModeInitialized = false;
 let indicesRecreated = false;
 let indicesNeedRecreation = false;
-// See the same pair in polygon/main.ts: recreateIndices now throws while indices are missing, so
-// the head handler retries -- bounded, because an index that can never be built would otherwise
-// re-attempt on every batch forever.
 let indexRecreateAttempts = 0;
 const MAX_INDEX_RECREATE_ATTEMPTS = 5;
 const ETH_INITIAL_BLOCK = getBlockRange(Network.ETHEREUM).from;
 
-// SQUID_SCHEMA, with a deprecated DB_SCHEMA fallback for the not-yet-renamed deployed
-// env (see deployment-schema.ts). Never SET DB_SCHEMA in a processor environment:
-// typeorm-config turns it into a per-connection search_path pin that promotion
-// invalidates (see indexer.sh).
 const schemaName = requireDeploymentSchema();
 const db = new TypeormDatabase({
   isolationLevel: "READ COMMITTED",
-  // Keep hot blocks on: the finalized stream hid every L1 cancellation and bid retract for the
-  // ~13-15 minutes Ethereum finality takes. A log-filtered stream is fine on the hot path --
-  // assertBlocksContinuity only needs increasing heights -- and a reorg reverts to the newest
-  // logged block at or below the fork, which over-reverts and re-applies. Needs
-  // @subsquid/typeorm-store >= 1.9.2.
   supportHotBlocks: true,
   stateSchema: `eth_processor_${schemaName}`,
 });
-// Expose Prometheus metrics (sqd_processor_last_block / chain_height) -- the squid
-// management server scrapes /metrics on this port to detect a live processor.
-// setGateway used to start this; with the Portal run() we wire it explicitly.
 const prometheus = new PrometheusServer();
 prometheus.setPort(Number(process.env.ETH_PROMETHEUS_PORT || 3000));
 run(dataSource, db, async (simpleCtx) => {
-  // The batch-processor base context is bare {store, blocks, isHead}; augment the
-  // blocks (restores block.logs / log.transaction back-refs) and attach `_chain`
-  // (RPC for contract reads) and a logger, so the rest of the handler and the ABI
-  // contract wrappers see the same shape the old evm-processor context provided.
   const ctx: Context = {
     ...simpleCtx,
     ...chainContext,
@@ -136,8 +113,6 @@ run(dataSource, db, async (simpleCtx) => {
       (acc, block) =>
         acc +
         Buffer.byteLength(
-          // BigInt-safe: Portal blocks can carry bigint fields that JSON.stringify
-          // rejects; this is only a byte-count metric, so serialize them as strings.
           JSON.stringify(block, (_k, v) =>
             typeof v === "bigint" ? v.toString() : v
           ),
@@ -147,7 +122,6 @@ run(dataSource, db, async (simpleCtx) => {
     );
     console.log("bytesRead: ", bytesRead);
 
-    // Track indexing progress and alert Slack the first time this indexer reaches head.
     await recordIndexingStart(ctx.store, "eth");
     if (ctx.isHead && ctx.blocks.length > 0) {
       await notifyHeadReachedOnce(
@@ -157,7 +131,6 @@ run(dataSource, db, async (simpleCtx) => {
       );
     }
 
-    //  BULK INDEX MODE: check index state and drop indices on the first batch.
     if (BULK_INDEX_MODE && !bulkModeInitialized) {
       bulkModeInitialized = true;
       try {
@@ -194,11 +167,6 @@ run(dataSource, db, async (simpleCtx) => {
       }
     }
 
-    //  BULK INDEX MODE: recreate indices once we reach head. MUST run before this
-    // batch reads or writes any managed table -- recreateIndices issues plain
-    // CREATE INDEX (SHARE lock) on an independent connection, which would deadlock
-    // against ROW EXCLUSIVE locks the batch transaction takes once it starts writing.
-    // recreateIndices is a no-op when nothing is missing; on error we retry next batch.
     if (
       BULK_INDEX_MODE &&
       !indicesRecreated &&
@@ -625,7 +593,6 @@ run(dataSource, db, async (simpleCtx) => {
                 ? OffChainMarketplaceV3ABI.events.Traded.decode(log)
                 : OffChainMarketplaceABI.events.Traded.decode(log);
             const tradeData = getTradeEventData(event, Network.ETHEREUM);
-            // Nothing to index: not an order or a bid (a giveaway has no payment leg).
             if (!tradeData) {
               break;
             }
@@ -1002,7 +969,6 @@ run(dataSource, db, async (simpleCtx) => {
         }
       }
 
-      // work around for circular dependency of orders and nfts
       const orderByNFT: Map<string, Order> = new Map();
       for (const nft of nfts.values()) {
         if (nft.activeOrder) {

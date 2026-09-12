@@ -19,7 +19,6 @@ const meta = {
     },
   },
   args: { variant: "panel", isChanging: false, initialPassword: "", initialConfirm: "" },
-  // The `initial*` props seed internal state, so remount when a control changes them.
   render: (args) => (
     <ChWorldPermissionsSetChangePasswordDialo
       key={`${args.isChanging}|${args.initialPassword}|${args.initialConfirm}`}

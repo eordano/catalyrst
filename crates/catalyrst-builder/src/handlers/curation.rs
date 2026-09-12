@@ -398,10 +398,8 @@ mod tests {
         .is_ok());
     }
 
-    /// The typed payloads must carry the same wire shape the retired
-    /// `json!({...})` payloads produced. Compared as parsed JSON, since object
-    /// key order is not part of the contract and flips with serde_json's
-    /// preserve_order feature under workspace-wide unification.
+    /// Compared as parsed JSON: object key order is not part of the contract and flips
+    /// with serde_json's preserve_order feature.
     #[test]
     fn curation_wire_bytes_match_the_old_json_macro() {
         use serde_json::json;

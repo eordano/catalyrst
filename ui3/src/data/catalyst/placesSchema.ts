@@ -21,15 +21,6 @@ import {
 export { PlaceSchema };
 export type { Place, PlaceCategory } from "./places";
 
-// Every read here is schema-then-guard (see rows.ts): the schema says whether
-// the row is correct and leaves with the perf build, the guard says whether
-// `toPlaceView` can use it and stays in both.
-//
-// The envelope is read through `field` for the same reason. `ListEnvelope`
-// proves `data` is an array only in the checking build; in perf the stub says
-// yes to a 404 body, and `for (const row of undefined)` throws before a single
-// row is looked at.
-
 export async function fetchPlaces(
   params: QueryParams = {},
   opts: RequestOpts = {},

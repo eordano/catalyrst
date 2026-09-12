@@ -1,11 +1,5 @@
 import { UsageGrantStatusSchema } from "../generated-schemas/market";
 
-/**
- * View shape shared by both sources `readLease` reads: a nested wire object
- * (validated by the generated `UsageGrantStatusSchema`, catalyrst-market's
- * ts-rs image) and flat item fields. `null` means "not reported by that
- * source", so the flat path can still describe a lease without a urn.
- */
 export type EscrowLease = {
   urn: string | null;
   tokenId: string | null;
@@ -39,10 +33,6 @@ export function readLease(item: LeasableItem | null | undefined): EscrowLease | 
         unlockAt: r.data.unlockAt,
       };
     }
-    // Salvage, mirroring the flat branch below: a trimmed nested object that
-    // still asserts "leased" + a concrete unlock time must keep the return
-    // window locked -- failing to recognise a lease would UN-gate Sell on an
-    // escrowed item, which is the unsafe direction.
     if (typeof nested === "object") {
       const n = nested as Partial<Record<keyof EscrowLease, unknown>>;
       if (n.status === "leased" && typeof n.unlockAt === "number") {

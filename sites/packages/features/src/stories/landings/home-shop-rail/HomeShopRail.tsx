@@ -16,7 +16,6 @@ export type ShopOpenTarget = "cta" | "rail_cta" | "rail_item";
 
 export type HomeShopRailProps = {
   arm: HomeShopRailArm;
-  /** Rail reading from the live catalog; null = reading unavailable. */
   items: CollectibleCard[] | null;
   trackCtx: TrackContext;
   track?: TrackFn;

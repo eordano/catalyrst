@@ -32,8 +32,6 @@ impl SocialServiceImpl {
                 ))),
             });
         }
-        // Directional pair budget: the counterparty must never be able to spend the tokens the
-        // blocker needs, or the account being blocked decides whether the block lands.
         if !context
             .server_context
             .friendship_limiter()
@@ -128,8 +126,6 @@ impl SocialServiceImpl {
                 })
             }
         };
-        // Same directional bucket as block_user, so a block/unblock loop at one target shares one
-        // budget.
         if !context
             .server_context
             .friendship_limiter()
@@ -218,12 +214,9 @@ impl SocialServiceImpl {
     ) -> Result<GetBlockedUsersResponse, SocialError> {
         let me = Self::caller(&context)?;
         let db = context.server_context.db();
-        // Bound the page with the blocked-users caps (default = max = 200); the blocklist is
-        // otherwise fetched unbounded and every returned address then hits the profile lookup.
         let (limit, offset) = page_blocked_users(&request.pagination);
         let result = async {
             let rows = db.get_blocked_users(&me, limit, offset).await?;
-            // total is the real row count, not the page length: clients page until they reach it.
             let total = db.count_blocked_users(&me).await?;
             Ok::<_, crate::rpc::db::DbError>((rows, total))
         }

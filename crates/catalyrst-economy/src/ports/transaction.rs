@@ -294,9 +294,8 @@ where
     s.serialize_str(&dt.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string())
 }
 
-/// The broadcast path one POST /transactions resolves to. Under the Auto
-/// preference, locally-provisioned signers win over the upstream forward,
-/// which is the fallback for nodes without real relayer creds. An explicit
+/// Under the Auto preference, locally-provisioned signers win over the upstream
+/// forward, which is the fallback for nodes without real relayer creds. An explicit
 /// Oz/Direct preference is local-or-fail: it never rides the upstream, so the
 /// admin can force local broadcasting while TRANSACTIONS_UPSTREAM_URL is set.
 /// The operator toggle beats everything.
@@ -320,8 +319,6 @@ pub fn select_broadcast_route(
         return BroadcastRoute::Disabled;
     }
     match pref {
-        // An explicit preference whose provider is unprovisioned yields the
-        // no-provider 503 rather than silently falling through to upstream.
         SignerPreference::Oz if has_oz => BroadcastRoute::Oz,
         SignerPreference::Direct if has_direct => BroadcastRoute::Direct,
         SignerPreference::Oz | SignerPreference::Direct => BroadcastRoute::None,
@@ -749,9 +746,6 @@ impl TransactionComponent {
                     .send_meta_transaction(tx)
                     .await
             }
-            // The handler intercepts the upstream route before broadcast, so
-            // this arm is only reachable through a caller that skipped
-            // `upstream_route()`; it fails safe rather than double-relaying.
             BroadcastRoute::Upstream => Err(ApiError::RelayerUnavailable(
                 "Upstream forwarding is handled at the HTTP layer; no local broadcast provider is provisioned.".into(),
             )),
@@ -1065,13 +1059,11 @@ mod tests {
     fn upstream_is_the_auto_fallback_after_local_providers() {
         use crate::admin::SignerPreference::*;
 
-        // Toggle OFF beats every provider, including the upstream forward.
         assert_eq!(
             select_broadcast_route(false, Auto, true, true, true),
             BroadcastRoute::Disabled
         );
 
-        // Locally-provisioned signers win over the upstream forward.
         assert_eq!(
             select_broadcast_route(true, Auto, true, false, true),
             BroadcastRoute::Oz
@@ -1089,13 +1081,11 @@ mod tests {
             BroadcastRoute::Direct
         );
 
-        // Auto with no local provider: the upstream carries.
         assert_eq!(
             select_broadcast_route(true, Auto, false, false, true),
             BroadcastRoute::Upstream
         );
 
-        // Nothing provisioned at all.
         assert_eq!(
             select_broadcast_route(true, Auto, false, false, false),
             BroadcastRoute::None
@@ -1106,8 +1096,6 @@ mod tests {
     fn explicit_preference_without_its_provider_fails_instead_of_forwarding() {
         use crate::admin::SignerPreference::*;
 
-        // Local-or-fail: an explicit preference never rides the upstream,
-        // even when the other local provider or the forwarder is available.
         assert_eq!(
             select_broadcast_route(true, Oz, false, true, true),
             BroadcastRoute::None

@@ -20,10 +20,6 @@ pub enum SocialEvent {
 
 #[derive(Clone)]
 pub struct PubSub {
-    // `Arc<SocialEvent>` rather than `SocialEvent`: one client holds up to six receivers on
-    // an address, and `broadcast::Receiver::recv` clones the stored value once per receiver.
-    // With the Arc each recv is a refcount bump and only the matched inner variant is cloned,
-    // inside the picker.
     channels: Arc<DashMap<String, broadcast::Sender<Arc<SocialEvent>>>>,
 }
 
@@ -60,8 +56,6 @@ impl Default for PubSub {
 mod tests {
     use super::*;
 
-    // The pre-fix `broadcast::Sender<SocialEvent>` deep-cloned the whole payload once per
-    // live receiver; all six must now observe one shared allocation.
     #[test]
     fn publish_is_shared_by_every_receiver() {
         let ps = PubSub::new();

@@ -4,7 +4,6 @@ import Button from "../../atoms/Button";
 import type { CommunityDecision } from "./AdCommunityTypes";
 
 export type SuspendDecisionBarProps = {
-  /** Null when the source listing reported no suspension state at all. */
   suspended: boolean | null;
   decision: CommunityDecision;
   onDecide: (decision: CommunityDecision, reason?: string) => void;

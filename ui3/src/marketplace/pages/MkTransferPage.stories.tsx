@@ -6,7 +6,6 @@ type Props = ComponentProps<typeof MkTransferPage>;
 type TransferStatus = NonNullable<Props["status"]>;
 type Nft = NonNullable<Props["nft"]>;
 
-/** The two asset shapes the page has ever been shown with, picked by name. */
 const NFTS = {
   wearable: {
     contractAddress: "0x09f1c2\u{2026}b3d4",
@@ -39,7 +38,6 @@ const STATUSES = [
 
 const SAMPLE_TX_HASH = "0x7c9a4f2e1b6d8c0a3e5f7b9d1c2a4e6f8b0d2c4a6e8f0b2d4c6a8e0f2b4d6c8a";
 
-/** `nftKind` names a fixture; `status` and `txHash` stay real props. */
 type TransferStoryArgs = {
   nftKind: NftKey;
   status: TransferStatus;
@@ -64,17 +62,6 @@ type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {};
 
-/**
- * Every `status` at once. `Default` flips between them from the Controls panel; this story keeps
- * all five in the render + a11y + visual-diff gates, since the error, pending and success states
- * replace the form with entirely different subtrees. `chrome={false}` because stacking N copies of
- * `MarketplaceChrome` would emit N `<main>` landmarks and fail axe's landmark-unique.
- *
- * Exactly one entry may be in the `form` status: the recipient input hardcodes
- * `id="mktransferpage-addr"`, so a second form instance would silently re-point its `<label>` at
- * the first one's input. The emote fixture -- which only changes the title and the preview tile,
- * not the structure -- is reachable from the `nftKind` control instead.
- */
 export const Catalog: Story = {
   name: "Catalog (every status)",
   parameters: { controls: { disable: true } },

@@ -17,8 +17,6 @@ pub enum MarkPaidOutcome {
     NoPendingPurchase,
 }
 
-/// Result of compensating a REVERSED fiat payment (Stripe refund / dispute).
-///
 /// A reversal returns the buyer's money, so our side must REMOVE the credits
 /// that purchase granted. This used to be modelled as a "refund" and executed
 /// through the wallet refund path, which ADDS credits -- paying the buyer twice.
@@ -29,8 +27,7 @@ pub enum ReversalOutcome {
         /// Credits charged back against the purchase. Bounded by the purchase:
         /// cumulative charge-backs can never exceed the credits it granted.
         charged_back: String,
-        /// Credits actually removed from the wallet (`charged_back` minus
-        /// whatever the buyer had already spent).
+        /// `charged_back` minus whatever the buyer had already spent.
         removed: String,
         /// Credits that could not be clawed back -- an unrecovered loss.
         shortfall: String,
@@ -41,7 +38,6 @@ pub enum ReversalOutcome {
     NoPaidPurchase,
 }
 
-/// How much of the purchase this event reverses.
 enum ReversalTarget {
     /// Stripe `charge.refunded` carries the CUMULATIVE refunded minor units.
     Cumulative(i64),
@@ -329,17 +325,14 @@ impl CreditsComponent {
         .await
     }
 
-    /// Compensate a reversed fiat payment by REVOKING the credits it granted.
-    ///
     /// Both defects this replaces were live:
     ///
     /// * it called `refund_in_tx`, which ADDS credits -- a chargeback returned
-    ///   the buyer's money AND paid them the credits' worth a second time
-    ///   while they kept the credits;
-    /// * it passed the Stripe EVENT ID as the refund's `tx_ref`. Event ids
-    ///   never carry spend rows, and the refund clamp only applied when spend
-    ///   rows existed, so the amount was completely unbounded -- it could exceed
-    ///   anything the wallet had ever spent or been granted.
+    ///   the buyer's money AND paid them the credits' worth a second time while
+    ///   they kept the credits;
+    /// * it passed the Stripe EVENT ID as the refund's `tx_ref`. Event ids never
+    ///   carry spend rows, and the refund clamp only applied when spend rows
+    ///   existed, so the amount was completely unbounded.
     ///
     /// The replacement is bounded by the PURCHASE, not by spend rows:
     /// `credit_purchases.revoked_credits` accumulates the charge-backs and is
@@ -348,14 +341,13 @@ impl CreditsComponent {
     /// purchase granted no matter how the webhook is replayed or reordered.
     ///
     /// TODO(owner-decision): this changes MONEY SEMANTICS and needs ratifying.
-    /// (a) A Stripe reversal now REVOKES the granted credits instead of
-    ///     crediting them. The safe reading of "the buyer's money went back";
-    ///     confirm no downstream consumer depended on the old (double-paying)
-    ///     behaviour, and that `credits.revoke` audit rows are what finance
-    ///     expects to see for chargebacks.
+    /// (a) A Stripe reversal now REVOKES the granted credits instead of crediting
+    ///     them; confirm no downstream consumer depended on the old
+    ///     (double-paying) behaviour, and that `credits.revoke` audit rows are
+    ///     what finance expects to see for chargebacks.
     /// (b) The terminal event settles on the exact remaining `credits` rather
-    ///     than another rounded proportion, so a fully reversed purchase lands
-    ///     on `revoked_credits = credits` with no sub-cent dust left behind.
+    ///     than another rounded proportion, so a fully reversed purchase lands on
+    ///     `revoked_credits = credits` with no sub-cent dust left behind.
     ///     Migration 0010's comment assumed the proportional sum was already
     ///     exact; it is not.
     async fn apply_reversal(
@@ -395,21 +387,10 @@ impl CreditsComponent {
             ReversalTarget::Full => amount_cents,
         };
         if new_refunded <= prior_refunded {
-            // Redelivery of an event whose fiat increment is already recorded.
             tx.rollback().await?;
             return Ok(ReversalOutcome::NothingToReverse);
         }
 
-        // Per-event charge-back: `credits * delta_cents / amount_cents` in
-        // NUMERIC for a partial, and the EXACT remaining `credits` once the
-        // cumulative fiat refund reaches the full charge. Settling the terminal
-        // event on the remainder rather than on another rounded proportion
-        // removes the sub-cent dust that migration 0010's "lossless" claim
-        // overstated away (100 credits over 999 cents refunded as 3x333 sums to
-        // 99.9999..., not 100), so a fully reversed purchase always ends at
-        // `revoked_credits = credits` exactly.
-        //
-        // `has_charge` is decided by PostgreSQL in NUMERIC, never in f64.
         let upd = sqlx::query(
             "UPDATE credit_purchases \
              SET refunded_cents = $2, \
@@ -436,8 +417,6 @@ impl CreditsComponent {
         let has_charge: bool = upd.get("has_charge");
 
         if !has_charge {
-            // The purchase's credits were already fully charged back; the fiat
-            // bookkeeping above is still committed.
             tx.commit().await?;
             return Ok(ReversalOutcome::NothingToReverse);
         }

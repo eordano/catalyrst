@@ -1,10 +1,9 @@
-//! Peer admission: every rejection case, the shipped placeholder, and the one
-//! property that makes the peer file mean anything -- that an admitted peer's client
-//! trusts that peer's root and no other.
+//! Peer admission: every rejection case, the shipped placeholder, and the property
+//! that makes the peer file mean anything -- an admitted peer's client trusts that
+//! peer's root and no other.
 //!
-//! Every test in this file runs with no database, no network, and no environment
-//! mutation. There is nothing here that can skip, so a green run of this file is a
-//! real result rather than a silent no-op.
+//! No database, no network, no environment mutation: nothing here can skip, so a green
+//! run is a real result rather than a silent no-op.
 
 use catalyrst_fed::PeerCert;
 use catalyrst_worlds::fed::config::WorldsFedConfig;
@@ -14,10 +13,8 @@ use catalyrst_worlds::fed::peers::{
 use std::io::Write;
 use std::path::PathBuf;
 
-// Fixtures
-
-/// A peer that clears every gate. Each test mutates exactly one field away from
-/// this, so a failure names the gate that fired rather than a soup of them.
+/// A peer that clears every gate. Each test mutates exactly one field away from this,
+/// so a failure names the gate that fired.
 fn good_cert() -> PeerCert {
     PeerCert {
         version: 1,
@@ -42,9 +39,8 @@ fn cfg_loopback() -> WorldsFedConfig {
     }
 }
 
-/// A throwaway CA, generated once per process. `.0` is the root PEM (what would go
-/// in `mtls_root_pem`), `.1` is the CA cert + key, for tests that also need to issue
-/// a leaf.
+/// A throwaway CA, generated once per process. `.0` is the root PEM (what would go in
+/// `mtls_root_pem`), `.1` is the CA cert + key, for tests that issue a leaf.
 fn self_signed_root_pem() -> (String, std::sync::Arc<tls::Ca>) {
     let ca = tls::ca();
     (ca.root_pem.clone(), ca)
@@ -108,8 +104,6 @@ fn to_toml(cert: &PeerCert) -> String {
     )
 }
 
-// 1. Not configured
-
 #[test]
 fn unset_peers_file_is_not_configured_and_is_not_an_error() {
     let peers = WorldsFederationPeers::load(&WorldsFedConfig {
@@ -128,11 +122,8 @@ fn unset_peers_file_is_not_configured_and_is_not_an_error() {
     assert!(peers.path().is_none());
 }
 
-// 2. The shipped placeholder file
-
-/// Points at the **literal committed** peer file. This test fails the day someone
-/// fills it in, which is the point: the shipped file is a placeholder, and a
-/// placeholder that starts being admitted is a security event.
+/// Points at the **literal committed** peer file, and fails the day someone fills it
+/// in: a placeholder that starts being admitted is a security event.
 #[test]
 fn shipped_placeholder_file_refuses_to_load() {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -164,9 +155,7 @@ fn shipped_placeholder_file_refuses_to_load() {
     );
 }
 
-/// The same entry, gate by gate: five independent refusals, any one sufficient. This
-/// is the claim the build spec makes about the shipped file, asserted rather than
-/// asserted-in-prose.
+/// The same entry, gate by gate: five independent refusals, any one sufficient.
 #[test]
 fn the_shipped_placeholder_entry_is_refused_five_independent_ways() {
     let placeholder = PeerCert {
@@ -180,13 +169,11 @@ fn the_shipped_placeholder_entry_is_refused_five_independent_ways() {
         added_at: "1970-01-01".into(),
     };
 
-    // (1) as shipped
     assert!(matches!(
         expect_rejected(&placeholder, &cfg()),
         PeerNotAdmitted::PlaceholderDaoProposal { .. }
     ));
 
-    // (2) with a real proposal
     let mut c = placeholder.clone();
     c.dao_proposal = "https://snapshot.org/#/snapshot.dcl.eth/proposal/0xabc".into();
     assert!(matches!(
@@ -194,14 +181,12 @@ fn the_shipped_placeholder_entry_is_refused_five_independent_ways() {
         PeerNotAdmitted::PlaceholderAddedAt { .. }
     ));
 
-    // (3) with a real date
     c.added_at = "2026-05-30".into();
     assert!(matches!(
         expect_rejected(&c, &cfg()),
         PeerNotAdmitted::ZeroGossipPubkey { .. }
     ));
 
-    // (4) with a real key
     c.gossip_pubkey = [3u8; 32];
     assert!(matches!(
         expect_rejected(&c, &cfg()),
@@ -211,22 +196,18 @@ fn the_shipped_placeholder_entry_is_refused_five_independent_ways() {
         }
     ));
 
-    // (5) with a real peer id -- still no pinned root, so still refused
     c.peer_id = "example-peer.org".into();
     assert!(matches!(
         expect_rejected(&c, &cfg()),
         PeerNotAdmitted::NoPinnedRoot { .. }
     ));
 
-    // Only after all five are fixed does it become a legitimate non-worlds peer.
     c.mtls_root_pem = self_signed_root_pem().0;
     assert!(matches!(
         admit(&c, &cfg()),
         Ok(AdmissionOutcome::Omitted(PeerOmitted::NoWorldsUrl { .. }))
     ));
 }
-
-// 3. One test per PeerNotAdmitted variant
 
 #[test]
 fn reject_placeholder_dao_proposal_todo_prefix() {
@@ -249,7 +230,6 @@ fn reject_placeholder_dao_proposal_todo_prefix() {
 
 #[test]
 fn reject_placeholder_dao_proposal_unsubstituted_template_markers() {
-    // No "TODO" prefix at all -- only the markers give it away.
     for value in [
         "https://snapshot.org/#/<space>/proposal/0xabc",
         "https://snapshot.org/#/snapshot.dcl.eth/proposal/<id>",
@@ -293,9 +273,6 @@ fn reject_zero_gossip_pubkey() {
          nobody later mistakes this for a verified channel: {e}"
     );
 
-    // One non-zero byte is enough to clear the *placeholder* check -- this is
-    // deliberately not a key-quality check, because nothing in this slice verifies a
-    // signature and pretending otherwise would be decorative cryptography.
     let mut c2 = good_cert();
     c2.gossip_pubkey = [0u8; 32];
     c2.gossip_pubkey[31] = 1;
@@ -321,7 +298,6 @@ fn reject_reserved_test_host_peer_ids() {
         }
     }
 
-    // A reserved label that is not a *suffix* is fine.
     let mut ok = good_cert();
     ok.peer_id = "invalid.example-operator.org".into();
     expect_admitted(&ok, &cfg());
@@ -341,9 +317,6 @@ fn reject_missing_pinned_root() {
 
 #[test]
 fn reject_missing_pinned_root_even_when_the_peer_runs_no_worlds_server() {
-    // A peer with no worlds_url is normally *omitted*, not rejected. But with no
-    // pinned root there is nothing to omit it on the strength of: this entry asserts
-    // nothing about anybody.
     let mut c = good_cert();
     c.worlds_url = String::new();
     c.mtls_root_pem = String::new();
@@ -352,8 +325,6 @@ fn reject_missing_pinned_root_even_when_the_peer_runs_no_worlds_server() {
         PeerNotAdmitted::NoPinnedRoot { .. }
     ));
 
-    // The loopback opt-out cannot rescue it either: with no URL there is no host that
-    // could be loopback.
     assert!(matches!(
         expect_rejected(&c, &cfg_loopback()),
         PeerNotAdmitted::NoPinnedRoot { .. }
@@ -362,21 +333,14 @@ fn reject_missing_pinned_root_even_when_the_peer_runs_no_worlds_server() {
 
 /// A pinned root that is not a usable certificate must be refused **at boot**.
 ///
-/// This is a regression test for a real defect found while building this module.
-/// Under the `__rustls` feature that this workspace compiles with,
-/// `reqwest::Certificate::from_pem` does no parsing at all -- it stores the bytes and
-/// returns `Ok` for any input -- and the deferred parse treats "no PEM block found" as
-/// success, yielding an EMPTY root store. The first implementation therefore *admitted*
-/// a peer whose `mtls_root_pem` was the literal string "not a certificate", and the
-/// only symptom would have been a peer that reported itself unreachable forever.
-///
-/// Every one of these must be caught before the process finishes starting.
+/// Regression test: under this workspace's `__rustls` feature,
+/// `reqwest::Certificate::from_pem` does no parsing -- it stores the bytes and returns
+/// `Ok` for any input -- and the deferred parse treats "no PEM block found" as success,
+/// yielding an EMPTY root store. The first implementation admitted a peer whose
+/// `mtls_root_pem` was the literal string "not a certificate", the only symptom being a
+/// peer that reported itself unreachable forever.
 #[test]
 fn reject_unusable_pinned_root() {
-    // (a) no PEM block at all -- the case that used to be silently admitted.
-    // (b) a PEM block whose body is not base64.
-    // (c) an empty PEM block.
-    // (d) a PEM block that is valid base64 but is not a certificate.
     for (pem, label) in [
         ("not a certificate", "no PEM block"),
         ("", "empty after trim is NoPinnedRoot, checked separately"),
@@ -415,10 +379,9 @@ fn reject_unusable_pinned_root() {
     }
 }
 
-/// The specific case that regressed: a peer admitted with a garbage root would build
-/// a client with an empty trust store. Assert that no such client can exist by
-/// asserting the admission fails -- and name the failure mode in the message so a
-/// future reader who "simplifies" `from_pem_bundle` back to `from_pem` learns why.
+/// The case that regressed: a peer admitted with a garbage root built a client with an
+/// empty trust store. The failure message names the mode, so a reader who "simplifies"
+/// `from_pem_bundle` back to `from_pem` learns why.
 #[test]
 fn a_garbage_pinned_root_never_becomes_an_empty_trust_store() {
     let mut c = good_cert();
@@ -478,10 +441,6 @@ fn reject_worlds_url_with_no_host() {
             "{url:?} must be refused before anything tries to fetch it, got {e}"
         );
     }
-    // An https URL with a genuinely empty authority. Note the `url` crate collapses
-    // `https:///x` to host `x` for special schemes, so THAT is not a no-host URL and
-    // is deliberately not asserted here -- asserting it would have encoded a false
-    // belief about the parser into the suite.
     for url in ["https://", "https:///"] {
         let mut c = good_cert();
         c.worlds_url = url.into();
@@ -497,11 +456,10 @@ fn reject_worlds_url_with_no_host() {
     }
 }
 
-/// Honest note on reachability: for the special schemes `http`/`https` the `url`
-/// crate rejects an empty host at parse time, so `WorldsUrlHasNoHost` is mostly
-/// defence in depth behind `WorldsUrlUnparseable` and the scheme check. It is kept
-/// because "we never fetch from a URL with no host" should be a property of this
-/// function rather than a property of a dependency's parser.
+/// For `http`/`https` the `url` crate rejects an empty host at parse time, so
+/// `WorldsUrlHasNoHost` is defence in depth behind `WorldsUrlUnparseable` and the
+/// scheme check -- kept so "we never fetch from a URL with no host" is a property of
+/// this function rather than of a dependency's parser.
 #[test]
 fn worlds_url_has_no_host_is_defence_in_depth() {
     let e = PeerNotAdmitted::WorldsUrlHasNoHost {
@@ -513,11 +471,6 @@ fn worlds_url_has_no_host_is_defence_in_depth() {
         .contains("no host to pin a certificate against"));
 }
 
-// `ClientBuildFailed` IS reachable from a peer file: a `mtls_root_pem` that is a
-// well-formed PEM block of valid base64 that is not a certificate survives
-// `from_pem_bundle` and is rejected by `RootCertStore::add` inside `build()`. See
-// `reject_unusable_pinned_root`, which accepts either variant for that input. This
-// test pins the Display shape so the operator-facing wording does not drift.
 #[test]
 fn client_build_failure_is_reported_as_a_refusal_not_a_panic() {
     let e = PeerNotAdmitted::ClientBuildFailed {
@@ -527,8 +480,6 @@ fn client_build_failure_is_reported_as_a_refusal_not_a_panic() {
     assert!(e.to_string().contains("pinned to this peer's root"));
     assert_eq!(e.peer_id(), "worlds.good-operator.org");
 }
-
-// 4. Omission, not rejection
 
 #[test]
 fn no_worlds_url_is_omitted_not_fatal_and_is_reported() {
@@ -580,8 +531,6 @@ fn zero_worlds_peers_is_configured_with_an_empty_list_not_not_configured() {
     assert!(peers.path().is_some());
 }
 
-// 5. File-level failure behaviour
-
 #[test]
 fn a_missing_peer_file_refuses_to_boot_rather_than_disabling_federation() {
     let missing = std::env::temp_dir().join("catalyrst-worlds-no-such-peer-file.toml");
@@ -607,16 +556,6 @@ fn malformed_toml_refuses_to_boot() {
 
 #[test]
 fn an_empty_but_valid_peer_file_is_configured_with_no_peers() {
-    // The degenerate case the enum exists to keep honest: a file with zero entries
-    // is "we federate with nobody", NOT "federation is off", and NOT an allowlist
-    // that a later code path may append to.
-    //
-    // This state is ALSO reachable by accident - `[[peers]]` instead of `[[peer]]`
-    // parses to zero entries, as does a truncated write - and the two are
-    // indistinguishable here. That hazard is handled where it does damage, in
-    // `RemoteWorldsComponent::revoke_peers_no_longer_admitted`, which refuses to
-    // sweep an empty allowlist rather than deleting every mirrored row. Loading
-    // stays permissive so the deliberate state remains expressible.
     let path = write_tmp("empty.toml", "# no peers yet\n");
     let peers = WorldsFederationPeers::load_file(&path, &cfg()).unwrap();
     assert!(peers.is_configured());
@@ -646,10 +585,6 @@ fn one_bad_entry_rejects_the_whole_file_not_just_that_entry() {
 
 #[test]
 fn the_first_reported_rejection_is_stable_across_runs() {
-    // FederationRegistry stores a HashMap, so `all()` order is arbitrary. If the
-    // loader did not sort, the operator-facing "First: ..." line would be a coin
-    // flip between the two bad entries. Run the same file repeatedly and demand the
-    // same answer.
     let mut a = good_cert();
     a.peer_id = "aaa.operator.org".into();
     a.dao_proposal = "TODO a".into();
@@ -673,8 +608,6 @@ fn the_first_reported_rejection_is_stable_across_runs() {
     }
 }
 
-// 6. The loopback dev opt-out
-
 #[test]
 fn loopback_http_requires_the_explicit_opt_out() {
     for url in [
@@ -686,14 +619,12 @@ fn loopback_http_requires_the_explicit_opt_out() {
         c.worlds_url = url.into();
         c.mtls_root_pem = String::new();
 
-        // Without the flag: refused for scheme, before anything else.
         let e = expect_rejected(&c, &cfg());
         assert!(
             matches!(e, PeerNotAdmitted::WorldsUrlNotHttps { .. }),
             "{url:?} must be refused without the opt-out, got {e}"
         );
 
-        // With the flag: admitted, and marked as unauthenticated.
         let p = expect_admitted(&c, &cfg_loopback());
         assert!(
             p.is_insecure_loopback(),
@@ -705,9 +636,6 @@ fn loopback_http_requires_the_explicit_opt_out() {
 
 #[test]
 fn non_loopback_host_cannot_use_the_loopback_opt_out() {
-    // Names that *look* loopback-ish, plus private ranges, plus a host that may well
-    // resolve to 127.0.0.1 -- the check is literal, not resolved, precisely because
-    // what a name resolves to is not under our control.
     for url in [
         "http://worlds.good-operator.org",
         "http://127.0.0.1.evil.example",
@@ -729,9 +657,6 @@ fn non_loopback_host_cannot_use_the_loopback_opt_out() {
 
 #[test]
 fn the_opt_out_does_not_waive_the_pinned_root_for_https_loopback() {
-    // The opt-out exists because catalyrst-worlds serves plain HTTP with no local TLS
-    // terminator. It is not a general "skip the pin" switch: an https URL still needs
-    // a root, loopback or not.
     let mut c = good_cert();
     c.worlds_url = "https://127.0.0.1:5242".into();
     c.mtls_root_pem = String::new();
@@ -757,8 +682,6 @@ fn the_opt_out_does_not_waive_any_other_gate() {
     }
 }
 
-// 7. URL construction
-
 #[test]
 fn worlds_listing_url_is_built_from_the_registry_and_takes_no_peer_input() {
     let p = expect_admitted(&good_cert(), &cfg());
@@ -767,9 +690,6 @@ fn worlds_listing_url_is_built_from_the_registry_and_takes_no_peer_input() {
         u.as_str(),
         "https://worlds.good-operator.org/worlds?limit=100&offset=200"
     );
-    // The only parameters are integers. There is no `&str` parameter through which a
-    // peer-reported value could reach this function, which is what makes "no SSRF
-    // surface" a property of the signature rather than of the caller's discipline.
     assert_eq!(u.host_str(), Some("worlds.good-operator.org"));
     assert_eq!(u.scheme(), "https");
 }
@@ -819,22 +739,14 @@ fn worlds_url_userinfo_query_and_fragment_are_dropped() {
     assert!(u.password().is_none());
 }
 
-// 8. The pin -- the one property that makes the peer file mean anything
-
-/// Half one of the pin: the pinned root is **in force**, and no *other* private root
-/// is accepted.
+/// Half one of the pin: a peer admitted with root **A** reaches a server presenting a
+/// leaf signed by A, and fails against one signed by an unrelated root B.
 ///
-/// A peer admitted with root **A** must reach a server presenting a leaf signed by A,
-/// and must fail against a server presenting a leaf signed by an unrelated root B.
-///
-/// HONEST LIMIT, measured rather than assumed: this test does **not** discriminate
-/// `tls_certs_only` from `tls_certs_merge`/`add_root_certificate`. It was run against
-/// a deliberately regressed build that merged the pinned root into the ambient
-/// platform trust store, and it still passed -- because root B is not in the platform
-/// store either, so a merged client rejects server B for the same reason a pinned one
-/// does. The half that actually catches that regression is
-/// `pinned_client_rejects_a_webpki_valid_host` below, which needs a host whose chain
-/// the *platform* store trusts. Do not delete that test believing this one covers it.
+/// LIMIT, measured rather than assumed: this does **not** discriminate
+/// `tls_certs_only` from `tls_certs_merge`/`add_root_certificate` -- run against a
+/// deliberately regressed merging build, it still passed, because root B is not in the
+/// platform store either. `pinned_client_rejects_a_webpki_valid_host` below is the half
+/// that catches that; do not delete it believing this one covers it.
 #[tokio::test]
 async fn pinned_client_trusts_only_its_own_root() {
     let ca_a = tls::ca();
@@ -848,7 +760,6 @@ async fn pinned_client_trusts_only_its_own_root() {
     cert.worlds_url = format!("https://localhost:{}", server_a.port);
     let peer_pinned_to_a = expect_admitted(&cert, &cfg());
 
-    // Same peer definition, pointed at server B: same pinned root A, different server.
     let mut cert_b = good_cert();
     cert_b.mtls_root_pem = ca_a.root_pem.clone();
     cert_b.worlds_url = format!("https://localhost:{}", server_b.port);
@@ -876,7 +787,6 @@ async fn pinned_client_trusts_only_its_own_root() {
          the pinned root is not being applied at all"
     );
 
-    // And the inverse, so the test cannot pass by the server being broken.
     let mut cert_c = good_cert();
     cert_c.mtls_root_pem = ca_b.root_pem.clone();
     cert_c.worlds_url = format!("https://localhost:{}", server_b.port);
@@ -893,30 +803,22 @@ async fn pinned_client_trusts_only_its_own_root() {
     );
 }
 
-/// Half two of the pin, and the only test that discriminates a pinned client from a
-/// merged one: the **ambient platform trust store is not in force**.
+/// Half two of the pin, and the only test discriminating a pinned client from a merged
+/// one: the **ambient platform trust store is not in force**. A peer admitted with a
+/// private throwaway root, pointed at a host with an ordinary valid WebPKI certificate,
+/// must FAIL. With `add_root_certificate` or `tls_certs_merge` -- both compile, both
+/// route through `rustls_platform_verifier::Verifier::new_with_extra_roots` in reqwest
+/// 0.13 -- it would 200, and any WebPKI-valid host winning a DNS race would be the peer.
 ///
-/// A peer is admitted with a private throwaway root that no public CA ever signed,
-/// then pointed at a host with an ordinary, valid WebPKI certificate. It must FAIL.
-/// If `fed/peers.rs` used `add_root_certificate` or `tls_certs_merge` -- both of which
-/// compile, and both of which route through
-/// `rustls_platform_verifier::Verifier::new_with_extra_roots` in reqwest 0.13 -- this
-/// request would succeed with a 200, the peer file would stop meaning anything, and
-/// any WebPKI-valid host that won a DNS race would be the peer.
+/// Verified to discriminate: with `tls_certs_only` swapped for `tls_certs_merge` this
+/// fails while `pinned_client_trusts_only_its_own_root` still passes.
 ///
-/// Verified to discriminate: against a build with `tls_certs_only` swapped for
-/// `tls_certs_merge`, this test fails and `pinned_client_trusts_only_its_own_root`
-/// still passes.
-///
-/// This is a plain read-only HTTPS GET to a well-known public host. It joins nothing
-/// and authenticates nothing. It needs outbound network, so it refuses loudly rather
-/// than skipping silently unless `ALLOW_SKIPPED_INTEGRATION=1`.
+/// Needs outbound network (a read-only HTTPS GET to a well-known public host), so it
+/// refuses loudly rather than skipping silently unless `ALLOW_SKIPPED_INTEGRATION=1`.
 #[tokio::test]
 async fn pinned_client_rejects_a_webpki_valid_host() {
     const WEBPKI_HOST: &str = "https://example.com";
 
-    // Establish that the host is reachable and WebPKI-valid *for an ordinary client*,
-    // so a failure below is attributable to the pin and not to a dead network.
     let control = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(15))
         .build()
@@ -939,7 +841,6 @@ async fn pinned_client_rejects_a_webpki_valid_host() {
         "control request must succeed for the pinned refusal below to mean anything"
     );
 
-    // Now the same request through a peer pinned to a private throwaway root.
     let ca = tls::ca();
     let mut cert = good_cert();
     cert.mtls_root_pem = ca.root_pem.clone();
@@ -967,7 +868,7 @@ async fn pinned_client_rejects_a_webpki_valid_host() {
 }
 
 /// A redirect off the pinned host would silently defeat the pin: the pin is checked
-/// per-connection, and the second connection is to whatever host the peer names.
+/// per-connection, and the second connection goes to whatever host the peer names.
 #[tokio::test]
 async fn an_admitted_peer_does_not_follow_redirects() {
     let ca = tls::ca();
@@ -998,11 +899,8 @@ async fn an_admitted_peer_does_not_follow_redirects() {
     );
 }
 
-// 9. Registry reload is deliberately not wired
-
-/// The peer set is fixed for the process lifetime; changing it is a restart. Fewer
-/// moving parts across a trust boundary, and it means the admission decision that a
-/// boot log records is the one still in force.
+/// The peer set is fixed for the process lifetime; changing it is a restart, so the
+/// admission decision a boot log records is the one still in force.
 #[test]
 fn registry_reload_is_not_wired() {
     let src =
@@ -1013,8 +911,6 @@ fn registry_reload_is_not_wired() {
          under a running poller is a trust boundary that moves without a deploy"
     );
 }
-
-// TLS test scaffolding
 
 mod tls {
     use std::sync::Arc;
@@ -1047,14 +943,14 @@ mod tls {
         })
     }
 
-    /// Root A. Generated once per process so `good_cert()` is cheap.
+    /// Generated once per process so `good_cert()` is cheap.
     pub fn ca() -> Arc<Ca> {
         static CA: OnceLock<Arc<Ca>> = OnceLock::new();
         CA.get_or_init(|| make_ca("catalyrst worlds fed test root A"))
             .clone()
     }
 
-    /// Root B -- unrelated to A, and to anything in the system trust store.
+    /// Unrelated to A, and to anything in the system trust store.
     pub fn other_ca() -> Arc<Ca> {
         static CA: OnceLock<Arc<Ca>> = OnceLock::new();
         CA.get_or_init(|| make_ca("catalyrst worlds fed test root B"))
@@ -1094,8 +990,6 @@ mod tls {
                 let response = response.clone();
                 tokio::spawn(async move {
                     let Ok(mut stream) = acceptor.accept(sock).await else {
-                        // A pin mismatch aborts here, which is exactly the outcome
-                        // `pinned_client_trusts_only_its_own_root` is asserting.
                         return;
                     };
                     let mut buf = [0u8; 2048];

@@ -51,8 +51,6 @@ describe("wcsBase", () => {
   });
 
   it("never resolves to a worlds. subdomain of catalyst.example.com", () => {
-    // `worldsBase()` in client.ts rewrites catalystBase()'s hostname to
-    // worlds.<domain>, which 404s every path used here. wcsBase must not.
     vi.stubEnv("CATALYST_URL", "https://catalyst.example.com");
     const host = new URL(wcsBase()).hostname;
     expect(host).not.toBe("worlds.example.com");
@@ -199,15 +197,10 @@ describe("loadLiveData / loadPlatformStatus", () => {
     if (d.state !== "live") throw new Error("unreachable");
     expect(d.value.data.totalUsers).toBe(5);
     expect(liveUsersFor(d.value, "PETBARN.DCL.ETH")).toBe(3);
-    // Not listed is not the same as measured-zero; the caller decides.
     expect(liveUsersFor(d.value, "elsewhere.dcl.eth")).toBeNull();
   });
 
   it("refuses a missing perWorld array instead of inventing an empty one", () => {
-    // This used to assert `perWorld === []`, because the schema laundered the
-    // absence with `.nullish().transform((v) => v ?? [])`. That made safeParse
-    // incapable of failing on this field, so a malformed body arrived in the UI
-    // as a confident, live zero. The absence is a parse error now.
     const r = LiveDataSchema.safeParse({ data: { totalUsers: 0 }, lastUpdated: null });
     expect(r.success).toBe(false);
   });
@@ -217,8 +210,6 @@ describe("loadLiveData / loadPlatformStatus", () => {
       base: BASE,
       fetchImpl: jsonFetch(200, { data: { totalUsers: 0 }, lastUpdated: null }),
     });
-    // `unavailable`, not `live` with zero users. Nobody measured a zero here; the
-    // body could not be read, and those are different things to show a creator.
     expect(d.state).toBe("unavailable");
   });
 

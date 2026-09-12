@@ -25,25 +25,16 @@ import type { ChartSeries } from "../lib/scene-analytics";
 import "./chactivityindex.css";
 
 export type ActivityWorldRow = {
-  /** The NAME, e.g. `petbarn.dcl.eth`. */
   name: string;
   title: string | null;
   lastDeployedAt: string | null;
-  /** `0` means nothing was ever deployed to this NAME -- a different fact from "empty". */
   deployedScenes: number | null;
   blockedSince: string | null;
-  /** Headcount at the last presence snapshot. `no-sample` != zero. */
   now: Datum<number>;
-  /**
-   * Mandatory whenever `now` is a showable literal `0`: a real zero and a
-   * missing sample both render as a small number-shaped thing, and only this
-   * sentence tells them apart. e.g. "a real zero -- sampled 2m ago, nobody in".
-   */
   nowNote?: string | null;
   peak7d: Datum<number>;
   href: string;
   jumpUrl?: string | null;
-  /** Where "Publish a scene here" goes for a never-deployed NAME. */
   publishHref?: string;
 };
 
@@ -60,26 +51,20 @@ export type ParcelActivity = {
   series: ChartSeries[];
   gapBands?: { fromIndex: number; toIndex: number }[];
   peak: Datum<number>;
-  /** e.g. "38 of 1 214". Never relabelled "visits". */
   occupied: Datum<string>;
-  /** e.g. "2026-07-13 02:15Z". Never a nominal "last 30 days". */
   historyBegins: Datum<string>;
-  /** True when the collector has no snapshots at all for this pointer. */
   noHistory?: boolean;
   jumpUrl?: string | null;
 };
 
 export type ChActivityIndexPageProps = {
-  /** `null` renders the no-address state. There is no demo owner, ever. */
   address: string | null;
   readAt?: string | null;
   peopleInYourWorlds: Datum<number>;
-  /** Rendered verbatim, e.g. "22 peers, 8 islands". */
   networkPresence: Datum<string>;
   worlds: Datum<readonly ActivityWorldRow[]>;
   busiestScenes: Datum<readonly BusiestRow[]>;
   busiestWorlds: Datum<readonly BusiestRow[]>;
-  /** Result of the `?pointer=x,y` lookup, when there is one. */
   parcel?: ParcelActivity | null;
   parcelPointer?: string | null;
   sources: readonly SourceLedgerGroup[];
@@ -91,21 +76,18 @@ export type ChActivityIndexPageProps = {
   onConnect?: () => void;
   onAddressSubmit?: (address: string) => void;
   onPointerLookup?: (pointer: string) => void;
-  /** Pinned clock, for deterministic stories and tests. */
   now?: number;
 };
 
 const int = (v: number | string) =>
   typeof v === "number" ? v.toLocaleString("en-US") : v;
 
-/** Compact per-row reading: the number (or `--`) and its badge. */
 function RowDatum({
   datum,
   note = null,
   now,
 }: {
   datum: Datum<number>;
-  /** Only rendered for a showable value; the absent states derive their own. */
   note?: string | null;
   now?: number;
 }) {
@@ -273,14 +255,6 @@ function BusiestList({
   );
 }
 
-/**
- * `/creator-hub/activity` -- your worlds with live headcount, realm context,
- * and the Genesis-parcel lookup.
- *
- * Nothing here is invented: every figure arrives as a `Datum`, and a figure
- * that did not arrive renders as `--` beside the endpoint that failed to
- * produce it.
- */
 export default function ChActivityIndexPage({
   address,
   readAt = null,

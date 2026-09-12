@@ -303,7 +303,6 @@ mod tests {
 
     #[test]
     fn empty_configured_secret_must_reject_empty_bearer() {
-        // canonical gate returns 503 on an empty configured secret; this gate must at least refuse.
         let s = state_with(Some(""));
         assert!(
             authorize(&s, &bearer("")).is_err(),

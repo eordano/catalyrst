@@ -16,9 +16,8 @@ fn image_base_url() -> String {
         .unwrap_or_else(|| "http://127.0.0.1:5162/v1".to_string())
 }
 
-/// Marketplace web page for a token. No production fallback: this stack does
-/// not host a marketplace UI, so an unset value yields no external link
-/// rather than one pointing at production.
+/// No production fallback: this stack hosts no marketplace UI, so an unset value yields no
+/// external link rather than one pointing at production.
 fn external_base_url() -> Option<String> {
     std::env::var("MAP_EXTERNAL_BASE_URL")
         .ok()
@@ -108,9 +107,8 @@ async fn get_parcel_inner(state: &AppState, x: String, y: String) -> Response {
     ok_nft(parcel_nft(state, xi, yi, token_id, name, description))
 }
 
-/// The LAND-token metadata query: one statement that resolves coords AND
-/// name/description from `token_id`, folding what used to be two sequential
-/// round trips (token_id -> x,y, then x,y -> token_id,name,description).
+/// One statement resolves coords and name/description from `token_id`; splitting it back
+/// costs a second sequential round trip.
 fn land_token_sql(schema: &str) -> String {
     format!(
         r#"

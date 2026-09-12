@@ -1,8 +1,6 @@
 import { reactRouter } from "@react-router/dev/vite";
 import { fileURLToPath } from "node:url";
 import { defineConfig, type Plugin } from "vite";
-// Plain JS helper shared with ui3, so both trees resolve the validation seam
-// identically and a perf build means the same thing in each.
 import { validateAliasObject } from "../ui3/vite.validate.js";
 
 const ui = fileURLToPath(new URL("../ui3/src", import.meta.url));
@@ -37,13 +35,7 @@ export default defineConfig({
     allowedHosts: [".catalyst.example.com", "localhost", "127.0.0.1"],
     hmr: { protocol: "wss", clientPort: 443 },
     strictPort: true,
-    // ui3 sits outside this project root, so its own assets (the wearable-preview
-    // emote GLBs, served straight off disk via /@fs in dev) 403 under Vite's
-    // default fs.allow without this.
     fs: { allow: [".", "../ui3"] },
-    // Dev-only: the vite origin has no /lambdas or /content of its own, so
-    // proxy them to a catalyst. The target is env-overridable per deployment
-    // (portability gate: no baked foreign domain) and defaults to the public one.
     proxy: {
       "/lambdas": { target: CATALYST_PROXY_TARGET, changeOrigin: true },
       "/content": { target: CATALYST_PROXY_TARGET, changeOrigin: true },
@@ -73,13 +65,6 @@ export default defineConfig({
     ],
   },
   test: {
-    // The e2e specs belong to vitest.e2e.config.ts, which is the only config that
-    // loads test/e2e/globalSetup.ts -- the thing that provisions their Postgres.
-    // Vitest's default discovery swept them in here too, where that setup never
-    // runs, so `npm test` failed five armed suites every time on any machine. That
-    // is worse than not running them: a suite that is always red is a suite nobody
-    // reads. Run them with `npm run test:e2e`, which CI does via
-    // scripts/no-silent-skips.sh.
     exclude: ["**/node_modules/**", "**/dist/**", "test/e2e/**"],
   },
 });

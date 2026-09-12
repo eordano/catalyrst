@@ -790,10 +790,6 @@ mod tests {
         );
     }
 
-    // The live peer.dclnodes.io failure mode: content-addressed blobs served with
-    // `Content-Encoding: gzip` regardless of Accept-Encoding, CID computed over the DECODED
-    // bytes. The download path must undo the transfer coding before hashing and must store the
-    // decoded representation.
     #[tokio::test]
     async fn gzip_labeled_content_decodes_then_hashes_and_stores_decoded() {
         const PAYLOAD: &[u8] = br#"{"type":"scene","content":[],"t":"gzip-wire"}"#;

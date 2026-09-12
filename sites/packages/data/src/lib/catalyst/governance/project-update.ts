@@ -58,14 +58,7 @@ export type PriorUpdate = {
 };
 
 export type ProjectUpdateContext = {
-  /**
-   * "live" -- the project and its prior updates came from this node.
-   * "unavailable" -- nothing below describes a real project; `reason` says why.
-   * "fixture" -- only produced by `fixtureContext()`, for stories and layout
-   *   work. `loadProjectUpdateContext` never returns it.
-   */
   source: "live" | "fixture" | "unavailable";
-  /** Set when source === "unavailable". Safe to show to a visitor. */
   reason?: string;
   project: UpdateProject;
   funding: ProjectFunding;
@@ -146,12 +139,6 @@ const EMPTY_FUNDING: ProjectFunding = {
   address: null,
 };
 
-/**
- * The form scaffolding (health options, field list, CSV header, record
- * categories) is static copy, not data -- it is safe to keep from the fixture.
- * The project, its funding and its prior updates are measurements and are
- * blanked: the caller must render `reason`, never these zeros.
- */
 export function unavailableContext(reason: string): ProjectUpdateContext {
   return {
     source: "unavailable",
@@ -221,12 +208,6 @@ const UpdateRecordSchema = z
   })
   .passthrough();
 
-/**
- * Project updates come nested inside GET /projects/{id}
- * (catalyrst-governance/src/handlers/read.rs:201 -> parse.rs:151, which inserts
- * the stored update rows under "updates"). There is no standalone /updates
- * route on this node -- lib.rs:29-44 does not register one.
- */
 const ProjectDetailResponseSchema = ProjectSchema.extend({
   updates: z.array(UpdateRecordSchema).nullish(),
 });
@@ -287,8 +268,6 @@ export async function loadProjectUpdateContext(
   projectId: string | undefined,
   opts: LoadOptions = {},
 ): Promise<ProjectUpdateContext> {
-  // Only the static form copy is taken from the fixture; every measurement
-  // below comes from the node or is reported as unavailable.
   const fb = fixtureContext();
   if (!projectId) return unavailableContext("no project id in the URL");
 

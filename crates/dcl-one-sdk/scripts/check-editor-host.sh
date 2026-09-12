@@ -1,25 +1,4 @@
 #!/usr/bin/env bash
-# Type check the editor's data-layer host (src/vendor/inspector-shim).
-#
-# The shim is the `@dcl/inspector` stand-in the editor talks to. It has to stay
-# runnable JavaScript -- add_shim() in blob_overlays.py copies these files into
-# the blob's node_modules/@dcl/inspector verbatim -- so it is typed with JSDoc and checked
-# with `checkJs` rather than ported to TypeScript.
-#
-# The types cannot come from the blob beside it: the blob ships @dcl/ecs and
-# @dcl/rpc pruned of every .d.ts (236 and 14 files, zero declarations), which is
-# correct for something a scene unpacks to RUN and useless for checking. So the
-# check borrows a real install.
-#
-#   DCL_ONE_SDK_SHIM_TYPES=/path/to/scene/node_modules  explicit
-#   otherwise                                            the first scene
-#                                                        node_modules under the
-#                                                        repo with @dcl/ecs,
-#                                                        @dcl/rpc and typescript
-#
-# Skips with 0 when none is reachable: a machine with no scene installed cannot
-# run this, and a check that cannot run must not read as a failure. It says so
-# on stderr rather than passing quietly.
 set -uo pipefail
 
 SHIM="$(cd "$(dirname "${BASH_SOURCE[0]}")/../src/vendor/inspector-shim" && pwd)"
@@ -48,9 +27,6 @@ if [ -z "$NM" ]; then
     exit 0
 fi
 
-# tsc resolves bare imports by walking up from the file, and the shim lives in
-# the Rust crate rather than under a node_modules. Check a copy that has one,
-# so nothing is written next to the source and the source needs no symlink.
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 cp "$SHIM"/*.js "$SHIM"/*.json "$SHIM"/data-layer.gen.ts "$WORK/" || exit 1
@@ -60,9 +36,6 @@ echo "check-editor-host: types from $NM"
 "$NM/typescript/bin/tsc" -p "$WORK/tsconfig.json" --pretty false || exit 1
 echo "check-editor-host: types OK"
 
-# The descriptor ships transpiled (build_service_descriptor() in blob_overlays.py
-# emits data-layer.gen.js),
-# so the runtime half needs the same .js the blob would carry.
 "$NM/typescript/bin/tsc" "$WORK/data-layer.gen.ts" \
     --target ES2022 --module commonjs --esModuleInterop --skipLibCheck \
     --outDir "$WORK" --pretty false >/dev/null 2>&1

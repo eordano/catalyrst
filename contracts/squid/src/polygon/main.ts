@@ -117,16 +117,10 @@ import {
 } from "../common/utils/head-notification";
 import { requireDeploymentSchema } from "../common/utils/deployment-schema";
 
-// SQUID_SCHEMA, with a deprecated DB_SCHEMA fallback for the not-yet-renamed deployed
-// env (see deployment-schema.ts). Never SET DB_SCHEMA in a processor environment:
-// typeorm-config turns it into a per-connection search_path pin that promotion
-// invalidates (see indexer.sh).
 const schemaName = requireDeploymentSchema();
 const addresses = getAddresses(Network.MATIC);
 let bytesRead = 0;
 
-// Per-batch invariants, computed once at module load instead of every batch.
-// Lowercased address sets for O(1) lookups inside the event loop.
 const creditsManagerAddresses = new Set(
   addresses.CreditsManager.map((a: string) => a.toLowerCase())
 );
@@ -137,11 +131,9 @@ const collectionFactoryAddresses = new Set(
 );
 const spokeAddressLower = addresses.Spoke?.toLowerCase();
 
-// Format a duration in ms (show seconds if > 1000ms).
 const fmt = (ms: number) =>
   ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${Math.round(ms)}ms`;
 
-// Push to a Map<K, V[]> without the O(n2) spread of `[...(map.get(key) ?? []), v]`.
 function pushToMapArray<K, V>(map: Map<K, V[]>, key: K, value: V): void {
   let arr = map.get(key);
   if (!arr) {
@@ -151,7 +143,6 @@ function pushToMapArray<K, V>(map: Map<K, V[]>, key: K, value: V): void {
   arr.push(value);
 }
 
-// Topic hash -> human-readable event name, computed once (not per event).
 const topicToName: Record<string, string> = {
   [CollectionFactoryABI.events.ProxyCreated.topic]: "ProxyCreated",
   [CollectionFactoryV3ABI.events.ProxyCreated.topic]: "ProxyCreatedV3",
@@ -168,31 +159,19 @@ const topicToName: Record<string, string> = {
   [OffChainMarketplaceV3ABI.events.Traded.topic]: "Traded",
 };
 const preloadedCollections = loadCollections().addresses;
-// Set form for O(1) membership checks in the per-log hot path (~84k logs/batch).
 const preloadedCollectionsSet = new Set(preloadedCollections);
 const preloadedCollectionsHeight = loadCollections().height;
-// Cache lastNotified timestamp to avoid querying DB for historical blocks
 let cachedLastNotified: bigint | null = null;
 let lastNotifiedLoaded = false;
-// Hard lower bound (epoch seconds) for gift notifications. Unlike last_notified
-// (which lives in public.squids and could be stale), this floor comes from the
-// environment, so it survives any DB wipe / re-index and guarantees we never
-// backfill historical gift notifications. Defaults to process start time when
-// unset, which is also safe (a re-index/restart never replays old gifts).
 const minTransferNotificationTimestamp = BigInt(
   process.env.MIN_TRANSFER_NOTIFICATION_TIMESTAMP ??
     Math.floor(Date.now() / 1000)
 );
 
-//  BULK INDEX MODE: Drop indices during initial sync, recreate when caught up.
-// Opt-in and default off; enable via env var BULK_INDEX_MODE=true.
 const BULK_INDEX_MODE = process.env.BULK_INDEX_MODE === "true";
 let bulkModeInitialized = false;
 let indicesRecreated = false;
 let indicesNeedRecreation = false;
-// recreateIndices throws while anything is still missing, so the head handler retries it. Bounded
-// because at head a batch runs every few seconds: an index that can never be built (a UNIQUE one
-// with duplicate rows, say) would otherwise re-attempt forever.
 let indexRecreateAttempts = 0;
 const MAX_INDEX_RECREATE_ATTEMPTS = 5;
 
@@ -242,9 +221,6 @@ async function performUpserts(
     total: 0,
   };
 
-  // PHASE 1: independent entities. Sequential on purpose -- every store call goes
-  // through the single Postgres connection of the batch transaction, so a
-  // Promise.all here only queues the queries, it does not parallelize them.
   let t0 = performance.now();
   await store.upsert([...rarities.values()]);
   await store.upsert([...storedData.counts.values()]);
@@ -257,7 +233,6 @@ async function performUpserts(
   await store.upsert([...storedData.emotes.values()]);
   timing.phase1 = performance.now() - t0;
 
-  // PHASE 2: Metadatas -> Items (items reference metadata)
   t0 = performance.now();
   await store.upsert([...metadatas.values()]);
   timing.metadatas = performance.now() - t0;
@@ -266,7 +241,6 @@ async function performUpserts(
   await store.upsert([...items.values()]);
   timing.items = performance.now() - t0;
 
-  // PHASE 3: NFT <-> Order circular dependency workaround
   const orderByNFT: Map<string, Order> = new Map();
   for (const nft of nfts.values()) {
     if (nft.activeOrder) {
@@ -283,7 +257,6 @@ async function performUpserts(
   await store.upsert([...orders.values()]);
   timing.orders = performance.now() - t0;
 
-  // Restore activeOrder and collect NFTs that need update
   const nftsWithOrders: NFT[] = [];
   for (const [nftId, order] of orderByNFT) {
     const nft = nfts.get(nftId);
@@ -293,7 +266,6 @@ async function performUpserts(
     }
   }
 
-  // PHASE 4: NFTs with orders + bids + inserts (sequential -- same connection).
   t0 = performance.now();
   if (nftsWithOrders.length > 0) await store.upsert(nftsWithOrders);
   await store.upsert([...bids.values()]);
@@ -325,22 +297,12 @@ async function performUpserts(
 
 const db = new TypeormDatabase({
   isolationLevel: "READ COMMITTED",
-  // Portal ingests from the finalized stream; a log-filtered stream yields
-  // non-contiguous blocks which the hot-block path rejects. Polygon finality is
-  // only a few blocks (~seconds) behind head, so this stays effectively real-time.
   supportHotBlocks: false,
   stateSchema: `polygon_processor_${schemaName}`,
 });
-// Expose Prometheus metrics (sqd_processor_last_block / chain_height) -- the squid
-// management server scrapes /metrics on this port to detect a live processor.
-// setGateway used to start this; with the Portal run() we wire it explicitly.
 const prometheus = new PrometheusServer();
 prometheus.setPort(Number(process.env.POLYGON_PROMETHEUS_PORT || 3001));
 run(dataSource, db, async (simpleCtx) => {
-  // The batch-processor base context is bare {store, blocks, isHead}; augment the
-  // blocks (restores block.logs / log.transaction back-refs) and attach `_chain`
-  // (RPC for contract reads) and a logger, so the rest of the handler and the ABI
-  // contract wrappers see the same shape the old evm-processor context provided.
   const ctx: Context = {
     ...simpleCtx,
     ...chainContext,
@@ -376,8 +338,6 @@ run(dataSource, db, async (simpleCtx) => {
       (acc, block) =>
         acc +
         Buffer.byteLength(
-          // BigInt-safe: Portal blocks can carry bigint fields that JSON.stringify
-          // rejects; this is only a byte-count metric, so serialize them as strings.
           JSON.stringify(block, (_k, v) =>
             typeof v === "bigint" ? v.toString() : v
           ),
@@ -386,9 +346,6 @@ run(dataSource, db, async (simpleCtx) => {
       0
     );
 
-    // Track indexing progress and alert Slack the first time this indexer reaches
-    // head. Done before any early-return below, since head can be reached on a
-    // batch with no DCL-relevant data.
     await recordIndexingStart(ctx.store, "polygon");
     if (ctx.isHead && ctx.blocks.length > 0) {
       await notifyHeadReachedOnce(
@@ -405,8 +362,6 @@ run(dataSource, db, async (simpleCtx) => {
 
         logIndexConfiguration(POLYGON_INDICES, INITIAL_BLOCK);
 
-        // Fresh sync (new deploy near the initial block) vs restart of an already
-        // synced squid, using INITIAL_BLOCK from config with a 10% threshold.
         const freshSync = isFreshSync(currentBlock, INITIAL_BLOCK);
         indicesNeedRecreation = await checkIndicesNeedRecreation(
           ctx.store,
@@ -418,37 +373,24 @@ run(dataSource, db, async (simpleCtx) => {
         );
 
         if (freshSync) {
-          // New deploy: indices exist from migrations; drop them for faster loading.
           console.log(`[IndexMgr] Fresh sync - dropping indices for bulk indexing`);
           await dropIndicesForBulkLoad(ctx.store, POLYGON_INDICES);
           indicesNeedRecreation = true;
         } else if (!indicesNeedRecreation) {
-          // Restart of an already synced squid: all indices exist, leave them.
           console.log(`[IndexMgr] Restart of synced squid - all indices present`);
           indicesRecreated = true;
         } else if (ctx.isHead) {
-          // At head but missing indices - recreate them now.
           console.log(`[IndexMgr] At head with missing indices - recreating now`);
           await recreateIndices(ctx.store, POLYGON_INDICES);
           indicesRecreated = true;
         } else {
-          // Mid-sync restart with missing indices - recreate when we reach head.
           console.log(`[IndexMgr] Mid-sync restart - will recreate indices at head`);
         }
       } catch (e: any) {
-        // Never throw - index management must not break indexing.
         console.log(`[IndexMgr] Error in bulk index mode init: ${e.message}`);
       }
     }
 
-    //  BULK INDEX MODE: recreate indices once we reach head. This MUST run before
-    // this batch reads or writes any managed table: recreateIndices issues plain
-    // CREATE INDEX (SHARE lock) on an independent connection, and if the batch
-    // transaction had already taken ROW EXCLUSIVE locks (via performUpserts) the two
-    // connections would deadlock -- the batch tx can't commit until the handler
-    // returns, and the handler is awaiting the CREATE INDEX. Running it here, before
-    // any table access, keeps the connections contention-free. recreateIndices is a
-    // no-op when nothing is missing; on error we retry next batch.
     if (
       BULK_INDEX_MODE &&
       !indicesRecreated &&
@@ -546,8 +488,6 @@ run(dataSource, db, async (simpleCtx) => {
       } to: ${ctx.blocks[ctx.blocks.length - 1].header.height}`
     );
 
-    // Load lastNotified once at startup to compare with batch timestamps
-    // This avoids querying DB for every transfer in historical blocks
     if (!lastNotifiedLoaded) {
       cachedLastNotified = await getLastNotified(ctx.store);
       lastNotifiedLoaded = true;
@@ -561,8 +501,6 @@ run(dataSource, db, async (simpleCtx) => {
     const isProcessingNewBlocks =
       cachedLastNotified === null || lastBlockTimestamp > cachedLastNotified;
 
-    // If processing new blocks, reload lastNotified once per batch to keep it updated
-    // If processing historical blocks, pass null to skip sending events
     let batchLastNotified: bigint | null | undefined = null;
     if (isProcessingNewBlocks) {
       batchLastNotified = await getLastNotified(ctx.store);
@@ -584,12 +522,10 @@ run(dataSource, db, async (simpleCtx) => {
 
     const preIndexStart = performance.now();
 
-    // Index: blockHeight-txIndex -> CreditUsed events
     const creditEventsByTx = new Map<
       string,
       { creditId: string; value: bigint }[]
     >();
-    // Index: blockHeight-txIndex -> OrderCreated orderHash
     const orderHashByTx = new Map<string, string>();
     const proxyCreatedEvents: { address: string; blockHeader: any }[] = [];
 
@@ -615,7 +551,6 @@ run(dataSource, db, async (simpleCtx) => {
           });
         }
 
-        // 2. Index Spoke OrderCreated events (for cross-chain operations like NAME registration)
         if (
           topic === SpokeABI.events.OrderCreated.topic &&
           logAddressLower === spokeAddressLower
@@ -645,16 +580,11 @@ run(dataSource, db, async (simpleCtx) => {
 
     metrics.preIndexTime = performance.now() - preIndexStart;
 
-    //  OPTIMIZATION: Fetch ALL collection data via MULTICALL (9 calls per collection -> 1 batch)
-    // This is the biggest optimization: instead of 9 RPC calls per collection,
-    // we fetch name, symbol, owner, creator, isCompleted, isApproved, isEditable, baseURI, chainId
-    // for ALL collections in a single multicall batch!
     let prefetchedCollectionData = new Map<string, CollectionData>();
 
     if (proxyCreatedEvents.length > 0) {
       const multicallStart = performance.now();
 
-      // Use the LAST block in the batch for multicall (all collections exist by then)
       const lastBlock = ctx.blocks[ctx.blocks.length - 1].header;
       const collectionAddresses = proxyCreatedEvents.map((e) => e.address);
 
@@ -680,19 +610,15 @@ run(dataSource, db, async (simpleCtx) => {
 
     let preEventTime = 0;
 
-    //  OPTIMIZATION: Create rarities snapshot ONCE, only update when rarities change
-    // This reduces from O(n*m) to O(k*m) where n=events, m=rarities, k=rarity-changing events
     let currentRaritiesSnapshot: Map<string, Rarity> = new Map(
       Array.from(rarities).map(([k, v]) => [k, { ...v } as Rarity])
     );
     let raritiesSnapshotDirty = false;
 
-    //  OPTIMIZATION: Pre-compute valid collections Set ONCE for O(1) lookup
     const validCollections = new Set<string>([
       ...preloadedCollections,
       ...collectionIdsNotIncludedInPreloaded,
     ]);
-    // collectionIdsCreatedInBatch is added dynamically during the loop
 
     for (let block of ctx.blocks) {
       const blockTimestamp = BigInt(block.header.timestamp / 1000);
@@ -701,9 +627,6 @@ run(dataSource, db, async (simpleCtx) => {
       for (let log of block.logs) {
         const topic = log.topics[0];
 
-        //  FAST PATH: Skip non-DCL Transfer events BEFORE any other processing
-        // This avoids performance.now() calls, switch overhead, etc for 99%+ of events
-        // Transfer is the most common event in blockchain - we get 84k+ per batch from ALL contracts
         if (topic === CollectionV2ABI.events.Transfer.topic) {
           if (!validCollections.has(log.address)) {
             skippedTransfers++;
@@ -737,10 +660,6 @@ run(dataSource, db, async (simpleCtx) => {
                 ? CollectionFactoryABI.events.ProxyCreated.decode(log)
                 : CollectionFactoryV3ABI.events.ProxyCreated.decode(log);
 
-            // Lowercase to match the fast-path lookup: log.address (and the DB /
-            // preloaded ids seeded into validCollections) are lowercase, but the
-            // decoded event._address may be checksummed. Without this, Transfers of
-            // a collection created earlier in the same batch would be skipped.
             collectionIdsCreatedInBatch.add(event._address.toLowerCase());
             validCollections.add(event._address.toLowerCase());
 
@@ -777,9 +696,6 @@ run(dataSource, db, async (simpleCtx) => {
               (sum, c) => sum + c.value,
               BigInt(0)
             );
-            // Note: Collection creations with credits are NOT cross-chain
-            // SquidRouterOrders are created separately for cross-chain operations
-            // (e.g., NAME registration that bridges from Polygon to Ethereum)
             if (usedCredits) {
               ctx.log.info(
                 `Credits detected for collection ${event._address}: ${creditValue} wei (collection creation, not cross-chain)`
@@ -943,14 +859,6 @@ run(dataSource, db, async (simpleCtx) => {
             });
             break;
           }
-          // Keep the cached V3 fee configuration current. Same shape as the V1/V2 cases below,
-          // and it inherits their one caveat: these are applied while events are accumulated,
-          // whereas Traded is handled later in the batch. So a fee change and trades in the SAME
-          // batch are applied out of order -- trades before the change would see the new value.
-          // At head a batch is seconds wide so this cannot happen; during a backfill a batch can
-          // span ~1M blocks, and it would only matter around the handful of blocks where fees
-          // actually changed. Resolving per-trade needs the change recorded with its block and
-          // applied as-of, which is a bigger change than this one.
           case OffChainMarketplaceABI.events.FeeCollectorUpdated.topic: {
             setOffChainMarketplaceFeeCollector(
               OffChainMarketplaceABI.events.FeeCollectorUpdated.decode(log)._feeCollector
@@ -1016,8 +924,6 @@ run(dataSource, db, async (simpleCtx) => {
           case CollectionV2ABI.events.CreatorshipTransferred.topic:
           case CollectionV2ABI.events.OwnershipTransferred.topic:
           case CollectionV2ABI.events.Transfer.topic: {
-            //  NOTE: Non-DCL Transfers are filtered BEFORE the switch (fast path above)
-            // If we get here, this IS a valid DCL collection transfer
             if (!validCollections.has(log.address)) {
               break;
             }
@@ -1080,7 +986,6 @@ run(dataSource, db, async (simpleCtx) => {
                 accountIds.add(event.to.toLowerCase());
                 const timestamp = block.header.timestamp / 1000;
                 const nftId = getNFTId(log.address, event.tokenId.toString());
-                //  OPTIMIZATION: Use pushToMapArray() to avoid O(n2) spread
                 pushToMapArray(tokenIds, log.address, event.tokenId);
                 transfers.set(
                   `${nftId}-${timestamp}`,
@@ -1099,7 +1004,6 @@ run(dataSource, db, async (simpleCtx) => {
               }
             }
             if (event) {
-              //  OPTIMIZATION: Only refresh snapshot if rarities changed since last snapshot
               if (raritiesSnapshotDirty) {
                 currentRaritiesSnapshot = new Map(
                   Array.from(rarities).map(([k, v]) => [k, { ...v } as Rarity])
@@ -1153,7 +1057,6 @@ run(dataSource, db, async (simpleCtx) => {
           }
           case CollectionManagerABI.events.RaritiesSet.topic: {
             const event = CollectionManagerABI.events.RaritiesSet.decode(log);
-            // ! RPC CALLS: handleRaritiesSet makes multiple RPC calls (raritiesCount + rarities[i])
             const rpcRarityStart = performance.now();
             await handleRaritiesSet(ctx, block.header, event, rarities);
             const rpcRarityDuration = performance.now() - rpcRarityStart;
@@ -1170,7 +1073,6 @@ run(dataSource, db, async (simpleCtx) => {
                 ? OffChainMarketplaceV3ABI.events.Traded.decode(log)
                 : OffChainMarketplaceABI.events.Traded.decode(log);
             const tradeData = getTradeEventData(event, Network.MATIC);
-            // Nothing to index: not an order or a bid (a giveaway has no payment leg).
             if (!tradeData) {
               break;
             }
@@ -1183,7 +1085,6 @@ run(dataSource, db, async (simpleCtx) => {
                 block.header,
                 collectionAddress
               );
-              // ! RPC CALL: collectionContract.items() - one per Traded secondary sale
               const rpcItemsStart = performance.now();
               const item = await collectionContract.items(itemId);
               const rpcItemsDuration = performance.now() - rpcItemsStart;
@@ -1210,7 +1111,6 @@ run(dataSource, db, async (simpleCtx) => {
               const itemDayDataIdTrade = `${dayIDTrade.toString()}-${itemIdStr}`;
               itemDayDataIds.add(itemDayDataIdTrade);
             } else if (tokenId) {
-              // Secondary sale - add placeholder to be resolved later
               const nftIdTrade = `${collectionAddress}-${tokenId}`;
               const tempItemDayDataIdTrade = `${dayIDTrade.toString()}-nft-${nftIdTrade}`;
               itemDayDataIds.add(tempItemDayDataIdTrade);
@@ -1268,12 +1168,10 @@ run(dataSource, db, async (simpleCtx) => {
     const { counts, accounts, orders, bids, nfts, items, metadatas } =
       storedData;
 
-    // Resolve placeholder itemDayDataIds for secondary sales
     const placeholderIds = [...itemDayDataIds].filter((id) =>
       id.includes("-nft-")
     );
     for (const placeholderId of placeholderIds) {
-      // Extract dayID and nftId from placeholder: "dayID-nft-contractAddress-tokenId"
       const [dayID, , ...nftIdParts] = placeholderId.split("-");
       const nftId = nftIdParts.join("-");
 
@@ -1295,10 +1193,6 @@ run(dataSource, db, async (simpleCtx) => {
       storedData.itemDayDatas.set(key, value);
     }
 
-    // Processed sequentially: every call read-modify-writes shared storedData
-    // (counts/collections/accounts) across awaits, so running them in parallel
-    // races on that state. With multicall data prefetched there is no I/O left to
-    // overlap, so a for...of is both correct and just as fast.
     const handleCollectionStart = performance.now();
     for (const {
       block,
@@ -1491,7 +1385,6 @@ run(dataSource, db, async (simpleCtx) => {
           } catch (e) {
             console.log("Error in handleTransfer:", e);
             console.log("Transfer event failed for NFT:", log.address, event);
-            // Continue processing other events even if this one fails
           }
           break;
 
@@ -1612,9 +1505,6 @@ run(dataSource, db, async (simpleCtx) => {
       }
     }
 
-    //  CREATE SQUID ROUTER ORDERS for cross-chain operations
-    // These are created when there's a CreditUsed + Spoke.OrderCreated in the same transaction
-    // This is for cross-chain operations like NAME registration (not collection creation)
     let squidRouterOrdersCreated = 0;
     for (const [txKey, orderHash] of orderHashByTx.entries()) {
       console.log(
@@ -1628,7 +1518,6 @@ run(dataSource, db, async (simpleCtx) => {
           BigInt(0)
         );
 
-        // Parse txKey to get block and tx info (format: "blockHeight-txIndex")
         const [blockHeightStr] = txKey.split("-");
         const blockHeight = parseInt(blockHeightStr, 10);
 
@@ -1694,23 +1583,12 @@ run(dataSource, db, async (simpleCtx) => {
 
     metrics.upsertTime = upsertResult.timing.total;
 
-    // --- Gift notifications (TRANSFER_RECEIVED) ---
-    // A transfer is a genuine gift only if it is NOT part of a marketplace
-    // operation. Sales (orders, bids and offchain trades) all create a Sale via
-    // trackSale in this same batch, keyed by (txHash, nft). Any transfer whose
-    // (txHash, nftId) matches a Sale is a purchase and must not notify the buyer
-    // as a gift. We decide this here, post-batch, because within a transaction
-    // the ERC721 Transfer log is processed before the marketplace event that
-    // records the sale.
     if (transferGiftCandidates.size > 0) {
       const soldKeys = new Set<string>();
       for (const sale of sales.values()) {
         soldKeys.add(`${sale.txHash.toLowerCase()}-${sale.nft.id}`);
       }
 
-      // Never (re-)emit at or below this floor. The env-based floor protects
-      // against backfilling on a re-index even if last_notified is stale; the
-      // watermark dedupes incrementally at head.
       const floor =
         batchLastNotified && batchLastNotified > minTransferNotificationTimestamp
           ? batchLastNotified
@@ -1725,7 +1603,6 @@ run(dataSource, db, async (simpleCtx) => {
         if (
           soldKeys.has(`${candidate.txHash.toLowerCase()}-${candidate.nftId}`)
         ) {
-          // It's a marketplace purchase, not a gift.
           continue;
         }
         try {
@@ -1788,8 +1665,6 @@ run(dataSource, db, async (simpleCtx) => {
 
     totalEventsProcessed += metrics.eventsProcessed;
 
-    // Detailed per-batch metrics are verbose (~18 lines/batch). Only emit them when
-    // explicitly enabled or when the batch was slow (>3s), to avoid log spam.
     if (process.env.BATCH_METRICS_LOGS === "true" || totalBatchTime > 3000) {
       console.log(`
 \u{1F4CA} ============ POLYGON BATCH METRICS ============

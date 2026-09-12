@@ -3,16 +3,15 @@ use std::time::{Duration, Instant};
 
 use serde::Deserialize;
 
-/// How long one `/peers` snapshot is served before re-probing. Upstream keeps a
-/// synchronizer-refreshed redis set; this local TTL plays the same role of
-/// decoupling request rate from probe rate.
+/// Decouples request rate from probe rate; upstream keeps a synchronizer-refreshed redis
+/// set instead.
 const PEERS_CACHE_TTL: Duration = Duration::from_secs(10);
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
 
-/// Wire shape of the archipelago stats `/peers` endpoint (`{ok, peers: [{id,
-/// address, ...}]}`). Upstream social-service-ea maps `peer.id`; `address` is
-/// the fallback because catalyrst-archipelago serves both with equal value.
+/// Wire shape of the archipelago stats `/peers` endpoint. Upstream social-service-ea maps
+/// `peer.id`; `address` is the fallback because catalyrst-archipelago serves both with
+/// equal value.
 #[derive(Deserialize)]
 struct PeersResponse {
     #[serde(default)]
@@ -27,10 +26,9 @@ struct PeerEntry {
     address: Option<String>,
 }
 
-/// Reads "who is connected to comms right now" from the archipelago stats
-/// `/peers` endpoint -- the same source upstream's archipelagoStats adapter
-/// polls. Presence is advisory: every failure degrades to the empty set, so an
-/// unreachable presence source renders members as offline rather than failing
+/// Reads comms presence from the archipelago stats `/peers` endpoint, the same source
+/// upstream's archipelagoStats adapter polls. Presence is advisory: every failure degrades
+/// to the empty set, so an unreachable source renders members offline rather than failing
 /// the request.
 pub struct PeersStatsClient {
     client: reqwest::Client,
@@ -51,10 +49,9 @@ impl PeersStatsClient {
         }
     }
 
-    /// Lowercased addresses currently connected to comms. Never errors: a
-    /// failed probe yields the empty set. Both outcomes are cached for
-    /// `PEERS_CACHE_TTL`, so a dead presence source costs at most one bounded
-    /// probe per TTL window instead of one per request.
+    /// Lowercased. Never errors: a failed probe yields the empty set. Both outcomes are
+    /// cached for `PEERS_CACHE_TTL`, so a dead presence source costs at most one bounded
+    /// probe per TTL window.
     pub async fn connected_peers(&self) -> Vec<String> {
         if let Some(cached) = self.cache_get() {
             return cached;

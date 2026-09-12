@@ -52,16 +52,6 @@ const CATALOG: CatalogEntry[] = [
   { label: "confirming", manaBalance: "2,480.55", submitting: false, insufficientMana: false, lowPriceWarn: false, confirming: true },
 ];
 
-/**
- * Every state at once, the confirm dialog included. `Default` flips between them from the
- * Controls panel; this story keeps all five in the render + a11y + visual-diff gates, since each
- * flag adds or replaces a different block (spinner, insufficient-MANA notice, low-price warning,
- * confirm dialog). `chrome={false}` because stacking N copies of `MarketplaceChrome` would emit
- * N `<main>` landmarks and fail axe's landmark-unique. `portal={false}` on the `confirming` entry
- * lays the same `Modal` card out in normal document flow instead of `createPortal`ing a
- * `position: fixed; inset: 0` backdrop onto `document.body`, which would scrim every other entry
- * in the shared screenshot.
- */
 export const Catalog: Story = {
   name: "Catalog (every state)",
   parameters: { controls: { disable: true } },

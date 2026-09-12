@@ -188,8 +188,6 @@ in
       default = { };
       type = types.submodule {
         options = {
-          # Hourly catalog mirrors (events ~7.3k rows, worlds ~1.6k). Off
-          # means the crates' defaults apply and the catalogs stay local-only.
           mirrorEvents = boolOpt true;
           mirrorWorlds = boolOpt true;
           metaTxRelay = mkOption {
@@ -230,9 +228,6 @@ in
       '';
     };
 
-    # A missing texture dependency renders magenta and the asset bundle still
-    # completes (upstream asset-bundle-converter tolerance); off, one
-    # mis-pathed texture fails the whole scene's bundle.
     abgenMagentaMissing = boolOpt true;
 
     tls = mkOption {

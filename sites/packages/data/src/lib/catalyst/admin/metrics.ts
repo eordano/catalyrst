@@ -44,13 +44,6 @@ const FunnelStageSchema = z.object({
   resolvedOrActioned: z.number(),
 });
 
-/**
- * Parses the committed `src/fixtures/admin-metrics.json` and nothing else, so
- * every key is required: the point of parsing a checked-in artifact is to fail
- * the build when it drifts. `generatedAt` defaulting to *now* was the worst of
- * it -- sample data with no stamp of its own claimed to have been generated the
- * moment the page was opened.
- */
 export const AdminMetricsFixtureSchema = z.object({
   generatedAt: z.string(),
   surfaces: z.array(SurfaceSchema),
@@ -75,17 +68,6 @@ export type DecisionStat = z.infer<typeof DecisionStatSchema>;
 export const FIXTURE: AdminMetricsFixture =
   AdminMetricsFixtureSchema.parse(fixtureJson);
 
-/**
- * Required, because these three rows are being counted.
- *
- * `EventRecord` (catalyrst/ui3/src/generated/catalyst/events/EventRecord.ts) types all
- * three as plain booleans -- they are always on the wire. A default of `false`
- * meant a page of rows the parser did not understand still landed in the
- * denominator as "not approved", so the approved/featured tallies on the admin
- * metrics page moved without anything having been measured. An unreadable row
- * now aborts the whole count and `fetchLiveEventCounts` answers null, which its
- * caller already renders as "unavailable".
- */
 const LiveEventRowSchema = z.object({
   approved: z.boolean(),
   rejected: z.boolean(),
@@ -125,29 +107,6 @@ export async function fetchLiveEventCounts(
   }
 }
 
-/*
- * The admin metrics page -- what actually ships.
- *
- * `admin-metrics.json` says in its own `_source` field that the counts are
- * synthetic. Rendered inside admin chrome they read as production telemetry,
- * so they do not ship as numbers. The rules, from the build gate:
- *
- *   - The two genuinely live counts (approved / featured events) come from
- *     GET /events/api/events?list=all -- a public endpoint
- *     (catalyrst-events/src/handlers/events.rs:345-362, `optional_user`). They
- *     are labelled "live - public events API".
- *   - Every other tile is an empty state carrying its reason. Not a zero, not
- *     a dash with a sparkline: a zero and a greyed chart still read as a
- *     measurement.
- *   - The fixture is not deleted. It is reachable only through
- *     `loadSampleAdminMetrics()`, which is off by default and must be rendered
- *     with a persistent "sample data" banner.
- *   - `operator-metrics.server.ts` is NOT used as a substitute. It belongs to
- *     the creator-hub workflow and it exposes aggregate telemetry to any
- *     visitor with no authorization at all -- that is a finding to report, not
- *     a data source to adopt.
- */
-
 const NO_SOURCE = "No metrics source is wired on this node.";
 
 const EVENTS_PUBLIC_CHECK =
@@ -159,20 +118,15 @@ export type MetricTile =
       label: string;
       kind: "live";
       value: number;
-      /** Provenance string the UI must render next to the number. */
       source: string;
     }
   | { key: string; label: string; kind: "unavailable"; reason: string };
 
 export type AdminMetricsView = {
   generatedAt: string;
-  /** Tiles that have a real source, plus explicit empty states for the rest. */
   tiles: MetricTile[];
-  /** The whole KPI table: no aggregation endpoint exists. */
   kpis: Unavailable;
-  /** Decision trend over time: no aggregation endpoint exists. */
   trend: Unavailable;
-  /** Report -> review -> resolve funnel: no aggregation endpoint exists. */
   funnel: Unavailable;
 };
 
@@ -243,11 +197,6 @@ export async function loadAdminMetrics(
   };
 }
 
-/**
- * Synthetic layout data. Off by default and never called from a normal loader.
- * The caller MUST render a persistent banner while this is on: every number it
- * returns was invented by `src/fixtures/admin-metrics.json`.
- */
 export type SampleAdminMetrics = {
   synthetic: true;
   banner: string;

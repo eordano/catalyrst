@@ -2,14 +2,6 @@ import { z } from "zod";
 
 import { getJSON } from "../client";
 
-/**
- * `committee` is a required `Vec<CommitteeMemberOut>` on catalyrst-builder's
- * `CurationCollectionsOut`. Defaulting it to `[]` turned any body that was not
- * that payload into "the committee has no members", and every
- * `isCommitteeMember` answer derived from it into a silent `false` -- a denial
- * nobody checked. A rejection now reaches the `catch` below, which returns
- * false only after saying the read failed.
- */
 const MembersSchema = z.object({
   committee: z.array(z.object({ address: z.string() })),
 });
@@ -51,8 +43,6 @@ export async function isCommitteeMember(
       .then((members) => {
         cache = { at: Date.now(), members };
       })
-      // The refresh keeps the stale membership on failure and leaves `cache.at`
-      // untouched, so the next call retries instead of waiting out the TTL.
       .catch(() => undefined)
       .finally(() => {
         refreshing = null;

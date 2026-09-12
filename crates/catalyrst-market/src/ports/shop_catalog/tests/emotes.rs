@@ -1,9 +1,7 @@
 use super::*;
 
-/// Upstream 587defd: the unified feed carries an emote's play mode so the shop's
-/// cards can show it. `NULL` (not an emote) and `false` (an emote that plays
-/// once) are different answers, so the column travels raw and is never
-/// defaulted.
+/// Upstream 587defd. `NULL` (not an emote) and `false` (an emote that plays once) are
+/// different answers, so the column travels raw and is never defaulted.
 #[test]
 fn unified_selects_the_emote_play_mode_from_either_side_of_the_join() {
     const COLUMN: &str =
@@ -33,8 +31,7 @@ fn unified_selects_the_emote_play_mode_from_either_side_of_the_join() {
     assert_eq!(occurrences(&trending, COLUMN), 3, "{trending}");
 }
 
-/// The legacy per-listing shop feed is the base the unified shape extends, and
-/// upstream left it alone: it gains no play mode.
+/// Upstream left the legacy per-listing feed alone.
 #[test]
 fn the_legacy_shop_feed_does_not_gain_the_emote_play_mode() {
     let (sql, _) = build_shop_listings_sql(&ShopCatalogFilters::default());

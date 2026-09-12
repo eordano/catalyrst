@@ -90,9 +90,6 @@ async fn parse_multipart(boundary: String, body: Bytes) -> Result<MultipartField
             }
             "name" => out.name = Some(field.text().await.unwrap_or_default()),
             "description" => out.description = Some(field.text().await.unwrap_or_default()),
-            // Raw, not case-folded: parse_privacy/parse_visibility must see `Private` or `ALL`
-            // as-sent so miscased values are refused (upstream #487) -- folding here resolved
-            // them to the accepted literals before the validator ever ran.
             "privacy" => out.privacy = Some(field.text().await.unwrap_or_default()),
             "visibility" => out.visibility = Some(field.text().await.unwrap_or_default()),
             "placeIds" => {
@@ -133,12 +130,8 @@ async fn auth(
         .map_err(|e| crate::rest::handlers::error::signed_fetch_gate(e).into_response())
 }
 
-/// Mint the shared verified-wallet type from a signer this request's signed fetch already
-/// produced.
-///
-/// The mint takes [`catalyrst_crypto::Signer`] by value -- that is the chokepoint -- so this
-/// clones, because the call sites still need the `Signer` for their message text. Cloning
-/// an already-verified value forges nothing.
+/// The mint takes [`catalyrst_crypto::Signer`] by value -- that is the chokepoint -- so
+/// this clones, because the call sites still need the `Signer` for their message text.
 fn verified_wallet_of_the_caller(signer: &catalyrst_crypto::Signer) -> VerifiedWalletAddress {
     VerifiedWalletAddress::from_verified_signed_fetch(signer.clone())
 }
@@ -165,10 +158,8 @@ fn map_api(e: crate::rest::http::ApiError) -> Response {
 }
 
 /// Rejects a thumbnail whose bytes are not a bounded, signature-valid PNG/JPEG/GIF/WebP.
-///
-/// Callers MUST run this on any uploaded thumbnail before the community-authorization / DB
-/// write, so an arbitrary blob never reaches [`store_thumbnail`] and the content store. Port of
-/// upstream #444.
+/// Callers MUST run this before the community-authorization / DB write, so an arbitrary
+/// blob never reaches [`store_thumbnail`] and the content store. Port of upstream #444.
 fn validate_thumbnail_field(bytes: &[u8]) -> Result<(), Response> {
     crate::rest::thumbnail_signature::validate_thumbnail(bytes)
         .map(|_| ())
@@ -211,12 +202,8 @@ where
     Ok(())
 }
 
-/// The spelling this path writes into `community_members.role`.
-///
-/// Note it is **not**
-/// [`CommunityMembershipTier::as_canonical_stored_role_text`]:
-/// this table spells a moderator `"moderator"` while `community_role_current` spells the
-/// same tier `"mod"`. Two tables, two spellings, both parsed by the one parse.
+/// **Not** [`CommunityMembershipTier::as_canonical_stored_role_text`]: this table spells a
+/// moderator `"moderator"` while `community_role_current` spells the same tier `"mod"`.
 fn role_text_as_written_into_the_community_members_table(
     tier: CommunityMembershipTier,
 ) -> &'static str {
@@ -229,9 +216,6 @@ fn role_text_as_written_into_the_community_members_table(
     }
 }
 
-/// Render an [`AuthorityNotEstablished`] as this module's `Response`, keeping the status
-/// and the wording this call site has always answered with when the principal simply
-/// lacks the authority.
 fn refusal_response(
     refusal: &AuthorityNotEstablished,
     status_when_the_principal_lacks_the_authority: StatusCode,
@@ -245,15 +229,9 @@ fn refusal_response(
     err(status, message)
 }
 
-/// Read a wallet's standing from `community_members` for the UUID-keyed client paths.
-///
-/// **Deliberate behaviour change (BC-1).** The `load_role_uuid` this replaces ended its
-/// query with `.ok().flatten()`, so a SQL fault read as "not a member". Now a fault is a
-/// 500, exactly as [`is_banned_uuid`] already does for the sibling `community_bans`
-/// lookup. The fail-open this closes is on the *target* of a moderation action: with the
-/// actor's own lookup succeeding and the target's failing, the target was demoted to "not
-/// a member", and `can_act_on_member`'s `!is_member(target)` escape then permitted the
-/// action against a community owner.
+/// **Deliberate behaviour change (BC-1).** The superseded `load_role_uuid` ended its query
+/// with `.ok().flatten()`, so a SQL fault read as "not a member" and fail-opened on the
+/// *target* of a moderation action. A fault is now a 500, as in [`is_banned_uuid`].
 async fn load_client_standing(
     state: &AppState,
     community_id: Uuid,
@@ -268,15 +246,10 @@ async fn load_client_standing(
         })
 }
 
-/// Ban-status lookup for the UUID-keyed client write paths.
-///
-/// SQL errors propagate (as a 500 via [`map_db`]) instead of reading as "not
-/// banned". This matches the federation write gate
-/// [`crate::rest::fed::authority::FederatedCommunityWriteAuthority`],
-/// which fails closed on the same logical check: there the query error is surfaced rather
-/// than swallowed, so a DB fault denies the write instead of admitting a banned signer. A
-/// missing row still means "not banned", exactly as an absent `community_role_current`
-/// row means "not a member" there.
+/// SQL errors propagate (as a 500 via [`map_db`]) instead of reading as "not banned", so a
+/// DB fault denies the write rather than admitting a banned signer -- the same fail-closed
+/// policy as [`crate::rest::fed::authority::FederatedCommunityWriteAuthority`]. A missing
+/// row still means "not banned".
 async fn is_banned_uuid(
     state: &AppState,
     community_id: Uuid,
@@ -294,22 +267,14 @@ async fn is_banned_uuid(
     Ok(banned.unwrap_or(false))
 }
 
-/// The right of a signed-fetch end user to write to one community, proven against the
-/// **`community_members`** table plus the `community_bans` table.
+/// Proven against the **`community_members`** table plus `community_bans`. The federation
+/// path's equivalent, [`crate::rest::fed::authority::FederatedCommunityWriteAuthority`],
+/// reads a *different* table; the two can disagree and neither is convertible into the
+/// other.
 ///
-/// The federation path's equivalent is
-/// [`crate::rest::fed::authority::FederatedCommunityWriteAuthority`],
-/// which reads a *different* table. The two can disagree; naming them separately is how
-/// that stays visible. Neither is convertible into the other.
-///
-/// # Why the standing it carries is currently unread
-///
-/// Every call site discards it, exactly as they discarded the `Role` the
-/// `require_min_role_uuid` / `require_permission_uuid` pair returned before this type
-/// existed -- none of them ever used it. It is kept on the witness rather than dropped
-/// because the next step for this crate is moving the identifiers onto the witness so a
-/// write function loses its `&str` parameters, and that step wants the standing here. The
-/// `allow` is the honest marker for "reserved and not yet read", not for "unused".
+/// The `allow(dead_code)` marks the carried standing as reserved, not unused: every call
+/// site discards it today, and it is kept for the pending move of the identifiers onto the
+/// witness.
 #[derive(Debug)]
 #[allow(dead_code)]
 pub(crate) struct ClientCommunityWriteAuthority {
@@ -317,8 +282,7 @@ pub(crate) struct ClientCommunityWriteAuthority {
 }
 
 impl ClientCommunityWriteAuthority {
-    /// Behaviour-preserving replacement for `require_min_role_uuid`: same
-    /// `community_bans` pre-check, same 403s, same wording.
+    /// `community_bans` pre-check first, then the tier test; both refuse with a 403.
     pub(crate) async fn resolve_requiring_at_least(
         state: &AppState,
         community_id: Uuid,
@@ -345,8 +309,7 @@ impl ClientCommunityWriteAuthority {
         Ok(Self { standing })
     }
 
-    /// Behaviour-preserving replacement for `require_permission_uuid`: same
-    /// `community_bans` pre-check, same 403 then 401, same wording.
+    /// `community_bans` pre-check refuses with a 403; a missing capability with a 401.
     pub(crate) async fn resolve_requiring_capability(
         state: &AppState,
         community_id: Uuid,
@@ -370,24 +333,17 @@ impl ClientCommunityWriteAuthority {
         Ok(Self { standing })
     }
 
-    /// The tier this authority was proven at. See the note on the struct for why nothing
-    /// reads it yet.
+    /// See the note on the struct for why nothing reads this yet.
     #[allow(dead_code)]
     pub(crate) fn tier(&self) -> CommunityMembershipTier {
         self.standing.tier()
     }
 }
 
-/// Whether a wallet may like or unlike a post in one community.
-///
-/// **Deliberate behaviour change (BC-3).** All three of this function's lookups used to
-/// swallow their errors -- `is_private` through `.unwrap_or(false)`, the role through
-/// `load_role_uuid`, and the ban through `.ok().flatten().unwrap_or(false)` -- and each
-/// swallow failed *open*: a dead database made a private community read as public, a
-/// member read as a non-member, and a banned wallet read as unbanned. The ban swallow here
-/// is the same query and the same mistake that `is_banned_uuid` fixed forty lines above;
-/// it survived only because this function does not call that helper. All three now
-/// propagate as a 500, matching the rest of this module.
+/// **Deliberate behaviour change (BC-3).** All three lookups here used to swallow their
+/// errors and each swallow failed *open*: a dead database made a private community read as
+/// public, a member read as a non-member, and a banned wallet read as unbanned. All three
+/// now propagate as a 500.
 async fn validate_like_unlike_access(
     state: &AppState,
     community_id: Uuid,

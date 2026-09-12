@@ -12,10 +12,6 @@ const PLACE_WORLD_NAME: &str = include_str!("../../migrations/0003_place_world_n
 const PLACE_PLAIN_TEXT: &str = include_str!("../../migrations/0004_place_plain_text.sql");
 const ROAD_POSITIONS: &str = include_str!("../../migrations/0005_road_positions.sql");
 
-// Separate from ensure_schema because that one is a no-op once place_indexed
-// exists, and the road table lands on stacks that already have the view.
-// Run this on the writer pool only: the reader role holds SELECT alone, so a
-// CREATE through it can only fail.
 pub async fn ensure_road_positions(pool: &PgPool) -> Result<()> {
     let existing: Option<String> = sqlx::query_scalar("SELECT to_regclass('road_positions')::text")
         .fetch_one(pool)

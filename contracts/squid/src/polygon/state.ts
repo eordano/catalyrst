@@ -94,22 +94,6 @@ export let offChainMarketplaceContractData: OffChainMarketplaceContractData = {
   royaltiesRate: undefined,
 };
 
-/**
- * Fee configuration of the V3 marketplace, read from the chain ONCE and kept current from the
- * contract's own FeeCollectorUpdated / FeeRateUpdated / RoyaltiesRateUpdated events.
- *
- * handleTraded used to read all three per Traded event -- three sequential eth_calls for values
- * that change roughly never. Against the RPC client's rate limit that was ~0.3s per trade, and
- * because the calls were not attributed to any rpcTime bucket it showed up as unexplained
- * "event loop" time: 548s of a 671s batch on a prod backfill through 2025 blocks.
- *
- * Unlike the other getters here there is no start-block guard, and none is needed: this is only
- * ever called from handleTraded, and a Traded event cannot exist before the contract does.
- *
- * Deliberately NOT wrapped in try/catch, unlike its siblings. These values land in the Sale's
- * money columns (feesCollectorCut, royaltiesCut), so a read failure must fail the batch and be
- * retried -- swallowing it would either skip the sale or record it with empty fees.
- */
 export const getOffChainMarketplaceContractData = async (
   ctx: Context,
   block: Block
@@ -147,16 +131,14 @@ export const setOffChainMarketplaceRoyaltiesRate = (value: bigint) => {
   offChainMarketplaceContractData.royaltiesRate = value;
 };
 
-// CollectionStore contract creation blocks
 const START_BLOCK_COLLECTION_STORE: Record<number, number> = {
-  [ChainId.MATIC_AMOY]: 5706656, // Same as MarketplaceV2 for testnet
+  [ChainId.MATIC_AMOY]: 5706656,
   [ChainId.MATIC_MAINNET]: 15202567,
 };
 
 export const getStoreContractData = async (ctx: Context, block: Block) => {
   const contractStartingBlock = START_BLOCK_COLLECTION_STORE[chainId];
   
-  // Only fetch if contract exists at this block height
   if (
     (storeContractData.fee === undefined ||
       storeContractData.feeOwner === undefined) &&
@@ -173,9 +155,6 @@ export const getStoreContractData = async (ctx: Context, block: Block) => {
       storeContractData.fee = await storeContract.fee();
       storeContractData.feeOwner = await storeContract.feeOwner();
     } catch (e: any) {
-      // The contract may not be readable at this (historical) block on some RPC
-      // providers -- e.g. fee() returns 0x and decoding throws. Leave the data
-      // undefined and retry on a later batch rather than crashing the processor.
       console.log(`WARN: could not fetch store contract data: ${e.message}`);
     }
   }
@@ -193,9 +172,8 @@ export const getMarketplaceContractData = async (
 ) => {
   const contractStartingBlock = START_BLOCK_MARKETPLACEV1[chainId];
   
-  // Only fetch if contract exists at this block height (and only on mainnet)
   if (
-    chainId === ChainId.MATIC_MAINNET && // there's no contract for AMOY
+    chainId === ChainId.MATIC_MAINNET &&
     (marketplaceContractData.ownerCutPerMillion === undefined ||
       marketplaceContractData.owner === undefined) &&
     block.height >= contractStartingBlock

@@ -22,7 +22,6 @@ const THUMB_ZOOM_MAX: i32 = 4;
 
 const MAX_SAMPLES: i32 = 3;
 
-// Thread-local so parallel test threads do not cross-count.
 #[cfg(test)]
 thread_local! {
     pub(crate) static OVERLAP_SCAN_ITERS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
@@ -182,8 +181,6 @@ impl SatelliteState {
         }
         let key = TileKey { z, x, y };
 
-        // Cache first: generation alone validates a hit, so the region-overlap scan below is
-        // computed only on a miss rather than discarded on every hit.
         let generation = self.index.lock().generation;
         if let Some(hit) = self.output.lock().get(&key) {
             if hit.generation == generation {
@@ -373,8 +370,6 @@ mod tests {
             1 << 20,
             64,
         );
-        // Regions placed far from the requested tile: the filter visits every key but yields
-        // no overlap, so no render I/O.
         let coords: Vec<(i32, i32)> = (0..50).map(|i| (10_000 + i, 10_000)).collect();
         st.test_seed(&coords, 1);
 

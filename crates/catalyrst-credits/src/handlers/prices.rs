@@ -179,10 +179,6 @@ pub async fn quote(
         })
         .collect();
 
-    // One batched round trip for every valid amount instead of a serial reprice
-    // per entry. Invalid/unparseable weis stay `None`, and -- mirroring the old
-    // per-call `.ok()` -- a DB failure leaves every valid slot `None` too; index
-    // alignment with `body.amounts` is preserved by carrying the saved indices.
     let mut amounts: Vec<Option<String>> = vec![None; body.amounts.len()];
     if let Some(mana_usd) = mana_usd.as_ref() {
         let valid: Vec<(usize, String)> = body

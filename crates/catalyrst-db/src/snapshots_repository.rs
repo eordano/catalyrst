@@ -140,8 +140,6 @@ pub async fn save_snapshot(pool: &PgPool, snap: &SnapshotMetadata) -> Result<(),
     Ok(())
 }
 
-/// Points a snapshot row at the hash its content actually has, reporting whether it moved.
-///
 /// Pinned to the old hash as well as the range so two generators racing the same repair cannot both
 /// claim it: the second matches nothing, sees `false`, and regenerates instead of overwriting a row
 /// the first already corrected.

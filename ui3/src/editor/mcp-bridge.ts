@@ -110,8 +110,6 @@ export const RELAY_CLOSE = {
   HEARTBEAT: 4408,
 } as const
 
-
-
 const BUS_CHANNEL = EDITOR_BUS_CHANNEL;
 const LOCALSTORAGE_KEY = "dcl-mcp-relay";
 const PLAY_REPLY_TIMEOUT_MS = 5000;
@@ -127,8 +125,6 @@ export interface ConnectOptions {
 }
 
 export interface AutoConnectOptions extends Omit<ConnectOptions, "url" | "token"> {
-  /** Consent gate for a NON-loopback relay: resolve true to pair. Absent means
-      remote pairing is refused outright -- never silently allowed. */
   confirmRemote?: (host: string) => Promise<boolean>;
 }
 
@@ -153,13 +149,6 @@ function resolveWsUrl(v: string | number | null | undefined): string | null {
   return null;
 }
 
-// Pairing hands the relay screenshots, play control and asset writes, so a URL
-// must not be able to choose a REMOTE relay silently: a crafted editor link with
-// ?mcp=wss://... and a fragment token would pair the victim's session with an
-// attacker's server. Loopback stays silent -- the documented rig workflow, and a
-// listener on 127.0.0.1 already means the machine is yours. Anything else needs
-// the host's explicit consent, which the CALLER renders (this module owns the
-// trust decision, not its presentation).
 function isLoopbackWsUrl(wsUrl: string): boolean {
   try {
     const h = new URL(wsUrl).hostname;
@@ -291,13 +280,7 @@ export function connect(opts: ConnectOptions): () => void {
 
   channel.onmessage = (ev: MessageEvent) => {
     const env = (ev?.data ?? null) as BusEnvelope | null;
-    // Coarse guard first and unchanged: the relay posts `{to:"scene", ...}` on
-    // this same channel with a payload it does not own, and that traffic is
-    // meant to be ignored here rather than rejected against a page-bound shape.
     if (!env || typeof env !== "object" || env.to !== "page" || !env.msg) return;
-    // A distinct boundary id from editor-bus.ts: both receive the same shape,
-    // but only this one forwards it to the MCP relay below, so a production
-    // report has to say which receiver saw the drift.
     const msg = check(SceneToPageMessageSchema, env.msg, "mcp-bridge/scene-to-page");
     if (msg.type === "scene-ready") {
       sceneReady = true;

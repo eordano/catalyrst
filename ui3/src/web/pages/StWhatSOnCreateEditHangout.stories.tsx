@@ -35,12 +35,6 @@ const CATALOG: { key: string; mode: (typeof MODES)[number]; state: (typeof STATE
   { key: "signin", mode: "create", state: "signin" },
 ];
 
-/**
- * Every mode/state combination rendered at once. `Default` flips between them with the `mode`
- * and `state` controls; this story keeps all four in the render + a11y + visual-diff gates,
- * since each is a structurally different body (empty form, prefilled form, success screen,
- * sign-in gate).
- */
 export const Catalog: Story = {
   name: "Catalog (every state)",
   parameters: {
@@ -50,7 +44,6 @@ export const Catalog: Story = {
     <div className="st ui2" style={{ display: "flex", flexDirection: "column", gap: 48 }}>
       {CATALOG.map(({ key, mode, state }) => (
         // <section> demotes each entry's unnamed header/footer/aside to `generic`
-        // (HTML-AAM scoped mapping) so the stack does not invent extra landmarks.
         <section key={key}>
           <StWhatSOnCreateEditHangout mode={mode} state={state} chrome={false} />
         </section>

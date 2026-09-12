@@ -1,33 +1,19 @@
 /// Every verifier in the workspace that mints an identity **without** going through
 /// `catalyrst_crypto::signed_fetch`.
 ///
-/// # What a value of this type proves
+/// It proves nothing about any request: the enum has no identity inside it, mints nothing, and
+/// is attached to no credential. It exists so the set of forks is **enumerable** rather than
+/// folklore, so each fork's weaknesses are stated as facts asserted by a test rather than a
+/// comment in one file nobody reads, and so adding another fork is a diff in *this* crate,
+/// where a reviewer will see it. It does not claim any of these verifiers is safe, that any
+/// will be migrated, or that the two predicates below are the only differences between them --
+/// they are the two that have bitten, not an exhaustive audit.
 ///
-/// Nothing about any request. This enum has no identity inside it, mints nothing, and is
-/// attached to no credential. It exists so that:
-///
-/// - the set of forks is **enumerable** rather than folklore;
-/// - each fork's weaknesses are stated as **facts about the fleet**, asserted by a test,
-///   rather than as a comment in one file that nobody reads;
-/// - adding another fork is a diff in *this* crate, where a reviewer will see it.
-///
-/// # What it does NOT prove
-///
-/// That any of these verifiers is safe, that any of them is going to be migrated, or that
-/// the two predicates below are the only differences between them. They are the two
-/// differences that have bitten, not an exhaustive audit.
-///
-/// # How a value is obtained
-///
-/// By naming a variant. There is deliberately **no constructor** taking a string or an
-/// enum-plus-string, because such a constructor would be a fresh hole of exactly the kind
-/// this crate exists to close: a caller could mint an identity by asserting which verifier
-/// it "used".
-///
-/// # Deliberately not `#[non_exhaustive]`
-///
-/// A new fork must break every exhaustive match, including the two predicates below, which
-/// forces whoever adds it to state its freshness and structural-validation behaviour.
+/// A value is obtained by naming a variant. There is deliberately **no constructor** taking a
+/// string or an enum-plus-string: that would be a fresh hole of exactly the kind this crate
+/// closes, letting a caller mint an identity by asserting which verifier it "used". Not
+/// `#[non_exhaustive]`, so a new fork breaks every exhaustive match including both predicates,
+/// forcing whoever adds it to state its freshness and structural-validation behaviour.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum NonSharedAuthVerifier {
     /// `crates/catalyrst-world-storage/src/auth_chain.rs` -- extracts the chain with the
@@ -72,8 +58,7 @@ pub enum NonSharedAuthVerifier {
 }
 
 impl NonSharedAuthVerifier {
-    /// Every verifier that bypasses the shared one. Pinned by an arity test, so growing the
-    /// set is a deliberate act.
+    /// Pinned by an arity test, so growing the set is a deliberate act.
     pub const EVERY_VERIFIER_THAT_BYPASSES_THE_SHARED_ONE: &'static [Self] = &[
         Self::WorldStorageCrateLocalAuthChainVerifier,
         Self::SceneStateWebsocketAuthVerifier,
@@ -87,25 +72,20 @@ impl NonSharedAuthVerifier {
     /// Whether a credential timestamped in the **future** is rejected.
     ///
     /// The shared path bounds the skew symmetrically: `(now - signed_at).abs() >
-    /// expiration_secs` in `catalyrst-crypto/src/signed_fetch.rs`. One verifier here does
-    /// not:
+    /// expiration_secs` in `catalyrst-crypto/src/signed_fetch.rs`. Only `explorer-api` answers
+    /// `false`, because it binds **no timestamp at all** -- it passes `None` where the shared
+    /// verifier passes the request's timestamp -- so there is nothing to be future-dated
+    /// relative to. `world-storage` used to be a second `false`: its local `check_freshness`
+    /// had no `.abs()`, so a signature dated arbitrarily far in the future was fresh forever,
+    /// until the shared path's symmetric bound was added and the test pinning the old
+    /// behaviour inverted (`freshness_rejects_far_future_timestamps` now pins the fix).
     ///
-    /// - `explorer-api` binds **no timestamp at all** -- it passes `None` where the shared
-    ///   verifier passes the request's timestamp -- so there is nothing to be future-dated
-    ///   relative to.
-    ///
-    /// `world-storage` used to be a second `false`: its local `check_freshness` had no
-    /// `.abs()`, so a signature dated arbitrarily far in the future was fresh forever. That
-    /// was fixed by adding the shared path's symmetric bound and inverting the test that
-    /// pinned the old behaviour (`freshness_rejects_far_future_timestamps` now pins the
-    /// fix).
-    ///
-    /// The rest return `true`, each for a reason worth reading: world-storage and pulse
-    /// and scene-state all apply `.abs()`; archipelago's freshness bound is the age of a
-    /// challenge the **server** issued, which a client cannot post-date; the admin
-    /// console's bound is the `exp` inside a cookie the server minted and signed; and
-    /// fed's `verify()` caps future skew explicitly at `MAX_SKEW_FUTURE_SECS` (30 s) --
-    /// though only `verify()` does; `Signed::signer()` alone binds no freshness at all.
+    /// The rest return `true`, each for a reason worth reading: world-storage, pulse and
+    /// scene-state all apply `.abs()`; archipelago's freshness bound is the age of a challenge
+    /// the **server** issued, which a client cannot post-date; the admin console's bound is the
+    /// `exp` inside a cookie the server minted and signed; and fed's `verify()` caps future
+    /// skew explicitly at `MAX_SKEW_FUTURE_SECS` (30 s) -- though only `verify()` does,
+    /// `Signed::signer()` alone binds no freshness at all.
     pub fn rejects_future_dated_signatures(self) -> bool {
         match self {
             Self::ExplorerApiSelfChainVerifier => false,

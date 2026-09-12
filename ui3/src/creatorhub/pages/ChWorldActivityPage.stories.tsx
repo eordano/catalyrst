@@ -103,13 +103,8 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-/**
- * The flagship. Presence says 2, the worlds server says 3, and the page shows
- * both plus the sentence explaining why neither is wrong.
- */
 export const Default: Story = {};
 
-/** Both hosts agree -- the disagreement sentence disappears rather than lying. */
 export const SourcesAgree: Story = {
   args: {
     commsRoom: live(
@@ -120,7 +115,6 @@ export const SourcesAgree: Story = {
   },
 };
 
-/** Presence is down and the worlds server is up. Degradation stays partial. */
 export const PresenceDown: Story = {
   args: {
     inThisWorld: unavailable(
@@ -147,12 +141,10 @@ export const PresenceDown: Story = {
   },
 };
 
-/** The collector has no snapshots for this world. Not a zero series. */
 export const NoOccupancyRecorded: Story = {
   args: { history: emptyWorldHistory },
 };
 
-/** Sampled data that has gone stale -- the sampler may have stopped. */
 export const StaleSample: Story = {
   args: {
     inThisWorld: sampled(
@@ -165,7 +157,6 @@ export const StaleSample: Story = {
   },
 };
 
-/** Nobody was in it at the last snapshot. A real zero, labelled as one. */
 export const EmptyRightNow: Story = {
   args: {
     inThisWorld: sampled(
@@ -183,7 +174,6 @@ export const EmptyRightNow: Story = {
   },
 };
 
-/** The wcs row is missing; the header falls back to the bare name and says why. */
 export const HeaderDegraded: Story = {
   args: {
     worldMeta: unavailable(
@@ -194,10 +184,8 @@ export const HeaderDegraded: Story = {
   },
 };
 
-/** Somebody else's world. Public data, a neutral sentence, no lock. */
 export const NotYourWorld: Story = { args: { deployedByCaller: false } };
 
-/** Unknown to worlds-content-server and to catalyst. A 404 screen. */
 export const NotFound: Story = {
   args: { world: "ghost.dcl.eth", notFound: true },
 };

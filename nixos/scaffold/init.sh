@@ -1,8 +1,4 @@
 #!/usr/bin/env bash
-# catalyrst init -- scaffold a starter host configuration by asking the few
-# things the module cannot default: domain, profile, how TLS is issued, and
-# the external RPC endpoints. Writes a `catalyrst-host.nix` module and prints
-# the exact remaining steps (secrets, DNS, rebuild). Wired as `nix run .#init`.
 set -euo pipefail
 
 ask() { # prompt default -> echoes the answer
@@ -36,7 +32,6 @@ esac
 
 OUT="$(ask 'Write the host module to' './catalyrst-host.nix')"
 
-# Per-profile extras.
 TLS_BLOCK="" RPC_BLOCK="" ADMIN_BLOCK="" NOTES=()
 if [ "$PROFILE" = content-node ]; then
   NOTES+=("Serves plain HTTP on :80 to the LAN -- no TLS, no DNS records needed.")

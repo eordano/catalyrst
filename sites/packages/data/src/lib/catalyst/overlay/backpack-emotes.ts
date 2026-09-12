@@ -50,14 +50,6 @@ export const EMOTE_CATEGORIES = [
   "miscellaneous",
 ] as const;
 
-/**
- * `category` and `loop` are required on every `emoteDataADR74` in
- * `@dcl/schemas`, so a definition that carries neither is not an emote
- * definition and is dropped by `projectRawEmote` instead of filed under
- * "miscellaneous" as a one-shot. `rarity` is a StandardProps field -- base
- * emotes are prohibited from declaring one -- so its absence is a fact and
- * stays null rather than becoming the literal tier "base".
- */
 export const EmoteSchema = z
   .object({
     urn: z.string().min(1),
@@ -76,8 +68,6 @@ export const EmoteSchema = z
   }));
 export type Emote = z.infer<typeof EmoteSchema>;
 
-/** Built by `buildLoadout`, which always supplies a name -- the emote's own or
- *  one read off the URN. Nothing on the wire reaches this schema. */
 export const SlotBindingSchema = z.object({
   slot: z.number().int().min(0).max(9),
   urn: z.string().min(1),
@@ -85,7 +75,6 @@ export const SlotBindingSchema = z.object({
 });
 export type SlotBinding = z.infer<typeof SlotBindingSchema>;
 
-/** See `OwnedElementSchema` in backpack.ts: an unread quantity stays null. */
 export const OwnedEmoteElementSchema = z
   .object({
     urn: z.string(),

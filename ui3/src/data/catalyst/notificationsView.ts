@@ -62,16 +62,11 @@ function nested(m: Record<string, unknown>, parent: string, ...keys: string[]): 
 
 const cname = (m: Record<string, unknown>): string => str(m, "communityName") ?? "a community";
 
-// Friendship notifications carry the OTHER user under metadata.sender (name/avatar) and have no
-// metadata.title -- show the friend's name + a readable action, mirroring unity-explorer.
 const FRIENDSHIP_BODY: Record<string, string> = {
   social_service_friendship_request: "wants to be your friend!",
   social_service_friendship_accepted: "accepted your friend request.",
 };
 
-// Notification types whose metadata has NO server-rendered title (community_*, credit reminders, ...):
-// the generic path would show the raw humanized type ("Community Post Added"), so build the same
-// readable copy unity-explorer uses (a header + a line composed from the metadata fields).
 const NOTIFICATION_TEMPLATES: Record<
   string,
   (m: Record<string, unknown>) => { title: string; body?: string }

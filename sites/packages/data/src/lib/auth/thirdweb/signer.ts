@@ -39,9 +39,6 @@ async function proxySign(body: Record<string, unknown>): Promise<string> {
     } catch {
     }
   }
-  // The failure test runs first and stays loose. A 503 carries `{error}`, and
-  // validating the success shape ahead of the status would answer "the server
-  // is not configured for signing" with a complaint about a missing signature.
   const loose = (parsed ?? {}) as { signature?: unknown; error?: string };
   if (!res.ok || !loose.signature) {
     throw new ThirdwebError(

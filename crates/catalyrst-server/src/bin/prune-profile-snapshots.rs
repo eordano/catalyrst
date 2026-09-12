@@ -1,28 +1,22 @@
 //! Removes profile snapshot blobs no shipped client reads.
 //!
-//! A profile deploys up to four rendered images. Only two are ever read:
-//! `face256.png` and `body.png`. The unity and bevy explorers both take those
-//! two straight from `avatar.snapshots` as opaque URLs, neither reads `face`
-//! or `face128` at all, and the lambdas path on this server rewrites
-//! `snapshots` to entity-addressed URLs before any client sees it -- so the
-//! stored hashes for the unread keys are never handed out. ADR-290 went
-//! further: the current client stops uploading snapshot content entirely.
+//! A profile deploys up to four rendered images; only `face256.png` and `body.png` are ever read. The
+//! unity and bevy explorers take those two straight from `avatar.snapshots` as opaque URLs, neither
+//! reads `face` or `face128`, and the lambdas path rewrites `snapshots` to entity-addressed URLs
+//! before any client sees it, so the stored hashes for the unread keys are never handed out. ADR-290
+//! went further: the current client stops uploading snapshot content entirely.
 //!
-//! `face.png` is not a resample of anything (it is an independent 512x512
-//! render, where `face256` is 256x256 and `face128` is 128x128), so nothing
-//! can regenerate it. That makes it dead weight rather than a derivable cache,
-//! and deletion the only way to reclaim it.
+//! `face.png` is an independent 512x512 render, not a resample (`face256` is 256x256, `face128` is
+//! 128x128), so nothing can regenerate it -- dead weight rather than a derivable cache.
 //!
 //! Two invariants this tool will not cross:
 //!
-//! 1. A content hash may be referenced by more than one file. Deleting by key
-//!    alone would take blobs that some other key -- or some other entity type
-//!    -- still points at. Only hashes whose every live reference is a target
-//!    key are eligible; on this corpus that excluded 112 shared blobs out of
+//! 1. A content hash may be referenced by more than one file, so only hashes whose every live
+//!    reference is a target key are eligible; on this corpus that excluded 112 shared blobs out of
 //!    ~1.73M.
-//! 2. Every eligible hash is written to a manifest BEFORE anything is removed.
-//!    The blobs are content-addressed and still served by public peers, so the
-//!    manifest is a recovery list, not just an audit trail.
+//! 2. Every eligible hash is written to a manifest BEFORE anything is removed. The blobs are
+//!    content-addressed and still served by public peers, so the manifest is a recovery list, not
+//!    just an audit trail.
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -109,9 +103,8 @@ fn parse_args() -> Args {
     a
 }
 
-/// Hashes whose every live reference is one of `keys`. The NOT EXISTS is the
-/// safety half: a hash that any other key or entity type still points at stays,
-/// however many target-key references it also has.
+/// Hashes whose every live reference is one of `keys`. The NOT EXISTS is the safety half: a hash any
+/// other key or entity type still points at stays, however many target-key references it also has.
 async fn eligible_hashes(
     pool: &sqlx::PgPool,
     keys: &[String],
@@ -174,9 +167,6 @@ async fn main() -> Result<()> {
         hashes.len()
     );
 
-    // Written before a single unlink: these blobs are content-addressed and
-    // public peers still serve them, so this file is what makes the sweep
-    // recoverable rather than merely auditable.
     let mut manifest = tokio::fs::File::create(&args.manifest)
         .await
         .with_context(|| format!("creating manifest {}", args.manifest.display()))?;
@@ -190,11 +180,6 @@ async fn main() -> Result<()> {
     let mut seen: HashSet<&str> = HashSet::new();
     let unique: Vec<&String> = hashes.iter().filter(|h| seen.insert(h.as_str())).collect();
 
-    // Bounded concurrency, because this is millions of independent stat/unlink
-    // pairs against 65,536 shard directories. Serially it is one syscall of
-    // latency at a time and takes tens of minutes; the work has no ordering
-    // constraint, so the only reason it was slow was that it was written as a
-    // loop. The cap keeps it from swamping the filesystem queue.
     const CONCURRENCY: usize = 64;
     let present = AtomicUsize::new(0);
     let bytes = AtomicU64::new(0);

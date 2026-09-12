@@ -45,16 +45,6 @@ export type DisablePlaceBody = {
 
 const nullableStr = z.string().nullish().transform((v) => v ?? null);
 
-/**
- * `reporter` and `created_at` are required.
- *
- * Both are non-optional on the wire -- `catalyrst-places/src/ports/places/rows.rs:187-199`
- * declares `reporter: String` and `created_at: DateTime<Utc>`. Defaulting them
- * put a report that failed to arrive in the queue anyway, attributed to a
- * literal reporter named "unknown" and stamped 1970-01-01, which sorts to the
- * top of an oldest-first queue and reads as a real, very old report. A row
- * missing either is dropped by `loadReportQueue`.
- */
 export const ReportRowSchema = z.object({
   id: z.union([z.number(), z.string()]).transform((v) => String(v)),
   entity_id: nullableStr,
@@ -97,29 +87,12 @@ export const RESOLUTION_OPTIONS: Option[] = [
   { code: "insufficient_evidence", label: "Insufficient evidence" },
 ];
 
-/**
- * Every list is required: this is a moderation queue, and a body that carries
- * no `reports` key is a body we did not understand. An empty array here would
- * have said "nothing to moderate", which is the one answer this page must never
- * invent.
- */
 export const ModerationFixtureSchema = z.object({
   reports: z.array(ReportRowSchema),
   reasons: z.array(OptionSchema),
   resolutions: z.array(OptionSchema),
 });
 export type ModerationFixture = z.infer<typeof ModerationFixtureSchema>;
-
-/**
- * There is no browser-side report-queue read here either.
- *
- * `fetchReportQueue` used to live at this spot: an unauthenticated
- * `GET /places/api/reports` from client code, against an endpoint whose first
- * statement is `gate()`
- * (`catalyrst-places/src/handlers/admin.rs:41` -> `auth.rs:88-100`). It could
- * only ever 403, and its last caller is gone: the route loader now calls
- * `loadReportQueue` from `places-moderation.server.ts`, where the bearer is.
- */
 
 function liftReason(row: ReportRow): ReportRow {
   if (row.reason) return row;
@@ -232,13 +205,6 @@ export type ModerationResult = {
   disableBody?: DisablePlaceBody;
 };
 
-/**
- * Shape the `/admin/places-decision` action answers with on success.
- * `commitModerationDecision` sets `placeDisabled` on every success path
- * (places-moderation.server.ts:337), so a body without it is not a decision
- * that left the place up -- it is not this response, and defaulting it to
- * `false` reported a place still live when it may have just been taken down.
- */
 export const ModerationResultSchema = z.object({
   report: ReportRowSchema,
   placeDisabled: z.boolean(),
@@ -312,31 +278,6 @@ export async function simulateModerateReport(
   };
 }
 
-/**
- * The browser-side privileged write that used to live here has been removed.
- *
- * What it did: read `process.env.PLACES_ADMIN_AUTH_TOKEN` from code that is
- * bundled into the browser (where `process.env` is always empty), found no
- * token, **omitted the `authorization` header, and sent the PATCH anyway**. It
- * did not fail closed locally -- the only thing that stopped it was a 403 from
- * `catalyrst-places/src/auth.rs:88-100`, i.e. a control on someone else's
- * server. Any anonymous visitor who could load `/admin/places-moderation`
- * could emit that request.
- *
- * What replaces it is the same shape as community suspension
- * (`requestSuspension` above -> `/admin/community-suspension`): the browser
- * posts to a react-router resource route, and the route's `action` calls
- * `places-moderation.server.ts#commitModerationDecision`, which is the only
- * place the bearer exists. Nothing privileged crosses into the bundle.
- *
- * Server-side authorization this write is subject to, read directly:
- *   catalyrst/crates/catalyrst-places/src/handlers/admin.rs:13-15  `gate()`
- *     -> catalyrst-places/src/auth.rs:88-100  `require_admin_bearer`
- *        :90-91 `expected: None` -> 403 "Admin token not configured"
- *        :95-98 bearer absent/mismatch -> 403 "Invalid admin credentials"
- *   `gate()` is the first statement of `patch_report` (admin.rs:83) and
- *   `patch_place_disable` (admin.rs:131).
- */
 export const MODERATION_ACTION_PATH = "/admin/places-decision";
 
 const ActionErrorSchema = z.object({ error: z.string() });

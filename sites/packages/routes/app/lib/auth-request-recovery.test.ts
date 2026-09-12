@@ -124,9 +124,6 @@ describe("recoverAuthRequest", () => {
     });
   });
 
-  // Upstream refuses a MetaTransaction only once its verifyingContract has resolved to a contract
-  // Decentraland vouches for (auth #489); with no registry to resolve one, a payload an external
-  // wallet would sign is served behind the acknowledgment rather than turned away at recover.
   it("serves a MetaTransaction whose domain struct misses a domain field", async () => {
     const typed = JSON.stringify({
       types: {
@@ -220,9 +217,6 @@ describe("recoverAuthRequest", () => {
   });
 });
 
-// The read auth #491 put on the preview DTO, applied to the response this page does have: the
-// envelope is narrowed before it is rendered and counted down from, so a body that is not the
-// record the auth server documents degrades to the load-error view.
 describe("parseRecoverResponse", () => {
   const body = {
     expiration: FUTURE,

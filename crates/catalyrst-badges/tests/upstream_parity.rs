@@ -125,8 +125,6 @@ fn business_assets() -> Value {
     })
 }
 
-// Mirrors the migration 0005 backfill: 2D stays normal-only (no real hrm/
-// baseColor upstream), 3D is fully populated (what Badge3DImage renders).
 fn simple_assets(slug: &str) -> Value {
     json!({
         "2d": { "normal": format!("https://badges.decentraland.org/assets/{slug}/2d/normal.png"), "hrm": "", "baseColor": "" },
@@ -409,14 +407,11 @@ async fn preview_latest_first_body() {
     scratch.drop().await;
 }
 
-/// Every asset URL the seed fixture (migrations 0002/0005) advertises must be
-/// backed by real art in `assets/` -- the upstream-CDN mirror invariant
-/// documented in migrations/0005_fixup_asset_urls.sql. Set equality both
-/// ways: a missing file breaks the API's promise, a stray file means the
-/// migrations and this pin no longer describe the tree. The two
-/// 0002-advertised `open_for_business/2d/{hrm,baseColor}.png` URLs stay
-/// unbacked (upstream serves no 2d hrm/basecolor for any badge) and so are
-/// absent here.
+/// Set equality both ways against the seed fixture (migrations 0002/0005, invariant written
+/// up in migrations/0005_fixup_asset_urls.sql): a missing file breaks the API's promise, a
+/// stray file means the migrations and this pin no longer describe the tree. The two
+/// 0002-advertised `open_for_business/2d/{hrm,baseColor}.png` URLs stay unbacked -- upstream
+/// serves no 2d hrm/basecolor for any badge -- and so are absent here.
 #[test]
 fn advertised_assets_are_backed_by_real_png_files() {
     const BACKED: &[&str] = &[
@@ -444,8 +439,6 @@ fn advertised_assets_are_backed_by_real_png_files() {
         "walkabout/silver/2d/normal.png",
         "walkabout/starter/2d/normal.png",
     ];
-    // Real art, not a stub: PNG magic plus a floor well above the
-    // few-hundred-byte single-color PNGs the mirror invariant forbids.
     const MIN_BYTES: usize = 5 * 1024;
     const PNG_MAGIC: [u8; 8] = [0x89, b'P', b'N', b'G', b'\r', b'\n', 0x1a, b'\n'];
 
@@ -458,10 +451,6 @@ fn advertised_assets_are_backed_by_real_png_files() {
             if path.is_dir() {
                 stack.push(path);
             } else if path.extension().is_some_and(|e| e == "png") {
-                // Only PNGs are inventory. assets/README.md documents the CDN
-                // provenance of this store and ships alongside the art; it is
-                // not an advertised asset, and the MIN_BYTES/PNG_MAGIC check
-                // below would reject it.
                 found.push(
                     path.strip_prefix(&root)
                         .unwrap()

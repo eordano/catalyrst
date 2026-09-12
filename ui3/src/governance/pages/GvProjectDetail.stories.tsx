@@ -94,18 +94,12 @@ const FINISHED_PROJECT: GvProject = {
   vestings: [{ id: "v1", label: "Current vesting", url: "https://etherscan.io/address/0xv1" }],
 };
 
-/** The project blobs the stories used to differ by, now pickable by name. */
 const PROJECTS = { inProgress: PROJECT, finished: FINISHED_PROJECT };
 type ProjectKey = keyof typeof PROJECTS;
 const PROJECT_KEYS: ProjectKey[] = ["inProgress", "finished"];
 
 type ProjectDetailProps = ComponentProps<typeof GvProjectDetail>;
 
-/**
- * The story args: the project blob is picked by name, everything else is a real prop.
- * The synthetic key must not shadow a real prop name -- `component:` is type-checked against
- * `ComponentType<ProjectStoryArgs>`, so these args have to stay assignable to the real props.
- */
 type ProjectStoryArgs = Omit<ProjectDetailProps, "project"> & { projectFixture: ProjectKey };
 
 const meta = {
@@ -122,8 +116,6 @@ const meta = {
     notFound: { control: "boolean", description: "Also what a missing project renders." },
   },
   args: { projectFixture: "inProgress", loading: false, notFound: false },
-  // The page latches its initial update index into useState from the project blob, so a key
-  // derived from the fixture is needed for the control to actually swap projects on re-render.
   render: ({ projectFixture, ...rest }) => (
     <GvProjectDetail key={projectFixture} project={PROJECTS[projectFixture]} {...rest} />
   ),
@@ -134,16 +126,8 @@ type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {};
 
-/*
- * Reachable from the `projectFixture` control like the in-progress blob, but kept as its own
- * export because the story id is a hardcoded external consumer: tools/screen-tour/add-story-links.mts
- * lists `governance-pages-project-detail--finished` in its MAPS and only console.warns when an id
- * stops resolving, so dropping the export would silently break that deep link.
- */
 export const Finished: Story = { args: { projectFixture: "finished" } };
 
-/** The loading skeleton, before the project blob resolves. */
 export const Loading: Story = { args: { loading: true } };
 
-/** Also what an unknown project id renders. */
 export const NotFoundState: Story = { args: { notFound: true } };

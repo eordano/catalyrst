@@ -26,12 +26,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-// A body is not a request for having been fetched. Only `method` and `params` are checked further
-// on (validateAuthRequest); the envelope the page renders and counts down from is not, so it is
-// narrowed here instead of asserted, and a body that is not the record the auth server documents
-// degrades to the load-error view rather than reaching Date.parse, the code box and the signer rule
-// as an untyped value. Upstream's own recover call casts its response; #491 moved its preview DTO
-// off exactly that pattern, and this is the same read on the half this page does have.
 export function parseRecoverResponse(value: unknown): RecoverResponse | null {
   if (!isRecord(value)) return null;
   const { expiration, code, method, params, sender, challenge } = value;
@@ -73,12 +67,6 @@ export type RecoveryDeps = {
   now?: () => number;
 };
 
-// The recover half of upstream's RequestPage.loadRequest. A request the guards refuse never
-// reaches the wallet, so nothing else would answer it and the client would block until it
-// expires: the rejection is reported with the wallet's non-prompting account (or the request's
-// own sender) as best effort. Expired, fulfilled, missing and network failures stay unreported:
-// there is nothing left to answer, or the error view retries. Whether the connected account
-// matches the request's sender is only known on approve, so that check lives there.
 export async function recoverAuthRequest(
   id: string,
   deps: RecoveryDeps,

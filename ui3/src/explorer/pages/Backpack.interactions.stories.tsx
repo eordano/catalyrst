@@ -61,7 +61,6 @@ export const FilterByCategory: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await expect(canvas.getByTitle("Cool Hat")).toBeInTheDocument();
-    // Only categories present in the catalog get a rail tile.
     await expect(canvas.queryByRole("button", { name: "Mouth" })).not.toBeInTheDocument();
     await userEvent.click(canvas.getByRole("button", { name: "Eyewear" }));
     await expect(canvas.queryByTitle("Cool Hat")).not.toBeInTheDocument();

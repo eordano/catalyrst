@@ -32,12 +32,6 @@ export type QueueBuckets = {
   actioned: ReportCard[];
 };
 
-/**
- * No `authGate`: the moderation console has no client-side gate. Whether the
- * queue is shown at all is the server's answer
- * (`catalyrst-places/src/handlers/admin.rs:41` -> `auth.rs:88-100`), reported
- * by the route loader.
- */
 export type ModeratePlacesStateValue =
   | "queue"
   | "reviewReport"

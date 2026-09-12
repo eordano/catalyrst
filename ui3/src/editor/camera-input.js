@@ -159,10 +159,6 @@ export function attachCameraInput(contentWindow, bus, getPrefs, getCtx) {
     bus.focus(activeId, true, true);
   };
 
-  // The engine canvas preventDefault()s pointerdown, which suppresses ALL
-  // compatibility mouse events (mousedown/mousemove/mouseup/dblclick) per the
-  // pointer-events spec -- so double-click must be detected from the pointer
-  // stream itself. Two primary-button pointerups, close in time and space.
   let lastPrimaryUp = null;
   const onPrimaryUpForDbl = (e) => {
     if (e.button !== 0 || gesture) return;

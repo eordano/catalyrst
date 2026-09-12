@@ -106,9 +106,6 @@ const ENV_DOCS: &[(&str, &str)] = &[
         "DEPLOYMENT_PROCESSING_TIMEOUT_MS",
         "deadline for post-body deployment processing (default 300000)",
     ),
-    // Worlds federation. Unsetting WORLDS_FED_PEERS_FILE is how federation is turned
-    // off, and it is the only way: an empty peer file means "federation is on and we
-    // admit nobody", which is a different state that the mirror deliberately preserves.
     (
         "WORLDS_FED_PEERS_FILE",
         "path to the DAO-cited federation peer file; unset disables worlds federation \

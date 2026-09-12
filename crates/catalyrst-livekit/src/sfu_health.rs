@@ -32,8 +32,7 @@ pub struct SfuHealth {
 }
 
 impl SfuHealth {
-    /// No probing: liveness is always reported as alive. For deployments that
-    /// opted out, and for tests.
+    /// No probing: for deployments that opted out, and for tests.
     pub fn always_alive() -> Self {
         Self {
             alive: Arc::new(AtomicBool::new(true)),
@@ -43,8 +42,8 @@ impl SfuHealth {
         }
     }
 
-    /// Probes `target` (an http/https URL) on a background task for as long as
-    /// the process lives.
+    /// `target` is an http/https URL; the probe task runs for the life of the
+    /// process.
     pub fn spawn(target: String) -> Self {
         let health = Self {
             alive: Arc::new(AtomicBool::new(true)),
@@ -52,9 +51,6 @@ impl SfuHealth {
             target: Arc::from(target.as_str()),
             enabled: true,
         };
-        // Callers reach this through lazily-initialised config as often as from
-        // a startup path, so an absent runtime is a caller shape, not a bug: it
-        // degrades to never probing rather than panicking inside a request.
         if tokio::runtime::Handle::try_current().is_err() {
             tracing::warn!(
                 target = %target,
@@ -75,7 +71,6 @@ impl SfuHealth {
         &self.target
     }
 
-    /// Seconds the SFU has been unreachable, or `None` while it is answering.
     pub fn down_for_secs(&self) -> Option<u64> {
         if self.is_alive() {
             return None;
@@ -97,9 +92,6 @@ impl SfuHealth {
         };
         let mut strikes: u32 = 0;
         loop {
-            // Any HTTP answer proves the process is listening, which is what the
-            // client's handshake needs; LiveKit's root path has no health
-            // contract beyond that, so a 404 counts as alive.
             let reachable = client.get(&target).send().await.is_ok();
             if reachable {
                 strikes = 0;
@@ -129,8 +121,6 @@ fn now_secs() -> u64 {
         .unwrap_or(0)
 }
 
-/// The HTTP address to probe for a client-facing comms endpoint.
-///
 /// Accepts what the deployment already configures: a LiveKit signalling URL
 /// (`wss://host`, `ws://host:7880`), a bare host, or a `signed-login:`/
 /// `fixed-adapter:` adapter string pointing at a gatekeeper. A gatekeeper that

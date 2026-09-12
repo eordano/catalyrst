@@ -8,17 +8,6 @@ export * from "./notificationsView";
 
 export { NotificationSchema };
 
-/**
- * What this list cannot do without. The sort below is `b.timestamp -
- * a.timestamp`, so a row carrying anything else makes the comparator NaN and the
- * unread order whatever the service happened to send; `categoryForType` and
- * `humanizeType` switch on `type`; `id` keys the row and is what mark-read sends
- * back. Everything else is metadata the renderer already scans defensively.
- *
- * `parseNotificationsLoose` (notificationsView.ts) applies the same gate by hand
- * for the bridge path and is unaffected by perf mode. This is that gate, for the
- * strict path -- which until now had it only in the checking build.
- */
 export function isUsableNotification(row: unknown): boolean {
   return (
     isRecord(row) &&

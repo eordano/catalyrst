@@ -124,7 +124,6 @@ impl PlayerState {
     quantized_accessor!(point_at_y, set_point_at_y_f, point_at_y_f, spec::POINT_AT_Y);
     quantized_accessor!(point_at_z, set_point_at_z_f, point_at_z_f, spec::POINT_AT_Z);
 
-    // The server relays raw codes verbatim, so an out-of-range code must be rejected here.
     pub fn are_quantized_fields_in_range(&self) -> bool {
         self.position_x <= spec::POSITION_X.max_code()
             && self.position_y <= spec::POSITION_Y.max_code()

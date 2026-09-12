@@ -23,9 +23,6 @@ export type SettingsCatalog = {
   sections: Record<string, SettingGroup[]>;
 };
 
-// The one catalog both surfaces render: the sites data layer re-imports this
-// JSON and zod-validates it; here the cast is enough because that gate already
-// covers the same file.
 export const SETTINGS_CATALOG = catalogJson as unknown as SettingsCatalog;
 
 export function groupsForTab(catalog: SettingsCatalog, tab: string): SettingGroup[] {

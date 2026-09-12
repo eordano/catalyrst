@@ -138,11 +138,6 @@ const ProposalRowSchema = RsProposalRowSchema.pick({
   finish_at: true,
 });
 
-/**
- * The generated `ProposalsEnvelopeSchema` (catalyrst-governance's ts-rs image
- * of `GET /proposals`) with its rows narrowed to the pick above. The wire
- * always carries `limit` and `offset`.
- */
 const ProposalsResponseSchema = ProposalsEnvelopeSchema.extend({
   data: z.array(ProposalRowSchema),
 });

@@ -89,7 +89,6 @@ mod tests {
 
     #[test]
     fn stats_payload_is_encoded_exactly_once_and_wire_identical() {
-        // (1) exactly one serde encode of the payload per call.
         let ctr = Arc::new(AtomicUsize::new(0));
         let fixture = serde_json::json!({ "0": 12, "5000000000000000000": 3 });
         let _ = encode_stats_etag_and_body(&CountingPayload(fixture, ctr.clone()));
@@ -104,7 +103,6 @@ mod tests {
             encode_stats_etag_and_body(&CountingPayload(serde_json::json!({}), empty_ctr.clone()));
         assert_eq!(empty_ctr.load(Ordering::SeqCst), 1);
 
-        // (2) wire parity vs the old two-encode output, for populated and empty maps.
         for pairs in [vec![("0", 12i64), ("5000000000000000000", 3)], vec![]] {
             let mut data: StatsResponse = StatsResponse::new();
             for (k, v) in pairs {

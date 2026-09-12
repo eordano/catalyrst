@@ -78,12 +78,6 @@ export type EventRailItem = z.infer<typeof EventRailItemSchema>;
 export type HotspotRailItem = z.infer<typeof HotspotRailItemSchema>;
 export type RitualRailItem = z.infer<typeof RitualRailItemSchema>;
 
-/**
- * Throws rather than casting. The only input is the `HOME_CONTENT` constant in
- * home.server.ts, so a failure here is a bug in this repo, not a bad upstream --
- * and `raw as HomeContent` handed the page a hero and a rail list that had just
- * been rejected, with the type still claiming they were checked.
- */
 export function parseHomeContent(raw: unknown): HomeContent {
   return HomeContentSchema.parse(raw);
 }

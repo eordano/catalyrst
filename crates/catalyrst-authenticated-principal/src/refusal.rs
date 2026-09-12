@@ -1,8 +1,6 @@
 /// Why an authority could not be established.
 ///
-/// # What the arms prove
-///
-/// They are **not** interchangeable, and that is the entire point of the type. Three
+/// The arms are **not** interchangeable, and that is the entire point of the type. Three
 /// different things are routinely flattened into one another across this workspace:
 ///
 /// - *"we could not tell"* -- a backing store was down, a query failed;
@@ -16,29 +14,17 @@
 /// turns a dead database into "not banned". Both are wrong, they are wrong in opposite
 /// directions, and the caller must be able to tell which happened -- hence one arm each.
 ///
-/// # What a value of this type does NOT prove
+/// A value proves nothing about the caller's identity: `RefusedLacksAuthority` is the only arm
+/// meaning the caller was successfully identified and found wanting, the other four mean the
+/// question was never answered. Each crate writes its own `From<sqlx::Error>` (or equivalent)
+/// into `UndeterminedStoreUnavailable`; this crate has no `sqlx` and cannot provide it.
 ///
-/// Nothing about the caller's identity. `RefusedLacksAuthority` is
-/// the only arm that means the caller was successfully identified and found wanting; the
-/// other four mean the question was never answered.
-///
-/// # How a value is obtained
-///
-/// Constructed at the point of refusal by whichever crate-local authority failed to
-/// resolve. Each crate writes its own `From<sqlx::Error>` (or equivalent) into
-/// `UndeterminedStoreUnavailable`; this crate has no `sqlx` and cannot
-/// provide it.
-///
-/// # Deliberately not `#[non_exhaustive]`
-///
-/// Adding an arm **should** break every downstream match. `#[non_exhaustive]` would force
-/// the `_` catch-all that this whole exercise exists to remove.
+/// Not `#[non_exhaustive]`: adding an arm **should** break every downstream match, and
+/// `#[non_exhaustive]` would force the `_` catch-all this whole exercise exists to remove.
 #[derive(Debug, thiserror::Error)]
 pub enum AuthorityNotEstablished {
-    /// No usable credential was presented, or the one presented did not verify. Renders
-    /// as **401**.
-    ///
-    /// `detail` is `&'static str` on purpose: it is a fixed reason chosen by the gate, not
+    /// No usable credential was presented, or the one presented did not verify. Renders as
+    /// **401**. `detail` is `&'static str` on purpose: a fixed reason chosen by the gate, not
     /// an echo of anything the caller sent.
     #[error("authentication missing or invalid: {detail}")]
     AuthenticationMissingOrInvalid {
@@ -47,11 +33,9 @@ pub enum AuthorityNotEstablished {
     },
 
     /// A shared secret was presented and did not match the configured one. Renders as
-    /// **401**.
-    ///
-    /// Separate from [`Self::AuthenticationMissingOrInvalid`] so that "presented the wrong
+    /// **401**. Separate from [`Self::AuthenticationMissingOrInvalid`] so "presented the wrong
     /// secret" is distinguishable from "presented nothing" in logs and in tests, without
-    /// either of them being distinguishable to the caller -- both render 401.
+    /// either being distinguishable to the caller -- both render 401.
     #[error("presented shared secret did not match")]
     PresentedSharedSecretDidNotMatch,
 
@@ -76,11 +60,10 @@ pub enum AuthorityNotEstablished {
     /// The service is misconfigured; the caller is not unauthorized. Renders as **503**.
     ///
     /// `catalyrst-comms/src/moderator.rs`'s `require_service_token` is the only one of the
-    /// workspace's twenty-one bearer gates that already draws this distinction -- an unset
-    /// `COMMS_GATEKEEPER_AUTH_TOKEN` answers 503, not 401. The other twenty flatten it into
-    /// a 401 or a 403, which tells an operator that their callers are broken when in fact
-    /// their deployment is. This arm generalizes the comms behaviour; it must not be
-    /// flattened to match the others.
+    /// workspace's twenty-one bearer gates already drawing this distinction -- an unset
+    /// `COMMS_GATEKEEPER_AUTH_TOKEN` answers 503, not 401. The other twenty flatten it into a
+    /// 401 or a 403, telling an operator their callers are broken when their deployment is.
+    /// This arm generalizes the comms behaviour; it must not be flattened to match the rest.
     #[error("credential not configured: {environment_variable} is unset")]
     CredentialNotConfigured {
         /// The environment variable whose absence disabled the gate.
@@ -89,14 +72,12 @@ pub enum AuthorityNotEstablished {
 }
 
 impl AuthorityNotEstablished {
-    /// The one place that decides the HTTP status for a refusal.
+    /// The one place that decides the HTTP status for a refusal. Today one logical refusal
+    /// renders three different ways depending on which file caught it -- 401 in the federation
+    /// authority, 403 in the client path, a raw `Response` in the ban handlers.
     ///
-    /// Today one logical refusal renders three different ways depending on which file
-    /// caught it -- 401 in the federation authority, 403 in the client path, a raw
-    /// `Response` in the ban handlers. One exhaustive match replaces that.
-    ///
-    /// The mapping is asserted by an explicit table test in this module: `Undetermined...`
-    /// and `CredentialNotConfigured` never render 403, and `Refused...` never renders 503.
+    /// The mapping is asserted by an explicit table test in this module: `Undetermined...` and
+    /// `CredentialNotConfigured` never render 403, and `Refused...` never renders 503.
     pub fn http_status(&self) -> u16 {
         match self {
             Self::AuthenticationMissingOrInvalid { .. }

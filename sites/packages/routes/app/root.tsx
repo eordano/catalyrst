@@ -46,8 +46,6 @@ export async function loader({ request }: Route.LoaderArgs) {
   };
 }
 
-// The root payload (wallet cookie + committee flag) changes only through auth
-// form submissions, never through in-page search-param navigation.
 export function shouldRevalidate({
   currentUrl,
   nextUrl,

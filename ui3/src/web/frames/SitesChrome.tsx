@@ -50,8 +50,6 @@ const FOOTER_COLS: FooterCol[] = [
     links: [
       { label: "Shop", href: "/shop" },
       { label: "Creator Hub", href: "/creator-hub" },
-      // Absolute: /docs/ is not proxied on every sub-origin; docs.decentraland.org
-      // is the canonical docs home.
       { label: "Docs", href: "https://docs.decentraland.org/" },
       { label: "Blog", href: "/blog" },
       { label: "Vote", href: "/governance" },

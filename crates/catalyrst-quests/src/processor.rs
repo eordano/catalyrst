@@ -12,9 +12,6 @@ pub fn spawn_event_processor(ctx: Context, mut rx: UnboundedReceiver<Event>) {
     tokio::spawn(async move {
         tracing::info!("quests event processor listening");
         while let Some(event) = rx.recv().await {
-            // Per-event panic boundary: a panic while processing one quest
-            // event must not unwind the shared processor loop and wedge quest
-            // progress for every player until restart. Catch it, log, continue.
             let event_id = event.id.clone();
             let user_address = event.address.clone();
             if let Err(panic) = AssertUnwindSafe(process_event(&ctx, event))

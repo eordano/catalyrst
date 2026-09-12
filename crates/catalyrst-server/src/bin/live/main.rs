@@ -372,11 +372,6 @@ async fn main() -> anyhow::Result<()> {
     let storage_root = env_or("STORAGE_ROOT_FOLDER", "/var/lib/catalyrst/content");
     tracing::info!(root = %storage_root, "Initializing content storage");
 
-    // ONE instance per root, shared by every consumer below (HTTP reads, the write deployer, the
-    // snapshot generator). `ContentStorage` remembers which shard directories it has created or
-    // observed, and that record is what tells a destroyed shard from one that never existed;
-    // separate instances over the same root hold separate records, so the same damage came back as
-    // a fault on the path that had written and as a plain 404 on the read-heavy path that had not.
     let content_storage = Arc::new(
         catalyrst_storage::ContentStorage::new(&storage_root)
             .await
@@ -395,10 +390,6 @@ async fn main() -> anyhow::Result<()> {
 
     if !sync_enabled {
         tracing::info!("Loading non-profile entities into memory cache...");
-        // Concurrently, into per-type caches merged at the end. The five queries
-        // are independent and DB-bound; loading them in series also held the
-        // single write lock across every one, so the slowest type set the floor
-        // for all of them. Merging once at the end takes the lock a single time.
         let mut loads = tokio::task::JoinSet::new();
         for entity_type in ["scene", "wearable", "emote", "store", "outfits"] {
             let pool = pool.clone();
@@ -540,10 +531,6 @@ async fn main() -> anyhow::Result<()> {
         }
 
         let sync_storage_root = env_or("SYNC_STORAGE_ROOT", "/var/lib/catalyrst/content_rust");
-        // Both roots are env-overridable, so "these are different stores" is a configuration claim,
-        // not a fact. Pointing SYNC_STORAGE_ROOT at STORAGE_ROOT_FOLDER would otherwise put two
-        // instances on one tree again, each with its own record of observed shards -- the exact
-        // divergence the single shared instance above exists to remove.
         let sync_storage = if same_storage_root(&storage_root, &sync_storage_root) {
             tracing::warn!(
                 root = %storage_root,
@@ -802,8 +789,6 @@ async fn main() -> anyhow::Result<()> {
                     catalyrst_server::land_operators::resolver_for(&sp, &eth_network).await;
                 Arc::new(catalyrst_server::write_deployer::WriteDeployer::new(
                     pool.clone(),
-                    // Same instance the HTTP read path uses: a shard this creates is one those
-                    // reads then know about.
                     content_storage.clone(),
                     sp,
                     eth_rpc_url,
@@ -929,7 +914,6 @@ async fn main() -> anyhow::Result<()> {
         let pool = pool.clone();
         let sync_state = sync_state.clone();
         let snapshot_handle = snapshot_handle.clone();
-        // The shared instance, not a second one over the same root.
         let content_storage = content_storage.clone();
         let interval = std::time::Duration::from_secs(snapshot_generation_interval_hours * 3600);
         tokio::spawn(async move {

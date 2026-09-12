@@ -20,12 +20,6 @@ function isHttpUrl(s: unknown): s is string {
   return typeof s === "string" && /^https?:\/\//i.test(s);
 }
 
-// The friends push carries no coords and the players push carries no
-// friendship, so a plottable friend is exactly their join: presence in the
-// players push is the proof of being online on this island, which is the only
-// place the engine can know a position from. Blocked-or-blocking friends stay
-// in the friends push, so they must be dropped here or they get a named,
-// jumpable pin on every map surface.
 export function joinFriendPins(
   players: readonly NearbyPlayer[],
   friends: readonly FriendEntry[],

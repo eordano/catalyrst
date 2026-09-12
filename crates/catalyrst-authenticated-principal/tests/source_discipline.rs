@@ -216,7 +216,6 @@ fn deserialize_appears_only_on_the_claimed_types() {
         "expected exactly two Deserialize derives in claimed.rs, found {derives_in_claimed:?}"
     );
 
-    // Each derive must sit directly above a type whose name starts with `Claimed`.
     let lines: Vec<&str> = CLAIMED.lines().map(str::trim).collect();
     for (index, line) in lines.iter().enumerate() {
         if line.starts_with("//") || !line.contains("Deserialize") {

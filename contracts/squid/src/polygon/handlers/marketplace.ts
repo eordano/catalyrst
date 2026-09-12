@@ -84,8 +84,6 @@ export function handleOrderCreated(
     order.createdAt = timestamp;
     order.updatedAt = timestamp;
 
-    // get open order for the nft since nft.activeOrder can be undefined but an order could still be open
-
     if (nft.activeOrder) {
       const oldOrder = orders.get(nft.activeOrder.id);
       if (oldOrder) {
@@ -252,14 +250,11 @@ export async function handleTraded(
 
   const tradeData = getTradeEventData(event, Network.MATIC);
   const tradeType = getTradeEventType(event, Network.MATIC);
-  // Nothing to index: not an order or a bid (a giveaway has no payment leg).
   if (!tradeData) {
     return;
   }
   const { assetType, collectionAddress, tokenId, buyer, price, seller } =
     tradeData;
-  // Read once and kept current from the contract's own *Updated events -- see
-  // getOffChainMarketplaceContractData. This used to be three sequential eth_calls PER Traded event.
   const { feeCollector, feeRate, royaltiesRate } =
     await getOffChainMarketplaceContractData(ctx, block.header);
   const feesCollector = feeCollector;
@@ -317,20 +312,6 @@ export async function handleTraded(
       console.log("ERROR: itemId not found in traded event");
       return;
     }
-    // Find the actual Issue log emitted by the collection in this same tx.
-    // We can't compute issuedId from items(itemId).totalSupply at block.header
-    // because that returns post-block state. When 2+ Trade-mints for the same
-    // item land in the same block (different txs), every read returns the same
-    // final totalSupply, so all simulated Issues collide on the same nftId and
-    // the earlier mints get overwritten in storage.
-    //
-    // A single tx can also mint the same itemId multiple times (e.g. buying
-    // several units at once). That emits one Issue log per unit (differing only
-    // by issuedId/tokenId) and one Traded event per unit. Traded events are
-    // processed in log order, so we consume the matching Issue logs in
-    // ascending logIndex order, skipping any already matched to a previous
-    // Traded event in this batch. A plain find() would return the first Issue
-    // log every time and drop every mint after the first for that item.
     const issueLog = selectIssueLogForTrade<(typeof block.logs)[number]>(block.logs, {
       transactionIndex: transaction.transactionIndex,
       collectionAddress,
@@ -368,7 +349,6 @@ export async function handleTraded(
       );
     }
 
-    // simulates an issue event to re-use all the logic inside the `handleIssue` function
     const issueEvent = {
       _beneficiary:
         tradeType === TradeType.Order

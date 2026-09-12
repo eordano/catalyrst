@@ -13,10 +13,10 @@ pub use catalyrst_crypto::signed_fetch::{
 
 pub const FIVE_MINUTES_SECS: i64 = 5 * 60;
 
-/// No canonical metadata keys, so the pre-6.0.0 folded payload is never accepted on this socket
-/// either: the 6.x payload binds the metadata bytes, which is what stops a re-cased metadata key
-/// from folding back into the scene metadata that was actually signed. The explorer signs `{}` on
-/// this handshake, which folds to itself, so the two payload shapes agree for real traffic.
+/// Empty, so the pre-6.0.0 folded payload is never accepted on this socket either: the 6.x
+/// payload binds the metadata bytes, stopping a re-cased metadata key from folding back into
+/// the scene metadata that was actually signed. The explorer signs `{}` here, which folds to
+/// itself.
 const CANONICAL_METADATA_KEYS: &[&str] = &[];
 
 pub async fn require_signer(
@@ -24,11 +24,6 @@ pub async fn require_signer(
     method: &str,
     path: &str,
 ) -> Result<Signer, AuthChainError> {
-    // ADR-44: refuse a scene acting as a user's identity, matching the HTTP routes (upstream #440).
-    // The metadata gate answers before verification (upstream #492), so a refused request pays for
-    // no crypto. This module's error enum has no dedicated variant, so the refusal reuses
-    // InvalidSignature -- the WS handshake path collapses every handshake failure to a single
-    // "Unauthorized" close, so the variant is not observable there.
     if headers_declare_refused_signer(headers) {
         return Err(AuthChainError::InvalidSignature(
             "requests from scenes are not allowed".to_string(),
@@ -68,7 +63,6 @@ pub async fn verify_handshake(
     .await
 }
 
-/// Whether the `x-identity-metadata` header of a signed-fetch request carries a refused signer.
 fn headers_declare_refused_signer(headers: &HeaderMap) -> bool {
     let Some(raw) = headers
         .get(AUTH_METADATA_HEADER)
@@ -80,9 +74,9 @@ fn headers_declare_refused_signer(headers: &HeaderMap) -> bool {
     crate::scene_signer::is_refused_signer(&metadata)
 }
 
-/// Whether a WS auth-handshake frame carries a refused signer. The frame is the header bag encoded
-/// as one JSON object whose `x-identity-metadata` value is itself a JSON string, so it is parsed in
-/// two steps. Used by the WS handshake to refuse scene-signed chains (ADR-44, upstream #440).
+/// The frame is the header bag encoded as one JSON object whose `x-identity-metadata` value is
+/// itself a JSON string, so it is parsed in two steps. Refuses scene-signed chains (ADR-44,
+/// upstream #440).
 pub fn frame_declares_refused_signer(frame_json: &str) -> bool {
     let Ok(value) = serde_json::from_str::<serde_json::Value>(frame_json) else {
         return false;
@@ -126,9 +120,8 @@ mod tests {
         make_frame(ts_ms, &payload, "{}").await
     }
 
-    /// A genuinely signed frame whose delivered metadata may differ from the metadata that went into
-    /// the signed payload -- the shape of the re-cased-key attack, where nothing about the signature
-    /// is weakened and only the bytes on the wire are rewritten.
+    /// The re-cased-key attack shape: a genuinely signed frame whose delivered metadata differs
+    /// from what went into the signed payload.
     async fn make_frame(
         ts_ms: i64,
         signed_payload: &str,
@@ -316,7 +309,6 @@ mod tests {
 
     #[test]
     fn frame_declares_refused_signer_detects_scene_metadata() {
-        // The frame's x-identity-metadata value is itself a JSON string (upstream #440).
         let scene = serde_json::json!({
             "x-identity-metadata":
                 serde_json::json!({ "signer": "decentraland-kernel-scene" }).to_string()
@@ -331,9 +323,6 @@ mod tests {
         .to_string();
         assert!(frame_declares_refused_signer(&recased));
 
-        // A re-spelled key is refused rather than read as absent (upstream #493): the handshake
-        // gates every RPC service on the socket, and the signature is no backstop for a key the
-        // client signed that way from the start.
         let respelled = serde_json::json!({
             "x-identity-metadata":
                 serde_json::json!({ "Signer": "decentraland-kernel-scene" }).to_string()
@@ -341,7 +330,6 @@ mod tests {
         .to_string();
         assert!(frame_declares_refused_signer(&respelled));
 
-        // The empty metadata the explorer sends on this socket, and other signers, pass.
         assert!(!frame_declares_refused_signer(
             &serde_json::json!({ "x-identity-metadata": "{}" }).to_string()
         ));
@@ -351,15 +339,12 @@ mod tests {
             })
             .to_string()
         ));
-        // Absent metadata and a malformed frame must not panic and must not match.
         assert!(!frame_declares_refused_signer("{}"));
         assert!(!frame_declares_refused_signer("not json"));
     }
 
     #[test]
     fn frame_declares_refused_signer_refuses_a_non_string_signer() {
-        // Upstream #492: a signer that is not a canonical string is refused, not waved through as
-        // ordinary user traffic.
         let typed = serde_json::json!({
             "x-identity-metadata": serde_json::json!({ "signer": 42 }).to_string()
         })
@@ -377,8 +362,6 @@ mod tests {
         let signed = build_payload("get", "/", &ts_ms.to_string(), SCENE_METADATA);
         let (_, frame) = make_frame(ts_ms, &signed, RECASED_KEY).await;
 
-        // The pre-gate answers first (upstream #493); the signature, which binds the metadata
-        // bytes, would refuse the rewritten frame a step later and stays as the second layer.
         assert!(frame_declares_refused_signer(&frame));
         let err = verify_handshake(&frame, "get", "/", FIVE_MINUTES_SECS, now_secs)
             .await
@@ -401,8 +384,6 @@ mod tests {
         );
         let (_, frame) = make_frame(ts_ms, &signed, RECASED_KEY).await;
 
-        // Signed under this spelling from the start, so the chain verifies cleanly: the pre-gate is
-        // the only thing between a scene-signed socket and every RPC service on it.
         assert!(
             verify_handshake(&frame, "get", "/", FIVE_MINUTES_SECS, now_secs)
                 .await
@@ -415,7 +396,6 @@ mod tests {
     #[tokio::test]
     async fn the_header_path_refuses_a_re_spelled_signer_key_before_verification() {
         use axum::http::HeaderValue;
-        // No auth chain at all: reaching verification first would report the missing chain instead.
         let mut headers = HeaderMap::new();
         headers.insert(AUTH_METADATA_HEADER, HeaderValue::from_static(RECASED_KEY));
         let err = require_signer(&headers, "get", "/").await.unwrap_err();

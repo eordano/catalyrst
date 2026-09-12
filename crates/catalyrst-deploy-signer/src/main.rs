@@ -62,8 +62,6 @@ async fn eip191_sign(w: &PrivateKeySigner, msg: &str) -> Result<String> {
     Ok(sig.to_string())
 }
 
-/// The tail shared by `deploy` and `do_grant`: both post a request and then either surface a
-/// success message or bail with the response body attached to a caller-supplied context.
 fn ok_or_bail(
     status: reqwest::StatusCode,
     body: &str,
@@ -179,15 +177,12 @@ struct Prepared {
 }
 
 impl Prepared {
-    /// A world is entered by realm URL, not by name: a bare `foo.dcl.eth`
-    /// resolves against Decentraland's worlds server, which is a different
-    /// world that merely shares the name.
     fn realm_url(&self) -> String {
         catalyrst_types::world_realm_url(&self.content_server, &self.world)
     }
 
-    /// Where this deployment puts an arriving visitor, so the link lands them in
-    /// the scene they just published rather than at the world origin.
+    /// Aims at the scene's base parcel so the link lands the visitor in what was
+    /// just published rather than at the world origin.
     fn deep_link(&self) -> String {
         let base = self.metadata["scene"]["base"]
             .as_str()
@@ -323,9 +318,6 @@ async fn info(State(st): State<AppState>) -> Json<Value> {
         "timestamp": ts,
         "deepLink": p.deep_link(),
         "realmUrl": p.realm_url(),
-        // Kept as a fallback for anyone without the protocol handler registered,
-        // and labelled as such on the page: decentraland.org forwards `realm`
-        // only for realms it whitelists, so it cannot reach a self-hosted node.
         "playUrl": format!("https://decentraland.org/play/?realm={}", p.world),
         "files": p.files.iter().map(|(f, h, b)| json!({"file": f, "hash": h, "size": b.len()})).collect::<Vec<_>>(),
     }))
@@ -434,8 +426,6 @@ async fn deploy(
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // Clap owns the CLI surface here, so only the tracing half of the
-    // standard envcfg bootstrap applies.
     catalyrst_envcfg::init_tracing("info");
 
     let args = Args::parse();

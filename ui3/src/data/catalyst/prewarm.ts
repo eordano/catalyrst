@@ -27,8 +27,6 @@ export function warmSceneAtParcel(x: number, y: number): void {
         ),
       ];
       if (entity.id) queue.push(entity.id);
-      // X-IPFS routes these through the service worker's cache-first strategy,
-      // so the engine's own fetches for the destination scene hit a warm cache.
       await Promise.all(
         Array.from({ length: WORKERS }, async () => {
           for (let h = queue.pop(); h; h = queue.pop()) {

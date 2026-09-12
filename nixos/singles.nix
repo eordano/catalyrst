@@ -11,10 +11,6 @@ let
 
   commsPackages = inputs.catalyrst.packages.x86_64-linux;
 
-  # Fall back to the flake's own builds when an operator leaves the package
-  # options null -- matching bundles.nix and squid.nix, so a profile that
-  # enables these singles is self-contained (options.nix's profile contract)
-  # instead of requiring the operator to wire three packages by hand.
   bundlesPkg = if cfg.bundlesPackage != null then cfg.bundlesPackage else commsPackages.catalyrst-all;
   governancePkg =
     if cfg.governancePackage != null then cfg.governancePackage else commsPackages.catalyrst-governance;
@@ -77,8 +73,6 @@ lib.mkIf cfg.enable {
 
   systemd.tmpfiles.rules = lib.optionals cfg.subServices.profileImages [
     "d ${cfg.stateDir}/profile-images      0755 catalyrst catalyrst -"
-    # Godot needs a writable HOME for its config and shader cache; ProtectHome
-    # blocks the real one, so it gets a directory inside the cache tree.
     "d ${cfg.stateDir}/profile-images/.godot-home 0700 catalyrst catalyrst -"
   ];
 
@@ -162,9 +156,6 @@ lib.mkIf cfg.enable {
           r = cfg.profileImagesRender;
           godotPkg = if r.package != null then r.package else commsPackages.godot-explorer;
           cacheDir = "${cfg.stateDir}/profile-images";
-          # Godot writes its own config and shader cache under HOME/XDG. The
-          # sandbox has ProtectHome, so it needs a writable directory of its own
-          # or it fails on first render rather than at start.
           godotHome = "${cacheDir}/.godot-home";
         in
         mkSingle {
@@ -186,21 +177,10 @@ lib.mkIf cfg.enable {
             if r.enable then
               {
                 PROFILE_IMAGES_BACKEND = "render";
-                # The -xvfb variant, not the bare binary. Godot's --headless
-                # flag selects its dummy rendering server, where
-                # async_get_viewport_image() returns null and every render dies
-                # on `Parameter "t" is null`. Rendering needs a real GL context,
-                # so each invocation gets a throwaway X display of its own.
                 PROFILE_IMAGES_GODOT_BIN =
                   "${godotPkg}/bin/decentraland-godot-client-xvfb";
-                # Resolve profiles from this node's own content core, which is
-                # what makes the renderer independent of Decentraland's servers.
                 PROFILE_IMAGES_CONTENT_URL = "http://127.0.0.1:5141/content";
                 PROFILE_IMAGES_MAX_CONCURRENT = toString r.maxConcurrentRenders;
-                # baseSandbox sets PrivateDevices, so there is no /dev/dri and no
-                # GPU. Software GL is also the honest default for the target
-                # deployment: a small VPS has no GPU either. A node with a GPU
-                # can drop PrivateDevices and unset this.
                 LIBGL_ALWAYS_SOFTWARE = "1";
                 HOME = godotHome;
                 XDG_DATA_HOME = "${godotHome}/.local/share";
@@ -214,25 +194,10 @@ lib.mkIf cfg.enable {
             ReadWritePaths = [ cacheDir ];
           }
           // lib.optionalAttrs r.enable {
-            # Two narrow additions to the shared filter, each measured against a
-            # unit that otherwise starts healthy and then 502s every render:
-            # the X server calls capset() to drop privileges, and capset lives in
-            # @privileged, so the shared `~@privileged` kills it before it can
-            # create a display; godot's V8 wants memory protection keys, and
-            # @pkey is in no other set here. Everything else in baseSandbox is
-            # confirmed harmless to the renderer.
-            #
-            # This must stay ONE ordered string. A second SystemCallFilter= line
-            # re-adding capset does not restore it -- only re-adding it after the
-            # subtraction inside a single list does.
             SystemCallFilter = "@system-service @pkey ~@privileged capset";
-            # An engine process blows straight through the 512M shared default.
             MemoryHigh = r.memoryMax;
             MemoryMax = r.memoryMax;
-            # One engine process per render, each with its own thread pool.
             TasksMax = 4096;
-            # Renders are seconds, not milliseconds: give a slow first render
-            # room before systemd calls the unit dead.
             TimeoutStartSec = 180;
           };
         };
@@ -298,14 +263,6 @@ lib.mkIf cfg.enable {
           RPC_MAINNET = "https://rpc.decentraland.org/mainnet";
           RPC_POLYGON = "https://rpc.decentraland.org/polygon";
         };
-        # SSRF containment. systemd IP filters are bidirectional, so denying
-        # loopback would also drop nginx's ingress to :5162 (listener up but
-        # unreachable) -- localhost must be ALLOWED for the proxy to reach it.
-        # The network layer still denies link-local (incl. the cloud metadata
-        # endpoint) and RFC1918 egress; the resolver's own URL guard
-        # (opensea-resolver.mjs) refuses loopback/private targets per hop, so
-        # allowing localhost here does not re-open the SSRF. Postgres rides the
-        # AF_UNIX socket, unaffected by IPAddress* rules.
         extraServiceConfig.IPAddressAllow = [ "localhost" ];
         extraServiceConfig.IPAddressDeny = [
           "link-local"

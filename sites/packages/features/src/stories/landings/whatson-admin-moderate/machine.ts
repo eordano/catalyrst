@@ -82,36 +82,9 @@ export const stateToSlug: (value: string) => ModerateStepSlug = stepSlugs.toSlug
 
 export const slugToState: (slug: string | null | undefined) => ModerateStateId = stepSlugs.toState;
 
-/**
- * Layout / story data only. Never the default -- see `failClosedModerateAction`.
- */
-// Typed by inference (SimulatedModeration) so tests can assert its shape;
-// still assignable to ModerateFn, whose result is the wire-or-simulated union.
 export const simulateModerateAction = ({ eventId, action, rejectReasons, rejectNote, signal }: Parameters<ModerateFn>[0]) =>
   simulateModerate({ eventId, action, rejectReasons, rejectNote }, { signal });
 
-/**
- * The default moderation actor: it fails closed and says why.
- *
- * `simulateModerateAction` must not be the default: it resolves successfully
- * for a decision that never leaves the browser, so the wizard would reach its
- * "event approved" screen while catalyrst-events has heard nothing -- the same
- * class of failure as a privileged button that silently 403s, except worse,
- * because it reports success.
- *
- * The real gate is server-side and fails closed on its own:
- *   catalyrst-events/src/handlers/events.rs:657  `patch_event`
- *     -> catalyrst-events/src/admin.rs:34-44 `authorize_admin`
- *        token `None`    -> 403 "Admin operations are disabled"
- *        bearer mismatch -> 403 "You are not authorized to access this resource"
- * The credential is `CATALYRST_EVENTS_ADMIN_TOKEN`
- * (catalyrst-events/src/config.rs:27), which is set in no env file here. A
- * bearer-holding `.server.ts` module plus a route action is what would wire
- * this; the build gate classifies both as FIX-FIRST and neither is done.
- *
- * Until then this rejects with the same unavailable reason the rest of the
- * admin surface reports, so the wizard shows an error instead of a success.
- */
 export const failClosedModerateAction: ModerateFn = async () => {
   const status = controlStatus("events.moderation.decide");
   throw new Error(

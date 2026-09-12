@@ -262,16 +262,8 @@ pub const DEFAULT_MAX_EMOTE_DURATION_MS: u32 = 60_000;
 
 pub const DEFAULT_MAX_REALM_LENGTH: usize = 255;
 
-// One cumulative budget per scene-listener announcement, in parcels: the sum of nominal rect
-// areas across every announced realm plus SCENE_LISTENER_REALM_BUDGET_COST per realm. Over-cap
-// announcements are rejected, never clamped, on the handshake and on SceneListenerUpdate alike.
-// Tracks upstream Pulse SceneListenerOptions.MaxParcels; move it only in lockstep with upstream.
 pub const DEFAULT_SCENE_LISTENER_MAX_PARCELS: usize = 4096;
 
-// A realm carries overhead a parcel count cannot see (its retained name, a map entry, a set
-// header), roughly six parcel slots; charging four against the same budget keeps one knob
-// governing both dimensions, so many single-parcel realms cannot buy realm-shaped memory with a
-// parcel-shaped allowance.
 pub const SCENE_LISTENER_REALM_BUDGET_COST: usize = 4;
 
 pub const DEFAULT_CORRUPT_MAX_PER_MINUTE: u32 = 5;
@@ -339,10 +331,6 @@ impl CorruptedPacketLimiter {
     }
 }
 
-// Track the values upstream Pulse REGISTERS from appsettings.json (Messaging:Hardening
-// MovementInput and DiscreteEvent), not the C# option-class defaults: Program.cs binds the
-// section over the class, so the class's 5/10 for DiscreteEvent never runs. Move these only in
-// lockstep with upstream; `gameplay_defaults_track_upstream_appsettings` pins them.
 pub const DEFAULT_INPUT_MAX_HZ: u32 = 20;
 
 pub const DEFAULT_INPUT_BURST: u32 = 16;

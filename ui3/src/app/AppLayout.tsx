@@ -73,18 +73,10 @@ for (const t of EXPLORE_TABS) {
 
 const PANEL_IDS = new Set<string>(EXPLORE_TABS.map((t) => t.id));
 
-// Window scope, not module scope: the consumed-nonce guard must live exactly as long
-// as the engine instance (one per page), so a remount or an overlay module re-init
-// (HMR, a re-imported bundle) cannot reset it and replay the loader's cached
-// openExplorerUi push into a panel open the user never asked for.
 function consumedOpenPanelNonce(): number {
   return (typeof window === "undefined" ? 0 : window.__dclConsumedOpenPanelNonce) ?? 0;
 }
 
-// Engine-initiated jumps only: loading.ready alone also flips false when the player
-// walks into a still-loading or undeployed parcel, which must never blank the HUD.
-// Arm on a realm change or a multi-parcel position jump; disarm when the world is
-// ready again or after the hard cap, whichever comes first.
 const ENGINE_JUMP_MIN_PARCEL_DELTA = 2;
 const ENGINE_JUMP_MAX_MS = 30000;
 
@@ -131,8 +123,6 @@ function PanelFallback() {
   );
 }
 
-// Leaf that owns the continuous playerPosition stream so per-frame position
-// pushes re-render only the minimap, never the whole layout.
 function MinimapWidget() {
   const scene = useBridgeState((s) => s.scene);
   const playerPosition = useBridgeState((s) => s.playerPosition);
@@ -244,8 +234,6 @@ export default function AppLayout({ prefetchPanel }: AppLayoutProps) {
     if (PANEL_IDS.has(openPanel.ui)) navigate(`/${openPanel.ui}`);
   }, [openPanel, navigate]);
 
-  // Echo fullscreen-panel state to the engine: drives openExplorerUi WasAlreadyOpen
-  // verdicts and the ExplorerUiEventsResult component scenes observe.
   useEffect(() => {
     sendBridge("SetExplorerUiOpen", { ui: PANEL_IDS.has(active) ? active : null });
   }, [active]);
@@ -281,8 +269,6 @@ export default function AppLayout({ prefetchPanel }: AppLayoutProps) {
       setEngineJumpArmed(true);
   }, [parcel, worldReadyOnce]);
 
-  // At the ceiling the overlay stops pretending: instead of quietly dropping,
-  // it asks whether to enter the still-loading scene or dismiss.
   useEffect(() => {
     if (!engineJumpArmed) {
       setEngineJumpStalled(false);
@@ -322,8 +308,6 @@ export default function AppLayout({ prefetchPanel }: AppLayoutProps) {
       if (isSynthesizedWorldKey(e)) return;
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       if (e.key === "Escape") {
-        // A jump overlay owns Escape (its capture listener cancels the jump);
-        // swallowing it here would instead close the panel under the overlay.
         if (panelJumpActive || engineTeleporting) return;
         if (active) {
           navigate("/");

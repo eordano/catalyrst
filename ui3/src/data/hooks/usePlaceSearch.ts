@@ -18,9 +18,6 @@ export type PlaceSearchResult = {
   active: boolean;
 };
 
-// Debounced places+worlds search, shared by the Map search box, the Places grid and the
-// post-login PlacesPicker. Worlds (e.g. boedo.dcl.eth) live off the Genesis atlas so they're
-// queried separately from places; an `.eth` query is looked up by exact world name.
 export function usePlaceSearch(query: string): PlaceSearchResult {
   const [debounced, setDebounced] = useState(query.trim());
 

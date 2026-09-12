@@ -12,10 +12,6 @@ export { FavoriteListSchema };
 
 type WireFavoriteList = z.infer<typeof FavoriteListSchema>;
 
-/**
- * UI item card source. The lists wire rows carry only `previewOfItemIds`; item
- * rows are hydrated separately (or not at all), so this is a plain UI type.
- */
 export type ListItem = {
   id: string;
   itemId: string | null;
@@ -57,8 +53,6 @@ export function normalizeList(w: WireFavoriteList): List {
     updatedAt: w.updatedAt ?? null,
     permission: w.permission ?? null,
     previewOfItemIds: w.previewOfItemIds,
-    // The wire carries neither of these: pickedByUser is unknown until a
-    // picks read says otherwise, and item rows come from a separate hydrate.
     pickedByUser: null,
     items: [],
   };
@@ -66,10 +60,6 @@ export function normalizeList(w: WireFavoriteList): List {
 
 const ListEnvelopeSchema = dataOf(z.unknown());
 
-/**
- * `null` means the read failed or did not parse, which the caller has to render
- * as a broken panel. `[]` is the real "this wallet has no lists".
- */
 export async function loadLists(
   userAddress: string,
   opts: GetOptions = {},

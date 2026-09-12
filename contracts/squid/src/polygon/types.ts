@@ -40,9 +40,6 @@ export type PolygonInMemoryState = {
   curations: Map<string, Curation>;
   mints: Map<string, Mint>;
   transfers: Map<string, Transfer>;
-  // Pending gift notifications collected during the batch, keyed by
-  // `${txHash}-${nftId}`. Reconciled against `sales` post-batch so that
-  // transfers that are actually marketplace purchases are not notified as gifts.
   transferGiftCandidates: Map<string, TransferGiftCandidate>;
   squidRouterOrders: Map<string, SquidRouterOrder>;
   collectionIds: Set<string>;
@@ -52,11 +49,6 @@ export type PolygonInMemoryState = {
   analyticsIds: Set<string>;
   itemDayDataIds: Set<string>;
   bidIds: Set<string>;
-  // Issue logs (keyed by `${blockHeight}-${logIndex}`) already matched to a
-  // OffChainMarketplace Traded event during this batch. Ensures that when a single
-  // transaction mints the same item several times, each Traded event consumes a
-  // distinct Issue log (distinct issuedId/tokenId) instead of all resolving to
-  // the first one.
   consumedIssueLogs: Set<string>;
   transferEvents: Map<
     string,

@@ -339,10 +339,8 @@ fn nft_result_without_order_or_rental_is_null() {
     assert!(v["nft"]["openRentalId"].is_null());
 }
 
-/// Upstream d0daa22: a LAND search matches search_text on the whole string
-/// OR on its best run of words, so a term buried in a long description is
-/// found and a short exact name keeps matching. Every other category keeps
-/// upstream's whole-string similarity.
+/// Upstream d0daa22: OR-ing the two measures finds a term buried in a long description while
+/// a short exact name keeps matching. Every other category keeps whole-string similarity.
 #[test]
 fn land_search_ors_whole_string_and_word_similarity() {
     let land = NftFilters {

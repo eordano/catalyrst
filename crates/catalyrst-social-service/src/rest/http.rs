@@ -6,9 +6,6 @@ pub use catalyrst_types::{
 use serde::{Deserialize, Serialize};
 
 const MAX_LIMIT: i64 = 100;
-// Capped, not rejected, matching upstream @dcl/http-commons 2.0.1 (#485) and the RPC surface's
-// MAX_PAGINATION_OFFSET: a deep offset makes Postgres walk and discard every skipped row, and
-// paging past the cap returns the last page again rather than an empty result.
 const MAX_OFFSET: i64 = 100_000;
 
 pub fn get_pagination_params(pairs: &[(String, String)]) -> Pagination {

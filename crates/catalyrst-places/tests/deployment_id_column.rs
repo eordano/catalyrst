@@ -1,11 +1,3 @@
-// Upstream places #856 (fix/scene-base-integrity) added a nullable public
-// `deployment_id` field to every Place API response, sourced from a new
-// `places.deployment_id` column their ingest stamps. We read the archive, not
-// the ingest path, so the value rides through in the `raw` JSON payload and is
-// surfaced by PLACE_COLUMNS' `raw->>'deployment_id'`. This proves the read path
-// carries the value when present and reports null (never omits) when absent --
-// matching upstream's "Null only for legacy rows awaiting reconciliation".
-
 use std::sync::Arc;
 
 use axum::body::Body;

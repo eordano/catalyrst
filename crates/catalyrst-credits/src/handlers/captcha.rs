@@ -28,11 +28,6 @@ pub async fn generate(
             .fold(0u64, |acc, b| acc.wrapping_mul(31).wrapping_add(b as u64));
     let answer = answer_for_seed(seed);
 
-    // Invalidate any open challenge for this wallet and issue the new one in a
-    // single data-modifying CTE. The two writes share only $1 and are
-    // unconditional; the inner UPDATE cannot see the fresh INSERT (same
-    // snapshot), so it cannot self-consume the row it is creating, and net table
-    // state equals the old UPDATE-then-INSERT sequence.
     sqlx::query(
         "WITH invalidated AS ( \
              UPDATE captcha_challenges SET consumed_at = now() \

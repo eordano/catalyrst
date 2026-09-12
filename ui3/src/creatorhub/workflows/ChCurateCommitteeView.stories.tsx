@@ -148,12 +148,6 @@ export const Default: Story = {};
 
 type CurateProps = ComponentProps<typeof ChCurateCommitteeView>;
 
-/**
- * Both rejection variants live in the catalog now that the panels derive their ids from `useId()`.
- * Two instances of the same screen no longer collide on one `aria-labelledby` target, and each
- * screen's title already varies with the decision ("Add a comment" vs "Add a reason", "Approved ..."
- * vs "Rejected ..."), so the two regions keep distinct accessible names and landmark-unique passes.
- */
 const CASES: { label: string; args: Partial<CurateProps> }[] = [
   { label: "Dashboard queue", args: { view: "dashboard", step: "dashboard" } },
   { label: "Reviewing a collection", args: { view: "reviewing", step: "review" } },

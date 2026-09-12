@@ -3,8 +3,6 @@ import { describe, expect, it } from "vitest";
 import { type Place } from "@data/lib/catalyst/places/index";
 import { selectLiveTargets, toOpenPlace } from "./select";
 
-// Only the fields toOpenPlace/selectLiveTargets read; the rest of Place is
-// irrelevant to selection and never parsed at runtime here.
 function p(id: string, user_count: number | null, title: string | null = id): Place {
   return { id, title, base_position: "0,0", user_count } as unknown as Place;
 }
@@ -43,7 +41,6 @@ describe("selectLiveTargets", () => {
 
   it("surprise is a DISTINCT live place, chosen via the injected rng", () => {
     const places = [p("busy", 99), p("x", 3), p("y", 7), p("z", 1)];
-    // others (busiest 'busy' removed) = [x, y, z]; rng 0 -> first, ->~1 -> last.
     expect(selectLiveTargets(places, () => 0).surprise?.id).toBe("x");
     expect(selectLiveTargets(places, () => 0.999).surprise?.id).toBe("z");
     const { busiest, surprise } = selectLiveTargets(places, () => 0.5);

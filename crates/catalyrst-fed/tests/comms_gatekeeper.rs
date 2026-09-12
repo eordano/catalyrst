@@ -98,10 +98,6 @@ async fn world_fetch_failure_is_negatively_cached() {
     );
 }
 
-// Presence goes stale the moment somebody walks out, and a scene and a world
-// expire independently, so the two must never be served from one another's
-// entry: an avatar that left Genesis City for a world would otherwise stand in
-// both rooms at once.
 #[tokio::test]
 async fn a_scene_and_a_world_sharing_an_identifier_are_kept_apart() {
     let hits = Arc::new(AtomicUsize::new(0));

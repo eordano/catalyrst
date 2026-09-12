@@ -5,11 +5,6 @@
   makeWrapper,
 }:
 let
-  # NOT nodejs_26: node 25 removed buffer.SlowBuffer, which the vendored
-  # buffer-equal-constant-time (jwa/jws chain) still touches at import time --
-  # squid-eth/polygon crash-loops on `SlowBuffer.prototype` without an LTS
-  # that still ships it. Raise the pin only after that dep chain is patched
-  # to crypto.timingSafeEqual.
   nodejs = nodejs_24;
   src = ../contracts/squid;
 in

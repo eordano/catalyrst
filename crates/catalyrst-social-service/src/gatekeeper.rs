@@ -18,18 +18,18 @@ pub enum GatekeeperError {
     InvalidIdentifier(&'static str),
 }
 
-/// Validate and canonicalise a UUID identifier before it is interpolated into a privileged
-/// Gatekeeper path that carries the admin bearer token (upstream #446 `requireUuid`). Returns the
-/// canonical lowercased hyphenated form; `Uuid::parse_str` rejects anything that could smuggle a
-/// path segment (`/`, `?`, `#`, whitespace) into the URL.
+/// Guards interpolation into a privileged Gatekeeper path carrying the admin bearer token
+/// (upstream #446 `requireUuid`). Returns the canonical lowercased hyphenated form;
+/// `Uuid::parse_str` rejects anything that could smuggle a path segment (`/`, `?`, `#`,
+/// whitespace) into the URL.
 fn require_uuid(value: &str, label: &'static str) -> Result<String, GatekeeperError> {
     uuid::Uuid::parse_str(value)
         .map(|u| u.to_string())
         .map_err(|_| GatekeeperError::InvalidIdentifier(label))
 }
 
-/// Validate and lowercase an Ethereum address before interpolating it into a privileged path
-/// (upstream #446 `requireAddress`). A valid `0x`-prefixed 40-hex address carries no URL delimiter.
+/// Guards interpolation into a privileged path (upstream #446 `requireAddress`). A valid
+/// `0x`-prefixed 40-hex address carries no URL delimiter.
 fn require_address(value: &str) -> Result<String, GatekeeperError> {
     if catalyrst_types::is_eth_address(value) {
         Ok(value.to_lowercase())
@@ -38,10 +38,8 @@ fn require_address(value: &str) -> Result<String, GatekeeperError> {
     }
 }
 
-/// Percent-encode one path segment (upstream #446 `pathSegment`/`encodeURIComponent`). Belt-and-
-/// suspenders after the format validators above: a canonical UUID or lowercased address contains
-/// only unreserved bytes, so this is a no-op on validated input, but it keeps any future
-/// unvalidated caller from injecting a delimiter.
+/// Upstream #446 `pathSegment`/`encodeURIComponent`. A no-op on input the validators above
+/// already cleared, kept so a future unvalidated caller cannot inject a delimiter.
 fn path_segment(value: &str) -> String {
     let mut out = String::with_capacity(value.len());
     for &b in value.as_bytes() {
@@ -385,7 +383,6 @@ mod tests {
 
     #[test]
     fn require_uuid_canonicalises_and_rejects_path_injection() {
-        // A valid UUID normalises to canonical lowercased hyphenated form.
         assert_eq!(
             require_uuid("11111111-1111-4111-8111-111111111111", "community ID").unwrap(),
             "11111111-1111-4111-8111-111111111111"
@@ -394,7 +391,6 @@ mod tests {
             require_uuid("11111111111141118111111111111111", "community ID").unwrap(),
             "11111111-1111-4111-8111-111111111111"
         );
-        // Anything carrying a URL delimiter or extra segment is refused before it reaches the path.
         for bad in [
             "../admin",
             "11111111-1111-4111-8111-111111111111/../x",

@@ -212,10 +212,6 @@ export function adaptBridgeFriends(push: FriendsPush | null): RawFriendsData | n
     })),
     received: push.received ?? [],
     sent: push.sent ?? [],
-    // push.blocked is the union of both directions (the chat filter set); the panel
-    // must list only addresses the user blocked, never who blocked them. The wire
-    // carries bare addresses, but blocked friends stay in the friends push, so the
-    // row keeps its name and picture instead of degrading to "unknown".
     blocked: (push.blockedByMe ?? []).map((address) => {
       const f = byAddress.get(address.toLowerCase());
       return f

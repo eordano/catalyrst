@@ -124,8 +124,6 @@ impl<'a> ScratchDbBuilder<'a> {
         let db_url = if self.schemas.is_empty() {
             format!("{}/{}", base, database)
         } else {
-            // public always trails the search_path: it stays reachable for
-            // extensions/casts even though the named schemas take priority.
             let path = format!("{},public", self.schemas.join(","));
             format!("{}/{}?options=-c%20search_path%3D{}", base, database, path)
         };

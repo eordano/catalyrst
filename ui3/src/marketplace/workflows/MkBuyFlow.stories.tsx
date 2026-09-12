@@ -34,10 +34,6 @@ const SAMPLE_COSTS = {
   duration: "Normal \u{2248} 20s",
 };
 
-/**
- * A fixture is the whole priced quote -- asset, chain, token and every cost line. The old variant
- * stories differed by which of these blobs they passed, so it becomes one named-preset arg.
- */
 const FIXTURES = {
   manaPolygon: { asset: SAMPLE_ASSET, ...SAMPLE_COSTS },
   crossChain: {
@@ -88,7 +84,6 @@ const STATES = [
 ] as const;
 type BuyStateName = (typeof STATES)[number];
 
-/** Story args: the quote is picked by fixture name, `state` is the real prop. */
 type BuyStoryArgs = {
   fixture: FixtureName;
   state: BuyStateName;
@@ -113,8 +108,6 @@ const meta = {
     },
   },
   args: { fixture: "manaPolygon", state: "default" },
-  // The flow latches `state === "card"`, the chain and the token symbol into useState on mount,
-  // so both controls would look dead without a key that remounts the component when they change.
   render: ({ fixture, state }) => (
     <MkBuyFlow key={`${fixture}-${state}`} state={state} {...FIXTURES[fixture]} />
   ),
@@ -136,17 +129,6 @@ const CATALOG: { label: string; fixture: FixtureName; state: BuyStateName }[] = 
   { label: "buy with card", fixture: "manaPolygon", state: "card" },
 ];
 
-/**
- * Every step and error at once. This is possible because `Modal` takes `portal={false}`, which
- * lays the same card out in normal document flow instead of `createPortal`ing a
- * `position: fixed; inset: 0` backdrop onto `document.body` -- portalled dialogs stack on one
- * another, so a single screenshot would capture only the topmost. The flow renders no chrome, so
- * there is no `chrome={false}` to pass; each entry sits in a bare `<section>` so the stack does
- * not invent extra landmarks. The modal card's `<nav>` header is the one landmark a `<section>`
- * does NOT demote -- `nav` always maps to `navigation`, unlike an unnamed `aside`/`section` -- so
- * each entry also gets a `labelSuffix`, which names that `nav` per instance and keeps
- * `landmark-unique` green. Without it axe fails once per entry.
- */
 export const Catalog: Story = {
   name: "Catalog (every state)",
   parameters: { controls: { disable: true } },

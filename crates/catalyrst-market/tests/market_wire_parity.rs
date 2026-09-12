@@ -458,11 +458,11 @@ async fn activity_answer(metadata: &str) -> (StatusCode, String) {
     signed_route_answer("get", "/v1/activity", "/v1/activity", metadata, None).await
 }
 
-/// Upstream gates POST /v1/trades with
+/// Upstream gates this with
 /// `validateAuthMetadata(['dcl:marketplace','dcl:builder'], 'dcl:create-trade')`
-/// (routes.ts:122). The legacy payload lowercases the metadata before signing,
-/// so every rejected spelling below still carries a VALID signature -- the gate
-/// is the only layer that can tell them apart.
+/// (routes.ts:122). The legacy payload lowercases the metadata before signing, so every
+/// rejected spelling below still carries a VALID signature -- the gate is the only layer that
+/// can tell them apart.
 #[tokio::test]
 async fn post_trades_enforces_the_upstream_auth_metadata_policy() {
     let (status, message) = trade_answer(MARKETPLACE_METADATA).await;
@@ -498,9 +498,8 @@ async fn post_trades_enforces_the_upstream_auth_metadata_policy() {
     }
 }
 
-/// GET /v1/activity carries the same signer allow-list with no intent
-/// (routes.ts:165), so a canonical signer reaches the handler's own
-/// address check and a re-spelled one never does.
+/// The same signer allow-list with no intent (routes.ts:165), so a canonical signer reaches
+/// the handler's own address check and a re-spelled one never does.
 #[tokio::test]
 async fn get_activity_enforces_the_upstream_auth_metadata_policy() {
     let (status, message) = activity_answer(r#"{"signer":"dcl:marketplace"}"#).await;

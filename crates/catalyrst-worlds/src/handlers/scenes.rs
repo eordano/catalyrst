@@ -115,9 +115,6 @@ pub async fn delete_scene(
         .map(|o| o.eq_ignore_ascii_case(&signer))
         .unwrap_or(false);
 
-    // Name owners may remove every scene overlapping the parcel; a parcel-scoped deployer
-    // must hold permission for the FULL footprint of each such scene -- a single scene can
-    // span parcels the caller was never granted -- and may remove only those exact identities.
     let authorized_entity_ids: Option<Vec<String>> = if is_owner {
         None
     } else {

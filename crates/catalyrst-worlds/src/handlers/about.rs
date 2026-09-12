@@ -367,8 +367,8 @@ fn server_about(
     }
 }
 
-/// `worlds.example.org` out of `https://worlds.example.org/prefix`: what a
-/// realm is called when nothing names it.
+/// `worlds.example.org` out of `https://worlds.example.org/prefix`: what a realm is
+/// called when nothing names it.
 fn host_of(base_url: &str) -> &str {
     let rest = base_url
         .split_once("://")
@@ -378,26 +378,20 @@ fn host_of(base_url: &str) -> &str {
 
 /// Every route this node serves that a stock catalyst does not.
 ///
-/// `/about` is the only thing a client fetches before it can do anything else,
-/// so anything not named here has to be hardcoded by every client -- and a
-/// hardcoded path silently points at whichever node the constant was written
-/// for. That is not hypothetical: bevy-explorer shipped
-/// `catalyst.example.com/comms/get-scene-adapter`, so on this node it minted scene
-/// rooms against a different federation entirely, joined a LiveKit the
-/// authoritative server was not in, and every scene showed "Server
-/// Disconnected" while looking healthy from the outside.
+/// `/about` is the only thing a client fetches before anything else, so a route not
+/// named here has to be hardcoded by every client, and a hardcoded path silently points
+/// at whichever node the constant was written for: bevy-explorer shipped
+/// `catalyst.example.com/comms/get-scene-adapter`, so on this node it minted scene rooms
+/// against a different federation, joined a LiveKit the authoritative server was not
+/// in, and every scene showed "Server Disconnected" while looking healthy outside.
 ///
-/// Shape follows the catalyst service blocks above (`healthy` + `publicUrl`),
-/// under one additive key: a stock client ignores what it does not know, and a
-/// catalyrst-aware one discovers the whole surface from a single fetch.
+/// Shape follows the catalyst service blocks above (`healthy` + `publicUrl`) under one
+/// additive key, so a stock client ignores what it does not know.
 fn catalyrst_extensions(base_url: &str) -> serde_json::Value {
     let at = |path: &str| json!({ "healthy": true, "publicUrl": format!("{base_url}{path}") });
 
     json!({
         "healthy": true,
-        // Per-scene LiveKit rooms. `sceneAdapter` is the client mint (ADR-44
-        // signed fetch); `serverSceneAdapter` is the authoritative scene runner
-        // mint, which answers only to the configured server identity.
         "sceneAdapter": at("/get-scene-adapter"),
         "serverSceneAdapter": at("/get-server-scene-adapter"),
         "worldStorage": at("/world-storage"),
@@ -416,10 +410,9 @@ fn catalyrst_extensions(base_url: &str) -> serde_json::Value {
 const ENS_WORLD_SUFFIX: &str = ".dcl.eth";
 const ZERO_ADDRESS: &str = "0x0000000000000000000000000000000000000000";
 
-/// Whether an owner deployed to this node, as opposed to `worlds-mirror` having
-/// copied someone else's world here. A mirror is a faithful second copy, so it
-/// keeps the ENS realm name that points clients at the original registry; a
-/// local publish is the authoritative copy and must not lose to it.
+/// Whether an owner deployed to this node, as opposed to `worlds-mirror` copying
+/// someone else's world here. A mirror keeps the ENS realm name pointing clients at the
+/// original registry; a local publish is authoritative and must not lose to it.
 fn is_locally_published(scenes: &[WorldScene]) -> bool {
     scenes
         .iter()
@@ -434,9 +427,8 @@ fn strip_ens_suffix(name: &str) -> &str {
     }
 }
 
-/// The realm name a client sees. An explicit override always wins -- it is the
-/// only value here a republish cannot overwrite, which is the whole reason the
-/// column exists.
+/// An explicit override always wins: it is the only value here a republish cannot
+/// overwrite, which is why the column exists.
 fn resolve_realm_name(
     derived: &str,
     override_name: Option<&str>,
@@ -701,10 +693,6 @@ mod tests {
     fn extensions_are_absolute_urls_on_this_node() {
         let ext = super::catalyrst_extensions("https://worlds.example");
 
-        // The whole point is that a client never has to compose one of these
-        // itself, so every entry must be a complete url on the node that
-        // answered -- a bare path would leave the caller guessing the origin,
-        // which is the bug this advert exists to retire.
         let entries = ext.as_object().expect("extensions is an object");
         assert!(entries.len() > 1, "advert is empty");
         for (name, block) in entries {

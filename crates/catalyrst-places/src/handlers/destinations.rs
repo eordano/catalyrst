@@ -171,10 +171,6 @@ fn present(s: &Option<String>) -> bool {
     s.as_deref().is_some_and(|v| !v.is_empty())
 }
 
-// A caller naming what it wants back (a search, ids, its own or a creator's
-// destinations, the curated shelf) is looking things up, not discovering:
-// hiding a thumbnail-less row from that answer would read as the destination
-// having vanished, so the content gate steps aside for both entity types.
 fn is_lookup_query(f: &PlaceListFilters) -> bool {
     present(&f.search)
         || !f.ids.is_empty()
@@ -183,9 +179,6 @@ fn is_lookup_query(f: &PlaceListFilters) -> bool {
         || f.only_highlighted
 }
 
-// `owner` narrows the feed to that wallet's parcels, so it must set
-// owner_filtered like /places does: without it an unknown owner is handed
-// the whole feed, and this exemption would hand it ungated.
 fn owner_param(pairs: &[(String, String)]) -> Option<&str> {
     pairs
         .iter()
@@ -194,10 +187,6 @@ fn owner_param(pairs: &[(String, String)]) -> Option<&str> {
         .filter(|v| !v.is_empty())
 }
 
-// `positions` (or the legacy `pointer`) names parcels, so it exempts places
-// only; `world_names` (or the legacy `names`) names worlds, so it exempts
-// worlds only. Only a value that names something counts: `pointer=` matches
-// no parcel, so it must not open the gate either.
 fn require_feed_content(f: &mut PlaceListFilters) {
     let lookup = is_lookup_query(f);
     let names_parcels = f.positions.iter().any(|p| !p.is_empty());
@@ -217,8 +206,6 @@ fn truthy(pairs: &[(String, String)], key: &str) -> bool {
     matches!(get(pairs, key), Some("true") | Some("1"))
 }
 
-// Upstream's multiParam: repeatable and comma-separated, trimmed, empties
-// dropped, and capped so a GET cannot build a giant ANY(...) scan.
 fn multi(pairs: &[(String, String)], key: &str) -> Result<Vec<String>, ApiError> {
     let values: Vec<String> = pairs
         .iter()
@@ -236,11 +223,6 @@ fn multi(pairs: &[(String, String)], key: &str) -> Result<Vec<String>, ApiError>
     Ok(values)
 }
 
-// Parcels are "x,y" tokens, so they are never comma-split: `positions` is the
-// unified name and `pointer` the legacy alias, both read whole. Upstream
-// reads the alias through its comma-splitting multiParam, which shreds every
-// parcel into two halves (an upstream bug), so this is a deliberate
-// deviation: keep reading `pointer` whole.
 fn positions_param(pairs: &[(String, String)], key: &str) -> Result<Vec<String>, ApiError> {
     let values: Vec<String> = pairs
         .iter()
@@ -256,8 +238,6 @@ fn positions_param(pairs: &[(String, String)], key: &str) -> Result<Vec<String>,
     Ok(values)
 }
 
-// A non-numeric or negative limit/offset falls back to the default instead of
-// reaching LIMIT/OFFSET.
 fn int_param(pairs: &[(String, String)], key: &str) -> Option<i64> {
     get(pairs, key)
         .map(str::trim)
@@ -277,10 +257,6 @@ pub fn parse_with_options(pairs: &[(String, String)]) -> Result<DestinationFlags
     })
 }
 
-// The place and world branches of upstream's UNION are each kept by `kinds`
-// and each keep the rows their own selector matches: a parcel selector alone
-// excludes worlds, a world-name selector alone excludes places, and both
-// together keep both. Both flags set at once means no branch survived.
 fn select_branches(f: &mut PlaceListFilters, kinds: &[String]) {
     let wants_place = kinds.is_empty() || kinds.iter().any(|k| k == "place");
     let wants_world = kinds.is_empty() || kinds.iter().any(|k| k == "world");
@@ -366,9 +342,6 @@ fn event_key(d: &PlaceRow) -> String {
     }
 }
 
-// Upstream decorates every destination with its live occupancy whether or
-// not the caller asked, and a destination nobody is in is empty, not
-// unknown. Places are keyed by their parcel and worlds by their name.
 fn fill_user_counts(rows: &mut [PlaceRow], counts: &LiveUserCounts) {
     let places: HashMap<&str, i32> = counts
         .places
@@ -469,8 +442,6 @@ fn empty() -> Json<ApiDataTotal<Destination>> {
     Json(ApiDataTotal::ok(vec![], 0))
 }
 
-// Favorites are per-user: an anonymous only_favorites query is empty, and a
-// signed one narrows the id set to what that wallet favorited.
 async fn narrow_to_favorites(
     state: &AppState,
     user: Option<&str>,
@@ -515,8 +486,6 @@ async fn run_list(
     Ok(Json(ApiDataTotal::ok(out, total)))
 }
 
-// The caller's identity is optional but never taken on trust: `signed_path`
-// is the route the caller signed, so a forged auth chain reads as anonymous.
 pub(crate) async fn list_destinations(
     state: &AppState,
     headers: &HeaderMap,
@@ -580,7 +549,6 @@ pub async fn get_destinations_list(
     list_destinations(&state, &headers, method.as_str(), uri.path(), &pairs).await
 }
 
-// A body array of strings, capped like the query selectors; None when absent.
 fn bounded_list(value: Option<&Value>) -> Result<Option<Vec<String>>, ApiError> {
     let Some(items) = value.and_then(Value::as_array) else {
         return Ok(None);
@@ -604,9 +572,6 @@ struct BatchSelectors {
     world_names: Vec<String>,
 }
 
-// Legacy callers send a bare array of ids; newer ones an object of selectors.
-// A selector that was provided but survived validation empty is a by-id
-// lookup for nothing, never a fall-through to the unfiltered feed.
 fn parse_batch_body(body: &Value) -> Result<Option<BatchSelectors>, ApiError> {
     let object;
     let body = if body.is_array() {

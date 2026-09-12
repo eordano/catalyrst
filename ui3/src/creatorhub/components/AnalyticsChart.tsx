@@ -24,12 +24,6 @@ export type AnalyticsChartProps = {
   legend?: boolean;
   area?: boolean;
   showDelta?: boolean;
-  /**
-   * Index ranges over the reference series where the collector produced no
-   * sample at all. Rendered as a hatched band behind the plot so a hole in the
-   * line reads as "nobody looked" rather than "nobody came". Purely additive:
-   * the path already breaks on a null point and that behaviour is untouched.
-   */
   gapBands?: { fromIndex: number; toIndex: number }[];
   gapLabel?: string;
 };
@@ -49,9 +43,6 @@ function formatCount(value: number): string {
 }
 
 function formatDateLabel(date: string): string {
-  // Plain calendar dates ("2026-07-12") keep their existing day label. Occupancy
-  // buckets arrive as full ISO instants and would otherwise render "Invalid
-  // Date" -- an axis that lies about when a sample was taken.
   if (date.includes("T")) {
     const at = new Date(date);
     if (Number.isNaN(at.getTime())) return date;

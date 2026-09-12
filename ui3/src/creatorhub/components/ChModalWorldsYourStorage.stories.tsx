@@ -1,11 +1,3 @@
-// Deliberately NOT collapsed into one Controls story + Catalog. `chrome={false}` now drops the
-// Creator Hub frame, which removes the duplicate `<main id="ch-main">` / `<nav>` landmarks, and
-// the panel labels itself with a `useId()` id rather than a hardcoded one -- but the panel's
-// heading is the fixed string "Your Storage", so N stacked panels are N `role="region"`
-// landmarks with the same accessible name and axe's `landmark-unique` fails the Catalog.
-// Unblocking this needs the panel's landmark name to become per-instance (an `ariaLabel`
-// passthrough, or dropping the region role on the panel variant) -- a component change beyond
-// the chrome opt-out.
 import ChModalWorldsYourStorage from "./ChModalWorldsYourStorage";
 
 export default {

@@ -26,27 +26,6 @@ const FALLBACK: Assignment = {
   experimentKey: EXPERIMENT_KEY,
 };
 
-/**
- * Scene bans -- BLOCK, and the fixture no longer stands in for a live answer.
- *
- * The server-side checks are real and fail closed:
- *   list   `catalyrst-comms/src/handlers/scene_bans.rs:88-89` `verify_signed_fetch`
- *   ban    `catalyrst-comms/src/handlers/scene_bans.rs:170-178`
- *   unban  `catalyrst-comms/src/handlers/scene_bans.rs:193-205`
- *          -> `ports/scene_perms.rs:16-114`, denying on pool failure (`:27-34`)
- *
- * They are unreachable from this node for the same reason as scene admins:
- * nginx has no `location` for `/scene-admin`, and `/comms/scene-admin` is used
- * nowhere. That is a deployment change, not a UI change.
- *
- * What was here before: the loader called the live endpoint, a bare `catch {}`
- * swallowed the 401, and `src/fixtures/operator-scene-bans.json` supplied ban
- * rows tagged `source: "fixture"`. A moderator saw plausible bans for a scene,
- * produced by a JSON file, above a working-looking ban form. Both are gone.
- *
- * The fixture is not deleted -- it is still the place list for this layout -- but
- * `loadOperatorPlaces()` now returns `synthetic: true` and the page says so.
- */
 export async function loader({ request }: Route.LoaderArgs) {
   const url = new URL(request.url);
 

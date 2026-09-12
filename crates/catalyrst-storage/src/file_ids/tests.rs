@@ -3,8 +3,6 @@ use crate::ContentStorage;
 use bytes::Bytes;
 use std::path::PathBuf;
 
-/// Drains the walk into a `Vec`, which is what a test wants and what the walk itself refuses to
-/// decide for its callers.
 async fn collect_ids(storage: &ContentStorage) -> Vec<String> {
     let mut walk = storage.all_file_ids(None);
     let mut ids = Vec::new();
@@ -33,9 +31,9 @@ fn set_mode(path: &Path, mode: u32) {
     std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode)).unwrap();
 }
 
-/// Every point lookup follows a symlink at a content path and serves what it finds, so the listing
-/// has to offer the id too: a dirent reports the LINK rather than its target, and judging the entry
-/// by "is it a regular file" drops content this node holds and answers for.
+/// Every point lookup follows a symlink at a content path, so the listing has to offer the id too: a
+/// dirent reports the LINK rather than its target, and judging by "is it a regular file" drops
+/// content this node holds and answers for.
 #[cfg(unix)]
 #[tokio::test]
 async fn a_symlinked_content_file_is_enumerated_like_the_file_it_points_at() {
@@ -70,9 +68,8 @@ async fn a_symlinked_content_file_is_enumerated_like_the_file_it_points_at() {
     let _ = tokio::fs::remove_dir_all(&tmp).await;
 }
 
-/// The occupants no read can serve are the ones enumeration drops. A fifo, a socket and a directory
-/// at a content path all fault on every point lookup, so yielding one hands a GC sweep an id whose
-/// `exist()` throws -- a batch that fails again on every retry.
+/// A fifo, socket or directory at a content path faults on every point lookup, so yielding one hands
+/// a GC sweep an id whose `exist()` throws -- a batch that fails again on every retry.
 #[cfg(unix)]
 #[tokio::test]
 async fn foreign_occupants_of_a_content_path_are_never_enumerated() {
@@ -121,7 +118,7 @@ async fn foreign_occupants_of_a_content_path_are_never_enumerated() {
 }
 
 /// A shard reached through a symlink serves every id inside it, so the walk descends there too --
-/// otherwise one entry the listing reports as a link costs the whole shard, silently.
+/// otherwise one entry the listing reports as a link silently costs the whole shard.
 #[cfg(unix)]
 #[tokio::test]
 async fn a_symlinked_shard_is_walked_like_the_directory_it_points_at() {
@@ -149,9 +146,8 @@ async fn a_symlinked_shard_is_walked_like_the_directory_it_points_at() {
     let _ = tokio::fs::remove_dir_all(&tmp).await;
 }
 
-/// A shard this node cannot read is not a shard holding nothing. The walk reports the fault instead
-/// of returning a shorter list, and keeps reporting it: a consumer that diffs a silently short list
-/// against a peer reads live content as absent from here and deletes it.
+/// A consumer that diffs a silently short list against a peer reads live content as absent from here
+/// and deletes it, so the walk reports the fault instead of a shorter list, and keeps reporting it.
 #[cfg(unix)]
 #[tokio::test]
 async fn an_unreadable_shard_fails_the_walk_instead_of_shortening_it() {
@@ -177,8 +173,6 @@ async fn an_unreadable_shard_fails_the_walk_instead_of_shortening_it() {
         matches!(walk.next().await, Err(StorageError::Io(_))),
         "and a caller that keeps pulling is told again, never handed the end of the list"
     );
-    // The same tree that faults for the walk faults for a point read, which is what makes the two
-    // surfaces agree about damage.
     assert!(matches!(
         storage.exist(hash).await,
         Err(StorageError::Io(_))
@@ -190,9 +184,9 @@ async fn an_unreadable_shard_fails_the_walk_instead_of_shortening_it() {
     let _ = tokio::fs::remove_dir_all(&tmp).await;
 }
 
-/// What sits at the root and cannot hold ids is passed over, never fatal. Faulting on it would let
-/// one stray file -- an operator's copy, a dangling link -- cost the entire corpus its listing, which
-/// is a far wider blast radius than the thing it would be reporting.
+/// Faulting on a root entry that cannot hold ids would let one stray file -- an operator's copy, a
+/// dangling link -- cost the entire corpus its listing, a far wider blast radius than the thing being
+/// reported.
 #[tokio::test]
 async fn root_entries_that_cannot_hold_ids_are_passed_over() {
     let tmp = std::env::temp_dir().join(format!("catalyrst-test-rootjunk-{}", std::process::id()));
@@ -206,8 +200,6 @@ async fn root_entries_that_cannot_hold_ids_are_passed_over() {
         .unwrap();
 
     #[cfg(unix)]
-    // A 4-hex name, so it is a plausible shard, pointing at nothing: never observed, so its absence
-    // is the whole truth about it.
     std::os::unix::fs::symlink(tmp.join("nothing-here"), storage.root().join("0bad")).unwrap();
 
     assert_eq!(collect_ids(&storage).await, vec![hash.to_string()]);
@@ -215,10 +207,8 @@ async fn root_entries_that_cannot_hold_ids_are_passed_over() {
     let _ = tokio::fs::remove_dir_all(&tmp).await;
 }
 
-/// A shard path occupied by something that is not a directory is the same damage every point read of
-/// an id inside it already reports -- no id resolves to a 4-hex name, so nothing this storage writes
-/// can put it there, and it makes the whole shard unreadable. The walk cannot list through it
-/// either, so answering "nothing here" would hide the one kind of damage its consumers act on.
+/// Nothing this storage writes can put a non-directory at a shard path, and it makes the whole shard
+/// unreadable, so answering "nothing here" would hide the one kind of damage its consumers act on.
 #[tokio::test]
 async fn a_file_at_a_shard_path_fails_the_walk_like_it_fails_a_read() {
     let tmp =
@@ -247,9 +237,8 @@ async fn a_file_at_a_shard_path_fails_the_walk_like_it_fails_a_read() {
     let _ = tokio::fs::remove_dir_all(&tmp).await;
 }
 
-/// The strictness above is bounded by what an id can reach. A root entry whose name no `hex_prefix`
-/// can spell holds nothing this walk could omit, so even damage to it is passed over: one operator
-/// scratch directory must not cost the whole corpus its listing.
+/// The strictness above is bounded by what an id can reach: a root entry whose name no `hex_prefix`
+/// can spell holds nothing this walk could omit, so even damage to it is passed over.
 #[cfg(unix)]
 #[tokio::test]
 async fn an_unreadable_directory_no_id_hashes_into_is_passed_over() {
@@ -275,8 +264,8 @@ async fn an_unreadable_directory_no_id_hashes_into_is_passed_over() {
     let _ = tokio::fs::remove_dir_all(&tmp).await;
 }
 
-/// A shard the walk observed and then lost is damage, so the fault is raised rather than passed over
-/// even where the entry type left the walk to find out by opening it.
+/// A shard the walk observed and then lost is damage, raised even where the entry type left the walk
+/// to find out by opening it.
 #[cfg(unix)]
 #[tokio::test]
 async fn a_vanished_symlinked_shard_is_a_fault_once_it_has_been_observed() {
@@ -292,8 +281,6 @@ async fn a_vanished_symlinked_shard_is_a_fault_once_it_has_been_observed() {
     storage.store(hash, Bytes::from_static(b"x")).await.unwrap();
     assert_eq!(collect_ids(&storage).await, vec![hash.to_string()]);
 
-    // The link survives, its target does not: opening the shard now answers ENOENT for a directory
-    // this walk has already listed.
     tokio::fs::remove_dir_all(&elsewhere).await.unwrap();
     assert!(
         matches!(

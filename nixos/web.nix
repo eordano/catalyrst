@@ -8,8 +8,6 @@ let
   cfg = config.services.catalyrst;
   inherit (cfg) domain;
   escapedDomain = lib.replaceStrings [ "." ] [ "\\." ] domain;
-  # lego reads per-provider tuning from env vars under a provider prefix;
-  # listed here are the providers whose prefix is not the uppercased name.
   legoEnvPrefix =
     {
       digitalocean = "DO";
@@ -26,12 +24,6 @@ let
     contentReadLocations
     ;
 
-  # The names an acme-http01 cert must cover: every subdomain a vhost could
-  # actually serve, mirrored against the same gates those vhosts use below.
-  # HTTP-01 cannot issue wildcards, so each SAN must resolve to a live vhost
-  # or the challenge fails -- unlike the acme-dns01 branch's single "*.domain".
-  # web-gateway.nix appends its subdomains to this same certificate through
-  # security.acme's list merge, keeping each SAN next to the vhost serving it.
   acmeHttp01ExtraDomainNames = [
     "www.${domain}"
     "abgen.${domain}"
@@ -404,8 +396,6 @@ let
         extraConfig = "return 301 /private/dumps/;";
       };
       "/private/dumps/" = {
-        # superadmin-gated like every other operator surface: the name says
-        # /private, so it must not be a world-listable autoindex.
         extraConfig = ''
           alias /srv/dumps/;
           autoindex on;
@@ -522,12 +512,6 @@ lib.mkIf cfg.enable (
             }
           else
             {
-              # acme-http01: with no dnsProvider set, nixpkgs emits the
-              # /.well-known/acme-challenge location on every useACMEHost vhost,
-              # served from the vhost default acmeRoot (/var/lib/acme/
-              # acme-challenge) that this webroot matches -- so each SAN below
-              # must resolve to one of those live vhosts. webroot is also the
-              # challenge method security.acme's assertion requires.
               extraDomainNames = acmeHttp01ExtraDomainNames;
               webroot = "/var/lib/acme/acme-challenge";
               group = "nginx";
@@ -535,12 +519,6 @@ lib.mkIf cfg.enable (
             };
       };
 
-      # nixpkgs runs the order once at boot and then on the daily renew timer,
-      # so a failed first order must retry itself or the node serves the
-      # placeholder certificate for a day; Restart activates the RestartSec
-      # nixpkgs already sets (900 s). DNS providers also publish challenge TXT
-      # records slower than lego's 60 s default window; the prefixed env vars
-      # widen it, and acme-dns.env still overrides them.
       systemd.services."acme-order-renew-${domain}" =
         lib.mkIf (cfg.tls == "acme-dns01" || cfg.tls == "acme-http01")
           {

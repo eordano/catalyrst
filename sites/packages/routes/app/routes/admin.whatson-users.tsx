@@ -23,35 +23,6 @@ const FALLBACK: Assignment = {
   experimentKey: "admin_whatson_users",
 };
 
-/**
- * `?admin=1` is gone.
- *
- * The loader used to turn `?admin=1` into a `hasAdminScope` boolean handed to
- * the data layer -- a query parameter the visitor sets, standing in for an
- * authorization decision. That is exactly the pretend-gate this build removes.
- *
- * The real gate is server-side and needs no secret, only the caller's wallet:
- *   catalyrst-events/src/handlers/profile_settings.rs:40-41
- *     `require_auth(&headers, "get", "/api/profiles/settings")`
- *     then `authority::require_moderator`
- *   catalyrst-fed/src/authority.rs:5-11  SELECT 1 FROM moderators WHERE address=$1
- *   catalyrst-fed/src/authority.rs:13-19 403 otherwise
- *
- * When the read path is fixed, this page will show what that server answers to
- * the connected wallet -- 200 (a moderator row exists), 403 (you are not a
- * moderator on this node), 401 (not connected) -- and nothing else. It will not
- * simulate any of those answers locally.
- *
- * Until then `loadAdminUsers` reports the three named client-side defects
- * instead of fetching, and this page renders that reason. The previous
- * behaviour swallowed a 403 into `{ rows: [], source: "empty" }`, so "you are
- * not allowed to see this" and "there are no moderators" rendered identically.
- *
- * Saving permissions is a separate BLOCK (`profile_settings.rs:145-155`): the
- * gate is real, and nothing on this side can reach it -- the signed federation
- * envelope the endpoint requires has no builder in this repo. It renders as a
- * disabled control with that reason, not as a save button that cannot save.
- */
 export async function loader({ request }: Route.LoaderArgs) {
   const { sid, assignment, wrap } = await storyLoader(
     request,

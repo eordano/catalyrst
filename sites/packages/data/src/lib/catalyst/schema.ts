@@ -87,9 +87,6 @@ export function reportSchemaDrift(kind: string, issues: readonly unknown[]): voi
   }
 }
 
-// A cast is not a check: once the schema has rejected the payload, `as Place`
-// only stops the compiler from saying so, and every field it existed to
-// guarantee -- base_position, user_count -- becomes whatever the upstream sent.
 export function parsePlace(raw: unknown): Place | null {
   const r = PlaceRowSchema.safeParse(raw);
   if (r.success) return normalizePlace(r.data);

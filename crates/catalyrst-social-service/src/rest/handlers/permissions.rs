@@ -1,24 +1,14 @@
 //! The capability matrix for one wallet acting inside one community.
 //!
-//! The 15/11 matrix below is unchanged by the typed-authority migration; only the type of
-//! the tier parameter moved, from `crate::rest::fed::authority::Role` to
-//! [`CommunityMembershipTier`].
-//!
-//! # On the name `Permission`
-//!
-//! It stays. Within this module it is unambiguous, and the workspace-wide rule this
-//! migration follows -- never reuse a short noun across two authorities -- is satisfied by
-//! never re-exporting it: `catalyrst-worlds` calls its ACL name a `permission: &str` and
-//! `catalyrst-land-authz` has `ParcelPermissionFlags`, and neither may ever meet this
-//! one. The three-way collision is recorded in the naming table; the resolution here is
-//! containment rather than a rename, because the matrix and its test are the best-pinned
-//! code in this crate and a rename would churn them for no behavioural gain.
+//! `Permission` collides three ways across the workspace -- `catalyrst-worlds` calls its
+//! ACL name a `permission: &str` and `catalyrst-land-authz` has `ParcelPermissionFlags`.
+//! The resolution is containment, not a rename: this one is **never re-exported**, so the
+//! three can never meet.
 
 use crate::rest::community_membership_authority::CommunityMembershipTier;
 
-/// One capability a community membership tier may hold **within its own community**.
-///
-/// Not a world ACL name, not a LAND grant bitmask, not a platform-wide power.
+/// A capability held **within one community**: not a world ACL name, not a LAND grant
+/// bitmask, not a platform-wide power.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Permission {
     EditInfo,
@@ -97,12 +87,9 @@ pub fn can_create_post(tier: CommunityMembershipTier) -> bool {
     has_permission(tier, Permission::CreatePosts)
 }
 
-/// Owner may delete any post; a moderator may delete only their own.
-///
-/// The `tier != Moderator || is_author` shape reads like an inverted condition and is
-/// **not** being changed by this migration. If it is a bug it is a separate finding with
-/// its own commit; a refactor that compiles but flips a predicate is worse than no
-/// refactor.
+/// Owner may delete any post; a moderator may delete only their own. The
+/// `tier != Moderator || is_author` shape reads like an inverted condition; if it is a bug
+/// it is a separate finding, deliberately left as-is here.
 pub fn can_delete_post(tier: CommunityMembershipTier, is_author: bool) -> bool {
     has_permission(tier, Permission::DeletePosts)
         && (tier != CommunityMembershipTier::ModeratorOfThisCommunity || is_author)
@@ -113,10 +100,8 @@ pub fn can_like_post(tier: CommunityMembershipTier, community_is_private: bool) 
         && !(community_is_private && tier == CommunityMembershipTier::NotAMemberOfThisCommunity)
 }
 
-/// Whether an actor's tier outranks a target's tier for member-directed actions.
-///
-/// This is one half of the shared ban/unban predicate; the other half is
-/// `has_permission(actor, BanPlayers)`. Both halves are combined in exactly one place,
+/// One half of the shared ban/unban predicate; the other half is
+/// `has_permission(actor, BanPlayers)`. Both are combined in exactly one place,
 /// [`crate::rest::community_membership_authority::ban_authority`].
 pub fn can_act_on_member(actor: CommunityMembershipTier, target: CommunityMembershipTier) -> bool {
     match target {

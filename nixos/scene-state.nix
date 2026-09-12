@@ -9,10 +9,6 @@ let
   cfg = config.services.catalyrst;
   d = import ./helpers.nix cfg;
 
-  # catalyrst-all (the prod artifact) already links the catalyrst-scene-state
-  # bin, so run it from there instead of the standalone package: pulling the
-  # solo package into the closure would rebuild the same crate (plus its V8
-  # link, the fattest single link in the workspace) a second time per deploy.
   scenePkg =
     if cfg.bundlesPackage != null then
       cfg.bundlesPackage

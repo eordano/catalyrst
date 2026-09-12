@@ -31,8 +31,6 @@ const CONTENT_TABLES: &[&str] = &[
 
 const SQL_VERBS: &[&str] = &["SELECT", "INSERT", "UPDATE", "DELETE", "WITH"];
 
-// Below this the extractor is broken, not the sources clean (35 statements at
-// the time of writing).
 const EXTRACTION_FLOOR: usize = 20;
 
 fn pg_url() -> String {

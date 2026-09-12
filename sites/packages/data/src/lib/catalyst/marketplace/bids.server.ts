@@ -1,13 +1,6 @@
 import { fetchReceivedBids, type Bid } from "./bids";
 import type { GetOptions } from "../client";
 
-/**
- * "live" -- `bids` are the seller's open bids.
- * "empty" -- we asked and nobody has bid.
- * "unavailable" -- the read failed, so we do not know. A seller shown "nobody
- *   has bid" here would walk away from offers that may exist; `reason` is safe
- *   to show them instead.
- */
 export type LoadedBids = {
   bids: Bid[];
   source: "live" | "empty" | "unavailable";

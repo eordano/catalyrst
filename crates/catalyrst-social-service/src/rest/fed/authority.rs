@@ -1,7 +1,5 @@
-//! The federation path's view of community authority.
-//!
-//! The tier vocabulary that used to live here as `Role` now lives in
-//! [`crate::rest::community_membership_authority`], shared with the client path. What
+//! The federation path's view of community authority. The tier vocabulary lives in
+//! [`crate::rest::community_membership_authority`], shared with the client path; what
 //! remains here is the federation-specific write gate and two community lookups.
 
 use sqlx::PgPool;
@@ -13,28 +11,19 @@ use crate::rest::community_membership_authority::{
 };
 use crate::rest::http::ApiError;
 
-/// The right of a federated originating wallet to write to one community, proven against
-/// the **`community_role_current`** table.
-///
-/// This is not the client path's authority: that one is proven against `community_members`
-/// and is named `ClientCommunityWriteAuthority` in
-/// [`crate::rest::handlers::client`]. The two tables can disagree, and the whole point of
-/// giving them different type names is that a reviewer can see which one decided.
-///
-/// Replaces the old `require_min_role`, message for message and status for status.
+/// Proven against the **`community_role_current`** table. Not the client path's
+/// authority, which is proven against `community_members` and named
+/// `ClientCommunityWriteAuthority` in [`crate::rest::handlers::client`]; the two tables can
+/// disagree.
 #[derive(Debug)]
 pub struct FederatedCommunityWriteAuthority {
     standing: CommunityMembershipStanding,
 }
 
 impl FederatedCommunityWriteAuthority {
-    /// Behaviour-preserving replacement for `require_min_role(pool, community, signer, min)`.
-    ///
-    /// Order and wording of the two refusals are unchanged: an explicitly banned wallet is
-    /// refused first and by name, then a wallet below the minimum tier is refused with its
-    /// own tier and the required one spelled out. A query failure is
-    /// [`AuthorityNotEstablished::UndeterminedStoreUnavailable`], which
-    /// is what the old code expressed by propagating `ApiError::Database`.
+    /// An explicitly banned wallet is refused first and by name, then a wallet below the
+    /// minimum tier. A query failure is
+    /// [`AuthorityNotEstablished::UndeterminedStoreUnavailable`], never a refusal.
     pub async fn resolve_requiring_at_least(
         pool: &PgPool,
         community_id_hex_text: &str,
@@ -64,12 +53,10 @@ impl FederatedCommunityWriteAuthority {
         Ok(Self { standing })
     }
 
-    /// The tier this authority was proven at.
     pub fn tier(&self) -> CommunityMembershipTier {
         self.standing.tier()
     }
 
-    /// The full standing, including the table that answered.
     pub fn standing(&self) -> &CommunityMembershipStanding {
         &self.standing
     }
@@ -103,9 +90,8 @@ mod tests {
     use crate::rest::community_membership_authority::CommunityMembershipTier as Tier;
     use crate::rest::handlers::permissions::{has_permission, Permission};
 
-    /// Preserved verbatim from the old `Role::parse` test. The `"admin"` tier was removed
-    /// from the CHECK constraints by `migrations/0006_role_check_reconcile.sql` and must
-    /// stay unparseable.
+    /// `"admin"` was removed from the CHECK constraints by
+    /// `migrations/0006_role_check_reconcile.sql` and must stay unparseable.
     #[test]
     fn admin_tier_is_removed() {
         assert_eq!(Tier::parse_role_text_supplied_in_a_request("admin"), None);

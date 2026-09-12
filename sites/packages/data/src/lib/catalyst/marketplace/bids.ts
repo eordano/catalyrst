@@ -9,11 +9,6 @@ function message(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-/**
- * UI view-model for a received bid. The wire row (`WireBid`, the generated
- * schema in ./bid) carries none of the display fields below; `normalizeBid`
- * derives them explicitly.
- */
 export type BidAsset = {
   id: string;
   name: string;
@@ -65,12 +60,6 @@ function timeLeftLabel(expiresAtMs: number, now: number): string {
   return `${days} ${days === 1 ? "day" : "days"}`;
 }
 
-/**
- * Wire row -> UI view-model. The bid names its target only as
- * contract + token/item id, so the asset block is a placeholder card
- * (label from ids, neutral rarity) -- the wire has no name or thumbnail
- * for it.
- */
 export function normalizeBid(row: WireBid, now = Date.now()): Bid {
   const token = row.tokenId ?? row.itemId ?? null;
   const assetName = token ? `Token #${shortHex(token)}` : shortHex(row.contractAddress);
@@ -107,12 +96,6 @@ export function normalizeBid(row: WireBid, now = Date.now()): Bid {
   };
 }
 
-/**
- * "live" -- these are the seller's open bids.
- * "empty" -- the node answered and nobody has bid.
- * "unavailable" -- the read failed, so we do not know whether anyone has bid.
- *   Telling a seller "nobody has bid" off the back of this hides real money.
- */
 export type ReceivedBids = {
   bids: Bid[];
   source: "live" | "empty" | "unavailable";

@@ -14,8 +14,6 @@ pub const AUTH_CHAIN_HEADER_PREFIX: &str = "x-identity-auth-chain-";
 const ADMIN_TOKEN_ENV: &str = "PLACES_ADMIN_AUTH_TOKEN";
 const DATA_TEAM_TOKEN_ENV: &str = "DATA_TEAM_AUTH_TOKEN";
 
-// The address the auth chain merely claims, unverified: only a cross-check
-// against an envelope whose own signature is verified may rely on it.
 pub fn auth_chain_claimed_address(headers: &HeaderMap) -> Option<String> {
     let raw = headers
         .get(format!("{AUTH_CHAIN_HEADER_PREFIX}0"))
@@ -110,20 +108,10 @@ pub const EXCLUDED_RANKING_IS_EDITORIAL: &str =
     "This entity is excluded from the automated ranking and its ranking can only be changed with \
      the admin token";
 
-// Whether the presented bearer is the editorial admin's rather than the
-// automated pipeline's: a route picks its write path from this, so an
-// unconfigured admin token must never match.
 pub fn is_admin_token(headers: &HeaderMap, admin: Option<&str>) -> bool {
     secret_matches(ADMIN_TOKEN_ENV, admin, bearer_token(headers).as_deref()).is_ok()
 }
 
-// `ranking` has two writers sharing one column: the data team job scoring
-// places and the editorial admin ordering the shelf. Two states make a ranking
-// editorial -- `highlighted`, whose position on the featured shelf is a
-// curatorial choice, and `exclude_from_ranking`, which keeps a destination
-// browsable while the score leaves it alone -- and either means only the admin
-// token may move it. The admin may still set one by hand; an unconfigured admin
-// token refuses every curated write.
 pub fn require_admin_token_for_curated_ranking(
     headers: &HeaderMap,
     admin: Option<&str>,
@@ -232,11 +220,6 @@ mod auth_address_tests {
 
     #[test]
     fn bearer_token_trims_surrounding_whitespace_a_second_divergence_beyond_lowercase() {
-        // Beyond the documented lowercase-"bearer " acceptance, places also trims the whole
-        // header value and then the token. This never accepts a wrong secret -- the trimmed
-        // bytes still go through the constant-time compare -- but it is a real second
-        // divergence from the 20-gate majority, which strips only the exact "Bearer " prefix
-        // and never trims.
         let mut trailing = HeaderMap::new();
         trailing.insert("authorization", "Bearer secret  ".parse().unwrap());
         assert_eq!(bearer_token(&trailing).as_deref(), Some("secret"));

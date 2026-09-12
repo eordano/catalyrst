@@ -7,8 +7,6 @@ import { loadCancelListing } from "./orders.server";
 import { loadPacks } from "./packs.server";
 import { loadStore } from "./settings.server";
 
-// A full wire row: parseBuyOrder now validates against the generated Order
-// schema, so the fixture must be shaped like the real payload.
 const ORDER = {
   id: "0x6ae4b880dad7bc413a256447d59eeac51ad8fa62",
   marketplaceAddress: "0x480a0f4e360e8964e68858dd231c2922f1df45ef",
@@ -27,8 +25,6 @@ const ORDER = {
   tradeId: null,
 };
 
-// A full wire row: fetchReceivedBids now validates against the generated
-// BidsEnvelope schema, so the fixture must be shaped like the real payload.
 const BID = {
   id: "bid-1",
   bidder: "0xbidder",

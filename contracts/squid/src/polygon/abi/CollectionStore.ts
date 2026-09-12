@@ -67,14 +67,12 @@ export class Contract extends ContractBase {
     }
 }
 
-/// Event types
 export type BoughtEventArgs = EParams<typeof events.Bought>
 export type MetaTransactionExecutedEventArgs = EParams<typeof events.MetaTransactionExecuted>
 export type OwnershipTransferredEventArgs = EParams<typeof events.OwnershipTransferred>
 export type SetFeeEventArgs = EParams<typeof events.SetFee>
 export type SetFeeOwnerEventArgs = EParams<typeof events.SetFeeOwner>
 
-/// Function types
 export type BASE_FEEParams = FunctionArguments<typeof functions.BASE_FEE>
 export type BASE_FEEReturn = FunctionReturn<typeof functions.BASE_FEE>
 

@@ -5,7 +5,6 @@ import { fetchParcelsPermission, unpublishWorldScene } from "./unpublish-scene";
 import { createIdentityFromPrivateKey } from "../../auth/identity";
 import type { AuthIdentity } from "../../auth/types";
 
-
 const BASE = "https://worlds.example.test";
 
 describe("unpublishWorldScene \u{2014} signed DELETE", () => {
@@ -64,10 +63,6 @@ describe("fetchParcelsPermission", () => {
   });
 
   it("reports a failed read as null, not as an empty parcel list", async () => {
-    // `{ parcels: [], total: 0 }` is a real answer meaning "this wallet holds
-    // the permission world-wide", which world-settings reads as "may unpublish
-    // every scene". Returning it on a 500 handed a collaborator the widest
-    // reading of a permission nobody managed to look up.
     fetchMock.mockResolvedValueOnce(new Response("boom", { status: 500 }));
     expect(await fetchParcelsPermission("w.dcl.eth", "0x1")).toBeNull();
   });

@@ -26,7 +26,6 @@ const CATEGORY_LABEL: Record<NotificationCategory, string> = {
 export type Notification = {
   id: string;
   type: string;
-  /** Epoch millis as a STRING -- the wire's i64-serialized-as-str form. */
   timestamp: string;
   read: boolean;
   metadata: Record<string, unknown>;
@@ -186,10 +185,6 @@ export type NotificationsPanelProps = {
   now: number;
   showFilters: boolean;
   showMarkAll: boolean;
-  /**
-   * Set when the feed could not be read. An unread feed and an empty one are
-   * different answers and must not share the "No notifications yet." line.
-   */
   unavailable: string | null;
   onFilter: (category: string) => void;
   onMarkRead: (n: Notification) => void;

@@ -18,11 +18,9 @@ struct Bucket {
     last: Instant,
 }
 
-/// Token-bucket limiter keyed by an arbitrary caller-supplied string.
-///
-/// Keys are attacker-chosen on public routes, so the map is pruned: a fully refilled
-/// bucket carries no state worth keeping and is dropped on a periodic sweep, and the map
-/// is hard-capped so a burst of distinct keys cannot grow the process without bound.
+/// Keys are attacker-chosen on public routes, so the map is pruned: a fully refilled bucket
+/// is dropped on a periodic sweep, and the map is hard-capped so a burst of distinct keys
+/// cannot grow the process without bound.
 pub struct RateLimiter {
     capacity: f64,
     refill_per_sec: f64,
@@ -56,8 +54,8 @@ impl RateLimiter {
         self.buckets.is_empty()
     }
 
-    /// Forgives a key's accumulated deficit. Called when the caller proves it is
-    /// legitimate, so earlier failures cannot lock out a user who then gets it right.
+    /// Called once the caller proves legitimate, so earlier failures cannot lock out a user
+    /// who then gets it right.
     pub fn clear(&self, signer: &str) {
         self.buckets.remove(&signer.to_ascii_lowercase());
     }

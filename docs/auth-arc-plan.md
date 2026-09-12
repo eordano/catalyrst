@@ -50,8 +50,8 @@ constant-time compare is behaviour-identical to every crate's `timing_safe_eq`, 
 refusals are already differentiated: unconfigured => 503, missing => 401, mismatch => 401.
 
 So the shared extractor **delegates to this existing chokepoint** rather than re-deriving
-the compare. It is not a new verifier; it is an axum front door onto a verifier that
-already exists and is already tested.
+the compare -- an axum front door onto a verifier that already exists and is already
+tested, not a new one.
 
 > The SIWE + HMAC + live-allowlist mechanism (the `catalyrst-server` console, and the
 > `ConfiguredWalletAllowlist` type) is **not** used by any of these four crates. It is the
@@ -151,7 +151,7 @@ where
 
 `FromRef` is not yet used anywhere in these crates (verified: no `FromRef` in any
 `crates/*/src`), so this introduces one standard axum pattern. All four crates use
-`pub type AppState = Arc<AppStateInner>`, and `FromRef` over an `Arc` state is textbook.
+`pub type AppState = Arc<AppStateInner>`, over which `FromRef` is textbook.
 
 The principal crate deliberately refuses to parse the `Authorization` header
 (`platform_service_identity.rs` doc: *"Pass the already-extracted token here"*), so the
@@ -356,10 +356,8 @@ migrating them is the same four-step transform (S3) plus the same per-crate rout
 1. Land `catalyrst-authenticated-admin` (crate + `AuthenticatedAdminIdentity` +
    `ConfiguredAdminBearerSecret` + `AdminAuthRejection` + source-discipline test). No
    consumer yet. Gate: `cargo test -p catalyrst-authenticated-admin`, clippy, fmt.
-2. `catalyrst-badges` -- `FromRef` impl, migrate 2 handlers, delete local gate, add route
-   scan, rewrite the 403->401/503 tests.
-3. `catalyrst-credits` -- migrate the `handlers/admin/` sub-router (15 sites), route scan.
-4. `catalyrst-telemetry` -- migrate the 8 `/dash/admin/*` handlers; note the `route_layer`
-   follow-on.
-5. `catalyrst-economy` -- migrate the 11 scattered sites; route scan proves none missed.
+2-5. The four crates in the S2 order -- badges (2 handlers; rewrite the 403->401/503
+   tests), credits (15 sites), telemetry (8 `/dash/admin/*`, `route_layer` follow-on),
+   economy (11 scattered sites) -- each with its `FromRef` impl, local gate deleted, and
+   route scan proving none missed.
 6. (When the lock clears) market, social-service, worlds -- same transform, no redesign.

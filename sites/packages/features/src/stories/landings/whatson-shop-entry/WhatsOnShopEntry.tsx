@@ -16,7 +16,6 @@ export type WhatsOnShopOpenTarget = "pill" | "rail_cta" | "rail_item";
 
 export type WhatsOnShopEntryProps = {
   arm: WhatsOnShopEntryArm;
-  /** Rail reading from the live catalog; null = reading unavailable. */
   items: CollectibleCard[] | null;
   trackCtx: TrackContext;
   track?: TrackFn;

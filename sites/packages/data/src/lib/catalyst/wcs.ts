@@ -12,14 +12,6 @@ export type { WalletStats } from "./creator-hub/manage-worlds";
 
 const DEFAULT_WCS = "https://worlds-content-server.decentraland.org";
 
-/**
- * worlds-content-server is a different host from the catalyst.
- *
- * Do NOT use `worldsBase()` from `./client` for any of these paths: it rewrites
- * `catalystBase()`'s hostname to `worlds.<domain>` (i.e. `worlds.example.com`),
- * which 404s every path used in this module. `wcs.test.ts` asserts that
- * `wcsBase()` never resolves to a `worlds.` subdomain of `catalyst.example.com`.
- */
 export function wcsBase(override?: string): string {
   return (
     override ??
@@ -41,25 +33,8 @@ const strOrNull = z
   .string()
   .nullish()
   .transform((v) => v ?? null);
-/**
- * A count the upstream must actually supply.
- *
- * Deliberately NOT `.nullish().transform((v) => v ?? 0)`. That spelling makes
- * `safeParse` incapable of failing, so a malformed or error body parses into a
- * valid-looking zero and reaches the UI as a `live` Datum -- the exact laundering
- * `Datum<T>` exists to prevent, performed one layer above where the type system
- * can see it. A missing count is a broken response, not a measurement of zero:
- * let the parse fail so the caller renders `unavailable`.
- */
 const requiredCount = z.number();
 
-/**
- * The wire row from `GET {wcs}/worlds`. It is snake_case; `ManagedWorld` is
- * camelCase. `ManagedWorldSchema` would `safeParse` this row *successfully*
- * while silently dropping `last_deployed_at`, `deployed_scenes` and
- * `blocked_since` (they are all `nullish -> null/0`), which would render a
- * deployed world as "never deployed". Parse the wire shape here and adapt.
- */
 export const WcsWorldRowSchema = z.object({
   name: z.string(),
   owner: strOrNull,
@@ -79,7 +54,6 @@ export const WorldsListEnvelopeSchema = z.object({
   worlds: z.array(z.unknown()),
 });
 
-/** The content URL worlds-content-server serves a thumbnail hash from. */
 export function wcsContentUrl(hash: string | null, base = wcsBase()): string | null {
   return hash ? `${base}/contents/${hash}` : null;
 }
@@ -100,10 +74,6 @@ export function toManagedWorld(row: WcsWorldRow, base = wcsBase()): ManagedWorld
   };
 }
 
-/**
- * Per-row `safeParse` + filtering, matching `places/presence.ts`: schema drift
- * on one row degrades that row, it never throws away the response.
- */
 export function parseWcsWorlds(raw: unknown, base = wcsBase()): ManagedWorld[] {
   const env = WorldsListEnvelopeSchema.safeParse(raw);
   const rows = env.success ? env.data.worlds : [];
@@ -120,7 +90,6 @@ export function parseWcsWorldsTotal(raw: unknown): number {
   return env.success ? env.data.total : 0;
 }
 
-/** `GET {wcs}/live-data` -- the worlds server's own instant comms figure. */
 export const LiveDataSchema = z.object({
   data: z.object({
     totalUsers: requiredCount,
@@ -135,7 +104,6 @@ export const LiveDataSchema = z.object({
 });
 export type LiveData = z.infer<typeof LiveDataSchema>;
 
-/** `GET {wcs}/status` -- platform totals. */
 export const PlatformStatusSchema = z.object({
   content: z.object({
     commitHash: strOrNull,
@@ -149,11 +117,6 @@ export const PlatformStatusSchema = z.object({
 });
 export type PlatformStatus = z.infer<typeof PlatformStatusSchema>;
 
-/**
- * `usedSpace` / `maxAllowedSpace` / `dclNames[].size` are decimal byte strings
- * that can exceed `Number.MAX_SAFE_INTEGER`. Parse with BigInt; never `Number()`.
- * Returns null for anything that is not a decimal integer string.
- */
 export function bytesFromString(raw: string | null | undefined): bigint | null {
   const v = (raw ?? "").trim();
   if (!/^\d+$/.test(v)) return null;
@@ -166,7 +129,6 @@ export function bytesFromString(raw: string | null | undefined): bigint | null {
 
 const UNITS = ["B", "KB", "MB", "GB", "TB"] as const;
 
-/** Formats a BigInt byte count. `null` in, `null` out -- never "0 B" for absent. */
 export function formatBytes(bytes: bigint | null): string | null {
   if (bytes === null) return null;
   if (bytes < 1024n) return `${bytes.toString()} B`;

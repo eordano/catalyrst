@@ -8,8 +8,6 @@ export function isNativeHost(): boolean {
   return typeof window !== "undefined" && !!window.__dclNativeHost;
 }
 
-// The native host appends no preview/editor flags to the shell query; the
-// guard makes that structural -- a native shell must always mount the HUD.
 export function isEditorShell(search: string): boolean {
   return !isNativeHost() && /[?&](editorUi=1|preview=true)(?:&|$)/.test(search);
 }
@@ -39,10 +37,6 @@ function dropContained(rects: Rect[]): Rect[] {
   );
 }
 
-// The `.ui3-overlay{pointer-events:none}` + per-widget `pointer-events:auto`
-// convention (overlay.css) makes computed pointer-events the single source of
-// truth for interactivity, so the walk stops at the first `auto` ancestor --
-// its whole subtree is inside the recorded rect.
 function visit(el: Element, rects: Rect[]): void {
   const style = getComputedStyle(el);
   if (
@@ -52,9 +46,6 @@ function visit(el: Element, rects: Rect[]): void {
   ) {
     return;
   }
-  // Zero-area elements still descend: `display:contents` wrappers and
-  // sizeless mount points report a zero rect while their absolutely
-  // positioned children paint (and hit-test) with real boxes.
   const box = el.getBoundingClientRect();
   if (style.pointerEvents === "auto" && box.width > 0 && box.height > 0) {
     const x = Math.floor(box.left);
@@ -73,8 +64,6 @@ export function computeInteractiveRects(root: HTMLElement): Rect[] {
 
 const NON_RENDERED = new Set(["SCRIPT", "STYLE", "LINK", "META", "TEMPLATE"]);
 
-// Modals/popovers portal to document.body (components/Modal.tsx), outside
-// #ui3-overlay: measuring only the root would leave them click-transparent.
 export function computePageRects(root: HTMLElement): Rect[] {
   const rects: Rect[] = [];
   for (const child of root.children) visit(child, rects);
@@ -86,8 +75,6 @@ export function computePageRects(root: HTMLElement): Rect[] {
   return dropContained(rects);
 }
 
-// FNV-1a over the quantised rect list: the emit gate, so identical geometry
-// never re-crosses the IPC boundary.
 export function hashRects(rects: readonly Rect[]): number {
   const s = rects.map((r) => r.join(",")).join(";");
   let h = 0x811c9dc5;
@@ -125,7 +112,6 @@ export function startNativeHostBridge(): () => void {
     rafId = window.requestAnimationFrame(measure);
   };
 
-  // body, not root: portals mount their panels as body children.
   const mo = new MutationObserver(schedule);
   mo.observe(document.body, {
     subtree: true,
@@ -139,11 +125,8 @@ export function startNativeHostBridge(): () => void {
     ro.observe(document.body);
   }
   window.addEventListener("resize", schedule);
-  // 8 Hz safety tick: CSS transitions move rects without mutating anything.
   const tick = setInterval(schedule, 125);
 
-  // Debounced so focus hopping between two fields emits nothing: the X focus
-  // transfer on the host side is expensive to thrash.
   let focusTimer: ReturnType<typeof setTimeout> | null = null;
   let lastWant = false;
   const emitFocus = (want: boolean): void => {
@@ -163,8 +146,6 @@ export function startNativeHostBridge(): () => void {
   const onFocusOut = (e: FocusEvent): void => {
     if (editable(e.target)) emitFocus(false);
   };
-  // document, not root: fields inside body-portaled modals must also park
-  // engine input while focused.
   document.addEventListener("focusin", onFocusIn);
   document.addEventListener("focusout", onFocusOut);
 

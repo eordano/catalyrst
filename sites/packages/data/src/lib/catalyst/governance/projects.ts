@@ -238,12 +238,6 @@ export async function loadProjects(
 ): Promise<{
   projects: ProjectCard[];
   source: "live" | "unavailable";
-  /**
-   * updated_at/created_at of the newest project row this node holds, ISO, or
-   * null. The mirror's sync loop is off by default
-   * (catalyrst-governance/src/config.rs:133), so callers should say how old
-   * this is rather than presenting it as current.
-   */
   asOf: string | null;
 }> {
   try {

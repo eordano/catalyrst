@@ -1,30 +1,19 @@
-//! Storage-level invariants of the read mirror.
+//! Storage-level invariants of the read mirror, written against the *schema* rather
+//! than `fed::store`'s Rust API: a method can be rewritten and a type renamed, but a
+//! column that does not exist cannot be written and a FOREIGN KEY that does not exist
+//! cannot be satisfied, so asserting through `information_schema` and real constraint
+//! violations keeps these meaningful after the code above changes shape.
 //!
-//! These are deliberately written against the *schema* rather than against
-//! `fed::store`'s Rust API. The properties below are the ones that must hold no
-//! matter how the poller is refactored: a method can be rewritten, a type can be
-//! renamed, but a column that does not exist cannot be written and a FOREIGN KEY
-//! that does not exist cannot be satisfied. Asserting them through
-//! `information_schema` and through real constraint violations means the test
-//! keeps its meaning after the code above it changes shape.
+//! Companion lanes: `federation_peer_admission.rs` (the admission gate, no DB, cannot
+//! skip) and `rig/scripts/worlds-fed-check.sh` (two-node black box over HTTP).
 //!
-//! The companion lanes:
-//!   - `federation_peer_admission.rs` -- the admission gate, no DB, cannot skip.
-//!   - `rig/scripts/worlds-fed-check.sh` -- the two-node black-box lane, which
-//!     proves the same properties end to end over HTTP against a real peer.
+//! Every test here needs Postgres via `ScratchSchema::create`, which routes the refusal
+//! through `catalyrst_testgate`: with no `CATALYRST_WORLDS_TEST_PG` (or workspace-wide
+//! `CATALYRST_TEST_PG`) these **fail** unless `ALLOW_SKIPPED_INTEGRATION=1`, and a skip
+//! is logged to stderr and `$CATALYRST_TESTGATE_SKIPLOG`.
 //!
-//! # Skipping
-//!
-//! Every test here needs Postgres and goes through `ScratchSchema::create`, which
-//! routes the refusal through `catalyrst_testgate`: with no `CATALYRST_WORLDS_TEST_PG`
-//! (or the workspace-wide `CATALYRST_TEST_PG`) these **fail** unless
-//! `ALLOW_SKIPPED_INTEGRATION=1` is set, and when they do skip they say so on stderr
-//! and append to `$CATALYRST_TESTGATE_SKIPLOG`.
-//!
-//! Read the skiplog, never the pass tally. A fully skipped run of this file prints
-//! the same "ok. N passed" as a real one -- that is a property of libtest, not of the
-//! harness, and it is why `skipped()` below logs a line naming the invariant that did
-//! NOT get checked.
+//! Read the skiplog, never the pass tally: a fully skipped run prints the same
+//! "ok. N passed" as a real one, which is why `skipped()` names the unchecked invariant.
 
 use catalyrst_contract_gate::pg::ScratchSchema;
 use catalyrst_worlds::ports::worlds::{
@@ -115,12 +104,9 @@ async fn columns_of(pool: &sqlx::PgPool, table: &str) -> Vec<String> {
     .expect("introspect columns")
 }
 
-// The structural claim: a peer's ownership assertion has nowhere to land
-
-/// A peer's `/worlds` carries `owner` on every entry -- this crate emits it itself
-/// at `handlers/worlds_list.rs`. The mirror does not drop that field by remembering
-/// to; it drops it because there is no column, no struct field, and no bind
-/// parameter that could accept it.
+/// A peer's `/worlds` carries `owner` on every entry (this crate emits it at
+/// `handlers/worlds_list.rs`). The mirror drops it because there is no column, struct
+/// field or bind parameter that could accept it -- not by remembering to.
 #[tokio::test]
 async fn remote_worlds_has_no_column_that_could_hold_a_peer_ownership_claim() {
     let scratch = db_or_skip!("remote_worlds may have gained an owner/access/permissions column");
@@ -148,8 +134,8 @@ async fn remote_worlds_has_no_column_that_could_hold_a_peer_ownership_claim() {
     scratch.drop().await;
 }
 
-/// The hostile payload, driven at the storage layer: every key a lying peer would
-/// add is rejected by Postgres itself, not by a filter someone has to maintain.
+/// The hostile payload at the storage layer: every key a lying peer would add is
+/// rejected by Postgres itself, not by a filter someone has to maintain.
 #[tokio::test]
 async fn every_forbidden_key_from_a_hostile_peer_payload_is_rejected_by_the_database() {
     let scratch = db_or_skip!("a forbidden peer-supplied column may now be insertable");
@@ -226,12 +212,9 @@ async fn remote_worlds_has_no_foreign_key_into_the_authoritative_tables() {
     scratch.drop().await;
 }
 
-// The load-bearing invariant: the mirror never touches the authoritative tables
-
-/// `resolve_world_owner` returns `stored_owner` **first** and only consults squid ENS
-/// when it is NULL, so any write that populated `worlds.owner` would become the
-/// permanent authority over the chain. The rule is therefore not "don't copy the
-/// owner field" but "never touch that table" -- asserted here as a count.
+/// `resolve_world_owner` returns `stored_owner` **first** and consults squid ENS only
+/// when it is NULL, so a write populating `worlds.owner` would become the permanent
+/// authority over the chain. The rule is "never touch that table", asserted as a count.
 #[tokio::test]
 async fn mirroring_a_peer_writes_zero_rows_to_worlds_and_world_scenes() {
     let scratch = db_or_skip!("the mirror path may now write the authoritative worlds tables");
@@ -291,9 +274,9 @@ async fn a_colliding_name_is_two_independent_rows_and_the_local_owner_survives()
     scratch.drop().await;
 }
 
-/// The mirror is invisible to the endpoint the ecosystem actually reads. If a
-/// mirrored row ever reached `list_worlds_public`, it would list under our origin
-/// with `owner = NULL`, which is the `worlds-mirror` hazard exactly.
+/// The mirror is invisible to the endpoint the ecosystem actually reads: a mirrored row
+/// reaching `list_worlds_public` would list under our origin with `owner = NULL`, which
+/// is the `worlds-mirror` hazard exactly.
 #[tokio::test]
 async fn mirrored_rows_are_invisible_to_list_worlds_public() {
     let scratch = db_or_skip!("mirrored rows may now be listed by /worlds");
@@ -323,8 +306,6 @@ async fn mirrored_rows_are_invisible_to_list_worlds_public() {
     );
     scratch.drop().await;
 }
-
-// Namespacing and the local operator veto
 
 /// `remote_worlds` is keyed `(peer_id, world_name)`. Two peers claiming the same name
 /// are two rows; one peer cannot displace another's claim.
@@ -388,8 +369,6 @@ async fn a_peer_relisting_a_world_cannot_clear_the_local_operator_veto() {
     .await
     .expect("operator veto");
 
-    // The poll's replace step, as specified: it must not delete or overwrite a
-    // vetoed row's hidden_since.
     let mut tx = scratch.pool.begin().await.expect("begin");
     sqlx::query("DELETE FROM remote_worlds WHERE peer_id = $1 AND hidden_since IS NULL")
         .bind(PEER)
@@ -421,9 +400,9 @@ async fn a_peer_relisting_a_world_cannot_clear_the_local_operator_veto() {
     scratch.drop().await;
 }
 
-/// A poll that fails partway must leave the previous view intact. An unreachable or
-/// erroring peer omits; it never empties. A half-replaced peer view is the one
-/// outcome that is worse than a stale one.
+/// A poll that fails partway leaves the previous view intact: an unreachable or
+/// erroring peer omits, never empties. A half-replaced peer view is worse than a stale
+/// one.
 #[tokio::test]
 async fn a_poll_that_fails_partway_leaves_the_previous_rows_intact() {
     let scratch = db_or_skip!("a failed poll may now leave a partially-replaced peer view");
@@ -438,7 +417,6 @@ async fn a_poll_that_fails_partway_leaves_the_previous_rows_intact() {
         .execute(&mut *tx)
         .await
         .expect("delete");
-    // The peer's next entry is malformed and the transaction must not commit.
     let boom = sqlx::query(
         "INSERT INTO remote_worlds (peer_id, world_name, deployed_scenes)
          VALUES ($1, 'Bad-Case.dcl.eth', 0)",

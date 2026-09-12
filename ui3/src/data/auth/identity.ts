@@ -28,9 +28,6 @@ export type StoredAuthIdentity = {
   authChain: AuthLink[];
 };
 
-// The persisted shape differs from AuthIdentity (ephemeralIdentity vs ephemeral,
-// no signer); this is the ONE mapping between them, shared with the rig's
-// gen-web-identity.mjs so no second implementation can drift.
 export function toStoredIdentity(identity: AuthIdentity): StoredAuthIdentity {
   return {
     ephemeralIdentity: {

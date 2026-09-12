@@ -215,12 +215,6 @@ pub async fn create_rentals_listing(
             updated,
         )
     } else {
-        // Fail closed: ownership is verified ONLY inside the Some(squid) arm above.
-        // state.squid is None for the whole process lifetime when the squid pool is
-        // unconfigured OR its initial connect failed at boot (a transient DB blip,
-        // no retry). Fabricating metadata and inserting here skipped the ownership
-        // check entirely -- any signed-fetch caller could list assets they don't own
-        // and durably 409-grief the real owner. Reject instead of inserting.
         return Err(
             ApiError::http(503, "NFT ownership verification is unavailable").into_response(),
         );

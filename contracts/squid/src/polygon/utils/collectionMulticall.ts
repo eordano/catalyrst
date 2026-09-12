@@ -2,13 +2,9 @@ import { Multicall, AggregateTuple } from "../../abi/multicall";
 import { functions as CollectionV2Functions } from "../abi/CollectionV2";
 import type { Context, Block } from "../processor";
 
-// Number of contract calls issued per collection in the multicall batch. Keep in
-// sync with the calls pushed below and the per-collection result slice.
 const CALLS_PER_COLLECTION = 9;
 
 const MULTICALL_CONTRACT = "0xcA11bde05977b3631167028862bE2a173976CA11";
-// Multicall3 on Polygon was deployed at block 25770160 (Jan 2022)
-// But we're indexing from much later, so it's always available
 export const POLYGON_MULTICALL_CREATION_BLOCK = 25770160;
 
 export interface CollectionData {
@@ -24,10 +20,6 @@ export interface CollectionData {
   chainId: bigint;
 }
 
-/**
- * Fetch all collection data for multiple collections in a single multicall batch
- * This reduces 9 RPC calls per collection to 1 batch call for ALL collections
- */
 export async function fetchCollectionDataMulticall(
   ctx: Context,
   blockHeader: Block,
@@ -39,7 +31,7 @@ export async function fetchCollectionDataMulticall(
 
   if (blockHeader.height < POLYGON_MULTICALL_CREATION_BLOCK) {
     console.log(`\u{26A0}\u{FE0F} Block ${blockHeader.height} is before multicall creation, falling back to individual calls`);
-    return new Map(); // Caller will use fallback
+    return new Map();
   }
 
   const multicall = new Multicall(ctx, blockHeader, MULTICALL_CONTRACT);
@@ -62,8 +54,7 @@ export async function fetchCollectionDataMulticall(
   const multicallStart = performance.now();
   
   try {
-    // Use tryAggregate to handle individual failures gracefully
-    const rawResults = await multicall.tryAggregate(calls, 100); // Page size of 100
+    const rawResults = await multicall.tryAggregate(calls, 100);
     
     const multicallDuration = performance.now() - multicallStart;
     const fmt = (ms: number) => ms >= 1000 ? `${(ms/1000).toFixed(1)}s` : `${Math.round(ms)}ms`;
@@ -96,7 +87,6 @@ export async function fetchCollectionDataMulticall(
       });
     }
   } catch (e: any) {
-    // Log only the message: RPC errors can embed the endpoint URL (with API key).
     console.error(`\u{274C} Multicall failed completely, will use fallback: ${e.message}`);
     return new Map();
   }

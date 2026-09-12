@@ -9,11 +9,6 @@ const nullableStr = z
   .nullish()
   .transform((v) => v ?? null);
 
-/**
- * The store editor's form model, not a parse result. Empty strings here mean
- * "this input is blank", which is what an unset store field renders as; the
- * wire shape is `StoreEntitySchema`, where absence stays `null`.
- */
 export type Store = {
   owner: string;
   cover: string;
@@ -44,13 +39,6 @@ export const AuthorizationsSchema = z.object({
 });
 export type Authorizations = z.infer<typeof AuthorizationsSchema>;
 
-/**
- * The deployed store entity's metadata. `links` and `images` are always written
- * (empty when the seller set none) by every client that publishes this pointer,
- * so metadata without them is not a store with no links -- it is not a store,
- * and `loadStore` reports it as unavailable rather than showing the seller a
- * blank form that a save would deploy over their real settings.
- */
 export const StoreEntitySchema = z.object({
   id: z.string(),
   owner: z.string(),

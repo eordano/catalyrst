@@ -48,7 +48,6 @@ describe("presence schemas (generated, wire-strict)", () => {
   });
 
   it("rejects rows that are missing wire-required fields", () => {
-    // realm is a required String in Rust -- a row without it is not a reading
     expect(
       SceneOccupancyRowSchema.safeParse({
         taken_at: "2026-06-24T00:00:00Z",
@@ -92,8 +91,6 @@ describe("parsePointer + jump urls", () => {
   });
 });
 
-/** A snapshot header with every counter at zero -- an explicit fixture, never a
- *  parse default: the schema has no defaults left to lean on. */
 function zeroedCurrent(): CurrentSnapshot {
   return {
     snapshot_id: 0,

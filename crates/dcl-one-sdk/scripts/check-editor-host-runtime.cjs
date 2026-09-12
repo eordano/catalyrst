@@ -1,31 +1,5 @@
 'use strict'
 
-// The half of the editor host's contract that no type can hold.
-//
-// `check-editor-host.sh` type-checks the shim, and that catches a method the
-// descriptor names but the host does not define. It cannot catch the second
-// hazard in host.js's header -- `serverProcedureUnary` throws "Empty or null
-// responses are not allowed" on any falsy result -- because TypeScript does not
-// check return types through JSDoc in a .js file. Verified, not assumed: an
-// `async f() { return undefined }` annotated `@returns {Promise<object>}` is
-// accepted in a .js file and rejected in the identical .ts. So the rule is
-// enforced by calling every method instead of by describing it.
-//
-// Booting the real host against an in-memory filesystem also exercises the
-// path that matters most and is otherwise only reachable from the gated
-// data_layer_rpc integration test: composite scan -> Composite.instance ->
-// seedRootComponents -> the load-bearing engine.update tick.
-//
-// The seeding is checked on both of its paths: a fresh scene must come up
-// with every root component in root-components.json (the 7.43 editor
-// unmounts without them), and a composite that already carries an
-// `asset-packs::ActionTypes` list and a `Counter` must keep what it has --
-// unknown action types survive, known ones are appended, the counter value is
-// not reset -- which is `addActionType`'s rule and the difference between a
-// seed and an overwrite.
-//
-// Usage: node check-editor-host-runtime.cjs <shim-dir>
-
 const path = require('path')
 
 const shim = process.argv[2]
@@ -34,9 +8,6 @@ if (!shim) {
   process.exit(2)
 }
 
-// An in-memory FileSystemInterface: the seven methods host.js calls, and no
-// disk. The host writes minimal-composite.json on boot when none exists, so an
-// empty store is a complete scene as far as this check is concerned.
 function memoryFs() {
   const files = new Map()
   const toPosix = (p) => p.replace(/\\/g, '/')
@@ -73,8 +44,6 @@ function memoryFs() {
   }
 }
 
-// The root-entity values a booted host must carry, checked against the same
-// snapshot host.js reads so the check cannot drift from the seed.
 function checkRootComponents(engine, failures, label) {
   const snapshot = require(path.join(shim, 'root-components.json')).components
   for (const name of Object.keys(snapshot)) {
@@ -96,9 +65,6 @@ function checkRootComponents(engine, failures, label) {
   return list
 }
 
-// A composite as an older editor could have saved it: the two components the
-// minimal composite carries, plus a root ActionTypes list holding one type the
-// snapshot does not know and a Counter that has already counted.
 function compositeWithRootState() {
   const minimal = require(path.join(shim, 'minimal-composite.json'))
   const snapshot = require(path.join(shim, 'root-components.json')).components
@@ -176,15 +142,10 @@ async function main() {
 
   for (const name of expected) {
     if (typeof rpcMethods[name] !== 'function') {
-      // What `codegen.registerService`'s `mod[key].bind(mod)` would hit.
       failures.push(`${name}: missing -- registerService would throw at port setup`)
     }
   }
 
-  // `crdtStream` is the one streaming method: it takes an async iterable and
-  // returns a queue, so calling it with an empty stream would race the consume
-  // loop against process exit. Its shape is covered by the type check and by
-  // the data_layer_rpc integration test, which drives it for real.
   const streaming = new Set(['crdtStream'])
 
   for (const name of expected) {
@@ -193,8 +154,6 @@ async function main() {
     try {
       result = await rpcMethods[name]({})
     } catch (err) {
-      // A method that throws on an empty request is reporting a bad argument,
-      // not violating the response rule. Only a falsy RESULT is the failure.
       continue
     }
     if (result === undefined || result === null) {

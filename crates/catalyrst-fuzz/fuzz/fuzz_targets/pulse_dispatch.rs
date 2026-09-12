@@ -17,8 +17,6 @@ fuzz_target!(|data: &[u8]| {
         Some((s, rest)) => (*s, rest),
         None => (0u8, &[][..]),
     };
-    // Even selector -> an authenticated peer (gameplay handlers); odd -> a pending peer (handshake
-    // decode + attempt policy + the untracked/pending guards).
     let mut server = if selector & 1 == 0 {
         authenticated_server(FUZZ_PEER)
     } else {

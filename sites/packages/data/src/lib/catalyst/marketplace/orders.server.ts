@@ -7,13 +7,6 @@ export type LoadCancelArgs = {
   opts?: GetOptions;
 };
 
-/**
- * "catalyst" -- these are the seller's open listings.
- * "empty" -- we asked and the seller has none open.
- * "unavailable" -- the read failed, so we do not know. "No active listing to
- *   cancel" would tell a seller their item is already off the market when it
- *   may still be listed and selling.
- */
 export type LoadCancelResult = {
   listing: CancelListing | null;
   orders: CancelListing[];

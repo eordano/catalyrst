@@ -63,14 +63,12 @@ const SWEEP: &str = r#"
       AND NOT EXISTS (SELECT 1 FROM events_local l WHERE l.id = e.id)
 "#;
 
-/// The rows SWEEP would delete at a given cutoff, counted before deleting.
 const SWEEP_CANDIDATES: &str = r#"
     SELECT count(*) FROM event e
     WHERE e.fetched_at < $1
       AND NOT EXISTS (SELECT 1 FROM events_local l WHERE l.id = e.id)
 "#;
 
-/// The mirror-owned rows the sweep can reach at all.
 const MIRRORED_COUNT: &str = r#"
     SELECT count(*) FROM event e
     WHERE NOT EXISTS (SELECT 1 FROM events_local l WHERE l.id = e.id)
@@ -198,10 +196,6 @@ pub async fn run_cycle(
     }
 
     if out.complete && out.upserted > 0 {
-        // A row is deleted only after two consecutive full passes fail to
-        // list it: rows seen during pass N carry fetched_at >= that pass's
-        // start, so a cutoff two intervals before this pass keeps anything
-        // the previous pass listed -- one pagination miss never deletes.
         let grace = interval
             .checked_mul(2)
             .and_then(|d| chrono::Duration::from_std(d).ok())
@@ -229,7 +223,6 @@ async fn fetch_page(client: &reqwest::Client, url: &str) -> Result<Vec<Value>> {
     parse_page(&body)
 }
 
-/// The upstream envelope is `{"ok": true, "data": [event, ...]}`.
 pub fn parse_page(body: &Value) -> Result<Vec<Value>> {
     if body.get("ok").and_then(Value::as_bool) != Some(true) {
         return Err(anyhow!("events upstream returned ok!=true"));
@@ -273,7 +266,6 @@ fn coord(event: &Value, idx: usize) -> Option<i32> {
         .map(|v| v as i32)
 }
 
-/// None when the event has no usable id; such rows are skipped, not fatal.
 pub fn extract_fields(event: &Value) -> Option<EventFields<'_>> {
     let id = match event.get("id").and_then(Value::as_str) {
         Some(s) if !s.is_empty() => s,
@@ -346,11 +338,13 @@ pub async fn upsert_event(pool: &PgPool, event: &Value) -> Result<bool> {
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum SweepOutcome {
-    /// Rows deleted.
     Swept(u64),
     /// The volume fuse tripped: `candidates` rows were up for deletion out
     /// of `mirrored` mirror-owned rows, and nothing was deleted.
-    Refused { candidates: i64, mirrored: i64 },
+    Refused {
+        candidates: i64,
+        mirrored: i64,
+    },
 }
 
 /// Deletes mirrored rows last seen before `cutoff`, sparing local writes.
@@ -419,8 +413,6 @@ mod tests {
         for e in &evs {
             assert!(extract_fields(e).is_some());
         }
-        // Oldest events have community_id null everywhere -- nullable fields
-        // must extract as None, not fail.
         assert!(evs
             .iter()
             .all(|e| extract_fields(e).unwrap().community_id.is_none()));

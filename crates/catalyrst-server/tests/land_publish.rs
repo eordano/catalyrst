@@ -587,10 +587,6 @@ async fn permission_flags_and_deploy_predicate_agree_on_every_leg() {
     drop_schema(&pool, &schema).await;
 }
 
-// The batch behind POST /lambdas/users/{address}/parcels/permissions: one call
-// answering a mixed footprint -- granted, denied and unindexed parcels -- with
-// per-parcel verdicts identical to the single `parcel_permission_flags`, and
-// the same resolver-outage posture (operator legs deny, owner leg survives).
 #[tokio::test]
 async fn batch_permission_flags_mixed_footprint_matches_single() {
     let Some((pool, schema)) = setup_db().await else {
@@ -628,7 +624,6 @@ async fn batch_permission_flags_mixed_footprint_matches_single() {
 
     let footprint = [(x_owned, -1), (x_unindexed, -1), (x_estate, -1)];
 
-    // Owner over the mixed footprint, no resolver: granted / unindexed / denied.
     let batch = parcel_permission_flags_batch(&pool, None, owner, &footprint)
         .await
         .unwrap();
@@ -650,7 +645,6 @@ async fn batch_permission_flags_mixed_footprint_matches_single() {
         "someone else's parcel answers every leg false"
     );
 
-    // A granted update operator flips exactly that leg on indexed parcels.
     let granted = StubResolver(Ok(Some(LandOperators {
         update_operator: Some(operator.to_string()),
         ..Default::default()
@@ -667,7 +661,6 @@ async fn batch_permission_flags_mixed_footprint_matches_single() {
     );
     assert!(batch[1].is_none());
 
-    // A resolver outage fails only the operator legs, never the owner leg.
     let broken = StubResolver(Err("subgraph down".to_string()));
     let batch = parcel_permission_flags_batch(&pool, Some(&broken), owner, &footprint)
         .await
@@ -685,7 +678,6 @@ async fn batch_permission_flags_mixed_footprint_matches_single() {
         "operator legs deny on outage (fail-closed)"
     );
 
-    // Positional parity with the single call for every (address, parcel) pair.
     for address in [owner, estate_owner, operator, stranger] {
         let resolver = StubResolver(Ok(Some(LandOperators {
             update_operator: Some(operator.to_string()),

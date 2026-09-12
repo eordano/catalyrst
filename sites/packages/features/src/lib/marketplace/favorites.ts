@@ -27,15 +27,6 @@ export function collectibleToShopCard(c: CollectibleCard): ShopCard {
 }
 const listeners = new Set<() => void>();
 
-/**
- * The try covers the storage calls and the parse only. `check` throws in dev by
- * design, and a catch wide enough to cover it would show an empty favourites
- * list instead -- the drift hidden behind the exact symptom it causes.
- *
- * The `unit` migration stays AFTER the read: cards written before `unit`
- * existed are valid, and defaulting them is what the schema deliberately does
- * not do.
- */
 function read(): ShopCard[] {
   if (typeof window === "undefined") return [];
   let parsed: unknown;

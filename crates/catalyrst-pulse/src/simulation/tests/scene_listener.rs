@@ -334,8 +334,6 @@ fn scene_listener_subject_leaving_parcels_is_swept() {
     );
 }
 
-// AoI reassignment as the simulation sees it: swapping the descriptor (what the server's
-// SceneListenerUpdate handler does) changes what the very next tick collects.
 #[test]
 fn scene_listener_aoi_reassigned_joins_subject_in_the_new_parcels() {
     let mut w = World::new();
@@ -380,9 +378,6 @@ fn scene_listener_aoi_reassigned_stops_sending_for_dropped_parcels() {
     );
 }
 
-// A subject the reassignment dropped is not told goodbye by the update itself: its view ages out
-// through the ordinary stale-view sweep, the same path as a player walking out of range, so
-// PlayerLeft trails the update by at most VIEW_STALE_TICKS + SWEEP_CHECK_INTERVAL ticks.
 #[test]
 fn scene_listener_aoi_reassigned_dropped_subject_swept_with_player_left() {
     let mut w = World::new();
@@ -406,10 +401,6 @@ fn scene_listener_aoi_reassigned_dropped_subject_swept_with_player_left() {
     assert!(swept, "the dropped subject is swept with PlayerLeft");
 }
 
-// Two cohosted worlds both number their parcels from 0,0, so a parcel index alone cannot say
-// where a subject is standing. A listener that announced a parcel for one realm must not be
-// handed the subject standing in that parcel of the other, even though the parcel index yields
-// both.
 #[test]
 fn scene_listener_multiple_realms_filters_per_realm_not_just_per_parcel() {
     let mut w = World::new();
@@ -560,9 +551,6 @@ fn seed_teleport(
     );
 }
 
-// Watched-parcel occupancy is held fixed at 9 while N grows 500 -> 2000, so a linear scan
-// examines N and the cell cover examines 9. The fillers stand a full cell ring away from the
-// watched parcels: the cover over-approximates by up to one cell, never by more.
 #[test]
 fn scene_listener_iterations_independent_of_total_peers() {
     fn examined_for(n: u32) -> usize {
@@ -603,10 +591,6 @@ fn scene_listener_iterations_independent_of_total_peers() {
     );
 }
 
-// A full-budget announcement (64x64 = 4096 parcels) must cost the tick what its covering cells
-// hold, not what it announced: the same handful of subjects, examined once each, whether the
-// listener watches one parcel or four thousand. Every subject in the cover counts as examined,
-// including those standing in the over-covered margin, and nothing outside it does.
 #[test]
 fn scene_listener_full_budget_tick_cost_is_bounded_by_cover() {
     let mut board = SnapshotBoard::new(64, 16);

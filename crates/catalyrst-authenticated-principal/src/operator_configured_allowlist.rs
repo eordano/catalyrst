@@ -1,40 +1,23 @@
 use crate::verified_wallet_address::VerifiedWalletAddress;
 
-/// Wallet addresses read from **operator configuration**, never from a request.
+/// Wallet addresses read from **operator configuration**, never from a request. Membership is
+/// a fact about the deployment's configuration and nothing else.
 ///
-/// # What a value of this type proves
+/// It does not prove any entry is *correct* -- a well-formed but wrong address parses fine --
+/// and it does not say what the list authorizes. The same shape backs at least five unrelated
+/// powers across the fleet (`ADMIN_ADDRESSES` in `catalyrst-server`, `admin_addresses` in
+/// `catalyrst-builder` and `catalyrst-places`, `moderator_addresses` in `catalyrst-comms`) and
+/// they are not interchangeable: each consumer wraps its own allowlist in its own crate-local
+/// authority type. This type is the storage and the comparison, not the authority.
 ///
-/// That an operator wrote these addresses into a named environment variable. Membership in
-/// the list is a fact about the deployment's configuration.
-///
-/// # What it does NOT prove
-///
-/// - **Not that any entry is correct.** A well-formed address that is simply the wrong
-///   address parses fine and this type cannot tell.
-/// - **Not what the list authorizes.** The same shape backs at least five unrelated
-///   powers across the fleet -- `ADMIN_ADDRESSES` in `catalyrst-server`, `admin_addresses`
-///   in `catalyrst-builder` and `catalyrst-places`, `moderator_addresses` in
-///   `catalyrst-comms` -- and they are not interchangeable. Each consumer wraps its own
-///   allowlist in its own crate-local authority type with its own name; this type is the
-///   storage and the comparison, not the authority.
-///
-/// # How a value is obtained
-///
-/// [`Self::parse_comma_separated`], or [`Default`] for an empty list naming no variable.
-///
-/// # Why this replaces `Vec<String>` / `HashSet<String>`
-///
-/// Two reasons, both defects that exist today.
-///
-/// First, the comparison. A bare `Vec<String>` compares against anything stringy, including
-/// a request body field. [`Self::contains`] takes
-/// [`VerifiedWalletAddress`] and nothing else.
-///
-/// Second, the parse. `catalyrst_types::parse_eth_address` and
-/// `catalyrst_types::is_eth_address` exist and are used by **none** of the four allowlist
-/// parsers in the workspace, so a typo in an operator's environment variable yields an
-/// entry that matches nothing, silently, forever. Rejected entries are kept here so that
-/// startup can log them: see [`Self::entries_rejected_as_not_address_shaped`].
+/// It replaces `Vec<String>` / `HashSet<String>` for two defects that exist today. A bare
+/// `Vec<String>` compares against anything stringy, including a request body field, whereas
+/// [`Self::contains`] takes [`VerifiedWalletAddress`] and nothing else. And
+/// `catalyrst_types::parse_eth_address` / `catalyrst_types::is_eth_address` exist but are used
+/// by **none** of the four allowlist parsers in the workspace, so a typo in an operator's
+/// environment variable yields an entry that matches nothing, silently, forever -- rejected
+/// entries are kept here so startup can log them, see
+/// [`Self::entries_rejected_as_not_address_shaped`].
 #[derive(Debug, Clone, Default)]
 pub struct ConfiguredWalletAllowlist {
     environment_variable_name: &'static str,
@@ -93,11 +76,9 @@ impl ConfiguredWalletAllowlist {
         }
     }
 
-    /// The only comparison this type offers.
-    ///
-    /// It takes [`VerifiedWalletAddress`], so a claimed address, a request
-    /// body field, a query parameter or a header value cannot be handed to it -- those are
-    /// `&str` and this is not.
+    /// The only comparison this type offers. It takes [`VerifiedWalletAddress`], so a claimed
+    /// address, a request body field, a query parameter or a header value cannot be handed to
+    /// it -- those are `&str` and this is not.
     pub fn contains(&self, wallet: &VerifiedWalletAddress) -> bool {
         self.lowercased_addresses
             .iter()
@@ -105,31 +86,27 @@ impl ConfiguredWalletAllowlist {
     }
 
     /// Entries the operator wrote that are not address-shaped, in the order written and in
-    /// their original case.
-    ///
-    /// A non-empty result is a misconfiguration that today fails silently. Log it at
-    /// startup, naming [`Self::environment_variable_name`].
+    /// their original case. A non-empty result is a misconfiguration that today fails
+    /// silently: log it at startup, naming [`Self::environment_variable_name`].
     pub fn entries_rejected_as_not_address_shaped(&self) -> &[String] {
         &self.entries_rejected_as_not_address_shaped
     }
 
-    /// The environment variable this list was read from, for the startup log and for the
-    /// refusal message. Empty for a [`Default`] list.
+    /// The variable this list was read from, for the startup log and the refusal message.
+    /// Empty for a [`Default`] list.
     pub fn environment_variable_name(&self) -> &'static str {
         self.environment_variable_name
     }
 
-    /// How many accepted, address-shaped entries the list holds.
+    /// Accepted, address-shaped entries only.
     pub fn len(&self) -> usize {
         self.lowercased_addresses.len()
     }
 
-    /// Whether the list authorizes nobody.
-    ///
-    /// An empty allowlist is a legitimate configuration -- it means "no wallet holds this
-    /// power" -- and is **not** the same as an absent one. A caller that wants to fail
-    /// closed on an unconfigured list should check this explicitly rather than letting
-    /// [`Self::contains`] answer `false` for both cases.
+    /// Whether the list authorizes nobody. An empty allowlist is a legitimate configuration
+    /// -- "no wallet holds this power" -- and is **not** the same as an absent one, so a
+    /// caller that wants to fail closed on an unconfigured list must check this explicitly
+    /// rather than letting [`Self::contains`] answer `false` for both cases.
     pub fn is_empty(&self) -> bool {
         self.lowercased_addresses.is_empty()
     }
@@ -236,9 +213,4 @@ mod tests {
             .is_empty());
         assert!(accepts_everything.contains(&wallet("not-an-address")));
     }
-
-    // Deliberately impossible, and a compile error today:
-    //
-    //   list.contains("0xdeadbeef");                                     // E0308
-    //   list.contains(&claimed_wallet_address_from_the_request_body);    // E0308
 }

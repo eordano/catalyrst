@@ -5,19 +5,12 @@ import { toStoredIdentity, type StoredAuthIdentity } from "@ui/data/auth/identit
 import { signedFetch } from "./signer";
 import type { AuthIdentity } from "./types";
 
-// Upstream mints deep-link identities for one month (auth/src/shared/connection/identity.ts,
-// ONE_MONTH_IN_MINUTES); the client keeps signing with that ephemeral key for as long as the
-// chain says, so match it instead of the site's 7-day default.
 export const DEEPLINK_IDENTITY_EXPIRATION_MS = 30 * 24 * 60 * 60 * 1000;
 
 export type HandoffIdentity = StoredAuthIdentity & {
   ephemeralIdentity: { address: string; privateKey: string; publicKey: string };
 };
 
-// The auth server stores this object verbatim and hands it back on GET /identities/:id; the
-// Unity client reads identity.ephemeralIdentity.privateKey, .expiration and .authChain from it
-// (IdentityAuthResponseDto), so the wire shape is the persisted one plus the public key upstream's
-// @dcl/crypto identity always carries -- never the site's AuthIdentity.
 export function toHandoffIdentity(identity: AuthIdentity): HandoffIdentity {
   const stored = toStoredIdentity(identity);
   return {

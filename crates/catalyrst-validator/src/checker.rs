@@ -890,11 +890,6 @@ mod tests {
 
     #[test]
     fn extract_profile_item_urns_excludes_default_off_chain_emotes_and_wearables() {
-        // A fresh/edited avatar carries the default emote wheel and base-avatars
-        // body unless every slot has been replaced with an owned NFT. None of
-        // these off-chain synthetic URNs are real NFTs, so they must never be
-        // handed to the ownership checker (they'd always fail: they don't
-        // exist in the marketplace `nft` table).
         let metadata = serde_json::json!({
             "avatars": [
                 {

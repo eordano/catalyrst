@@ -1,33 +1,15 @@
-/**
- * One honest verdict per admin / operator control.
- *
- * Every entry cites the server-side authorization that was actually read. A
- * control is only `available` when the check exists, was read, and the browser
- * can satisfy it through a path that keeps secrets server-side. Everything else
- * is `unavailable` with a reason the UI renders verbatim -- never a disabled
- * button waiting for a token, never an empty table, never a fixture.
- *
- * This registry is deliberately data, not behaviour: it is the answer to
- * "should this control exist at all", separate from "what did the server say
- * this time", which is the job of the `.server.ts` modules.
- */
 
 import { unavailable, type Unavailable } from "./availability";
 
 export type AvailableVia =
-  /** Privileged bearer held in a `.server.ts` module, called from a loader/action. */
   | "server-module"
-  /** Genuinely public, unauthenticated endpoint. Must be labelled as public data. */
   | "public-read"
-  /** The user's own wallet signature satisfies the gate; no secret involved. */
   | "wallet";
 
 export type ControlAvailable = {
   ok: true;
   via: AvailableVia;
-  /** file:line of the server-side check that was read. */
   serverCheck: string;
-  /** What the UI must say about the data's provenance. */
   label?: string;
 };
 
@@ -177,8 +159,6 @@ export const ADMIN_CONTROLS = {
     },
   ),
 
-  // FIX-FIRST: real gate, client call is wrong. Not implemented.
-
   "whatson.users.read": unavailable(
     "misrouted",
     "The What's-On moderator list cannot be read: the client call is misrouted.",
@@ -283,7 +263,6 @@ export function isControlAvailable(id: ControlId): boolean {
   return ADMIN_CONTROLS[id].ok === true;
 }
 
-/** Every control this node cannot offer, for an "unavailable controls" panel. */
 export function unavailableControls(): Array<{ id: ControlId; status: Unavailable }> {
   const out: Array<{ id: ControlId; status: Unavailable }> = [];
   for (const [id, status] of Object.entries(ADMIN_CONTROLS)) {

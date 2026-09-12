@@ -18,16 +18,14 @@ fn scene_signer_gate() -> &'static SignerGate {
     GATE.get_or_init(|| reject_if_signer(&[SCENE_SIGNER]).expect("SCENE_SIGNER is canonical"))
 }
 
-/// Whether the "this surface is not for scenes" gate refuses this signed-fetch metadata.
-///
-/// Mirrors `rejectIfSigner(SCENE_SIGNER)` (upstream #492). A `signer` that is present but not
-/// already trimmed and lowercase is refused outright rather than folded and compared: folding bases
-/// the decision on a value the handler never sees, and comparing without folding would let
-/// `Decentraland-Kernel-Scene` read as "not a scene" and walk through. A present non-string is
-/// refused for the same reason -- it is not the form the gate needs either. Metadata declaring no
-/// `signer` passes: it is not claiming to be one. A key that folds to `signer` without being spelled
-/// exactly that is a refusal rather than an absence (upstream #493): a scene-driven client can sign
-/// the re-spelled key from the start, so the signature is no backstop and the gate has to answer.
+/// Mirrors `rejectIfSigner(SCENE_SIGNER)` (upstream #492). A `signer` present but not already
+/// trimmed and lowercase is refused outright rather than folded and compared: folding bases the
+/// decision on a value the handler never sees, and comparing without folding would let
+/// `Decentraland-Kernel-Scene` read as "not a scene". A present non-string is refused for the
+/// same reason. Metadata declaring no `signer` passes. A key that folds to `signer` without
+/// being spelled exactly that is a refusal rather than an absence (upstream #493): a
+/// scene-driven client can sign the re-spelled key from the start, so the signature is no
+/// backstop.
 pub fn is_refused_signer(metadata: &serde_json::Value) -> bool {
     !scene_signer_gate().permits(metadata)
 }
@@ -58,8 +56,6 @@ mod tests {
 
     #[test]
     fn a_zero_width_no_break_space_does_not_read_as_canonical() {
-        // Upstream folds with `String.prototype.trim`, whose WhiteSpace set includes U+FEFF while
-        // Rust's `str::trim` does not; the shared gate follows upstream.
         let padded = format!("\u{FEFF}{SCENE_SIGNER}");
         assert!(is_refused_signer(&json!({ "signer": padded })));
     }
@@ -86,9 +82,6 @@ mod tests {
 
     #[test]
     fn a_re_spelled_signer_key_is_refused_instead_of_read_as_absent() {
-        // Upstream #493: the signature is no backstop here, since a scene-driven client signs the
-        // key under this spelling from the start and the chain verifies cleanly. The gate is the
-        // only thing standing, so a key that folds to `signer` is a refusal, not an absence.
         assert!(is_refused_signer(&json!({ "Signer": SCENE_SIGNER })));
         assert!(is_refused_signer(&json!({ "SIGNER": SCENE_SIGNER })));
         assert!(is_refused_signer(

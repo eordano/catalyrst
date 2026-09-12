@@ -1,13 +1,3 @@
-// Wire shapes for the profile, badge and camera-reel readers.
-//
-// Schemas and the WIRE types they infer, and nothing else. A perf build aliases
-// this whole module to a generated stub (vite.validate.js), which is what lets
-// zod leave the bundle -- so a transform put here would run in one build and not
-// the other, and the stub would be changing behaviour rather than only changing
-// what is checked.
-//
-// The nullish -> null normalization the exported `Avatar` type promises lives
-// in ../profile.ts, applied by `parseProfileEnvelope`, and runs in both modes.
 
 import { z } from "zod";
 

@@ -1,7 +1,5 @@
-//! Allocation-count perf guards for two hot paths:
-//!   - feature_flags::snapshot() must be an O(1) Arc bump (item 1)
-//!   - auth_api::get_identity must not deep-clone the identity JSON (item 2)
-//!
+//! Allocation-count perf guards: feature_flags::snapshot() must be an O(1) Arc
+//! bump, and auth_api::get_identity must not deep-clone the identity JSON.
 //! Both tests share a counting global allocator and serialize against each other
 //! so the per-test counter deltas are deterministic.
 
@@ -47,7 +45,7 @@ fn feature_flags_snapshot_is_o1() {
         delta < 8,
         "snapshot() allocated {delta} times; expected O(1) Arc bump"
     );
-    assert!(std::sync::Arc::ptr_eq(&snap, &fs.snapshot())); // only typechecks with Arc storage
+    assert!(std::sync::Arc::ptr_eq(&snap, &fs.snapshot()));
 }
 
 #[test]
@@ -62,7 +60,6 @@ fn get_identity_does_not_clone_identity_json() {
         let cfg = catalyrst_explorer_api::config::Config::from_env().unwrap();
         let state = catalyrst_explorer_api::build_state(&cfg).await.unwrap();
         let app = catalyrst_explorer_api::api_router().with_state(state.clone());
-        // many-node identity: clone cost = O(nodes), so alloc COUNT discriminates sharply
         let chain: Vec<serde_json::Value> = (0..4096)
             .map(|i| serde_json::json!({"type":"ECDSA_SIGNED_ENTITY","payload":format!("p-{i}"),"signature":format!("s-{i}")}))
             .collect();
@@ -73,7 +70,7 @@ fn get_identity_does_not_clone_identity_json() {
             IdentityRecord {
                 identity_id: id.clone(),
                 identity: serde_json::json!({ "authChain": chain }),
-                ip_address: String::new(), // empty -> ip checks skipped
+                ip_address: String::new(),
                 is_mobile: false,
                 created_at: now,
                 expiration: now + chrono::Duration::seconds(600),

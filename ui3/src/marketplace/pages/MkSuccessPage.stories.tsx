@@ -6,11 +6,6 @@ type Props = ComponentProps<typeof MkSuccessPage>;
 type SuccessState = NonNullable<Props["state"]>;
 type Asset = Props["asset"];
 
-/**
- * Every asset shape the page has been shown with, picked by name. `none` maps to
- * `undefined` so "no asset at all" (what the error state renders with) is a
- * first-class option in the Controls panel.
- */
 const ASSETS = {
   ens: { category: "ens", name: "myname", rarity: "rare" },
   wearable: { category: "wearable", name: "Cyber Jacket", rarity: "epic" },
@@ -23,7 +18,6 @@ const ASSET_KEYS = Object.keys(ASSETS) as AssetKey[];
 
 const STATES = ["success", "loading", "error"] satisfies SuccessState[];
 
-/** `assetKind` names a fixture; `state` stays a real prop. */
 type SuccessStoryArgs = { state: SuccessState; assetKind: AssetKey };
 
 const meta = {
@@ -43,13 +37,6 @@ type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {};
 
-/**
- * Every state, plus the three asset categories in the success state -- the category picks a
- * different hero image and a different action list (assign-name / try-in-world / start-building).
- * `Default` flips between them from the Controls panel; this story keeps all five in the
- * render + a11y + visual-diff gates. `chrome={false}` because stacking N copies of
- * `MarketplaceChrome` would emit N `<main>` landmarks and fail axe's landmark-unique.
- */
 export const Catalog: Story = {
   name: "Catalog (every state)",
   parameters: { controls: { disable: true } },

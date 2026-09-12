@@ -1,15 +1,8 @@
-// Mirrors auth/src/shared/auth/signMethodGuard.ts, the domain rule of its
-// metaTransactionTypedData.ts, RequestPage/transactionParams.ts and the isOpaqueSignatureMessage
-// rule of RequestPage/utils.ts: what a recovered request must satisfy before the page shows it,
-// and the exact shape the wallet is finally handed. Every rule fails closed; the page has no
-// simulation or contract registry to fall back on.
 
 export const RPC_METHOD_NOT_SUPPORTED = -32601;
 export const RPC_INVALID_PARAMS = -32602;
 export const RPC_USER_REJECTED = -32003;
 
-// dcl_personal_sign (retired sign-in), eth_sign (raw digest, no EIP-191 prefix) and the v1
-// eth_signTypedData (reversed params, no client uses it) must never be added back.
 const ALLOWED_METHODS = [
   "personal_sign",
   "eth_signTypedData_v3",
@@ -31,9 +24,6 @@ export function isRetiredSignInMethod(method: string): boolean {
   return method.trim().toLowerCase() === RETIRED_SIGN_IN_METHOD;
 }
 
-// Case-insensitive on the "0x" prefix: signers are compared lowercased, so a "0X" value the
-// comparison accepts has to be recognized as an address everywhere too. Calldata is not compared
-// that way and is held to the literal prefix (see CALLDATA_RE).
 const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/i;
 const HEX_BYTES_RE = /^0[xX]([0-9a-fA-F]{2})*$/;
 
@@ -47,21 +37,14 @@ export function decodeHexMessage(value: string): string | null {
   return new TextDecoder().decode(bytes);
 }
 
-// The wallet signs the decoded bytes, so the text the user reads is the decoded form whenever
-// the param decodes; a raw param that is not hex stays as it is.
 export function decodeSignatureMessage(value: unknown): string | null {
   if (typeof value !== "string") return null;
   return decodeHexMessage(value) ?? value;
 }
 
-// Mirrors @dcl/crypto's parseEmphemeralPayload: only the 2nd and 3rd lines decide whether a
-// signature yields a usable auth chain, so the header line is ignored on purpose.
 const EPHEMERAL_ADDRESS_OFFSET = "Ephemeral address: ".length;
 const EXPIRATION_OFFSET = "Expiration: ".length;
 
-// The consumer slices both values from these offsets and never reads the prefixes. Never tighten
-// this back to a prefix test: a forgery that keeps the offsets and re-prefixes the lines would
-// pass here and still parse into a usable identity there.
 function isEphemeralText(value: string): boolean {
   const lines = value.replace(/\r/g, "").split("\n");
   const addressLine = lines[1];
@@ -119,9 +102,6 @@ function hasPrimaryType(typedData: unknown): boolean {
   );
 }
 
-// The fields EIP-712 defines for a domain, with the types the standard gives them. A Decentraland
-// contract hashes its domain with exactly these, and a domain carrying anything else is signing a
-// field no contract reads.
 const EIP712_DOMAIN_FIELD_TYPES: ReadonlyMap<string, string> = new Map([
   ["name", "string"],
   ["version", "string"],
@@ -130,22 +110,8 @@ const EIP712_DOMAIN_FIELD_TYPES: ReadonlyMap<string, string> = new Map([
   ["salt", "bytes32"],
 ]);
 
-// Matched case-sensitively because the contracts hash the literal type name.
 const META_TRANSACTION_PRIMARY_TYPE = "MetaTransaction";
 
-// EIP-712 hashes only the domain fields `types.EIP712Domain` declares, so a MetaTransaction can
-// carry a `salt` -- the chain the call executes on -- that the wallet never signs, declare a field
-// the domain lacks, or declare one under a type the contract does not hash. The struct must be
-// declared: wallets disagree on an absent one (viem derives it from the domain's keys, eth-sig-util
-// hashes an empty struct), so what this page shows would not be what such a wallet signs, and
-// decentraland-transactions always declares it. It must then name exactly the domain's keys, each
-// once, with its standard type.
-//
-// Nothing on the request path calls this. Upstream reaches these rules only once the domain's
-// verifyingContract has resolved to a contract Decentraland vouches for: a deviation then means the
-// payload is broken or hostile and is refused, while the same deviation for any other contract is
-// shown as the typed data it is, behind the same acknowledgment every other signature gets. Wire
-// this back into signatureParamsProblem once a contract registry can tell those two apart.
 export function metaTransactionDomainProblem(typedData: unknown): string | null {
   if (!isRecord(typedData) || typedData.primaryType !== META_TRANSACTION_PRIMARY_TYPE) return null;
   const { types, domain, message } = typedData;
@@ -175,12 +141,6 @@ export function metaTransactionDomainProblem(typedData: unknown): string | null 
     : "the MetaTransaction domain type does not match the domain fields";
 }
 
-// EIP-712 carries integers only, and a JSON number becomes a double once the typed data is parsed
-// and serialized for the wallet. A literal the double cannot hold exactly comes back rewritten
-// (9007199254740993 as ...992, a collection item id short of its low digits), so the wallet would
-// sign a value other than the one the request stated and this page displayed. Such a value belongs
-// in a string, which is what every EIP-712 encoder emits for it; a fraction or an exponent is not an
-// EIP-712 integer either.
 const JSON_NUMBER_LEXEME = /-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?/y;
 const INTEGER_LEXEME = /^-?(?:0|[1-9]\d*)$/;
 
@@ -190,8 +150,6 @@ function isExactInteger(lexeme: string): boolean {
   return Number.isFinite(value) && BigInt(lexeme) === BigInt(value);
 }
 
-// Quoted substrings are skipped with their escapes, so a numeric-looking value inside a string is
-// text and not a literal the parse could rewrite.
 function hasOnlyExactNumbers(json: string): boolean {
   let inString = false;
   for (let index = 0; index < json.length; index += 1) {
@@ -215,9 +173,6 @@ function hasOnlyExactNumbers(json: string): boolean {
   return true;
 }
 
-// A size cap bounds neither the serializer's recursion nor the indentation a nested payload expands
-// into, so depth is measured before anything stringifies the value: a small request can carry
-// thousands of nested arrays.
 const MAX_TYPED_DATA_DEPTH = 64;
 
 function hasExcessiveTypedDataDepth(value: unknown, depth = 0): boolean {
@@ -226,15 +181,8 @@ function hasExcessiveTypedDataDepth(value: unknown, depth = 0): boolean {
   return Object.values(value).some((child) => hasExcessiveTypedDataDepth(child, depth + 1));
 }
 
-// What a signature request may ask to sign: the same bound the calldata guard uses. Legitimate
-// payloads are far smaller, and without a cap the page would parse, escape and pretty-print whatever
-// a scene sent on every render. The raw string is measured before it is parsed.
 export const MAX_SIGNATURE_PAYLOAD_CHARS = 96 * 1024;
 
-// Wallets and the preview read signature params by position. With the signer known (the
-// request's sender, or the account connected on approve) the element must be that address;
-// before any account is known only its shape can be checked, and the connected account is
-// held to the exact rule again before dispatch (see buildWalletRequest).
 function signatureParamsProblem(
   method: AllowedMethod,
   params: unknown[] | undefined,
@@ -276,11 +224,7 @@ function signatureParamsProblem(
   return null;
 }
 
-// Fields other than `data` that carry calldata: viem forwards `input` and thirdweb appends
-// `extraCallData`, so either would execute bytes the page never showed.
 const CALLDATA_ALIASES = ["input", "extraCallData"] as const;
-// Case-sensitive on the prefix: `data` is handed to the wallet verbatim and never lowercased for
-// a comparison, so nothing here has to accept a form no encoder produces.
 const CALLDATA_RE = /^0x([0-9a-fA-F]{2})*$/;
 const QUANTITY_RE = /^(0x[0-9a-fA-F]{1,64}|[0-9]{1,78})$/;
 export const MAX_CALLDATA_BYTES = 96 * 1024;
@@ -372,8 +316,6 @@ export function validateAuthRequest(
 const describeType = (value: unknown): string =>
   Array.isArray(value) ? "array" : value === null ? "null" : typeof value;
 
-// A wallet that reads a non-"0x" string as text signs a wildly different amount than the decimal
-// form the page displayed, so the quantity is canonicalised once and both sides read that string.
 export function toHexQuantity(value: unknown): string {
   if (typeof value !== "string" || !QUANTITY_RE.test(value)) {
     throw new Error(
@@ -385,8 +327,6 @@ export function toHexQuantity(value: unknown): string {
 
 export type TransactionParams = { to: string; data: string; value: string };
 
-// Only the reviewed fields reach the wallet; gas, fees, nonce, type, chainId and access lists
-// are left for the wallet to fill in so what gets signed is what was shown.
 export function buildTransactionParams(params: unknown[] | undefined): [TransactionParams] {
   const [txParams] = params ?? [];
   if (txParams === null || typeof txParams !== "object" || Array.isArray(txParams)) {
@@ -411,9 +351,6 @@ export function buildTransactionParams(params: unknown[] | undefined): [Transact
       `Transaction "data" must be hex-encoded bytes, received ${describeType(data)}: ${JSON.stringify(data)}`,
     );
   }
-  // One spelling of the address and of the calldata for everything downstream. Hex is
-  // case-insensitive and the recover guard accepts a "0X" prefix, so left as sent a "0X..." target
-  // would be displayed, dispatched and later looked up in a spelling no explorer or relay reads.
   return [
     { to: to.toLowerCase(), data: data.toLowerCase(), value: toHexQuantity(source.value ?? "0x0") },
   ];
@@ -421,8 +358,6 @@ export function buildTransactionParams(params: unknown[] | undefined): [Transact
 
 export type TransactionPreview = { shown: TransactionParams; dropped: string[] };
 
-// The preview is the dispatched object itself, so the user reviews exactly what the wallet
-// receives and is told which recovered fields it will never see.
 export function previewTransaction(params: unknown[] | undefined): TransactionPreview {
   const [shown] = buildTransactionParams(params);
   const source = (params ?? [])[0] as Record<string, unknown>;
@@ -453,18 +388,10 @@ export function rejectionOutcome(rejection: RequestRejection): { code: number; m
   return { code: rejection.code ?? RPC_INVALID_PARAMS, message: rejection.message };
 }
 
-// Anything the user cannot see or read, by Unicode category: controls, format characters,
-// surrogates, private-use and unassigned code points, the line and paragraph separators, and
-// U+FFFD (what decoding invalid UTF-8 produces). Tab, newline and CR are the only allowed controls.
 const UNREADABLE_CHARACTER_RE = /(?![\t\n\r])[\p{C}\p{Zl}\p{Zp}\uFFFD]/u;
 const DIGEST_BYTE_LENGTH = 32;
-// One unbroken run of hex, base64, base64url or dotted-token characters and nothing else: an
-// unprefixed hash, a base64 digest, a UUID, a JWT-like token. Sentences carry spaces and
-// punctuation outside this alphabet.
 const TOKEN_SHAPED_RE = /^[A-Za-z0-9+/=_.-]{32,}$/;
 
-// Case-insensitive, unlike the calldata guard: this decides what the user is shown, and a "0X"
-// blob is exactly as unreadable as a "0x" one.
 const HEX_STRING_RE = /^0x([0-9a-fA-F]{2})*$/i;
 
 export function isOpaqueSignatureMessage(message: string): boolean {
@@ -479,12 +406,6 @@ export type UnverifiableReason =
   | "unrecognized_typed_data"
   | "unsimulated_transaction";
 
-// Nothing is exempt. Upstream previews only a call into a Decentraland contract and shows every
-// other request as one it cannot check -- a readable personal_sign included, because reading the
-// text says nothing about what the signature is then used for: it can log the signer in to another
-// site as themselves, or authorize an off-chain order or spending permission. This page has neither
-// the simulation nor the contract registry, so every request it forwards reaches the wallet behind
-// the acknowledgment; the reason only decides which warning is shown.
 export function unverifiableReason(
   method: AllowedMethod,
   params: unknown[],
@@ -497,19 +418,12 @@ export function unverifiableReason(
     : "unverified_message";
 }
 
-// Wallet accounts are compared the way every guard on this page compares them: by their bytes,
-// never by their casing.
 export function isSameAccount(a: string | null | undefined, b: string | null | undefined): boolean {
   if (typeof a !== "string" || typeof b !== "string") return false;
   const left = a.trim().toLowerCase();
   return left.length > 0 && left === b.trim().toLowerCase();
 }
 
-// A rejection is answered under the account the request names; only a request that names none --
-// blank counted as none, as everywhere else this field is read -- falls back to whatever account
-// this browser happens to have connected. Upstream always reports
-// the wallet that recovered the request, which its flow has connected by then; Deny here is
-// reachable with no wallet ever connected, and the caller posts nothing when neither is known.
 export function namedSender(sender: string | null | undefined): string | null {
   return typeof sender === "string" && sender.trim().length > 0 ? sender : null;
 }
@@ -529,8 +443,6 @@ export type ApprovalGates = {
   effectsAcknowledged: boolean;
 };
 
-// The single precondition for Approve: the button disables itself with it and the handler refuses
-// a click with it, so a gate can never be added to one and forgotten on the other.
 export function approveBlocked(gates: ApprovalGates): boolean {
   if (gates.isSigning) return true;
   if (gates.mustValidate && !gates.acknowledged) return true;

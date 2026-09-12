@@ -1,16 +1,16 @@
 # Run your own catalyrst -- NixOS module quickstart
 
 The fastest supported path to a working node is the NixOS module
-(`nixosModules.catalyrst`, source in [`nixos/`](../nixos/)). The manual
-bundle runbook ([deploy.md](./deploy.md)) remains for non-NixOS hosts, and a
-docker-compose distribution is in progress as a third path.
+(`nixosModules.catalyrst`, source in [`nixos/`](../nixos/)). The manual bundle
+runbook ([deploy.md](./deploy.md)) covers non-NixOS hosts; a docker-compose
+distribution is in progress as a third path.
 
 ## 0. Provisioning a fresh cloud VPS (skip if you already run NixOS)
 
-The rest of this guide assumes a working NixOS host. Turning a stock cloud
-image into one with [`nixos-anywhere`](https://github.com/nix-community/nixos-anywhere)
-has three traps that each silently wedge the box before it reaches the
-network -- all three verified on a fresh Hetzner cpx42:
+This guide assumes a working NixOS host. Turning a stock cloud image into one with
+[`nixos-anywhere`](https://github.com/nix-community/nixos-anywhere) has three traps
+that each silently wedge the box before it reaches the network, all verified on a
+fresh Hetzner cpx42:
 
 - **virtio initrd.** Import `(modulesPath + "/profiles/qemu-guest.nix")` in the
   install config, or stage-1 cannot see the virtio disk and boot hangs before
@@ -87,11 +87,11 @@ nixpkgs.lib.nixosSystem {
 }
 ```
 
-That is the whole configuration -- every `*Package` option defaults null and
-falls back to the flake's own build (`contentPackage` -> `packages.catalyrst`,
-`bundlesPackage` -> `packages.catalyrst-all`, `squidPackage` ->
-`packages.squid`, ...), so a profile is self-contained. Set a package option
-only to substitute a private or patched build.
+That is the whole configuration: every `*Package` option defaults null and falls
+back to the flake's own build (`contentPackage` -> `packages.catalyrst`,
+`bundlesPackage` -> `packages.catalyrst-all`, `squidPackage` -> `packages.squid`,
+...), so a profile is self-contained. Set a package option only to substitute a
+private or patched build.
 
 ## 3. Required externals, by choice
 
@@ -205,8 +205,8 @@ and collapses services this node does not enable.
 
 ## 7. Walking in from a stock client
 
-The desktop Explorer needs no patching to enter a self-hosted realm, but three
-things about it are worth knowing before you try.
+The desktop Explorer needs no patching to enter a self-hosted realm. Three things
+to know first.
 
 **Open the protocol handler, not decentraland.org.**
 `https://decentraland.org/play/?realm=<your node>` does not work and cannot be
@@ -232,9 +232,8 @@ When a realm name ends in `dcl.eth`, the client fetches
 infrastructure. If a world of that name is published there, the manifest comes
 back non-empty and the client loads scene definitions from the official
 registry -- your `scenesUrn` is never read, and visitors see the official copy
-of the world while your node serves nothing but `/about`. Since keeping an
-official copy of the same name for reach is a sensible thing to do, this is
-easy to hit.
+of the world while your node serves nothing but `/about`. Easy to hit, since
+keeping an official copy of the same name for reach is sensible.
 
 catalyrst defends against it by default: a world published to this node
 (`world_scenes.deployer` is not the zero address) advertises its realm name
@@ -254,25 +253,23 @@ The override exists because `worldConfiguration.name` lives in the scene
 entity, so every deploy restores it -- editing the entity is not a fix that
 lasts.
 
-A side effect worth expecting: with a non-`dcl.eth` realm name the manifest is
-empty, so the client generates no auto-terrain around your scenes. Skyboxes
-that meet the ground stop showing a seam.
+Side effect: with a non-`dcl.eth` realm name the manifest is empty, so the client
+generates no auto-terrain around your scenes; skyboxes that meet the ground stop
+showing a seam.
 
 Avoid naming a realm `main`, `shiva`, `hela`, `heimdallr`, `baldr`, `artemis`,
 `loki`, `dg`, `hephaestus`, `unicorn`, `marvel` or `nftworld` for the same
 class of reason: the client treats those as Genesis realm names and fetches
 Decentraland's Genesis manifest for them.
 
-**Comms failure blocks entry; it does not degrade it.** See
-[deploy.md](./deploy.md#comms-and-entry) -- the short version is that the node
-now detects an unreachable SFU and advertises `offline:offline` so people can
-still get in.
+**Comms failure blocks entry; it does not degrade it.** The node detects an
+unreachable SFU and advertises `offline:offline` so people can still get in --
+see [deploy.md](./deploy.md#comms-and-entry).
 
 ## 8. A stock client will not enter my realm
 
-Diagnose in this order. Each step separates two causes that produce the same
-symptom -- a client that sits at the loading screen or drops into the wrong
-world.
+Diagnose in this order; each step separates two causes of the same symptom -- a
+client that sits at the loading screen or drops into the wrong world.
 
 1. **Did the client even receive the realm?** In `Player.log`, the `Arg N:`
    lines dump the arguments the client launched with. `realm` absent while

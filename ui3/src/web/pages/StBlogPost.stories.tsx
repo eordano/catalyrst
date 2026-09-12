@@ -55,7 +55,6 @@ const SAMPLE_RELATED: NonNullable<ComponentProps<typeof StBlogPost>["related"]> 
   },
 ];
 
-/** `none` leaves `post` undefined, which is the page's own "nothing to render" state. */
 const POSTS = { sample: SAMPLE_POST, none: undefined } satisfies Record<
   string,
   ComponentProps<typeof StBlogPost>["post"]
@@ -63,7 +62,6 @@ const POSTS = { sample: SAMPLE_POST, none: undefined } satisfies Record<
 type PostKey = keyof typeof POSTS;
 const POST_KEYS = Object.keys(POSTS) as PostKey[];
 
-/** `none` passes `[]`, which hides the "Related posts" rail. */
 const RELATED = { three: SAMPLE_RELATED, none: [] } satisfies Record<
   string,
   NonNullable<ComponentProps<typeof StBlogPost>["related"]>
@@ -73,7 +71,6 @@ const RELATED_KEYS = Object.keys(RELATED) as RelatedKey[];
 
 const STATES = ["ready", "loading", "error"] as const;
 
-/** Story args: post and related rail are picked by preset name; `state` passes through. */
 type BlogPostStoryArgs = Omit<ComponentProps<typeof StBlogPost>, "post" | "related"> & {
   postFixture: PostKey;
   relatedFixture: RelatedKey;
@@ -111,18 +108,14 @@ type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {};
 
-/** The spinner, before the post resolves. */
 export const Loading: Story = {
   args: { postFixture: "none", relatedFixture: "none", state: "loading" },
 };
 
-/** The post-failed notice. */
 export const Error: Story = {
   args: { postFixture: "none", relatedFixture: "none", state: "error" },
 };
 
-/** No related posts, so the rail disappears. */
 export const NoRelated: Story = { args: { relatedFixture: "none" } };
 
-/** No post at all -- the detail column is empty. */
 export const Empty: Story = { args: { postFixture: "none", relatedFixture: "none" } };

@@ -2,21 +2,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { loader } from "./creator-hub.activity";
 
-/*
- * The fails-closed shape. Every upstream rejects; the assertion is that the
- * payload carries NO showable `Datum` anywhere and the status is 503.
- *
- * This deliberately does not test that a button renders. The failure this
- * feature exists to prevent is a screen that renders a plausible number it
- * never read, and the only way to catch that is to break every source and prove
- * nothing showable survived.
- */
-
 const SHOWABLE = new Set(["live", "sampled", "snapshot"]);
 
 type Node = unknown;
 
-/** Every `{ state }` object anywhere in the payload, at any depth. */
 function collectDatums(node: Node, out: { state: string }[] = []): { state: string }[] {
   if (Array.isArray(node)) {
     for (const item of node) collectDatums(item, out);
@@ -75,9 +64,6 @@ describe("GET /creator-hub/activity", () => {
     );
     const payload = res.data as Record<string, unknown>;
 
-    // The union has no `value` field on unavailable / no-sample / unbuilt, so a
-    // `?? 0` at any call site cannot compile. Assert it at runtime too: the
-    // enforcement mechanism is the *absence* of the key, not a null in it.
     for (const key of [
       "peopleInYourWorlds",
       "networkPresence",
@@ -97,7 +83,6 @@ describe("GET /creator-hub/activity", () => {
     const res = await loader(get() as never);
     const payload = res.data as Record<string, unknown>;
 
-    // No DEMO_OWNER, ever. Absent an address the page scopes to nobody.
     expect(payload.address).toBeNull();
   });
 });

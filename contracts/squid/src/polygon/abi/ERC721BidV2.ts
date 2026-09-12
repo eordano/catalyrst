@@ -140,7 +140,6 @@ export class Contract extends ContractBase {
     }
 }
 
-/// Event types
 export type BidAcceptedEventArgs = EParams<typeof events.BidAccepted>
 export type BidCancelledEventArgs = EParams<typeof events.BidCancelled>
 export type BidCreatedEventArgs = EParams<typeof events.BidCreated>
@@ -153,7 +152,6 @@ export type PausedEventArgs = EParams<typeof events.Paused>
 export type RoyaltiesManagerSetEventArgs = EParams<typeof events.RoyaltiesManagerSet>
 export type UnpausedEventArgs = EParams<typeof events.Unpaused>
 
-/// Function types
 export type ERC721Composable_ValidateFingerprintParams = FunctionArguments<typeof functions.ERC721Composable_ValidateFingerprint>
 export type ERC721Composable_ValidateFingerprintReturn = FunctionReturn<typeof functions.ERC721Composable_ValidateFingerprint>
 

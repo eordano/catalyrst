@@ -9,7 +9,7 @@ use crate::rest::http::ApiError;
 
 pub const ADR44_MESSAGE: &str = "This endpoint requires a signed fetch request. See ADR-44.";
 
-/// How much of the refused metadata the gate echoes back, matching upstream's own cut.
+/// Matches upstream's own cut.
 const METADATA_ECHO_MAX: usize = 64;
 
 #[derive(Debug, Serialize, utoipa::ToSchema)]
@@ -68,9 +68,6 @@ impl IntoResponse for CommError {
                 ApiErrorBody::labeled("Not Found", message),
             ),
             CommError::Status(code, message) => (code, ApiErrorBody::new(message)),
-            // 401 auth-gate refusals carry the unified envelope like every other 401;
-            // the two-field ADR-44 body is reserved for the 400s, where it matches
-            // upstream byte for byte.
             CommError::SignedFetchGate { status, error } if status == StatusCode::UNAUTHORIZED => {
                 (status, ApiErrorBody::labeled(error, ADR44_MESSAGE))
             }
@@ -97,8 +94,6 @@ fn echo_metadata(metadata: &str) -> String {
 pub fn signed_fetch_gate_parts(e: SignedFetchRejection) -> (StatusCode, String) {
     use AuthChainError as E;
     let e = match e {
-        // The metadata gate answers before verification and names what it read, truncated
-        // (upstream #492).
         SignedFetchRejection::RefusedMetadata(metadata) => {
             return (
                 StatusCode::BAD_REQUEST,
@@ -108,8 +103,6 @@ pub fn signed_fetch_gate_parts(e: SignedFetchRejection) -> (StatusCode, String) 
         SignedFetchRejection::Chain(e) => e,
     };
     match e {
-        // A request presenting no usable chain lacks credentials entirely: 401. A chain
-        // that is present but structurally broken is a malformed request: 400 per ADR-44.
         E::InsufficientLinks => (StatusCode::UNAUTHORIZED, "Invalid Auth Chain".to_string()),
         E::MalformedChain { .. } => (StatusCode::BAD_REQUEST, "Invalid Auth Chain".to_string()),
         E::InvalidTimestamp(v) => (
@@ -164,13 +157,9 @@ impl From<AuthChainError> for CommError {
     }
 }
 
-/// A community membership authority that could not be established, rendered for the
-/// read-path handlers.
-///
-/// Behaviour-preserving: a refusal keeps the 401 those handlers have always answered with
-/// (`CommError::not_authorized`), and a backing-store failure keeps the 500 they answered
-/// when `ApiError::Database` reached [`CommError::Internal`]. What changes is that the two
-/// can no longer be confused for one another on the way here.
+/// For the read-path handlers: a refusal renders 401 (`CommError::not_authorized`), a
+/// backing-store failure 500 ([`CommError::Internal`]). The two cannot be confused for one
+/// another on the way here.
 impl From<catalyrst_authenticated_principal::AuthorityNotEstablished> for CommError {
     fn from(e: catalyrst_authenticated_principal::AuthorityNotEstablished) -> Self {
         use catalyrst_authenticated_principal::AuthorityNotEstablished as NotEstablished;
@@ -270,7 +259,6 @@ mod tests {
 
     #[tokio::test]
     async fn refused_metadata_wire_shape() {
-        // Upstream #492: a 400 from the metadata gate, echoing back what the gate read.
         let raw = r#"{"signer":"decentraland-kernel-scene"}"#;
         let resp = signed_fetch_gate(SignedFetchRejection::RefusedMetadata(raw.to_string()))
             .into_response();

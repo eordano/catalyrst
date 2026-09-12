@@ -7,17 +7,6 @@ import { CommunityMemberWireSchema } from "../generated-schemas/communities";
 
 const nullableStr = z.string().nullish().transform((v) => v ?? null);
 
-/**
- * Members validate against the generated CommunityMemberWireSchema -- the
- * ts-rs image of catalyrst-social-service's member row, where name,
- * profilePictureUrl, hasClaimedName, role and joinedAt are all required on
- * the wire. The hand copy this replaces fabricated role "member", name ""
- * and hasClaimedName false for fields the parse never read.
- *
- * The community object itself still has a hand schema below: the Rust
- * handlers build it as an ad-hoc serde_json::Value (no DTO), so there is
- * nothing generated to import for it yet.
- */
 export const CommunityMemberSchema = CommunityMemberWireSchema;
 export type CommunityMember = z.infer<typeof CommunityMemberSchema>;
 
@@ -30,19 +19,6 @@ export const CommunityEventSchema = z.object({
 });
 export type CommunityEvent = z.infer<typeof CommunityEventSchema>;
 
-/**
- * `id`, `name`, `ownerAddress`, `privacy` and `membersCount` are on every row
- * catalyrst-social-service builds (`rest/ports/communities.rs`), so they are
- * required and a body that is not a community fails here instead of arriving
- * as a nameless public community with no owner.
- *
- * `visibility` and `role` are the sharp pair: the handler *removes* both keys
- * when the request carries no signer. Defaulting them said "listed to
- * everyone" and "you are not a member" about a community nobody asked on the
- * reader's behalf -- a listing claim and a membership claim, neither measured.
- * Null says the answer was not in this response, and the callers below render
- * nothing for it.
- */
 export const CommunitySchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -95,9 +71,6 @@ export function unwrapData(env: unknown): unknown {
   return parsed.success ? parsed.data.data : env;
 }
 
-/** null when the body is not a results envelope. An empty array here would be
- *  "this community has no members" / "there are no communities", which is a
- *  different sentence from "that response was not a list". */
 const ResultsShape = z.object({ results: z.array(z.unknown()) });
 export function unwrapResults(env: unknown): unknown[] | null {
   const parsed = ResultsShape.safeParse(unwrapData(env));
@@ -149,8 +122,6 @@ export async function loadDefaultCommunity(
       }
     }
     if (rows.length === 0) return null;
-    // A community whose member count was not reported can never win "biggest":
-    // an unknown size must not outrank a measured one.
     return rows.reduce((best, c) =>
       (c.membersCount ?? -1) > (best.membersCount ?? -1) ? c : best,
     );

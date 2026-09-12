@@ -5,7 +5,6 @@ import type { GetOptions } from "../client";
 import { shortAddress, ETH_ADDRESS_RE } from "../format/address";
 import { NameColorSchema } from "../generated-schemas/communities";
 
-/** The generated {r,g,b} triple, softened: lambdas profiles may omit channels. */
 const Color3Schema = NameColorSchema.partial().optional();
 
 const AvatarSchema = z.object({

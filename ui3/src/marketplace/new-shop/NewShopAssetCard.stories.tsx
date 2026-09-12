@@ -65,10 +65,6 @@ const CASES: { label: string; args: Partial<CardProps> }[] = [
   },
 ];
 
-/**
- * Every rarity plus the favorited / not-for-sale / Ethereum variants. `Default` flips between
- * them from the Controls panel; this keeps all of them in the render + a11y + visual-diff gates.
- */
 export const Catalog: Story = {
   name: "Catalog (every rarity + state)",
   parameters: { controls: { disable: true } },

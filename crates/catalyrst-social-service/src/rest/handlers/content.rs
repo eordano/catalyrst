@@ -123,8 +123,6 @@ pub async fn gc_content(
         .get(header::AUTHORIZATION)
         .and_then(|v| v.to_str().ok())
         .and_then(|s| s.strip_prefix("Bearer "));
-    // Constant-time compare so this admin gate cannot be probed byte-by-byte through response
-    // timing (upstream #461), matching writes/members.rs and rpc/admin.rs.
     match (&state.admin_token, bearer) {
         (Some(expected), Some(got))
             if crate::rest::handlers::admin::timing_safe_eq(

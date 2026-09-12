@@ -73,10 +73,9 @@ pub fn app_router(cfg: &Config) -> Router<AppState> {
         .layer(CorsLayer::permissive())
 }
 
-/// `cfg` only supplies `assets_dir` for the `/assets` ServeDir mount -- every
-/// other route is state-only. Takes `&Config` (not `AppState`) so callers
-/// that merge this into a larger router (the `catalyrst-social` bundle) can
-/// build it right after `Config::from_env()`, before `AppState` exists.
+/// Takes `&Config` (not `AppState`) so callers that merge this into a larger router (the
+/// `catalyrst-social` bundle) can build it right after `Config::from_env()`; `cfg` is used
+/// only for the `/assets` ServeDir mount.
 pub fn api_router(cfg: &Config) -> Router<AppState> {
     Router::new()
         .route("/categories", get(handlers::badges::get_categories))

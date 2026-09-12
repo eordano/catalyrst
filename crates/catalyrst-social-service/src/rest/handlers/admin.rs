@@ -13,9 +13,6 @@ fn err_body(message: impl Into<String>) -> serde_json::Value {
 }
 
 pub(crate) fn timing_safe_eq(a: &[u8], b: &[u8]) -> bool {
-    // Hash both to a fixed 32 bytes before comparing so the timing never depends
-    // on input length: a bare length-mismatch early return would leak the
-    // expected token's length. Matches upstream's SHA-256 digest compare (#461).
     use sha2::{Digest, Sha256};
     let da = Sha256::digest(a);
     let db = Sha256::digest(b);
@@ -245,7 +242,6 @@ mod tests {
 
     #[test]
     fn empty_configured_secret_must_reject_empty_bearer() {
-        // canonical gate returns 503 on an empty configured secret; this gate must at least refuse.
         assert!(
             require_admin_with_token(Some(""), &bearer(Some(""))).is_err(),
             "empty configured admin_token accepted an empty Bearer -- fail-open bypass"

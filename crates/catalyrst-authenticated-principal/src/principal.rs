@@ -3,13 +3,9 @@ use crate::verified_wallet_address::VerifiedWalletAddress;
 
 /// Who a request is from, and by what mechanism that was established.
 ///
-/// # What a value of this type proves
-///
-/// That one of five named authentication mechanisms completed successfully. The variant
-/// *is* the mechanism: a caller cannot be "authenticated" in the abstract, only
-/// authenticated by something, and the something determines what may be concluded.
-///
-/// # What it does NOT prove
+/// The variant *is* the mechanism: a caller cannot be "authenticated" in the abstract, only
+/// authenticated by something, and the something determines what may be concluded. What it
+/// does NOT prove:
 ///
 /// - **Not authorization.** No variant grants anything. Every "may WHO do WHAT to WHOM"
 ///   question is answered by a crate-local authority type in the crate that owns the
@@ -20,19 +16,10 @@ use crate::verified_wallet_address::VerifiedWalletAddress;
 ///   is a fleet-wide static secret; an ADR-44 signature binds one request. The variants
 ///   exist precisely so a gate cannot accidentally treat them as equivalent.
 ///
-/// # How a value is obtained
-///
-/// By constructing a variant around a payload that could only be produced by the
-/// corresponding verification -- see
-/// [`VerifiedWalletAddress::from_verified_signed_fetch`]
-/// and
-/// [`crate::establish_platform_service_identity_by_comparing_presented_shared_secret`].
-/// The enum adds no authority of its own; it cannot, because it has no private state.
-///
-/// # Deliberately not `#[non_exhaustive]`
-///
-/// A sixth kind of caller must break every exhaustive match in the workspace. That forcing
-/// is the entire point of the type.
+/// A variant is constructed around a payload only the corresponding verification could have
+/// produced; the enum adds no authority of its own, and cannot, having no private state. Not
+/// `#[non_exhaustive]`: a sixth kind of caller must break every exhaustive match in the
+/// workspace, and that forcing is the entire point of the type.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AuthenticatedPrincipal {
     /// A human wallet, proven for this request by the shared ADR-44 signed-fetch verifier
@@ -44,10 +31,9 @@ pub enum AuthenticatedPrincipal {
     /// SIWE sign-in, and re-checked against the live operator allowlist on every request
     /// (`catalyrst-server/src/admin/session.rs`).
     ///
-    /// **Unconstructed as of this crate landing, and that is deliberate.** The variant
-    /// exists first so that the eventual `catalyrst-server` migration is a mint rather than
-    /// a redesign. The verifier behind it is registered as
-    /// [`crate::NonSharedAuthVerifier::AdminConsoleSiweSessionCookieVerifier`].
+    /// **Unconstructed as of this crate landing, and that is deliberate**: the variant exists
+    /// first so the eventual `catalyrst-server` migration is a mint rather than a redesign.
+    /// Its verifier is [`crate::NonSharedAuthVerifier::AdminConsoleSiweSessionCookieVerifier`].
     VerifiedAdminConsoleWallet(VerifiedWalletAddress),
 
     /// A platform service, proven by possession of a shared static bearer secret. Never a
@@ -70,15 +56,14 @@ impl AuthenticatedPrincipal {
     /// The one narrowing helper: the wallet address, **if and only if** this principal is a
     /// human wallet.
     ///
-    /// Returns `None` for every service-shaped principal, and -- deliberately -- also for a
-    /// relaying peer server, whose wallet identifies the *peer*, not any end user. A gate
-    /// that wants the originating end user of a federated envelope must name that claim
-    /// explicitly; it is not available through this method.
+    /// `None` for every service-shaped principal, and -- deliberately -- also for a relaying
+    /// peer server, whose wallet identifies the *peer*, not any end user; a gate wanting the
+    /// originating end user of a federated envelope must name that claim explicitly.
     ///
     /// This is what makes the current shape of `catalyrst-comms/src/handlers/voice.rs`
-    /// inexpressible without naming a claim: the gatekeeper service holds a bearer token,
-    /// so it lands on `PlatformServiceProvenBySharedBearerToken`, so this returns `None`,
-    /// so the `user_address` in its JSON body has to be spelled
+    /// inexpressible without naming a claim: the gatekeeper service holds a bearer token, so
+    /// it lands on `PlatformServiceProvenBySharedBearerToken`, so this returns `None`, so the
+    /// `user_address` in its JSON body has to be spelled
     /// [`crate::ClaimedWalletAddressNobodyHasVerified`] -- which is exactly what it is.
     pub fn wallet_address_if_this_principal_is_a_human_wallet(
         &self,
@@ -95,19 +80,15 @@ impl AuthenticatedPrincipal {
     /// A description of the actor for an audit column, derived only from what the server
     /// established.
     ///
-    /// This replaces two families of audit actor in use today, both of which record
-    /// something the server never verified:
-    ///
-    /// - the literal `"admin-token"` written by `catalyrst-market/src/handlers/admin.rs`
-    ///   and `catalyrst-social-service/src/rest/handlers/admin.rs`, which records the
-    ///   *mechanism* and nothing else;
-    /// - the client-supplied `x-catalyrst-admin` header used by badges, economy, credits
-    ///   and telemetry, which records whatever the caller typed.
-    ///
-    /// The mechanism prefix is part of the string on purpose: `wallet:0x...` and
+    /// It replaces two families of audit actor in use today, both recording something the
+    /// server never verified: the literal `"admin-token"` written by
+    /// `catalyrst-market/src/handlers/admin.rs` and
+    /// `catalyrst-social-service/src/rest/handlers/admin.rs`, and the client-supplied
+    /// `x-catalyrst-admin` header used by badges, economy, credits and telemetry. The
+    /// mechanism prefix is part of the string on purpose: `wallet:0x...` and
     /// `service-token:MARKET_ADMIN_TOKEN` are different facts and must not sort together.
     ///
-    /// This is **not** a stable wire format. It is an audit string; do not parse it.
+    /// **Not** a stable wire format. It is an audit string; do not parse it.
     pub fn audit_actor_description(&self) -> String {
         match self {
             Self::HumanWalletProvenByAdr44SignedFetchSignature(wallet) => {

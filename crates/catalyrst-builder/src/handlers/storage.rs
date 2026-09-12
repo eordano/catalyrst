@@ -42,9 +42,8 @@ pub async fn get_storage_content(
 const EXISTS_TTL: std::time::Duration = std::time::Duration::from_secs(300);
 const EXISTS_CACHE_MAX: usize = 8192;
 
-/// Builder stores predate the canonical-CID rule and still hold keys that are merely
-/// alphanumeric -- shortened digests, uppercase hex. The window is what keeps a key from
-/// being a path, so it stays as wide as the deployed stores are.
+/// Builder stores predate the canonical-CID rule and still hold merely-alphanumeric keys
+/// (shortened digests, uppercase hex); the length window is only a path guard.
 fn is_legacy_storage_key(hash: &str) -> bool {
     (32..=128).contains(&hash.len()) && hash.bytes().all(|b| b.is_ascii_alphanumeric())
 }

@@ -74,7 +74,6 @@ export const Snapshot: Story = {
   },
 };
 
-/** A real zero is a real reading -- and it must say so, or it reads as absent. */
 export const RealZero: Story = {
   args: {
     datum: datumFixtures.realZero,
@@ -95,7 +94,6 @@ export const Unbuilt: Story = {
   args: { datum: datumFixtures.unbuilt, label: "Unique visitors" },
 };
 
-/** Two hosts, two honest answers. Neither is picked; neither is averaged. */
 export const Disagreeing: Story = {
   args: { datum: datumFixtures.sampled, compare: COMPARE.liveData },
 };

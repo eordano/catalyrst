@@ -47,9 +47,6 @@ const PILL_ICONS: Record<string, ReactNode> = {
   ),
 };
 
-// The engine has its own WindowSetting for native fullscreen, but on the web
-// target the DOM Fullscreen API is the actual source of truth for the canvas,
-// and the toggle must reflect exits made outside our control (Escape, F11).
 function useIsFullscreen(): boolean {
   const [on, setOn] = useState(
     () => typeof document !== "undefined" && !!document.fullscreenElement,

@@ -19,9 +19,6 @@ const TRADE_TYPE: &str = concat!(
 const EXTERNAL_CHECK_TYPE: &str =
     "ExternalCheck(address contractAddress,bytes4 selector,bytes value,bool required)";
 
-// The referenced `ExternalCheck` type is deliberately NOT appended here: the trade
-// signatures already in `marketplace.trades` were produced over the bare `Checks`
-// string, so appending it would stop every stored signature from recovering.
 const CHECKS_TYPE: &str = "Checks(uint256 uses,uint256 expiration,uint256 effective,bytes32 salt,uint256 contractSignatureIndex,uint256 signerSignatureIndex,bytes32 allowedRoot,ExternalCheck[] externalChecks)";
 
 const ASSET_TYPE: &str =
@@ -102,8 +99,6 @@ fn bool_word(value: bool) -> [u8; 32] {
     word_u64(u64::from(value))
 }
 
-// Seconds, not milliseconds: the contract signs the expiry the wallet showed the
-// user, and the wire format carries milliseconds.
 fn to_seconds(ms: i64) -> u64 {
     (ms / 1000).max(0) as u64
 }
@@ -255,19 +250,16 @@ pub fn verify_signature(
 #[derive(Debug, PartialEq, Eq)]
 pub struct SignatureMatch {
     pub marketplace: OffChainMarketplace,
-    /// The identifier the matched version keys cancellations on, or None when
-    /// it keys them on keccak256(signature bytes), which the trade already
-    /// stores as hashed_signature.
+    /// None when the matched version keys cancellations on keccak256(signature bytes), which
+    /// the trade already stores as hashed_signature.
     pub cancellation_digest: Option<String>,
 }
 
-/// Tries `candidates` in order and reports which one the signature verifies
-/// against. A structurally invalid signature (bad length, v byte, r or s
-/// outside the curve order, a non-canonical high s) is Malformed on the first
-/// candidate and never a server fault: the high-s case is exactly the
-/// malleability V3 exists to fix, so it has to read as an invalid signature.
-/// A signature that verifies against no candidate reports the mismatch of
-/// the newest one.
+/// Tries `candidates` in order. A structurally invalid signature (bad length, v byte, r or s
+/// outside the curve order, a non-canonical high s) is Malformed on the first candidate and
+/// never a server fault: the high-s case is the malleability V3 exists to fix, so it has to
+/// read as an invalid signature. A signature that verifies against no candidate reports the
+/// mismatch of the newest one.
 pub fn resolve_signature(
     trade: &TradeCreation,
     candidates: &[OffChainMarketplace],

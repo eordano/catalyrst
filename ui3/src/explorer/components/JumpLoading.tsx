@@ -4,17 +4,10 @@ import Spinner from "../../atoms/Spinner";
 import { useBridgeState } from "../../overlay/bridge";
 import "./jumploading.css";
 
-// Fallback for jumps the engine never reports as loading (the destination scene is
-// already resident, so the deduped loading push stays ready=true and silent).
 const INSTANT_JUMP_FALLBACK_MS = 3500;
 
-// Ceiling on the quiet wait. A destination that still is not ready by now gets a
-// warning card instead of a fake success: the user chooses to enter anyway or to
-// stay where they were.
 const JUMP_MAX_MS = 30000;
 
-// Tiny store, not a bare module flag: AppLayout renders from this value, so it needs
-// a subscription that re-renders it the moment a panel jump begins or ends.
 let panelJumpActive = false;
 const panelJumpListeners = new Set<() => void>();
 
@@ -70,8 +63,6 @@ export function useJump(onDone?: () => void): {
     doneRef.current?.();
   }, [clearTimers]);
 
-  // Dismiss without the success path: the overlay comes down and the user stays
-  // on the panel they were on. The teleport request itself is not recalled.
   const cancelJump = useCallback(() => {
     clearTimers();
     setPanelJumpActive(false);
@@ -135,8 +126,6 @@ export default function JumpLoading({
   const cancelRef = useRef(onCancel);
   cancelRef.current = onCancel;
 
-  // Capture-phase so the cancel beats the panel-level Escape handlers; AppLayout
-  // yields Escape while a jump overlay is up.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape" || !cancelRef.current) return;

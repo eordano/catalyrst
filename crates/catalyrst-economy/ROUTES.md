@@ -52,11 +52,10 @@ MANA the contract actually moves can differ from the recorded basis by the rate 
 between the broker's read and the mined block, bounded by the guards above plus the
 contract's own 27s aggregator tolerance.
 
-Note: an idempotent replay of a USD-pegged buy re-reads the oracle and re-applies both
-bounds before resuming; if the rate has since moved beyond them the replay is refused
-(409) -- retry with a re-quoted `quoteManaWei` to resume (the background reconciler keeps
-advancing the on-chain receipt states meanwhile; funds safety does not depend on the
-replay).
+An idempotent replay of a USD-pegged buy re-reads the oracle and re-applies both bounds
+before resuming; if the rate has since moved beyond them the replay is refused (409) --
+retry with a re-quoted `quoteManaWei` (the background reconciler keeps advancing the
+on-chain receipt states meanwhile; funds safety does not depend on the replay).
 
 ## Error status mapping
 

@@ -4,9 +4,6 @@ use serde_json::{json, Value};
 
 use super::{TranslatedItem, TranslationBackend};
 
-// Adapter over an OpenAI-compatible chat-completions proxy (llm.decent.dev). Each translate
-// request becomes one /v1/chat/completions call whose reply is a JSON object we map back onto
-// the LibreTranslate-shaped TranslatedItem the rest of the crate speaks.
 pub struct LlmBackend {
     client: reqwest::Client,
     base_url: String,
@@ -132,9 +129,6 @@ fn strip_json_fences(s: &str) -> &str {
     t.trim().trim_end_matches("```").trim()
 }
 
-// The proxy usually honors the JSON instruction, but a stray model may return either bare prose
-// or a fenced blob. Parse the structured payload when present; otherwise fall back to treating the
-// whole reply as the translation so we surface a real (if unlabeled) result rather than an error.
 fn map_completion(content: &str, source: &str) -> TranslatedItem {
     let body = strip_json_fences(content);
     if let Ok(payload) = serde_json::from_str::<LlmTranslatePayload>(body) {

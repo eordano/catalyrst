@@ -52,8 +52,6 @@ function escapeLabel(s: string): string {
   return s.replace(/:/g, "\u{B7}").replace(/\n/g, " ").replace(/[{}]/g, "");
 }
 
-// Both outputs are committed; serialization must be pure ASCII so regeneration
-// is byte-stable (md renders glyphs as words, html as numeric entities).
 function mdAscii(s: string): string {
   return s
     .replace(/\u{2713}/gu, "OK")

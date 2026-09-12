@@ -33,7 +33,6 @@ async function makeStoredIdentity(expirationMs = Date.now() + 86_400_000): Promi
   };
 }
 
-/** Fails the test when the call resolves, so "it threw" stays part of the claim. */
 async function rejectionOf(p: Promise<unknown>): Promise<unknown> {
   try {
     await p;

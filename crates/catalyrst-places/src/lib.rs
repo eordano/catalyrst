@@ -68,12 +68,6 @@ pub async fn build_state(cfg: &Config) -> Result<AppState> {
 
     let lists = ListsComponent::new(pool.clone());
     if let Err(e) = lists.ensure_schema().await {
-        // 42501 = insufficient_privilege. This role is read-only by design, so a
-        // DDL denial is NOT a lists problem: nothing can self-apply, and the
-        // out-of-band migrations may be missing entirely. Reported as a
-        // lists-only warning it hid exactly that -- 0003 sat unapplied behind a
-        // line about /pois while every read 500'd on `column "world" does not
-        // exist` (2026-07-29). Say what actually failed, at a level that shows.
         let denied = matches!(
             &e,
             ApiError::Common(catalyrst_types::ApiError::Database(sqlx::Error::Database(db)))
@@ -210,9 +204,6 @@ pub async fn build_state(cfg: &Config) -> Result<AppState> {
         }
     }
 
-    // Independent of the places lane: worlds live only in the upstream
-    // /api/worlds listing, so a node deriving places from its own content
-    // still needs this mirror for its worlds catalog.
     if cfg.worlds_mirror_upstream {
         let interval = std::time::Duration::from_secs(cfg.worlds_mirror_interval_secs);
         crate::catalog::worlds_mirror::spawn(
@@ -337,11 +328,9 @@ pub fn api_router_with_spec() -> (Router<AppState>, utoipa::openapi::OpenApi) {
     api_router_with_spec_inner(true)
 }
 
-/// Build the Places router for the combined explore process.
-///
-/// The Events member owns `GET /v1/destinations/{id}/events` in that process.
-/// Keeping Places' standalone proxy for the same method and path would make
-/// `axum::Router::merge` panic while the bundle starts.
+/// The Events member owns `GET /v1/destinations/{id}/events` in the combined
+/// explore process. Keeping Places' standalone proxy for the same method and
+/// path would make `axum::Router::merge` panic while the bundle starts.
 pub fn api_router_with_spec_for_bundle() -> (Router<AppState>, utoipa::openapi::OpenApi) {
     api_router_with_spec_inner(false)
 }

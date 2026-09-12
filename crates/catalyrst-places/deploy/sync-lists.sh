@@ -6,9 +6,6 @@ source "$HERE/_lib.sh"
 load_db_creds
 set -a; source "$ENV_DIR/db.env"; set +a
 
-# Ingestion of deny/POI lists into our own DB. Required rather than defaulted
-# so a run cannot silently pull from production; the upstream list service is
-# https://dcl-lists.decentraland.org if that is what you intend to mirror.
 UPSTREAM="${LISTS_UPSTREAM:?set LISTS_UPSTREAM to the deny/POI list source to mirror}"
 PSQL=(env "PGPASSWORD=$POSTGRES_PE_PASSWORD" psql -h "$PG_SOCK_DIR" -p "$PG_PORT"
       -U "$POSTGRES_PE_USER" -d "$POSTGRES_PE_DB" -v ON_ERROR_STOP=1 --no-psqlrc -q)

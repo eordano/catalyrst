@@ -265,8 +265,6 @@ pub(super) fn finish(
     shared.running.store(false, Ordering::SeqCst);
     watchdog.stopped.store(true, Ordering::SeqCst);
 
-    // Nothing will reclaim a range from here on, so no slot is owed a
-    // deferred release; drop them all rather than leaking the index space.
     shared.slots.clear();
 
     *watchdog.isolate.lock() = None;
@@ -784,11 +782,7 @@ mod tests {
     /// stubbed out on the server to prevent.
     #[test]
     fn scene_cannot_author_renderer_local_entities() {
-        let batch = encode_batch(&[
-            put(1, 1, 1, &[9]),   // PLAYER
-            put(2, 1, 1, &[9]),   // CAMERA
-            put(600, 1, 1, &[7]), // legitimate server-band entity
-        ]);
+        let batch = encode_batch(&[put(1, 1, 1, &[9]), put(2, 1, 1, &[9]), put(600, 1, 1, &[7])]);
         let js = format!(
             r#"
             var EngineApi = require('~system/EngineApi');
@@ -994,8 +988,6 @@ mod tests {
             "the transport config must freeze once a client holds a range from it"
         );
 
-        // The client is still judged against the window it was actually given:
-        // ROOT and a server-band entity stay out of reach, its own range works.
         handle
             .tx
             .send(Command::ClientCrdt {
@@ -1047,9 +1039,6 @@ mod tests {
             None,
         );
 
-        // Index 0 would be [1024, 1536) under the current config. Hand it
-        // [2048, 2560) instead -- the situation a mid-session config change used
-        // to create -- and check nothing re-derives the window from the config.
         let (tx, mut rx) = mpsc::channel::<Vec<u8>>(64);
         let index = handle.acquire_client_index();
         handle.shared.outbound.insert(index, tx);
@@ -1086,8 +1075,6 @@ mod tests {
             "the config's window for index 0 must not admit anything for this client"
         );
 
-        // A neighbour's entity, sitting where the config *would* have put this
-        // client. Closing must not touch it.
         let neighbour = put(1100, 7, 1, &[5]);
         handle.shared.engine.lock().apply(&neighbour);
         assert!(wait_for(
@@ -1151,9 +1138,7 @@ mod tests {
             data
         };
 
-        // in client a's range (1024..1536), parented into client b's (1536..2048)
         let graft = put(1100, TRANSFORM_COMPONENT_ID, 1, &transform(1600));
-        // same write, parented to ROOT: legitimate
         let ok = put(1101, TRANSFORM_COMPONENT_ID, 1, &transform(0));
         handle
             .tx

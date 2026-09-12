@@ -1,27 +1,14 @@
-/**
- * The operator-facing probe map for the /server page. Service topology --
- * keys, units, ports, health endpoints, bundle membership -- is generated
- * from catalyrst/nixos/facts.nix (the canonical source) into
- * services.generated.ts by scripts/gen-operator-registry.mts; the drift gate
- * is `npm run gen:operator:check`. A bundle carrier that hosts several facts
- * services lists them in `members` and counts as enabled when any member is.
- */
 
 export type HealthExpectation = "2xx" | "any-http";
 
 export type OperatorService = {
-  /** facts.nix service key, or a carrier alias when `members` is set. */
   key: string;
   name: string;
-  /** systemd unit name in the exported nixos module (actionable commands). */
   unit: string;
   port: number;
   healthPath: string;
-  /** "any-http": any HTTP answer counts as up (no known health endpoint). */
   expect: HealthExpectation;
-  /** One line: what stops working when this service is down. */
   serves: string;
-  /** facts.nix service keys this carrier hosts (bundle units only). */
   members?: string[];
 };
 
@@ -30,7 +17,6 @@ export { SERVICES } from "./services.generated";
 export type KnownEnvVar = {
   name: string;
   purpose: string;
-  /** Service keys (or "sites") that read this variable. */
   consumers: string[];
   example?: string;
 };
@@ -91,7 +77,6 @@ export function knownEnv(name: string): KnownEnvVar | undefined {
 
 const SECRET_NAME_RE = /(TOKEN|SECRET|KEY|PASSWORD|DSN|DATABASE_URL|CONNECTION_STRING)/;
 
-/** Values whose names match are masked in the UI and never echoed back. */
 export function isSecretName(name: string): boolean {
   return SECRET_NAME_RE.test(name);
 }

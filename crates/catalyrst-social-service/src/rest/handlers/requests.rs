@@ -172,8 +172,6 @@ pub async fn get_member_requests(
                 .and_then(|v| v.as_str())
                 .map(str::to_string)
                 .unwrap_or_default();
-            // Upstream builds thumbnailUrl unconditionally for request rows
-            // (requests.ts: buildThumbnailUrl), so the key is always present.
             map.remove("_hasThumbnail");
             map.insert(
                 "thumbnailUrl".to_string(),

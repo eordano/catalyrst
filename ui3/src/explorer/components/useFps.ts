@@ -1,11 +1,8 @@
 import { useEffect, useState } from "react";
 
 export type FpsStats = {
-  /** Page main-thread fps, from requestAnimationFrame. */
   page: number;
-  /** Engine render fps, from the heartbeat, or null when no engine is present. */
   engine: number | null;
-  /** Mean page frame time in ms. */
   ms: number;
 };
 
@@ -16,14 +13,6 @@ type HeartbeatWindow = Window & {
 
 const SAMPLE_MS = 500;
 
-/**
- * The engine shares this document's main thread, so `page` falling while `engine` holds
- * is the signal that the HUD itself is eating the frame budget.
- *
- * `engine` is counted by wrapping `window.__engineHeartbeat`, which the wasm boot installs
- * and the Rust loop calls once per frame. Native builds push a measured value to
- * `__nativeEngineFps` instead, since the engine is not on this document's rAF loop.
- */
 export function useFps(enabled: boolean): FpsStats {
   const [stats, setStats] = useState<FpsStats>({ page: 0, engine: null, ms: 0 });
 
@@ -38,7 +27,6 @@ export function useFps(enabled: boolean): FpsStats {
     let lastTs = windowStart;
     let msAccum = 0;
 
-    // the boot script may install the heartbeat after we mount, so re-check every frame
     const hookEngine = () => {
       const w = window as HeartbeatWindow;
       if (w === hooked || typeof w.__engineHeartbeat !== "function") return;

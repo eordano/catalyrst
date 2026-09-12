@@ -7,34 +7,27 @@ pub const SHOP_DEFAULT_PAGE_SIZE: i64 = 48;
 pub const SHOP_MIN_PAGE_SIZE: i64 = 1;
 pub const SHOP_MAX_PAGE_SIZE: i64 = 1000;
 
-/// Look-back window and size for the shop's creator rail (`/v3/catalog/creators`,
-/// marketplace-server #389). Both the row count and the window are clamped.
+/// Bounds for the shop's creator rail (`/v3/catalog/creators`, marketplace-server #389).
 ///
-/// `TOP_CREATORS_MIN_ITEMS` is the smallest published catalogue a "top creator"
-/// can have (#390). Ranking over a 30-day window means a month can be won on
-/// ONE lucky item -- upstream saw a creator rank 3rd on 33 windowed sales whose
-/// whole catalogue was four items. The rail exists to send a shopper off to
-/// browse, and four items is not something to browse. The value comes off
-/// upstream's production distribution (median candidate: 36 published items;
-/// nothing sits near the line).
+/// `TOP_CREATORS_MIN_ITEMS` is the smallest published catalogue a "top creator" can have
+/// (#390): a 30-day window can be won on ONE lucky item -- upstream saw a creator rank 3rd on
+/// 33 windowed sales with a four-item catalogue -- and the rail exists to send a shopper off
+/// to browse. The value comes off upstream's production distribution (median candidate: 36
+/// published items; nothing sits near the line).
 pub const TOP_CREATORS_MIN_ITEMS: i64 = 10;
 
-/// Smallest number of windowed sales a "top creator" can be ranked on,
-/// expressed as a RATE: this many per default-length window, scaled to whatever
-/// window was asked for (#394).
+/// A RATE, not a count: this many sales per default-length window, scaled to whatever window
+/// was asked for (#394).
 ///
-/// Ordering by REVENUE is what makes a floor necessary. A count cannot be won
-/// by a single event but a sum can: one expensive sale would outrank a month of
-/// ordinary trading. A RATE rather than a fixed number because the window is a
-/// caller-supplied 1-365 and a flat floor falls off a cliff at the short end --
-/// five sales is an ordinary month but an exceptional week, and a flat five
-/// emptied a 7-day ranking outright on upstream's production data (42 creators
-/// qualified, none cleared it).
+/// Ordering by REVENUE is what makes a floor necessary -- a sum, unlike a count, can be won
+/// by one expensive sale. A rate rather than a fixed number because the window is a
+/// caller-supplied 1-365 and a flat floor falls off a cliff at the short end: five sales is
+/// an ordinary month but an exceptional week, and a flat five emptied a 7-day ranking
+/// outright on upstream's production data (42 creators qualified, none cleared it).
 pub const TOP_CREATORS_MIN_SALES_PER_WINDOW: i64 = 5;
 
-/// Floor beneath the scaled rate. Whatever the window, ranking a creator on ONE
-/// sale is ranking them on the price of that sale, which is what the floor
-/// exists to prevent.
+/// Floor beneath the scaled rate: whatever the window, ranking a creator on ONE sale is
+/// ranking them on the price of that sale.
 pub const TOP_CREATORS_MIN_WINDOW_SALES_FLOOR: i64 = 2;
 
 pub const TOP_CREATORS_DEFAULT_LIMIT: i64 = 30;
@@ -44,12 +37,11 @@ pub const TOP_CREATORS_DEFAULT_DAYS: i64 = 30;
 pub const TOP_CREATORS_MIN_DAYS: i64 = 1;
 pub const TOP_CREATORS_MAX_DAYS: i64 = 365;
 
-/// Row count and look-back window for the trending rail (`/v3/catalog/trending`,
-/// marketplace-server #384). One carousel, so the caps sit well below the browse
-/// page size; the window is capped at a week because it is a full scan of `sale`
-/// above a timestamp. The default sits AT that cap (marketplace-server 41cc3cc):
-/// this rail only ever shows wearables and emotes, and a one-day window
-/// intersected with what is listed and buyable left one card in a twelve-slot
+/// Bounds for the trending rail (`/v3/catalog/trending`, marketplace-server #384). One
+/// carousel, so the caps sit well below the browse page size; the window is capped at a week
+/// because it is a full scan of `sale` above a timestamp. The default sits AT that cap
+/// (marketplace-server 41cc3cc): the rail only ever shows wearables and emotes, and a one-day
+/// window intersected with what is listed and buyable left one card in a twelve-slot
 /// carousel. If it runs thin again the answer is a fallback, not a wider scan.
 pub const TRENDING_DEFAULT_LIMIT: i64 = 12;
 pub const TRENDING_MAX_LIMIT: i64 = 50;
@@ -57,11 +49,10 @@ pub const TRENDING_DEFAULT_DAYS: i64 = 7;
 pub const TRENDING_MIN_DAYS: i64 = 1;
 pub const TRENDING_MAX_DAYS: i64 = 7;
 
-/// Share of the rail's slots that go to the highest sale COUNT; the remaining
-/// 40% go to the biggest TRADED VOLUME among whatever the first pass left behind.
-/// Both signals are kept because either alone misleads -- a 1-credit item that
-/// sold 50 times would bury a 200-credit item that sold 10, and volume alone is
-/// dominated by a single expensive sale.
+/// Share of the rail's slots going to the highest sale COUNT; the rest go to the biggest
+/// TRADED VOLUME among whatever the first pass left behind. Either signal alone misleads -- a
+/// 1-credit item that sold 50 times would bury a 200-credit item that sold 10, and volume
+/// alone is dominated by a single expensive sale.
 pub const TRENDING_SALES_CUT: f64 = 0.6;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -98,24 +89,21 @@ pub struct ShopCatalogFilters {
     pub wearable_categories: Vec<String>,
     /// Restrict to smart wearables; gated on the query param's presence, not its value.
     pub is_smart: bool,
-    /// `wearableGender` values (`male`/`female`/`unisex`) the item's body shapes
-    /// must SATISFY: the row must declare ALL the shapes they map to, so
-    /// `[male]` keeps male-exclusive AND unisex items while `[male, female]` --
-    /// equivalently `[unisex]` -- keeps only what ships both, which is what the
-    /// outgoing `gender` reports as `unisex`. Wearables-only, like the param it
-    /// is named after: an emote declares no wearable body shapes. Only the
-    /// unified feed populates it (`parse_unified_filters`); /v3/catalog/shop
-    /// and the trending rail leave it empty, as upstream does.
+    /// `wearableGender` values the row's body shapes must SATISFY: it must declare ALL the
+    /// shapes they map to, so `[male]` keeps male-exclusive AND unisex items while
+    /// `[male, female]` -- equivalently `[unisex]` -- keeps only what ships both. Wearables
+    /// only: an emote declares no body shapes. Only the unified feed populates it
+    /// (`parse_unified_filters`); /v3/catalog/shop and the trending rail leave it empty, as
+    /// upstream does.
     pub wearable_genders: Vec<String>,
     pub min_price_credits: Option<f64>,
     pub max_price_credits: Option<f64>,
     pub search: Option<String>,
     pub sort_by: Option<ShopSortBy>,
-    /// Whether SOCIAL emotes (emotes carrying an outcome type) may appear. `true`
-    /// (included) is the default and matches /v1/items, /v2/catalog and
-    /// /v1/trendings; only the shared unified feed (`append_unified_filters`,
-    /// backing /v3/catalog/unified, /related and /trending) reads it -- the
-    /// per-listing /v3/catalog/shop path leaves it untouched.
+    /// Whether SOCIAL emotes (emotes carrying an outcome type) may appear. Included by
+    /// default, matching /v1/items, /v2/catalog and /v1/trendings; only the shared unified
+    /// feed (`append_unified_filters`, backing /v3/catalog/unified, /related and /trending)
+    /// reads it -- the per-listing /v3/catalog/shop path leaves it untouched.
     pub include_social_emotes: bool,
 }
 
@@ -358,40 +346,33 @@ pub(super) struct TopCreatorRow {
     pub(super) items: i64,
 }
 
-/// Clamp the row count to `[TOP_CREATORS_MIN_LIMIT, TOP_CREATORS_MAX_LIMIT]`,
-/// defaulting when absent -- mirrors upstream's `clampCount`.
+/// Mirrors upstream's `clampCount`.
 pub(super) fn top_creators_clamp_first(first: Option<i64>) -> i64 {
     first
         .unwrap_or(TOP_CREATORS_DEFAULT_LIMIT)
         .clamp(TOP_CREATORS_MIN_LIMIT, TOP_CREATORS_MAX_LIMIT)
 }
 
-/// Clamp the look-back window to `[TOP_CREATORS_MIN_DAYS, TOP_CREATORS_MAX_DAYS]`,
-/// defaulting when absent.
 pub(super) fn top_creators_clamp_days(days: Option<i64>) -> i64 {
     days.unwrap_or(TOP_CREATORS_DEFAULT_DAYS)
         .clamp(TOP_CREATORS_MIN_DAYS, TOP_CREATORS_MAX_DAYS)
 }
 
-/// Scale [`TOP_CREATORS_MIN_SALES_PER_WINDOW`] to an ALREADY-CLAMPED window,
-/// held above [`TOP_CREATORS_MIN_WINDOW_SALES_FLOOR`] so a one-day window never
-/// rounds the bar down to where a single sale wins the revenue ranking.
+/// `days` must be ALREADY CLAMPED. Held above [`TOP_CREATORS_MIN_WINDOW_SALES_FLOOR`] so a
+/// one-day window never rounds the bar down to where a single sale wins the revenue ranking.
 pub(super) fn top_creators_min_sales(days: i64) -> i64 {
     let scaled =
         (days as f64 / TOP_CREATORS_DEFAULT_DAYS as f64) * TOP_CREATORS_MIN_SALES_PER_WINDOW as f64;
     (scaled.round() as i64).max(TOP_CREATORS_MIN_WINDOW_SALES_FLOOR)
 }
 
-/// Clamp the trending row count to `[SHOP_MIN_PAGE_SIZE, TRENDING_MAX_LIMIT]`,
-/// defaulting when absent -- mirrors upstream's `clampCount`.
+/// Mirrors upstream's `clampCount`.
 pub(super) fn trending_clamp_first(first: Option<i64>) -> i64 {
     first
         .unwrap_or(TRENDING_DEFAULT_LIMIT)
         .clamp(SHOP_MIN_PAGE_SIZE, TRENDING_MAX_LIMIT)
 }
 
-/// Clamp the trending look-back window to `[TRENDING_MIN_DAYS, TRENDING_MAX_DAYS]`,
-/// defaulting when absent.
 pub(super) fn trending_clamp_days(days: Option<i64>) -> i64 {
     days.unwrap_or(TRENDING_DEFAULT_DAYS)
         .clamp(TRENDING_MIN_DAYS, TRENDING_MAX_DAYS)

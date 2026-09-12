@@ -143,9 +143,6 @@ describe("moderateMachine \u{2014} deep-link hydration (snapshot, no event repla
       snapshot,
     }).start();
 
-    // The wizard is only mounted when the loader's server-side read came back
-    // ok (catalyrst-places/src/handlers/admin.rs:41 -> auth.rs:88-100), so the
-    // queue is a genuine first view and reports itself as one.
     expect(actor.getSnapshot().matches("queue")).toBe(true);
     expect(track.mock.calls.map((c) => c[0])).toEqual([
       MODERATE_EVENTS.queueViewed,

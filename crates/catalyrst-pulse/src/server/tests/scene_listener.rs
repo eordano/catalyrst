@@ -260,8 +260,6 @@ async fn scene_listener_handshake_negotiates_features() {
     }
 }
 
-// Two worlds, each with a scene at the same parcel: the shape a cohosting server announces, and
-// the one a single flat parcel set could not express.
 #[tokio::test]
 async fn scene_listener_handshake_expands_per_realm() {
     let srv = PulseServer::new();
@@ -297,9 +295,6 @@ async fn scene_listener_handshake_expands_per_realm() {
     }
 }
 
-// The announcement path pays for its cover once: a full-budget rect (64x63 = 4032 parcels, plus
-// the realm's 4, under the 4096 cap) maps to the 121 cells the tick will walk, not to thousands
-// of parcel lookups, and an update recomputes the cover for the new shape.
 #[tokio::test]
 async fn scene_listener_announcement_covers_cells_not_parcels() {
     let mut srv = PulseServer::new();
@@ -349,8 +344,6 @@ async fn scene_listener_announcement_covers_cells_not_parcels() {
     );
 }
 
-// The budget is one number over realms and parcels: each realm costs 4 on top of its rect
-// areas, so 16 admits a single realm of up to 12 parcels, or three realms of one parcel each.
 #[tokio::test]
 async fn scene_listener_handshake_budget_spans_realms_and_charges_each_realm() {
     assert!(
@@ -736,8 +729,6 @@ fn scene_listener_update_rides_the_discrete_bucket() {
     );
 }
 
-// Upstream's stated ceiling at its default: one realm can announce MaxParcels - 4 parcels, 4092
-// at 4096, and neither a fifth parcel nor a second realm fits alongside it.
 #[tokio::test]
 async fn scene_listener_default_budget_matches_upstream() {
     assert_eq!(

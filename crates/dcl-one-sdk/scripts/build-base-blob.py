@@ -251,9 +251,6 @@ import sys
 import zipfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-# The two siblings live beside this file, not on the caller's sys.path: put
-# HERE first so `python3 -P`, a different cwd and `-m`-style invocations all
-# resolve the same modules.
 sys.path.insert(0, HERE)
 
 from blob_collect import (
@@ -279,34 +276,14 @@ per-platform native package (`@typescript/typescript-darwin-arm64` and friends),
 which would make this blob platform-specific. 6.x is the ceiling until that is
 addressed."""
 
-# Installed on top of the scaffold's devDependencies. Every one of these is a
-# real import that no manifest in the graph declares.
 EXTRA_INSTALL = [
-    # `@dcl/ecs/dist-cjs` imports 'protobufjs/minimal'; pinned to the version
-    # the npm flow resolves (@dcl/protocol pins it exactly).
     'protobufjs@7.2.4',
     '@protobufjs/utf8',
-    # `templates/data-layer-host.mjs` requires 'ws' for the data-layer socket.
     'ws',
-    # The rpc runtime the visual editor's data layer speaks over that socket:
-    # port multiplexing, request/response framing, bidirectional streaming.
-    # Brings `mitt` (349 B of event emitter) with it as a real dependency.
     '@dcl/rpc',
-    # Smart items. Never shipped as a package - `build_chunks()` bundles its
-    # runtime into `prebuilt/smart.js` and `build_types_rollup()` folds its
-    # declarations into the ambient bundle. Installing it here is what makes
-    # both of those possible without a 12 MB `init --inspector`.
     '@dcl/asset-packs',
 ]
 
-
-# --------------------------------------------------------------------------
-# the ambient declaration rollup
-# --------------------------------------------------------------------------
-
-# package -> (declaration subdir, types entry relative to the package root).
-# `@dcl/js-runtime` is absent on purpose: its three files are already ambient
-# and are copied verbatim at top level, see `build_types_rollup()`.
 ROLLUP_PKGS = [
     ('@dcl/sdk', '', 'index'),
     ('@dcl/ecs', 'dist', 'dist/index'),
@@ -325,10 +302,6 @@ ROLLUP_PKGS = [
     ('@protobufjs/utf8', '', 'index'),
 ]
 
-# Packages with no `exports` map, where therefore EVERY declaration file is a
-# public subpath a scene may name. `@dcl/sdk/network/binary-message-bus` is one
-# such: `network/index.d.ts` does not re-export it, so BFS from the entry points
-# alone would miss it.
 ROLLUP_FULL_SUBPATH_PKGS = ('@dcl/sdk', '@dcl/asset-packs')
 
 ROLLUP_SPEC_RE = re.compile(
@@ -341,7 +314,6 @@ ROLLUP_DECLARE_RE = re.compile(
 )
 ROLLUP_EXPORT_AS_NS_RE = re.compile(r'^\s*export\s+as\s+namespace\s+\w+\s*;?\s*$', re.M)
 ROLLUP_REF_RE = re.compile(r'^///\s*<reference[^>]*/>\s*$', re.M)
-
 
 def build_types_rollup(nm: str) -> bytes:
     """Roll the scene-facing `.d.ts` of the SDK packages into ONE ambient file.
@@ -390,7 +362,7 @@ def build_types_rollup(nm: str) -> bytes:
       cannot become `declare module` bodies. With the 33 alias blocks (~3 KB)
       the corpus is 60/60; without them, 58/60.
     """
-    known: dict[str, str] = {}   # abs path -> canonical specifier
+    known: dict[str, str] = {}
 
     for pkg, subdir, _entry in ROLLUP_PKGS:
         root = os.path.join(nm, pkg)
@@ -556,7 +528,6 @@ def build_types_rollup(nm: str) -> bytes:
         f'{len(emitted)} aliases')
     return '\n'.join(out).encode('utf8')
 
-
 CHUNK_SCENE_JSON = (
     '{"runtimeVersion":"7","main":"bin/index.js",'
     '"scene":{"parcels":["0,0"],"base":"0,0"}}'
@@ -566,7 +537,6 @@ CHUNK_TSCONFIG = (
     '"strict":true},"include":["src/**/*.ts"],'
     '"extends":"@dcl/sdk/types/tsconfig.ecs7.json"}'
 )
-
 
 def build_chunks(work: str, sdk_bin: str, files: dict[str, bytes],
                  kept_bytes: dict[str, int]) -> None:
@@ -633,7 +603,6 @@ def build_chunks(work: str, sdk_bin: str, files: dict[str, bytes],
         log(f'    {rel}  {len(data)} B')
     kept_bytes['@dcl/sdk (prebuilt chunks)'] = total
 
-
 def check_chunk_registry(files: dict[str, bytes]) -> None:
     """The resolver check for the two prebuilt chunks.
 
@@ -658,7 +627,6 @@ def check_chunk_registry(files: dict[str, bytes]) -> None:
                 'Add them to REGISTRY_KEYS in src/split.rs and rebuild.')
         log(f'    {rel}: {len(specs)} requires, all served')
 
-
 COUNT_WORDS = ('zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven',
                'eight', 'nine', 'ten', 'eleven', 'twelve', 'thirteen',
                'fourteen', 'fifteen', 'sixteen', 'seventeen', 'eighteen',
@@ -666,7 +634,6 @@ COUNT_WORDS = ('zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven',
 README_ALLOWLIST = re.compile(
     r'(\w+)\s+packages\s+are\s+allowlisted\s+file\s+by\s+file\s+'
     r'\(`FILE_ALLOWLIST`:\s*([^)]*)\)')
-
 
 def count_word(n: int) -> str:
     """Spell the allowlist count the way the README writes it.
@@ -681,7 +648,6 @@ def count_word(n: int) -> str:
         f'scripts/build-base-blob.py only spells 0..{len(COUNT_WORDS) - 1}; '
         'extend COUNT_WORDS so check_readme_allowlist() can spell the count '
         'the README must carry.')
-
 
 def check_readme_allowlist() -> None:
     """Fail before the install if the README's allowlist sentence has drifted.
@@ -704,7 +670,6 @@ def check_readme_allowlist() -> None:
             f'{VENDOR_README}: step 3 names {hit.group(1)} allowlisted packages '
             f'({", ".join(sorted(named))}); blob_collect.FILE_ALLOWLIST has '
             f'{want} ({", ".join(sorted(real))}). Fix the README.')
-
 
 def main() -> int:
     ap = argparse.ArgumentParser()
@@ -731,8 +696,6 @@ def main() -> int:
         log('installing ' + ' '.join(install))
         r = subprocess.run(
             ['corepack', 'pnpm', 'add', '--ignore-scripts',
-             # An .npmrc with node-linker=hoisted is silently ignored by
-             # pnpm 11; only the flag form flattens the tree.
              '--config.node-linker=hoisted', *install],
             cwd=args.work, capture_output=True, text=True)
         if r.returncode != 0 and 'ERR_PNPM_IGNORED_BUILDS' not in (r.stdout + r.stderr):
@@ -754,13 +717,6 @@ def main() -> int:
     build_service_descriptor(args.work, files, kept_bytes)
     patch_ecs7_tsconfig(files)
 
-    # Both of these read the UNPRUNED install tree: they are what makes the
-    # pruning above safe, so they have to run before anything is thrown away.
-    # The two tree rewrites must land between the install and the chunk build -
-    # each rewrites a file rolldown is about to resolve. Only the swap is
-    # idempotent (the entry it writes re-exports a sibling, never itself); the
-    # framing fix has to be told about --reuse-install, because the fixed line
-    # it finds on a reused tree is otherwise the signal that upstream shipped.
     swap_pbmin_into_tree(args.work)
     patch_ecs_network_delete_length(args.work, files, args.reuse_install)
     build_chunks(args.work, args.sdk_bin, files, kept_bytes)
@@ -797,7 +753,6 @@ def main() -> int:
     if not args.keep_work:
         shutil.rmtree(args.work, ignore_errors=True)
     return 0
-
 
 if __name__ == '__main__':
     raise SystemExit(main())

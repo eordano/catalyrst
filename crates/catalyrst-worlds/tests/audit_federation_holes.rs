@@ -1,47 +1,29 @@
 //! ADVERSARIAL AUDIT of the worlds-federation read mirror.
 //!
-//! Each test here started as a demonstration of a hole the build left open. None of
-//! them is a peer-to-authorization path -- that category came back clean -- but three of
-//! them were places where the module's own stated contract did not hold.
-//!
 //! Written to be inverted, never deleted: when a follow-up closes a hole, the test
-//! flips from "demonstrates the bug" to "asserts the fix" and the section header records
-//! what the bug was, so the regression that reopens it fails here.
+//! flips from "demonstrates the bug" to "asserts the fix", so the regression that
+//! reopens it fails here. All eight holes are closed; every test below asserts a fix.
 //!
-//! Status:
-//!   - HOLE 1, de-admission does not revoke publication -- **CLOSED**, inverted below.
-//!   - HOLE 2, case-variant peer ids collapse into one namespace -- **CLOSED**, inverted.
-//!   - HOLE 3, the veto route answers an anonymous caller before authorizing --
-//!     **CLOSED**, inverted below.
-//!   - HOLE 4, the provenance grep gate has a two-line blind spot -- **CLOSED**,
-//!     inverted below.
-//!   - HOLE 5, `insecureLoopback` is false for a cleartext http peer -- **CLOSED**,
-//!     inverted below.
-//!   - HOLE 6, a failed collision probe rendered as "no collisions" -- **CLOSED**; the
-//!     test below is new rather than inverted, because the audit demonstrated this one
-//!     against a live binary and left no test behind.
-//!   - HOLE 7, a peer file that names nobody is accepted and sweeps the mirror --
-//!     **CLOSED** at the sweep (not at the loader), inverted below; **introduced by
-//!     HOLE 1's fix**. Three tests, all inverted.
-//!   - HOLE 8, the collision probe's database errors reach the public peers route --
-//!     **CLOSED**, inverted below; **introduced by HOLE 6's fix**.
+//!   1. de-admission does not revoke publication.
+//!   2. case-variant peer ids collapse into one namespace.
+//!   3. the veto route answers an anonymous caller before authorizing.
+//!   4. the provenance grep gate has a two-line blind spot.
+//!   5. `insecureLoopback` is false for a cleartext http peer.
+//!   6. a failed collision probe renders as "no collisions".
+//!   7. a peer file that names nobody sweeps the mirror -- introduced by 1's fix.
+//!   8. the collision probe's database errors reach the public peers route --
+//!      introduced by 6's fix.
 //!
-//! HOLES 7 and 8 are the re-audit's own findings: each closure was verified against a
-//! live binary, and each opened something smaller on its way past. Both are now closed
-//! too, and this file is entirely assertions of fixes -- which is the state in which it
-//! is most worth keeping, because every one of them fails if the fix is undone.
-//!
-//! Two of the closures are worth reading before touching this module again, because the
+//! Two closures are worth reading before touching this module again, because the
 //! obvious fix was the wrong one in both:
 //!
-//!   - HOLE 7 is guarded at the **sweep**, not at the loader. Refusing an empty peer
-//!     file was tried first and it destroyed the one legitimate way to say "federation
-//!     is on and we admit nobody" -- the exact distinction the two-variant enum exists
-//!     to carry. The damage was never the empty set; it was the DELETE it drove.
-//!   - HOLE 4 is closed by a **structural** rule, not a cleverer line rule. A two-line
-//!     launder beat a one-line check; a three-line launder would have beaten a two-line
-//!     one. Banning the local-name constructor everywhere under `src/fed/` ends the
-//!     class instead of the instance.
+//!   - 7 is guarded at the **sweep**, not at the loader. Refusing an empty peer file
+//!     was tried first and it destroyed the one legitimate way to say "federation is on
+//!     and we admit nobody". The damage was never the empty set; it was the DELETE.
+//!   - 4 is closed by a **structural** rule, not a cleverer line rule: a two-line
+//!     launder beat a one-line check, and a three-line launder would have beaten a
+//!     two-line one. Banning the local-name constructor everywhere under `src/fed/`
+//!     ends the class instead of the instance.
 
 use std::sync::Arc;
 
@@ -215,42 +197,8 @@ fn row(peer: &catalyrst_worlds::fed::names::PeerId, name: &str) -> RemoteWorld {
     }
 }
 
-// HOLE 1 -- de-admission does not revoke publication  [CLOSED]
-//
-// All three tests below are INVERTED: they asserted the bug, they now assert the fix.
-//
-// What the bug was. `remote_worlds` rows are written per `peer_id`, and nothing ever
-// compared them to the admitted set. `list_mirror` filtered on `hidden_since` and an
-// optional peer id and joined against nothing, and no boot path pruned. The spec's
-// revocation mechanism is a restart (S2.5: "registry reload at runtime: not built ...
-// changing it is a restart") and the restart revoked nothing: a peer the DAO had
-// dropped kept every one of its worlds published under our origin, indefinitely, while
-// `/federation/worlds/peers` no longer listed it and `?peer=` answered 404 for it. Its
-// content was published with no way to attribute or interrogate it, and the `peers[]`
-// health block carried no line for it -- so `hasEverSucceeded` and `lastSuccessAt`, the
-// two fields whose entire job is to keep stale data honest, were absent for the most
-// stale data we held.
-//
-// What the fix is. Two mechanisms, deliberately on two different paths:
-//   - WRITE, at boot: `RemoteWorldsComponent::revoke_peers_no_longer_admitted` runs in
-//     `build_state` after the migrations and before the `AppState` the router is built
-//     from exists. It DELETEs the per-world rows of every peer not in the allowlist and
-//     tombstones the peer in `remote_peer_status` (`deadmitted_at`,
-//     `deadmitted_worlds_deleted`, migration 0006).
-//   - READ, per request: `list_mirror` takes the allowlist and filters
-//     `peer_id = ANY($admitted)`. `GET /federation/worlds/mirror` passes the same
-//     `state.fed_peers` value it renders `peers[]` from, so a row and a status line come
-//     from one value read twice in one request.
-//
-// Neither is allowed to be the only thing standing between a revoked peer and
-// publication, which is why `a_revoked_peers_rows_are_unpublishable_even_if_the_boot_sweep_never_ran`
-// exists: it skips the sweep entirely and asserts the route publishes nothing anyway.
-
-/// **The fix.** A peer removed from `federation-peers.toml` is unlisted, unaddressable,
-/// **and unpublished**, and the two federation routes agree about it.
-///
-/// The pre-fix version of this test asserted `worlds.len() == 2` here, with a comment
-/// beginning "HOLE:". The three assertions that flipped are marked below.
+/// A peer removed from `federation-peers.toml` is unlisted, unaddressable, **and
+/// unpublished**, and the two federation routes agree about it.
 #[tokio::test]
 async fn a_revoked_peers_worlds_stop_being_published_and_the_two_routes_agree() {
     let Some(scratch) = setup_db().await else {
@@ -259,7 +207,6 @@ async fn a_revoked_peers_worlds_stop_being_published_and_the_two_routes_agree() 
     };
     let pool = scratch.pool.clone();
 
-    // --- day 1: the peer is admitted and we mirror two of its worlds ---------
     let admitted = admit("revoked-peer.org", "http://127.0.0.1:1/");
     let store = RemoteWorldsComponent::new(pool.clone());
     store
@@ -277,8 +224,6 @@ async fn a_revoked_peers_worlds_stop_being_published_and_the_two_routes_agree() 
         .await
         .expect("record success");
 
-    // A second peer that is still in the file, so the sweep has to be selective rather
-    // than emptying the table.
     let survivor = admit("kept-peer.org", "http://127.0.0.1:2/");
     store
         .replace_peer_worlds(
@@ -288,16 +233,12 @@ async fn a_revoked_peers_worlds_stop_being_published_and_the_two_routes_agree() 
         .await
         .expect("mirror the surviving peer");
 
-    // --- day 2: the DAO revokes it. The operator deletes the entry and restarts. ---
-    // That is exactly this state: configured, file loaded, this peer not in it.
     let after_revocation = WorldsFederationPeers::Admitted {
         path: std::path::PathBuf::from("/etc/catalyrst/federation-peers.toml"),
         peers: vec![survivor.clone()],
         omitted: Vec::new(),
     };
 
-    // The boot sweep. In production this is `build_state`, between the migrations and
-    // the construction of the state the router is built from.
     let revocation = store
         .revoke_peers_no_longer_admitted(&after_revocation)
         .await
@@ -311,7 +252,6 @@ async fn a_revoked_peers_worlds_stop_being_published_and_the_two_routes_agree() 
 
     let app = build_app(pool.clone(), after_revocation);
 
-    // The allowlist no longer names it...
     let (s, peers) = call(
         &app,
         Request::builder()
@@ -333,7 +273,6 @@ async fn a_revoked_peers_worlds_stop_being_published_and_the_two_routes_agree() 
         "the revoked peer must not be in the allowlist"
     );
 
-    // ...it is not addressable...
     let (s, _) = call(
         &app,
         Request::builder()
@@ -348,7 +287,6 @@ async fn a_revoked_peers_worlds_stop_being_published_and_the_two_routes_agree() 
         "a revoked peer is not addressable by name"
     );
 
-    // ...and, the assertion that flipped, we no longer publish its worlds.
     let (s, mirror) = call(
         &app,
         Request::builder()
@@ -376,8 +314,6 @@ async fn a_revoked_peers_worlds_stop_being_published_and_the_two_routes_agree() 
          told there is more behind the page than it may fetch"
     );
 
-    // The disagreement the audit named is gone in both directions: every published row
-    // has a status line, and every status line belongs to a listed peer.
     let status_lines: Vec<&str> = mirror["peers"]
         .as_array()
         .expect("peers block")
@@ -398,8 +334,6 @@ async fn a_revoked_peers_worlds_stop_being_published_and_the_two_routes_agree() 
          same peers, because both are rendered from one `state.fed_peers`"
     );
 
-    // The bounded half of the audit trail. The per-world rows are gone; the row that
-    // says we once published them, and how many there were, is not.
     let tomb: (
         Option<chrono::DateTime<chrono::Utc>>,
         i64,
@@ -428,14 +362,10 @@ async fn a_revoked_peers_worlds_stop_being_published_and_the_two_routes_agree() 
     scratch.drop().await;
 }
 
-/// **Mechanism independence.** The boot sweep and the read filter are two mechanisms on
-/// two paths, and the audit's point was that publication must not rest on either alone.
-///
-/// So this test deliberately **never calls the sweep**. It leaves the revoked peer's
-/// rows sitting in `remote_worlds` -- which is also the real state during a rolling
-/// deploy, when an old process still holding the peer in its allowlist keeps re-writing
-/// them underneath a new process that does not -- and asserts that the route publishes
-/// nothing regardless.
+/// Mechanism independence: publication must not rest on the boot sweep or the read
+/// filter alone. This test deliberately **never calls the sweep**, leaving the revoked
+/// peer's rows in `remote_worlds` -- the real state during a rolling deploy -- and
+/// asserts the route publishes nothing regardless.
 #[tokio::test]
 async fn a_revoked_peers_rows_are_unpublishable_even_if_the_boot_sweep_never_ran() {
     let Some(scratch) = setup_db().await else {
@@ -457,7 +387,6 @@ async fn a_revoked_peers_rows_are_unpublishable_even_if_the_boot_sweep_never_ran
         omitted: Vec::new(),
     };
 
-    // The row is still physically there. Nothing has been pruned.
     let still_stored: i64 =
         sqlx::query_scalar("SELECT count(*) FROM remote_worlds WHERE peer_id = 'ghost-peer.org'")
             .fetch_one(&pool)
@@ -491,18 +420,13 @@ async fn a_revoked_peers_rows_are_unpublishable_even_if_the_boot_sweep_never_ran
     scratch.drop().await;
 }
 
-/// The two decisions inside the sweep that are easy to get wrong, asserted rather than
-/// described.
+/// The two decisions inside the sweep that are easy to get wrong:
 ///
-/// 1. **An unset `WORLDS_FED_PEERS_FILE` is not a revocation.** There is no adjudicated
-///    allowlist in that state, so there is nothing to enforce and nothing is destroyed --
-///    but nothing is published either, because the routes answer 503 and `list_mirror`
-///    filters against an empty admitted set. Unsetting an environment variable must not
-///    be one keystroke away from destroying every mirrored row.
-/// 2. **A local operator veto survives de-admission.** `hidden_since` is ours, not the
-///    peer's; it took a deliberate admin action to record, and the row it marks is
-///    published by nothing either way. Deleting it would mean a re-admitted peer
-///    silently gets a world we vetoed published again.
+/// 1. An unset `WORLDS_FED_PEERS_FILE` is not a revocation -- nothing is destroyed, and
+///    nothing is published either (routes 503, `list_mirror` filters an empty admitted
+///    set). A typo'd env var must not destroy every mirrored row.
+/// 2. A local operator veto survives de-admission; deleting `hidden_since` rows would
+///    silently republish a vetoed world when the peer is re-admitted.
 #[tokio::test]
 async fn the_sweep_spares_an_unconfigured_server_and_spares_a_local_veto() {
     let Some(scratch) = setup_db().await else {
@@ -529,7 +453,6 @@ async fn the_sweep_spares_an_unconfigured_server_and_spares_a_local_veto() {
         .await
         .expect("veto applies"));
 
-    // --- 1. no allowlist to enforce: nothing is written -----------------------
     let unconfigured = store
         .revoke_peers_no_longer_admitted(&WorldsFederationPeers::NotConfigured)
         .await
@@ -545,8 +468,6 @@ async fn the_sweep_spares_an_unconfigured_server_and_spares_a_local_veto() {
         .unwrap();
     assert_eq!(survived, 2, "both rows are still there");
 
-    // ...and nothing is publishable in that state either, so the retention costs
-    // nothing: an empty admitted set matches no peer.
     let (rows, total) = store
         .list_mirror(&WorldsFederationPeers::NotConfigured, None, 100, 0)
         .await
@@ -557,12 +478,6 @@ async fn the_sweep_spares_an_unconfigured_server_and_spares_a_local_veto() {
          the rows is safe"
     );
 
-    // --- 2. de-admission spares the vetoed row --------------------------------
-    //
-    // The allowlist names a DIFFERENT peer rather than being empty. An empty one
-    // would also de-admit `veto-peer.org`, but it is the one shape the sweep now
-    // refuses outright -- a file naming nobody cannot be told apart from a truncated
-    // write, see HOLE 7 -- so it would test the guard rather than de-admission.
     let revoked = store
         .revoke_peers_no_longer_admitted(&WorldsFederationPeers::Admitted {
             path: std::path::PathBuf::from("/etc/catalyrst/federation-peers.toml"),
@@ -590,24 +505,6 @@ async fn the_sweep_spares_an_unconfigured_server_and_spares_a_local_veto() {
 
     scratch.drop().await;
 }
-
-// HOLE 2 -- case-variant peer ids collapse into one mirror namespace  [CLOSED]
-//
-// Both tests below are INVERTED: they asserted the bug, they now assert the fix.
-//
-// What the bug was. `FederationRegistry::parse_file` keyed its map on the *raw*
-// `peer_id` while `AdmittedPeer::admit` lowercased it. Two entries differing only in
-// case were two distinct file entries -- two DAO proposals, two pinned roots, two
-// hosts -- that minted ONE `PeerId`, and admission never noticed. Since
-// `replace_peer_worlds` opens with `DELETE FROM remote_worlds WHERE peer_id = $1 AND
-// hidden_since IS NULL`, whichever polled second silently erased the first's entire
-// mirror, and which one that was got decided by an ASCII comparison on the raw id.
-//
-// What the fix is. `catalyrst_fed::canonical_peer_id` is now the single definition of
-// a peer id's canonical form, both sides call it, and `parse_file` REFUSES a file
-// whose entries collide under it, naming both spellings. Canonicalising is kept --
-// host names are case-insensitive -- but a collision is an operator error reported at
-// boot, not a merge performed in silence.
 
 /// Render a peer-file entry to TOML, so these tests exercise the real
 /// `FederationRegistry::parse_file` rather than a hand-built map.
@@ -641,23 +538,16 @@ fn write_peer_file(name: &str, entries: &[PeerCert]) -> std::path::PathBuf {
     path
 }
 
-/// **The fix, no DB required.** A peer file naming the same peer twice -- differing
-/// only in case, which for a host name is not a difference at all (RFC 4343) -- is
-/// refused at boot, and the refusal names *both* spellings so the operator can find
-/// the two lines.
+/// A peer file naming the same peer twice, differing only in case (not a difference for
+/// a host name, RFC 4343), is refused at boot, and the refusal names *both* spellings.
 ///
-/// This is option (b) of the two the audit posed: ids are canonicalised once, at parse
-/// time, and a collision is a refusal rather than a silent merge. Option (a) --
-/// compare case-sensitively and treat the two as separate peers -- was rejected because
-/// the `remote_worlds` CHECK constraints already assert `peer_id = lower(peer_id)`, so
-/// two case-variant namespaces could not both be stored anyway; it would have moved
-/// the collision from admission down into a database constraint violation on the
-/// second poll.
+/// Ids are canonicalised once at parse time and a collision is a refusal rather than a
+/// silent merge. Treating case variants as separate peers was rejected: the
+/// `remote_worlds` CHECK constraints assert `peer_id = lower(peer_id)`, so that would
+/// only move the collision into a constraint violation on the second poll.
 ///
-/// Note what is deliberately *not* asserted: that `admit` distinguishes the two.
-/// Canonicalising is correct -- `Peer.Example.ORG` and `peer.example.org` are one host.
-/// The defect was never the fold; it was two components folding differently and
-/// nobody counting the result.
+/// Deliberately *not* asserted: that `admit` distinguishes the two. The fold is
+/// correct; the defect was two components folding differently.
 #[test]
 fn a_peer_file_naming_one_peer_twice_is_refused_at_boot_naming_both_entries() {
     let mut lower = cert("peer.example.org", "http://127.0.0.1:1/");
@@ -676,7 +566,6 @@ fn a_peer_file_naming_one_peer_twice_is_refused_at_boot_naming_both_entries() {
          offending lines are findable; got: {msg}"
     );
 
-    // And the canonical fold itself is unchanged and shared: one host, one id.
     assert_eq!(
         catalyrst_fed::canonical_peer_id("Peer.Example.ORG"),
         catalyrst_fed::canonical_peer_id("  peer.example.org "),
@@ -685,13 +574,11 @@ fn a_peer_file_naming_one_peer_twice_is_refused_at_boot_naming_both_entries() {
     );
 }
 
-/// The store-side consequence, inverted. Because a case-variant pair can no longer be
-/// admitted at all, no two `AdmittedPeer`s in a process can share a `PeerId`, and
-/// `replace_peer_worlds`'s opening `DELETE ... WHERE peer_id = $1` can only ever clear
-/// rows belonging to the peer doing the writing.
-///
-/// This is the precondition Finding A's fix depends on: comparing mirror rows against
-/// the admitted set is only meaningful once one id cannot stand for two entries.
+/// The store-side consequence: since a case-variant pair cannot be admitted, no two
+/// `AdmittedPeer`s share a `PeerId`, so `replace_peer_worlds`'s opening
+/// `DELETE ... WHERE peer_id = $1` can only clear rows of the peer doing the writing.
+/// Hole 1's fix depends on this -- comparing mirror rows against the admitted set is
+/// meaningless while one id can stand for two entries.
 #[tokio::test]
 async fn distinct_peers_own_distinct_mirror_namespaces_and_no_id_stands_for_two_entries() {
     let Some(scratch) = setup_db().await else {
@@ -701,12 +588,6 @@ async fn distinct_peers_own_distinct_mirror_namespaces_and_no_id_stands_for_two_
     let pool = scratch.pool.clone();
     let store = RemoteWorldsComponent::new(pool.clone());
 
-    // The load that used to produce the collapse. Whatever this returns, it must not
-    // be a peer set in which one `PeerId` stands for two entries -- that is the state
-    // in which the second poll's `DELETE ... WHERE peer_id = $1` erases the first's
-    // mirror. Refusing the file is how that is achieved; the assertion is written
-    // against the *property*, not the mechanism, so it still holds if the mechanism
-    // is ever replaced.
     let twins = write_peer_file(
         "case-variant-twins-store.toml",
         &[
@@ -726,7 +607,6 @@ async fn distinct_peers_own_distinct_mirror_namespaces_and_no_id_stands_for_two_
         );
     }
 
-    // A file with two genuinely distinct peers loads, and yields two distinct ids.
     let path = write_peer_file(
         "two-distinct-peers.toml",
         &[
@@ -771,8 +651,6 @@ async fn distinct_peers_own_distinct_mirror_namespaces_and_no_id_stands_for_two_
     names.sort();
     assert_eq!(names, vec!["from-alpha.dcl.eth", "from-beta.dcl.eth"]);
 
-    // Lookup is by canonical id, so an operator typing the peer in any case reaches
-    // the same peer -- and cannot reach a *second* one, because there is no second one.
     assert_eq!(
         loaded
             .get("ALPHA.Example.Org")
@@ -782,22 +660,12 @@ async fn distinct_peers_own_distinct_mirror_namespaces_and_no_id_stands_for_two_
     );
 }
 
-// HOLE 3 -- the veto route answered an unauthenticated caller before authorizing
-
-/// **CLOSED.** `set_mirror_world_hidden` used to take `Json<SetMirrorHiddenRequest>`,
-/// and `Json` is an axum **extractor** -- extractors run before the handler body. So an
-/// anonymous caller who sent a body that did not deserialise got 415 or 422 from the
-/// extractor and never reached `authorize_admin`.
-///
-/// It was never a privilege escalation: nothing was written, and a *well-formed*
-/// anonymous request was already 403. What it cost was the property the module docs
-/// claim -- that the route authenticates its caller as its first statement -- and it made
-/// the route an unauthenticated oracle for its own request schema.
-///
-/// The handler now takes `body: Bytes`, which cannot fail, and deserialises after the
-/// check. This test asserts the inverted property: **every** anonymous request to this
-/// route is 403, whatever the body or Content-Type, and the schema is only consulted
-/// once the caller has proven who they are.
+/// `set_mirror_world_hidden` used to take `Json<SetMirrorHiddenRequest>`, and `Json` is
+/// an axum extractor, which runs before the handler body: an anonymous caller sending a
+/// body that did not deserialise got 415/422 and never reached `authorize_admin`, an
+/// unauthenticated oracle for the route's own schema. The handler now takes
+/// `body: Bytes` and deserialises after the check, so **every** anonymous request is
+/// 403 whatever the body or Content-Type.
 #[tokio::test]
 async fn the_veto_route_authorizes_before_any_extractor_can_answer() {
     let Some(scratch) = setup_db().await else {
@@ -815,10 +683,6 @@ async fn the_veto_route_authorizes_before_any_extractor_can_answer() {
 
     let uri = "/admin/federation/worlds/peer.example.org/x.dcl.eth/hidden";
 
-    // Each of these used to be answered by something other than authz. The bodies
-    // are chosen to trip a different stage of the old extractor: no Content-Type at
-    // all (was 415), right type and wrong schema (was 422), right type and
-    // unparseable bytes (was 400), and an empty body (was 400).
     for (label, content_type, body) in [
         ("no content-type, not json", None, "not json"),
         (
@@ -851,8 +715,6 @@ async fn the_veto_route_authorizes_before_any_extractor_can_answer() {
         );
     }
 
-    // And the schema IS still enforced, for a caller who has authenticated. The
-    // distinction being asserted is who gets to learn about it, not whether it runs.
     let (status, body) = call(
         &app,
         Request::builder()
@@ -872,8 +734,6 @@ async fn the_veto_route_authorizes_before_any_extractor_can_answer() {
 
     scratch.drop().await;
 }
-
-// HOLE 4 -- the provenance grep gate had a blind spot in the files that matter
 
 /// **CLOSED, by shape rather than by syntax.** The gate used to enforce two rules:
 /// `as_peer_reported_str` may appear only in `fed/{names,wire,store,handlers}.rs`, and no
@@ -954,8 +814,6 @@ fn the_two_escape_hatches_can_only_meet_in_the_file_that_defines_them() {
          anything."
     );
 
-    // The shipped gate must actually carry the rule; otherwise the property above is a
-    // coincidence of today's source that nothing defends tomorrow.
     let wire = std::fs::read_to_string(src.join("fed/wire.rs")).expect("fed/wire.rs is readable");
     assert!(
         wire.contains("mints a local world name inside the federation module"),
@@ -963,8 +821,6 @@ fn the_two_escape_hatches_can_only_meet_in_the_file_that_defines_them() {
          is reachable again"
     );
 }
-
-// HOLE 5 -- `insecureLoopback` reported `false` for a cleartext HTTP peer
 
 /// **CLOSED, no DB required.** `AdmittedPeer::admit` used to set
 ///
@@ -992,8 +848,6 @@ fn the_two_escape_hatches_can_only_meet_in_the_file_that_defines_them() {
 ///     spelled correctly.
 #[test]
 fn a_cleartext_http_peer_carrying_a_pinned_root_is_refused_as_a_contradiction() {
-    // A real, self-signed root, so this is a valid pem being refused for where it is,
-    // not a malformed one being refused for what it is.
     let mut params = rcgen::CertificateParams::new(Vec::new()).unwrap();
     params.is_ca = rcgen::IsCa::Ca(rcgen::BasicConstraints::Unconstrained);
     params
@@ -1024,8 +878,6 @@ fn a_cleartext_http_peer_carrying_a_pinned_root_is_refused_as_a_contradiction() 
         "the message must say the pin is inert, not merely that the entry is invalid: {msg}"
     );
 
-    // The same entry over https is admitted and pinned -- the refusal is about the
-    // combination, not about either field.
     let mut https = cert("cleartext-peer.org", "https://peer.example.org");
     https.mtls_root_pem = pem;
     let peer = match AdmittedPeer::admit(&https, &fed_config()) {
@@ -1037,8 +889,6 @@ fn a_cleartext_http_peer_carrying_a_pinned_root_is_refused_as_a_contradiction() 
         "a pinned https peer is the secure case, and says so"
     );
 
-    // And the dev escape hatch still works in its intended shape: cleartext loopback
-    // with NO pem, reported honestly as insecure.
     let bare = cert("cleartext-peer.org", "http://127.0.0.1:5242");
     let peer = match AdmittedPeer::admit(&bare, &fed_config()) {
         Ok(AdmissionOutcome::Admitted(p)) => p,
@@ -1051,42 +901,8 @@ fn a_cleartext_http_peer_carrying_a_pinned_root_is_refused_as_a_contradiction() 
     );
 }
 
-// HOLE 6 -- a failed collision probe rendered as "no collisions"  [CLOSED]
-//
-// The test below is NEW rather than inverted: the audit demonstrated this finding
-// against a live binary and left no test behind. It asserts the fix.
-//
-// What the bug was. `fed/poll.rs` matched on `local_names_also_claimed(..)` and
-// returned `Vec::new()` from the `Err` arm, and `refresh_federation_mirror` rendered
-// that as `localNameCollisions: []` -- byte-identical to the answer a server with no
-// collisions gives. A database error was published as a measurement, in the one field
-// whose job is to tell an operator that two servers are claiming one name. The failed
-// arm of `poll_all` had the same shape for a second reason: a peer that was never
-// reached was reported with `localNameCollisions: []`, an empty reading of a probe that
-// never ran.
-//
-// What the fix is. `PollReport::collisions` is a `LocalNameCollisions`, which is either
-// `Checked(names)` or `Unavailable(reason)` and has no accessor that flattens the two.
-// The distinction is carried through all three layers:
-//   - the poll outcome -- `Checked(vec![])` vs `Unavailable(e)`, asserted in
-//     `tests/federation_mirror_poll.rs`;
-//   - what is stored -- a successful poll with an unavailable probe records
-//     `COLLISION_PROBE_UNAVAILABLE_PREFIX` in `remote_peer_status.last_error` *beside*
-//     a fresh `last_success_at`, so the row says "current rows, one unchecked thing
-//     about them";
-//   - the JSON -- `localNameCollisions` is `null`, never `[]`, with a reason in
-//     `localNameCollisionsError`.
-//
-// The probe-error path is covered in `tests/federation_mirror_routes.rs`, which has a
-// stub peer to produce a *successful* poll. The test here covers the other arm, which
-// needs no peer at all: a peer that cannot be reached.
-
-/// **The fix.** A peer whose poll failed reports no collision list, rather than an
-/// empty one.
-///
-/// The peer here is admitted and points at a port nothing is listening on, so the poll
-/// fails in transport -- the commonest real failure, and the one where an operator is
-/// most likely to be scanning the refresh output for what changed.
+/// A peer whose poll failed reports no collision list, rather than an empty one. The
+/// peer points at a port nothing is listening on, so the poll fails in transport.
 #[tokio::test]
 async fn a_refresh_of_an_unreachable_peer_reports_no_collision_list_rather_than_an_empty_one() {
     let Some(scratch) = setup_db().await else {
@@ -1097,7 +913,6 @@ async fn a_refresh_of_an_unreachable_peer_reports_no_collision_list_rather_than_
         return;
     };
 
-    // Port 1 on loopback: privileged, unbound, and refused immediately.
     let peer = admit("unreachable.dclone.org", "http://127.0.0.1:1");
     let app = build_app(
         scratch.pool.clone(),
@@ -1126,8 +941,6 @@ async fn a_refresh_of_an_unreachable_peer_reports_no_collision_list_rather_than_
         result["error"].as_str().is_some_and(|e| !e.is_empty()),
         "a failed poll says why: {result}"
     );
-    // The zeroes are honest because `ok: false` is right next to them. An empty
-    // collision list would not be: nothing was probed, so there is nothing to be empty.
     assert_eq!(
         result["localNameCollisions"],
         serde_json::json!(null),
@@ -1141,64 +954,6 @@ async fn a_refresh_of_an_unreachable_peer_reports_no_collision_list_rather_than_
 
     scratch.drop().await;
 }
-
-// HOLE 7 -- a peer file that names nobody was accepted, and destroyed the mirror
-//
-// Introduced BY the fix for HOLE 1, and only visible because of it.
-//
-// Every malformation of `federation-peers.toml` is a boot refusal -- a `TODO:`
-// proposal, an epoch `added_at`, a zero gossip key, a reserved host suffix, a blank
-// pinned root, unparseable TOML, a missing file, two entries naming one peer. There is
-// exactly one way to write a file the loader accepts without complaint and that names
-// no peers: leave it empty, truncate it, or misspell the table header. `PeerFile.peer`
-// is `#[serde(default)]`, so `[[peers]]` -- one stray character -- parses to a document
-// with zero entries and boots.
-//
-// Before the boot sweep existed that was harmless: federation did not happen
-// and the mirrored rows sat there unpublished. The sweep changed what it costs.
-// `is_configured()` is true for `Admitted { peers: [] }`, so the sweep takes its
-// destructive branch, `peer_id <> ALL('{}')` is TRUE for every row, and one stray
-// character in a config file silently deletes every mirrored row this server holds --
-// on a boot that reports success and exits zero.
-//
-// This is not the documented "a file that admitted nobody is a different statement"
-// case. That statement is one an operator makes by deleting entries. This one is made
-// by a typo, and the two are the same observable state -- which is the exact confusion
-// `WorldsFederationPeers`' two variants exist to prevent, reappearing one level up: the
-// enum distinguishes "no file" from "a file naming nobody", and nothing distinguishes
-// "a file naming nobody on purpose" from "a file naming nobody by accident".
-//
-// Demonstrated against the live binary, not only here. With three mirrored rows in the
-// database and `WORLDS_FED_PEERS_FILE` pointing at a two-line file whose only defect is
-// `[[peers]]` for `[[peer]]`:
-//
-//   INFO worlds federation peer registry loaded  admitted=0 omitted=0
-//   WARN federation peer is no longer in the allowlist; its mirrored worlds have been
-//        deleted ...  peer_id=peer-a.dclone.org worlds_deleted=2
-//   WARN ... peer_id=peer-b.dclone.org worlds_deleted=1
-//   INFO worlds mirror reconciled against the admitted set before serving
-//        admitted=0 peers_revoked=2 worlds_deleted=3
-//
-// ...and the process went on to serve. `rows left: 0`.
-//
-// CLOSED, at the sweep rather than at the loader.
-//
-// Refusing the file was the first fix tried, and it was wrong: it made "federation
-// is on and we currently admit nobody" inexpressible, which is the exact
-// distinction `WorldsFederationPeers`' two variants exist to carry. An operator who
-// removes the last entry from the file is making a real statement, and the loader
-// is not the place that can tell that statement apart from a truncated write.
-//
-// The damage was never the empty set. It was that an empty admitted set made the
-// sweep's `peer_id <> ALL('{}')` true for every row. So the empty set is now
-// refused *where it destroys data*: `revoke_peers_no_longer_admitted` returns
-// `NoAllowlistToEnforce` without deleting anything, and logs a warning that names
-// the `[[peer]]`/`[[peers]]` trap. The mirrored rows stay, published by nothing --
-// which is the same end state a correct empty allowlist produces, minus the
-// irreversible delete.
-//
-// The two tests below now assert that: the file loads, the sweep declines, the rows
-// survive.
 
 /// A peer file whose table header is misspelled loads as an allowlist naming nobody --
 /// and the boot sweep refuses to act on it, so the mirror survives the typo.
@@ -1218,8 +973,6 @@ async fn a_peer_file_with_the_section_header_mistyped_does_not_sweep_the_mirror(
     let dir = std::env::temp_dir().join(format!("catalyrst-fed-typo-{}", std::process::id()));
     std::fs::create_dir_all(&dir).expect("scratch dir");
     let path = dir.join("mistyped.toml");
-    // [[peers]] not [[peer]] - one character, and still valid TOML. PeerFile.peer
-    // is #[serde(default)], so this parses to zero entries and loads.
     std::fs::write(
         &path,
         "[[peers]]\nversion = 1\npeer_id = \"peer-a.dclone.org\"\ncatalyst_url = \"https://peer-a.dclone.org/content\"\n",
@@ -1234,7 +987,6 @@ async fn a_peer_file_with_the_section_header_mistyped_does_not_sweep_the_mirror(
          the one to refuse"
     );
 
-    // CLOSED: the sweep declines rather than deleting every row.
     let outcome = store
         .revoke_peers_no_longer_admitted(&peers)
         .await
@@ -1244,9 +996,6 @@ async fn a_peer_file_with_the_section_header_mistyped_does_not_sweep_the_mirror(
         "an allowlist admitting nobody must not sweep, got {outcome:?}"
     );
 
-    // Count the ROWS, not the published view. list_mirror filters against the
-    // admitted set and so reports 0 here whether or not the sweep destroyed the
-    // table. The property under test is that the destructive delete never ran.
     let survived: i64 = sqlx::query_scalar("SELECT count(*) FROM remote_worlds")
         .fetch_one(&scratch.pool)
         .await
@@ -1259,11 +1008,9 @@ async fn a_peer_file_with_the_section_header_mistyped_does_not_sweep_the_mirror(
     scratch.drop().await;
 }
 
-/// The same shape with nothing to misread at all: a zero-byte file.
-///
-/// Kept separate because it is what a truncated write, a failed template render or an
-/// empty ConfigMap key produces, and because it removes any argument that the typo case
-/// is about serde tolerating unknown keys. There is no content here to tolerate.
+/// The same shape with nothing to misread: a zero-byte file, as produced by a truncated
+/// write, a failed template render or an empty ConfigMap key. Kept separate because it
+/// removes any argument that the typo case is about serde tolerating unknown keys.
 #[tokio::test]
 async fn a_zero_byte_peer_file_loads_as_an_empty_allowlist_that_does_not_sweep() {
     let Some(scratch) = setup_db().await else {
@@ -1286,9 +1033,6 @@ async fn a_zero_byte_peer_file_loads_as_an_empty_allowlist_that_does_not_sweep()
         .expect("an empty file is a legitimate 'we admit nobody', and still loads");
     assert!(peers.is_configured() && peers.peers().is_empty());
 
-    // CLOSED: the sweep refuses an empty admitted set, so `peer_id <> ALL('{}')`
-    // never reaches the DELETE. Disabling federation outright is still done by
-    // unsetting the path (NotConfigured); this is the softer, non-destructive state.
     let outcome = store
         .revoke_peers_no_longer_admitted(&peers)
         .await
@@ -1311,24 +1055,11 @@ async fn a_zero_byte_peer_file_loads_as_an_empty_allowlist_that_does_not_sweep()
     scratch.drop().await;
 }
 
-/// A smaller, adjacent inaccuracy in the same sweep, kept honest by its own test.
-///
-/// A peer that is **in** the file -- its DAO proposal intact, its root pinned -- but
-/// which carries no `worlds_url` is `Omitted`, not `Admitted`. `admitted_ids` is built
-/// from `peers()`, which excludes omissions, so the sweep deletes that peer's rows.
-/// Deleting them is right: it is not a worlds peer, and nothing should publish its
-/// rows. The WARN that fires is not right -- it says the peer "is no longer in the
-/// allowlist", and it is. An operator reading a boot log after removing a `worlds_url`
-/// is told the DAO dropped a peer it did not drop.
-///
-/// Verified against the live binary: with `worlds_url = ""` on an entry that is
-/// otherwise unchanged and fully pinned, boot logs `federation peer omitted: ...` and
-/// then, four lines later, `federation peer is no longer in the allowlist ...
-/// peer_id=peer-a.dclone.org worlds_deleted=2` for that same peer.
-///
-/// **CLOSED.** The rows still go, and both the returned `RevokedPeer.because` and the
-/// WARN it drives now say the peer stopped running a worlds server rather than that the
-/// DAO dropped it.
+/// A peer that is **in** the file -- DAO proposal intact, root pinned -- but carries no
+/// `worlds_url` is `Omitted`, and `admitted_ids` excludes omissions, so the sweep
+/// deletes its rows. Deleting them is right; the old WARN saying it "is no longer in
+/// the allowlist" was not, and told operators the DAO dropped a peer it had not.
+/// `RevokedPeer.because` and the WARN now say it stopped running a worlds server.
 #[tokio::test]
 async fn a_peer_omitted_for_having_no_worlds_url_is_swept_as_an_omission_not_a_de_admission() {
     let Some(scratch) = setup_db().await else {
@@ -1344,15 +1075,12 @@ async fn a_peer_omitted_for_having_no_worlds_url_is_swept_as_an_omission_not_a_d
         .await
         .expect("mirror the peer");
 
-    // Same entry, still adjudicated, not a worlds peer any more.
     let omitted = match AdmittedPeer::admit(&cert(peer_id.as_str(), ""), &{
         let mut c = fed_config();
         c.allow_insecure_loopback_peers = false;
         c
     }) {
         Ok(AdmissionOutcome::Omitted(o)) => o,
-        // With no worlds_url and no pinned root the entry is refused outright, which is
-        // its own documented behaviour; build the omission directly in that case.
         _ => catalyrst_worlds::fed::peers::PeerOmitted::NoWorldsUrl {
             peer_id: peer_id.as_str().to_string(),
         },
@@ -1378,9 +1106,6 @@ async fn a_peer_omitted_for_having_no_worlds_url_is_swept_as_an_omission_not_a_d
         "and it is reported, because something did stop being published"
     );
 
-    // CLOSED: the reason travels in the value, not only in a log line a human might
-    // read. `admitted_ids` is still built from `peers()` alone -- that is correct, an
-    // omitted peer is not admitted -- so the distinction is drawn against `omitted()`.
     let Revocation::Swept { revoked, .. } = &swept else {
         panic!("a file that names a peer sweeps: {swept:?}");
     };
@@ -1395,44 +1120,9 @@ async fn a_peer_omitted_for_having_no_worlds_url_is_swept_as_an_omission_not_a_d
     scratch.drop().await;
 }
 
-// HOLE 8 -- the collision probe's database errors reached the public peers route
-//
-// Introduced BY the fix for HOLE 6, and narrowly.
-//
-// Before that fix, a failed collision probe wrote nothing to `remote_peer_status`: the
-// `Err` arm returned `Vec::new()` and `record_success` had already cleared
-// `last_error`. The fix restates the gap with `record_failure`, which is the right
-// call -- a clean status row would put the fabrication back in the first place an
-// operator looks -- but `record_failure` writes the error verbatim, and
-// `remote_peer_status.last_error` is served, unauthenticated, as
-// `GET /federation/worlds/peers` -> `peers[].status.lastError`.
-//
-// So a `sqlx::Error` from a query against our own `worlds` table is now published to
-// anyone. Observed on the live binary, from an unauthenticated request:
-//
-//   "lastError": "mirror replaced; local name collision probe unavailable: error
-//    returned from database: relation \"worlds\" does not exist at line 1469"
-//
-// A local table name and a source line number, on a public route, from an internal
-// fault the caller had nothing to do with.
-//
-// CLOSED, by drawing the line between the FACT and the TEXT rather than by hiding
-// the field. The fact that the probe did not run is what HOLE 6 put there and it
-// stays public; the database's own words do not.
-//
-// `PollFailure::published()` is the general form: identical to `Display` for every
-// variant whose text is about the *peer* -- their host, their HTTP status, their
-// malformed body -- and a bounded constant for `Store`, whose text is about our
-// database. The collision probe's restatement gets the same treatment via
-// `PROBE_FAULT_PUBLIC_REASON`. Both verbatim strings are logged at the moment they
-// are redacted, and the admin-only refresh route still returns the probe's own
-// reason as `localNameCollisionsError`.
-
-/// **Asserts the fix.** The unavailable probe is still reported on the public route,
-/// and the raw database text is not.
-///
-/// Written against the store rather than a stub peer, because the store is where the
-/// text is committed and the route is a pure read of it.
+/// The unavailable probe is still reported on the public route; the raw database text
+/// is not. Written against the store rather than a stub peer, because the store is
+/// where the text is committed and the route is a pure read of it.
 #[tokio::test]
 async fn a_database_error_text_is_not_published_on_the_public_peers_route() {
     let Some(scratch) = setup_db().await else {
@@ -1442,8 +1132,6 @@ async fn a_database_error_text_is_not_published_on_the_public_peers_route() {
     let store = RemoteWorldsComponent::new(scratch.pool.clone());
     let peer = admit("leaky.dclone.org", "http://127.0.0.1:1/");
 
-    // Exactly what `poll_peer` now does when the fetch and the write succeeded and the
-    // collision probe did not: a success, then the gap restated with a bounded reason.
     store
         .record_success(peer.peer_id(), 2, 0, false)
         .await
@@ -1469,7 +1157,6 @@ async fn a_database_error_text_is_not_published_on_the_public_peers_route() {
         },
     );
 
-    // No credential of any kind.
     let (status, body) = call(
         &app,
         Request::builder()
@@ -1488,12 +1175,10 @@ async fn a_database_error_text_is_not_published_on_the_public_peers_route() {
         .as_str()
         .expect("the unavailable probe is reported, which is HOLE 6's fix working");
 
-    // The fact is published, and should be.
     assert!(
         last_error.contains("collision probe unavailable"),
         "HOLE 6's fix must not regress: the unchecked probe stays visible: {last_error}"
     );
-    // And nothing about our schema is.
     for leak in [
         "relation ",
         "at line ",
@@ -1507,7 +1192,6 @@ async fn a_database_error_text_is_not_published_on_the_public_peers_route() {
         );
     }
 
-    // And it sits beside a fresh success, which is the pairing HOLE 6 established.
     assert!(
         body["peers"][0]["status"]["lastSuccessAt"].is_string(),
         "current rows AND an unchecked thing about them"
@@ -1516,8 +1200,8 @@ async fn a_database_error_text_is_not_published_on_the_public_peers_route() {
     scratch.drop().await;
 }
 
-/// The redaction is a property of `PollFailure`, not of one call site, so it is asserted
-/// there too: peer-derived text survives, ours does not.
+/// The redaction is a property of `PollFailure`, not of one call site: peer-derived
+/// text survives, ours does not.
 #[test]
 fn only_our_own_database_text_is_withheld_from_the_published_reason() {
     use catalyrst_worlds::fed::poll::{PollFailure, STORE_FAULT_PUBLIC_REASON};
@@ -1529,7 +1213,6 @@ fn only_our_own_database_text_is_withheld_from_the_published_reason() {
         "Display stays verbatim \u{2014} the log line is the whole point of keeping it"
     );
 
-    // Facts about the peer are facts about a public federation link, and publish.
     for theirs in [
         PollFailure::Status(503),
         PollFailure::NotJson("text/html".into()),

@@ -74,9 +74,6 @@ fn place(id: &'static str, title: &'static str) -> Fixture {
     }
 }
 
-// Shaped like the deployment's world-places sync writes a local world:
-// the deployer is the only attribution it can carry, and only once the
-// worlds index reports one.
 fn world(id: &'static str, name: &'static str, title: &'static str) -> Fixture {
     Fixture {
         id,
@@ -406,8 +403,6 @@ async fn is_placeholder_title(pool: &PgPool, title: &str) -> bool {
     .expect("placeholder title match")
 }
 
-// The unit tests in content_quality.rs run the same patterns through the
-// `regex` crate; this is the verdict, under the dialect the feed queries use.
 #[tokio::test]
 async fn title_regexes_behave_the_same_under_postgres() {
     let Some(scratch) = setup().await else {
@@ -497,9 +492,6 @@ async fn app(pool: PgPool) -> (Router, Gate) {
     (router.with_state(state), gate)
 }
 
-// Upstream answers `owner=` with `LOWER(p.owner) = $owner OR base_position IN
-// (operated parcels)`; this mirror has no owner column to compare, so a wallet
-// operating no parcel must get an empty page, never the feed.
 #[tokio::test]
 async fn an_unknown_owner_gets_an_empty_page_rather_than_the_feed() {
     let Some(scratch) = setup().await else {
@@ -605,12 +597,6 @@ async fn drop_roles(admin: &PgPool, roles: &[&str]) {
     }
 }
 
-// The deployment's layout: the archive owner (writer) owns `place`, bootstrap
-// defines place_indexed as the superuser and grants the reader from there,
-// so the writer is neither grantor nor grantee of that SELECT and
-// information_schema shows it nothing. 0005 then lands through the writer
-// at startup, and the reader must still end up able to read the table; while
-// it cannot, the probe has to say so and the feed has to keep answering.
 #[tokio::test]
 async fn road_grant_reaches_the_reader_and_the_probe_asks_for_select_not_existence() {
     let Some(scratch) = setup().await else {

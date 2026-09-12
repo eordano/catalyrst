@@ -1,8 +1,3 @@
-// Pins the pairing trust boundary: ?mcp= may pair a LOOPBACK relay silently (the
-// documented rig workflow), but a remote ws(s):// relay -- which gets
-// screenshots, play control and asset writes -- must not open a socket until the
-// caller's consent surface approves it, and is refused outright when no consent
-// surface exists. A crafted link must produce zero sockets.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { autoConnect } from "./mcp-bridge";
 

@@ -1,17 +1,7 @@
-# Boots the module in the public-gateway shape and asserts the five first-boot
-# fixes that evaluation cannot see (07bc77f35): postgres readiness ordering,
-# livekit secret generation, the singles package fallback, the /private/dumps
-# gate, and the opensea egress deny. Packages are stubs -- this exercises the
-# MODULE (units, ordering, secrets, sandbox, nginx render), not the binaries,
-# which carry their own cargo tests. Runs in CI / on a KVM host; the VM boot
-# needs /dev/kvm.
 { pkgs, self, ... }:
 let
   system = "x86_64-linux";
 
-  # One executable standing in for every catalyrst binary a unit execs. The
-  # long-running services sleep; squid-migrate is the lone oneshot and exits 0.
-  # content-migrate reads share/catalyrst-server/migrations/*.sql, so ship one.
   stub = pkgs.runCommand "catalyrst-stub" { } ''
     mkdir -p $out/bin $out/share/catalyrst-server/migrations
     for b in catalyrst-live catalyrst-explore catalyrst-create catalyrst-social \
@@ -49,8 +39,6 @@ let
       ]
   );
 
-  # Stands in for inputs.catalyrst: the module reads .packages.x86_64-linux.*
-  # directly and .shortRev via `or`, nothing else.
   fakeCatalyrst = {
     packages.${system} = stubPackages;
     shortRev = "test000";
@@ -73,27 +61,16 @@ pkgs.testers.runNixOSTest {
         pkgs.curl
       ];
 
-      # The gateway's opensea fallback statically proxies opensea.decentraland.org,
-      # which nginx resolves at config-load; the hermetic VM has no external DNS
-      # (prod does), so point it at loopback to let nginx start.
       networking.extraHosts = "127.0.0.1 opensea.decentraland.org";
 
       services.catalyrst = {
         enable = true;
         profile = "public-gateway";
         domain = "test.local";
-        # acme-http01 rides nixpkgs' preliminary self-signed cert so nginx
-        # starts; the default acme-dns01 needs a real DNS provider the hermetic
-        # VM has none of. http01 also exercises the multi-SAN vhost path.
         tls = "acme-http01";
-        # The LOD seed preStart builds an npm package from GitHub; irrelevant to
-        # the first-boot fixes and would need network in the VM.
         subServices.abCdn = false;
       };
 
-      # squid.env is an operator secret with no auto-mint (it carries RPC
-      # endpoints); provide a dummy so the squid units start and their
-      # postgres-setup ordering is genuinely exercised.
       system.activationScripts.testSquidEnv = ''
         mkdir -p /var/lib/secrets
         cat > /var/lib/secrets/squid.env <<'EOF'

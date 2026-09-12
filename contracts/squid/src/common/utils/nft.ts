@@ -53,9 +53,6 @@ export function getNFTId(
     : contractAddress + "-" + tokenId;
 }
 
-// Minimal structural types for RPC contract reads: only what ContractBase needs.
-// Both the Polygon (evm-processor) and ETH (Portal + rpc-client) contexts satisfy
-// these, so this helper stays shared across processors without coupling to either.
 type RpcContext = {
   _chain: {
     client: { call: <T = any>(method: string, params?: unknown[]) => Promise<T> };
@@ -119,9 +116,6 @@ export function cancelActiveOrder(order: Order, now: bigint): Order {
     (order.status == OrderStatus.open ||
       order.status == OrderStatus.transferred)
   ) {
-    // Here we are setting old orders as cancelled, because the smart contract allows new orders to be created
-    // and they just overwrite them in place. But the subgraph stores all orders ever
-    // you can also overwrite ones that are expired
     order.status = OrderStatus.cancelled;
     order.updatedAt = now;
   }

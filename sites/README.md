@@ -1,5 +1,5 @@
 # sites
-DCL sites - a React Router 8 (framework mode, SSR) explorer for Catalyst Places, built as an experimentation platform. Every shippable change is a story: a hypothesis, an experiment, the metrics that decide it, and the surface that implements it. Stories live in `packages/features/src/stories/<id>/`, driven by `story.md` frontmatter.
+DCL sites - a React Router 8 (framework mode, SSR) explorer for Catalyst Places, built as an experimentation platform: every shippable change is a story (hypothesis, experiment, deciding metrics, surface). Stories live in `packages/features/src/stories/<id>/`, driven by `story.md` frontmatter.
 
 Visual components come from the sibling `ui3` kit via the `@ui` alias (`@ui/* -> ../ui3/src/*`); do not restructure ui3.
 
@@ -9,7 +9,7 @@ rule in its `package.json` under `sitesBoundary.mayImport`; `scripts/boundaries.
 enforces it as part of `npm test`.
 
 | Package | Alias | Holds | May import |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | `@sites/routes` | `@routes/*` | SSR entry points (`root.tsx`, `entry.*`), every route module, route stories | core, data, features |
 | `@sites/features` | `@features/*` | per-flow XState machines + wizard components + specs, shared components | core, data |
 | `@sites/data` | `@data/*` | catalyst clients, auth, fs, agent, fixtures -- HTTP *and* the direct-Postgres path | core |
@@ -20,7 +20,7 @@ so route typegen keeps emitting the `./+types/*` modules the routes import. Cros
 imports must use the alias; a relative import that escapes its package fails the gate.
 
 ## The PE + designer workflow
-Five steps from idea to decision; the central artifact is `packages/features/src/stories/<id>/story.md`.
+Five steps from idea to decision around `packages/features/src/stories/<id>/story.md`.
 ### 1. Define - write the story
 ```bash
 npm run story:new -- <id> --baseline 0.18 --mde 0.02
@@ -28,7 +28,7 @@ npm run story:new -- <id> --baseline 0.18 --mde 0.02
 npm run story:new -- <id> --multi --baseline 0.42 --mde 0.05
 ```
 
-`story:new` scaffolds `packages/features/src/stories/<id>/` with a valid `story.md` (validated against the shared `StoryMetaSchema` before writing) and computes + writes back `experiment.min_sample`. Fill in the hypothesis, primary metric + guardrails, variants with per-variant `flags`, and `decision.rule`.
+`story:new` scaffolds the story dir with a `story.md` validated against the shared `StoryMetaSchema` before writing, and computes + writes back `experiment.min_sample`. Fill in the hypothesis, primary metric + guardrails, variants with per-variant `flags`, and `decision.rule`.
 
 Frontmatter shape (single source of truth in `packages/core/src/lib/experiments/context.ts`):
 
@@ -57,11 +57,11 @@ npm run typecheck    # react-router typegen + tsc --noEmit (strict)
 npm run test         # vitest (machine + lib tests)
 ```
 
-Sanity-check both arms by reading the deterministic local-hash assignment for a given `sid`, or by editing `story.md` variant weights (no kill-switch to force an arm today - see step 4).
+To sanity-check or force an arm: read the deterministic local-hash assignment for a given `sid`, or edit `story.md` variant weights. No kill-switch - see step 4.
 ### 4. Launch / ramp
 `story.md` is the durable definition of the split (`experiment.variants`/`weight`); ramp by editing weights. Assignment is the deterministic local hash of `(sid + experiment.key)`, bucketed by the `story.md` variant weights.
 
-> No instant kill-switch today. `resolveAssignment` checks catalyrst-telemetry `GET /dash/flags` for a per-experiment override, but that endpoint is a global EXPLORER feature-flag boolean map (keys like `explorer-alfa-*`) proxied from the feature-flags service - it has no entry keyed by a sites story `experiment.key`, so the override layer always misses and assignment uses the local hash. A real kill-switch / forced-variant would require a per-experiment override store + endpoint in catalyrst-telemetry (e.g. `GET /dash/experiment/{key}` returning `{killed?, variant?, flags?}`); `getRuntimeFlags` already knows how to consume that shape. To force an arm for QA: read the local-hash assignment for a chosen `sid`, or edit `story.md` variant weights.
+> No instant kill-switch today. `resolveAssignment` checks catalyrst-telemetry `GET /dash/flags` for a per-experiment override, but that endpoint is a global EXPLORER feature-flag boolean map (keys like `explorer-alfa-*`) proxied from the feature-flags service - it has no entry keyed by a sites story `experiment.key`, so the override layer always misses and assignment uses the local hash. A real kill-switch / forced-variant would require a per-experiment override store + endpoint in catalyrst-telemetry (e.g. `GET /dash/experiment/{key}` returning `{killed?, variant?, flags?}`); `getRuntimeFlags` already knows how to consume that shape.
 ### 5. Measure + decide
 Exposure + metric events flow to catalyrst-telemetry; readouts (dashboards, funnels) are built in Metabase over the telemetry store. Fixed-horizon verdict via CLI:
 
@@ -71,7 +71,7 @@ npm run story:readout -- <id> --json     # machine-readable
 npm run story:readout -- <id> --alpha 0.01
 ```
 
-`story:readout` pulls per-variant counts from catalyrst-telemetry (grouped by the `variant` property), computes the primary metric + guardrails per variant, runs a two-proportion z-test (control vs each treatment), checks `min_sample`, and prints SHIP / KILL / KEEP RUNNING against `decision.rule`. With `TELEMETRY_URL` unset it prints a clear message and exits 0. Apply the verdict by editing `story.md` (`status`, weights). There is no telemetry override to flip - see step 4.
+`story:readout` pulls per-variant counts from catalyrst-telemetry (grouped by the `variant` property), computes the primary metric + guardrails per variant, runs a two-proportion z-test (control vs each treatment), checks `min_sample`, and prints SHIP / KILL / KEEP RUNNING against `decision.rule`. With `TELEMETRY_URL` unset it prints a clear message and exits 0. Apply the verdict by editing `story.md` (`status`, weights); there is no telemetry override to flip.
 ## CLI reference
 | Command | What it does |
 | --- | --- |

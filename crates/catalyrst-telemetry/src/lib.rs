@@ -80,8 +80,8 @@ pub struct AppStateInner {
 
     pub admin_token: Option<String>,
 
-    /// Loaded telemetry contract (from `TELEMETRY_CONTRACT_PATH`). `None` =
-    /// validation disabled (fail-open): the ingest path accepts every event.
+    /// `None` (unset `TELEMETRY_CONTRACT_PATH`) = validation disabled
+    /// (fail-open): the ingest path accepts every event.
     pub contract: Option<Arc<contract::Contract>>,
 }
 
@@ -168,9 +168,6 @@ async fn require_telemetry_admin(
     next.run(request).await
 }
 
-// Same gate for reads/SSR, but session-cookie aware, and an unauthenticated
-// BROWSER navigation lands on the sign-in form instead of a bare 403 -- the
-// bearer header cannot be attached to a plain page load.
 async fn require_telemetry_admin_read(
     axum::extract::State(state): axum::extract::State<AppState>,
     headers: axum::http::HeaderMap,
@@ -211,15 +208,6 @@ fn gated_reads(state: AppState) -> Router<AppState> {
         ))
 }
 
-// The data-bearing SSR pages render user ids + full event streams
-// (e.g. /session/{id} embeds the event stream in window.__BOOT__), calling
-// dashboard::stats/events/session directly. They must carry the same admin gate
-// as the /dash/* JSON reads, otherwise nginx serves them publicly and a stranger
-// reads PII/crash data unauthenticated. Excluded (public-by-design): /flags
-// (SPA shell with no data call), /fonts, /v1 ingest. /experiments is still
-// served ungated: experiments.html DOES make data calls (the fuller experiments
-// work is tracked separately), so this exclusion is a known gap, not a
-// public-by-design choice.
 fn gated_ssr(state: AppState) -> Router<AppState> {
     Router::new()
         .route("/", get(handlers::ssr::page))
@@ -238,11 +226,6 @@ fn gated_ssr(state: AppState) -> Router<AppState> {
         ))
 }
 
-// Everything that MUTATES operator state, plus the group reads that expose
-// member lists (wallet addresses). nginx serves this whole prefix publicly, so
-// without this layer a stranger could flip a production flag: only the ingest
-// (/v1/*), the flag/experiment SSR shells, and the flag/experiment resolution
-// sites needs stay open.
 fn gated_writes(state: AppState) -> Router<AppState> {
     Router::new()
         .route(

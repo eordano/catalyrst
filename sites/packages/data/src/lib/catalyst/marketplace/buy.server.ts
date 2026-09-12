@@ -12,10 +12,6 @@ export type LoadBuyArgs = {
   opts?: GetOptions;
 };
 
-/**
- * "unavailable" means the buy page could not read the listing, so it must not
- * claim the item is sold or gone. `reason` is safe to show to a visitor.
- */
 export type LoadBuyResult = {
   listing: BuyableListing | null;
   source: "catalyst" | "empty" | "unavailable";

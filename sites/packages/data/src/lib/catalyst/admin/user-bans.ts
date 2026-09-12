@@ -56,14 +56,6 @@ export function validateReason(reason: string): FieldErrors {
   return errors;
 }
 
-/**
- * Validation truth is the generated comms schemas (`UserBanSchema`,
- * `UserWarningSchema`, `WireBanStatusSchema` -- the ts-rs images of
- * catalyrst-comms' DTOs). `name` is NOT on that wire: it is a client-side
- * enrichment slot (stories and any profile-joining loader fill it), so it is
- * attached in an explicit post-parse step instead of being folded into the
- * schema.
- */
 export { PublicUserBanSchema, UserBanSchema, UserWarningSchema };
 export type WireUserBan = z.infer<typeof UserBanSchema>;
 export type UserBan = WireUserBan & { name: string | null };
@@ -72,12 +64,8 @@ export type PublicUserBan = WirePublicUserBan & { name: string | null };
 export type UserWarning = z.infer<typeof UserWarningSchema>;
 
 export const BanStatusSchema = WireBanStatusSchema;
-/** The status route answers the public ban shape: the device id never leaves
- *  the moderator surface, so nothing downstream can read it off a status. */
 export type BanStatus = { isBanned: boolean; ban: PublicUserBan | null };
 
-/** Post-parse enrichment: lift a `name` the caller may have attached to the
- *  raw row; the comms wire itself never carries one. */
 function withName<T extends object>(row: T, raw: unknown): T & { name: string | null } {
   const name = (raw as { name?: unknown } | null)?.name;
   return { ...row, name: typeof name === "string" ? name : null };
@@ -86,12 +74,6 @@ function withName<T extends object>(row: T, raw: unknown): T & { name: string | 
 const envelope = <T extends z.ZodTypeAny>(inner: T) =>
   z.object({ data: inner });
 
-/**
- * The list envelopes require `data`, and the loaders below answer null when it
- * is not there. "This player has no bans" and "we could not read the ban list"
- * are the two answers a moderator most needs to tell apart, and an empty array
- * says the first one.
- */
 const BansListEnvelope = envelope(z.array(z.unknown()));
 const BanStatusEnvelope = envelope(z.unknown());
 const WarningsEnvelope = envelope(z.array(z.unknown()));
@@ -152,7 +134,6 @@ async function commsGet<T>(path: string, opts: ModeratedGetOptions): Promise<T> 
   });
 }
 
-/** Null when the ban list could not be read -- never an empty list. */
 export async function loadActiveBans(
   opts: ModeratedGetOptions = {},
 ): Promise<UserBan[] | null> {
@@ -167,7 +148,6 @@ export async function loadBanStatus(address: string, opts: GetOptions = {}): Pro
   return parsed.success ? parseBanStatus(parsed.data.data) : { isBanned: false, ban: null };
 }
 
-/** Null when the warnings list could not be read -- never an empty list. */
 export async function loadWarnings(
   address: string,
   opts: ModeratedGetOptions = {},
@@ -289,7 +269,6 @@ export async function commitUserAction(args: CommitUserActionArgs): Promise<User
 type AssignableTo<Sub, Sup> = Sub extends Sup ? true : false;
 type Mutual<A, B> = AssignableTo<A, B> extends true ? AssignableTo<B, A> : false;
 type Assert<T extends true> = T;
-/** The view type is exactly the wire row plus the enrichment slot. */
 export type _AssertUserBanIsWirePlusName = Assert<
   Mutual<Omit<UserBan, "name">, WireUserBan>
 >;

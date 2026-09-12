@@ -218,11 +218,6 @@ export async function resolveFlag(
   return fallback;
 }
 
-// Runtime activation for a draft experiment: ON only when an override row with
-// a non-empty payload exists and is not killed. A no-op row (the /flags UI form
-// saved with nothing set) coerces to null upstream and deliberately stays OFF,
-// as does an unreachable service (fail-closed to draft). envActive is the
-// legacy env-var activation and wins without fetching.
 export async function experimentActive(
   experimentKey: string,
   opts: FlagOpts & { envActive?: boolean } = {},

@@ -44,9 +44,8 @@ pub fn storable_skybox_time(n: f64) -> Option<i32> {
 /// Longest magic-byte signature checked below (RIFF....WEBP).
 pub const THUMBNAIL_SIGNATURE_BYTES: usize = 12;
 
-/// Thumbnails are stored and later served verbatim, so anything that is not a
-/// real raster image (e.g. HTML/SVG/scripts smuggled as a "thumbnail") must be
-/// rejected.
+/// Thumbnails are stored and later served verbatim, so anything that is not a real
+/// raster image (HTML/SVG/scripts smuggled as a "thumbnail") must be rejected.
 pub fn detect_image_format(buf: &[u8]) -> Option<&'static str> {
     const PNG: [u8; 8] = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
     if buf.len() >= 8 && buf[..8] == PNG {
@@ -64,10 +63,10 @@ pub fn detect_image_format(buf: &[u8]) -> Option<&'static str> {
     None
 }
 
-/// Keeps a scene's navmapThumbnail hash only when its stored bytes are one of
-/// the image formats the settings endpoint accepts, so a deploy cannot promote
-/// a non-image file into world settings. An unreadable or unsupported file is
-/// treated as no thumbnail, never as a deployment failure.
+/// Keeps a scene's navmapThumbnail hash only when its stored bytes are one of the image
+/// formats the settings endpoint accepts, so a deploy cannot promote a non-image file
+/// into world settings. An unreadable or unsupported file is treated as no thumbnail,
+/// never as a deployment failure.
 pub async fn storable_thumbnail_hash(contents_dir: &std::path::Path, hash: &str) -> Option<String> {
     let mut file = match tokio::fs::File::open(contents_dir.join(hash)).await {
         Ok(f) => f,

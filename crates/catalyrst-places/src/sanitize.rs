@@ -1,9 +1,6 @@
 use catalyrst_types::sanitize::{is_internal_link_host, sanitize_markup_description};
 use reqwest::Url;
 
-// ports/places/query.rs builds description_plain_sql by unrolling this many
-// regexp_replace passes; catalyrst_types::sanitize keeps its own pass count
-// private, so this mirrors it rather than importing it.
 pub(crate) const MAX_SANITIZE_PASSES: usize = 5;
 
 /// The deployment's own content origin, exempt from the internal-host filter.

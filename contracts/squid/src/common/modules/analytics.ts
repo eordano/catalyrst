@@ -9,7 +9,7 @@ export function getOrCreateAnalyticsDayData(
   analytics: Map<string, AnalyticsDayData>,
   network: ModelNetwork = ModelNetwork.ETHEREUM
 ): AnalyticsDayData {
-  const dayID = timestamp / BigInt(86400); // unix timestamp for start of day / 86400 giving a unique day index
+  const dayID = timestamp / BigInt(86400);
   const id = `${dayID.toString()}-${network}`;
   const dayStartTimestamp = dayID * BigInt(86400);
   let analyticsDayData = analytics.get(id);
@@ -17,10 +17,10 @@ export function getOrCreateAnalyticsDayData(
     analyticsDayData = new AnalyticsDayData({
       id,
     });
-    analyticsDayData.date = +dayStartTimestamp.toString(); // unix timestamp for start of day
+    analyticsDayData.date = +dayStartTimestamp.toString();
     analyticsDayData.sales = 0;
     analyticsDayData.volume = BigInt(0);
-    analyticsDayData.creatorsEarnings = BigInt(0); // won't be used at all, the bids and transfer from here have no fees for creators
+    analyticsDayData.creatorsEarnings = BigInt(0);
     analyticsDayData.daoEarnings = BigInt(0);
     analyticsDayData.network = network;
   }

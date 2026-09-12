@@ -70,19 +70,19 @@ UNCONFIRMED: `live.rs` never calls `migrate!` on `crates/catalyrst-server/migrat
 | Stripe | credits | `STRIPE_SECRET_KEY`/`_WEBHOOK_SECRET` | card purchase endpoints 501; service boots |
 | SendGrid | notifications | `SENDGRID_API_KEY` | email silently disabled (`is_enabled=false`) |
 
-No external IPFS gateway: "IPFS" = CID computation/validation; content bytes live on local disk or peer content servers. `thirdweb` is never a server dependency - the credits PurchaseIntent is signed client-side; the server only recovers the signer.
+No external IPFS gateway: "IPFS" = CID computation/validation; content bytes live on local disk or peer content servers. `thirdweb` is never a server dependency - the credits PurchaseIntent is signed client-side and the server only recovers the signer.
 
 One deliberate intra-stack HTTP dependency: scene-state's `~system/SignedFetch` is origin-locked to the world-storage URL (`STORAGE_URL`; https-only unless `STORAGE_ALLOW_HTTP=1` for loopback). Writes use authoritative-storage delegations (`DELEGATION_MINTER_URL`/`_TOKEN`; dev: pre-minted `STORAGE_DELEGATION`) - flow in [auth.md](./auth.md).
 
 ## 5. Asset bundles - served by upstream abgen
 
-Catalyrst carries no asset-bundle code; converter, ab-cdn JIT server, LOD generator, and AB-registry live upstream in [decentraland/abgen](https://github.com/decentraland/abgen), consumed via the `abgen` flake input re-exposing `packages.abgen` (server); `packages.abgen-compare` (parity/inspection) is re-exposed only when the abgen rev still ships it (current revs dropped the python compare pipeline -- deployments that run the harness pin an older catalyrst). One binary serves everything on :5147: corpus bundles, JIT conversion on miss, LODs, ISS descriptors, `/entities/active|versions`, profiles, and - when `CONTENT_PG_CONNECTION_STRING` (URL form) is set - the signed registry surface (`/entities/status`, `/queues/*`, `/denylist*`, `/registry`, `/flush-cache`). Env: `ABGEN_ROOT`, `ABGEN_SHADER_BUNDLE`, `ABGEN_OUT_ROOT`, `ABGEN_CACHE_DIR`, `ABGEN_CATALYST_URL` + LOD-JIT lane vars (deployed set: the deployment's `catalyrst-abgen` env file). Change AB behavior upstream (fork-PRs via `eordano/abgen`; never push upstream), then bump the flake input.
+Catalyrst carries no asset-bundle code: converter, ab-cdn JIT server, LOD generator and AB-registry live upstream in [decentraland/abgen](https://github.com/decentraland/abgen), consumed via the `abgen` flake input re-exposing `packages.abgen` (server). `packages.abgen-compare` (parity/inspection) is re-exposed only when the abgen rev still ships it - current revs dropped the python compare pipeline, so deployments running the harness pin an older catalyrst. One binary serves everything on :5147: corpus bundles, JIT conversion on miss, LODs, ISS descriptors, `/entities/active|versions`, profiles, and - when `CONTENT_PG_CONNECTION_STRING` (URL form) is set - the signed registry surface (`/entities/status`, `/queues/*`, `/denylist*`, `/registry`, `/flush-cache`). Env: `ABGEN_ROOT`, `ABGEN_SHADER_BUNDLE`, `ABGEN_OUT_ROOT`, `ABGEN_CACHE_DIR`, `ABGEN_CATALYST_URL` + LOD-JIT lane vars (deployed set: the deployment's `catalyrst-abgen` env file). Change AB behavior upstream (fork-PRs via `eordano/abgen`; never push upstream), then bump the flake input.
 
 ## 6. Deployment styles
 
 1. NixOS module - `flake.nix` exports `nixosModules.catalyrst` (`nixos/configuration.nix`): nginx (TLS/rate-limits/X-Accel), Postgres 18 (least-privilege-ownership oneshot), `catalyrst-sync` unit (runs `catalyrst-live`), marketplace-squid Node processors, Prometheus/exporters/alerts, Cloudflare IP refresh, optional comms block (LiveKit/`catalyrst-archipelago`/Pulse - the Rust archipelago on :5139 replaced the Node archipelago-workers trio and its NATS bus). `services.catalyrst.enable = true;`.
-2. Template units - `nixos/systemd/*.service`: eight standalone units (content, sync, the four bundles, social-rpc, abgen), `EnvironmentFile=` placeholders, for non-Nix hosts; not referenced by the NixOS module.
-3. Per-service standalone - each member crate as its own unit on its own port, ignoring bundles; the reference deployment does this.
+2. Template units - `nixos/systemd/*.service`: eight standalone units (content, sync, the four bundles, social-rpc, abgen) with `EnvironmentFile=` placeholders, for non-Nix hosts; not referenced by the NixOS module.
+3. Per-service standalone - each member crate its own unit on its own port, ignoring bundles; the reference deployment does this.
 
 Flake facts not visible from `cargo`: per-service packages + a `catalyrst-all` mega-package (~13 binaries); pin/patch details (librusty_v8, `doCheck = false`, `OPENSSL_NO_VENDOR=1`) in [build-and-test.md](./build-and-test.md).
 
@@ -90,7 +90,7 @@ Flake facts not visible from `cargo`: per-service packages + a `catalyrst-all` m
 
 ## 7. Repo periphery (non-code)
 
-- `contracts/LandilerEscrow.sol` - 15-day reclaimable custody escrow for wearables/emotes on Polygon. Not in the cargo build; consumed by address only (`LANDILER_ESCROW_ADDRESS`, read by credits/economy). Off-chain half: `usage_grants` overlay (`crates/catalyrst-market/migrations/0007_usage_grants.sql`).
+- `contracts/LandilerEscrow.sol` - 15-day reclaimable custody escrow for wearables/emotes on Polygon. Not in the cargo build, consumed by address only (`LANDILER_ESCROW_ADDRESS`, read by credits/economy). Off-chain half: `usage_grants` overlay (`crates/catalyrst-market/migrations/0007_usage_grants.sql`).
 - `secrets/` - gitignored; secrets ride env vars (`EnvironmentFile=`/`LoadCredential=`); no dotenv loader except `catalyrst-live`'s `/etc/catalyrst/content.env`.
 - `data/` - `catalyrst-worlds` runtime content store (`WORLDS_CONTENT_DIR` default `./data/worlds/contents`): CID-addressed blobs + auth files for locally deployed Worlds, not test fixtures.
 - `seed-third-party.sql` - manual seed of ~27 third-party Merkle roots into `squid_marketplace.third_party`; alternative to the built-in Rust refresher (DEPLOYMENT.md section 2) - pick one writer.

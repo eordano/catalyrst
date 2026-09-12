@@ -82,7 +82,6 @@ async function loadHappeningEvents(signal: AbortSignal): Promise<ChHappening[]> 
       const { data } = await fetchEvents({ list, limit: HAPPENING_EVENTS_LIMIT }, { signal });
       if (data.length > 0) return data.map(eventToHappening);
     } catch {
-      // fall through to the next list; an empty rail is handled by the caller
     }
   }
   return [];

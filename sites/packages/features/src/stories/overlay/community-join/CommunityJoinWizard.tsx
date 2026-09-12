@@ -228,8 +228,6 @@ function Inner({
   );
 }
 
-/** An unreported size renders as an em dash -- "0 Members" would be a headcount
- *  the API never gave. */
 function memberCountLabel(count: number | null): string {
   return count === null ? "\u2014" : count.toLocaleString();
 }

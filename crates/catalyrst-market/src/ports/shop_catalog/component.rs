@@ -176,13 +176,10 @@ impl ShopCatalogComponent {
         Ok((data, total))
     }
 
-    /// Creators ranked by how much MANA THEIR items took in the window
-    /// (`/v3/catalog/creators`). Attribution is by `item.creator`, not the
-    /// seller -- see [`TopCreator`] for why the seller-attribution ranking
-    /// undercounts a primary-sales shop. Rows also carry the lifetime sales the
-    /// rail displays and the approved catalogue counts backing the minimum-items
-    /// floor (see `build_top_creators_sql`). `first`/`days` are clamped inside
-    /// the query builder.
+    /// `/v3/catalog/creators`. Attribution is by `item.creator`, not the seller -- see
+    /// [`TopCreator`] for why the seller-attribution ranking undercounts a primary-sales shop,
+    /// and `build_top_creators_sql` for the floors. `first`/`days` are clamped inside the
+    /// query builder.
     pub async fn get_top_creators(
         &self,
         first: Option<i64>,

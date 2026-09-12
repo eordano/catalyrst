@@ -11,7 +11,6 @@ const FORM_KEYS = Object.keys(GOVERNANCE_FORMS) as FormKey[];
 
 const descriptor = (key: FormKey) => GOVERNANCE_FORMS[key] as SubmitProposalFormProps;
 
-/** The story args: the form descriptor is picked by name, everything else is a real prop. */
 type FormStoryArgs = Omit<SubmitProposalFormProps, "title" | "subtitle" | "description" | "sections"> & {
   form: FormKey;
 };
@@ -65,21 +64,12 @@ export const ErrorCollapsible: Story = {
   },
 };
 
-/** Kept under its pre-consolidation id: tools/screen-tour/add-story-links.mts references
- * `governance-components-submitproposalform--grant` directly. */
 export const Grant: Story = { args: { form: "grant" } };
 
-/** Extras a preset story used to pin, kept so the catalog render matches what it replaced. */
 const CATALOG_EXTRAS: Partial<Record<FormKey, Partial<SubmitProposalFormProps>>> = {
   banName: { error: "Name is already banned" },
 };
 
-/**
- * Every descriptor rendered at once. `Default` lets you flip between them with the `form`
- * control; this story keeps all 17 in the render + a11y + visual-diff gates, since between
- * them they are the only coverage of the `coords`, `status`, `dropdown`, `token`, `pills`,
- * `address`, `radio`, `email`, `checkbox` and `textarea` field renderers.
- */
 export const Catalog: Story = {
   name: "Catalog (every proposal type)",
   parameters: { controls: { disable: true } },
@@ -88,7 +78,6 @@ export const Catalog: Story = {
       <div style={{ display: "flex", flexDirection: "column", gap: 48 }}>
         {FORM_KEYS.map((key) => (
           // <section> demotes each form's unnamed <aside> from `complementary` to `generic`
-          // (HTML-AAM scoped mapping) -- without it axe's landmark-unique fires 17 times.
           <section key={key}>
             <SubmitProposalForm {...descriptor(key)} {...CATALOG_EXTRAS[key]} />
           </section>

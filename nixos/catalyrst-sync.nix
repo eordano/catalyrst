@@ -11,10 +11,6 @@ let
 
   commsPackages = inputs.catalyrst.packages.x86_64-linux;
   contentPkg = if cfg.contentPackage != null then cfg.contentPackage else commsPackages.catalyrst;
-  # Tied to inputs.catalyrst (the source the binaries come from), never to the
-  # consumer flake's own rev: COMMIT_HASH sits in the generated unit text, so a
-  # whole-repo rev would make restartIfChanged bounce this service on every
-  # unrelated commit the consumer applies (a ~9-minute content re-bootstrap).
   commitHash = inputs.catalyrst.shortRev or inputs.catalyrst.dirtyShortRev or "dirty";
   commsVersion = "${pkgs.nodejs_24.version}+pulse-${inputs.catalyrst.shortRev or "unknown"}";
   commsCommitHash = "${inputs.catalyrst.inputs.archipelago.shortRev or "unknown"}+${

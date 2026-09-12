@@ -64,12 +64,10 @@ const POSTS: BlogPost[] = [
   },
 ];
 
-/** The feed payload, picked by name: seven posts or nothing. */
 const POST_SETS = { full: POSTS, empty: [] } satisfies Record<string, BlogPost[]>;
 type PostSetKey = keyof typeof POST_SETS;
 const POST_SET_KEYS = Object.keys(POST_SETS) as PostSetKey[];
 
-/** Story args: the feed is picked by name, `loading`/`error` pass straight through. */
 type BlogHomeStoryArgs = Omit<ComponentProps<typeof StBlogHome>, "posts"> & {
   postSet: PostSetKey;
 };
@@ -99,16 +97,8 @@ type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {};
 
-/*
- * Reachable from the `postSet` control, but kept as its own export because the story id is a
- * hardcoded external consumer: tools/screen-tour/add-story-links.mts lists
- * `web-pages-blog-home--empty` in its MAPS and only console.warns when an id stops resolving,
- * so dropping the export would silently break that deep link.
- */
 export const Empty: Story = { args: { postSet: "empty" } };
 
-/** The initial skeleton, before the feed resolves. */
 export const Loading: Story = { args: { postSet: "empty", loading: true } };
 
-/** The feed-failed notice. */
 export const Error: Story = { args: { postSet: "empty", error: true } };

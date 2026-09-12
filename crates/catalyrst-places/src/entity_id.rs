@@ -1,6 +1,3 @@
-// The unified destination surface keys places and worlds through one
-// polymorphic id: a place id is a UUID, anything else names a world.
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "lowercase")]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "places/"))]

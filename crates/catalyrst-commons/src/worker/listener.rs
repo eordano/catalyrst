@@ -6,10 +6,7 @@ use tokio::task::JoinHandle;
 
 const RECONNECT_DELAY: Duration = Duration::from_secs(5);
 
-/// Spawns a postgres LISTEN loop that calls `on_notify` for every notification on
-/// `channel`.
-///
-/// `on_notify` also fires on connect and on every disconnect, not only on a delivered
+/// `on_notify` fires on connect and on every disconnect, not only on a delivered
 /// notification: while the listener was down any number of writes may have landed
 /// unseen, so the only safe assumption on either edge is that everything the caller
 /// derives from the database is stale.

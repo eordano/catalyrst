@@ -8,17 +8,6 @@ const danceUrl = new URL("./emotes/dance.glb", import.meta.url).href;
 const clapUrl = new URL("./emotes/clap.glb", import.meta.url).href;
 const dabUrl = new URL("./emotes/dab.glb", import.meta.url).href;
 
-// THREE.Cache is deliberately left OFF. Some hosts mount several stages
-// at once -- each its own WebGLRenderer, i.e. its own WebGL context -- and many
-// share a base outfit. With the cache on, THREE hands every one of them the *same*
-// decoded image/texture object for a shared content URL; a texture belongs to the
-// one context that first uploads it, so the others render black and spam
-// "Texture marked for update but no image data found" every frame. The
-// content-addressed GLB/PNG files are immutable, so the browser HTTP cache
-// still serves the refetch from disk -- we lose a re-decode, not a round
-// trip. Entity JSON is deduped separately (fetchActiveEntities), which is
-// safe because it is not a per-context GPU object.
-
 function prefersReducedMotion(): boolean {
   return (
     typeof window !== "undefined" &&
@@ -74,8 +63,6 @@ export type AvatarCameraOptions = Pick<
 export interface AvatarScene {
   resize: () => void;
   dispose: () => void;
-  /** Pause (false) or resume (true) the render loop -- an offscreen tile stops
-   *  spinning and rendering at refresh rate until it scrolls back into view. */
   setActive: (active: boolean) => void;
   setEmote: (input: string | null | undefined) => Promise<void>;
   setCamera: (next: AvatarCameraOptions) => void;
@@ -140,10 +127,6 @@ const EMOTES: Record<string, string> = {
 const DEFAULT_BASE = "https://catalyst.example.com";
 const DEFAULT_BODY = "urn:decentraland:off-chain:base-avatars:BaseMale";
 
-// Shipped in the /play overlay (client-only build), so the served origin -- which
-// also fronts the catalyst API -- is the portable default. DEFAULT_BASE survives
-// only in SSR/non-browser bundles; import.meta.env.SSR folds it out of the client
-// build, leaving no baked host.
 function defaultBase(): string {
   return import.meta.env.SSR ? DEFAULT_BASE : window.location.origin;
 }
@@ -175,10 +158,6 @@ async function getJSON<T>(url: string, opts?: RequestInit): Promise<T> {
   return r.json() as Promise<T>;
 }
 
-// The active-entity lookup for a pointer set is a pure, content-addressed query,
-// so several tiles that show the same base outfit would otherwise each POST it.
-// Dedupe on the (base, sorted pointers) key: fetched once per page, shared by
-// every stage. A failed lookup is dropped from the cache so a later tile can retry.
 const activeEntitiesCache = new Map<string, Promise<Entity[]>>();
 function fetchActiveEntities(base: string, pointers: string[]): Promise<Entity[]> {
   const key = `${base}|${[...pointers].sort().join(",")}`;
@@ -255,9 +234,6 @@ export function createAvatarScene(
   controls.minDistance = 0.6;
   controls.maxDistance = 8;
 
-  // WCAG 2.2.2: the CSS kill-switch never reaches WebGL, so honor the media
-  // query here -- no sway and mixers held at their first keyframe (a posed
-  // still); drag-orbit stays live because controls keep updating.
   const reducedMotion = prefersReducedMotion();
   const sway = opts.spin !== false && !reducedMotion;
   const swayAmplitude = THREE.MathUtils.degToRad(60);
@@ -295,8 +271,6 @@ export function createAvatarScene(
   const parts: THREE.Object3D[] = [];
   const mixers: THREE.AnimationMixer[] = [];
   let lastFrame = performance.now();
-  // Declared before the initial resize() call below, which -- under reduced
-  // motion -- reaches renderOnce() and so reads `active` immediately.
   let active = true;
 
   function resize() {
@@ -324,15 +298,8 @@ export function createAvatarScene(
   }
   if (!reducedMotion) renderer.setAnimationLoop(renderFrame);
 
-  // Reduced motion: no continuous rAF loop (renderFrame above never free-runs).
-  // A frame is drawn only for discrete events -- a pose settling during load,
-  // an emote swap, a resize, a camera move -- via renderOnce(), plus a
-  // temporary loop for as long as OrbitControls is actually being dragged or
-  // still decelerating from damping. Composes with setActive: renderOnce and
-  // the demand loop are both no-ops while paused offscreen.
   let demandLoopActive = false;
   let demandIdleTimer: ReturnType<typeof setTimeout> | null = null;
-  // ~2 damping time-constants (velocity decays by dampingFactor each frame).
   const dampingSettleMs = Math.round((2 / controls.dampingFactor) * (1000 / 60));
 
   function renderOnce(): void {
@@ -357,9 +324,6 @@ export function createAvatarScene(
     renderer.setAnimationLoop(renderFrame);
   }
 
-  // Pushes the demand loop's stop out by one damping settle window; called on
-  // every 'change' while dragging/damping and once on 'end', so the loop keeps
-  // running until activity actually stops rather than a fixed time after 'end'.
   function bumpDemandIdle(): void {
     if (demandIdleTimer) clearTimeout(demandIdleTimer);
     demandIdleTimer = setTimeout(() => {
@@ -385,8 +349,6 @@ export function createAvatarScene(
   function setActive(next: boolean): void {
     if (disposed || next === active) return;
     active = next;
-    // Reset the frame clock so a resumed loop doesn't spend the whole paused
-    // interval as one dt (which would snap the sway and any playing emote).
     lastFrame = performance.now();
     if (reducedMotion) {
       if (next) renderOnce();
@@ -841,9 +803,6 @@ export function createAvatarScene(
       }
     });
     renderer.dispose();
-    // dispose() frees GL resources but the context itself lingers until GC;
-    // browsers cap live contexts (~16), so a page cycling several previews can
-    // silently kill its oldest canvases. Release the context deterministically.
     renderer.forceContextLoss();
     if (renderer.domElement.parentNode === container) container.removeChild(renderer.domElement);
   }

@@ -1,4 +1,3 @@
-//! Contains the parsing methods for the errors of the current transports.
 use std::{io, net::AddrParseError};
 
 use super::TransportError;

@@ -299,9 +299,6 @@ fn log_reversal(outcome: &ReversalOutcome, event_id: &str, pi_id: &str, kind: &s
                 removed = %removed,
                 "fiat reversed: revoked the credits this purchase granted (atomic)"
             );
-            // The buyer had already spent part of what we are clawing back:
-            // the fiat is gone AND the credits were consumed. Unrecoverable
-            // without a manual write-off, so it must page someone.
             if *has_shortfall {
                 tracing::error!(
                     event_id = %event_id,

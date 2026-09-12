@@ -83,8 +83,6 @@ async function loadWorldSettingsScenes(
     w.toLowerCase(),
   );
   const isDeployer = viewer !== "" && deployWallets.includes(viewer);
-  // null means the allow-list read failed. An empty list means the permission
-  // is world-wide, so the two must not collapse: an unread list grants nothing.
   const parcelPermission = isDeployer
     ? await fetchParcelsPermission(worldName, viewer, { base: worldsBase(), signal })
     : { parcels: [], total: 0 };

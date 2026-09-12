@@ -20,7 +20,6 @@ const PROJECTS = {
 };
 type ProjectKey = keyof typeof PROJECTS;
 
-/** Story args: the project is picked by fixture name, the rest are real props. */
 type DeleteStoryArgs = {
   projectPreset: ProjectKey;
   open: boolean;
@@ -45,8 +44,6 @@ const meta = {
     },
   },
   args: { projectPreset: "neonPlaza", open: true, deleteFiles: false },
-  // `deleteFiles` is latched into useState on mount, so the control would look dead without a
-  // key that remounts the component when it changes.
   render: ({ projectPreset, deleteFiles, ...rest }) => (
     <ChModalDeleteProject
       key={`${projectPreset}-${deleteFiles}`}
@@ -68,14 +65,6 @@ const CATALOG: { label: string; projectPreset: ProjectKey; deleteFiles: boolean 
   { label: "long title", projectPreset: "longTitle", deleteFiles: false },
 ];
 
-/**
- * Every open state at once. This is possible because `Modal` takes `portal={false}`, which lays
- * the same card out in normal document flow instead of `createPortal`ing a `position: fixed`
- * backdrop onto `document.body` -- portalled dialogs stack on one another, so a single screenshot
- * would capture only the topmost. `chrome={false}` keeps the stack from emitting N `<main>`
- * landmarks. The dismissed state is reachable from the `open` control on `Default`; it renders
- * only `CreatorHubChrome`, which that frame's own stories already gate.
- */
 export const Catalog: Story = {
   name: "Catalog (every state)",
   parameters: { controls: { disable: true } },

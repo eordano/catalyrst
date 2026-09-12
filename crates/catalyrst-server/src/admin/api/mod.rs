@@ -71,11 +71,6 @@ impl AdminEnvelope {
 
 #[allow(dead_code)]
 pub(crate) enum AdminActionError {
-    // from_backend only ever classifies a backend message as Unsupported or
-    // Internal, so nothing constructs these two. They are kept because
-    // status_code() maps them to the 400/404 an admin action ought to return
-    // once the backend reports those cases distinguishably; deleting them would
-    // throw away that mapping. The expect fires if a constructor appears.
     #[expect(dead_code)]
     BadRequest(String),
     #[expect(dead_code)]

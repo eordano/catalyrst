@@ -187,7 +187,6 @@ describe("places reception rows", () => {
   });
 });
 
-// fails closed
 const rejectAll = (async () => {
   throw new Error("network down");
 }) as unknown as typeof fetch;
@@ -228,8 +227,6 @@ describe("every upstream down", () => {
       wcsBase: "https://wcs.example.test",
     });
     expect(data.allUpstreamsDown).toBe(true);
-    // Unreadable is not absent: with every upstream down nothing proved the
-    // world missing, so the page must say could-not-read (503), never 404.
     expect(data.worldKnown).toBe(true);
     expect(
       showableCount([
@@ -292,9 +289,7 @@ describe("partial degradation stays partial", () => {
     expect(data.allUpstreamsDown).toBe(false);
     expect(data.worlds.state).toBe("live");
     expect(data.rows).toHaveLength(1);
-    // presence is dead, so the headcount is unavailable -- not zero
     expect(data.rows[0].now.state).toBe("unavailable");
-    // ...while the worlds server's own figure still shows
     expect(data.rows[0].liveUsers.state).toBe("live");
   });
 });

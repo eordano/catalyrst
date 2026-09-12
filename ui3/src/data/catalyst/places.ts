@@ -5,15 +5,6 @@ import { hueFor } from "../format";
 
 export const PLACES_LIMIT = 40;
 
-// The wire -> `Place` normalization, which the schema module cannot carry: a
-// perf build replaces it with an accepting stub, and a stub reproduces no
-// transform. Here it runs whether or not validation did, so `players` is null
-// for an unknown live count in both builds rather than undefined in one.
-//
-// Every field a schema marks nullish is restated, so the type below is exactly
-// what a caller gets and a field added to the schema shows up as its honest
-// `| undefined` until it is normalized here too.
-
 export function normalizePlace(p: PlaceWire) {
   return {
     ...p,
@@ -32,20 +23,6 @@ export function normalizePlace(p: PlaceWire) {
 
 export type Place = ReturnType<typeof normalizePlace>;
 
-/**
- * What `toPlaceView` needs, as opposed to what `PlaceSchema` declares -- four
- * fields of nineteen, and the reason it is not five is that the other fifteen
- * degrade on their own.
- *
- * `positions.length` and `categories.map` are unconditional reads, so a row
- * lacking either is a TypeError rather than a sparse card. `base_position` is
- * the parcel: `parseCoords` reads an absent one as 0,0, which asserts a location
- * nobody deployed -- schemas/places.ts says the same thing for the checking
- * build, and placesSchema.test.ts pins it. `id` keys the card, seeds its hue and
- * addresses the detail fetch.
- *
- * See rows.ts for why this is stated here rather than derived from the schema.
- */
 export function isRenderablePlace(row: unknown): boolean {
   return (
     isRecord(row) &&
@@ -56,26 +33,12 @@ export function isRenderablePlace(row: unknown): boolean {
   );
 }
 
-/**
- * `i18n` is optional-chained because in perf mode the row reaching here was
- * never checked: `toCategoryView` reads `i18n.en` unconditionally, so making the
- * object total is what keeps one unlabelled row from taking the whole list down.
- */
 export function normalizePlaceCategory(c: PlaceCategoryWire) {
   return { ...c, i18n: { en: c.i18n?.en ?? null } };
 }
 
 export type PlaceCategory = ReturnType<typeof normalizePlaceCategory>;
 
-/**
- * `toCategoryView` keys the chip, labels it and colours it from `name`, so an
- * unnamed category is a blank chip that filters nothing.
- *
- * The one guard that is STRICTER than its schema, which it is allowed to be
- * only because the rejection already existed: `fetchCategories` tested
- * `r.success && r.data.name` by hand. Stating it here changes nothing in the
- * default build and makes it run in perf too.
- */
 export function isRenderablePlaceCategory(row: unknown): boolean {
   return isRecord(row) && typeof row.name === "string" && row.name !== "";
 }
@@ -124,7 +87,6 @@ export function localImageUrl(image?: string | null): string | undefined {
 function creatorOf(p: Place): string {
   return (p.contact_name || p.owner || p.creator_address || "Unknown creator").trim();
 }
-
 
 function fmtDate(iso?: string | null): string {
   if (!iso) return "\u{2014}";

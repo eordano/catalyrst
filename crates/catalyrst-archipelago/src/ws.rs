@@ -193,9 +193,6 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                                     continue;
                                 };
                                 let Some(addr) = address.clone() else { continue };
-                                // A `biased` select prefers socket.recv(), so a banned peer
-                                // flooding heartbeats could starve the Kicked broadcast arm
-                                // forever; gate re-admission on the in-memory kicked set here.
                                 if state.cluster.is_kicked(&addr) {
                                     let _ = send_packet(&mut socket, kicked_packet()).await;
                                     break;

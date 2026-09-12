@@ -428,8 +428,6 @@ fn unified_source_filter_restricts_branches_native_being_the_only_single_branch_
         "no rate bind for native-only"
     );
 
-    // legacy is now TWO branches: the offchain primary trade + the
-    // CollectionStore mint, both MANA-priced through the same rate bind.
     let legacy_only = UnifiedCatalogFilters {
         source: Some(UnifiedSource::Legacy),
         ..Default::default()
@@ -667,8 +665,6 @@ fn shop_feed_selects_seller_and_issued_id_from_the_sent_asset_json() {
 
 #[test]
 fn unified_feeds_select_seller_and_issued_id_in_each_branch() {
-    // Three branches now: the store branch reads the same expressions off its
-    // NULL::jsonb assets projection, so seller/issued_id land as NULL rows.
     let (sql, _) = build_unified_listings_sql(&UnifiedCatalogFilters::default(), 0.5);
     assert_eq!(sql.matches(SELLER_EXPR).count(), 3, "{sql}");
     assert_eq!(sql.matches(ISSUED_ID_EXPR).count(), 3, "{sql}");
@@ -725,8 +721,6 @@ fn unified_items_source_filter_restricts_branches() {
     assert!(!sql.contains("'legacy' AS source"), "{sql}");
     assert_eq!(bind_ints(&binds), vec![ASSET_TYPE_USD_PEGGED_MANA, 48, 0]);
 
-    // legacy = the offchain primary trade branch + the store branch; only the
-    // trade branch carries the received-asset EXISTS bind.
     let legacy_only = UnifiedCatalogFilters {
         source: Some(UnifiedSource::Legacy),
         ..Default::default()
@@ -865,10 +859,9 @@ fn occurrences(haystack: &str, needle: &str) -> usize {
     haystack.split(needle).count() - 1
 }
 
-/// Both encodings reach this feed (#391): its own comma-separated lists
-/// (`rarity`, `wearableCategory`) and the repeated form /v1/items takes, which
-/// is where `wearableGender` and its values come from. A caller reaching for
-/// the wrong one used to get an unfiltered page that still looked filtered.
+/// Both encodings reach this feed (#391): its own comma-separated lists and the repeated
+/// form /v1/items takes. A caller reaching for the wrong one used to get an unfiltered page
+/// that still looked filtered.
 #[test]
 fn parse_unified_filters_reads_both_wearable_gender_encodings() {
     let single = vec![("wearableGender".to_string(), "male".to_string())];
@@ -883,8 +876,6 @@ fn parse_unified_filters_reads_both_wearable_gender_encodings() {
         ["male", "female"]
     );
 
-    // The repeated form must not duplicate the first value, which the
-    // comma-separated read also sees.
     let repeated = vec![
         ("wearableGender".to_string(), "male".to_string()),
         ("wearableGender".to_string(), "female".to_string()),
@@ -894,8 +885,6 @@ fn parse_unified_filters_reads_both_wearable_gender_encodings() {
         ["male", "female"]
     );
 
-    // A typo leaves the feed unfiltered rather than asking for a body shape no
-    // item declares.
     let bogus = vec![("wearableGender".to_string(), "bogus".to_string())];
     assert!(parse_unified_filters(&bogus)
         .base
@@ -904,9 +893,7 @@ fn parse_unified_filters_reads_both_wearable_gender_encodings() {
     assert!(parse_unified_filters(&[]).base.wearable_genders.is_empty());
 }
 
-/// The param belongs to the unified feed alone, as upstream has it: the
-/// per-listing shop feed and the trending rail never read it, so neither
-/// changes shape here.
+/// The param belongs to the unified feed alone, as upstream has it.
 #[test]
 fn wearable_gender_stays_off_the_shop_and_trending_feeds() {
     let pairs = vec![("wearableGender".to_string(), "male".to_string())];
@@ -919,9 +906,9 @@ fn wearable_gender_stays_off_the_shop_and_trending_feeds() {
 }
 
 /// Asserted by COUNTING the BOUND form, not by matching the column:
-/// `search_wearable_body_shapes` already appears in every branch's gender
-/// expression, so a plain `contains` would pass with no filter applied at all.
-/// Only the filter binds its shapes; the gender expression uses literals.
+/// `search_wearable_body_shapes` already appears in every branch's gender expression, so a
+/// plain `contains` would pass with no filter applied at all. Only the filter binds its
+/// shapes; the gender expression uses literals.
 #[test]
 fn unified_wearable_gender_filter_lands_in_every_union_branch() {
     const BOUND_BODY_SHAPES: &str = "::text[] @> $";
@@ -932,9 +919,6 @@ fn unified_wearable_gender_filter_lands_in_every_union_branch() {
     let male = unified_filters_for_genders(&["male"]);
     let (sql, binds) = build_unified_listings_sql(&male, 0.5);
     assert_eq!(occurrences(&sql, BOUND_BODY_SHAPES), 3, "{sql}");
-    // `@>` is "declares all of", so ONE shape means "wearable BY a male avatar"
-    // -- male-exclusive items plus unisex ones -- rather than male-exclusive
-    // only. The one-element array is what makes that true.
     let arrays = bind_arrays(&binds);
     assert!(arrays.contains(&vec!["BaseMale".to_string()]), "{arrays:?}");
     assert!(
@@ -942,9 +926,6 @@ fn unified_wearable_gender_filter_lands_in_every_union_branch() {
         "{arrays:?}"
     );
 
-    // Both shapes required when both are asked for, and `unisex` IS that same
-    // request -- an item declaring both is exactly what the outgoing `gender`
-    // reports as unisex.
     for genders in [vec!["male", "female"], vec!["unisex"]] {
         let filters = unified_filters_for_genders(&genders);
         let (_, binds) = build_unified_listings_sql(&filters, 0.5);
@@ -955,9 +936,8 @@ fn unified_wearable_gender_filter_lands_in_every_union_branch() {
     }
 }
 
-/// The browse grid reads the grouped item feed, so the filter has to reach it
-/// too: the feed is paginated and reports its own total, and dropping rows
-/// client-side would return short pages under an overstated count.
+/// The grouped feed is paginated and reports its own total, so dropping rows client-side
+/// would return short pages under an overstated count.
 #[test]
 fn unified_wearable_gender_filter_applies_to_the_grouped_item_feed() {
     const BOUND_BODY_SHAPES: &str = "::text[] @> $";
@@ -997,9 +977,6 @@ fn unified_listing_type_filter_lands_in_every_union_branch() {
     let (sql, _) = build_unified_listings_sql(&primary, 0.5);
     assert_eq!(occurrences(&sql, PRIMARY), baseline + 3, "{sql}");
 
-    // The store branch's constant `type` is 'public_item_order', so a
-    // resale-only request contradicts it and returns no store rows -- a mint
-    // has no resale form.
     let secondary = UnifiedCatalogFilters {
         listing_type: Some(ShopListingType::Secondary),
         ..Default::default()
@@ -1023,14 +1000,11 @@ fn unified_listing_type_filter_applies_to_the_grouped_item_feed() {
     assert_eq!(occurrences(&sql, PRIMARY), baseline + 3, "{sql}");
 }
 
-// uint256 max: the squid's "no price set" sentinel on item.price.
 const STORE_NO_PRICE_SENTINEL: &str =
     "115792089237316195423570985008687907853269984665640564039457584007913129639935";
-// 1e30 USD wei: the bound protecting CEIL(usd_wei/credit)::bigint from overflow.
 const MAX_USD_WEI_BOUND: &str = "1000000000000000000000000000000";
 
-/// The third UNION part of the default (both-sources) listings feed, i.e. the
-/// CollectionStore branch plus the outer tail.
+/// The CollectionStore branch plus the outer tail.
 fn store_branch_part(sql: &str) -> &str {
     sql.split("UNION ALL")
         .nth(2)
@@ -1063,7 +1037,6 @@ fn store_branch_reads_the_item_table_with_the_minting_predicates() {
         store.contains("i.network <> 'ETHEREUM'"),
         "CollectionStore.buy exists only on Polygon: {store}"
     );
-    // Shaped like mv_trades so the shared joins/filters apply unchanged.
     assert!(
         store.contains("'public_item_order'::text AS type"),
         "{store}"
@@ -1113,7 +1086,6 @@ fn store_branch_is_legacy_priced_with_the_shared_rate_bind() {
         store.contains("mv.amount_received::text AS mana_wei"),
         "{store}"
     );
-    // The rate is bound once and shared: still exactly one text bind.
     assert_eq!(bind_texts(&binds).len(), 1);
 }
 

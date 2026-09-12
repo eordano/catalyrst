@@ -1,13 +1,6 @@
 import type { GetOptions } from "../client";
 import { fetchOwnedAssets, type OwnedElement } from "./transfer";
 
-/**
- * "catalyst" -- `elements` is what this wallet holds. An empty list means the
- *   node answered and the wallet holds nothing transferable.
- * "unavailable" -- the read failed, so `elements` is null. An empty list here
- *   would tell someone their wallet is empty, and the transfer wizard would
- *   offer them nothing to send.
- */
 export type OwnedAssetsResult = {
   owner: string;
   elements: OwnedElement[] | null;

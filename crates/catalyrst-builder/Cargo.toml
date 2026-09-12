@@ -1,6 +1,6 @@
 [package]
 name = "catalyrst-builder"
-version = "0.24.0"
+version = "0.24.1"
 edition = "2021"
 description = "Rust port of decentraland/builder-server (builder-api.decentraland.org): the explorer BuilderApiDtos slice only (collection items, content redirect, newsletter); the creator-hub project/scene/asset lifecycle is deliberately out of scope"
 

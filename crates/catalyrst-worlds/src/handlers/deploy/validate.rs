@@ -191,15 +191,11 @@ mod tests {
     fn is_canonical_parcel_set_rejects_noncanonical_and_duplicates() {
         assert!(is_canonical_parcel_set(&[json!("0,0"), json!("0,1")]));
         assert!(is_canonical_parcel_set(&[json!("-5,10")]));
-        // empty
         assert!(!is_canonical_parcel_set(&[]));
-        // duplicate literal
         assert!(!is_canonical_parcel_set(&[json!("0,0"), json!("0,0")]));
-        // non-canonical spelling (leading zeros / padding / sign)
         assert!(!is_canonical_parcel_set(&[json!("00,0")]));
         assert!(!is_canonical_parcel_set(&[json!(" 0,1 ")]));
         assert!(!is_canonical_parcel_set(&[json!("-0,0")]));
-        // non-string entries
         assert!(!is_canonical_parcel_set(&[json!(0)]));
     }
 

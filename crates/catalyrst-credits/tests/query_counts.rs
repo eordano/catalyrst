@@ -3,17 +3,16 @@
 //! Each test pins a query-count optimization: it drives a real call path against
 //! a scratch PostgreSQL, counts the sqlx statements it emitted (via the
 //! thread-routed `catalyrst_testgate::sql_capture` recorder), and asserts BOTH the
-//! collapsed count and that the observable result (money strings, ordering,
-//! state, response shape) is
-//! byte-identical to the pre-optimization behavior. Revert the source change and
-//! the count assertion fails while the behavioral assertions still pass --
-//! isolating the round-trip collapse from any shape/money regression.
+//! collapsed count and that the observable result (money strings, ordering, state,
+//! response shape) is byte-identical to the pre-optimization behavior. Revert the
+//! source change and the count assertion fails while the behavioral assertions
+//! still pass.
 //!
 //! PG-gated exactly like `formal_money.rs`: without
 //! `CREDITS_TEST_PG_CONNECTION_STRING` (or the workspace-wide gate) every test
 //! self-skips. Tests run on the default current-thread `#[tokio::test]` flavor so
-//! the pool's query futures are polled on the thread that registered the
-//! capture sink.
+//! the pool's query futures are polled on the thread that registered the capture
+//! sink.
 
 mod common;
 
@@ -39,10 +38,6 @@ fn valid_wei(raw: &str) -> Option<&str> {
     Some(s)
 }
 
-// wallet.rs spend_in_tx: the dead `SELECT 1 ... FOR UPDATE` probe is gone, so a
-// funded spend touches user_credits exactly twice (SELECT ... FOR UPDATE, then
-// UPDATE) instead of three times.
-
 #[tokio::test]
 async fn spend_in_tx_locks_user_credits_once() {
     let Some(pool) = common::pool().await else {
@@ -60,7 +55,6 @@ async fn spend_in_tx_locks_user_credits_once() {
     .await
     .unwrap();
 
-    // Warm the pool so connection-setup statements don't pollute the capture.
     sqlx::query("SELECT 1").execute(&pool).await.unwrap();
 
     let cap = catalyrst_testgate::sql_capture::sql_capture();
@@ -71,8 +65,6 @@ async fn spend_in_tx_locks_user_credits_once() {
     let user_credits_stmts = cap.count_containing("user_credits");
     drop(cap);
 
-    // Collapse: SELECT ... FOR UPDATE + UPDATE, and nothing else touching the
-    // row (BEGIN/COMMIT/ledger-insert don't match the substring).
     assert_eq!(
         user_credits_stmts, 2,
         "a funded spend must touch user_credits exactly twice (the dead SELECT 1 \
@@ -99,9 +91,6 @@ async fn spend_in_tx_locks_user_credits_once() {
         .unwrap_err();
     assert_eq!(common::status_of(err), 402);
 
-    // (c) idempotent replay: identical strings, replayed flips to true. The key
-    // and tx_ref carry the unique address so reruns against a persistent DB
-    // don't collide on the globally-unique credit_spend_idempotency key.
     let key = format!("qc-spend-idem-{addr}");
     let replay_ref = format!("checkout:qc-replay-{addr}");
     let first = credits
@@ -117,9 +106,6 @@ async fn spend_in_tx_locks_user_credits_once() {
     assert_eq!(first.available, second.available);
     assert_eq!(first.applied, second.applied);
 }
-
-// checkout.rs get_cart: the cart total now rides a window aggregate on the
-// line-rows query, so a populated cart is ONE statement, not two.
 
 #[tokio::test]
 async fn get_cart_total_in_single_query() {
@@ -138,7 +124,6 @@ async fn get_cart_total_in_single_query() {
             .unwrap();
     }
 
-    // Expected total via the OLD aggregate SQL, verbatim.
     let expected_total: String = sqlx::query_scalar(
         "SELECT COALESCE(SUM(ci.unit_price_credits * ci.qty), 0)::text \
          FROM cart_items ci JOIN carts c ON c.id = ci.cart_id WHERE c.address = $1",
@@ -185,9 +170,6 @@ async fn get_cart_total_in_single_query() {
     assert_eq!(empty.total_credits, "0");
 }
 
-// prices.rs quote(): the serial per-amount repricing loop is now one unnest
-// batch, so 60 amounts issue a SINGLE `ceil(...)` statement.
-
 async fn spawn_oracle_mock() -> SocketAddr {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
@@ -233,10 +215,8 @@ async fn quote_amounts_batched_single_query() {
         }
     }
 
-    // Oracle string the handler will use, fetched once outside the capture.
     let mana_usd = state.pricing.fetch_mana_usd().await.unwrap();
 
-    // Expected vector: the literal pre-change per-entry computation.
     let mut expected: Vec<Option<String>> = Vec::with_capacity(60);
     for raw in &raw_amounts {
         match valid_wei(raw) {
@@ -265,8 +245,6 @@ async fn quote_amounts_batched_single_query() {
         ceil_stmts, 1,
         "all valid amounts must reprice in one batched ceil statement"
     );
-    // `amounts` is a private field; compare through the wire form (the same
-    // serialization the response ships), which renders None -> null, Some -> str.
     let wire = serde_json::to_value(&out.0).unwrap();
     assert_eq!(
         wire["amounts"],
@@ -274,10 +252,6 @@ async fn quote_amounts_batched_single_query() {
         "batched amounts must be element-wise byte-identical to the per-entry computation"
     );
 }
-
-// captcha.rs generate(): the paired UPDATE-invalidate + INSERT is now one
-// data-modifying CTE -- a single statement -- and issuance semantics are preserved
-// (the prior open challenge is consumed, exactly one open challenge remains).
 
 #[tokio::test]
 async fn captcha_generate_single_statement() {

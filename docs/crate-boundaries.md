@@ -1,13 +1,13 @@
 # Crate boundaries
 
 The workspace is small library crates, each owning one domain and exposing
-`build_state()` and `api_router()`. Standalone bins and thin bundle bins
-compose these libraries; no domain's source lives inside another's crate.
-the dev deployment runs one standalone systemd unit per domain; nixos runs four thin
+`build_state()` and `api_router()`. Standalone bins and thin bundle bins compose
+these libraries; no domain's source lives inside another's crate. The dev
+deployment runs one standalone systemd unit per domain; nixos runs four thin
 bundle bins -- catalyrst-create, catalyrst-data, catalyrst-explore,
 catalyrst-social -- on ports 5143-5146, composing the same libraries. Bundle
-membership is a Cargo.toml dependency line, not a source-tree fusion: a
-crate joins or leaves a bundle in one line.
+membership is a Cargo.toml dependency line, not a source-tree fusion: a crate
+joins or leaves a bundle in one line.
 
 Each database backs exactly one migration history -- one `_sqlx_migrations`
 table, one numbering sequence, owned by one crate. Two crates on the same
@@ -17,11 +17,10 @@ one crate owning the domain, or at least its migrations, not an
 environment-variable workaround.
 
 Crate names map one-to-one to the upstream reference service they port:
-catalyrst-social-service ports `decentraland/social-service-ea`;
-catalyrst-places and catalyrst-events port separate upstream services. A
-merge that erases this mapping -- folding crates that port different
-upstreams into one name -- is out of bounds regardless of any code-sharing
-argument for it.
+catalyrst-social-service ports `decentraland/social-service-ea`; catalyrst-places
+and catalyrst-events port separate upstream services. A merge that erases this
+mapping -- folding crates that port different upstreams into one name -- is out of
+bounds regardless of any code-sharing argument.
 
 ## Do not merge
 

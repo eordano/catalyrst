@@ -219,8 +219,6 @@ export function useAuth(): UseAuth {
     setError(null);
     clearThirdwebSession();
     clearStored();
-    // The verified-wallet cookie is HttpOnly, so only the server can drop it;
-    // without this, flag targeting keeps using the signed-out wallet.
     void fetch("/auth/callback", {
       method: "POST",
       headers: { "Content-Type": "application/json" },

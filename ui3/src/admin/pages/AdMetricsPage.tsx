@@ -10,30 +10,6 @@ import type {
 } from "./AdMetricsTypes";
 import "./adminmetrics.css";
 
-/**
- * Moderation metrics.
- *
- * This page used to render `src/fixtures/admin-metrics.json` -- queue depths,
- * approval rates, medians, a trend chart and a funnel -- inside admin chrome,
- * where it read as production telemetry. The fixture's own `_source` field says
- * the counts are synthetic.
- *
- * So the numbers do not ship. What ships is:
- *   - the two genuinely live counts, from the public events list
- *     (`catalyrst-events/src/handlers/events.rs:345-362`, `optional_user`),
- *     each labelled with where it came from;
- *   - an explicit empty state for every other tile and for all three panels,
- *     carrying the reason. Not a zero, not a dash with a sparkline -- both still
- *     read as a measurement.
- *
- * There is no time-range toggle any more: nothing here is windowed, so a 7d/30d
- * switch was a control over data that does not exist.
- *
- * `AdMetricsDashboard`, `AdQueueDepthTrend` and `AdModerationFunnel` are left
- * in this package unchanged. They are the layout for the day a real
- * aggregation endpoint exists; they are simply not fed a fixture in the
- * meantime.
- */
 export type AdMetricsPageProps = {
   tiles: AdMetricTile[];
   kpis: AdMetricsBlock;

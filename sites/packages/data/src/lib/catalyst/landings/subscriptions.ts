@@ -11,14 +11,6 @@ import type {
 } from "@features/stories/landings/event-subscriptions/machine";
 import { warnInvalid } from "../warn";
 
-/*
- * These are the only values on this surface that get WRITTEN BACK. `PUT
- * /subscription` replaces the whole preference object, so a default here does
- * not just mis-render -- it overwrites the user's real settings with the
- * fabrication. `message_type: {}` in particular would erase every per-type
- * choice they ever made. Everything the commit path reads therefore stays null
- * when unread, and the commit refuses to run rather than write a guess.
- */
 export const ChannelSchema = z.object({
   email: z.boolean().nullish().transform((v) => v ?? null),
   in_app: z.boolean().nullish().transform((v) => v ?? null),
@@ -206,9 +198,6 @@ export function buildSubscriptionCommit(
       throw new Error(UNREADABLE_SETTINGS_MESSAGE);
     }
 
-    // Every surviving type is copied verbatim. A channel with an unread flag
-    // aborts the write: this PUT replaces the whole preference object, so
-    // guessing one flag would silently rewrite a setting the user chose.
     const messageType: Record<string, WriteChannel> = {};
     for (const [type, chan] of Object.entries(details.message_type)) {
       if (chan.email === null || chan.in_app === null) {

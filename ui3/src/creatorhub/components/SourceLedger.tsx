@@ -2,11 +2,6 @@ import { DATUM_GLYPH, type Datum } from "../lib/datum";
 import DatumBadge from "./DatumBadge";
 import "./sourceledger.css";
 
-/**
- * Mirrors `SourceClass` in the data layer's source registry. `excluded` has no
- * `Datum` counterpart on purpose: an excluded source is one we can read and
- * refuse to render, which is a decision, not a state.
- */
 export type SourceClass =
   | "live"
   | "sampled"
@@ -17,39 +12,24 @@ export type SourceClass =
 
 export type SourceLedgerRow = {
   id: string;
-  /** The human name of the datum, e.g. "People in your worlds right now". */
   datum: string;
-  /** `METHOD host/path`, or "--" for a row that has no endpoint (unbuilt). */
   endpoint: string;
   usedBy: string[];
   note: string;
-  /**
-   * The result of probing this row on this request. Present only for `live`
-   * and `sampled` rows -- probing something that does not exist is theatre, and
-   * a ledger that claims "live" without checking is decorative.
-   */
   probed?: Datum<unknown> | null;
 };
 
 export type SourceLedgerGroup = {
   klass: SourceClass;
   label: string;
-  /** Applies to the whole group, e.g. "A missing bucket is not a zero." */
   note?: string;
   rows: SourceLedgerRow[];
-  /** Shown instead of the table when the group is legitimately empty. */
   emptyNote?: string;
 };
 
 export type SourceLedgerProps = {
   groups: readonly SourceLedgerGroup[];
-  /**
-   * Heading level for the group headers. `3` suits a ledger nested under an
-   * `<h2>` section title; `2` suits the standalone Data sources page, where a
-   * jump from `<h1>` to `<h3>` would be a heading-order violation.
-   */
   headingLevel?: 2 | 3 | 4;
-  /** Pinned clock, for deterministic stories and tests. */
   now?: number;
 };
 
@@ -71,7 +51,6 @@ const CLASS_WORD: Record<SourceClass, string> = {
   excluded: "Excluded",
 };
 
-/** Static state chip for rows that are constants and are never probed. */
 function ClassChip({ klass }: { klass: SourceClass }) {
   return (
     <span className={`dv-badge dv-badge--${klass === "excluded" ? "unbuilt" : klass}`}>
@@ -83,15 +62,6 @@ function ClassChip({ klass }: { klass: SourceClass }) {
   );
 }
 
-/**
- * Every datum the hub can show, its state, and what reads it -- including the
- * endpoints we deliberately do not display, with the reason.
- *
- * Used both as the `/creator-hub/data-sources` table and as the per-screen
- * footer ledger, so a reader never has to take a screen's word for itself.
- */
-/* `tabIndex={0}` on `.sl__scroll`: a horizontally scrollable region must be
-   reachable by keyboard. It is a scroll container, not a control. */
 export default function SourceLedger({
   groups,
   headingLevel = 3,

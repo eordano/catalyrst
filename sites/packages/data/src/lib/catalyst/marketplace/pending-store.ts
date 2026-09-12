@@ -9,14 +9,6 @@ export type PendingStore<T extends { ts: number }> = {
   clear(signer: string | null | undefined): void;
 };
 
-/**
- * `storeSchema` and `boundary` come from the caller because this function is
- * shape-agnostic by design; `validate` stays a separate business rule (an entry
- * can be the right shape and still not worth resuming).
- *
- * A type-only zod import, so this module contributes nothing to the bundle a
- * perf build is trying to shed.
- */
 export function createPendingStore<T extends { ts: number }>(
   key: string,
   ttlMs: number,
@@ -31,15 +23,6 @@ export function createPendingStore<T extends { ts: number }>(
     return signer.toLowerCase();
   }
 
-  /**
-   * `null` when storage could not be read or held something else.
-   *
-   * The try covers the read and the parse only. `check` throws in dev by
-   * design, and a catch around it would collapse a drifted store into the same
-   * `null` an unreadable one produces -- which is how an in-flight purchase
-   * would go missing without anything saying so. The `typeof` guard stays as
-   * the production fallback, since `check` returns the original value there.
-   */
   function readStore(): Store | null {
     if (typeof window === "undefined") return null;
     let parsed: unknown;
@@ -51,10 +34,6 @@ export function createPendingStore<T extends { ts: number }>(
       return null;
     }
     const store = check(storeSchema, parsed, boundary);
-    // Arrays pass `typeof === "object"`. A stored `[]` reaching here became the
-    // store, set() wrote a key onto the array, and JSON.stringify produced "[]"
-    // while Object.keys().length stayed 1 -- so the write "succeeded" and the
-    // in-flight purchase vanished. isRecord excludes arrays.
     return isRecord(store) ? (store as Store) : null;
   }
 
@@ -97,7 +76,6 @@ export function createPendingStore<T extends { ts: number }>(
     set(signer, entry) {
       const k = keyFor(signer);
       if (!k) return;
-      // Unreadable storage cannot be merged into, so this starts a fresh one.
       const store = readStore() ?? {};
       store[k] = entry;
       writeStore(store);

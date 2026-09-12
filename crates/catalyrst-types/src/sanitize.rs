@@ -13,8 +13,6 @@ pub const INTERNAL_HOST_SUFFIXES: [&str; 8] = [
 
 const MAX_SANITIZE_PASSES: usize = 5;
 
-/// Neutralizes unsafe markup in a user-authored description, keeping only `<link>` tags that target http(s) URLs on public hosts.
-///
 /// Stripping a tag can fuse residual text into a new tag a single pass never revisits, so the strip is re-run to a fixed point; each changing pass strictly shortens the input, so it converges. An input that has not stabilized within [`MAX_SANITIZE_PASSES`] fails closed with every angle bracket removed.
 pub fn sanitize_markup_description(description: &str) -> String {
     let mut current = description.to_owned();
@@ -151,8 +149,6 @@ fn link_open_target(tag: &str) -> Option<&str> {
     }
 }
 
-/// True when `target` is an http(s) URL whose host is publicly routable.
-///
 /// The host is read with a deliberately narrow parser rather than a URL library: anything it cannot fully account for -- a missing `://`, a non-numeric port, a percent-escaped or non-ASCII host, an unparseable IP literal -- fails closed, so a target is only ever kept when its host is unambiguous.
 pub fn is_safe_link_target(target: &str) -> bool {
     let trimmed = target.trim_matches(is_js_whitespace);
@@ -238,10 +234,10 @@ fn is_internal_ipv4(address: u32) -> bool {
     a == 0
         || a == 127
         || a == 10
-        || (a == 169 && b == 254) // link-local incl. cloud metadata
+        || (a == 169 && b == 254)
         || (a == 172 && (16..=31).contains(&b))
         || (a == 192 && b == 168)
-        || (a == 100 && (64..=127).contains(&b)) // carrier-grade NAT
+        || (a == 100 && (64..=127).contains(&b))
 }
 
 fn is_internal_ipv6(groups: [u16; 8]) -> bool {

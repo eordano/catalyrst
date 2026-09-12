@@ -824,11 +824,9 @@ async fn set_reverted(state: &AppState, key: &str) {
 /// "forwarding" branch of `resume_existing`: on `Reverted` the tracked purchase row is marked
 /// reverted and the call returns `RelayReverted`; on `Pending` it returns `RelayerTimeout`
 /// without touching the row. Each call site's message text differs by more than an operation
-/// label (extra trailing clauses, slightly different wording), so the finished strings are
-/// passed in rather than assembled here -- this stays a pure structural extraction of the
-/// side effect and error-variant choice, and changes no response text a client could
-/// observe. `Confirmed` is never passed in: it differs meaningfully at each site and moves
-/// money, so it is handled inline by the caller.
+/// label, so the finished strings are passed in rather than assembled here. `Confirmed` is
+/// never passed in: it differs meaningfully at each site and moves money, so it is handled
+/// inline by the caller.
 async fn reverted_or_pending_error(
     state: &AppState,
     key: &str,

@@ -38,12 +38,9 @@ CRATE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SHIM = os.path.join(CRATE, 'src/vendor/inspector-shim')
 PBMIN = os.path.join(CRATE, 'experiments/protobufjs-minimal-replacement')
 
-
 PBMIN_ENTRY = b'module.exports = require("./index.js");\n'
 PBMIN_MANIFEST = {
     'name': 'protobufjs',
-    # NOT 7.2.4. Nothing in the blob reads this field, but a human running
-    # `npm ls` in an extracted scene must not be told they have upstream 7.2.4.
     'version': '7.2.4-dcl-one-sdk-pbmin.1',
     'description': 'protobufjs/minimal wire codec, reimplemented dependency-free '
                    'for dcl-one-sdk. NOT upstream protobufjs. See '
@@ -52,13 +49,11 @@ PBMIN_MANIFEST = {
     'license': 'BSD-3-Clause',
 }
 
-
 PBMIN_TREE_ENTRY = b'''// Redirected by scripts/blob_overlays.py swap_pbmin_into_tree().
 // NOT upstream's minimal entry point. See ../protobufjs/pbmin.js.
 "use strict";
 module.exports = require("./pbmin.js");
 '''
-
 
 def swap_pbmin_into_tree(work: str) -> None:
     """Point the INSTALL TREE's `protobufjs/minimal` at the replacement too.
@@ -108,15 +103,7 @@ def swap_pbmin_into_tree(work: str) -> None:
     log(f'    install tree: protobufjs/minimal.js -> pbmin.js  {len(core)} B '
         '(prebuilt chunks now bundle the replacement)')
 
-
-# The marker `experiments/protobufjs-minimal-replacement/index.js` sets on the
-# exported namespace. A string literal survives rolldown's minifier where every
-# other candidate does not: the error messages are byte-identical to upstream on
-# purpose, the property names are all reproduced, and the require paths that DO
-# differ are erased by bundling. Without this the only way to tell which codec a
-# chunk contains is to diff it against a reference build.
 PBMIN_MARKER = b'dcl-one-sdk-pbmin.1'
-
 
 def check_chunk_pbmin(files: dict[str, bytes]) -> None:
     """Fail the build if `prebuilt/core.js` does not contain the replacement.
@@ -138,18 +125,6 @@ def check_chunk_pbmin(files: dict[str, bytes]) -> None:
             'swap_pbmin_into_tree() must run against the same tree build_chunks() '
             'resolves against, and before it.')
 
-    # Rolldown renames top-level bindings unless something forbids it, and the
-    # only thing that does is a DIRECT eval: it concatenates every module into
-    # one scope, so one eval anywhere preserves every name in the bundle. These
-    # helper names are rolldown's own, emitted mangled (`e`, `t`, `n`) in a
-    # healthy build and verbatim in a poisoned one - so they are a cheap,
-    # specific probe for the condition.
-    #
-    # This is not hypothetical tidiness. pbmin originally reproduced upstream's
-    # `eval("quire".replace(/^/, "re"))` trick verbatim, and that one line cost
-    # +93,824 B (+20.2%) on the chunk every scene ships - invisible in the size
-    # report, which only ever showed the chunk getting bigger by "some" amount.
-    # See `inquire()` in experiments/protobufjs-minimal-replacement/index.js.
     unmangled = [n for n in (b'__getOwnPropNames', b'__defProp', b'__hasOwnProp')
                  if n in chunk]
     if unmangled:
@@ -161,7 +136,6 @@ def check_chunk_pbmin(files: dict[str, bytes]) -> None:
             'roughly +20% on this chunk while it lasts.')
     log(f'  chunk codec check: {CORE_CHUNK} contains the pbmin marker, '
         'top-level names mangled')
-
 
 def add_pbmin(files: dict[str, bytes], kept_bytes: dict[str, int]) -> None:
     """Ship OUR `protobufjs/minimal` instead of upstream's.
@@ -219,15 +193,11 @@ def add_pbmin(files: dict[str, bytes], kept_bytes: dict[str, int]) -> None:
     differently, and `BufferReader.string` clamps a truncated length with
     `Math.min` where `Reader.string` throws.
     """
-    # `collect()` walked the installed protobufjs and kept nothing, leaving a 0 B
-    # entry in the size report. Drop it so the report names one protobufjs.
     kept_bytes.pop('protobufjs', None)
     total = 0
     src = os.path.join(PBMIN, 'index.js')
     with open(src, 'rb') as fh:
         core = fh.read()
-    # The replacement reproduces protobuf.js's API and wire behaviour, so it is a
-    # derivative work and upstream's BSD-3-Clause notice has to travel with it.
     with open(os.path.join(PBMIN, 'LICENSE'), 'rb') as fh:
         licence = fh.read()
     out = {
@@ -244,19 +214,10 @@ def add_pbmin(files: dict[str, bytes], kept_bytes: dict[str, int]) -> None:
     log(f'    node_modules/protobufjs <- {os.path.relpath(src, CRATE)}  '
         f'{len(core)} B, {len(out)} files')
 
-
-# The service descriptor's SOURCE. Not shipped: `build_service_descriptor()`
-# transpiles it and only the `.js` lands in the blob. The `.proto` beside it is
-# not shipped either - it is there so the next person can see what the
-# descriptor was generated from without a creator-hub checkout.
 SHIM_SOURCE_ONLY = ('.ts', '.proto')
-# The shim's own type check (`scripts/check-editor-host.sh`) configures itself
-# from this. It describes how to check the source, so it belongs beside the
-# source and not in a blob a scene unpacks.
 SHIM_SOURCE_ONLY_NAMES = ('tsconfig.json',)
 SHIM_GEN_TS = 'data-layer.gen.ts'
 SHIM_GEN_JS = 'node_modules/@dcl/inspector/data-layer.gen.js'
-
 
 def add_shim(files: dict[str, bytes], kept_bytes: dict[str, int]) -> None:
     """The `@dcl/inspector` stand-in: crdt dumper + minimal data-layer host.
@@ -287,7 +248,6 @@ def add_shim(files: dict[str, bytes], kept_bytes: dict[str, int]) -> None:
             files[f'node_modules/@dcl/inspector/{rel}'] = data
             total += len(data)
     kept_bytes['@dcl/inspector'] = total
-
 
 def build_service_descriptor(work: str, files: dict[str, bytes],
                              kept_bytes: dict[str, int]) -> None:
@@ -338,8 +298,6 @@ def build_service_descriptor(work: str, files: dict[str, bytes],
         raise SystemExit(1)
     with open(emitted, 'rb') as fh:
         data = fh.read()
-    # A descriptor missing a method is not a runtime error but a connection
-    # kill: `registerService` does `mod[key].bind(mod)` for every key it finds.
     n = data.count(b'requestStream:')
     if n != 22:
         raise SystemExit(f'{SHIM_GEN_JS}: expected 22 methods, found {n}')
@@ -347,12 +305,7 @@ def build_service_descriptor(work: str, files: dict[str, bytes],
     kept_bytes['@dcl/inspector'] = kept_bytes.get('@dcl/inspector', 0) + len(data)
     log(f'    {SHIM_GEN_JS}  {len(data)} B, {n} methods')
 
-
 ECS7_TSCONFIG = 'node_modules/@dcl/sdk/types/tsconfig.ecs7.json'
-# (option, the edit, how the parsed file reads once upstream carries it). Each
-# edit must match exactly once; one that finds nothing on a file that already
-# reads that way is that part of the upstream fix having shipped, and the
-# overlay narrows to the rest rather than idling.
 ECS7_EDITS = (
     ('downlevelIteration',
      re.compile(r'[ \t]*"downlevelIteration"\s*:\s*true,\n'), '',
@@ -370,7 +323,6 @@ ECS7_SHIPPED = (
     f'{ECS7_TSCONFIG} is already TypeScript 7 clean upstream: delete '
     'patch_ecs7_tsconfig(), ECS7_EDITS and the lines naming them in '
     f'{", ".join(ECS7_DOCS)}.')
-
 
 def patch_ecs7_tsconfig(files: dict[str, bytes]) -> None:
     """Make the SDK's shared tsconfig TypeScript 6/7 clean.
@@ -438,7 +390,7 @@ def patch_ecs7_tsconfig(files: dict[str, bytes]) -> None:
             f'from the docs naming {them} ({", ".join(ECS7_DOCS)}) and keep '
             'the rest of the overlay.')
 
-    after = json.loads(out)['compilerOptions']  # must stay valid JSON
+    after = json.loads(out)['compilerOptions']
     for gone in ('downlevelIteration', 'suppressExcessPropertyErrors'):
         if gone in after:
             raise SystemExit(f'{ECS7_TSCONFIG}: failed to drop {gone}')
@@ -446,7 +398,6 @@ def patch_ecs7_tsconfig(files: dict[str, bytes]) -> None:
         raise SystemExit(f'{ECS7_TSCONFIG}: failed to set moduleResolution=bundler')
     if after.get('module') != 'esnext':
         raise SystemExit(f'{ECS7_TSCONFIG}: moduleResolution=bundler needs module=esnext')
-    # nothing else may shift
     untouched = {'downlevelIteration', 'suppressExcessPropertyErrors', 'moduleResolution'}
     if {k: v for k, v in before.items() if k not in untouched} != {
         k: v for k, v in after.items() if k not in untouched
@@ -455,17 +406,8 @@ def patch_ecs7_tsconfig(files: dict[str, bytes]) -> None:
 
     files[ECS7_TSCONFIG] = out.encode('utf-8')
 
-
-# --------------------------------------------------------------------------
-# the @dcl/ecs network-delete framing overlay (upstream #1595, unreleased)
-# --------------------------------------------------------------------------
-
 NETDELETE_REL = ('node_modules/@dcl/ecs/{build}/serialization/crdt/network/'
                  'deleteEntityNetwork.js')
-# (buggy, fixed) per build. `dist` is the ESM tree rolldown bundles into the
-# chunks (`@dcl/ecs` has `main: ./dist/index.js`); `dist-cjs` is what ships for
-# the node-side crdt dumper. The fixed line is upstream 5ae3ef7c compiled by
-# the same tsc, so a release that carries it matches these bytes exactly.
 NETDELETE_WRITE = {
     'dist-cjs': (
         b'buf.writeUint32(types_1.CRDT_MESSAGE_HEADER_LENGTH + 4);',
@@ -482,7 +424,6 @@ NETDELETE_SHIPPED = 'REMOVE this overlay: upstream #1595 has shipped in this @dc
     'Delete NETDELETE_*, patch_ecs_network_delete_length(), check_chunk_netdelete() '\
     'and the table row + paragraph naming them in src/vendor/README.md.'
 
-
 def netdelete_fixed(build: str, data: bytes, where: str, already_ok: bool) -> bytes:
     buggy, fixed = NETDELETE_WRITE[build]
     if data.count(buggy) == 1:
@@ -497,7 +438,6 @@ def netdelete_fixed(build: str, data: bytes, where: str, already_ok: bool) -> by
         'its shape. Re-derive the overlay against `git show 5ae3ef7c` in '
         'js-sdk-toolchain, or drop it if the declared length is already the 16 '
         'the body needs.')
-
 
 def patch_ecs_network_delete_length(work: str, files: dict[str, bytes],
                                     reuse_install: bool) -> None:
@@ -554,17 +494,11 @@ def patch_ecs_network_delete_length(work: str, files: dict[str, bytes],
     files[rel] = netdelete_fixed('dist-cjs', files[rel], rel, already_ok=reuse_install)
     log(f'    shipped: {rel} declares 8 + 8')
 
-
-# rolldown constant-folds `CRDT_MESSAGE_HEADER_LENGTH + 4` to the literal 12 and
-# mangles the local names, but it cannot fold a property read off the namespace
-# object, so the fixed write survives as `8+<ns>.MESSAGE_HEADER_LENGTH`. The
-# enum member name is a property and survives verbatim.
 NETDELETE_CHUNK_BUGGY = re.compile(
     rb'writeUint32\(12\),[\w$]+\.writeUint32\([\w$]+\.DELETE_ENTITY_NETWORK\)')
 NETDELETE_CHUNK_FIXED = re.compile(
     rb'writeUint32\((?:16|8\+[\w$]+\.MESSAGE_HEADER_LENGTH)\),'
     rb'[\w$]+\.writeUint32\([\w$]+\.DELETE_ENTITY_NETWORK\)')
-
 
 def check_chunk_netdelete(files: dict[str, bytes]) -> None:
     """Fail the build if the scene runtime still frames a network delete short.

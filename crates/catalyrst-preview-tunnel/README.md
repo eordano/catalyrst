@@ -2,15 +2,7 @@
 
 Self-hosted internet reach for `dcl-one-sdk start`. The creator's machine dials OUT one persistent WebSocket (the trunk) - no inbound ports, no DNS, no certs on the creator side. The service allocates a public path-based route `/t/<id>` and multiplexes every inbound HTTP request AND WebSocket (mini-comms, scene-update live reload) back over that trunk.
 
-```
-[explorer clients] --https/wss--> nginx --> catalyrst-preview-tunnel
-                                                   ^
-                                    one outbound wss ("the trunk")
-                                                   |
-                             dcl-one-sdk start --tunnel wss://<tunnel-host>
-                                                   |
-                                       http://127.0.0.1:<port>  (local preview)
-```
+Flow: explorer clients -> nginx (https/wss) -> catalyrst-preview-tunnel -> the trunk wss dialled out by `dcl-one-sdk start --tunnel wss://<tunnel-host>` -> the creator's local preview on `http://127.0.0.1:<port>`.
 
 ## Protocol (one trunk WebSocket)
 
@@ -32,6 +24,6 @@ Text frames are JSON control messages (discriminator `t`; unknown `t` ignored): 
 | `TUNNEL_OPEN_TIMEOUT_SECS` | 15 | `open` -> `open_ok` deadline (504 past it) |
 | `TUNNEL_BODY_MAX_BYTES` | 67108864 | public request-body cap (413 past it); responses stream unbounded |
 
-Deploying: one ws-capable nginx location on any https vhost is enough - everything, including the agent trunk at `/t/_connect`, lives under `/t/`. A ready vhost snippet + systemd unit template exist in the reference deployment's nginx conf.d / systemd config. Load-bearing directives: `proxy_http_version 1.1` + Upgrade/Connection passthrough, `proxy_read_timeout 1h`, `proxy_buffering off`, `client_max_body_size 0`.
+Deploying: one ws-capable nginx location on any https vhost suffices - everything, including the agent trunk at `/t/_connect`, lives under `/t/`. A vhost snippet + systemd unit template exist in the reference deployment's nginx conf.d / systemd config. Load-bearing directives: `proxy_http_version 1.1` + Upgrade/Connection passthrough, `proxy_read_timeout 1h`, `proxy_buffering off`, `client_max_body_size 0`.
 
 Tests: `cargo test -p catalyrst-preview-tunnel` - protocol grammar + codec units, plus `tests/tunnel_flow.rs` integration (http multiplexing, ws subprotocol negotiation + text/binary preservation, 404/502/504 mapping, `open_err` -> 502, token 4401, resume-keeps-id, allow-ids pinning + 4409). Cross-crate end-to-end (real agent, real comms relay, real service): `dcl-one-sdk/tests/tunnel_e2e.rs`.

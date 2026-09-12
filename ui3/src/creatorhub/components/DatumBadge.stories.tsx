@@ -45,7 +45,6 @@ export const Unavailable: Story = {
 };
 export const Unbuilt: Story = { args: { datum: datumFixtures.unbuilt } };
 
-/** The header strip, which doubles as the legend for every "--" on a screen. */
 export const Tally: Story = {
   render: () => (
     <DatumTally

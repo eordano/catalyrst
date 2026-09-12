@@ -18,12 +18,10 @@ const USERS: UserRow[] = [
   { user: "0x47e2b08d9a3c165f0b8e4a1c7d92f306e5a9b740", name: "builders.dcl", permissions: ["approve_any_event", "edit_any_event"], hue: 160 },
 ];
 
-/** The table payload, picked by name: a full page of rows or nothing at all. */
 const USER_SETS = { full: USERS, empty: [] } satisfies Record<string, UserRow[]>;
 type UserSetKey = keyof typeof USER_SETS;
 const USER_SET_KEYS = Object.keys(USER_SETS) as UserSetKey[];
 
-/** `none` mounts with no banner; the other two are the two `severity` values. */
 const FEEDBACK = {
   none: null,
   success: { message: "Permissions updated", severity: "success" },
@@ -32,7 +30,6 @@ const FEEDBACK = {
 type FeedbackKey = keyof typeof FEEDBACK;
 const FEEDBACK_KEYS = Object.keys(FEEDBACK) as FeedbackKey[];
 
-/** Story args: both the rows and the initial feedback banner are picked by preset name. */
 type AdminUsersStoryArgs = Omit<
   ComponentProps<typeof StWhatSOnAdminUsers>,
   "users" | "initialFeedback"
@@ -55,9 +52,6 @@ const meta = {
     },
   },
   args: { userSet: "full", feedback: "none" },
-  // The page latches `initialFeedback` into useState on mount, so the `feedback` control would
-  // look dead without a key derived from it: changing the arg re-renders the same instance, which
-  // keeps its first banner. The key forces a remount per preset.
   render: ({ userSet, feedback, ...rest }) => (
     <StWhatSOnAdminUsers
       key={`${userSet}-${feedback}`}
@@ -80,12 +74,6 @@ const CATALOG: { key: string; userSet: UserSetKey; feedback: FeedbackKey }[] = [
   { key: "error", userSet: "full", feedback: "error" },
 ];
 
-/**
- * Every row-set/feedback combination rendered at once. `Default` flips between them with the
- * `userSet` and `feedback` controls; this story keeps all four in the render + a11y + visual-diff
- * gates, since between them they are the only coverage of the empty table and of both feedback
- * banner severities.
- */
 export const Catalog: Story = {
   name: "Catalog (every state)",
   parameters: {
@@ -95,7 +83,6 @@ export const Catalog: Story = {
     <div className="st ui2" style={{ display: "flex", flexDirection: "column", gap: 48 }}>
       {CATALOG.map(({ key, userSet, feedback }) => (
         // <section> demotes each entry's unnamed header/footer/aside to `generic`
-        // (HTML-AAM scoped mapping) so the stack does not invent extra landmarks.
         <section key={key}>
           <StWhatSOnAdminUsers users={USER_SETS[userSet]} initialFeedback={FEEDBACK[feedback]} chrome={false} />
         </section>

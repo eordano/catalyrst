@@ -208,8 +208,6 @@ function CommunitiesPane({
   );
 }
 
-/** "members unknown", never "0 members": the API not reporting a size is not
- *  the same fact as an empty community. */
 function memberCountLabel(count: number | null): string {
   if (count === null) return "members unknown";
   return `${count} member${count === 1 ? "" : "s"}`;

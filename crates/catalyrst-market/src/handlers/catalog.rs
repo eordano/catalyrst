@@ -12,9 +12,9 @@ use crate::logic::catalog::parse_catalog_filters;
 use crate::ports::catalog::{CatalogItem, PickStats};
 use crate::AppState;
 
-/// The catalog page held as the shared cache `Arc` plus this request's per-item picks, serialized
-/// as `{"data": [...], "total": N}` -- byte-identical to `DataTotal<CatalogItem>`. Only the items
-/// that actually carry picks are cloned, so a cache hit no longer deep-clones the whole page.
+/// Serializes as `{"data": [...], "total": N}`, byte-identical to `DataTotal<CatalogItem>`.
+/// Only the items that actually carry picks are cloned, so a cache hit does not deep-clone
+/// the whole page.
 pub struct CatalogPage {
     page: Arc<(Vec<CatalogItem>, i64)>,
     picks: Vec<Option<PickStats>>,

@@ -477,17 +477,12 @@ impl PulseServer {
         if !self.is_authenticated(peer) {
             return Action::Ignore;
         }
-        // Only a listener has an AoI to replace. A player sending this is a client bug, not an
-        // attack surface: dropped ahead of the rate limiter so it cannot spend the player's
-        // discrete-event budget, and counted rather than logged per packet.
         if !self.is_scene_listener(peer) {
             self.scene_listener_forbidden_drops =
                 self.scene_listener_forbidden_drops.wrapping_add(1);
             crate::metrics::scene_listener_forbidden_dropped();
             return Action::Ignore;
         }
-        // Expansion is O(sum of rect areas) and recomputes the covering cells, so it rides the
-        // same token bucket as the other discrete events.
         if !self.gameplay_limiter.try_accept_discrete(peer, now) {
             return Action::Ignore;
         }
@@ -874,7 +869,6 @@ impl PulseServer {
             }
             Action::Applied | Action::Ignore => {}
         }
-        // Handshake replies bypass the per-tick outbox drain, so flush them here.
         transports.flush();
         Ok(())
     }
@@ -1079,8 +1073,6 @@ impl PulseServer {
     }
 
     async fn cleanup_peer(&mut self, transports: &mut Transports, peer: u32) -> anyhow::Result<()> {
-        // A listener condemned by a rejected SceneListenerUpdate is PendingDisconnect, not
-        // Authenticated, and still owns its CONNECTED gauge slot.
         let was_listener = self
             .peers
             .get(&peer)
@@ -1115,7 +1107,6 @@ impl PulseServer {
             self.send(transports, target, channel::RELIABLE, &left)
                 .await?;
         }
-        // Broadcast from the event loop, outside the per-tick outbox drain.
         transports.flush();
         Ok(())
     }

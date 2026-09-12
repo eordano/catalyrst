@@ -320,17 +320,12 @@ pub(super) async fn fan_community_voice(
     }
 }
 
-/// Whether one wallet may moderate one community's voice room, decided from the same
-/// `community_members` row the REST paths read.
+/// Decided from the same `community_members` row the REST paths read.
 ///
-/// **Deliberate behaviour change (BC-4).** This was the sixth and last independent role
-/// vocabulary in this crate, and the only one spelled `role == "owner" || role ==
-/// "moderator"`. It therefore refused a wallet whose stored role is the literal `"mod"` --
-/// a value `rest::fed::apply`'s role projection writes into `community_members` for a
-/// federated moderator (`apply_role` copies `community_role_current.role`, whose canonical
-/// moderator spelling is `"mod"`). A federated moderator could ban from the REST API and
-/// not moderate a voice room. It now reaches the shared tier parse and the shared
-/// capability matrix, so the two agree.
+/// **Deliberate behaviour change (BC-4).** The former spelling `role == "owner" || role ==
+/// "moderator"` refused a stored `"mod"` -- the value `rest::fed::apply`'s role projection
+/// writes for a federated moderator -- so a federated moderator could ban from the REST
+/// API but not moderate a voice room. Both now use the shared tier parse.
 pub(super) async fn require_moderator(
     db: &Db,
     community_id: &str,
@@ -354,8 +349,8 @@ pub(super) async fn require_moderator(
     }
 }
 
-/// Reads one wallet's tier in one community from the same `community_members` row the REST
-/// paths read. An absent or unrecognised value is [`CommunityMembershipTier::NotAMemberOfThisCommunity`].
+/// Reads `community_members`, the same row the REST paths read. An absent or unrecognised
+/// value is [`CommunityMembershipTier::NotAMemberOfThisCommunity`].
 async fn community_tier(
     db: &Db,
     community_id: &str,
@@ -368,19 +363,15 @@ async fn community_tier(
     })
 }
 
-/// Privacy-aware participation gate for the self-service community-voice actions -- raising a hand
-/// (`request_to_speak`) and self-unmute. Mirrors the reachable half of upstream
-/// `validateCommunityVoiceChatParticipation` (social-service-ea #447).
+/// Gate for the self-service community-voice actions -- raising a hand and self-unmute.
+/// Mirrors the reachable half of upstream `validateCommunityVoiceChatParticipation`
+/// (social-service-ea #447): the actor must not be banned, and a **private** community
+/// requires membership while a **public** one admits a guest holding no role.
 ///
-/// Enforces the two rules this crate's data model can decide locally: the actor must not be banned,
-/// and a **private** community requires membership while a **public** community admits a guest who
-/// holds no role. In this crate a ban is a `community_members.role = 'banned'` row, so it surfaces
-/// as [`CommunityMembershipTier::BannedFromThisCommunity`] through the shared tier parse.
-///
-/// **OWED divergence:** the room-live check (upstream `getCommunityVoiceChatStatus(communityId)`)
-/// is not ported. Our gatekeeper client exposes only a per-user `is_user_in_community_voice_chat`,
-/// not a per-community room-status endpoint, and this pass does not invent a new external client.
-/// A missing/inactive room is therefore not rejected here.
+/// **OWED divergence:** the room-live check (upstream
+/// `getCommunityVoiceChatStatus(communityId)`) is not ported -- our gatekeeper client
+/// exposes only a per-user `is_user_in_community_voice_chat`. A missing/inactive room is
+/// therefore not rejected here.
 pub(super) async fn validate_community_voice_participation(
     db: &Db,
     community_id: &str,
@@ -394,8 +385,6 @@ pub(super) async fn validate_community_voice_participation(
             message: Some("banned from this community".into()),
         }));
     }
-    // Absent privacy (community row gone) defaults to public: there is nothing to protect, and the
-    // owed room-live gate is what would reject a non-existent room.
     let private = db
         .community_is_private(community_id)
         .await?
@@ -408,11 +397,11 @@ pub(super) async fn validate_community_voice_participation(
     Ok(Ok(()))
 }
 
-/// Privacy-aware target-membership gate for the community-voice moderation actions that grant or
-/// move a capability (promote/demote/reject), mirroring upstream
-/// `validateCommunityVoiceChatTargetMembership` (#447). A public community admits any target the
-/// live room already holds -- comms-gatekeeper owns presence -- while a private community requires
-/// the target to be a member. Called only after the actor has cleared the moderator/owner gate.
+/// Target-membership gate for promote/demote/reject, mirroring upstream
+/// `validateCommunityVoiceChatTargetMembership` (#447). A public community admits any
+/// target the live room already holds -- comms-gatekeeper owns presence -- while a private
+/// community requires the target to be a member. Called only after the actor has cleared
+/// the moderator/owner gate.
 pub(super) async fn validate_community_voice_target_membership(
     db: &Db,
     community_id: &str,
@@ -438,11 +427,10 @@ pub(super) async fn validate_community_voice_target_membership(
 /// Like [`require_moderator`], but additionally protects the community owner: a voice-room
 /// moderation aimed at the owner is refused unless the actor **is** the owner, mirroring
 /// upstream's `validateCommunityVoiceChatModerator` (social-service-ea #447). A self-action
-/// still bypasses only the owner-protection clause -- the capability gate always applies, so a
-/// non-moderator cannot promote/kick/reject even themselves.
+/// bypasses only the owner-protection clause -- the capability gate always applies.
 ///
-/// `action` is the human-readable verb woven into the refusal message, matching upstream
-/// ("promote speakers", "kick players", ...).
+/// `action` is the verb woven into the refusal message, matching upstream ("promote
+/// speakers", "kick players", ...).
 pub(super) async fn require_moderator_protecting_owner(
     db: &Db,
     community_id: &str,
@@ -469,9 +457,9 @@ pub(super) async fn require_moderator_protecting_owner(
     Ok(Ok(()))
 }
 
-/// The owner-protection predicate, factored out for testing: only the owner may be acted on,
-/// and only by the owner. Peer moderators may still moderate each other, since these actions
-/// are confined to the live room and are reversible. Callers exempt self-actions before this.
+/// Only the owner may be acted on, and only by the owner. Peer moderators may still
+/// moderate each other, since these actions are confined to the live room and are
+/// reversible. Callers exempt self-actions before this.
 fn targeting_the_owner_as_a_non_owner(
     actor_tier: crate::rest::community_membership_authority::CommunityMembershipTier,
     target_tier: crate::rest::community_membership_authority::CommunityMembershipTier,
@@ -696,24 +684,18 @@ mod tests {
     fn owner_protection_only_bites_a_non_owner_targeting_the_owner() {
         use crate::rest::community_membership_authority::CommunityMembershipTier as T;
 
-        // A moderator may not act on the owner.
         assert!(targeting_the_owner_as_a_non_owner(
             T::ModeratorOfThisCommunity,
             T::OwnerOfThisCommunity
         ));
-        // Neither may a non-member (the capability gate catches this first, but the predicate
-        // must still refuse it).
         assert!(targeting_the_owner_as_a_non_owner(
             T::NotAMemberOfThisCommunity,
             T::OwnerOfThisCommunity
         ));
-        // The owner may act on the owner (the self-action exemption is applied by the caller,
-        // and an owner acting on an owner is only ever a self-action).
         assert!(!targeting_the_owner_as_a_non_owner(
             T::OwnerOfThisCommunity,
             T::OwnerOfThisCommunity
         ));
-        // Peer moderators may moderate each other, and anyone privileged may act on a member.
         assert!(!targeting_the_owner_as_a_non_owner(
             T::ModeratorOfThisCommunity,
             T::ModeratorOfThisCommunity

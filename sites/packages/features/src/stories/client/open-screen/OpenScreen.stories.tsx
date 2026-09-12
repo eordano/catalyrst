@@ -1,6 +1,3 @@
-// Storybook-only fixtures: the live loadPlaces/fetchMostActivePlaces loaders do
-// not run in Storybook, so these feed representative display data. Production
-// paths stay on the real loaders + schema-honesty (see the route loader).
 import type { Meta, StoryObj } from "@ui/docs/sb";
 import { expect, fn, userEvent, waitFor } from "@ui/docs/sb";
 
@@ -121,8 +118,6 @@ export const Base: Story = {
   args: { arm: "base" },
   play: async ({ canvas }) => {
     await canvas.findByRole("heading", { name: "Things to do" });
-    // Cards carry no aria-label override, so the place name is part of the
-    // visible accessible name -- assert the text, not a label.
     await canvas.findByText("Genesis Plaza");
   },
 };
@@ -148,7 +143,6 @@ export const Genesis: Story = {
         "/places/plc-genesis-plaza?from=open-screen",
       ),
     );
-    // The primary-metric conversion event must fire on the jump.
     expect(args.track).toHaveBeenCalledWith(
       "cl_open_jumped_in",
       expect.objectContaining({ place_id: "plc-genesis-plaza", variant: "genesis" }),
@@ -169,7 +163,6 @@ export const GenesisUnavailable: Story = {
     },
   },
   play: async ({ args }) => {
-    // No live reading must never dead-end: it redirects straight to Places.
     await waitFor(() => expect(args.navigate).toHaveBeenCalledWith("/places"));
   },
 };
@@ -186,15 +179,12 @@ export const ThreeCards: Story = {
   },
   play: async ({ canvas }) => {
     await canvas.findByRole("heading", { name: "What do you feel like?" });
-    // Titles are visible text (no aria-label override on the cards).
     await canvas.findByText("Jump into the action");
     await canvas.findByText("Surprise me");
     await canvas.findByText("Customize your avatar");
   },
 };
 
-// The genesis arm's headline behavior: it auto-jumps the player in after a short
-// delay with NO click. jumpDelayMs is tiny here so the timer fires in-test.
 export const GenesisAutoJump: Story = {
   args: {
     arm: "genesis",
@@ -215,9 +205,6 @@ export const GenesisAutoJump: Story = {
   },
 };
 
-// Regression for the auto-jump race: opting out ("Let me browse instead") must
-// cancel the pending timer, so it can never fire mid-navigation and fling the
-// player into the scene they declined.
 export const GenesisBrowseInstead: Story = {
   args: {
     arm: "genesis",
@@ -231,7 +218,6 @@ export const GenesisBrowseInstead: Story = {
   },
   play: async ({ args, canvas }) => {
     await userEvent.click(await canvas.findByRole("link", { name: /browse instead/i }));
-    // Wait well past jumpDelayMs; the auto-jump must NOT have navigated to the place.
     await new Promise((r) => setTimeout(r, 300));
     expect(args.navigate).not.toHaveBeenCalledWith(
       "/places/plc-genesis-plaza?from=open-screen",
@@ -239,9 +225,6 @@ export const GenesisBrowseInstead: Story = {
   },
 };
 
-// three-cards with no live reading: the two live-scene cards go disabled
-// (non-interactive), but the chooser never hard dead-ends -- "Customize your
-// avatar" stays a live link.
 export const ThreeCardsNoLive: Story = {
   args: {
     arm: "three-cards",

@@ -37,19 +37,6 @@ const RepresentationSchema = z.object({
 
 const nullableStr = z.string().nullish().transform((v) => v ?? null);
 
-/**
- * Every field is required on purpose.
- *
- * The only producer is `creator-hub/wearable-item-detail.server.ts`
- * (`catalogItemToBuilderItem`), which builds the object key by key from a
- * parsed `CatalogItem` and supplies all of them. Defaulting anything here would
- * mean `safeParse` could not reject a half-built item -- a supply of 0 or an
- * empty representation list would render as a measured fact. A missing field is
- * a bug in the producer, so it must fail: `parseItem` returns null and the
- * route renders its not-found state. The enums carry no `.catch()` for the
- * same reason: a rarity nobody recognised is not a common item, and
- * `RARITY_MAX_SUPPLY` would still have priced it off the unrecognised name.
- */
 export const BuilderItemSchema = z.object({
   id: z.string(),
   type: z.enum(ITEM_TYPES),

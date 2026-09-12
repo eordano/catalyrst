@@ -21,11 +21,9 @@ const COMMUNITIES: Community[] = [
   { id: "c8", name: "Land Architects", membersCount: 53, role: "member", thumb: "linear-gradient(135deg,#73d3d3,#438fff)" },
 ];
 
-/** The community list is picked by name: the eight-card fixture, or nothing to show. */
 const COMMUNITY_SETS = { eight: COMMUNITIES, none: [] as Community[] };
 type CommunitySetKey = keyof typeof COMMUNITY_SETS;
 
-/** Story args: the community list is picked by name, the rest are real props. */
 type CommunitiesStoryArgs = {
   communitySet: CommunitySetKey;
   isOwnProfile: boolean;
@@ -91,13 +89,6 @@ const CATALOG: { label: string; args: CommunitiesStoryArgs }[] = [
   { label: "loading", args: { communitySet: "none", isOwnProfile: false, loading: true } },
 ];
 
-/**
- * Every state at once. `Default` flips between them from the Controls panel; this keeps the
- * member view, the owner view, both empty states and the skeleton in the render + a11y +
- * visual-diff gates. `chrome={false}` so stacking does not emit N `<main>` landmarks, and
- * `labelSuffix` makes each copy's `nav[aria-label="Profile sections"]` uniquely named --
- * axe's `landmark-unique` compares accessible names, so a fixed label would fail N times.
- */
 export const Catalog: Story = {
   name: "Catalog (every state)",
   parameters: { controls: { disable: true } },

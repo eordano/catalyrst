@@ -2,17 +2,15 @@
 //!
 //! Nothing here has an `owner`, `access`, `permissions`, `blocked_since`, `deployer`,
 //! or `single_player` field, and [`tests::ownership_claims_in_a_peer_payload_are_structurally_unreachable`]
-//! fails if one is ever added.
-//!
-//! A peer's `/worlds` response *does* carry `owner` -- this crate emits it itself at
-//! `handlers/worlds_list.rs`. Omitting the field means there is no binding, no
-//! variable, and no column it could flow into. That is strictly stronger than reading
-//! it and choosing not to use it.
+//! fails if one is ever added. A peer's `/worlds` response *does* carry `owner` (this
+//! crate emits it at `handlers/worlds_list.rs`); omitting the field means there is no
+//! binding and no column it could flow into, which is stronger than reading it and
+//! choosing not to use it.
 //!
 //! `deny_unknown_fields` is deliberately **not** used: a peer running a newer build
 //! legitimately adds fields, and refusing its whole listing over an additive change
-//! would be a self-inflicted outage. Unknown fields -- including `owner` -- are dropped
-//! by serde before any code in this crate can see them.
+//! would be a self-inflicted outage. Unknown fields -- `owner` included -- are dropped
+//! by serde before any code in this crate sees them.
 
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
@@ -20,11 +18,10 @@ use serde::Deserialize;
 use crate::fed::names::{PeerId, RemoteWorldName};
 use crate::fed::store::RemoteWorld;
 
-/// Per-field caps. `WORLDS_FED_MAX_RESPONSE_BYTES` already bounds the whole body, so
-/// these exist for a narrower reason: one entry must not be able to spend the entire
-/// budget on a single `description`, and a stored row must have a shape an operator
-/// can read. An over-long field is **dropped**, not truncated -- a truncated string
-/// silently claims to be the peer's value and is not.
+/// Per-field caps, narrower than the whole-body `WORLDS_FED_MAX_RESPONSE_BYTES`: one
+/// entry must not spend the entire budget on a single `description`. An over-long field
+/// is **dropped**, not truncated -- a truncated string silently claims to be the peer's
+/// value and is not.
 const MAX_TITLE_LEN: usize = 512;
 const MAX_DESCRIPTION_LEN: usize = 4096;
 const MAX_CONTENT_RATING_LEN: usize = 64;
@@ -53,17 +50,15 @@ pub(crate) struct PeerWorldEntry {
 
 #[derive(Debug, Deserialize)]
 pub(crate) struct PeerWorldsPage {
-    /// **Not** `#[serde(default)]`, unlike every field above it, and the asymmetry is
-    /// deliberate. A defaulted `worlds` makes `{}` -- and, because serde will build a
-    /// struct from a JSON sequence, `[]` as well -- deserialize into a page with zero
-    /// worlds. That turns "the peer answered with something that is not a listing"
-    /// into "the peer holds no worlds", which is the exact confusion this module
-    /// exists to prevent. Requiring the field makes both of those a parse error, and
-    /// a parse error retains the peer's previous rows.
+    /// Deliberately **not** `#[serde(default)]`, unlike every field above it: a
+    /// defaulted `worlds` would deserialize `{}` (and `[]`, since serde builds a struct
+    /// from a JSON sequence) into a page with zero worlds, turning "not a listing" into
+    /// "holds no worlds". Requiring it makes both a parse error, which retains the
+    /// peer's previous rows.
     pub worlds: Vec<PeerWorldEntry>,
-    /// The peer's own count. Recorded nowhere and read by no branch: it is the peer's
-    /// arithmetic about the peer's data, and pagination terminates on what actually
-    /// arrived. Kept in the struct only so a reviewer can see it was considered.
+    /// The peer's own count. Recorded nowhere and read by no branch -- pagination
+    /// terminates on what actually arrived. Kept only so a reviewer sees it was
+    /// considered.
     #[serde(default)]
     #[allow(dead_code)]
     pub total: Option<i64>,
@@ -74,35 +69,26 @@ pub(crate) struct PeerWorldsPage {
 pub(crate) struct PageIntake {
     pub worlds: Vec<RemoteWorld>,
     /// Entries refused by [`RemoteWorldName::from_peer_listing`]. One bad row must not
-    /// cost the other 1,551, so a refusal skips the entry and is counted.
+    /// cost the rest of the page, so a refusal skips the entry and is counted.
     pub entries_skipped: u64,
-    /// Entries the peer sent that we did not read, because the per-peer row cap was
-    /// reached. Surfaced as `truncated`, never as a shorter list presented as complete.
+    /// Entries dropped because the per-peer row cap was reached. Surfaced as
+    /// `truncated`, never as a shorter list presented as complete.
     pub truncated: bool,
-    /// How many entries the page actually contained, including the refused ones and
-    /// the ones past the budget. The pagination loop terminates on this rather than on
-    /// the peer's `total`, because it is the only number we counted ourselves.
+    /// Entries the page contained, refused and over-budget ones included. The
+    /// pagination loop terminates on this rather than the peer's `total`, because it is
+    /// the only number we counted ourselves.
     pub entries_seen: usize,
 }
 
-/// Parse one page and turn it into rows.
-///
 /// Fails closed: a body that is not a JSON object of the expected shape returns `Err`
-/// and the caller retains the peer's previous rows. It never returns an empty page for
-/// a malformed body, because an empty page is indistinguishable from "this peer holds
-/// no worlds".
+/// and the caller retains the peer's previous rows, rather than an empty page that is
+/// indistinguishable from "this peer holds no worlds".
 pub(crate) fn intake_page(
     peer_id: &PeerId,
     body: &[u8],
     remaining_row_budget: usize,
     observed_at: DateTime<Utc>,
 ) -> Result<PageIntake, serde_json::Error> {
-    // A JSON document whose first token is `{` is an object, and only an object can be
-    // a worlds listing. serde will happily build a struct out of a JSON *sequence*,
-    // mapping elements to fields positionally, so `[[]]` would otherwise deserialize
-    // into a page holding zero worlds -- a malformed body silently becoming "this peer
-    // is empty". Checking the first token costs one byte scan and closes that door
-    // ahead of the parser.
     if body
         .iter()
         .find(|b| !b.is_ascii_whitespace())
@@ -143,14 +129,9 @@ pub(crate) fn intake_page(
             content_rating: capped(entry.content_rating, MAX_CONTENT_RATING_LEN),
             categories: capped_categories(entry.categories),
             thumbnail_hash: capped(entry.thumbnail_hash, MAX_THUMBNAIL_HASH_LEN),
-            // A peer reporting a negative scene count is reporting nonsense; nonsense
-            // stores as zero rather than as a value that could underflow a consumer.
             deployed_scenes: entry.deployed_scenes.unwrap_or(0).max(0),
             last_deployed_at: entry.last_deployed_at.as_deref().and_then(parse_peer_time),
-            // OUR clock. The peer does not get to say when we saw it.
             observed_at,
-            // The poller never carries a veto in; `replace_peer_worlds` preserves the
-            // stored value. A peer cannot un-hide itself by re-listing.
             hidden_since: None,
         });
     }
@@ -181,12 +162,11 @@ fn parse_peer_time(raw: &str) -> Option<DateTime<Utc>> {
         .map(|t| t.with_timezone(&Utc))
 }
 
-/// The source-level half of the provenance rule in [`crate::fed::names`].
-///
-/// A type barrier is a compiler barrier at one chokepoint plus a name nobody types by
-/// accident. It is not a proof: `LocalWorldName::from_request_path(r.as_peer_reported_str())`
-/// compiles. This gate is the part that catches that, and it lives in the test suite
-/// rather than in CI config so it runs wherever the tests run.
+/// The source-level half of the provenance rule in [`crate::fed::names`]. The type
+/// barrier is not a proof --
+/// `LocalWorldName::from_request_path(r.as_peer_reported_str())` compiles -- so this
+/// gate catches it, and lives in the test suite rather than CI config so it runs
+/// wherever the tests run.
 #[cfg(test)]
 pub(crate) mod provenance_gate {
     use std::path::{Path, PathBuf};
@@ -206,9 +186,8 @@ pub(crate) mod provenance_gate {
         }
     }
 
-    /// Comment lines are excluded: the doc comments on the types under gate name the
-    /// very identifiers being gated, and a gate that its own documentation trips is a
-    /// gate people delete.
+    /// Comment lines are excluded: the docs on the gated types name the very
+    /// identifiers being gated.
     pub(crate) fn is_comment(line: &str) -> bool {
         let t = line.trim_start();
         t.starts_with("//") || t.starts_with("*") || t.starts_with("#!")
@@ -264,7 +243,6 @@ mod tests {
         assert_eq!(row.name.as_peer_reported_str(), "hostile.dcl.eth");
         assert_eq!(row.deployed_scenes, 3);
 
-        // Nothing we hold, and nothing we publish, carries the claim.
         let ours = serde_json::to_value(row.as_published_view()).expect("view serialises");
         let rendered = ours.to_string();
         for forbidden in [
@@ -286,8 +264,6 @@ mod tests {
             );
         }
 
-        // And the deserialisation target itself has no such field: this is the
-        // assertion that fails the day somebody adds one.
         let fields = format!("{:?}", intake.worlds[0]);
         for forbidden in ["owner", "access", "permission", "blocked", "deployer"] {
             assert!(
@@ -298,19 +274,15 @@ mod tests {
     }
 
     /// Two entries captured verbatim from
-    /// `https://worlds-content-server.decentraland.org/worlds?limit=3&offset=0`
-    /// on 2026-08-02 -- a read-only HTTPS GET against production, which is permitted
-    /// and is already what `src/bin/worlds-mirror.rs` consumes. Pinned as a fixture
-    /// rather than fetched at test time so the suite stays hermetic.
-    ///
-    /// The first entry carries a **real, non-null `owner`**. That is the whole point:
-    /// the field the reference implementation actually sends on the wire, from
-    /// software we do not control, has nowhere to land here.
+    /// `https://worlds-content-server.decentraland.org/worlds?limit=3&offset=0` on
+    /// 2026-08-02, pinned rather than fetched at test time so the suite stays hermetic.
+    /// The first carries a **real, non-null `owner`** -- the field the reference
+    /// implementation sends on the wire has nowhere to land here.
     const PRODUCTION_WORLDS_PAGE: &str = r#"{"worlds": [{"name": "041.dcl.eth", "owner": "0x37b323dd852e38114933f25ad53d0c04ec4ec2bd", "title": "Ultimate Game Party", "description": "Template scene with SDK7 for a 4-parcel area", "shape": {"x1": 0, "x2": 1, "y1": 0, "y2": 1}, "content_rating": null, "spawn_coordinates": "0,0", "skybox_time": null, "categories": null, "single_player": null, "show_in_places": null, "thumbnail_hash": "bafkreidj26s7aenyxfthfdibnqonzqm5ptc4iamml744gmcyuokewkr76y", "last_deployed_at": "2023-09-06T20:13:48.672Z", "blocked_since": null, "deployed_scenes": 1}, {"name": "024.dcl.eth", "owner": null, "title": "DCL Scene", "description": "My new Decentraland project", "shape": {"x1": 0, "x2": 0, "y1": 1, "y2": 1}, "content_rating": null, "spawn_coordinates": "0,1", "skybox_time": null, "categories": null, "single_player": null, "show_in_places": null, "thumbnail_hash": "bafkreidj26s7aenyxfthfdibnqonzqm5ptc4iamml744gmcyuokewkr76y", "last_deployed_at": "2023-09-06T20:13:48.294Z", "blocked_since": null, "deployed_scenes": 1}], "total": 1751}"#;
 
     /// `https://interconnected.online/worlds?limit=5&offset=0`, same day: a live
     /// third-party catalyst that genuinely holds no worlds. Its answer must be a
-    /// *successful* empty page and must remain distinguishable from every failure in
+    /// *successful* empty page, distinguishable from every failure in
     /// [`a_malformed_body_is_an_error_and_never_an_empty_page`].
     const THIRD_PARTY_EMPTY_PAGE: &str = r#"{"total":0,"worlds":[]}"#;
 
@@ -331,7 +303,6 @@ mod tests {
             "the production RFC3339 shape parses"
         );
 
-        // The peer's `total` (1751) is not our count, and nothing reads it.
         assert_eq!(intake.entries_seen, 2);
 
         let rendered = serde_json::to_string(
@@ -387,9 +358,6 @@ mod tests {
             &b"not json at all"[..],
             &b"{"[..],
             &b""[..],
-            // A JSON array. serde builds structs from sequences, so without the
-            // first-token check this deserialized to a page with zero worlds -- a
-            // malformed body reading as "this peer holds nothing".
             &b"[]"[..],
             &b"[[]]"[..],
             &b"null"[..],
@@ -405,8 +373,6 @@ mod tests {
                 String::from_utf8_lossy(body)
             );
         }
-        // A well-formed body that genuinely has no worlds is the ONLY way to get an
-        // empty page, and it is a distinct outcome from every failure above.
         let empty = intake_page(&peer(), br#"{"worlds":[],"total":0}"#, 100, now()).unwrap();
         assert!(empty.worlds.is_empty());
         assert!(!empty.truncated);
@@ -460,15 +426,14 @@ mod tests {
     /// S3's grep gate, run as a test so it runs wherever tests run.
     #[test]
     fn provenance_grep_gate() {
-        // Built by concatenation so this test's own source does not trip it.
         let escape_hatch = concat!("as_peer_reported", "_str");
         let local_ctor = concat!("from_request", "_path");
 
         let allowed = [
-            "fed/names.rs",    // defines it
-            "fed/wire.rs",     // this file: builds rows
-            "fed/store.rs",    // binds it to SQL
-            "fed/handlers.rs", // serialises it
+            "fed/names.rs",
+            "fed/wire.rs",
+            "fed/store.rs",
+            "fed/handlers.rs",
         ];
 
         let mut files = Vec::new();
@@ -478,9 +443,6 @@ mod tests {
             "the source walk found nothing; gate is inert"
         );
 
-        // The one file allowed to name the LOCAL constructor while inside `fed/`. It
-        // defines both halves, so it is the irreducible core of the rule rather than an
-        // exemption from it.
         let local_ctor_home = "fed/names.rs";
 
         for path in &files {
@@ -506,21 +468,6 @@ mod tests {
                     );
                 }
 
-                // No file under `src/fed/` may MINT a local name, on any line.
-                //
-                // The one-line rule below is a one-line rule, and the laundering it
-                // describes fits in two:
-                //
-                //     let raw = remote.name.as_peer_reported_str();
-                //     let local = LocalWorldName::from_request_path(raw);
-                //
-                // Inside `fed/handlers.rs` or `fed/store.rs` -- both allowed to hold the
-                // escape hatch -- that passed every check. This rule closes it by shape
-                // rather than by syntax: nothing in `fed/` reads an HTTP request path,
-                // so nothing in `fed/` has any business calling the constructor that
-                // interprets one. Combined with the allowlist above, the two escape
-                // hatches are now nameable in the same file ONLY in `fed/names.rs`,
-                // where the one-line rule still applies and where both are defined.
                 if rel.contains("fed/") && !rel.ends_with(local_ctor_home) {
                     assert!(
                         !line.contains(local_ctor),
@@ -543,21 +490,15 @@ mod tests {
         }
     }
 
-    /// The boot sweep is only a revocation mechanism if boot actually runs it, and runs
-    /// it before anything can be served.
+    /// The boot sweep revokes only if boot actually runs it, before anything is served.
+    /// `revoke_peers_no_longer_admitted` has exactly one production call site
+    /// (`build_state`) and nothing in the type system requires it to exist, so a
+    /// reorder or a dropped merge line would boot cleanly and republish a withdrawn
+    /// peer with every test green -- hence a source gate.
     ///
-    /// `revoke_peers_no_longer_admitted` is called from exactly one production place --
-    /// `build_state` -- and nothing in the type system requires that call to exist. A
-    /// future edit that reorders `build_state`, or drops the line while resolving a
-    /// merge, would leave a process that boots cleanly and republishes worlds for a peer
-    /// the DAO withdrew, with every test still green. Hence a source gate, in the style
-    /// of the two above it.
-    ///
-    /// The read path is the other half and is covered by tests rather than by grep:
-    /// `list_mirror` cannot be called without an allowlist because the allowlist is a
-    /// parameter, and `a_revoked_peers_rows_are_unpublishable_even_if_the_boot_sweep_never_ran`
-    /// in tests/audit_federation_holes.rs asserts it holds with this sweep skipped
-    /// entirely.
+    /// The read path is the other half, covered by tests instead:
+    /// `a_revoked_peers_rows_are_unpublishable_even_if_the_boot_sweep_never_ran` in
+    /// tests/audit_federation_holes.rs asserts it with this sweep skipped entirely.
     #[test]
     fn boot_revokes_de_admitted_peers_before_the_state_the_router_is_built_from_exists() {
         let lib = std::fs::read_to_string(provenance_gate::src_dir().join("lib.rs"))
@@ -607,7 +548,6 @@ mod tests {
                     continue;
                 }
                 for table in ["worlds", "world_scenes", "world_permissions"] {
-                    // `remote_worlds` and `remote_peer_status` are ours; `worlds` is not.
                     let hit = upper.contains(&format!(" {}", table.to_ascii_uppercase()))
                         && !upper.contains("REMOTE_WORLDS")
                         && !upper.contains("REMOTE_PEER_STATUS");

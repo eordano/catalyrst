@@ -32,14 +32,10 @@ type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {};
 
-/** The remove-catalyst copy block over the same form. */
 export const Remove: Story = { args: { catalystType: "remove" } };
 
-/** The sign-in gate that replaces the form for a disconnected wallet. */
 export const LogInGate: Story = { args: { state: "login" } };
 
-/** The form's validation error banner. */
 export const SubmitError: Story = { args: { showError: true } };
 
-/** The 404 body. */
 export const NotFound: Story = { args: { state: "notfound" } };

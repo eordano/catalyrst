@@ -7,8 +7,6 @@ import {
 } from "./auth-message-scroll";
 import type { AllowedMethod, UnverifiableReason } from "./auth-request-params";
 
-// The measurement auth's UnverifiedRequestView makes on its message block (messageReadToEnd): the
-// acknowledgment opens only once the block has nothing left below the fold.
 describe("isScrolledToEnd", () => {
   it("counts a block that does not overflow as read", () => {
     expect(isScrolledToEnd({ scrollHeight: 120, scrollTop: 0, clientHeight: 220 })).toBe(true);
@@ -22,8 +20,6 @@ describe("isScrolledToEnd", () => {
     expect(isScrolledToEnd({ scrollHeight: 2000, scrollTop: 1780, clientHeight: 220 })).toBe(true);
   });
 
-  // Sub-pixel layout leaves a fraction of a pixel below a block scrolled all the way down, which is
-  // why the end is measured to the pixel: without the tolerance such a block would never open.
   it("allows the fraction of a pixel sub-pixel layout leaves behind", () => {
     expect(isScrolledToEnd({ scrollHeight: 2000.6, scrollTop: 1780, clientHeight: 220 })).toBe(true);
     expect(isScrolledToEnd({ scrollHeight: 2002, scrollTop: 1780, clientHeight: 220 })).toBe(false);
@@ -34,8 +30,6 @@ describe("isScrolledToEnd", () => {
   });
 });
 
-// The scoping upstream's UnverifiedRequestView gives the same gate (`messageText !== null`): the
-// request classes whose detail box is a message somebody reads, and no others.
 describe("gatesOnMessageReading", () => {
   const rows: [string, AllowedMethod, UnverifiableReason, boolean][] = [
     ["a readable personal_sign message", "personal_sign", "unverified_message", true],

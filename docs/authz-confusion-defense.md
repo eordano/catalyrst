@@ -7,13 +7,13 @@ type-checks. Shape (b), *parent-authorized / child-unbound* -- the role check na
 parent scope, the `UPDATE` names only the child row, and the parent never reaches the
 `WHERE` clause.
 
-Four independent investigations proposed defenses. This document picks between them.
-The short version: the proof is worth more than the framework. Land a cross-scope
-probe in the existing contract gate first, because it fails on real code today and no
-type work is required to write it. Then land one newtype in `catalyrst-crypto` and one
-scope parameter in `catalyrst-social-service`. Reject the generic capability-token and
-row-level-security frameworks -- both are sized for a codebase we do not have, and the
-worst instance of the bug is on a code path neither of them can reach.
+Four independent investigations proposed defenses; this document picks between them.
+The proof is worth more than the framework. Land a cross-scope probe in the existing
+contract gate first -- it fails on real code today and needs no type work. Then one
+newtype in `catalyrst-crypto` and one scope parameter in `catalyrst-social-service`.
+Reject the generic capability-token and row-level-security frameworks: both are sized
+for a codebase we do not have, and the worst instance of the bug is on a code path
+neither can reach.
 
 ## The decision
 
@@ -34,9 +34,9 @@ worst instance of the bug is on a code path neither of them can reach.
 
 ## The class as it stands in this tree
 
-Five instances were identified. Three have point fixes in the working tree already
-(uncommitted at the time of writing); two do not. The point fixes are not the defense --
-they are the reason the defense is affordable, because they establish the shape.
+Five instances were identified; three have point fixes in the working tree (uncommitted
+at the time of writing), two do not. The point fixes are not the defense -- they are the
+reason the defense is affordable, because they establish the shape.
 
 | Site | State at `HEAD` | State in the working tree |
 |---|---|---|
@@ -46,12 +46,12 @@ they are the reason the defense is affordable, because they establish the shape.
 | `catalyrst-places/src/handlers/report.rs:185` | No `HeaderMap`; `UPDATE place_reports_local WHERE filename = $1` | `auth_address_verified` + reporter predicate added by hand |
 | `catalyrst-economy/src/handlers/transactions.rs:13` | Quota keyed on body `tx.from` | `check_data` now returns `MetaTxSender` and keys the quota |
 
-`MetaTxSender` (`catalyrst-economy/src/ports/transaction.rs:205`) is the important one.
-It is a tuple struct with a private field whose only constructor recovers the address
-from the meta-transaction calldata and rejects a mismatch against `from`. That is
-exactly the `Signer` newtype proposal, already written, already merged into a working
-tree, by hand, for one crate. The recommendation below is to generalize a pattern the
-codebase has already reached for on its own -- not to import a new one.
+`MetaTxSender` (`catalyrst-economy/src/ports/transaction.rs:205`) is the important one:
+a tuple struct with a private field whose only constructor recovers the address from the
+meta-transaction calldata and rejects a mismatch against `from`. That is the `Signer`
+newtype proposal, already written by hand for one crate. The recommendation below
+generalizes a pattern the codebase reached for on its own rather than importing a new
+one.
 
 ## Worked example: `community_requests`
 
@@ -110,21 +110,20 @@ forcing predicate inside the mutating statement, not an existence guard in front
 It holds for a freshly minted id -- the row is not touched because it does not match, not
 because a prior `SELECT` found it elsewhere.
 
-But it is silent. When `rows_affected() == 0` the code consults
-`SELECT community_id FROM community_requests WHERE id = $1` and returns 404 only if the
-row exists under another community. For an id that exists nowhere, it falls through,
-appends to `community_requests_log` with the body-supplied `community_id`, returns
-`Ok(sig_hash)` -- and the HTTP handler answers 200 and emits gossip. A caller learns
-nothing, and a regression that reverts the predicate is indistinguishable from success
-in every log line. This is the failure mode that made the upstream fix untestable.
+But it is silent. On `rows_affected() == 0` the code consults
+`SELECT community_id FROM community_requests WHERE id = $1` and returns 404 only if the row
+exists under another community. An id that exists nowhere falls through, appends to
+`community_requests_log` with the body-supplied `community_id`, returns `Ok(sig_hash)` --
+and the HTTP handler answers 200 and emits gossip. A caller learns nothing, and a
+regression reverting the predicate is indistinguishable from success in every log line.
+This is the failure mode that made the upstream fix untestable.
 
-There is a second, subtler problem the loudness fix must respect. `community_requests`
-rows are inserted only on the node-local HTTP path
-(`rest/handlers/writes/requests.rs:230`); creation is never gossiped. A remote node
-applying a `CommunityRequestStatusUpdate` will therefore *legitimately* see
-`rows_affected() == 0`. A blanket "zero rows is a 403" rule inside `apply_request_status`
-would break federation replication. The outcome has to be returned to the caller, which
-knows which path it is on.
+A second, subtler problem the loudness fix must respect: `community_requests` rows are
+inserted only on the node-local HTTP path (`rest/handlers/writes/requests.rs:230`) and
+creation is never gossiped, so a remote node applying a `CommunityRequestStatusUpdate`
+*legitimately* sees `rows_affected() == 0`. A blanket "zero rows is a 403" rule inside
+`apply_request_status` would break federation replication. The outcome has to be returned
+to the caller, which knows which path it is on.
 
 ### After
 
@@ -213,7 +212,7 @@ and the case stops being invisible.
 
 ### Why the "before" form becomes unwriteable or loud
 
-Four properties, in decreasing order of strength.
+In decreasing order of strength:
 
 1. `community_uuid_from_hex(&signed.message.community_id)` no longer appears anywhere in
    `apply_request_status`. The only `Uuid` in scope is the one inside `CommunityScope`,
@@ -231,21 +230,20 @@ Four properties, in decreasing order of strength.
 
 What this does **not** do: it binds the write to the *authorized* community, not the
 authorized community to the *URL*. The provenance link is still the hand-written equality
-check at `writes/requests.rs:352`. Make that mechanical in the same PR with a named
-helper -- `scope_from_bound_envelope(path_uuid, &signed.message.community_id)` for HTTP,
+check at `writes/requests.rs:352`. Make that mechanical in the same PR with a named helper
+-- `scope_from_bound_envelope(path_uuid, &signed.message.community_id)` for HTTP,
 `scope_from_unbound_envelope(..)` for the consumer -- so the unbound case is one grep away
-instead of an absence. The probe in Stage 1 drives the URL, so deleting the check turns
-it red.
+instead of an absence. Stage 1's probe drives the URL, so deleting the check turns it red.
 
 ## Stage 1 -- one PR, no migration, no crate touched beyond the harness
 
 Land the proof before the mechanism. Both items go in `crates/catalyrst-contract-gate`
 plus the callers' `tests/`, and neither requires a line of production code to change.
 
-1a. The cross-scope probe. The harness supplies every assertion; the test author
-supplies a request builder and a 4xx code the harness validates is a 4xx. Two cases per
-scoped route, against the real router, with a real signed-fetch chain, on the scratch
-Postgres the gates already stand up:
+1a. The cross-scope probe. The harness supplies every assertion; the author supplies a
+request builder and a 4xx code the harness validates is a 4xx. Two cases per scoped route,
+against the real router, with a real signed-fetch chain, on the scratch Postgres the gates
+already stand up:
 
 - Existing row, foreign tenant. Seed a child under tenant B, drive the route at tenant
   A's path with B's child id, assert a refusal **and** re-`SELECT` the tenancy column and
@@ -255,9 +253,9 @@ Postgres the gates already stand up:
 
 The second case is the one that matters. An existence guard -- "does a row with this id
 already exist under a different parent?" -- matches nothing for a fresh id, stays silent,
-and lets the write land. Such a defense passes case one and fails case two. That is the
-upstream fix, reproduced and killed, and it is the reason this probe is Stage 1 rather
-than a footnote on the type work.
+and lets the write land: it passes case one and fails case two. That is the upstream fix,
+reproduced and killed, and the reason this probe is Stage 1 rather than a footnote on the
+type work.
 
 Neither case can be mocked green: the refusal check and the row read-back are the
 harness's, not the author's, and the read goes to the same pool the handler wrote to.
@@ -270,8 +268,8 @@ consultation and not consulting `error_waivers`: if an operation documents 401 o
 no request in the run was ever refused with 401 or 403, that is a gap. Waivers do not
 apply.
 
-This is a waiver-policy fix, not a contract mechanism, and it is the cheapest real
-control in this document. The evidence is in the tree: `HEAD`'s
+This is a waiver-policy fix, not a contract mechanism, and the cheapest real control
+here. The evidence is in the tree: `HEAD`'s
 `crates/catalyrst-places/tests/contract_gate.rs:507` waives
 `PUT /api/report/upload/{filename}` with the reason string *"handler is tolerant by
 design: no auth gate and unknown filenames are accepted"* -- on an endpoint that documents
@@ -286,9 +284,9 @@ Run both against `HEAD` and treat the red output as a findings list, not test de
 ## Stage 2 -- one crate at a time, still no migration
 
 2a. `Signer` in `catalyrst-crypto`. Change the return types of `try_extract_signer`,
-`verify_signed_fetch`, and `require_signer` from `Option<String>` / `Result<EthAddress>`
-to a newtype with a private field, no `Deserialize`, no `From<String>`, no `FromStr`, and
-a `#[cfg(test)]` `unchecked` escape hatch enforced by a CI grep.
+`verify_signed_fetch` and `require_signer` from `Option<String>` / `Result<EthAddress>` to
+a newtype with a private field, no `Deserialize`, no `From<String>`, no `FromStr`, and a
+`#[cfg(test)]` `unchecked` escape hatch enforced by a CI grep.
 
 `crates/catalyrst-comms/src/handlers/scene_adapter.rs:210` becomes E0308 at the exact
 defect line, and the fallback cannot be repaired in-crate because there is no way to build
@@ -297,18 +295,17 @@ compiler-driven and mechanical. Do **not** touch `catalyrst_types::EthAddress` -
 `pub type EthAddress = String` at `entity.rs:10`, flows through `DeploymentRow` with serde
 and ts-rs, and changing the alias is a workspace-wide break for zero extra safety.
 
-Two pleasant interactions: utoipa never sees extractor types, so specs are unaffected; and
+Two interactions: utoipa never sees extractor types, so specs are unaffected; and
 `#[derive(TS)]` on a struct containing a `Signer` fails to compile for want of a `TS` impl,
 which turns "do not leak the authorized type into a wire DTO" from a convention into a
 build error.
 
 `catalyrst-economy` is already done -- treat `MetaTxSender` as the reference implementation.
 
-2b. Scope parameters in `catalyrst-social-service`. The worked example above, plus
-the twin at `rest/handlers/client/requests.rs:162`, which is still unscoped and safe today
-only because the `SELECT` at `:60` happens to bind both keys. Fourteen `require_min_role`
-call sites; roughly thirty scoped writes. Extend the Stage-1 probe to each route as it is
-converted.
+2b. Scope parameters in `catalyrst-social-service`. The worked example above, plus the
+twin at `rest/handlers/client/requests.rs:162`, still unscoped and safe today only because
+the `SELECT` at `:60` happens to bind both keys. Fourteen `require_min_role` call sites,
+roughly thirty scoped writes. Extend the Stage-1 probe to each route as it is converted.
 
 Keep the scope type crate-local. Promote it to `catalyrst-db` (which already carries the
 repository idiom in `deployments_repository.rs` and `pointers_repository.rs`) only when a
@@ -358,8 +355,8 @@ reviewable way elsewhere.
 Ship every rule with a planted-positive fixture reproducing the real code shape, plus a
 variant with an existence guard in front asserting the guard does *not* suppress the flag,
 and CI fails if a fixture stops being flagged. Without that, the detector can silently
-degrade to matching nothing and stay green -- which is the failure this whole document
-exists to avoid, relocated into the tooling.
+degrade to matching nothing and stay green -- the failure this document exists to avoid,
+relocated into the tooling.
 
 Waivers follow the contract-gate discipline: a checked-in file with a reason and an owner,
 never an inline `#[allow]`.
@@ -371,7 +368,7 @@ predicate suffices: `place_reports_local.reporter`, `camera_reel`,
 `transactions.user_address`. Not on `community_requests`, where the policy needs an
 `EXISTS` subquery against `community_members` on every write.
 
-The measured constraints, none of which are optional:
+Measured constraints, none optional:
 
 - Services run `sqlx::migrate!` at boot, so the runtime role *owns* its tables and plain
   `ENABLE ROW LEVEL SECURITY` is a complete no-op for it. `FORCE` is mandatory, and then
@@ -388,10 +385,9 @@ The measured constraints, none of which are optional:
   explicit transaction, which every one of the 569 `.execute(&state.pool)` sites is.
 
 Converting the write path to explicit transactions, not writing the policies, is the
-dominant cost. That is why this is a backstop for raw SQL that escapes Stages 2-3, not a
-primary control. Gate any adoption on a `pg_catalog` drift test asserting
-`relrowsecurity AND relforcerowsecurity` plus a complete `pg_policy.polcmd` set for every
-registered table.
+dominant cost -- hence a backstop for raw SQL that escapes Stages 2-3, not a primary
+control. Gate any adoption on a `pg_catalog` drift test asserting `relrowsecurity AND
+relforcerowsecurity` plus a complete `pg_policy.polcmd` set for every registered table.
 
 Typed request bodies and the spec lint. Thirty-eight of 72 mutating operations export
 `"schema": {}`. Typing them with `#[serde(deny_unknown_fields)]` is independently valuable
@@ -402,42 +398,38 @@ shadow rule have anything to detect. Do not sequence anything behind it.
 ## Rejected, with reasons
 
 The generic `Authorized<Scope, Capability>` + `ScopedUpdate` framework. Its
-`PathScope<S>` extractor, which is the part that closes "proved the wrong scope," is
-constructible only from an axum route parameter. The single confirmed instance of the bug
-is reachable from `rest/fed/consumer.rs:399`, off a gossip queue, where the scope
-legitimately lives in the body and there is no path at all. The escape hatch for that case
-degenerates back to a function argument -- which is Stage 2b, at a fraction of the cost.
-Beyond that: all 1266 queries are runtime `sqlx::query()` with zero `query!` macros, and
-`Query::bind<T: Encode>` erases the newtype at the call, so the builder must own the SQL
-text to bite; 222 `AssertSqlSafe` sites already route around any such builder; and its own
-authors note that a half-adopted capability scheme, with `Authorized` values minted in one
-crate and carried as decoration in another, is worse than none.
+`PathScope<S>` extractor, the part that closes "proved the wrong scope," is constructible
+only from an axum route parameter, and the single confirmed instance of the bug is
+reachable from `rest/fed/consumer.rs:399` off a gossip queue, where the scope legitimately
+lives in the body and there is no path at all. The escape hatch for that case degenerates
+back to a function argument -- Stage 2b, at a fraction of the cost. Beyond that: all 1266
+queries are runtime `sqlx::query()` with zero `query!` macros, and `Query::bind<T: Encode>`
+erases the newtype at the call, so the builder must own the SQL text to bite; 222
+`AssertSqlSafe` sites already route around any such builder; and its own authors note that
+a half-adopted capability scheme, with `Authorized` values minted in one crate and carried
+as decoration in another, is worse than none.
 
 `ParentSlot<S>` -- a DTO field that deserializes and discards. Zero path-parameter /
 body-field shadowing hits across 136 operations, and zero is the structurally correct
 answer: axum's `Path<T>` and `Json<T>` are separate typed extractors, so the merged
-request object that carried the upstream bug has no Rust analogue. It defends against a
-TypeScript-shaped defect in a codebase that cannot express it.
+request object that carried the upstream bug has no Rust analogue.
 
-Compile-time `sqlx::query!` -- verifies that SQL parses, that bind types match, and
-that result columns match the schema. It has no notion of authorization; `WHERE id = $1`
-type-checks perfectly. Its one genuine benefit is forcing query text to be a literal, and
-that guarantee is already defeated in 222 places.
+Compile-time `sqlx::query!` verifies that SQL parses, that bind types match, and that
+result columns match the schema; it has no notion of authorization. Its one genuine
+benefit, forcing query text to be a literal, is already defeated in 222 places.
 
 `dylint` -- the only route to typed resolution of route registration and to the
-interprocedural taint that the `INSERT` half of the class needs. `flake.nix` pins
+interprocedural taint the `INSERT` half of the class needs. `flake.nix` pins
 `rust-bin.stable."1.97.1"`, which does not carry `rustc-dev`; adopting it means a second
 nightly pin bumped in lockstep and a lint crate that breaks on rustc internal API churn.
 Revisit only if Stage 3 has proven itself and is being maintained.
 
-Rule "path parameter never reaches the write" -- 5 flags, 5 false positives, 100%. This
-codebase uses a ports layer, so the handler passes the path binding as a named argument and
-the `.bind()` lives in another file. Not shippable without the interprocedural analysis
+Rule "path parameter never reaches the write" -- 5 flags, 5 false positives. This codebase
+uses a ports layer, so the handler passes the path binding as a named argument and the
+`.bind()` lives in another file. Not shippable without the interprocedural analysis
 `dylint` gates on.
 
 ## Residual risk
-
-What still gets through after all of the above, and what covers it.
 
 - The `INSERT` half of the class -- the exact upstream shape. Sixty-one
   handler-reachable `INSERT`s write a tenancy column and the taint rule found zero of
@@ -505,11 +497,12 @@ What still gets through after all of the above, and what covers it.
 ## Verified at `fafde9633` (2026-07-29)
 
 Every claim below carries the commit it was checked at. A date alone does not say
-whether the code moved underneath it -- a bullet in the previous revision, dated
-2026-07-26, said `scene_adapter.rs:210` was unfixed with a red test against it; the fix
-had landed the next day in `6a5c92069`, and the stale bullet was relayed onward as
-verified fact more than once. Re-check before citing, stamp the sha you re-checked at,
-and never cite this section without reading the file it names.
+whether the code moved underneath it: the previous revision's 2026-07-26 bullet called
+`scene_adapter.rs:210` unfixed after the fix had landed in `6a5c92069`, and it was
+relayed onward as verified fact more than once.
+Re-check before citing.
+Stamp the sha you re-checked at.
+Never cite this section without reading the file it names.
 
 - (`fafde9633`) `HEAD` `apply.rs:589` reproduces the upstream shape exactly; the
   `AND community_id = $3` predicate remains silent on a freshly minted id, returning 200
@@ -525,9 +518,8 @@ and never cite this section without reading the file it names.
 - (`fafde9633`) `rest/handlers/client/requests.rs:162` is still unfixed on `main`: the
   `UPDATE community_requests ... WHERE id = $1` carries no `community_id` predicate. A fix
   is in flight on the `authz/signer-newtype` lane (`0398709cc`), unmerged as of this stamp.
-- (`fafde9633`) `MetaTxSender` (`catalyrst-economy/src/ports/transaction.rs:205`) is a
-  private-field newtype minted only by calldata recovery -- the `Signer` pattern, already
-  in-tree.
+- (`fafde9633`) `MetaTxSender` (`catalyrst-economy/src/ports/transaction.rs:205`) is as
+  described above: a private-field newtype minted only by calldata recovery.
 - (`fafde9633`) Workspace measurements: 49 crates, sqlx 0.9, 0 `query!` macros, 222
   `AssertSqlSafe` sites, 594 `.execute(` sites against 59 `rows_affected` mentions,
   39 `try_extract_signer` references, `clippy.toml` holding a single line. (Was 569 and
@@ -535,6 +527,5 @@ and never cite this section without reading the file it names.
 - (`fafde9633`) Five crates carry `tests/contract_gate.rs`; three are in `OPENAPI_CRATES`.
   `catalyrst-comms` and `catalyrst-economy` have no `utoipa` dependency.
 - (`fafde9633`) `COMMS_GATEKEEPER_AUTH_TOKEN` is absent from the deployment's
-  `catalyrst-comms` env file and commented out in its template, and `voice_auth_layer`
-  fails closed there: 503 on every bearer-gated route, pinned by
-  `tests/voice_auth_fail_closed.rs` (green). Voice is off in that configuration, not open.
+  `catalyrst-comms` env file and commented out in its template, so `voice_auth_layer`
+  fails closed there (above). Voice is off in that configuration, not open.

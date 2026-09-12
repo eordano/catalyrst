@@ -1,10 +1,9 @@
 //! The mirrored tables, and nothing else.
 //!
-//! `WorldsComponent` is one struct with ~40 methods over the local pool. If remote
-//! rows lived in it, `state.worlds.get_world(name)` could reach them. They cannot,
-//! because this is a different type with a different method set: no method returns a
-//! [`crate::ports::worlds::WorldRecord`], no method issues a write against `worlds` or
-//! `world_scenes`, and there is no `get_permission_records`, no `store_access`, and no
+//! Deliberately a different type from `WorldsComponent`, so remote rows are
+//! unreachable through it: no method here returns a
+//! [`crate::ports::worlds::WorldRecord`], none writes `worlds` or `world_scenes`, and
+//! there is no `get_permission_records`, `store_access` or
 //! `create_basic_world_if_not_exists`.
 
 use chrono::{DateTime, Utc};
@@ -19,16 +18,11 @@ const UPSERT_CHUNK: usize = 500;
 
 /// One world a peer reports holding.
 ///
-/// This is **not** [`crate::ports::worlds::WorldRecord`] with a flag, and the
-/// difference is not stylistic. `WorldRecord` carries `owner: Option<String>` and five
-/// independent call sites compare it to a signer with `eq_ignore_ascii_case`
-/// (`permissions.rs` twice, `comms.rs`, `scenes.rs`, `world_settings.rs`). An
-/// `is_remote: bool` on `WorldRecord` would mean all five must remember to check it,
-/// forever, including the sixth someone adds next quarter. A type with no `owner`
-/// field cannot be fed to any of them.
-///
-/// Also absent: `access`, `blocked_since`, `deployment_auth_chain`, `deployer`. Those
-/// are local operator state and local proof; a peer has neither.
+/// Deliberately not [`crate::ports::worlds::WorldRecord`] with an `is_remote` flag: no
+/// `owner` field means it cannot be fed to the five call sites that compare
+/// `WorldRecord::owner` to a signer (`permissions.rs` twice, `comms.rs`, `scenes.rs`,
+/// `world_settings.rs`). Also absent: `access`, `blocked_since`,
+/// `deployment_auth_chain`, `deployer` -- local operator state a peer has none of.
 #[derive(Debug, Clone)]
 pub struct RemoteWorld {
     pub peer_id: PeerId,
@@ -37,21 +31,19 @@ pub struct RemoteWorld {
     pub description: Option<String>,
     pub content_rating: Option<String>,
     pub categories: Option<Vec<String>>,
-    /// An opaque label the peer printed. We hold no bytes for it and never fetch them
-    /// in this slice; `/contents/{hash}` is untouched and `contents_dir` gains nothing.
+    /// An opaque label the peer printed; we hold no bytes for it and never fetch them.
     pub thumbnail_hash: Option<String>,
     pub deployed_scenes: i64,
     pub last_deployed_at: Option<DateTime<Utc>>,
     pub observed_at: DateTime<Utc>,
-    /// LOCAL operator veto. Ours, not the peer's. The poller never writes this column,
-    /// so a peer cannot un-hide itself by re-listing.
+    /// Local operator veto. The poller never writes this column, so a peer cannot
+    /// un-hide itself by re-listing.
     pub hidden_since: Option<DateTime<Utc>>,
 }
 
 impl RemoteWorld {
-    /// What `/federation/worlds/mirror` prints for this row. Defined here so the
-    /// no-ownership-leak test in [`crate::fed::wire`] can assert against the exact
-    /// bytes a client receives.
+    /// Here rather than in the handler so the no-ownership-leak test in
+    /// [`crate::fed::wire`] can assert the exact bytes a client receives.
     pub fn as_published_view(&self) -> crate::fed::handlers::RemoteWorldView {
         crate::fed::handlers::RemoteWorldView {
             peer_id: self.peer_id.as_str().to_string(),
@@ -67,8 +59,7 @@ impl RemoteWorld {
         }
     }
 
-    /// [`Self::as_published_view`], consuming: moves the owned fields into the view instead of
-    /// cloning them. For callers that drop the row right after. Same JSON.
+    /// [`Self::as_published_view`] by move rather than clone. Same JSON.
     pub fn into_published_view(self) -> crate::fed::handlers::RemoteWorldView {
         crate::fed::handlers::RemoteWorldView {
             peer_id: self.peer_id.as_str().to_string(),
@@ -85,8 +76,8 @@ impl RemoteWorld {
     }
 }
 
-/// The multi-row UPSERT for one chunk. Binds borrow from `chunk` rather than cloning every
-/// row's owned fields; SQL text, bind order and placeholder count are unchanged.
+/// SQL text, bind order and placeholder count match the older cloning builder
+/// (asserted in tests).
 fn build_upsert_chunk_query(chunk: &[RemoteWorld]) -> QueryBuilder<sqlx::Postgres> {
     let mut qb = QueryBuilder::new(
         "INSERT INTO remote_worlds (peer_id, world_name, title, description, \
@@ -105,7 +96,6 @@ fn build_upsert_chunk_query(chunk: &[RemoteWorld]) -> QueryBuilder<sqlx::Postgre
             .push_bind(w.last_deployed_at)
             .push_bind(w.observed_at);
     });
-    // hidden_since is absent from the UPDATE arm on purpose.
     qb.push(
         " ON CONFLICT (peer_id, world_name) DO UPDATE SET \
            title            = EXCLUDED.title, \
@@ -120,16 +110,10 @@ fn build_upsert_chunk_query(chunk: &[RemoteWorld]) -> QueryBuilder<sqlx::Postgre
     qb
 }
 
-/// The admitted peer ids, canonical, as SQL bind material.
-///
-/// The single conversion from "the allowlist" to "the array every mirror query is
-/// filtered by", so the read path and the revocation sweep cannot disagree about what
-/// admitted means. It takes the allowlist **object**, not a list of strings: there is
-/// no way to call a mirror query with an id set that did not come out of admission.
-///
-/// [`WorldsFederationPeers::NotConfigured`] yields an empty vector, and an empty
-/// `= ANY(...)` matches nothing. That is the fail-closed direction: with no adjudicated
-/// allowlist, nothing is publishable.
+/// The single conversion from "the allowlist" to "the array every mirror query filters
+/// by". Takes the allowlist object, so no id set reaches a mirror query without passing
+/// admission. [`WorldsFederationPeers::NotConfigured`] yields an empty vector, and an
+/// empty `= ANY(...)` matches nothing -- fail-closed.
 fn admitted_ids(admitted: &WorldsFederationPeers) -> Vec<String> {
     admitted
         .peers()
@@ -138,12 +122,9 @@ fn admitted_ids(admitted: &WorldsFederationPeers) -> Vec<String> {
         .collect()
 }
 
-/// Health of one peer's mirror, as recorded by the poller.
-///
-/// The point of this row is that "we have never reached this peer" and "this peer
-/// holds no worlds" are different observable states. A caller that sees
-/// `last_success_at: None` knows the empty listing under that peer is an absence of
-/// knowledge, not knowledge of an absence.
+/// Health of one peer's mirror, as recorded by the poller. Keeps "never reached" and
+/// "holds no worlds" distinguishable: `last_success_at: None` means an empty listing
+/// under that peer is absence of knowledge, not knowledge of absence.
 #[derive(Debug, Clone)]
 pub struct RemotePeerStatus {
     pub peer_id: String,
@@ -153,74 +134,58 @@ pub struct RemotePeerStatus {
     pub worlds_observed: i64,
     pub entries_skipped: i64,
     pub truncated: bool,
-    /// Set by [`RemoteWorldsComponent::revoke_peers_no_longer_admitted`] when this peer
-    /// left the allowlist, cleared when it comes back. This is the bounded half of the
-    /// revocation record: the per-world rows are deleted, this row says that they were
-    /// and when.
+    /// Set when this peer left the allowlist, cleared when it comes back. The bounded
+    /// half of the revocation record -- the per-world rows are deleted.
     pub deadmitted_at: Option<DateTime<Utc>>,
-    /// Cumulative rows destroyed by de-admission sweeps. Not served on any route; it is
-    /// the operator's answer to "what did we stop publishing, and how much of it".
+    /// Cumulative rows destroyed by de-admission sweeps. Not served on any route.
     pub deadmitted_worlds_deleted: i64,
 }
 
-/// Why the sweep stopped publishing a peer. Both delete the peer's rows; they are
-/// different events, and a caller that cannot tell them apart will report the wrong one.
+/// Both delete the peer's rows, but they are different events and must be reported
+/// differently.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SweptBecause {
-    /// The entry is gone from the peer file. This is the DAO revocation the sweep exists
-    /// to enforce.
+    /// The entry is gone from the peer file -- the DAO revocation the sweep enforces.
     NoLongerInTheAllowlist,
-    /// The entry is still in the file, DAO proposal intact, but it declares no
-    /// `worlds_url` -- so it is not a worlds peer and nothing should publish rows for it.
-    /// Deleting them is right; calling it a de-admission is not, and it sends an
-    /// operator looking for a governance decision that never happened.
+    /// The entry is still in the file, DAO proposal intact, but declares no
+    /// `worlds_url`, so it is not a worlds peer. Its rows go, but this is not a
+    /// de-admission and must not be reported as one.
     StillListedButRunsNoWorldsServer,
 }
 
-/// One peer the boot sweep stopped publishing.
 #[derive(Debug, Clone)]
 pub struct RevokedPeer {
     pub peer_id: String,
-    /// Which of the two sweep reasons applies. Carried in the value rather than only in
-    /// the log line, so a caller reporting this to anyone else reports it correctly.
     pub because: SweptBecause,
-    /// Rows destroyed for this peer by this sweep. Also accumulated into
-    /// `remote_peer_status.deadmitted_worlds_deleted`, which is where it survives.
+    /// Also accumulated into `remote_peer_status.deadmitted_worlds_deleted`, where it
+    /// survives.
     pub worlds_deleted: i64,
-    /// Up to twenty names, for the log line. Deliberately not all of them and
-    /// deliberately not stored: the full list is unbounded, and a table that grows
-    /// without limit is the cost a tombstone would have imposed.
+    /// Up to twenty names, for the log line. Not all of them and not stored: the full
+    /// list is unbounded.
     pub sample_world_names: Vec<String>,
 }
 
-/// What [`RemoteWorldsComponent::revoke_peers_no_longer_admitted`] did.
-///
-/// Two states rather than a report with a `ran: bool`, for the reason this module keeps
-/// making: "there was no allowlist to enforce" and "the allowlist was enforced and
-/// nothing had to change" are different facts, and a caller that cannot tell them apart
-/// will eventually treat the first as the second.
+/// Two states rather than a `ran: bool`, so "no allowlist to enforce" and "enforced,
+/// nothing changed" stay distinguishable.
 #[derive(Debug, Clone)]
 pub enum Revocation {
-    /// `WORLDS_FED_PEERS_FILE` is unset. Nothing was read, nothing was written, and
-    /// nothing is publishable: the routes answer 503 and [`RemoteWorldsComponent::list_mirror`]
-    /// filters against an empty admitted set.
+    /// `WORLDS_FED_PEERS_FILE` is unset. Nothing read, nothing written, nothing
+    /// publishable: the routes answer 503 and
+    /// [`RemoteWorldsComponent::list_mirror`] filters against an empty admitted set.
     NoAllowlistToEnforce,
     Swept {
-        /// Peers whose rows were destroyed. Empty on a boot where nothing changed.
         revoked: Vec<RevokedPeer>,
-        /// Peers whose de-admission tombstone was cleared because they are in the file
-        /// again. Their worlds come back only as the poller re-observes them.
+        /// Tombstone cleared because they are in the file again. Their worlds come back
+        /// only as the poller re-observes them.
         readmitted: Vec<String>,
         worlds_deleted: u64,
-        /// Rows left in place because they are under a local operator veto, and are
-        /// therefore published by nothing regardless of admission.
+        /// Left in place under a local operator veto, so published by nothing
+        /// regardless of admission.
         vetoed_rows_retained: i64,
     },
 }
 
 impl Revocation {
-    /// Rows this sweep stopped publishing. `0` for
-    /// [`Self::NoAllowlistToEnforce`] -- which is true: it published nothing to stop.
     pub fn worlds_deleted(&self) -> u64 {
         match self {
             Self::NoAllowlistToEnforce => 0,
@@ -228,7 +193,7 @@ impl Revocation {
         }
     }
 
-    /// The de-admitted peer ids, sorted, or empty when there was no allowlist.
+    /// Sorted; empty when there was no allowlist.
     pub fn revoked_peer_ids(&self) -> Vec<&str> {
         match self {
             Self::NoAllowlistToEnforce => Vec::new(),
@@ -248,15 +213,9 @@ impl RemoteWorldsComponent {
         Self { pool }
     }
 
-    /// Replace exactly one peer's rows, in one transaction.
-    ///
-    /// Any failure rolls the whole thing back and the peer's previous rows survive
-    /// intact -- there is never a partially-replaced peer view, and a failed poll never
-    /// degrades into an empty listing.
-    ///
-    /// `hidden_since` is preserved: the `DELETE` spares vetoed rows and the `UPDATE`
-    /// arm of the upsert does not name the column. That is what makes the veto
-    /// something a peer cannot revoke.
+    /// One transaction, so a failed poll rolls back intact rather than degrading into
+    /// an empty listing. `hidden_since` is preserved -- the `DELETE` spares vetoed rows
+    /// and the `UPDATE` arm does not name the column -- so a peer cannot revoke a veto.
     pub async fn replace_peer_worlds(
         &self,
         peer_id: &PeerId,
@@ -277,65 +236,28 @@ impl RemoteWorldsComponent {
         tx.commit().await
     }
 
-    /// Stop publishing every peer that is no longer in the allowlist. **Boot only.**
+    /// Stop publishing every peer no longer in the allowlist. **Boot only**; this is
+    /// what makes "remove the entry, restart" revoke anything.
     ///
-    /// This is the line that makes the spec's revocation mechanism -- remove the entry,
-    /// restart -- actually revoke something. Before it existed, `remote_worlds` rows were
-    /// written per `peer_id` and never compared to the admitted set, so a peer the DAO
-    /// had dropped kept being served under our origin, attributed to a peer id that
-    /// `/federation/worlds/peers` no longer listed and that `?peer=` answered 404 for.
+    /// Per-world rows are **deleted**, not tombstoned: they are unbounded, so a
+    /// per-world tombstone is a table that only grows and that every mirror query then
+    /// filters. The audit trail lives one level up, bounded --
+    /// `remote_peer_status.deadmitted_at` and `deadmitted_worlds_deleted` (migration
+    /// 0006); the unbounded world names go to the log line.
     ///
-    /// # DELETE, not a tombstone -- at this granularity
+    /// Rows under a local operator veto (`hidden_since IS NOT NULL`) are spared, as in
+    /// [`Self::replace_peer_worlds`]: nothing publishes them, and deleting them would
+    /// silently republish a vetoed world on re-admission.
     ///
-    /// Per-world rows are **deleted**. They are unbounded in both directions: a peer may
-    /// hold tens of thousands of worlds, and there is no ceiling on how many peers pass
-    /// through the file over a deployment's life, so a tombstone per world is a table
-    /// that only grows and that every mirror query then has to filter.
+    /// Unset `WORLDS_FED_PEERS_FILE` is not "admit nobody": it returns
+    /// [`Revocation::NoAllowlistToEnforce`] without writing, so a typo'd env var cannot
+    /// destroy every mirrored row (nothing is published in that state anyway). A file
+    /// that was read and admitted nobody *does* sweep everything.
     ///
-    /// The audit trail a bare DELETE would lose is kept one level up, where it is
-    /// bounded: `remote_peer_status` already holds exactly one row per peer we have ever
-    /// contacted, and migration 0006 adds `deadmitted_at` and
-    /// `deadmitted_worlds_deleted` to it. After a sweep the database still says that we
-    /// published this peer, when we stopped, how many rows that destroyed, when we last
-    /// heard from it successfully, and how much it was serving. The world **names** --
-    /// the unbounded part -- go to the log line below, which is where an unbounded list
-    /// belongs.
-    ///
-    /// # What is spared, and why
-    ///
-    /// Rows under a local operator veto (`hidden_since IS NOT NULL`) are left in place,
-    /// exactly as [`Self::replace_peer_worlds`] leaves them. The veto is the one thing in
-    /// this table that is **ours** rather than the peer's, it took a deliberate admin
-    /// action to record, and those rows are not published by any query in this file. If
-    /// the sweep deleted them, a peer that was later re-admitted would silently get a
-    /// world we had vetoed published again. They are bounded by operator actions, not by
-    /// peer content.
-    ///
-    /// # Not configured is not the same as admitting nobody
-    ///
-    /// With `WORLDS_FED_PEERS_FILE` unset there is no adjudicated allowlist, so there is
-    /// nothing to enforce and this returns [`Revocation::NoAllowlistToEnforce`] without
-    /// writing. Unsetting an environment variable is a local operator mistake away from
-    /// destroying every mirrored row, and it revokes nothing: all four federation routes
-    /// already answer 503 in that state, and [`Self::list_mirror`] filters against an
-    /// empty admitted set. Nothing is published either way, so the destructive branch
-    /// runs only when a real file was read and adjudicated.
-    ///
-    /// A file that *was* adjudicated and admitted nobody is a different statement -- we
-    /// federate with no one -- and that case does sweep everything.
-    ///
-    /// # What this does not do, stated plainly
-    ///
-    /// It is a boot sweep, and it speaks only for **this** process. During a rolling
-    /// deploy the previous process is still running with the previous allowlist, and its
-    /// poller will happily re-insert rows for a peer this one has just revoked. Those
-    /// rows are never published by this process -- [`Self::list_mirror`] filters them out
-    /// on every request, which is the entire reason the read path does not depend on this
-    /// sweep -- but they do sit in the table until the old process exits and something
-    /// sweeps again. They are storage, not publication. The old process, meanwhile, keeps
-    /// publishing that peer until it exits, because it has a different allowlist; that is
-    /// a property of running two versions at once, not something a query in this file can
-    /// fix.
+    /// It speaks only for **this** process: during a rolling deploy the old process
+    /// keeps re-inserting and publishing its peers until it exits. Those rows are
+    /// storage, not publication -- [`Self::list_mirror`] filters them on every request,
+    /// which is why the read path does not depend on this sweep.
     pub async fn revoke_peers_no_longer_admitted(
         &self,
         admitted: &WorldsFederationPeers,
@@ -348,29 +270,6 @@ impl RemoteWorldsComponent {
             );
             return Ok(Revocation::NoAllowlistToEnforce);
         }
-        // A peer file that names NOBODY AT ALL does not sweep.
-        //
-        // `peer_id <> ALL('{}')` is true for every row, so proceeding on an empty
-        // admitted set deletes the entire mirror for every peer at once. A file that
-        // parses to zero entries is reachable by accident in at least three ways:
-        // `[[peers]]` instead of `[[peer]]` (one character, and `PeerFile.peer` is
-        // `#[serde(default)]`), a truncated write, and an empty ConfigMap key.
-        // Observed before this guard: a three-row mirror went to zero and the process
-        // then served normally.
-        //
-        // The deliberate version of that state -- "federation is on, we trust nobody" --
-        // is indistinguishable from the accidental one at this point, so this refuses
-        // rather than guessing. Nothing is published either way: `list_mirror` filters
-        // against the same empty admitted set, so the rows are retained and
-        // unreachable. Revoking every peer on purpose is done by removing them
-        // individually, or through the veto route.
-        //
-        // The test is on the whole file, not on `admitted_ids`. A file that names
-        // peers, all of which are `Omitted` for running no worlds server, admits
-        // nobody too -- but the operator did write those entries, so it is a statement
-        // rather than a typo, and it sweeps. Guarding on the empty admitted set
-        // instead would make that legitimate case undeletable and would also refuse
-        // an ordinary de-admission down to zero peers.
         if !admitted.names_any_peer() {
             tracing::warn!(
                 "worlds federation is configured but the peer file names no peers at all, \
@@ -383,12 +282,6 @@ impl RemoteWorldsComponent {
             return Ok(Revocation::NoAllowlistToEnforce);
         }
 
-        // The peer ids the file names but did NOT admit, because they run no worlds
-        // server. Their rows still go -- they are not worlds peers, and nothing should
-        // publish rows for a peer that has stopped being one -- but the reason is
-        // different from a de-admission, and the log below says so. Reading a boot log
-        // after clearing a `worlds_url` used to report that the DAO had dropped a peer
-        // it had not dropped.
         let omitted_ids: std::collections::HashSet<String> = admitted
             .omitted()
             .iter()
@@ -401,9 +294,6 @@ impl RemoteWorldsComponent {
 
         let mut tx = self.pool.begin().await?;
 
-        // What is about to be destroyed, per peer, read BEFORE destroying it. A sample
-        // of names is carried into the log so the deletion is legible to whoever reads
-        // the boot output; the count is what survives in the database.
         let doomed = sqlx::query(
             "SELECT peer_id, count(*) AS n, (array_agg(world_name ORDER BY world_name))[1:20] \
                     AS sample \
@@ -447,9 +337,6 @@ impl RemoteWorldsComponent {
         .fetch_one(&mut *tx)
         .await?;
 
-        // Tombstone every peer we have a status row for and no longer admit. `COALESCE`
-        // keeps the FIRST de-admission timestamp: the interesting date is when we
-        // stopped publishing it, not when we last rebooted.
         sqlx::query(
             "UPDATE remote_peer_status SET deadmitted_at = COALESCE(deadmitted_at, now()) \
              WHERE peer_id <> ALL($1)",
@@ -458,10 +345,6 @@ impl RemoteWorldsComponent {
         .execute(&mut *tx)
         .await?;
 
-        // ...and record the destroyed count against it. This is an upsert rather than an
-        // UPDATE because a peer can have mirrored rows with no status row at all, and
-        // "we deleted 1,551 rows attributed to a peer we have no record of contacting"
-        // is precisely the fact that must not evaporate.
         for peer in &revoked {
             sqlx::query(
                 "INSERT INTO remote_peer_status \
@@ -478,8 +361,6 @@ impl RemoteWorldsComponent {
             .await?;
         }
 
-        // Re-admission clears the tombstone, so `deadmitted_at IS NOT NULL` keeps meaning
-        // "we are not publishing this peer" rather than "we once weren't".
         let readmitted: Vec<String> = sqlx::query_scalar(
             "UPDATE remote_peer_status SET deadmitted_at = NULL \
              WHERE peer_id = ANY($1) AND deadmitted_at IS NOT NULL \
@@ -492,10 +373,6 @@ impl RemoteWorldsComponent {
         tx.commit().await?;
 
         for peer in &revoked {
-            // Two ways to be swept, and they are not the same event. Saying "no longer
-            // in the allowlist" about a peer that IS in the file, with its DAO proposal
-            // intact, sends an operator looking for a governance decision that never
-            // happened.
             if peer.because == SweptBecause::StillListedButRunsNoWorldsServer {
                 tracing::warn!(
                     peer_id = %peer.peer_id,
@@ -549,26 +426,17 @@ impl RemoteWorldsComponent {
         })
     }
 
-    /// Vetoed rows are excluded, and so is every row belonging to a peer that is not in
-    /// `admitted`. `peer` is an admitted [`PeerId`], never a raw query string: the
-    /// handler resolves the `?peer=` parameter against the admitted set before it gets
-    /// here, so an unknown peer yields "no such peer", not a scan.
+    /// Vetoed rows are excluded, and so is every row from a peer not in `admitted`.
+    /// `peer` is an admitted [`PeerId`], never a raw query string -- the handler
+    /// resolves `?peer=` against the admitted set first, so an unknown peer yields "no
+    /// such peer", not a scan.
     ///
-    /// # Why the allowlist is a parameter and not an assumption
-    ///
-    /// The boot sweep ([`Self::revoke_peers_no_longer_admitted`]) deletes the rows of a
-    /// peer that has left the file, and this predicate refuses to publish them. Those
-    /// are two independent mechanisms on two different paths -- one write, one read --
-    /// and the audit's point was that publication must not rest on either alone. If the
-    /// sweep is skipped, mis-ordered against the first request, or defeated by a second
-    /// process writing to the same database, a de-admitted peer's rows are still not
-    /// served, because this query never asked for them.
-    ///
-    /// It also makes the two federation routes structurally incapable of disagreeing.
-    /// `GET /federation/worlds/mirror` renders its `peers[]` health block from
-    /// `state.fed_peers` and passes **that same value** here, in the same request, so
-    /// the set of peers that can contribute a row and the set of peers that get a status
-    /// line are one value read twice -- not two copies that could drift.
+    /// The allowlist is a parameter rather than an assumption so publication does not
+    /// rest on the boot sweep alone: if [`Self::revoke_peers_no_longer_admitted`] is
+    /// skipped, mis-ordered against the first request, or defeated by a second process
+    /// on the same database, a de-admitted peer's rows are still never served. It also
+    /// keeps `GET /federation/worlds/mirror`'s `peers[]` block and its rows from
+    /// drifting -- both read the one `state.fed_peers` value in that request.
     pub async fn list_mirror(
         &self,
         admitted: &WorldsFederationPeers,
@@ -608,9 +476,6 @@ impl RemoteWorldsComponent {
         let mut out = Vec::with_capacity(rows.len());
         for row in rows {
             let stored_name: String = row.try_get("world_name")?;
-            // The CHECK constraint guarantees the shape that produced the row, so a
-            // value that no longer parses means the table was edited out of band.
-            // Fail closed: omit the row rather than publish an unadjudicated name.
             let Some(name) = RemoteWorldName::from_peer_listing(&stored_name) else {
                 tracing::error!(
                     stored_name = %stored_name.escape_debug(),
@@ -636,9 +501,8 @@ impl RemoteWorldsComponent {
         Ok((out, total))
     }
 
-    /// Local operator veto. Returns `false` when no such mirrored row exists, which
-    /// the handler turns into a 404 -- hiding is never reported as having happened to
-    /// a row that is not there.
+    /// Local operator veto. `false` when no such mirrored row exists, which the handler
+    /// turns into a 404.
     pub async fn set_hidden(
         &self,
         peer_id: &PeerId,
@@ -697,9 +561,8 @@ impl RemoteWorldsComponent {
         Ok(())
     }
 
-    /// `last_success_at` is deliberately left alone: a failed poll must make the
-    /// mirror look *stale*, not empty, and staleness is exactly the gap between
-    /// `last_attempt_at` and `last_success_at`.
+    /// `last_success_at` is deliberately left alone: a failed poll must make the mirror
+    /// look stale, not empty, and staleness is the gap between the two timestamps.
     pub async fn record_failure(&self, peer_id: &PeerId, error: &str) -> Result<(), sqlx::Error> {
         let clipped: String = error.chars().take(500).collect();
         sqlx::query(
@@ -741,17 +604,12 @@ impl RemoteWorldsComponent {
     }
 }
 
-/// A **read-only** probe over the local `worlds` table.
+/// A **read-only** probe over the local `worlds` table: the one place in `fed/` whose
+/// SQL names `worlds`, a `SELECT name` whose result decides only what to log.
 ///
-/// This is the one place in `fed/` whose SQL names `worlds`, it is a `SELECT name`,
-/// and its result decides exactly one thing: what to write to the log. It never
-/// filters, alters or suppresses a mirrored row, and it never flows into an
-/// authorization decision.
-///
-/// It is a separate type from [`RemoteWorldsComponent`] so that "the mirror store" and
-/// "the thing allowed to look at local names" are not the same object, and so the
-/// source gate in [`crate::fed::wire`] -- which forbids any INSERT/UPDATE/DELETE
-/// against `worlds` anywhere under `fed/` -- has a single, obvious exception to police.
+/// Separate from [`RemoteWorldsComponent`] so the source gate in [`crate::fed::wire`]
+/// -- which forbids INSERT/UPDATE/DELETE against `worlds` anywhere under `fed/` -- has
+/// a single obvious exception to police.
 #[derive(Clone)]
 pub struct LocalNameCollisionProbe {
     pool: PgPool,
@@ -762,18 +620,13 @@ impl LocalNameCollisionProbe {
         Self { pool }
     }
 
-    /// Which of these peer-reported names also exist as local worlds.
+    /// Nothing is resolved here -- local always wins structurally (`/worlds` reads
+    /// `worlds`, `/federation/worlds/mirror` reads `remote_worlds`, and
+    /// `resolve_world_owner` takes a [`crate::fed::names::LocalWorldName`] that cannot
+    /// be minted here). This only lets an operator see the collision.
     ///
-    /// Local wins, structurally and everywhere: `/worlds` reads `worlds`,
-    /// `/federation/worlds/mirror` reads `remote_worlds`, and `resolve_world_owner`
-    /// takes a [`crate::fed::names::LocalWorldName`] that cannot be minted from here.
-    /// Nothing is *resolved* by this call. It exists so an operator can **see** that a
-    /// peer is publishing a name we also hold, which is otherwise invisible until
-    /// somebody wonders why two servers list the same world.
-    ///
-    /// Returns the raw local strings rather than `LocalWorldName`, because these came
-    /// from a table read and not from a request path, and the constructor's name is
-    /// load-bearing. They are log material, nothing more.
+    /// Raw strings rather than `LocalWorldName` because they came from a table read, not
+    /// a request path; they are log material.
     pub async fn local_names_also_claimed(
         &self,
         peer_reported: &[RemoteWorldName],
@@ -897,14 +750,12 @@ mod tests {
             serde_json::to_value(full.as_published_view()).unwrap(),
         );
 
-        // All-None optionals: categories must serialize as [] in both.
         let bare = row("bare.dcl.eth", None, None, None, None, None);
         assert_eq!(
             serde_json::to_value(bare.clone().into_published_view()).unwrap(),
             serde_json::to_value(bare.as_published_view()).unwrap(),
         );
 
-        // Zero-copy proof: the String/Vec buffers are MOVED, not cloned.
         let moved = row(
             "z.dcl.eth",
             Some("keep-title"),

@@ -52,8 +52,6 @@ impl World {
         self.connect_listener_multi(id, wallet, &[(realm, parcels)]);
     }
 
-    // The shape a server cohosting several worlds announces, where the same parcel index means a
-    // different place in each realm.
     fn connect_listener_multi(&mut self, id: u32, wallet: &str, aoi: &[(&str, &[i32])]) {
         self.identity.set(id, wallet.into());
         let mut st = PeerState::new(PeerConnectionState::Authenticated, 0);
@@ -62,7 +60,6 @@ impl World {
         self.peers.insert(id, st);
     }
 
-    // Mirrors the server's SceneListenerUpdate swap: a whole fresh descriptor, never a mutation.
     fn reassign_listener(&mut self, id: u32, aoi: &[(&str, &[i32])]) {
         self.peers.get_mut(&id).unwrap().scene_listener = Some(Arc::new(listener_state(aoi)));
     }
@@ -102,8 +99,6 @@ impl World {
     }
 }
 
-// Covered over the same grid geometry the World and the server use, so the announced parcels
-// are reachable through the cells the tick walks.
 fn listener_state(aoi: &[(&str, &[i32])]) -> SceneListenerState {
     let encoder = ParcelEncoder::new(ParcelEncoderOptions::default());
     let mapper = SceneListenerCellMapper::new(&SpatialGrid::new(SPATIAL_GRID_CELL_SIZE), &encoder);
@@ -116,8 +111,6 @@ fn listener_state(aoi: &[(&str, &[i32])]) -> SceneListenerState {
     )
 }
 
-// First tick on which the sweep evicts a view last stamped at `stamped_tick`: the earliest
-// multiple of SWEEP_CHECK_INTERVAL more than VIEW_STALE_TICKS later, the sweep's worst case.
 fn first_sweep_tick_after(stamped_tick: u32) -> u32 {
     let earliest = stamped_tick + VIEW_STALE_TICKS + 1;
     let remainder = earliest % SWEEP_CHECK_INTERVAL;
@@ -240,10 +233,6 @@ fn out_of_interest_subject_is_invisible() {
     );
 }
 
-// Pins the eviction bound the two sweep constants are chosen to produce: a view survives its own
-// staleness threshold exactly (the predicate is a strict greater-than) and is gone within one
-// further check interval. Loosening either constant without re-deriving the documented
-// 3.05-4.0 s window breaks this.
 #[test]
 fn stale_view_survives_the_staleness_threshold_then_swept_within_one_check_interval() {
     let mut w = World::new();
@@ -821,7 +810,6 @@ fn joined_for(out: &[OutgoingMessage], target: u32, uid: &str) -> bool {
     })
 }
 
-// that all M of them share a baseline for.
 #[test]
 fn shared_baseline_encodes_once() {
     const M: u32 = 50;

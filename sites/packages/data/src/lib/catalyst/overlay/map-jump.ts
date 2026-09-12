@@ -25,11 +25,6 @@ export function normalizePinCategory(raw: string | null | undefined): PinCategor
 
 const nullableStr = z.string().nullish().transform((v) => v ?? null);
 
-/* `highlighted` keeps its `false` default (exempted): it is an assertion flag
- * the API sets to promote a place, so an absent flag is a place not promoted.
- * `categories`, `user_count` and `world` do not get one -- an unread headcount
- * is not an empty parcel, and an unread `world` flag would route a world's
- * visitors to a Genesis parcel instead. */
 export const PlaceRowSchema = z.object({
   id: z.string(),
   title: nullableStr,
@@ -47,11 +42,6 @@ export const PlaceRowSchema = z.object({
 
 type PlaceRow = z.infer<typeof PlaceRowSchema>;
 
-/** The generated places envelope (ts-rs image of catalyrst-places'
- *  `ApiDataTotal`), rows left unknown so each pin is salvaged per-row below.
- *  `data` is required: a body without it is not the places list, and
- *  defaulting to `[]` would draw an empty map instead of saying the read
- *  failed. */
 const PlacesEnvelopeSchema = ApiDataTotalSchema(z.unknown());
 
 export type MapPin = {
@@ -61,7 +51,6 @@ export type MapPin = {
   x: number;
   y: number;
   category: PinCategory;
-  /** null when the places API did not report a headcount */
   users: number | null;
   rating: number;
   live: boolean;
@@ -72,15 +61,9 @@ export type MapPin = {
   image: string | null;
 };
 
-/**
- * There is no fixture arm on purpose. A pin is a teleport destination: an
- * invented one sends a player to a coordinate nobody published, and it renders
- * exactly like a live one. A failed read says so and carries no pins.
- */
 export type MapJumpData = {
   pins: MapPin[];
   source: "catalyst" | "unavailable";
-  /** Set when source === "unavailable". Safe to show to a visitor. */
   reason?: string;
 };
 
@@ -155,9 +138,6 @@ export function findPinByCoords(pins: MapPin[], coords: string | null | undefine
   return pins.find((p) => p.coords === want) ?? null;
 }
 
-/** A row that carries a world name is a world unless the API said it is not.
- *  `world: null` means the flag was never read, and a world sent to
- *  `?position=` lands on an unrelated Genesis parcel. */
 export function isWorldPin(pin: MapPin): boolean {
   return pin.worldName !== null && pin.world !== false;
 }

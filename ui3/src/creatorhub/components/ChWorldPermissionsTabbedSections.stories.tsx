@@ -46,7 +46,6 @@ const meta = {
     collaborators: COLLABORATORS,
     initialTab: "access",
   },
-  // `initialTab` seeds internal state, so remount when the control changes it.
   render: (args) => <ChWorldPermissionsTabbedSections key={args.initialTab} {...args} />,
 } satisfies Meta<typeof ChWorldPermissionsTabbedSections>;
 

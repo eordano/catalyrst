@@ -1,22 +1,4 @@
 #!/usr/bin/env bash
-# coverage-tour.sh — exercise the entire user-facing dcl-one-sdk CLI surface.
-#
-# Usage: coverage-tour.sh <instrumented-bin> <workdir> [case-filter-regex]
-#   <instrumented-bin>  dcl-one-sdk built with:
-#                       RUSTFLAGS="-C instrument-coverage \
-#                         -C llvm-args=--runtime-counter-relocation \
-#                         -C llvm-args=--instrprof-atomic-counter-update-all"
-#                       (the llvm-args enable LLVM_PROFILE_FILE %c continuous
-#                       mode, so servers killed mid-run still write profiles)
-#   <workdir>           scratch dir; created; profraws land in <workdir>/profraw
-#   [case-filter-regex] run only cases whose "NN name" matches (grep -E)
-#
-# Every case is numbered and named — the driver table at the bottom doubles as
-# the case inventory for docs/coverage-tour.md. The harness, stub servers, and
-# fixture writers live in the sourced coverage-tour-lib.sh beside this script.
-# The script is offline: every network target is a local python stub or a dead
-# loopback port (ports 61000+). All spawned processes are killed on exit.
-# Exit code: number of FAILed cases (0 = all pass/skip).
 
 set -u
 
@@ -279,10 +261,8 @@ try: raw = base64.b64decode(h).decode()
 except Exception: raw = base64.urlsafe_b64decode(h).decode()
 print(raw.rsplit('-',1)[1])")
   test -n "$machine"
-  # ignored-under-root file -> 404 not-published; outside the root -> 403
   code "$base/content/contents/b64-$(printf '%s-%s' "$SCENE/package.json" "$machine" | base64 -w0)" | grep -q 404
   code "$base/content/contents/b64-$(printf '/etc/passwd-%s' "$machine" | base64 -w0)" | grep -q 403
-  # a non-preview CID (no b64- prefix) falls to the upstream proxy (dead here)
   curl -s -o /dev/null "$base/content/contents/bafkreialabala"
   curl -sf "$base/mobile-preview" | grep -q '"ok"'
   curl -sf "$base/lambdas/explore/realms" | grep -q 'stub\|realm'
@@ -773,9 +753,6 @@ c105_pack_repack_replaces_zip() {
 }
 
 c106_deploy_consent_refused_ci() {
-  # The consent gate fires only when the target comes off the real public
-  # rotation; an env rotation is treated as an explicit choice. Not reachable
-  # offline — kept in the inventory as needs-external-world.
   skip "public-network consent gate walks the real catalyst rotation"
 }
 c107_deploy_world_prompt_pty() {
@@ -971,10 +948,6 @@ c125_build_smart_chunk_missing() {
   fails "$BIN" build --dir "$d" --skip-type-check 2> "$LOGS/.c125"
   grep -qi 'smart' "$LOGS/.c125"
 }
-# Compare-only: build a golden fixture with THIS binary and check the runtime
-# harness still prints what tests/golden.rs recorded. The tour and the Rust
-# suite share the one golden file, so they cannot drift apart quietly; the tour
-# never rewrites it, which is why UPDATE_GOLDEN is absent here.
 c126_golden_runtime_compare() {
   test -n "$NODE" || skip "no node for the golden runtime harness"
   local d=$WORK/golden-cube
@@ -989,7 +962,6 @@ c126_golden_runtime_compare() {
 echo "coverage tour: bin=$BIN work=$WORK filter=$FILTER"
 setup_fixtures
 
-# The table reads on fd 9 so case commands keep their own stdin.
 while read -r n f <&9; do tcase "$n" "$f" "c${n}_${f}"; done 9<<'EOF'
 01 version
 02 help_top

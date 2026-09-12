@@ -17,12 +17,6 @@ export function meta() {
   return [{ title: "Server setup" }];
 }
 
-/**
- * Same gate as /server: ADMIN_WALLETS unset trusts the edge allowlist (the
- * module routes /server/* through the nginx superadmin gate), set requires a
- * verified operator wallet. The wizard itself is pure client-side generation
- * -- no action, nothing persisted server-side.
- */
 export async function loader({ request }: Route.LoaderArgs) {
   const raw = process.env.ADMIN_WALLETS;
   const wallets = (raw ?? "")

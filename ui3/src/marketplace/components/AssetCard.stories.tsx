@@ -75,10 +75,6 @@ const CASES: { label: string; args: Partial<CardProps> }[] = [
   },
 ];
 
-/**
- * Every rarity plus the not-for-sale card. `Default` flips between them from the Controls panel;
- * this keeps all of them in the render + a11y + visual-diff gates.
- */
 export const Catalog: Story = {
   name: "Catalog (every rarity)",
   parameters: { controls: { disable: true } },

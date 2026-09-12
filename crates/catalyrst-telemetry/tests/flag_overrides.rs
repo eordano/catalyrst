@@ -7,9 +7,6 @@ use sqlx::Row;
 use catalyrst_telemetry::handlers::dashboard;
 use catalyrst_telemetry::{build_state, AppState, Config};
 
-// Scratch database on :5434, created + dropped per run. Mirrors production:
-// schema `telemetry`, search_path=telemetry (the handlers reference
-// telemetry.* explicitly).
 struct Scratch {
     state: AppState,
     db: ScratchDb,
@@ -28,8 +25,6 @@ async fn setup() -> Option<Scratch> {
         .unwrap_or_else(|| panic!("{PG_VAR} is not a postgres URL: {url}"));
     let bare = format!("{prefix}/{}", db.database);
 
-    // FLAGS_URL unreachable => upstream config is null, so the merge reflects
-    // only operator overrides (hermetic, no dependency on the flag service).
     std::env::set_var("FLAGS_URL", "http://127.0.0.1:1/explorer.json");
 
     let cfg = Config {
@@ -78,7 +73,6 @@ async fn flag_override_roundtrip_merge_clear_and_audit() {
         Some("guided")
     );
 
-    // merged into /flags: the forced flag reflects in current values, marked.
     let flags = dashboard::flags(
         State(st.clone()),
         axum::extract::Query(dashboard::FlagsQuery { user: None }),

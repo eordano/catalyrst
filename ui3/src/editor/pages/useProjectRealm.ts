@@ -54,10 +54,6 @@ export function useProjectRealm(
                 await sleepMs(200);
               }
             }
-            // Wipe lazily, only once the prepare fn exists, and retry until the
-            // realm is actually seeded: wiping while a slow reopen hydration has
-            // not yet provided prepareRealm would strand an empty cache and boot
-            // the engine against the base template (the reopen scene-flip).
             let wiped = false;
             for (let attempt = 0; attempt < 5; attempt += 1) {
               if (cancelled) return;

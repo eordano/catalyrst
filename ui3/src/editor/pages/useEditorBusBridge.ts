@@ -153,9 +153,6 @@ export function useEditorBusBridge({
           if (msg.transforms && typeof msg.transforms === "object") {
             const snap = snapRef.current;
             const raw = msg.transforms as Record<string, EditorTransform>;
-            // The drag itself stays free; the value lands on the grid on
-            // release, and the engine is told the rounded value so the render
-            // and the inspector cannot disagree.
             const batch: HistoryEntry[] = [];
             const moved: Record<string, EditorTransform> = {};
             for (const [eid, t] of Object.entries(raw)) {
@@ -164,8 +161,6 @@ export function useEditorBusBridge({
                 | undefined;
               const after = snap.on ? quantizeTransform(t, snap, prev) : t;
               const before = cloneValue(prev);
-              // A Transform written without its parent reparents the entity to
-              // the scene root, so the echo carries the parent forward.
               const echo: EditorTransform & { parent?: number } = { ...after };
               if (prev && typeof prev.parent === "number") echo.parent = prev.parent;
               if (before !== undefined) {

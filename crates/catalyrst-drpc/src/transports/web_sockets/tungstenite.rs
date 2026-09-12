@@ -22,14 +22,11 @@ use tracing::debug;
 
 use super::{convert, Error, Message, WebSocket};
 
-/// Write Stream Half of [`WebSocketStream`]
 type WriteStream =
     SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, tokio_tungstenite::tungstenite::Message>;
 
-/// Read Stream Half of [`WebSocketStream`]
 type ReadStream = SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>;
 
-/// A [`WebSocketStream`] from a WebSocket connection
 type Socket = WebSocketStream<MaybeTlsStream<TcpStream>>;
 
 pub struct TungsteniteWebSocket {
@@ -97,26 +94,17 @@ impl WebSocket for TungsteniteWebSocket {
     }
 }
 
-/// WebSocketServer using [`tokio_tungstenite`] to receive connections
-///
-/// You can use another websocket server as long as it meets the interface requirements
-///
 pub struct WebSocketServer {
-    /// Address to listen for new connection
     address: String,
-    /// TPC Listener Join Handle
     tpc_listener_handle: Option<JoinHandle<()>>,
 }
 
-/// Receiver half of a channel to get notified that there is a new connection
-///
-/// And then attach turn the connection into a transport and attach it to the [`RpcServer`](crate::server::RpcServer)
-///
+/// Each connection is meant to become a [`WebSocketTransport`] attached to the
+/// [`RpcServer`](crate::server::RpcServer).
 type OnConnectionListener =
     UnboundedReceiver<Result<Socket, Box<dyn std::error::Error + Send + Sync>>>;
 
 impl WebSocketServer {
-    /// Set the configuration and the minimum for a new WebSocket Server
     pub fn new(address: &str) -> Self {
         Self {
             address: address.to_string(),
@@ -124,10 +112,8 @@ impl WebSocketServer {
         }
     }
 
-    /// Listen for new connections on the address given and do the websocket handshake in a background task
-    ///
-    /// Each new connection will be sent through the `OnConnectionListener`, in order to be attached to the [`RpcServer`](crate::server::RpcServer)  as a [`WebSocketTransport`]
-    ///
+    /// Returns once the socket is bound; accepting and the websocket handshake run in a
+    /// background task, each connection arriving on the returned listener.
     pub async fn listen(&mut self) -> Result<OnConnectionListener, std::io::Error> {
         let listener = TcpListener::bind(&self.address).await?;
         debug!("Listening on: {}", self.address);

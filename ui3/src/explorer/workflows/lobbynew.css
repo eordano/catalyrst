@@ -29,8 +29,6 @@
 .lobbynew__logo svg { display: block; }
 .lobbynew__title {
   font-weight: 900;
-  /* takes the shrink-on-short-screens half of the display step, but cannot grow past the
-     50px this nowrap heading was tuned to: at the step's 52px cap it runs into the panel */
   font-size: min(var(--fs-display), 3.125rem);
   line-height: 1.05; margin: 0;
   letter-spacing: -.5px; white-space: nowrap; color: #fff;
@@ -62,11 +60,9 @@
 .lobbynew__jumpwrap:has(.lobbynew__jump:disabled) { cursor: not-allowed; }
 .lobbynew__jump:disabled { pointer-events: none; }
 
-/* both calls to action share every metric here; only the fill below tells them apart */
 .lobbynew__btn {
   position: relative;
   height: 52px; width: 100%; border-radius: 12px; cursor: pointer;
-  /* transparent rather than none so the outlined variant cannot come out a different size */
   border: 2px solid transparent;
   display: inline-flex; align-items: center; justify-content: center; gap: 12px;
   font-family: inherit; font-size: var(--fs-md); font-weight: 700; letter-spacing: .4px;

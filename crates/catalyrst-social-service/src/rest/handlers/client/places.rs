@@ -94,7 +94,6 @@ pub async fn remove_place(
         Err(e) => return e,
     };
 
-    // Authorize before any ownership probe: a caller without standing must never reach the outbound places-API call.
     if let Err(e) = ClientCommunityWriteAuthority::resolve_requiring_capability(
         &state,
         uuid,

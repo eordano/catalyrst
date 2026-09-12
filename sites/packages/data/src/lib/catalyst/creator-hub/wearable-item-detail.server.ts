@@ -96,10 +96,7 @@ export function catalogItemToBuilderItem(item: CatalogItem): BuilderItem | null 
 
 export type CreatorItemResult = {
   item: BuilderItem | null;
-  /** true when the catalog read failed. `item: null` alone cannot tell "no such
-   *  item" from "we could not ask", and the page says different things. */
   fallback: boolean;
-  /** null unless `fallback` is set. Safe to show. */
   reason: string | null;
 };
 

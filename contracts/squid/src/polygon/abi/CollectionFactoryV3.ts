@@ -57,12 +57,10 @@ export class Contract extends ContractBase {
     }
 }
 
-/// Event types
 export type ImplementationSetEventArgs = EParams<typeof events.ImplementationSet>
 export type OwnershipTransferredEventArgs = EParams<typeof events.OwnershipTransferred>
 export type ProxyCreatedEventArgs = EParams<typeof events.ProxyCreated>
 
-/// Function types
 export type CodeParams = FunctionArguments<typeof functions.code>
 export type CodeReturn = FunctionReturn<typeof functions.code>
 

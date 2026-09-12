@@ -8,24 +8,6 @@ import type {
 
 export type DebugPanel = "Admin" | "Debug";
 
-/**
- * Governance debug console.
- *
- * No `authorized` prop: both reads behind this page are public
- * (`catalyrst-governance/src/handlers/health.rs:3` and
- * `catalyrst-governance/src/handlers/read.rs:220` take no auth extractor),
- * so there is nothing to gate -- they render unconditionally as public data.
- *
- * No tool buttons: none of `BudgetsUpdate`, `BadgesAdmin`, `TriggerFunction`,
- * `Notifications`, `InvalidateCache` has a backing endpoint. A single
- * permanent unavailable state carries that fact (`control-availability.ts`
- * -> `debug.tools`) instead of buttons that would emit telemetry for a call
- * that never happens.
- *
- * A failed read is reported, never replaced: `health` and `budgets` are
- * `null` with a reason rather than a fixture standing in as a healthy status
- * for a node whose governance service is down.
- */
 type Props = {
   data: DebugConsoleData;
   panel: DebugPanel;

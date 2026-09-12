@@ -112,8 +112,6 @@ export function subscribeBridge(cb: (push: unknown) => void): () => void {
   }
 }
 
-// The engine's bridge global lands after the overlay mounts, so subscribers
-// retry every 250ms and give up after 10s. One copy of that loop lives here.
 export function attachBridge(
   onPush: (push: unknown) => void,
   onAttached?: () => void,
@@ -309,26 +307,12 @@ function isBridgePush(v: unknown): v is BridgePush {
   );
 }
 
-// Exported for the applied-check test: the reducer is otherwise reachable only
-// through a live engine, and a check nothing calls is the failure mode this
-// exists to catch.
 export function applyBridgePushForTest(push: unknown): BridgeState {
   return applyState(FALLBACK_STATE, push);
 }
 
 function applyState(prev: BridgeState, push: unknown): BridgeState {
   if (!isBridgePush(push)) return prev;
-  // The engine is a separate build in another language, so its pushes are the
-  // least trustworthy input this app has -- and the `?? prev.x` reads below mean
-  // a renamed or wrong-typed field does not fail, it silently keeps the old
-  // value. Checking here turns that into a dev error and a production report,
-  // without changing what the reducer does: `check` hands the value back on a
-  // production rejection, so the fallbacks still run exactly as before.
-  // Skip, not carry on: the reducer below reads fields off `push` directly
-  // (`push.address.slice(...)`), so a wrong-typed field would be a TypeError
-  // one line after the rejection was reported. The `?? prev.x` reads only ever
-  // guarded ABSENT fields. Returning prev drops the malformed push and leaves
-  // the UI on its last good state, which is what those fallbacks intended.
   if (!checkOk(OverlayPushSchema, push, "bridge/push")) return prev;
   switch (push.kind) {
     case "identity": {
@@ -519,10 +503,6 @@ function ensureAttached(): void {
   }, 10000);
 }
 
-// Teardown is deferred a tick and cancelled by any resubscribe, so a
-// StrictMode unmount/remount pair (or a route swap between two bridge-backed
-// panels) keeps the live subscription instead of dropping to the offline
-// snapshot and re-attaching.
 function subscribeStore(cb: () => void): () => void {
   if (resetTimer !== null) {
     clearTimeout(resetTimer);

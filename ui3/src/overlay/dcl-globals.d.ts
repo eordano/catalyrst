@@ -4,8 +4,6 @@ import type { NativeHostMessage } from "../generated/bridge/NativeHostMessage";
 declare global {
   interface Window {
     dclBridge?: BridgeApi;
-    // Host-private members (_push/_event/_reply) are deliberately undeclared:
-    // ui3 must not be able to call them.
     __dclNativeHost?: { post: (msg: NativeHostMessage) => void };
     dclDeployIdentity?: DeployIdentity;
     __dclHasIdentity?: boolean;

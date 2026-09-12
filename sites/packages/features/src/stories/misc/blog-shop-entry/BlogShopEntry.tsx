@@ -16,7 +16,6 @@ export type BlogShopOpenTarget = "card" | "rail_cta" | "rail_item";
 
 export type BlogShopEntryProps = {
   arm: BlogShopEntryArm;
-  /** Rail reading from the live catalog; null = reading unavailable. */
   items: CollectibleCard[] | null;
   trackCtx: TrackContext;
   track?: TrackFn;

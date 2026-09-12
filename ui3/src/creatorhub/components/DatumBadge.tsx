@@ -10,15 +10,9 @@ import "./datumbadge.css";
 
 export type DatumBadgeProps = {
   datum: Datum<unknown>;
-  /** Pinned clock, for deterministic stories and tests. */
   now?: number;
 };
 
-/**
- * The only thing in the tree that renders a state word. Glyph plus word,
- * always -- colour never carries the meaning on its own, so the state survives
- * greyscale, and the glyph is `aria-hidden` so a screen reader hears the word.
- */
 export default function DatumBadge({ datum, now }: DatumBadgeProps) {
   const stale = isStale(datum, now);
   const cls =
@@ -37,15 +31,9 @@ export default function DatumBadge({ datum, now }: DatumBadgeProps) {
 }
 
 export type DatumTallyProps = {
-  /** Built with `tallyStates()` -- the page owns which datums it counts. */
   tally: readonly StateTally[];
 };
 
-/**
- * The header strip: `* Live 2 -  Sampled 2 -  Unavailable 1`. It is also the
- * legend the em dash needs, so `--` is never unexplained on a screen.
- * States with no readings are omitted rather than shown as a zero.
- */
 export function DatumTally({ tally }: DatumTallyProps) {
   if (tally.length === 0) return null;
   return (

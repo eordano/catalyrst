@@ -10,18 +10,9 @@ let
   d = import ./helpers.nix cfg;
   facts = import ./facts.nix;
 
-  # Content-addressed npm lockfile hash for scene-lod-entities-manifest-builder
-  # (pinned by the `rev` below). Inlined rather than imported from colmena's
-  # private globals/vendor-hashes.nix, which is outside the exported tree.
   catalyrstNpmDepsHash = "sha256-C6mcS/eBbQuN9E6+Z8QTN3vI0Qjv/0U0BBqsb7MlmQ4=";
 
   commsPackages = inputs.catalyrst.packages.x86_64-linux;
-  # abgen comes through inputs.catalyrst's re-export (the flake's
-  # packages.abgen), so the exported module's only consumer-supplied flake
-  # input stays inputs.catalyrst.
-  # inputs.catalyrst, never the consumer flake's own rev -- COMMIT_HASH is in
-  # every bundle unit's text, and a whole-repo rev would restart all of them
-  # on every unrelated consumer commit (see catalyrst-sync.nix).
   commitHash = inputs.catalyrst.shortRev or inputs.catalyrst.dirtyShortRev or "dirty";
 
   inherit (import ./sandbox.nix)
@@ -88,9 +79,6 @@ let
     COMMUNITIES_CONTENT_DIR = "${cfg.stateDir}/communities/content";
     ABGEN_OUT_ROOT = "${cfg.stateDir}/ab-generator/out";
   }
-  # Federation knobs stay UNSET unless configured -- every FED_* consumer
-  # (worlds, market, places, events, social-service, comms) treats absence as
-  # snapshot-pull-only / local identity, so the default spread changes nothing.
   // lib.optionalAttrs (cfg.federation.peerId != null) {
     FED_PEER_ID = cfg.federation.peerId;
   }
@@ -128,10 +116,6 @@ let
     '';
   };
 
-  # Badge art baked into the store so the social bundle's /assets ServeDir
-  # (catalyrst-badges) is self-contained -- no hand-provisioned host dir. The
-  # PNG tree ships in the exported source (crates/catalyrst-badges/assets),
-  # so the module carries it wherever nixosModules.catalyrst is imported.
   badgesAssets = pkgs.runCommand "catalyrst-badges-assets" { } ''
     cp -r ${../crates/catalyrst-badges/assets} "$out"
   '';
@@ -224,18 +208,12 @@ lib.mkIf cfg.enable {
           HTTP_BASE_URL = d.publicUrl;
           MAP_IMAGE_BASE_URL = "${d.publicUrl}/v2";
         }
-        # Catalog mirrors ride cfg.upstream (absent env = crate default, off);
-        # upstream URLs and the hourly interval are the crates' defaults. The
-        # worlds mirror needs INSERT/UPDATE/DELETE on place for the bundle's
-        # DB role.
         // lib.optionalAttrs cfg.upstream.mirrorEvents {
           EVENTS_MIRROR_UPSTREAM = "true";
         }
         // lib.optionalAttrs cfg.upstream.mirrorWorlds {
           WORLDS_MIRROR_UPSTREAM = "true";
         }
-        # The worlds member is the WORLDS_FED_PEERS_FILE consumer; unset means
-        # worlds federation off (a normal configuration, not a degraded one).
         // lib.optionalAttrs (d.fedPeersFile != null) {
           WORLDS_FED_PEERS_FILE = d.fedPeersFile;
         };
@@ -268,10 +246,6 @@ lib.mkIf cfg.enable {
           AUTHORITATIVE_SERVER_ADDRESS = "0x265540169a73708a26c07622dbcd8555e950675e";
           TRANSLATE_BACKEND = "http";
           TRANSLATE_BACKEND_URL = "http://127.0.0.1:${toString facts.units.libretranslate.port}";
-          # The base URL must match the badges.<domain> fan-out vhost
-          # web-gateway.nix proxies to this bundle: the badges crate rewrites
-          # every asset URL in its JSONB responses to this prefix at serve
-          # time and serves /assets from BADGES_ASSETS_DIR (tower ServeDir).
           BADGES_ASSETS_DIR = "${badgesAssets}";
           BADGES_PUBLIC_ASSET_BASE_URL = "${d.scheme}://badges.${cfg.domain}";
         };
@@ -298,8 +272,6 @@ lib.mkIf cfg.enable {
           DAPPS_READ_PG_COMPONENT_PSQL_CONNECTION_STRING = connAuth "marketplace_squid";
           FAVORITES_PG_COMPONENT_PSQL_CONNECTION_STRING = connAuth "marketplace_squid";
         }
-        # Meta-transactions relay through the upstream broadcaster until local
-        # relayer credentials are provisioned (local providers take precedence).
         // lib.optionalAttrs (cfg.upstream.metaTxRelay != null) {
           TRANSACTIONS_UPSTREAM_URL = cfg.upstream.metaTxRelay;
         };
@@ -343,9 +315,6 @@ lib.mkIf cfg.enable {
           npm_config_script_shell = "${pkgs.bash}/bin/bash";
           CATALYST_URL = d.publicUrl;
         }
-        # A missing texture dependency renders magenta and the bundle still
-        # completes (upstream asset-bundle-converter tolerance); absent, one
-        # mis-pathed texture fails the whole scene's bundle.
         // lib.optionalAttrs cfg.abgenMagentaMissing {
           ABGEN_MAGENTA_MISSING = "true";
         };

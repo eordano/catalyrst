@@ -23,8 +23,6 @@ enum MinimalError {
     TooShort,
 }
 
-// The term is required, not just bounded: without one the query returns every community, which
-// turns name search into a walkable directory (upstream #466).
 fn plan_minimal_search(
     search: Option<&str>,
     signer_present: bool,
@@ -50,11 +48,6 @@ enum MembershipFilterError {
     AllRolesUnknown(Vec<String>),
 }
 
-// Both filters describe the caller's OWN relationship to a community, so neither can be answered
-// without an identity -- answering with the unfiltered listing turns "communities I moderate" into
-// the whole directory (upstream #481). Dropping some unrecognized roles narrows the answer, which
-// is safe; dropping every one widens it to everything, so that case is refused. Empty values are
-// how clients serialize an unset field, so they read as absent rather than invalid.
 fn plan_membership_filters(
     raw_roles: Vec<String>,
     only_member_of: bool,
@@ -137,9 +130,6 @@ pub async fn get_raw_thumbnail(
     match state.content_store.get(&hash).await {
         Ok(Some(bytes)) => {
             let mut headers = HeaderMap::new();
-            // Serve the media type the bytes actually are, not a hardcoded one. New uploads are
-            // signature-validated on write; a legacy blob with no recognised signature falls back
-            // to image/png, matching the previous behaviour.
             let content_type = crate::rest::thumbnail_signature::detect_image_mime_type(&bytes)
                 .map(|m| m.as_str())
                 .unwrap_or("image/png");
@@ -157,8 +147,6 @@ pub async fn get_raw_thumbnail(
     }
 }
 
-// thumbnailUrl is always present: upstream substitutes the literal "N/A" when the
-// community has no thumbnail (communities.ts: getThumbnail(...) || 'N/A').
 fn set_thumbnail_list(cdn_url: &str, item: &mut CommunityListItem) {
     item.thumbnail_url = Some(if item.has_thumbnail {
         thumbnail_url(cdn_url, &item.id.to_string())

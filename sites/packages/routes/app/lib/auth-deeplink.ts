@@ -1,7 +1,5 @@
 import type { AuthIdentity } from "@data/lib/auth/types";
 
-// Mirrors auth/src/shared/locations.ts: the flags the request page can be opened with, and
-// which the client deep link carries back.
 export const FLOW_PARAM = "flow";
 export const DEEP_LINK_FLOW_VALUE = "deeplink";
 export const BRIDGE_ONLY_PARAM = "bridgeOnly";
@@ -28,17 +26,10 @@ export function getAuthRequestId(params: URLSearchParams): string | null {
   return params.get(AUTH_REQUEST_ID_PARAM);
 }
 
-// The deep-link handoff has no backing auth-server request: a client-generated UUID never
-// resolves on /v2/requests/:id, so the recover/verify half must not start for it.
 export function startsRequestRecovery(loaded: { isDeepLink: boolean; valid: boolean }): boolean {
   return !loaded.isDeepLink && loaded.valid;
 }
 
-// Upstream reads ENVIRONMENT through @dcl/ui-env, which maps the page's TLD (.org/.co ->
-// production, .today/.net -> staging, .io/.zone -> development) and otherwise falls back to the
-// build default, production. catalyst.example.com and any self-hosted twin match no TLD rule, so this is
-// production: no dclenv rides on the deep link and the client keeps the environment it was
-// launched with (a --base-domain client ignores dclenv anyway).
 export const ENVIRONMENT = "production";
 
 export function getDeeplinkQueryParams(
@@ -78,13 +69,6 @@ export function getSigninDeeplink(
   return `${deepLink || EXPLORER_DEEP_LINK}open?${params.toString()}`;
 }
 
-// The identity goes to the same host the client reads it back from: the client derives
-// ApiAuth as https://auth-api.{BaseDomain} (DecentralandUrlsSource.cs), so the fanout vhost is
-// the default target. That derivation assumes the page host IS the registrable domain, the way
-// the client's --base-domain does; a site fronted anywhere else (www., app.example.com) must
-// set AUTH_API_URL, see resolveAuthApiUrl. A dev origin (localhost, or any host carrying a
-// port) has no fanout twin, so it keeps the same-origin /auth-api prefix the polling flow uses,
-// which the dev server proxies to the catalyst apex (01-catalyst.conf mounts /identities too).
 export function authApiUrlFor(host: string): string {
   const bare = host.toLowerCase();
   if (!bare || bare.includes(":") || bare === "localhost" || bare.endsWith(".localhost")) {
@@ -102,13 +86,8 @@ export function isMobileUserAgent(userAgent: string): boolean {
   return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(userAgent);
 }
 
-// Native-protocol confirmation dialogs need time for the user to react: a shorter window
-// renders the failure view while the browser prompt is still open, and the app then launches
-// after the user accepts it.
 export const DEEPLINK_DETECTION_TIMEOUT = 5000;
 
-// The hidden iframe keeps Safari from navigating the tab to an unhandled scheme; blur,
-// pagehide and a hidden document are the only signals that an app took over.
 export function launchDeepLink(url: string): Promise<boolean> {
   return new Promise((resolve) => {
     if (isMobileUserAgent(navigator.userAgent)) {
@@ -172,14 +151,6 @@ function messageOf(err: unknown, fallback: string): string {
   return typeof message === "string" && message ? message : fallback;
 }
 
-// The client-login half of upstream's RequestPage (completeClientLoginFlow): there is no
-// auth-server request to recover, the connected wallet's identity is posted once and the
-// resulting id rides back to the client on the signin deep link. The wallet steps upstream
-// runs on its login page (connect + sign the ephemeral message) happen here instead. The
-// handoff identity is minted fresh for every first attempt and lives only in the caller's
-// memory for a retry: the site's own session identity is never posted (the auth server hands
-// its ephemeral key to whoever GETs the record first) and never replaced by the 30-day handoff
-// one, at the price of one wallet signature per deep-link login.
 export async function completeDeepLinkSignIn(
   deps: DeepLinkSignInDeps,
 ): Promise<DeepLinkSignInOutcome> {

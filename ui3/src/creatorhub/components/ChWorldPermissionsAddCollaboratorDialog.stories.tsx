@@ -2,11 +2,6 @@ import type { ReactElement } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import ChWorldPermissionsAddCollaboratorDialog from "./ChWorldPermissionsAddCollaboratorDialog";
 
-/**
- * The component's props are inferred from destructuring defaults (`error = null`), so its
- * `error` prop types as `null` and no string is assignable to it. Re-declare the props the
- * stories drive and cast once here -- the story file cannot fix the component.
- */
 type AcdStoryArgs = {
   variant?: "modal" | "panel";
   value?: string;
@@ -33,7 +28,6 @@ const meta = {
     },
   },
   args: { variant: "panel", value: "", error: null, chrome: true },
-  // `value` / `error` seed internal state, so remount when a control changes them.
   render: (args) => <AddCollaboratorDialog key={`${args.value}|${args.error}`} {...args} />,
 } satisfies Meta<AcdStoryArgs>;
 

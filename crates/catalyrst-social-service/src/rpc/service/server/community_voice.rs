@@ -87,12 +87,6 @@ impl SocialServiceImpl {
             .await
             .unwrap_or_default();
 
-        // Re-read the ban now that the seat exists (upstream #482). The role read above is one
-        // network round trip earlier; a ban committing in between runs its eviction while there is
-        // still nobody to evict, so it no-ops and this join would hand a live seat to someone
-        // already banned. Ordering the two checks around the seat makes them cover each other: a
-        // ban landing before this read is caught here, and one landing after finds the participant
-        // it needs to remove. An eviction that fails is logged and still refuses.
         if db.is_member_banned(&request.community_id, &me).await? {
             tracing::warn!(
                 community_id = %request.community_id,
@@ -140,10 +134,6 @@ impl SocialServiceImpl {
     ) -> Result<RequestToSpeakInCommunityVoiceChatResponse, SocialError> {
         let me = Self::caller(&context)?;
         let db = context.server_context.db();
-        // Entitlement gates gaining a capability, never giving one up: only raising a hand runs the
-        // participation gate, so lowering a hand keeps working for someone since banned or gone.
-        // Privacy-aware: a public community admits a guest holding no role (upstream now permits
-        // this); a private community still requires membership; a banned actor is refused.
         if request.is_raising_hand {
             if let Err(f) =
                 validate_community_voice_participation(db, &request.community_id, &me).await?
@@ -411,10 +401,6 @@ impl SocialServiceImpl {
     ) -> Result<MuteSpeakerFromCommunityVoiceChatResponse, SocialError> {
         let me = Self::caller(&context)?;
         let db = context.server_context.db();
-        // Acting on someone else needs the moderator gate. A self-action does not -- but it is not
-        // an unconditional bypass either: only self-UNMUTE gains a capability, so it runs the same
-        // privacy-aware participation gate as request-to-speak (self-mute always works, so that a
-        // member since banned or gone can still silence themselves), mirroring upstream #447.
         let is_self_action = normalize(&request.user_address) == me;
         if is_self_action {
             if !request.muted {

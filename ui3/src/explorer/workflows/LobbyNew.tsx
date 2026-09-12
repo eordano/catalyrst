@@ -63,8 +63,6 @@ export default function LobbyNew({ onJumpIn }: LobbyNewProps = {}) {
     };
   }, []);
 
-  // anything that marks the guest identity as touched also raises the terms, so the
-  // nudge and the CTA emphasis can never disagree about whether they have committed
   function touchIdentity() {
     setIdentityTouched(true);
     if (!agreed) setTosNudge(true);
@@ -114,8 +112,6 @@ export default function LobbyNew({ onJumpIn }: LobbyNewProps = {}) {
     </svg>
   );
 
-  // signing in is the headline offer until they invest in a guest identity; once they have
-  // named the avatar or restyled it, jumping in with it is the thing they came to finish.
   const jumpLeads = Boolean(auth.address) || identityTouched;
 
   const avatar = (

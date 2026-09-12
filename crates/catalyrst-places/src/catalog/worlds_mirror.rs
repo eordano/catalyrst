@@ -20,9 +20,6 @@ const MAX_OFFSET: i64 = 50_000;
 const USER_AGENT: &str =
     "Mozilla/5.0 (compatible; catalyrst-places-worlds-mirror/1; +https://decentraland.org)";
 
-// world / world_name never appear in this column list: on `place` they are
-// GENERATED from raw (migrations/0003), so storing the upstream row verbatim
-// as raw is what makes the row a world.
 const UPSERT: &str = r#"
     INSERT INTO place
         (id, base_position, title, description, creator_address, content_rating,
@@ -53,14 +50,11 @@ const UPSERT: &str = r#"
 /// intervals before the current pass, so one pagination miss never deletes a
 /// live row). Only this mirror writes world rows into `place` -- the places
 /// mirror and the content derive produce world=false rows, and locally-served
-/// worlds live in place_world_local, which this DELETE never reaches -- so the
-/// cutoff removes exactly the upstream-removed worlds.
+/// worlds live in place_world_local, which this DELETE never reaches.
 const SWEEP: &str = "DELETE FROM place WHERE world IS TRUE AND fetched_at < $1";
 
-/// The rows SWEEP would delete at a given cutoff, counted before deleting.
 const SWEEP_CANDIDATES: &str = "SELECT count(*) FROM place WHERE world IS TRUE AND fetched_at < $1";
 
-/// The mirror-owned rows the sweep can reach at all.
 const MIRRORED_COUNT: &str = "SELECT count(*) FROM place WHERE world IS TRUE";
 
 /// The sweep refuses to delete anything when its candidate set exceeds
@@ -117,10 +111,7 @@ pub fn spawn(pool: PgPool, upstream_url: String, interval: Duration) {
     );
 }
 
-/// One full mirror pass: pages through the upstream /api/worlds catalog,
-/// upserts every row, then sweeps world rows the upstream has stopped
-/// serving. Fail-open per page and per row: an error logs, counts, and the
-/// pass moves on.
+/// Fail-open per page and per row: an error logs, counts, and the pass moves on.
 pub async fn run_cycle(
     pool: &PgPool,
     client: &reqwest::Client,
@@ -185,10 +176,6 @@ pub async fn run_cycle(
     }
 
     if out.complete && out.upserted > 0 {
-        // A row is deleted only after two consecutive full passes fail to
-        // list it: rows seen during pass N carry fetched_at >= that pass's
-        // start, so a cutoff two intervals before this pass keeps anything
-        // the previous pass listed -- one pagination miss never deletes.
         let grace = interval
             .checked_mul(2)
             .and_then(|d| chrono::Duration::from_std(d).ok())
@@ -228,12 +215,10 @@ pub fn parse_page(body: &Value) -> Result<Vec<Value>> {
 }
 
 /// The indexed columns the serving queries filter and order on; every other
-/// served field (image, created_at, updated_at, like_rate, like_score,
-/// is_private, show_in_places, single_player, skybox_time, user_visits,
-/// highlighted_image, ranking, contact_name, ...) is read from `raw`, which
-/// stores the upstream row verbatim. Everything except the identity pair is
-/// tolerant of being absent or null upstream, and unknown keys pass through
-/// untouched inside raw.
+/// served field (image, created_at, like_rate, is_private, ranking, ...) is
+/// read from `raw`, which stores the upstream row verbatim. Everything except
+/// the identity pair tolerates being absent or null upstream, and unknown keys
+/// pass through untouched inside raw.
 #[derive(Debug, Deserialize)]
 pub struct WorldFields {
     pub id: String,
@@ -264,12 +249,10 @@ pub struct WorldFields {
     pub highlighted: Option<bool>,
 }
 
-/// Parses one upstream /api/worlds row into the typed column values plus the
-/// raw JSON to store. A world is identified by its name (0003's invariant),
-/// so a row without an id or a world_name is unservable and yields None --
-/// skipped, not fatal. The stored raw always carries world=true: the row's
-/// provenance is the worlds listing, and the generated `world` column
-/// computes from that key.
+/// A world is identified by its name (0003's invariant), so a row without an id
+/// or a world_name is unservable and yields None -- skipped, not fatal. The
+/// stored raw always carries world=true: the row's provenance is the worlds
+/// listing, and the generated `world` column computes from that key.
 pub fn extract_fields(world: &Value) -> Option<(WorldFields, Value)> {
     let typed: WorldFields = serde_json::from_value(world.clone()).ok()?;
     if typed.id.trim().is_empty() || typed.world_name.trim().is_empty() {
@@ -314,16 +297,17 @@ pub async fn upsert_world(pool: &PgPool, world: &Value) -> Result<bool> {
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum SweepOutcome {
-    /// Rows deleted.
     Swept(u64),
     /// The volume fuse tripped: `candidates` rows were up for deletion out
     /// of `mirrored` mirror-owned rows, and nothing was deleted.
-    Refused { candidates: i64, mirrored: i64 },
+    Refused {
+        candidates: i64,
+        mirrored: i64,
+    },
 }
 
-/// Deletes mirrored world rows last seen before `cutoff`. Refuses to delete
-/// anything when the candidate set exceeds max(SWEEP_FUSE_MIN_CANDIDATES,
-/// 20% of the mirror-owned rows).
+/// Deletes mirrored world rows last seen before `cutoff`, unless the candidate
+/// set trips the volume fuse.
 pub async fn sweep_removed(pool: &PgPool, cutoff: DateTime<Utc>) -> Result<SweepOutcome> {
     let candidates: i64 = sqlx::query_scalar(SWEEP_CANDIDATES)
         .bind(cutoff)

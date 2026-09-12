@@ -118,7 +118,6 @@ export function handleAddLand(
   let parcel = parcels.get(parcelId);
 
   if (parcel == null) {
-    // Would expect that this isn't needed, but it is here for safety, since failing at block 6,000,000 slows down iterative testing
     const coords = coordinates.get(_landId);
 
     parcel = new Parcel({ id: parcelId });
@@ -202,8 +201,6 @@ export function handleRemoveLand(
 
   let parcel = parcels.get(parcelId);
 
-  // Would expect that this isn't needed, but it is here for safety, since failing at block 6,000,000 slows down iterative testing
-  // Because if land parcel doesn't exist, we get a crashed node
   if (parcel == null) {
     const coords = coordinates.get(_landId);
 
@@ -234,7 +231,6 @@ export function handleRemoveLand(
 
   if (estateNFT != null && estate != null) {
     if (shouldRecalculateMinDistance(parcel, estate, estateNFT)) {
-      // parcelDistances is an ordered array, so we just need to remove the first element
       let distances = estate.parcelDistances!;
       distances.shift();
       estate.parcelDistances = distances;

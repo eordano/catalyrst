@@ -22,12 +22,10 @@ pub struct LandOperators {
     pub approved_for_all: Vec<String>,
 }
 
-/// The squid schema indexes LAND ownership and estate membership only: its
-/// `parcel`/`estate` tables carry `owner_id` and `estate_id` and nothing else,
-/// and it has no authorization entity at all. The operator, update-operator,
-/// update-manager and approved-for-all legs therefore cannot be answered
-/// locally and must come from whatever indexer a deployment configures for
-/// them; with none configured those legs are denied, never assumed.
+/// The squid schema indexes LAND/estate ownership only and has no authorization
+/// entity, so the operator, update-operator, update-manager and approved-for-all
+/// legs must come from whatever indexer a deployment configures; with none
+/// configured those legs are denied, never assumed.
 #[async_trait]
 pub trait LandOperatorResolver: Send + Sync {
     async fn operators(&self, x: i32, y: i32) -> Result<Option<LandOperators>, String>;
@@ -43,13 +41,7 @@ pub struct SquidBlockchainChecker {
 
 impl SquidBlockchainChecker {
     pub fn new(pool: PgPool, additional_decentraland_address: Option<String>) -> Self {
-        Self {
-            pool,
-            additional_decentraland_address,
-            tp_subgraph: None,
-            tp_root_via_squid: false,
-            operator_resolver: None,
-        }
+        Self::with_third_party(pool, additional_decentraland_address, None, false)
     }
 
     pub fn with_third_party(
@@ -100,19 +92,34 @@ impl SquidBlockchainChecker {
             .fetch_optional(&self.pool)
             .await
         }
-        .map_err(|e| {
-            ValidatorError::BlockchainQuery(format!("third-party root query failed: {e}"))
-        })?;
+        .map_err(query_failed("third-party root query failed"))?;
 
         Ok(root
             .flatten()
             .and_then(|s| crate::merkle::decode_hash32(&s)))
     }
+
+    async fn owned_urns(
+        &self,
+        address: &str,
+        urns: &[String],
+    ) -> Result<Vec<bool>, ValidatorError> {
+        nft_ownership_batch(&SquidNftSource::new(&self.pool).await, address, urns).await
+    }
 }
 
-// `account_id` is `0x<address>-<NETWORK>`; compare only the address segment and
-// compare it whole. A prefix test would let a truncated address ("0x") match
-// every account.
+fn query_failed(what: &'static str) -> impl FnOnce(sqlx::Error) -> ValidatorError {
+    move |e| ValidatorError::BlockchainQuery(format!("{what}: {e}"))
+}
+
+fn permission(failing: Vec<String>) -> PermissionResult {
+    if failing.is_empty() {
+        PermissionResult::ok()
+    } else {
+        PermissionResult::denied(failing)
+    }
+}
+
 fn address_matches_account_id(address: &str, account_id: &str) -> bool {
     account_id
         .split('-')
@@ -125,16 +132,11 @@ fn addresses_match(a: &str, b: &str) -> bool {
 }
 
 fn address_in_list(address: &str, list: &[String]) -> bool {
-    let lower = address.to_lowercase();
-    list.iter().any(|a| a.to_lowercase() == lower)
+    list.iter().any(|a| addresses_match(address, a))
 }
 
 pub fn operator_flags(address: &str, operators: &LandOperators) -> ParcelPermissionFlags {
-    let matches = |o: &Option<String>| {
-        o.as_deref()
-            .map(|v| addresses_match(address, v))
-            .unwrap_or(false)
-    };
+    let matches = |o: &Option<String>| o.as_deref().is_some_and(|v| addresses_match(address, v));
     ParcelPermissionFlags {
         owner: false,
         operator: matches(&operators.operator),
@@ -180,7 +182,7 @@ pub async fn parcel_ownership(
     .bind(y)
     .fetch_optional(pool)
     .await
-    .map_err(|e| ValidatorError::BlockchainQuery(format!("parcel query failed: {e}")))?;
+    .map_err(query_failed("parcel query failed"))?;
 
     Ok(row.map(|(parcel_owner, estate_owner)| ParcelOwnership {
         parcel_owner,
@@ -188,12 +190,10 @@ pub async fn parcel_ownership(
     }))
 }
 
-/// One round trip resolving parcel/estate ownership for a whole parcel set,
-/// keyed on the (x,y) pair. Coordinates are paired via a composite join on the
-/// SAME `unnest` tuple (`ON p.x = t.x AND p.y = t.y`) -- never `x = ANY AND
-/// y = ANY`, which would cross-match coordinates from different requested pairs
-/// and could grant an unrequested parcel. A pair absent from the map is exactly
-/// what the old per-parcel `fetch_optional -> None` meant ("no parcel indexed").
+/// Coordinates must be paired via a composite join on the SAME `unnest` tuple
+/// (`ON p.x = t.x AND p.y = t.y`) -- never `x = ANY AND y = ANY`, which would
+/// cross-match coordinates from different requested pairs and could grant an
+/// unrequested parcel. A pair absent from the map means no parcel indexed.
 #[async_trait]
 trait ParcelOwnerSource {
     async fn ownership_for(
@@ -224,28 +224,27 @@ impl ParcelOwnerSource for SquidParcelSource<'_> {
         .bind(&ys)
         .fetch_all(self.pool)
         .await
-        .map_err(|e| ValidatorError::BlockchainQuery(format!("parcel query failed: {e}")))?;
+        .map_err(query_failed("parcel query failed"))?;
 
-        let mut map = HashMap::new();
-        for (x, y, parcel_owner, estate_owner) in rows {
-            map.insert(
-                (x, y),
-                ParcelOwnership {
-                    parcel_owner,
-                    estate_owner,
-                },
-            );
-        }
-        Ok(map)
+        Ok(rows
+            .into_iter()
+            .map(|(x, y, parcel_owner, estate_owner)| {
+                (
+                    (x, y),
+                    ParcelOwnership {
+                        parcel_owner,
+                        estate_owner,
+                    },
+                )
+            })
+            .collect())
     }
 }
 
-/// Per-parcel verdict identical to `check_parcel_access`: owned (parcel or
-/// estate owner matches) => allowed; otherwise fall to the operator legs and
-/// their fail-closed default. Results are positional by input index; duplicate
-/// coordinates dedupe harmlessly (same answer per pair). Operator legs stay
-/// sequential (the ownership query is the collapsed round trip; the legs run
-/// only for not-owned parcels and only when a resolver is configured).
+/// Owned (parcel or estate owner matches) => allowed; otherwise the operator
+/// legs and their fail-closed default decide. Results are positional by input
+/// index; the operator legs run sequentially, only for not-owned parcels and
+/// only when a resolver is configured.
 async fn land_access_batch<S: ParcelOwnerSource + ?Sized>(
     src: &S,
     operator_resolver: Option<&dyn LandOperatorResolver>,
@@ -255,15 +254,11 @@ async fn land_access_batch<S: ParcelOwnerSource + ?Sized>(
     let map = src.ownership_for(parcels).await?;
     let mut results = Vec::with_capacity(parcels.len());
     for &(x, y) in parcels {
-        if map.get(&(x, y)).is_some_and(|o| o.owned_by(address)) {
-            results.push(true);
-            continue;
-        }
-        results.push(
-            operator_legs(operator_resolver, address, x, y)
+        let allowed = map.get(&(x, y)).is_some_and(|o| o.owned_by(address))
+            || operator_legs(operator_resolver, address, x, y)
                 .await
-                .grants_deploy(),
-        );
+                .grants_deploy();
+        results.push(allowed);
     }
     Ok(results)
 }
@@ -287,10 +282,22 @@ async fn operator_legs(
     }
 }
 
-/// The single reading of who holds which right on a parcel: owner and estate
-/// owner from the local squid, the operator legs from the resolver. Both the
-/// deploy predicate and the lambdas permissions route answer from this, so
-/// what the route reports is what a deploy will actually be allowed to do.
+async fn parcel_flags(
+    ownership: Option<&ParcelOwnership>,
+    operator_resolver: Option<&dyn LandOperatorResolver>,
+    address: &str,
+    x: i32,
+    y: i32,
+) -> Option<ParcelPermissionFlags> {
+    let ownership = ownership?;
+    let mut flags = operator_legs(operator_resolver, address, x, y).await;
+    flags.owner = ownership.owned_by(address);
+    Some(flags)
+}
+
+/// Owner and estate owner come from the local squid, the operator legs from the
+/// resolver. Both the deploy predicate and the lambdas permissions route answer
+/// from this, so what the route reports is what a deploy will be allowed to do.
 pub async fn parcel_permission_flags(
     pool: &PgPool,
     operator_resolver: Option<&dyn LandOperatorResolver>,
@@ -298,20 +305,13 @@ pub async fn parcel_permission_flags(
     x: i32,
     y: i32,
 ) -> Result<Option<ParcelPermissionFlags>, ValidatorError> {
-    let Some(ownership) = parcel_ownership(pool, x, y).await? else {
-        return Ok(None);
-    };
-    let mut flags = operator_legs(operator_resolver, address, x, y).await;
-    flags.owner = ownership.owned_by(address);
-    Ok(Some(flags))
+    let ownership = parcel_ownership(pool, x, y).await?;
+    Ok(parcel_flags(ownership.as_ref(), operator_resolver, address, x, y).await)
 }
 
-/// Batch analogue of `parcel_permission_flags`: ownership for the whole set
-/// resolves in the ONE unnest round trip `land_access_batch` uses, then the
-/// operator legs run per parcel exactly as the single call does. Results are
-/// positional by input index; `None` per parcel keeps the single call's
-/// "no parcel indexed at all" reading. A resolver outage denies only that
-/// parcel's operator legs (fail-closed), never the locally-settled owner leg.
+/// Results are positional by input index; `None` per parcel means "no parcel
+/// indexed at all". A resolver outage denies only that parcel's operator legs
+/// (fail-closed), never the locally-settled owner leg.
 pub async fn parcel_permission_flags_batch(
     pool: &PgPool,
     operator_resolver: Option<&dyn LandOperatorResolver>,
@@ -331,13 +331,7 @@ async fn permission_flags_batch<S: ParcelOwnerSource + ?Sized>(
     let map = src.ownership_for(parcels).await?;
     let mut results = Vec::with_capacity(parcels.len());
     for &(x, y) in parcels {
-        let Some(ownership) = map.get(&(x, y)) else {
-            results.push(None);
-            continue;
-        };
-        let mut flags = operator_legs(operator_resolver, address, x, y).await;
-        flags.owner = ownership.owned_by(address);
-        results.push(Some(flags));
+        results.push(parcel_flags(map.get(&(x, y)), operator_resolver, address, x, y).await);
     }
     Ok(results)
 }
@@ -349,18 +343,16 @@ pub async fn check_parcel_access(
     x: i32,
     y: i32,
 ) -> Result<bool, ValidatorError> {
-    let ownership = parcel_ownership(pool, x, y).await?;
-    if ownership.is_some_and(|o| o.owned_by(address)) {
-        return Ok(true);
-    }
-    Ok(operator_legs(operator_resolver, address, x, y)
-        .await
-        .grants_deploy())
+    let owned = parcel_ownership(pool, x, y)
+        .await?
+        .is_some_and(|o| o.owned_by(address));
+    Ok(owned
+        || operator_legs(operator_resolver, address, x, y)
+            .await
+            .grants_deploy())
 }
 
-/// One round trip resolving ENS ownership for a set of claimed names: returns
-/// `subdomain -> owner_id(s)`. A subdomain absent from the map is exactly what
-/// the old per-name `fetch_optional -> None` meant (unowned/unindexed).
+/// A subdomain absent from the returned map is unowned/unindexed.
 #[async_trait]
 trait NameOwnerSource {
     async fn owners_for(
@@ -379,12 +371,6 @@ impl NameOwnerSource for SquidNameSource<'_> {
         &self,
         names: &[String],
     ) -> Result<HashMap<String, Vec<String>>, ValidatorError> {
-        // Ownership comes from the NFT entity, never from `ens.owner_id`: the
-        // squid's ENS handler seeds the owner from the registrar *caller* and
-        // never updates it, so a DCLControllerV2 registration records the
-        // controller contract rather than the buyer. `nft.owner_id` is the
-        // ERC-721 owner. `= ANY($1)` is the same per-name equality the old
-        // per-name `subdomain = $1` used, batched into one query.
         let rows: Vec<(String, String)> = sqlx::query_as(
             "SELECT e.subdomain, n.owner_id FROM squid_marketplace.nft n
              JOIN squid_marketplace.ens e ON n.ens_id = e.id
@@ -393,7 +379,7 @@ impl NameOwnerSource for SquidNameSource<'_> {
         .bind(names)
         .fetch_all(self.pool)
         .await
-        .map_err(|e| ValidatorError::BlockchainQuery(format!("ENS query failed: {e}")))?;
+        .map_err(query_failed("ENS query failed"))?;
 
         let mut map: HashMap<String, Vec<String>> = HashMap::new();
         for (subdomain, owner) in rows {
@@ -403,29 +389,26 @@ impl NameOwnerSource for SquidNameSource<'_> {
     }
 }
 
-/// Returns the failing (unowned) names in input order. Per-name verdict is
-/// identical to the old `check_name_ownership`: `address_matches_account_id`
-/// against the owner; absence => unowned. When a subdomain maps to multiple nft
-/// rows (anomalous; ens_id is unique in practice) "any owner matching wins",
-/// which is no stricter than the old unordered `fetch_optional`'s arbitrary pick.
+/// Returns the failing (unowned) names in input order; absence => unowned. When
+/// a subdomain maps to multiple nft rows (anomalous; ens_id is unique in
+/// practice) any owner matching wins.
 async fn names_ownership_batch<S: NameOwnerSource + ?Sized>(
     src: &S,
     address: &str,
     names: &[String],
 ) -> Result<Vec<String>, ValidatorError> {
     let map = src.owners_for(names).await?;
-    let mut failing = Vec::new();
-    for name in names {
-        let owned = map.get(name).is_some_and(|owners| {
-            owners
-                .iter()
-                .any(|o| address_matches_account_id(address, o))
-        });
-        if !owned {
-            failing.push(name.clone());
-        }
-    }
-    Ok(failing)
+    Ok(names
+        .iter()
+        .filter(|name| {
+            !map.get(*name).is_some_and(|owners| {
+                owners
+                    .iter()
+                    .any(|o| address_matches_account_id(address, o))
+            })
+        })
+        .cloned()
+        .collect())
 }
 
 #[derive(Debug, sqlx::FromRow)]
@@ -439,52 +422,49 @@ struct CollectionRow {
     is_completed: Option<bool>,
 }
 
+#[derive(Debug, sqlx::FromRow)]
+struct ItemAccessRow {
+    creator: String,
+    managers: Vec<String>,
+    minters: Vec<String>,
+}
+
 async fn check_collection_access_query(
     pool: &PgPool,
     address: &str,
     contract_address: &str,
     _layer: BlockchainLayer,
 ) -> Result<bool, ValidatorError> {
-    let row: Option<CollectionRow> = sqlx::query_as(
-        "SELECT creator, owner, managers, minters, is_approved, is_completed \
-         FROM squid_marketplace.collection WHERE id = $1",
-    )
-    .bind(contract_address)
-    .fetch_optional(pool)
-    .await
-    .map_err(|e| ValidatorError::BlockchainQuery(format!("collection query failed: {e}")))?;
-
-    let row = match row {
-        Some(r) => r,
-        None => {
-            let row2: Option<CollectionRow> = sqlx::query_as(
-                "SELECT creator, owner, managers, minters, is_approved, is_completed \
-                 FROM squid_marketplace.collection WHERE lower(id) = lower($1)",
-            )
+    let fetch = |sql: &'static str, what: &'static str| async move {
+        sqlx::query_as::<_, CollectionRow>(sql)
             .bind(contract_address)
             .fetch_optional(pool)
             .await
-            .map_err(|e| {
-                ValidatorError::BlockchainQuery(format!("collection query (ci) failed: {e}"))
-            })?;
-
-            match row2 {
-                Some(r) => r,
-                None => return Ok(false),
-            }
-        }
+            .map_err(query_failed(what))
+    };
+    let mut row = fetch(
+        "SELECT creator, owner, managers, minters, is_approved, is_completed \
+         FROM squid_marketplace.collection WHERE id = $1",
+        "collection query failed",
+    )
+    .await?;
+    if row.is_none() {
+        row = fetch(
+            "SELECT creator, owner, managers, minters, is_approved, is_completed \
+             FROM squid_marketplace.collection WHERE lower(id) = lower($1)",
+            "collection query (ci) failed",
+        )
+        .await?;
+    }
+    let Some(row) = row else {
+        return Ok(false);
     };
 
-    if addresses_match(address, &row.creator) {
-        return Ok(true);
-    }
-    if addresses_match(address, &row.owner) {
-        return Ok(true);
-    }
-    if address_in_list(address, &row.managers) {
-        return Ok(true);
-    }
-    if address_in_list(address, &row.minters) {
+    if addresses_match(address, &row.creator)
+        || addresses_match(address, &row.owner)
+        || address_in_list(address, &row.managers)
+        || address_in_list(address, &row.minters)
+    {
         return Ok(true);
     }
 
@@ -497,52 +477,29 @@ async fn check_collection_access_query(
     .bind(contract_address)
     .fetch_optional(pool)
     .await
-    .map_err(|e| ValidatorError::BlockchainQuery(format!("item query failed: {e}")))?;
+    .map_err(query_failed("item query failed"))?;
 
-    if let Some(item) = item_row {
-        if addresses_match(address, &item.creator) {
-            return Ok(true);
-        }
-        if address_in_list(address, &item.managers) {
-            return Ok(true);
-        }
-        if address_in_list(address, &item.minters) {
-            return Ok(true);
-        }
-    }
-
-    Ok(false)
+    Ok(item_row.is_some_and(|item| {
+        addresses_match(address, &item.creator)
+            || address_in_list(address, &item.managers)
+            || address_in_list(address, &item.minters)
+    }))
 }
 
-#[derive(Debug, sqlx::FromRow)]
-struct ItemAccessRow {
-    creator: String,
-    managers: Vec<String>,
-    minters: Vec<String>,
-}
-
-/// Memoize a boolean probe for the process lifetime, caching BOTH outcomes but
-/// never caching a transient failure (probe returns `Err(())`): on error the
-/// cell is left unset so a later call retries, and the fail-closed `false`
-/// default is returned without being pinned. A successful `Ok(true)`/`Ok(false)`
-/// is cached permanently -- correct because the only thing that can change the
-/// answer (a schema migration) ships with a process restart that clears the cell.
+/// Caches both outcomes for the process lifetime but never a transient failure:
+/// on `Err(())` the cell is left unset so a later call retries, and the
+/// fail-closed `false` is returned without being pinned. Permanent caching is
+/// correct because only a schema migration can change the answer, and that
+/// ships with a process restart.
 async fn cached_bool<F, Fut>(cell: &OnceCell<bool>, probe: F) -> bool
 where
     F: FnOnce() -> Fut,
     Fut: Future<Output = Result<bool, ()>>,
 {
-    cell.get_or_try_init(|| async { probe().await })
-        .await
-        .copied()
-        .unwrap_or(false)
+    cell.get_or_try_init(probe).await.copied().unwrap_or(false)
 }
 
 async fn usage_grants_present(pool: &PgPool) -> bool {
-    // Process-lifetime memo: the `marketplace.usage_grants` overlay table's
-    // presence is a schema fact that only changes across a redeploy/restart, so
-    // the previous code's re-probe on every negative call was pure waste. Both
-    // outcomes are now cached after at most one `to_regclass` round trip.
     static PRESENT: OnceCell<bool> = OnceCell::const_new();
     cached_bool(&PRESENT, || async {
         sqlx::query_scalar("SELECT to_regclass('marketplace.usage_grants') IS NOT NULL")
@@ -553,27 +510,25 @@ async fn usage_grants_present(pool: &PgPool) -> bool {
     .await
 }
 
-/// The three ownership tiers, each a single batched round trip over the set of
-/// URNs still unresolved after the prior tier. Every method returns the input
-/// indices it resolved to `true`; each tier keeps the exact per-URN predicate
-/// (including the `OR ... usage_grants` overlay arm and the LIKE ESCAPE) the old
-/// per-URN `check_nft_ownership` used, just widened to a list via `unnest`.
+/// Three ownership tiers, each a single batched round trip over the URNs still
+/// unresolved after the prior tier. Every method returns the input indices it
+/// resolved to `true`.
 #[async_trait]
 trait NftBatchSource {
-    /// Tier 1 (token-exact): `items` are `(index, item_urn, token_id)`.
+    /// `items` are `(index, item_urn, token_id)`.
     async fn tier_token(
         &self,
         address: &str,
         items: &[(usize, String, String)],
     ) -> Result<Vec<usize>, ValidatorError>;
-    /// Tier 2 (urn-exact): `items` are `(index, urn)`.
+    /// `items` are `(index, urn)`.
     async fn tier_exact(
         &self,
         address: &str,
         items: &[(usize, String)],
     ) -> Result<Vec<usize>, ValidatorError>;
-    /// Tier 3 (prefix): `items` are `(index, urn)`; the `{urn}:%` LIKE pattern is
-    /// built (with the same escaping) inside the implementation.
+    /// `items` are `(index, urn)`; the `{urn}:%` LIKE pattern is built (with
+    /// escaping) inside the implementation.
     async fn tier_prefix(
         &self,
         address: &str,
@@ -588,11 +543,17 @@ struct SquidNftSource<'a> {
 
 impl<'a> SquidNftSource<'a> {
     async fn new(pool: &'a PgPool) -> Self {
-        // Probe the overlay table once for the whole batch (itself memoized for
-        // the process lifetime -- see `usage_grants_present`).
         let overlay = usage_grants_present(pool).await;
         Self { pool, overlay }
     }
+}
+
+fn indices(rows: Vec<(i32,)>) -> Vec<usize> {
+    rows.into_iter().map(|(i,)| i as usize).collect()
+}
+
+fn columns(items: &[(usize, String)], f: impl Fn(&str) -> String) -> (Vec<i32>, Vec<String>) {
+    items.iter().map(|(i, s)| (*i as i32, f(s))).unzip()
 }
 
 #[async_trait]
@@ -602,14 +563,9 @@ impl NftBatchSource for SquidNftSource<'_> {
         address: &str,
         items: &[(usize, String, String)],
     ) -> Result<Vec<usize>, ValidatorError> {
-        let mut idx = Vec::with_capacity(items.len());
-        let mut item_urns = Vec::with_capacity(items.len());
-        let mut token_ids = Vec::with_capacity(items.len());
-        for (i, item_urn, token_id) in items {
-            idx.push(*i as i32);
-            item_urns.push(item_urn.clone());
-            token_ids.push(token_id.clone());
-        }
+        let idx: Vec<i32> = items.iter().map(|(i, ..)| *i as i32).collect();
+        let item_urns: Vec<String> = items.iter().map(|(_, u, _)| u.clone()).collect();
+        let token_ids: Vec<String> = items.iter().map(|(.., t)| t.clone()).collect();
         let sql = if self.overlay {
             "SELECT t.idx \
              FROM unnest($1::int[], $2::text[], $3::text[]) AS t(idx, item_urn, token_id) \
@@ -633,10 +589,8 @@ impl NftBatchSource for SquidNftSource<'_> {
             .bind(address)
             .fetch_all(self.pool)
             .await
-            .map_err(|e| {
-                ValidatorError::BlockchainQuery(format!("nft token ownership query failed: {e}"))
-            })?;
-        Ok(rows.into_iter().map(|(i,)| i as usize).collect())
+            .map_err(query_failed("nft token ownership query failed"))?;
+        Ok(indices(rows))
     }
 
     async fn tier_exact(
@@ -644,12 +598,7 @@ impl NftBatchSource for SquidNftSource<'_> {
         address: &str,
         items: &[(usize, String)],
     ) -> Result<Vec<usize>, ValidatorError> {
-        let mut idx = Vec::with_capacity(items.len());
-        let mut urns = Vec::with_capacity(items.len());
-        for (i, urn) in items {
-            idx.push(*i as i32);
-            urns.push(urn.clone());
-        }
+        let (idx, urns) = columns(items, str::to_string);
         let sql = if self.overlay {
             "SELECT t.idx FROM unnest($1::int[], $2::text[]) AS t(idx, urn) \
              WHERE EXISTS (SELECT 1 FROM squid_marketplace.nft \
@@ -668,10 +617,8 @@ impl NftBatchSource for SquidNftSource<'_> {
             .bind(address)
             .fetch_all(self.pool)
             .await
-            .map_err(|e| {
-                ValidatorError::BlockchainQuery(format!("nft ownership query failed: {e}"))
-            })?;
-        Ok(rows.into_iter().map(|(i,)| i as usize).collect())
+            .map_err(query_failed("nft ownership query failed"))?;
+        Ok(indices(rows))
     }
 
     async fn tier_prefix(
@@ -679,16 +626,13 @@ impl NftBatchSource for SquidNftSource<'_> {
         address: &str,
         items: &[(usize, String)],
     ) -> Result<Vec<usize>, ValidatorError> {
-        let mut idx = Vec::with_capacity(items.len());
-        let mut pats = Vec::with_capacity(items.len());
-        for (i, urn) in items {
-            idx.push(*i as i32);
+        let (idx, pats) = columns(items, |urn| {
             let esc = urn
                 .replace('\\', "\\\\")
                 .replace('%', "\\%")
                 .replace('_', "\\_");
-            pats.push(format!("{esc}:%"));
-        }
+            format!("{esc}:%")
+        });
         let sql = if self.overlay {
             "SELECT t.idx FROM unnest($1::int[], $2::text[]) AS t(idx, pat) \
              WHERE EXISTS (SELECT 1 FROM squid_marketplace.nft \
@@ -707,21 +651,16 @@ impl NftBatchSource for SquidNftSource<'_> {
             .bind(address)
             .fetch_all(self.pool)
             .await
-            .map_err(|e| {
-                ValidatorError::BlockchainQuery(format!("nft prefix query failed: {e}"))
-            })?;
-        Ok(rows.into_iter().map(|(i,)| i as usize).collect())
+            .map_err(query_failed("nft prefix query failed"))?;
+        Ok(indices(rows))
     }
 }
 
-/// Batched ownership check for a list of URNs, returning a positional
-/// `owns`-per-URN vector. Escalation reproduces the old per-URN early-return
-/// short-circuit exactly: a URN is passed to tier 2 only if tier 1 did not
-/// resolve it, and to tier 3 only if tier 2 did not -- so the 3N sequential round
-/// trips collapse to at most 3 (one per non-empty tier) with byte-identical
-/// per-URN verdicts. Tier 1 eligibility mirrors the old guard exactly (7-part
-/// `:collections-` URN with an all-digit token id); non-eligible URNs fall
-/// straight to tier 2 carrying their FULL original URN, never a truncated one.
+/// Positional `owns`-per-URN. A URN reaches tier 2 only if tier 1 did not
+/// resolve it, and tier 3 only if tier 2 did not, so at most 3 round trips run.
+/// Tier 1 eligibility is a 7-part `:collections-` URN with an all-digit token
+/// id; non-eligible URNs fall straight to tier 2 carrying their FULL original
+/// URN, never a truncated one.
 async fn nft_ownership_batch<S: NftBatchSource + ?Sized>(
     src: &S,
     address: &str,
@@ -729,43 +668,38 @@ async fn nft_ownership_batch<S: NftBatchSource + ?Sized>(
 ) -> Result<Vec<bool>, ValidatorError> {
     let mut resolved = vec![false; urns.len()];
 
-    // Tier 1: token-exact over the eligible subset.
-    let mut tier1: Vec<(usize, String, String)> = Vec::new();
-    for (i, urn) in urns.iter().enumerate() {
-        let parts: Vec<&str> = urn.split(':').collect();
-        if parts.len() == 7 && urn.contains(":collections-") {
-            let token_id = parts[6];
-            if token_id.chars().all(|c| c.is_ascii_digit()) {
-                tier1.push((i, parts[..6].join(":"), token_id.to_string()));
-            }
-        }
-    }
+    let tier1: Vec<(usize, String, String)> = urns
+        .iter()
+        .enumerate()
+        .filter_map(|(i, urn)| {
+            let parts: Vec<&str> = urn.split(':').collect();
+            let eligible = parts.len() == 7
+                && urn.contains(":collections-")
+                && parts[6].chars().all(|c| c.is_ascii_digit());
+            eligible.then(|| (i, parts[..6].join(":"), parts[6].to_string()))
+        })
+        .collect();
     if !tier1.is_empty() {
         for i in src.tier_token(address, &tier1).await? {
             resolved[i] = true;
         }
     }
 
-    // Tier 2: urn-exact over everything not yet resolved (full original URN).
-    let tier2: Vec<(usize, String)> = urns
-        .iter()
-        .enumerate()
-        .filter(|(i, _)| !resolved[*i])
-        .map(|(i, urn)| (i, urn.clone()))
-        .collect();
+    let pending = |resolved: &[bool]| -> Vec<(usize, String)> {
+        urns.iter()
+            .enumerate()
+            .filter(|(i, _)| !resolved[*i])
+            .map(|(i, urn)| (i, urn.clone()))
+            .collect()
+    };
+    let tier2 = pending(&resolved);
     if !tier2.is_empty() {
         for i in src.tier_exact(address, &tier2).await? {
             resolved[i] = true;
         }
     }
 
-    // Tier 3: prefix over whatever remains.
-    let tier3: Vec<(usize, String)> = urns
-        .iter()
-        .enumerate()
-        .filter(|(i, _)| !resolved[*i])
-        .map(|(i, urn)| (i, urn.clone()))
-        .collect();
+    let tier3 = pending(&resolved);
     if !tier3.is_empty() {
         for i in src.tier_prefix(address, &tier3).await? {
             resolved[i] = true;
@@ -815,12 +749,9 @@ impl BlockchainChecker for SquidBlockchainChecker {
         _timestamp: Timestamp,
     ) -> Result<PermissionResult, ValidatorError> {
         let src = SquidNameSource { pool: &self.pool };
-        let failing = names_ownership_batch(&src, eth_address, names).await?;
-        if failing.is_empty() {
-            Ok(PermissionResult::ok())
-        } else {
-            Ok(PermissionResult::denied(failing))
-        }
+        Ok(permission(
+            names_ownership_batch(&src, eth_address, names).await?,
+        ))
     }
 
     async fn check_items_ownership(
@@ -829,19 +760,14 @@ impl BlockchainChecker for SquidBlockchainChecker {
         urns: &[String],
         _timestamp: Timestamp,
     ) -> Result<PermissionResult, ValidatorError> {
-        let src = SquidNftSource::new(&self.pool).await;
-        let owned = nft_ownership_batch(&src, eth_address, urns).await?;
-        let failing: Vec<String> = urns
-            .iter()
-            .zip(owned)
-            .filter(|(_, o)| !o)
-            .map(|(u, _)| u.clone())
-            .collect();
-        if failing.is_empty() {
-            Ok(PermissionResult::ok())
-        } else {
-            Ok(PermissionResult::denied(failing))
-        }
+        let owned = self.owned_urns(eth_address, urns).await?;
+        Ok(permission(
+            urns.iter()
+                .zip(owned)
+                .filter(|(_, o)| !o)
+                .map(|(u, _)| u.clone())
+                .collect(),
+        ))
     }
 
     async fn check_collection_access(
@@ -871,9 +797,8 @@ impl BlockchainChecker for SquidBlockchainChecker {
             return Ok(false);
         }
 
-        let metadata = match &entity.metadata {
-            Some(m) => m,
-            None => return Ok(false),
+        let Some(metadata) = &entity.metadata else {
+            return Ok(false);
         };
         let tp_props: crate::third_party::ThirdPartyProps =
             match serde_json::from_value(metadata.clone()) {
@@ -883,12 +808,9 @@ impl BlockchainChecker for SquidBlockchainChecker {
                     return Ok(false);
                 }
             };
-        let tp_id = match crate::third_party::get_third_party_id(asset_urn) {
-            Some(id) => id,
-            None => {
-                warn!(asset_urn, "could not derive third-party id from urn");
-                return Ok(false);
-            }
+        let Some(tp_id) = crate::third_party::get_third_party_id(asset_urn) else {
+            warn!(asset_urn, "could not derive third-party id from urn");
+            return Ok(false);
         };
 
         let block = match &self.tp_subgraph {
@@ -929,21 +851,16 @@ impl BlockchainChecker for SquidBlockchainChecker {
         item_urns: &[String],
         _block: u64,
     ) -> Result<Vec<bool>, ValidatorError> {
-        let src = SquidNftSource::new(&self.pool).await;
-        nft_ownership_batch(&src, eth_address, item_urns).await
+        self.owned_urns(eth_address, item_urns).await
     }
 
     fn is_address_owned_by_decentraland(&self, address: &str) -> bool {
         let lower = address.to_lowercase();
-        if lower == DECENTRALAND_ADDRESS {
-            return true;
-        }
-        if let Some(ref additional) = self.additional_decentraland_address {
-            if lower == additional.to_lowercase() {
-                return true;
-            }
-        }
-        false
+        lower == DECENTRALAND_ADDRESS
+            || self
+                .additional_decentraland_address
+                .as_deref()
+                .is_some_and(|a| a.to_lowercase() == lower)
     }
 }
 
@@ -954,20 +871,24 @@ mod tests {
     use std::collections::HashSet;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
-    // [Performance] the usage_grants overlay probe runs at most ONCE for the
-    // process lifetime, caching BOTH outcomes. Red-check: reverting to a per-call
-    // probe makes the counter == N (here 10).
+    const OWNER: &str = "0xowner-ETHEREUM";
+    const OTHER: &str = "0xother-ETHEREUM";
+    const ACCOUNT_ID: &str = "0x959e104e1a4db6317fa58f8295f586e1a978c297-ETHEREUM";
+
+    async fn probe(cell: &OnceCell<bool>, probes: &AtomicUsize, outcome: Result<bool, ()>) -> bool {
+        cached_bool(cell, || async {
+            probes.fetch_add(1, Ordering::SeqCst);
+            outcome
+        })
+        .await
+    }
+
     #[tokio::test]
     async fn usage_grants_probe_runs_once() {
         let cell = OnceCell::new();
         let probes = AtomicUsize::new(0);
         for _ in 0..10 {
-            let present = cached_bool(&cell, || async {
-                probes.fetch_add(1, Ordering::SeqCst);
-                Ok::<bool, ()>(false) // overlay table absent, the common case
-            })
-            .await;
-            assert!(!present);
+            assert!(!probe(&cell, &probes, Ok(false)).await);
         }
         assert_eq!(
             probes.load(Ordering::SeqCst),
@@ -976,40 +897,16 @@ mod tests {
         );
     }
 
-    // Correctness guard for the memo: a transient probe error is NOT cached, so a
-    // later call retries; once a value is cached, no further probe runs.
     #[tokio::test]
     async fn usage_grants_probe_retries_after_transient_error() {
         let cell = OnceCell::new();
         let probes = AtomicUsize::new(0);
-
-        let v1 = cached_bool(&cell, || async {
-            probes.fetch_add(1, Ordering::SeqCst);
-            Err::<bool, ()>(())
-        })
-        .await;
-        assert!(!v1); // fail-closed default, not cached
-
-        let v2 = cached_bool(&cell, || async {
-            probes.fetch_add(1, Ordering::SeqCst);
-            Ok::<bool, ()>(true)
-        })
-        .await;
-        assert!(v2); // success cached
-
-        let v3 = cached_bool(&cell, || async {
-            probes.fetch_add(1, Ordering::SeqCst);
-            Ok::<bool, ()>(false)
-        })
-        .await;
-        assert!(v3); // served from cache
-
+        assert!(!probe(&cell, &probes, Err(())).await);
+        assert!(probe(&cell, &probes, Ok(true)).await);
+        assert!(probe(&cell, &probes, Ok(false)).await);
         assert_eq!(probes.load(Ordering::SeqCst), 2);
     }
 
-    // Fake NFT source: counts one call per tier and resolves an index when the
-    // relevant `owned` token exists. "token:<item>:<tok>" / "exact:<urn>" /
-    // "prefix:<urn>" let a test steer which tier resolves which URN.
     struct CountingNft {
         token: AtomicUsize,
         exact: AtomicUsize,
@@ -1018,18 +915,32 @@ mod tests {
     }
 
     impl CountingNft {
-        fn new(owned: &[&str]) -> Self {
+        fn new(owned: impl IntoIterator<Item = String>) -> Self {
             Self {
                 token: AtomicUsize::new(0),
                 exact: AtomicUsize::new(0),
                 prefix: AtomicUsize::new(0),
-                owned: owned.iter().map(|s| s.to_string()).collect(),
+                owned: owned.into_iter().collect(),
             }
         }
         fn total_calls(&self) -> usize {
             self.token.load(Ordering::SeqCst)
                 + self.exact.load(Ordering::SeqCst)
                 + self.prefix.load(Ordering::SeqCst)
+        }
+        fn hits<T>(
+            &self,
+            counter: &AtomicUsize,
+            items: &[T],
+            key: impl Fn(&T) -> (usize, String),
+        ) -> Vec<usize> {
+            counter.fetch_add(1, Ordering::SeqCst);
+            items
+                .iter()
+                .map(key)
+                .filter(|(_, k)| self.owned.contains(k))
+                .map(|(i, _)| i)
+                .collect()
         }
     }
 
@@ -1040,74 +951,40 @@ mod tests {
             _address: &str,
             items: &[(usize, String, String)],
         ) -> Result<Vec<usize>, ValidatorError> {
-            self.token.fetch_add(1, Ordering::SeqCst);
-            Ok(items
-                .iter()
-                .filter(|(_, item_urn, tok)| {
-                    self.owned.contains(&format!("token:{item_urn}:{tok}"))
-                })
-                .map(|(i, _, _)| *i)
-                .collect())
+            Ok(self.hits(&self.token, items, |(i, u, t)| {
+                (*i, format!("token:{u}:{t}"))
+            }))
         }
         async fn tier_exact(
             &self,
             _address: &str,
             items: &[(usize, String)],
         ) -> Result<Vec<usize>, ValidatorError> {
-            self.exact.fetch_add(1, Ordering::SeqCst);
-            Ok(items
-                .iter()
-                .filter(|(_, urn)| self.owned.contains(&format!("exact:{urn}")))
-                .map(|(i, _)| *i)
-                .collect())
+            Ok(self.hits(&self.exact, items, |(i, u)| (*i, format!("exact:{u}"))))
         }
         async fn tier_prefix(
             &self,
             _address: &str,
             items: &[(usize, String)],
         ) -> Result<Vec<usize>, ValidatorError> {
-            self.prefix.fetch_add(1, Ordering::SeqCst);
-            Ok(items
-                .iter()
-                .filter(|(_, urn)| self.owned.contains(&format!("prefix:{urn}")))
-                .map(|(i, _)| *i)
-                .collect())
+            Ok(self.hits(&self.prefix, items, |(i, u)| (*i, format!("prefix:{u}"))))
         }
     }
 
-    // [Performance] N URNs (mix of 7-part token URNs and bare item URNs) resolve
-    // in AT MOST 3 tier round trips (one per non-empty tier), never 3N. Also
-    // asserts verdict parity: each tier's owned entry flips exactly its URN true,
-    // in positional order. Red-check: a per-URN loop makes total calls scale ~N.
     #[tokio::test]
     async fn nft_ownership_batch_query_count() {
-        let mut urns: Vec<String> = Vec::new();
-        for k in 0..10 {
-            // 7-part collections URN, all-digit token => tier-1 eligible.
-            urns.push(format!(
-                "urn:decentraland:matic:collections-v2:0xabc{k}:0:{k}"
-            ));
-        }
-        for k in 0..10 {
-            // 6-part bare item URN => not tier-1 eligible.
-            urns.push(format!(
-                "urn:decentraland:matic:collections-v2:0xdef{k}:{k}"
-            ));
-        }
+        let urns: Vec<String> = (0..10)
+            .map(|k| format!("urn:decentraland:matic:collections-v2:0xabc{k}:0:{k}"))
+            .chain((0..10).map(|k| format!("urn:decentraland:matic:collections-v2:0xdef{k}:{k}")))
+            .collect();
         assert_eq!(urns.len(), 20);
 
-        // Own three URNs, one via each tier, to prove escalation + parity:
-        //  - index 0 via tier-1 token (item_urn = first 6 parts, tok = "0")
-        //  - index 5 via tier-2 exact (its full urn)
-        //  - index 12 via tier-3 prefix (a bare urn, escalated past exact)
         let item0 = "urn:decentraland:matic:collections-v2:0xabc0:0";
-        let owned = [
+        let src = CountingNft::new([
             format!("token:{item0}:0"),
             format!("exact:{}", urns[5]),
             format!("prefix:{}", urns[12]),
-        ];
-        let owned_refs: Vec<&str> = owned.iter().map(|s| s.as_str()).collect();
-        let src = CountingNft::new(&owned_refs);
+        ]);
 
         let result = nft_ownership_batch(&src, "0xowner", &urns).await.unwrap();
 
@@ -1146,18 +1023,15 @@ mod tests {
         }
     }
 
-    // [Performance] N claimed names resolve in exactly ONE round trip. Red-check:
-    // reverting to a per-name loop makes the count == N (here 8).
     #[tokio::test]
     async fn names_ownership_single_query() {
         let names: Vec<String> = (0..8).map(|k| format!("name{k}")).collect();
-        let mut owners = HashMap::new();
-        // name3 owned by the deployer; others unowned or owned by someone else.
-        owners.insert("name3".to_string(), vec!["0xowner-ETHEREUM".to_string()]);
-        owners.insert("name6".to_string(), vec!["0xstranger-ETHEREUM".to_string()]);
         let src = CountingName {
             calls: AtomicUsize::new(0),
-            owners,
+            owners: HashMap::from([
+                ("name3".to_string(), vec![OWNER.to_string()]),
+                ("name6".to_string(), vec!["0xstranger-ETHEREUM".to_string()]),
+            ]),
         };
 
         let failing = names_ownership_batch(&src, "0xowner", &names)
@@ -1165,7 +1039,6 @@ mod tests {
             .unwrap();
 
         assert_eq!(src.calls.load(Ordering::SeqCst), 1, "exactly one ENS query");
-        // Everything except name3 is failing (unowned or owned by another).
         assert!(!failing.contains(&"name3".to_string()));
         assert!(failing.contains(&"name6".to_string()));
         assert_eq!(failing.len(), 7);
@@ -1174,6 +1047,22 @@ mod tests {
     struct CountingParcel {
         calls: AtomicUsize,
         owned: HashMap<(i32, i32), ParcelOwnership>,
+    }
+
+    fn ownership(parcel_owner: Option<&str>, estate_owner: Option<&str>) -> ParcelOwnership {
+        ParcelOwnership {
+            parcel_owner: parcel_owner.map(str::to_string),
+            estate_owner: estate_owner.map(str::to_string),
+        }
+    }
+
+    impl CountingParcel {
+        fn new(owned: impl IntoIterator<Item = ((i32, i32), ParcelOwnership)>) -> Self {
+            Self {
+                calls: AtomicUsize::new(0),
+                owned: owned.into_iter().collect(),
+            }
+        }
     }
 
     #[async_trait]
@@ -1190,32 +1079,13 @@ mod tests {
         }
     }
 
-    // [Performance] N parcels resolve in exactly ONE ownership round trip (no
-    // operator resolver configured). Red-check: reverting to per-parcel
-    // check_parcel_access makes the count == N (here 25).
     #[tokio::test]
     async fn land_access_single_parcel_query() {
         let parcels: Vec<(i32, i32)> = (0..25).map(|k| (k, -k)).collect();
-        let mut owned = HashMap::new();
-        // (3,-3) owned by the deployer via parcel owner; (7,-7) via estate owner.
-        owned.insert(
-            (3, -3),
-            ParcelOwnership {
-                parcel_owner: Some("0xowner-ETHEREUM".to_string()),
-                estate_owner: None,
-            },
-        );
-        owned.insert(
-            (7, -7),
-            ParcelOwnership {
-                parcel_owner: Some("0xother-ETHEREUM".to_string()),
-                estate_owner: Some("0xowner-ETHEREUM".to_string()),
-            },
-        );
-        let src = CountingParcel {
-            calls: AtomicUsize::new(0),
-            owned,
-        };
+        let src = CountingParcel::new([
+            ((3, -3), ownership(Some(OWNER), None)),
+            ((7, -7), ownership(Some(OTHER), Some(OWNER))),
+        ]);
 
         let result = land_access_batch(&src, None, "0xowner", &parcels)
             .await
@@ -1242,42 +1112,14 @@ mod tests {
         }
     }
 
-    // [Performance] the batched flags call resolves N parcels' ownership in
-    // exactly ONE round trip, with per-parcel verdicts positionally matching
-    // the single `parcel_permission_flags`: owner leg for owned/estate parcels,
-    // all-false for a stranger's, `None` for a pair the squid does not index.
-    // Red-check: a per-parcel loop makes the count == N (here 4).
     #[tokio::test]
     async fn flags_batch_single_query_mixed_verdicts() {
         let parcels = vec![(1, 1), (2, 2), (3, 3), (4, 4)];
-        let mut owned = HashMap::new();
-        // (1,1) owned directly; (2,2) via estate; (3,3) someone else's;
-        // (4,4) left unindexed.
-        owned.insert(
-            (1, 1),
-            ParcelOwnership {
-                parcel_owner: Some("0xowner-ETHEREUM".to_string()),
-                estate_owner: None,
-            },
-        );
-        owned.insert(
-            (2, 2),
-            ParcelOwnership {
-                parcel_owner: Some("0xother-ETHEREUM".to_string()),
-                estate_owner: Some("0xowner-ETHEREUM".to_string()),
-            },
-        );
-        owned.insert(
-            (3, 3),
-            ParcelOwnership {
-                parcel_owner: Some("0xother-ETHEREUM".to_string()),
-                estate_owner: None,
-            },
-        );
-        let src = CountingParcel {
-            calls: AtomicUsize::new(0),
-            owned,
-        };
+        let src = CountingParcel::new([
+            ((1, 1), ownership(Some(OWNER), None)),
+            ((2, 2), ownership(Some(OTHER), Some(OWNER))),
+            ((3, 3), ownership(Some(OTHER), None)),
+        ]);
 
         let result = permission_flags_batch(&src, None, "0xowner", &parcels)
             .await
@@ -1302,30 +1144,13 @@ mod tests {
         );
     }
 
-    // A resolver outage fails ONLY the operator legs: the owner leg is settled
-    // locally and must survive, matching the single-call posture exactly.
     #[tokio::test]
     async fn flags_batch_resolver_outage_keeps_owner_leg() {
         let parcels = vec![(1, 1), (3, 3)];
-        let mut owned = HashMap::new();
-        owned.insert(
-            (1, 1),
-            ParcelOwnership {
-                parcel_owner: Some("0xowner-ETHEREUM".to_string()),
-                estate_owner: None,
-            },
-        );
-        owned.insert(
-            (3, 3),
-            ParcelOwnership {
-                parcel_owner: Some("0xother-ETHEREUM".to_string()),
-                estate_owner: None,
-            },
-        );
-        let src = CountingParcel {
-            calls: AtomicUsize::new(0),
-            owned,
-        };
+        let src = CountingParcel::new([
+            ((1, 1), ownership(Some(OWNER), None)),
+            ((3, 3), ownership(Some(OTHER), None)),
+        ]);
         let broken = FixedResolver(Err("subgraph down".to_string()));
 
         let result = permission_flags_batch(&src, Some(&broken), "0xowner", &parcels)
@@ -1348,23 +1173,10 @@ mod tests {
         );
     }
 
-    // The granted operator legs ride the batch the same way they ride the
-    // single call: an update-operator grant flips exactly that leg.
     #[tokio::test]
     async fn flags_batch_operator_grant_matches_single_call_shape() {
         let parcels = vec![(3, 3)];
-        let mut owned = HashMap::new();
-        owned.insert(
-            (3, 3),
-            ParcelOwnership {
-                parcel_owner: Some("0xother-ETHEREUM".to_string()),
-                estate_owner: None,
-            },
-        );
-        let src = CountingParcel {
-            calls: AtomicUsize::new(0),
-            owned,
-        };
+        let src = CountingParcel::new([((3, 3), ownership(Some(OTHER), None))]);
         let granted = FixedResolver(Ok(Some(LandOperators {
             update_operator: Some("0xoperator".to_string()),
             ..Default::default()
@@ -1387,21 +1199,17 @@ mod tests {
     fn account_id_matching() {
         assert!(address_matches_account_id(
             "0x959e104e1a4db6317fa58f8295f586e1a978c297",
-            "0x959e104e1a4db6317fa58f8295f586e1a978c297-ETHEREUM"
+            ACCOUNT_ID
         ));
         assert!(address_matches_account_id(
             "0x959E104E1A4DB6317FA58F8295F586E1A978C297",
-            "0x959e104e1a4db6317fa58f8295f586e1a978c297-ETHEREUM"
+            ACCOUNT_ID
         ));
-        assert!(!address_matches_account_id(
-            "0xdeadbeef",
-            "0x959e104e1a4db6317fa58f8295f586e1a978c297-ETHEREUM"
-        ));
+        assert!(!address_matches_account_id("0xdeadbeef", ACCOUNT_ID));
     }
 
     #[test]
     fn a_truncated_address_never_matches() {
-        let account_id = "0x959e104e1a4db6317fa58f8295f586e1a978c297-ETHEREUM";
         for prefix in [
             "0x",
             "0x959e",
@@ -1409,7 +1217,7 @@ mod tests {
             "",
         ] {
             assert!(
-                !address_matches_account_id(prefix, account_id),
+                !address_matches_account_id(prefix, ACCOUNT_ID),
                 "prefix {prefix:?} must not authorize"
             );
         }
@@ -1417,13 +1225,10 @@ mod tests {
 
     #[tokio::test]
     async fn decentraland_address_check() {
-        let checker = SquidBlockchainChecker {
-            pool: PgPool::connect_lazy("postgres://localhost/test").unwrap(),
-            additional_decentraland_address: Some("0xextra".to_string()),
-            tp_subgraph: None,
-            tp_root_via_squid: false,
-            operator_resolver: None,
-        };
+        let checker = SquidBlockchainChecker::new(
+            PgPool::connect_lazy("postgres://localhost/test").unwrap(),
+            Some("0xextra".to_string()),
+        );
 
         assert!(checker.is_address_owned_by_decentraland(DECENTRALAND_ADDRESS));
         assert!(

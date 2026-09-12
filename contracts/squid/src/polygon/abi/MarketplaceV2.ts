@@ -105,7 +105,6 @@ export class Contract extends ContractBase {
     }
 }
 
-/// Event types
 export type ChangedFeesCollectorCutPerMillionEventArgs = EParams<typeof events.ChangedFeesCollectorCutPerMillion>
 export type ChangedPublicationFeeEventArgs = EParams<typeof events.ChangedPublicationFee>
 export type ChangedRoyaltiesCutPerMillionEventArgs = EParams<typeof events.ChangedRoyaltiesCutPerMillion>
@@ -119,7 +118,6 @@ export type PausedEventArgs = EParams<typeof events.Paused>
 export type RoyaltiesManagerSetEventArgs = EParams<typeof events.RoyaltiesManagerSet>
 export type UnpausedEventArgs = EParams<typeof events.Unpaused>
 
-/// Function types
 export type ERC721_InterfaceParams = FunctionArguments<typeof functions.ERC721_Interface>
 export type ERC721_InterfaceReturn = FunctionReturn<typeof functions.ERC721_Interface>
 

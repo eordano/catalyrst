@@ -43,8 +43,6 @@ export default function PlacesPicker({ onPick }: PlacesPickerProps) {
   );
   const q = usePlaces(params);
   const trimmed = query.trim();
-  // A search should also surface Worlds (e.g. boedo.dcl.eth) -- /api/places only covers
-  // Genesis City, so merge in a /api/worlds lookup while the user is searching.
   const worldParams = useMemo(
     () => (isEnsQuery(trimmed) ? { limit: 24, names: trimmed } : { limit: 24, search: trimmed }),
     [trimmed],

@@ -16,17 +16,14 @@ struct PickStatsRow {
 pub const DEFAULT_LIST_NAME: &str = "Favorites";
 
 /// Upstream's globally shared default list (marketplace-server migration
-/// `1678303321034_default-list`, renamed to "Wishlist" by `1687172729802`).
-/// Seeded by our migration `0010_favorites_shared_default_list.sql`. The shop
-/// frontend hardcodes this id for its signed-in favorites (shop c0cc5df).
+/// `1678303321034_default-list`, renamed to "Wishlist" by `1687172729802`); seeded by our
+/// `0010_favorites_shared_default_list.sql`. The shop frontend hardcodes it (shop c0cc5df).
 pub const DEFAULT_LIST_ID: &str = "70ab6873-4a03-4eb2-b331-4b8be0e0b8af";
 
-/// Upstream's `DEFAULT_LIST_USER_ADDRESS`: the zero address owning the shared
-/// default Wishlist. `get_lists` surfaces that list for every caller
-/// (upstream `WHERE l.user_address = $user OR l.user_address = $default`).
+/// The zero address owns the shared default Wishlist, which `get_lists` surfaces for every
+/// caller (upstream `WHERE l.user_address = $user OR l.user_address = $default`).
 pub const DEFAULT_LIST_USER_ADDRESS: &str = "0x0000000000000000000000000000000000000000";
 
-/// Upstream's `GRANTED_TO_ALL` ACL grantee wildcard.
 pub const GRANTED_TO_ALL: &str = "*";
 
 /// Binds: $1 list ids, $2 caller, $3 default-list owner, $4 grantee wildcard.
@@ -60,7 +57,6 @@ const PICK_IN_LISTS_SQL: &str = "INSERT INTO favorites.picks (item_id, user_addr
 const UNPICK_FROM_LISTS_SQL: &str = "DELETE FROM favorites.picks \
      WHERE item_id = $1 AND user_address = $2 AND list_id = ANY($3::uuid[])";
 
-/// One favorited item inside a list, as returned by `GET /v1/lists/{id}/picks`.
 #[derive(Debug)]
 pub struct ListPick {
     pub item_id: String,
@@ -85,9 +81,8 @@ pub struct FavoriteList {
     pub is_private: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub permission: Option<String>,
-    /// True for the globally shared default Wishlist (owned by the zero
-    /// address). Upstream projects this for its `ORDER BY is_default_list
-    /// DESC` contract; we also surface it on the wire.
+    /// True for the shared default Wishlist. Upstream projects it for its `ORDER BY
+    /// is_default_list DESC` contract; we also surface it on the wire.
     #[serde(rename = "isDefaultList")]
     pub is_default_list: bool,
     #[serde(rename = "itemsCount")]
@@ -136,15 +131,12 @@ fn is_missing_favorites(e: &sqlx::Error) -> bool {
     }
 }
 
-/// `GET /v1/lists/{id}/picks` page query. Mirrors upstream's
-/// `SELECT DISTINCT(p.item_id), p.*, COUNT(*) OVER() as picks_count`: because
-/// upstream selects `p.*`, its DISTINCT is row-level, so the same item picked
-/// by two users in a shared list yields TWO rows. Selecting the full picks
-/// identity (item_id, user_address, list_id -- the primary key) reproduces
-/// that; deduping on item_id + ms-truncated created_at alone would collapse
-/// same-millisecond picks by different users while the COUNT window still
-/// counted both. The DISTINCT collapses only the ACL join fan-out, and the
-/// COUNT window carries the (pre-DISTINCT, as upstream) total.
+/// Mirrors upstream's `SELECT DISTINCT(p.item_id), p.*, COUNT(*) OVER() as picks_count`:
+/// because upstream selects `p.*` its DISTINCT is row-level, so the same item picked by two
+/// users in a shared list yields TWO rows. Selecting the full picks identity (item_id,
+/// user_address, list_id) reproduces that; deduping on item_id + ms-truncated created_at
+/// alone would collapse same-millisecond picks by different users while the COUNT window
+/// still counted both. The COUNT window carries the pre-DISTINCT total, as upstream.
 pub(crate) const PICKS_BY_LIST_SQL: &str = "SELECT DISTINCT p.item_id, p.user_address, p.list_id, \
        (EXTRACT(EPOCH FROM p.created_at) * 1000)::int8 AS created_at, \
        COUNT(*) OVER() AS picks_count \
@@ -177,47 +169,33 @@ pub fn is_uuid(s: &str) -> bool {
     true
 }
 
-/// Builds the `GET /v1/lists` page + count SQL. Ported invariants (upstream
-/// `getLists`, marketplace-server src/ports/favorites/lists/component.ts:110-149):
+/// Ported invariants (upstream `getLists`,
+/// marketplace-server src/ports/favorites/lists/component.ts:110-149):
 ///
-/// * Every picks read is scoped to the CALLER -- upstream joins
-///   `LEFT JOIN favorites.picks p ON l.id = p.list_id AND p.user_address =
-///   ${userAddress}`, so `items_count`, the preview and `is_item_in_list`
-///   only ever reflect the caller's own picks. Any other user may legitimately
-///   hold picks in a visible list (the shared default Wishlist, or a list
-///   shared with them through an `edit` grant), and those picks must never
-///   leak into another caller's counts or thumbnails.
-/// * The globally shared default Wishlist (owned by the zero address) is
-///   always visible: `WHERE l.user_address = $1 OR l.user_address =
-///   $default`, projected as `is_default_list` and sorted first
-///   (`ORDER BY is_default_list DESC` ahead of the requested sort).
-/// * The preview is the caller's 4 OLDEST picks, ascending -- upstream's
-///   `(ARRAY_REMOVE(ARRAY_AGG(p.item_id ORDER BY p.created_at), NULL))[:4]`
-///   aggregates every pick oldest-first and slices the head. Ours reproduces
-///   that with the same slice over a caller-scoped aggregate (no
-///   `ARRAY_REMOVE` needed: the subquery reads `favorites.picks` directly, so
-///   no LEFT-JOIN NULL rows exist to strip).
-/// * `is_private` is DERIVED from the ACL, not read from the stored
-///   `l.is_private` column -- upstream's `(SELECT COUNT(1) FROM favorites.acl
-///   WHERE list_id = l.id AND (grantee = $user OR grantee = '*')) = 0`
-///   (component.ts:114): a list is private TO THE CALLER unless an ACL row
-///   grants them (or everyone) access. The stored column is write-path
-///   metadata only. Consequence: the seeded shared Wishlist (stored
-///   `is_private = false`, zero ACL rows) reads `isPrivate: true`, exactly as
-///   upstream serves it.
+/// * Every picks read is scoped to the CALLER, so `items_count`, the preview and
+///   `is_item_in_list` reflect only the caller's own picks. Another user may legitimately
+///   hold picks in a visible list (the shared Wishlist, or one shared through an `edit`
+///   grant), and those must never leak into a caller's counts or thumbnails.
+/// * The shared default Wishlist is always visible and sorted first (`ORDER BY
+///   is_default_list DESC`, ahead of the requested sort).
+/// * The preview is the caller's 4 OLDEST picks, ascending, matching upstream's
+///   `(ARRAY_REMOVE(ARRAY_AGG(p.item_id ORDER BY p.created_at), NULL))[:4]`. No
+///   `ARRAY_REMOVE` needed here: the subquery reads `favorites.picks` directly, so there are
+///   no LEFT-JOIN NULL rows to strip.
+/// * `is_private` is DERIVED from the ACL per caller (component.ts:114), never read from the
+///   stored `l.is_private` column, which is write-path metadata only. Consequence: the
+///   seeded shared Wishlist (stored `is_private = false`, zero ACL rows) reads
+///   `isPrivate: true`, exactly as upstream serves it.
 ///
-/// Accepted divergence: upstream appends its `q` filter without parentheses
-/// (`a OR b AND ilike` -- the name filter binds only to the default-list arm,
-/// an operator-precedence artifact); we parenthesize the ownership arms so
-/// `q` filters both, per the reviewed fix spec. Beyond precedence, upstream's
-/// `q` filter is entirely INERT: sql-template-strings interpolates the
-/// placeholder INSIDE the string literal (`l.name ILIKE '%$7%'` -- upstream's
-/// own test at test/unit/lists-component.spec.ts:475 asserts that literal),
-/// so the bind never happens and upstream's `q` matches nothing -- do not
-/// "restore parity" onto that broken behavior.
+/// Accepted divergence: upstream appends `q` without parentheses, so the name filter binds
+/// only to the default-list arm; we parenthesize the ownership arms so `q` filters both.
+/// Beyond precedence, upstream's `q` is entirely INERT -- sql-template-strings interpolates
+/// the placeholder INSIDE the string literal (`l.name ILIKE '%$7%'`, asserted by upstream's
+/// own test/unit/lists-component.spec.ts:475), so it matches nothing. Do not "restore
+/// parity" onto that.
 ///
-/// Binds: `$1` = caller's lowercased address, then optionally q, then
-/// optionally itemId, then limit, offset (count SQL: `$1` + optional q only).
+/// Binds: `$1` = caller's lowercased address, then optionally q, then optionally itemId,
+/// then limit, offset (count SQL: `$1` + optional q only).
 pub(crate) fn build_get_lists_sql(opts: &GetListsOptions<'_>) -> (String, String) {
     let mut next_param = 2;
     let mut take = || {
@@ -337,15 +315,13 @@ impl ListsComponent {
         Ok(row.try_get::<bool, _>("found").unwrap_or(false))
     }
 
-    /// Upstream `checkNonEditableLists` (marketplace-server 863b04c): a list
-    /// is editable when the caller owns it, when it is the shared default
-    /// list, or when its ACL holds an `edit` grant for the caller or for
-    /// everyone. The absence of a grant is tested with NOT EXISTS on purpose:
-    /// a LEFT JOIN plus a negative comparison evaluates UNKNOWN for a list
-    /// with no ACL rows (the normal state of a private list) and WHERE drops
-    /// UNKNOWN, which silently let a non-owner write into another user's
-    /// private list. Nonexistent ids are not flagged (the later
-    /// INSERT ... SELECT simply skips them), matching upstream's silent no-op.
+    /// Upstream `checkNonEditableLists` (marketplace-server 863b04c): a list is editable when
+    /// the caller owns it, when it is the shared default list, or when its ACL holds an `edit`
+    /// grant for the caller or for everyone. The absence of a grant is tested with NOT EXISTS
+    /// on purpose: a LEFT JOIN plus a negative comparison evaluates UNKNOWN for a list with no
+    /// ACL rows (the normal state of a private list) and WHERE drops UNKNOWN, which silently
+    /// let a non-owner write into another user's private list. Nonexistent ids are not
+    /// flagged -- the later INSERT ... SELECT skips them, matching upstream's silent no-op.
     pub async fn check_non_editable_lists(
         &self,
         list_ids: &[String],
@@ -367,10 +343,9 @@ impl ListsComponent {
             .collect())
     }
 
-    /// Upstream `getPicksByListId`: the item ids favorited within one list,
-    /// newest first, plus the pre-pagination total. Visibility per row: the
-    /// caller's own picks, or any picks when the list's ACL grants the caller
-    /// (or everyone) access. Anonymous callers only see ACL-public lists.
+    /// Upstream `getPicksByListId`: newest first, plus the pre-pagination total. Visibility
+    /// per row is the caller's own picks, or any picks when the list's ACL grants the caller
+    /// (or everyone) access; anonymous callers only see ACL-public lists.
     pub async fn get_picks_by_list_id(
         &self,
         list_id: &str,
@@ -480,13 +455,6 @@ impl ListsComponent {
         if list_ids.is_empty() {
             return Ok(());
         }
-        // Scoped to the lists the caller may edit even though
-        // check_non_editable_lists already rejected the request otherwise:
-        // one guard must never be the only thing between a caller and
-        // another user's list. Nonexistent ids silently drop out of the
-        // SELECT, as upstream. The conflict target is the upstream picks
-        // identity (item_id, user_address, list_id): two users favoriting the
-        // same item in a shared list are two distinct picks.
         sqlx::query(sqlx::AssertSqlSafe(PICK_IN_LISTS_SQL.to_string()))
             .bind(item_id)
             .bind(user_address.to_lowercase())
@@ -518,9 +486,9 @@ impl ListsComponent {
         Ok(())
     }
 
-    /// Upstream `pickAndUnpickInBulk`: the pick INSERT and the unpick DELETE
-    /// are one transaction, so a failure between them cannot leave the item
-    /// in the new lists and still in the old ones.
+    /// Upstream `pickAndUnpickInBulk`: the pick INSERT and the unpick DELETE are one
+    /// transaction, so a failure between them cannot leave the item in the new lists and
+    /// still in the old ones.
     pub async fn pick_and_unpick_in_bulk(
         &self,
         item_id: &str,
@@ -682,22 +650,17 @@ mod tests {
         }
     }
 
-    /// The HIGH-severity ACL invariant: every picks read inside the lists
-    /// query is scoped to the caller (`$1`), mirroring upstream's
-    /// `LEFT JOIN favorites.picks p ON ... AND p.user_address = $user`.
-    /// Without this, a foreign pick (inserted through the shared-Wishlist /
-    /// ACL-less editability path) inflates another caller's itemsCount and
-    /// leaks into their preview thumbnails.
+    /// Without this scoping a foreign pick (inserted through the shared-Wishlist / ACL-less
+    /// editability path) inflates another caller's itemsCount and leaks into their preview
+    /// thumbnails.
     #[test]
     fn get_lists_sql_scopes_every_picks_read_to_the_caller() {
         let (sql, _) = build_get_lists_sql(&opts(Some("0xitem-1"), None));
 
-        // (a) is_item_in_list EXISTS is caller-scoped.
         assert!(
             sql.contains("AND ip.user_address = $1) AS is_item_in_list"),
             "is_item_in_list EXISTS must filter on the caller:\n{sql}"
         );
-        // (b) the items_count subquery only counts the caller's picks.
         assert!(
             sql.contains(
                 "SELECT list_id, COUNT(*) AS cnt FROM favorites.picks\n  \
@@ -705,7 +668,6 @@ mod tests {
             ),
             "pc count subquery must filter on the caller:\n{sql}"
         );
-        // (c) the preview subquery only aggregates the caller's picks.
         assert!(
             sql.contains(
                 "FROM favorites.picks\n  \
@@ -714,7 +676,6 @@ mod tests {
             ),
             "pp preview subquery must filter on the caller:\n{sql}"
         );
-        // No unscoped read of favorites.picks remains.
         for (i, _) in sql.match_indices("favorites.picks") {
             let tail = &sql[i..];
             assert!(
@@ -724,11 +685,7 @@ mod tests {
         }
     }
 
-    /// The shared default Wishlist (owned by the zero address) is visible to
-    /// every caller, projected as `is_default_list`, and sorted first --
-    /// upstream's `WHERE l.user_address = $user OR l.user_address = $default`
-    /// plus `ORDER BY is_default_list DESC`. The count query must agree with
-    /// the page query about which rows exist.
+    /// The count query must agree with the page query about which rows exist.
     #[test]
     fn get_lists_sql_surfaces_the_shared_default_wishlist() {
         let (sql, count_sql) = build_get_lists_sql(&opts(None, None));
@@ -756,10 +713,8 @@ mod tests {
         );
     }
 
-    /// Upstream previews a list with its 4 OLDEST picks, ascending --
-    /// `(ARRAY_REMOVE(ARRAY_AGG(p.item_id ORDER BY p.created_at), NULL))[:4]`
-    /// aggregates oldest-first and slices the head. The original port ranked
-    /// newest-first with ROW_NUMBER; pin the flipped semantics.
+    /// The original port ranked newest-first with ROW_NUMBER; this pins the flip to
+    /// upstream's oldest-first head slice.
     #[test]
     fn get_lists_sql_previews_the_four_oldest_picks_ascending() {
         let (sql, _) = build_get_lists_sql(&opts(None, None));
@@ -773,10 +728,8 @@ mod tests {
         );
     }
 
-    /// `is_private` is derived from the ACL per caller (upstream
-    /// component.ts:114), never read from the stored `l.is_private` column:
-    /// a list with no grant to the caller (or to `'*'`) reads private --
-    /// including the seeded shared Wishlist, whose stored column says false.
+    /// A list with no grant to the caller (or to `'*'`) reads private -- including the seeded
+    /// shared Wishlist, whose stored `l.is_private` column says false.
     #[test]
     fn get_lists_sql_derives_is_private_from_the_acl() {
         let (sql, _) = build_get_lists_sql(&opts(None, None));
@@ -796,7 +749,6 @@ mod tests {
         );
     }
 
-    /// Bind-order contract: $1 caller, then q, then itemId, then limit/offset.
     #[test]
     fn get_lists_sql_bind_indices() {
         let (sql, count_sql) = build_get_lists_sql(&opts(Some("item"), Some("needle")));
@@ -809,10 +761,8 @@ mod tests {
         assert!(sql.contains("LIMIT $2 OFFSET $3"));
     }
 
-    /// Upstream picks dedup is row-level (`SELECT DISTINCT(p.item_id), p.*`):
-    /// the DISTINCT list must carry the full picks identity so two users'
-    /// picks of the same item in a shared list stay two rows even when their
-    /// ms-truncated created_at collide.
+    /// The DISTINCT list must carry the full picks identity so two users' picks of the same
+    /// item in a shared list stay two rows even when their ms-truncated created_at collide.
     #[test]
     fn picks_by_list_sql_dedups_on_the_full_pick_identity() {
         assert!(
@@ -823,10 +773,9 @@ mod tests {
         assert!(PICKS_BY_LIST_SQL.contains("ORDER BY created_at DESC"));
     }
 
-    /// Upstream 863b04c: a private list with no ACL rows must be flagged for
-    /// a non-owner, which only an absence test (NOT EXISTS) gets right -- the
-    /// LEFT JOIN + negative comparison it replaced evaluates UNKNOWN there and
-    /// WHERE drops the row.
+    /// A private list with no ACL rows must be flagged for a non-owner, which only an absence
+    /// test (NOT EXISTS) gets right: the LEFT JOIN + negative comparison it replaced
+    /// evaluates UNKNOWN there and WHERE drops the row.
     #[test]
     fn non_editable_lists_sql_tests_the_absence_of_an_edit_grant() {
         assert!(NON_EDITABLE_LISTS_SQL.contains("WHERE favorites.lists.id = ANY($1::uuid[])"));

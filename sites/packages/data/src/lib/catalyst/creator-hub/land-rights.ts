@@ -15,11 +15,6 @@ export type LandRights =
 
 const PROBE_BATCH = 6;
 
-/**
- * Every leg is required. A payload that omits one is not a permission answer,
- * and defaulting it to `false` would deny a deploy the wallet may actually be
- * entitled to; a failed parse becomes `status: "unknown"` instead.
- */
 const PermissionFlagsSchema = z.object({
   owner: z.boolean(),
   operator: z.boolean(),

@@ -6,7 +6,6 @@ import "./siteshome.css";
 
 type StoreLink = { id: string; label: string; href: string };
 
-// Explorer-first: phones open the web explorer too -- no store detour.
 const STORE_LINKS: StoreLink[] = [
   { id: "ios", label: "iOS", href: "/play/" },
   { id: "android", label: "Android", href: "/play/" },

@@ -4,13 +4,10 @@ import { PROJECT_CACHE, projectContentBase } from "../project-cache";
 import { ModelGlyph } from "./DeIcons";
 import { useOneShot } from "../use-one-shot";
 
-/** One-shot request from the ribbon. The nonce is what lets the same request
-    be made twice, after the user has navigated away in between. */
 export interface DeAssetsPreset {
   nonce: number;
   tab?: "catalog" | "local";
   cat?: string;
-  /** Restrict to smart items; combines with `cat` for one category shelf. */
   smart?: boolean;
   query?: string;
   focusSearch?: boolean;
@@ -24,14 +21,9 @@ export interface DeAssetsPanelProps {
   local?: DeLocalItem[];
   live?: boolean;
   onPlace?: (asset: DeCatalogItem) => void;
-  /** Fired with the asset when a catalog card drag starts, null when it ends.
-      The workspace uses it to raise a drop target over the viewport. */
   onDragAsset?: (asset: DeCatalogItem | null) => void;
 }
 
-/** Thumbnail with a graceful fallback: not every content-addressed thumbnail
-    is mirrored on every deployment, and a 404 must degrade to the same
-    hue-gradient glyph a thumbless asset gets -- not a blank square. */
 function AssetThumb({ a }: { a: DeCatalogItem }) {
   const [broken, setBroken] = useState(false);
   const showImg = !!a.thumbnailUrl && !broken;
@@ -106,7 +98,6 @@ function catOf(a: DeCatalogItem): string {
 }
 
 const CATALOG_RENDER_CAP = 240;
-/** The select's token for the smart-only filter; never a real category name. */
 const SMART_CATEGORY = "__smart";
 
 export interface DeCatalogTabProps {
@@ -126,9 +117,6 @@ export function DeCatalogTab({
 }: DeCatalogTabProps) {
   const placeable = typeof onPlace === "function";
   const [query, setQuery] = useState("");
-  // Two orthogonal filter dimensions as two fields. The string protocol that
-  // packed both into `cat` ("__smart:doors") produced values the select could
-  // neither show nor emit.
   const [cat, setCat] = useState("");
   const [smartOnly, setSmartOnly] = useState(false);
   const searchRef = useRef<HTMLInputElement | null>(null);
@@ -140,8 +128,6 @@ export function DeCatalogTab({
     if (preset.focusSearch) searchRef.current?.focus();
   });
 
-  // Case-insensitively deduped: the catalog ships "Seats" beside "doors" and
-  // once shipped "Text" beside "text" -- one shelf per name, first spelling wins.
   const categories = useMemo(() => {
     const byLower = new Map<string, string>();
     for (const a of items) {
@@ -238,9 +224,6 @@ export function DeCatalogTab({
               onDragStart={
                 placeable
                   ? (e) => {
-                      // The id is enough for same-window drops (the workspace
-                      // resolves it against the catalog); effect "copy" keeps
-                      // the OS cursor honest about what a drop does.
                       e.dataTransfer.setData("application/x-dcl-asset", String(a.id));
                       e.dataTransfer.effectAllowed = "copy";
                       onDragAsset?.(a);

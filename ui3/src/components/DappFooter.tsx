@@ -20,8 +20,6 @@ const SOCIALS: FooterSocial[] = [
   { name: "twitter", href: "https://x.com/decentraland", label: "X" },
 ];
 
-// The static flag+"English" chip is a control-shaped non-control; it renders
-// only when a site opts in.
 export default function DappFooter({ showLang = false }: { showLang?: boolean }) {
   return (
     <footer className="dappfooter">

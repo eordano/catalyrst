@@ -37,11 +37,8 @@ import {
 } from "./datum.server";
 
 export type ProbeContext = {
-  /** the address the screen is scoped to, if any */
   address?: string | null;
-  /** a world to probe per-world endpoints with, if any */
   world?: string | null;
-  /** a pointer to probe the scene history with, if any */
   pointer?: string | null;
   signal?: AbortSignal;
   fetchImpl?: typeof fetch;
@@ -62,13 +59,6 @@ function label(path: string): string {
   return endpointLabel("GET", `${catalystBase()}${path}`);
 }
 
-/**
- * A probe exists if and only if the row claims `live` or `sampled`.
- *
- * Probing something that does not exist is theatre, and a row that claims
- * "live" without checking is decorative. `data-sources.test.ts` asserts the
- * biconditional over the assembled registry.
- */
 const PROBES: Partial<Record<string, Probe>> = {
   "wcs-worlds": (ctx) =>
     ctx.address
@@ -233,7 +223,6 @@ const PROBES: Partial<Record<string, Probe>> = {
       : Promise.resolve(notProbed(label(sceneHistoryPath()), "a parcel pointer")),
 };
 
-/** The registry with probes attached -- the invariant lives here, not in a comment. */
 export function sourceRegistry(): ProbedSource[] {
   return SOURCE_REGISTRY.map((entry) => {
     const probe = PROBES[entry.id];
@@ -241,8 +230,6 @@ export function sourceRegistry(): ProbedSource[] {
   });
 }
 
-/** A probe never gets to hold the ledger open: the caller's signal still
- *  aborts it, and so does a 4s ceiling, whichever comes first. */
 function withTimeout(ctx: ProbeContext): ProbeContext {
   const timeout = AbortSignal.timeout(PROBE_TIMEOUT_MS);
   if (!ctx.signal) return { ...ctx, signal: timeout };
@@ -253,11 +240,6 @@ function withTimeout(ctx: ProbeContext): ProbeContext {
   };
 }
 
-/**
- * Runs every probe, in parallel, with a 4s ceiling. `unbuilt` and `excluded`
- * rows are constants and are never probed. A probe that throws becomes an
- * `unavailable` result like any other failed read.
- */
 export async function probeSources(
   ctx: ProbeContext = {},
 ): Promise<ProbedSource[]> {

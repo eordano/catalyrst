@@ -99,10 +99,6 @@ export async function loader({ request }: Route.LoaderArgs) {
     process.env.PUBLIC_CATALYST_URL ||
     "https://catalyst.example.com";
   const projectBase = seed.scene.base || "0,0";
-  // The editor viewport IS the preview launch plus the system scene that owns
-  // the editing UI. Built from one object so the two cannot drift onto
-  // different realms or parcels -- editing one parcel while previewing another
-  // is the kind of bug that reads as "the editor saved nothing".
   const launch = {
     playUrl: process.env.BEVY_PLAY_URL || "/_play",
     realm: useProjectRealm ? projectRealm : publicRealm,
@@ -112,8 +108,6 @@ export async function loader({ request }: Route.LoaderArgs) {
   const viewportSrc = buildViewportUrl({ ...launch, systemScene: editorSceneUrl, editorUi: true });
   const previewSrc = buildViewportUrl(launch);
 
-  // null when the asset packs did not answer; the wizard falls back to the
-  // bundled seed catalog rather than drawing an empty asset browser.
   const catalog: CatalogItem[] | undefined =
     (await loadAssetCatalog({ signal: request.signal })) ?? undefined;
 
@@ -303,10 +297,6 @@ export async function clientLoader({ request, serverLoader }: Route.ClientLoader
   const base = (await serverLoader()) as LoaderData;
   const url = new URL(request.url);
 
-  // Newest copy wins between the browser-local project (FSA handle /
-  // IndexedDB meta) and the signed-in account's server draft. The server
-  // draft is what makes scenes survive browser resets and machine changes;
-  // the local copy is what makes them open instantly and hold binary assets.
   const pickNewest = async (
     slug: string,
     local: {

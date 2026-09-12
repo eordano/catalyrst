@@ -42,24 +42,24 @@ curl -s -XPOST localhost:5141/entities/active -H 'content-type: application/json
 diff /tmp/a.json /tmp/b.json && echo "PARITY OK"
 ```
 
-For long-running deployments write your own systemd unit (or use the example NixOS module in
-[`nixos/`](./nixos)) with `EnvironmentFile=` supplying the section-3 env vars. To cut over:
-repoint nginx (or the `:5140` binding) at catalyrst and stop the reference server, after
-parity is confirmed over time running side-by-side.
+For long-running deployments write a systemd unit (or use the example NixOS module in
+[`nixos/`](./nixos)) with `EnvironmentFile=` supplying the section-3 env vars. Once parity
+is confirmed side-by-side over time, cut over: repoint nginx (or the `:5140` binding) at
+catalyrst and stop the reference server.
 
 ## 2. Index third-party registry roots locally (removes external dependency)
 
 By default third-party deployments verify Merkle roots against the external Decentraland
-registry subgraph. Recommended pure-Rust path: catalyrst-live's built-in background task
-bootstraps + refreshes `squid_marketplace.third_party*` from the registry subgraph (no Node
-squid). On the write-node (or sync-replica) host:
+registry subgraph. Pure-Rust path (recommended): catalyrst-live's background task bootstraps
++ refreshes `squid_marketplace.third_party*` from the registry subgraph, no Node squid. On
+the write-node (or sync-replica) host:
 
 ```bash
 THIRD_PARTY_REFRESH_HOURS=24        # >0 enables the refresher (period in hours)
 THIRD_PARTY_ROOT_SOURCE=squid       # read roots from the local index
 ```
 
-First run creates the tables (if missing) and seeds them; then refreshes every
+First run creates the tables if missing and seeds them, then refreshes every
 `THIRD_PARTY_REFRESH_HOURS` hours. Override subgraph URLs via
 `THIRD_PARTY_REGISTRY_L2_SUBGRAPH_URL` / `BLOCKS_L2_SUBGRAPH_URL`. Verify rows landed:
 
@@ -159,9 +159,8 @@ a 200 + the row in `deployments` + `active_pointers`.
 
 ## Service-crate migrations run automatically at boot
 
-Every service crate that owns a database applies its sqlx migrations in `build_state()` -
-upgrading a binary upgrades its schema on next start, with no separate migration step.
-One is destructive:
+Every service crate that owns a database applies its sqlx migrations in `build_state()`, so
+upgrading a binary upgrades its schema on next start. One is destructive:
 
 **catalyrst-world-storage `0003_lowercase_world_names`** lowercases every stored
 `world_name` across `world_storage`, `player_storage`, and `env_variables`. Rows whose
@@ -178,9 +177,8 @@ GROUP BY 1,2,3 HAVING count(*) > 1;
 ## nginx X-Accel-Redirect (zero-copy content bytes)
 
 To have nginx `sendfile()` content bytes instead of the Rust process streaming them, set
-`STORAGE_X_ACCEL_BASE` on the catalyrst-live unit (e.g.
-`STORAGE_X_ACCEL_BASE=/__protected_storage`) and add the matching internal nginx location
-pointing at `STORAGE_ROOT_FOLDER/contents`:
+`STORAGE_X_ACCEL_BASE` on the catalyrst-live unit (e.g. `/__protected_storage`) and add the
+matching internal nginx location pointing at `STORAGE_ROOT_FOLDER/contents`:
 
 ```nginx
 location /__protected_storage/ {
@@ -215,8 +213,8 @@ streams the file itself, so dev/docker/podman setups without nginx keep working.
 To have `marketplace-squid-core` own the `third_party*` tables, let the Node squid populate
 them and leave `THIRD_PARTY_REFRESH_HOURS` unset on the catalyrst side. The schema matches
 section 2's Rust refresher - pick one writer, not both. The squid changes are staged on branch
-`feat/index-third-party-registry` of your `marketplace-squid-core` checkout (apply to a
-checkout separate from any running indexer).
+`feat/index-third-party-registry` of your `marketplace-squid-core` checkout; apply to a
+checkout separate from any running indexer.
 
 WARNING: this touches the live polygon indexer - do it in a maintenance window. The migration
 only adds two new tables; it does not alter existing ones.

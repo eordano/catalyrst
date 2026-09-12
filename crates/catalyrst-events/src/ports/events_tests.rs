@@ -386,7 +386,6 @@ fn list_sql_folds_total_into_a_single_statement() {
     );
     assert!(!sql_t.contains(';'), "must be a single statement: {sql_t}");
 
-    // The window aggregate adds no bind parameters, and with_total changes only the select list.
     let mut binds_f: Vec<EventBind> = Vec::new();
     let sql_f = build_list_sql(&f, false, &mut binds_f);
     assert!(!sql_f.contains("total_count"), "{sql_f}");
@@ -400,7 +399,6 @@ fn list_sql_folds_total_into_a_single_statement() {
         )
     );
 
-    // The fallback count still matches the old separate-count text.
     let mut wbinds: Vec<EventBind> = Vec::new();
     let where_out = EventsComponent::build_where(&f, &mut wbinds);
     let mut cbinds: Vec<EventBind> = Vec::new();
@@ -571,9 +569,6 @@ fn record_sanitizes_description_from_column() {
 
 #[test]
 fn record_sanitizes_description_from_raw_fallback() {
-    // The link-local metadata IP is assembled at runtime so the literal
-    // byte pattern never appears in the tree (the export sanitation gate
-    // forbids it), while the sanitizer still sees the real thing.
     let metadata_ip = ["169", "254", "169", "254"].join(".");
     let raw = json!({
         "description": format!(

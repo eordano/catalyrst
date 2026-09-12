@@ -1,5 +1,3 @@
-/* A number and its provenance. Position is stable: a tile never moves, hides
-   or reorders because its state changed -- only the badge and the value swap. */
 
 .dt {
   display: flex;
@@ -12,12 +10,10 @@
   color: var(--text);
 }
 
-/* The thing exists; today's read failed. Solid border, red spine. */
 .dt--unavailable {
   border-left: 3px solid var(--error);
 }
 
-/* A plan, not a break. */
 .dt--unbuilt {
   border-style: dashed;
   background: transparent;
@@ -63,8 +59,6 @@
   letter-spacing: -0.02em;
 }
 
-/* Same size, same weight, same line -- only the colour tells you it is absent,
-   and the badge beside it tells you why. No skeleton, no shimmer, no zero. */
 .dt__num--absent {
   color: var(--ink-45);
 }
@@ -82,7 +76,6 @@
   color: var(--ink-7);
 }
 
-/* Two hosts measuring the same thing and disagreeing. Both stay on screen. */
 .dt__compare {
   display: flex;
   align-items: center;

@@ -15,15 +15,6 @@ function syncWalletCookie(identity: AuthIdentity | null): void {
 
 export const SESSION_STORAGE_KEY = "dcl:auth:identity:v1";
 
-/**
- * Only the read and the parse sit inside the try. `check` throws in dev on
- * purpose, and a catch wide enough to cover it would turn that throw back into
- * "signed out" -- detection wired in and never firing.
- *
- * The hand guard below stays: `check` returns the ORIGINAL value when it
- * rejects outside dev, so removing it would hand a drifted blob to the signing
- * path instead of treating it as absent.
- */
 function readStorage(): AuthIdentity | null {
   if (typeof window === "undefined") return null;
   let parsed: unknown;
@@ -64,7 +55,6 @@ function writeStorage(identity: AuthIdentity | null): void {
   }
   syncWalletCookie(identity);
 }
-
 
 let current: AuthIdentity | null = null;
 let hydrated = false;

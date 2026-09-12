@@ -468,8 +468,6 @@ function rangeLabel(s: Schedule): string {
   return a === b ? a : `${a} \u{2013} ${b}`;
 }
 
-/** Three states, not two: a schedule whose `active` flag was never read must
- *  not be shown as a draft the operator can safely ignore. */
 function scheduleStatusLabel(active: boolean | null): string {
   if (active === null) return "Status unknown";
   return active ? "Active" : "Draft";

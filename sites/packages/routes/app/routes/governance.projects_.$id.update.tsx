@@ -31,8 +31,6 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 
   const rawContext = await loadProjectUpdateContext(id, { signal: request.signal });
 
-  // loadProjectUpdateContext already blanks the project/funding/updates when it
-  // cannot reach the node, and carries the reason. Nothing to launder here.
   const context: ProjectUpdateContext = rawContext;
 
   const payload = { id, sid, context, assignment };

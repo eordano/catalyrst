@@ -10,13 +10,6 @@ import {
   ThirdwebSessionSchema,
 } from "./persisted-schemas";
 
-// Every case below is drift a persisted blob can actually carry -- written by
-// an older build, read by this one -- and every one of them got past the guard
-// that already shipped at that read site. Each case asserts BOTH halves: the
-// schema rejects it and the old guard did not. A case the old guard already
-// caught would prove nothing, which is why the guards are spelled out here
-// rather than described.
-
 type Case = [name: string, value: unknown, schemaAccepts: boolean];
 
 function table(
@@ -33,7 +26,6 @@ function table(
 }
 
 describe("auth identity", () => {
-  // session.ts: signer truthy, a private key present, authChain an array.
   const guard = (v: unknown) => {
     const p = v as {
       signer?: unknown;
@@ -42,11 +34,6 @@ describe("auth identity", () => {
     };
     return Boolean(p?.signer && p?.ephemeral?.privateKey && Array.isArray(p.authChain));
   };
-  // A real ephemeral key is secp256k1 -- 32 bytes, 64 hex chars -- which is the
-  // shape DevSignerKeySchema below already pins. The old "0xkey" placeholder was
-  // not even valid hex, so "what this build writes" asserted against something
-  // this build never writes, and it was the only thing holding HexKeySchema to a
-  // bare startsWith("0x").
   const EPHEMERAL_KEY = `0x${"a1b2c3d4".repeat(8)}`;
   const identity = (over: Record<string, unknown> = {}) => ({
     signer: "0xabc",
@@ -82,7 +69,6 @@ describe("auth identity", () => {
 });
 
 describe("thirdweb session", () => {
-  // thirdweb/session.ts: both fields merely truthy.
   const guard = (v: unknown) => {
     const p = v as { token?: unknown; address?: unknown };
     return Boolean(p?.token && p?.address);
@@ -100,9 +86,6 @@ describe("thirdweb session", () => {
 });
 
 describe("pending purchases", () => {
-  // pending-store.ts: "is it an object", plus a per-entry business rule that
-  // looks at exactly one field. Neither of them looks at `ts`, which is what
-  // decides whether an entry has expired.
   const guard = (v: unknown) => Boolean(v && typeof v === "object");
 
   table(PendingTopupStoreSchema, guard, [
@@ -131,8 +114,6 @@ describe("pending purchases", () => {
 });
 
 describe("sim collection items", () => {
-  // sim-collection-items.ts: "is it an object", and `prune` only checks that
-  // `files` is an array and `ts` a number -- never what a file looks like.
   const guard = (v: unknown) => Boolean(v && typeof v === "object");
   const entry = (files: unknown[]) => ({ c1: { ts: 1_700_000_000_000, files } });
 
@@ -144,7 +125,6 @@ describe("sim collection items", () => {
 });
 
 describe("dev signer key", () => {
-  // dev-identity.ts: startsWith("0x") and nothing else.
   const guard = (v: unknown) => typeof v === "string" && v.startsWith("0x");
   const key = `0x${"a".repeat(64)}`;
 
@@ -156,7 +136,6 @@ describe("dev signer key", () => {
 });
 
 describe("shop favorites", () => {
-  // favorites.ts: Array.isArray, so a list of anything was a list of cards.
   const guard = (v: unknown) => Array.isArray(v);
   const card = (over: Record<string, unknown> = {}) => ({
     id: "urn:a:1",

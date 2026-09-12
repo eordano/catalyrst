@@ -58,28 +58,8 @@ impl CreditsComponent {
         tx_ref: &str,
         idempotency_key: Option<&str>,
     ) -> Result<GrantOutcome, ApiError> {
-        // Amount guard. Without it a NEGATIVE amount MINTS credits:
-        // `available >= -5` passes the sufficiency check,
-        // `LEAST(earned_available, -5)` is -5, and `available := available + 5`.
-        // `spend` is a public entry point, so the guard belongs here and not in
-        // the callers.
-        //
-        // NON-NEGATIVE, not positive, and only here: a zero total is REACHABLE
-        // and legitimate on this path. `ports/checkout.rs` computes the amount
-        // as `COALESCE(SUM(unit_price_credits * qty), 0)`, so an all-free cart
-        // spends exactly 0. Rejecting that would 400 a valid checkout. The
-        // other money paths keep the positive-only guard, because a zero
-        // refund/revoke/grant is a caller bug rather than a real flow.
         let amount = CreditAmount::parse_non_negative(amount)?;
         if amount.is_zero() {
-            // A zero spend is a NO-OP: no balance change, and therefore NO
-            // ledger row -- the ledger must reproduce the balance by replay, and
-            // a zero-amount row would be noise on a wallet that did not move.
-            // Deliberately BEFORE the idempotency claim: there is no effect to
-            // deduplicate, replaying it is trivially the same no-op, and
-            // burning the key here would make a later real spend under the same
-            // key look like an amount mismatch. Checkout replay protection for
-            // this case lives in the `checkouts.idempotency_key` unique index.
             let available: String = sqlx::query(
                 "SELECT COALESCE((SELECT available::text FROM user_credits WHERE address = $1), \
                  '0') AS available",
@@ -138,10 +118,6 @@ impl CreditsComponent {
             }
         }
 
-        // Balance pledged to a live on-chain authorization is unspendable on
-        // every other lane: the authorize path never debits `available`, so the
-        // sufficiency check nets out still-'authorized' rows or the reservation
-        // is double-spent.
         let current = sqlx::query(
             "SELECT available::text AS available, \
                     (available - COALESCE(( \
@@ -181,13 +157,6 @@ impl CreditsComponent {
         .await?;
         let available: String = row.get("available");
 
-        // `earned_spent + paid_spent == amount` exactly (NUMERIC LEAST and
-        // subtraction on the same locked row), and `amount > 0` is guaranteed
-        // by the guard above, so at least one portion is positive and the
-        // ledger sum always equals the balance delta. The old "if no row
-        // qualified, write a `paid` row anyway" fallback is therefore dead --
-        // and was itself a bug: when the f64 filter wrongly dropped a positive
-        // `earned` portion, the fallback wrote the debit to the WRONG bucket.
         sqlx::query(LEDGER_SPLIT_INSERT)
             .bind(address)
             .bind(&earned_spent)
@@ -257,10 +226,6 @@ impl CreditsComponent {
             .is_some();
 
             if !claimed {
-                // `amount` stays the REQUESTED value (the replay guard matches
-                // on it); `applied` records what actually moved after the
-                // cumulative clamp, so retries report real effects. NULL for
-                // rows written before migration 0016 (falls back to `amount`).
                 let prior = sqlx::query(
                     "SELECT available::text AS available, \
                             COALESCE(applied, amount)::text AS applied, \
@@ -293,32 +258,6 @@ impl CreditsComponent {
             .fetch_optional(&mut **tx)
             .await?;
 
-        // Exact-case address matching by design: every write path (the FOR
-        // UPDATE above, the upsert conflict target, the ledger inserts) uses
-        // the raw bind, and a refund's address arrives in the same case as the
-        // spend wrote it (all callers derive both from the same source), so the
-        // reads below stay on the PK/index scans.
-        // Clamp invariant (UNCONDITIONAL): a refund restores credits that were
-        // SPENT under this tx_ref, so it is bounded by that tx_ref's remaining
-        // spend window `SUM(spend) - SUM(refund)`. No spend rows => nothing was
-        // spent => nothing to restore => `applied = 0`.
-        //
-        // The previous `ELSE $2::numeric` branch made the clamp opt-in: any
-        // tx_ref with no spend rows was refunded UNCLAMPED. The comment above
-        // it diagnosed the hole for the retired `reclaim:` namespace and missed
-        // that `ports/packs.rs` hit it verbatim by passing a Stripe EVENT ID as
-        // tx_ref -- event ids never carry spend rows, so every Stripe reversal
-        // credited an unbounded amount. That call site now revokes instead of
-        // refunding (see `revoke_purchase_in_tx`), and this branch is closed so
-        // no future caller can reopen it.
-        //
-        // Every live refund caller passes `checkout:<id>`, the same tx_ref its
-        // spend was written under (`ports/checkout.rs`, `refund_checkout_manual`,
-        // `compensate`, the admin reclaim op), so all of them stay clamped by
-        // their own spend rather than by the caller's request.
-        //
-        // Earned credits no longer expire: refunds always restore the earned
-        // split and never set earned_expires_at.
         let split = sqlx::query(
             "WITH w AS ( \
                  SELECT COALESCE(SUM(amount) FILTER (WHERE kind = 'spend' AND bucket = 'earned'), 0) AS spent_earned, \
@@ -362,9 +301,6 @@ impl CreditsComponent {
         let available: String = row.get("available");
         let paid_back: String = row.get("paid_back");
 
-        // `earned_back + paid_back == applied` exactly; when the clamp zeroes
-        // `applied` the balance did not move either, so writing no row keeps
-        // ledger and balance in lockstep.
         sqlx::query(LEDGER_SPLIT_INSERT)
             .bind(address)
             .bind(&earned_back)
@@ -410,44 +346,36 @@ impl CreditsComponent {
     /// Remove credits from a wallet as the compensation for a REVERSED fiat
     /// payment (Stripe refund / dispute / chargeback).
     ///
-    /// This is the opposite of [`Self::refund_in_tx`], and picking the wrong
-    /// one is a live money defect: `refund` ADDS credits, so compensating a
-    /// chargeback with it paid the buyer twice -- they got the fiat back from
-    /// Stripe, KEPT the credits, and were credited that amount AGAIN.
+    /// This is the opposite of [`Self::refund_in_tx`], and picking the wrong one
+    /// is a live money defect: `refund` ADDS credits, so compensating a chargeback
+    /// with it paid the buyer twice -- they got the fiat back from Stripe, KEPT
+    /// the credits, and were credited that amount AGAIN.
     ///
     /// Semantics, deliberately matching `admin_revoke_credits`:
-    /// * the balance floors at zero (`user_credits` has
-    ///   `CHECK (earned_available >= 0 AND earned_available <= available)`, so
-    ///   a negative balance is not representable);
-    /// * whatever could not be clawed back because the buyer already spent it
-    ///   is reported as `shortfall` -- a real, unrecovered loss that the caller
-    ///   must surface;
+    /// * the balance floors at zero (`user_credits` CHECKs `earned_available >= 0
+    ///   AND earned_available <= available`, so a negative balance is not
+    ///   representable);
+    /// * whatever could not be clawed back because the buyer already spent it is
+    ///   reported as `shortfall` -- a real, unrecovered loss that the caller must
+    ///   surface;
     /// * the debit is split **paid-first** -- the OPPOSITE of the earned-first
-    ///   spend rule, and deliberately so -- and lands in the ledger as `consume`
-    ///   rows (a DEBIT kind) so reconcile's signed sum keeps matching the
-    ///   balance.
+    ///   spend rule -- and lands in the ledger as `consume` rows (a DEBIT kind) so
+    ///   reconcile's signed sum keeps matching the balance.
     ///
-    /// Why paid-first: this is the reversal of a PURCHASE, and a purchase
-    /// grants *paid* credits. Taking the paid bucket back first undoes what the
-    /// fiat actually bought, and only spills into the earned bucket once the
-    /// paid one is exhausted -- so a buyer who charges back a pack does not lose
-    /// credits they earned by playing while paid credits sit untouched. The SQL
-    /// expresses it as `earned_available = LEAST(earned_available,
-    /// GREATEST(available - amount, 0))`: the earned bucket is only squeezed by
-    /// the new ceiling, i.e. by the part of the debit the paid bucket could not
-    /// absorb. Pinned by `revoke_debits_the_paid_bucket_first` in
-    /// `tests/formal_money.rs`; changing the SQL without changing that test is
-    /// the mistake this paragraph exists to prevent (an earlier revision of
-    /// this comment claimed earned-first and contradicted the statement below).
+    /// Why paid-first: this reverses a PURCHASE, and a purchase grants *paid*
+    /// credits, so a buyer who charges back a pack does not lose credits they
+    /// earned by playing while paid credits sit untouched. The SQL expresses it as
+    /// `earned_available = LEAST(earned_available, GREATEST(available - amount,
+    /// 0))`. Pinned by `revoke_debits_the_paid_bucket_first` in
+    /// `tests/formal_money.rs`; an earlier revision of this comment claimed
+    /// earned-first and contradicted the statement below.
     ///
-    /// TODO(owner-decision): flooring at zero is the SAFE choice, not
-    /// necessarily the intended one. The alternative -- letting a chargeback
-    /// drive the wallet negative so the debt follows the buyer -- cannot be
-    /// expressed today (`user_credits` CHECKs `earned_available >= 0 AND
-    /// earned_available <= available`) and would need a schema change plus a
-    /// policy on how a negative balance interacts with claiming and checkout.
-    /// Until then a shortfall is an unrecovered loss, reported and logged at
-    /// error level rather than carried.
+    /// TODO(owner-decision): flooring at zero is the SAFE choice, not necessarily
+    /// the intended one. The alternative -- letting a chargeback drive the wallet
+    /// negative so the debt follows the buyer -- cannot be expressed today and
+    /// would need a schema change plus a policy on how a negative balance
+    /// interacts with claiming and checkout. Until then a shortfall is an
+    /// unrecovered loss, reported and logged at error level rather than carried.
     pub(crate) async fn revoke_in_tx(
         &self,
         tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
@@ -469,18 +397,6 @@ impl CreditsComponent {
         .await?;
 
         let Some(before) = before else {
-            // No wallet row at all: nothing was ever credited here, so nothing
-            // can be clawed back. The whole charge-back is a shortfall -- which
-            // is to say, a 100% unrecovered loss, the single worst outcome this
-            // function can produce. It therefore gets the SAME audit trail as
-            // the normal path (an explicit zero-removal, full-shortfall record)
-            // instead of returning silently: an earlier revision wrote nothing
-            // at all here, so a chargeback against an address that never had a
-            // wallet vanished from every record finance can read.
-            //
-            // No ledger row, deliberately: the balance did not move, and the
-            // ledger's contract is that its signed replay reproduces the
-            // balance. `admin_audit` is where a no-effect event belongs.
             let mut detail = detail.clone();
             if let serde_json::Value::Object(map) = &mut detail {
                 map.insert("txRef".into(), json!(tx_ref));
@@ -542,12 +458,8 @@ impl CreditsComponent {
         let earned_removed: String = row.get("earned_removed");
         let paid_removed: String = row.get("paid_removed");
         let shortfall: String = row.get("shortfall");
-        // Decided by PostgreSQL in NUMERIC. A Rust-side `shortfall != "0"`
-        // would be wrong the moment the text rendered as "0.00".
         let has_shortfall: bool = row.get("has_shortfall");
 
-        // `earned_removed + paid_removed == removed` exactly; both are >= 0
-        // because `earned_available <= available` is a table invariant.
         sqlx::query(LEDGER_SPLIT_INSERT)
             .bind(address)
             .bind(&earned_removed)
@@ -585,12 +497,9 @@ impl CreditsComponent {
     }
 }
 
-/// Result of a compensating revocation.
 #[derive(Debug, Clone)]
 pub struct RevokeOutcome {
-    /// Wallet balance after the revocation.
     pub available: String,
-    /// Credits actually removed from the wallet.
     pub removed: String,
     /// Credits that could NOT be removed because the buyer had already spent
     /// them. Non-zero means an unrecovered loss; callers must log it loudly.

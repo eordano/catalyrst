@@ -1,32 +1,24 @@
 use crate::refusal::AuthorityNotEstablished;
 
-/// A **service**, established by possession of a shared static secret.
+/// A **service**, established by possession of a shared static secret: the caller presented a
+/// byte string equal to the secret configured under one named environment variable. That is a
+/// fact about a *deployment*, not about a person, and it is all a shared secret can prove.
 ///
-/// # What a value of this type proves
+/// What it does NOT prove:
 ///
-/// That the caller presented a byte string equal to the secret configured under one named
-/// environment variable. That is all a shared secret can ever prove, and it is a fact about
-/// a *deployment*, not about a person.
-///
-/// # What it does NOT prove
-///
-/// - **Not a person.** There is no wallet address inside this type and there is no function
-///   anywhere that produces one from it. Any human name that travels alongside a shared
-///   secret -- `?moderator=`, `x-catalyrst-admin` -- is attacker-chosen: see
-///   [`crate::UnverifiedOperatorDisplayName`] and
-///   [`crate::UnverifiedAdminDisplayName`], which are audit-column
-///   types and cannot be compared to an allowlist.
+/// - **Not a person.** There is no wallet address inside this type and no function anywhere
+///   produces one from it. Any human name travelling alongside a shared secret --
+///   `?moderator=`, `x-catalyrst-admin` -- is attacker-chosen: see
+///   [`crate::UnverifiedOperatorDisplayName`] and [`crate::UnverifiedAdminDisplayName`],
+///   audit-column types that cannot be compared to an allowlist.
 /// - **Not which instance, which host, or which request.** A shared secret is copied to
 ///   every replica of every caller that holds it. If it leaks, this type is satisfied by
 ///   whoever holds the leak.
 /// - **Not authorization.** It says a service called, never that the service may act.
 ///
-/// # How a value is obtained
-///
-/// Exactly one way:
-/// [`establish_platform_service_identity_by_comparing_presented_shared_secret`]. The
-/// constructor itself is crate-private, so unforgeability here is *real* privacy rather
-/// than something inherited from another crate.
+/// [`establish_platform_service_identity_by_comparing_presented_shared_secret`] is the one way
+/// to obtain one. The constructor itself is crate-private, so unforgeability here is *real*
+/// privacy rather than something inherited from another crate.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct AuthenticatedPlatformServiceIdentity {
     environment_variable_that_named_this_credential: &'static str,
@@ -43,11 +35,10 @@ impl AuthenticatedPlatformServiceIdentity {
         }
     }
 
-    /// The only honest audit identity a shared secret can yield: **which secret**.
-    ///
-    /// This replaces the literal `"admin-token"` actor string written into audit rows by
+    /// The only honest audit identity a shared secret can yield: **which secret**. It
+    /// replaces the literal `"admin-token"` actor string written into audit rows by
     /// `catalyrst-market/src/handlers/admin.rs` and
-    /// `catalyrst-social-service/src/rest/handlers/admin.rs`. It is a name the server
+    /// `catalyrst-social-service/src/rest/handlers/admin.rs`, and it is a name the server
     /// configured, not one the client chose.
     pub fn environment_variable_that_named_this_credential(&self) -> &'static str {
         self.environment_variable_that_named_this_credential
@@ -57,15 +48,12 @@ impl AuthenticatedPlatformServiceIdentity {
 /// The only mint for [`AuthenticatedPlatformServiceIdentity`]: compare a presented shared
 /// secret against the configured one in constant time.
 ///
-/// # Why this exists rather than a `pub fn new`
-///
 /// A `pub fn new(&'static str)` would let any caller assert a service identity it never
-/// verified -- the same hole the wallet chokepoint closes. Making the constructor
-/// crate-private and exposing only this comparison means the type cannot exist unless the
-/// secret matched, and the match happened here, once, with the same semantics for all
-/// twenty-one bearer gates that will eventually use it.
+/// verified -- the same hole the wallet chokepoint closes. A crate-private constructor plus
+/// this comparison means the type cannot exist unless the secret matched, and the match
+/// happened here, once, with the same semantics for all twenty-one bearer gates.
 ///
-/// # The three refusals, and why they are three
+/// The three refusals:
 ///
 /// - `configured_secret` is `None` or empty =>
 ///   [`AuthorityNotEstablished::CredentialNotConfigured`] => **503**. The deployment is
@@ -79,15 +67,11 @@ impl AuthenticatedPlatformServiceIdentity {
 /// - the secrets differ => [`AuthorityNotEstablished::PresentedSharedSecretDidNotMatch`]
 ///   => **401**.
 ///
-/// # What it does not do
-///
-/// It does not parse the `Authorization` header. Header parsing stays with the caller
-/// because the workspace does not agree on it -- twenty of twenty-one gates require the
-/// exact prefix `"Bearer "`, and `catalyrst-places/src/auth.rs` also accepts lowercase
-/// `"bearer "`. Widening the shared gate to match places would loosen twenty gates at
-/// once; places is the one that should change. Pass the already-extracted token here.
-///
-/// # Constant time, with the usual caveat
+/// It does not parse the `Authorization` header, because the workspace does not agree on it:
+/// twenty of twenty-one gates require the exact prefix `"Bearer "`, and
+/// `catalyrst-places/src/auth.rs` also accepts lowercase `"bearer "`. Widening the shared gate
+/// to match places would loosen twenty gates at once; places is the one that should change.
+/// Pass the already-extracted token here.
 ///
 /// The comparison is constant time in the *contents* of two equal-length secrets. A length
 /// difference short-circuits, which leaks the length -- identical to the `timing_safe_eq`

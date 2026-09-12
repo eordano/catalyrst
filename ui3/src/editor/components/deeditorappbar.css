@@ -1,13 +1,7 @@
 .editor-wizard .eui-root {
-  /* 53, not 52: the bar is height:52px PLUS a 1px border-bottom, and because it
-     is a sibling of .eui-root it never sees that element's border-box reset, so
-     it renders content-box at 53. At 52 the border row landed on top of the
-     ribbon's tab strip -- z-index 200 over .eui-root's 50 -- and stole the top
-     pixel of every tab. */
   --eui-appbar-h: 53px;
   --eui-bottom-inset: 64px;
 }
-/* The place step tucks both bars behind the overlay, so there is nothing to clear. */
 .editor-wizard[data-step="place"] .eui-root {
   --eui-appbar-h: 0px;
 }
@@ -164,8 +158,6 @@
   border-bottom-right-radius: 0;
 }
 
-/* The first five tab stops on the page had no author ring and inherited the UA
-   one at 1.05:1 in dark. */
 .editor-wizard__btn:focus-visible,
 .editor-wizard__caret:focus-visible {
   outline: var(--focus-ring-width) solid var(--focus-ring-color);

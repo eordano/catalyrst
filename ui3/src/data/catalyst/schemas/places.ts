@@ -1,25 +1,9 @@
-// Wire shapes for the places reader.
-//
-// Schemas and the WIRE types they infer, and nothing else. A perf build aliases
-// this whole module to a generated stub (vite.validate.js), which is what lets
-// zod leave the bundle -- so a transform put here would run in one build and not
-// the other, and the stub would be changing behaviour rather than only changing
-// what is checked.
-//
-// The nullish -> null normalization the exported `Place` and `PlaceCategory`
-// types promise lives in ../places.ts next to the view mappers, and runs in both
-// modes.
 
 import { z } from "zod";
 
 const nullableStr = z.string().nullish();
 const nullableNum = z.number().nullish();
 
-/**
- * Required here means required in `PlaceRow` (catalyrst-places), which serializes
- * every one of these unconditionally. A payload missing one is not a place with a
- * zero, it is not a place -- dropping it beats rendering a parcel at the origin.
- */
 export const PlaceSchema = z.object({
   id: z.string(),
   title: nullableStr,

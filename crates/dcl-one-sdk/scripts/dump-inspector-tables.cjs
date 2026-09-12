@@ -1,46 +1,3 @@
-// Regenerate the three version-pinned snapshots the vendored data-layer host
-// needs from a REAL `@dcl/inspector` install:
-//
-//   src/vendor/inspector-shim/component-schemas.json
-//   src/vendor/inspector-shim/minimal-composite.json
-//   src/vendor/inspector-shim/root-components.json
-//
-// None can be derived from the base blob: the `inspector::*` component
-// schemas live in creator-hub's own source (`src/lib/sdk/components`), and the
-// `asset-packs::*` ones — and the root-entity values `initComponents` seeds —
-// come from `@dcl/asset-packs`, which the blob installs and then drops.
-// `add_shim()` in `blob_overlays.py` therefore COPIES these files rather than
-// building them — they are a pinned snapshot, and this script is how the pin
-// is moved.
-//
-// Run it after every `@dcl/inspector` bump:
-//
-//   scripts/install-inspector-host.sh [version]   # a require()-able install
-//   node scripts/dump-inspector-tables.cjs
-//
-// A bare `npm install @dcl/inspector` no longer loads (7.37.0+ require()s
-// undeclared packages whose dist is extensionless ESM); the helper installs
-// and bundles what this script needs. With no argument it reads the helper's
-// output, ~/.cache/dcl-one-sdk/inspector-host/node_modules/@dcl/inspector;
-// any directory holding a loadable package with an `@dcl/asset-packs` and an
-// `@dcl/ecs` (with `dist-cjs`) beside it works too.
-//
-// WHY A TABLE AT ALL. `@dcl/ecs`'s crdt receive loop drops any message whose
-// `componentId` the engine does not know (`systems/crdt/index.js`: when
-// `engine.getComponentOrNull(msg.componentId)` is null the message is only
-// re-broadcast, never applied). An editor that PUTs an `asset-packs::Triggers`
-// our host never defined would see its edit accepted, echoed back, and then
-// silently dropped from the next save. Defining all of them at boot is what
-// makes the host lossless.
-//
-// `componentNumberFromName` is a deterministic CRC32 of the component name, so
-// the ids here are reproducible without either package — the table is only
-// needed for the SCHEMAS.
-//
-// Definition ORDER is preserved on purpose. `dumpEngineToComposite` walks
-// `engine.componentsIter()`, so the order components are defined in is the
-// order they land in the saved `.composite`. Matching upstream's order keeps a
-// scene from churning in git the first time it is saved through this host.
 
 const fs = require('fs')
 const path = require('path')
@@ -58,19 +15,6 @@ const inspectorVersion = require(path.join(inspectorDir, 'package.json')).versio
 
 const ECS = require(path.join(inspectorDir, '../ecs/dist-cjs'))
 
-// Which components upstream takes from `@dcl/ecs`'s own generated factories,
-// and which it defines from a schema. This is NOT guesswork and NOT a
-// name-prefix rule: a factory is probed on a scratch engine and its
-// `jsonSchema` compared with the one the inspector's engine actually holds.
-//
-// It matters because the two are not interchangeable. `core::Material`'s
-// schema is `{serializationType: 'protocol-buffer', protocolBuffer:
-// 'PBMaterial'}` — `Schemas.fromJson` cannot rebuild a protobuf codec from
-// that, so re-deriving it would produce wire bytes the browser editor cannot
-// read. It also catches the reverse: `core::ParticleSystem` LOOKS core, and
-// newer `@dcl/ecs` releases do ship a factory for it, but the inspector
-// defines it from its own `ParticleSystemSchema` — so the factory is the wrong
-// source there even though the name matches.
 const probeEngine = ECS.Engine()
 const factoryByName = new Map()
 for (const factory of Object.values(ECS.components || {})) {
@@ -79,7 +23,6 @@ for (const factory of Object.values(ECS.components || {})) {
     const def = factory(probeEngine)
     if (def && def.componentName) factoryByName.set(def.componentName, def)
   } catch {
-    // Not a component factory (or needs arguments) — skip it.
   }
 }
 
@@ -93,19 +36,12 @@ for (const c of engine.componentsIter()) {
   components.push({
     name: c.componentName,
     id: c.componentId,
-    // 0 = LastWriteWinElementSet, 1 = GrowOnlyValueSet. Only `core::AudioEvent`
-    // is 1, and `dumpEngineToComposite` skips those, but the host still has to
-    // define it or its crdt messages are dropped.
     type: c.componentType,
-    // 'ecs'    -> `@dcl/ecs`'s generated factory, looked up by component name.
-    // 'schema' -> `engine.defineComponentFromSchema(name, Schemas.fromJson(...))`.
     defineFrom: sameAsFactory ? 'ecs' : 'schema',
     jsonSchema: c.schema.jsonSchema,
   })
 }
 
-// One component per line: compact enough to be worth shipping, still a
-// readable diff when the pin moves.
 const table =
   '{\n' +
   `  "$comment": ${JSON.stringify(
@@ -119,12 +55,6 @@ const table =
 
 fs.writeFileSync(path.join(outDir, 'component-schemas.json'), table)
 
-// A verbatim port of `generateMinimalComposite` from
-// `src/lib/data-layer/client/feeded-local-fs.ts`. Captured as data rather than
-// re-implemented in the host, because the field list is inspector POLICY: a
-// new required `inspector::SceneMetadata` field would make a hand-typed
-// version open oddly in Creator Hub, and this way the drift is visible in a
-// diff instead.
 const { engine: e2, components: c2 } = insp.createEngineContext()
 c2.Nodes.create(e2.RootEntity, {
   value: [
@@ -138,7 +68,7 @@ c2.Scene.create(e2.RootEntity, {
   description: 'This is a test scene',
   thumbnail: 'assets/scene/thumbnail.png',
   ageRating: insp.SceneAgeRating.Adult,
-  skyboxConfig: { fixedTime: 36000, transitionMode: 0 /* TM_FORWARD */ },
+  skyboxConfig: { fixedTime: 36000, transitionMode: 0  },
   categories: [],
   author: '',
   email: '',
@@ -153,25 +83,13 @@ fs.writeFileSync(
   JSON.stringify(minimal, null, 2) + '\n'
 )
 
-// The root-entity components upstream's host seeds on EVERY load.
-// `composite-provider.ts` calls `@dcl/asset-packs`' `initComponents(engine)`
-// after `Composite.instance`: one `asset-packs::ActionTypes` entry per
-// ActionType, its jsonSchema serialized, and an `asset-packs::Counter` at 0,
-// both on entity 0. The browser editor reads them unconditionally — 7.43.x
-// throws `[getFrom] Component asset-packs::ActionTypes for entity #0 not
-// found` the first time an entity is added, and React unmounts the page. The
-// action list is asset-packs POLICY, so it is captured as data here and
-// applied by host.js's `seedRootComponents`. Only what `initComponents` adds
-// is recorded: a fresh engine context is checked to carry nothing on the root
-// entity first, so a future upstream that seeds root state elsewhere shows up
-// as a failure here rather than as a silent omission.
 const AP = require(path.join(inspectorDir, '../asset-packs'))
 const assetPacksVersion = require(path.join(inspectorDir, '../asset-packs/package.json')).version
 const { engine: e3 } = insp.createEngineContext()
 const onRoot = (engine) => {
   const out = {}
   for (const c of engine.componentsIter()) {
-    if (typeof c.getOrNull !== 'function') continue // GrowOnlyValueSet: never on root
+    if (typeof c.getOrNull !== 'function') continue
     const v = c.getOrNull(engine.RootEntity)
     if (v !== null && v !== undefined) out[c.componentName] = v
   }

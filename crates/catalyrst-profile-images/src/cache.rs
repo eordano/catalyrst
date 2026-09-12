@@ -34,8 +34,6 @@ const LOW_WATER: f64 = 0.9;
 pub struct ImageCache {
     root: PathBuf,
     ttl: Option<Duration>,
-    /// `None` means unbounded, which is the old behaviour: a cache of derivable
-    /// renders that only ever grew.
     max_bytes: Option<u64>,
     written_since_sweep: Arc<AtomicU64>,
     sweeping: Arc<AtomicBool>,
@@ -105,8 +103,7 @@ impl ImageCache {
         }
     }
 
-    /// Counts a write and, once enough has accumulated, sweeps in the
-    /// background. Detached on purpose: a render already costs seconds, and
+    /// The sweep is detached on purpose: a render already costs seconds, and
     /// making the caller wait on a directory walk would add the eviction cost
     /// to a request that has nothing to do with it.
     fn note_written(&self, bytes: u64) {
@@ -117,8 +114,6 @@ impl ImageCache {
         if prior + bytes < SWEEP_AFTER_BYTES {
             return;
         }
-        // One sweep at a time; a second trigger while one runs is a no-op
-        // rather than a second walk over the same tree.
         if self
             .sweeping
             .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
@@ -148,13 +143,12 @@ impl ImageCache {
 
 /// Evicts oldest-first until the tree fits `LOW_WATER * max`.
 ///
-/// Ordering is by mtime, i.e. by when the image was rendered, not by when it
-/// was last served. True LRU would need either atime -- which `relatime` and
-/// `noatime` make unreliable, and which is exactly the mount option a busy
-/// cache directory tends to get -- or a side index to maintain and keep
-/// consistent with the disk. Neither is worth it here, because every entry is
-/// re-derivable: evicting a hot image costs one re-render, not a loss. The
-/// budget is the property that matters; the ordering is a heuristic.
+/// Ordering is by mtime -- when the image was rendered, not when it was last
+/// served. True LRU would need either atime, which `relatime`/`noatime` make
+/// unreliable and which is exactly the mount option a busy cache directory
+/// tends to get, or a side index kept consistent with the disk. Neither is
+/// worth it: every entry is re-derivable, so evicting a hot image costs one
+/// re-render. The budget is the contract; the ordering is a heuristic.
 async fn sweep_to_budget(root: &std::path::Path, max: u64) -> std::io::Result<u64> {
     let mut entries: Vec<(SystemTime, u64, PathBuf)> = Vec::new();
     let mut total: u64 = 0;
@@ -185,8 +179,6 @@ async fn sweep_to_budget(root: &std::path::Path, max: u64) -> std::io::Result<u6
                     continue;
                 }
                 let name = f.file_name();
-                // Leave staging files to their writer; they are not cache
-                // entries and removing one mid-write would corrupt a render.
                 if name.to_string_lossy().starts_with('.') {
                     continue;
                 }
@@ -320,7 +312,6 @@ mod tests {
         let cache = ImageCache::new(&dir, 0);
         let blob = Bytes::from(vec![7u8; 4096]);
 
-        // 40 entities x 2 images x 4 KiB = 320 KiB written.
         for i in 0..40u32 {
             let entity = format!("Qm{:0>44}", i);
             cache.put(&entity, ImageKind::Face, &blob).await.unwrap();
@@ -343,7 +334,6 @@ mod tests {
             "sweep should reach the low-water mark, landed at {after}"
         );
 
-        // A tree already under budget must not lose anything.
         let freed_again = sweep_to_budget(&dir, budget).await.unwrap();
         assert_eq!(freed_again, 0, "sweep evicted from an under-budget tree");
 

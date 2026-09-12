@@ -24,23 +24,20 @@ pub struct Config {
     pub livekit_webhook_key: Option<String>,
     pub max_users_per_world: i64,
 
-    /// Serve `offline:offline` while the SFU is unreachable. A comms endpoint
-    /// that does not answer is not a degraded realm to a stock client -- the
-    /// LiveKit handshake is a hard gate on entry, so it bounces the visitor back
-    /// to the login screen and the content never renders at all.
+    /// Serve `offline:offline` while the SFU is unreachable: to a stock client the
+    /// LiveKit handshake is a hard gate on entry, so an unanswering comms endpoint
+    /// bounces the visitor to the login screen instead of degrading the realm.
     pub comms_offline_when_unreachable: bool,
 
-    /// Strip the ENS suffix from the realm name of worlds published to this
-    /// node. Off, a stock client resolves `<name>.dcl.eth` against Decentraland's
-    /// worlds registry and renders their copy instead of ours whenever the same
-    /// name exists there. Mirrored worlds keep their ENS name either way -- for
-    /// those the official copy is the point.
+    /// Strip the ENS suffix from the realm name of worlds published to this node. Off,
+    /// a stock client resolves `<name>.dcl.eth` against Decentraland's worlds registry
+    /// and renders their copy instead of ours. Mirrored worlds keep their ENS name
+    /// either way -- for those the official copy is the point.
     pub realm_name_strip_ens: bool,
 
-    /// Node-wide fallback for `/world/{name}/preview-wearables`, used by worlds
-    /// that select none of their own. Empty is the normal state: the route's
-    /// answer is executed by every visiting client, so it is only ever an
-    /// explicit selection.
+    /// Node-wide fallback for `/world/{name}/preview-wearables`, used by worlds that
+    /// select none of their own. Empty is the normal state: the route's answer is
+    /// executed by every visiting client, so it is only ever an explicit selection.
     pub preview_wearable_urns: Vec<String>,
 
     pub contents_upstream_url: Option<String>,
@@ -61,10 +58,9 @@ pub struct Config {
     pub multipart_upload_timeout_ms: u64,
     pub deployment_processing_timeout_ms: u64,
 
-    /// The five `WORLDS_FED_*` keys, grouped rather than splayed across this struct
-    /// so that "which knobs belong to federation" is answerable by reading one type.
-    /// Parsed and validated at boot by [`crate::fed::config::WorldsFedConfig::from_env`];
-    /// a zero or unparseable cap is a startup failure, not a runtime surprise.
+    /// The five `WORLDS_FED_*` keys, parsed and validated at boot by
+    /// [`crate::fed::config::WorldsFedConfig::from_env`]; a zero or unparseable cap is
+    /// a startup failure, not a runtime surprise.
     pub federation: crate::fed::config::WorldsFedConfig,
 }
 
@@ -87,10 +83,10 @@ fn validate_upload_limits(max_in_flight_upload_bytes: u64) -> Result<()> {
 }
 
 /// Maps [`catalyrst_livekit::resolve_creds`] onto this config's
-/// `(api_key, api_secret, livekit_configured)` triple. Unset, blank, and
-/// placeholder (`devkey`/`devsecret`, any case) credentials all count as
-/// unconfigured: without the `LIVEKIT_ALLOW_DEV_CREDS` opt-in the service
-/// refuses to boot instead of silently minting tokens no real SFU accepts.
+/// `(api_key, api_secret, livekit_configured)` triple. Unset, blank and placeholder
+/// (`devkey`/`devsecret`, any case) credentials all count as unconfigured: without the
+/// `LIVEKIT_ALLOW_DEV_CREDS` opt-in the service refuses to boot rather than silently
+/// minting tokens no real SFU accepts.
 fn resolve_livekit_env(
     api_key: String,
     api_secret: String,
@@ -259,8 +255,6 @@ mod tests {
 
     #[test]
     fn livekit_placeholder_creds_are_treated_as_unset() {
-        // devkey/devsecret (any case) must NOT count as configured: without
-        // the opt-in the service refuses to boot...
         for (k, s) in [
             ("devkey", "devsecret"),
             ("DevKey", "DEVSECRET"),
@@ -273,7 +267,6 @@ mod tests {
                 "({k:?}, {s:?}) must refuse to boot without LIVEKIT_ALLOW_DEV_CREDS"
             );
         }
-        // ...and with it, the gate + warning path runs with configured=false.
         let (k, s, configured) =
             resolve_livekit_env("devkey".into(), "devsecret".into(), true).unwrap();
         assert_eq!((k.as_str(), s.as_str()), ("devkey", "devsecret"));

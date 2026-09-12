@@ -26,18 +26,15 @@ const NAMES: NameItem[] = [
   { id: "n3", stem: "plaza42" },
 ];
 
-/** The inventory is picked by name: the wearable + name fixtures, or nothing owned. */
 const INVENTORY = {
   owned: { wearables: WEARABLES, names: NAMES },
   none: { wearables: [] as AssetItem[], names: [] as NameItem[] },
 };
 type InventoryKey = keyof typeof INVENTORY;
 
-/** The category chips the component itself enumerates. */
 const CATEGORIES = ["wearable", "emote", "ens", "parcel", "estate"] as const;
 type CategoryKey = (typeof CATEGORIES)[number];
 
-/** Story args: the inventory is picked by name, the rest are real props. */
 type MyAssetsStoryArgs = {
   inventory: InventoryKey;
   category: CategoryKey;
@@ -108,13 +105,6 @@ const CATALOG: { label: string; args: MyAssetsStoryArgs }[] = [
   { label: "loading", args: { inventory: "none", category: "wearable", loading: true, empty: false } },
 ];
 
-/**
- * Every state at once. `Default` flips between them from the Controls panel; this keeps the
- * wearable grid, the NAMEs grid, the empty state and the skeleton in the render + a11y +
- * visual-diff gates. `chrome={false}` so stacking does not emit N `<main>` landmarks, and
- * `labelSuffix` makes each copy's `nav[aria-label="Profile sections"]` uniquely named --
- * axe's `landmark-unique` compares accessible names, so a fixed label would fail N times.
- */
 export const Catalog: Story = {
   name: "Catalog (every state)",
   parameters: { controls: { disable: true } },

@@ -6,8 +6,6 @@ export type ServiceProbe = {
   key: string;
   url: string;
   state: ProbeState;
-  /** null when no HTTP response arrived at all (refused/timeout) -- a real
-   *  status can never be confused with the absence of one. */
   httpStatus: number | null;
   latencyMs: number;
   detail: string;
@@ -86,12 +84,6 @@ export function clearProbeSnapshot(): void {
   snapshot.clear();
 }
 
-/**
- * Probe with a per-service scope: `only` re-probes those services and answers
- * the rest from the last snapshot (still probing any service never seen, so a
- * fresh process cannot serve holes). Each row carries `probedAt` so the UI
- * can say how old a cached answer is instead of implying "just now".
- */
 export async function probeSnapshot(
   services: OperatorService[],
   opts: { only?: string[]; signal?: AbortSignal } = {},

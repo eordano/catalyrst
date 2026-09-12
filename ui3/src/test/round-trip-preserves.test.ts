@@ -4,14 +4,6 @@ import { RecentPlacesSchema, StoredAuthIdentitySchema } from "../data/persisted-
 import { ThirdwebAuthResultSchema } from "../data/auth/thirdwebSchema";
 import { check } from "../validate";
 
-// The bug this pins: `check` returns result.data, and a plain z.object DELETES
-// keys the shape does not mention. Persisted values are read, modified and
-// written back, so a stripping parse erases a newer build's field permanently
-// the first time an older build touches the store. External responses are
-// forwarded onward, so the same loss applies to anything upstream adds.
-//
-// Asserting on a field no schema mentions is the whole point -- if these
-// schemas are ever tightened back to z.object, every case here fails.
 describe("round-trip boundaries preserve unknown keys", () => {
   test("persisted identity keeps a field written by a newer build", () => {
     const stored = {

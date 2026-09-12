@@ -13,11 +13,8 @@ export interface RibbonNumericValue {
 export interface RibbonNumericProps {
   position?: RibbonNumericValue | null;
   rotation?: RibbonNumericValue | null;
-  /** Absolute setter. Absent means the capability is missing and the group is omitted. */
   onCommit: (field: NumericField, axis: NumericAxis, value: number) => void;
-  /** Arrow-key increment for the three position fields. */
   step?: number;
-  /** Arrow-key increment for the rotation field. */
   angleStep?: number;
 }
 
@@ -34,9 +31,6 @@ export interface NumFieldProps {
   onCommit: (value: number) => void;
 }
 
-// The prototype committed parseFloat on every keystroke, so a minus sign, a
-// decimal point and an empty field were all impossible to type. The draft
-// string is what makes those states legal until the value is actually applied.
 export function NumField({ label, ariaLabel, value, step, onCommit }: NumFieldProps) {
   const [draft, setDraft] = useState(() => display(value));
   const [editing, setEditing] = useState(false);
@@ -46,8 +40,6 @@ export function NumField({ label, ariaLabel, value, step, onCommit }: NumFieldPr
     if (!editing) setDraft(display(value));
   }, [value, editing]);
 
-  // A blur that changed nothing must not write to the scene, or every tab
-  // through the row would queue four redundant Transform writes.
   const commit = (raw: string) => {
     const n = parseFloat(raw);
     if (!Number.isFinite(n) || (value !== undefined && Math.abs(n - value) < 1e-9)) {

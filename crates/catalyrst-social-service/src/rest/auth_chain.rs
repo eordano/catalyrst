@@ -11,20 +11,17 @@ pub use catalyrst_crypto::signed_fetch::{
 
 pub const FIVE_MINUTES: i64 = 5 * 60;
 
-/// No canonical metadata keys, so the pre-6.0.0 folded payload is never accepted here: this surface
-/// verifies the 6.x payload only, which binds the metadata bytes and so closes the re-cased-key
-/// bypass of the scene gate. Every first-party social client signs `{}` metadata, which folds to
-/// itself, so the two payload shapes are byte-identical for real traffic; the only uppercase-bearing
-/// metadata in the ecosystem is what an SDK `signedFetch` attaches on a scene's behalf, and those
-/// requests are refused here either way. Name a key here only for a signer that cannot be shipped
-/// ahead of this service.
+/// Empty, so the pre-6.0.0 folded payload is never accepted here: this surface verifies the
+/// 6.x payload only, which binds the metadata bytes and so closes the re-cased-key bypass of
+/// the scene gate. Real traffic is unaffected -- first-party clients sign `{}`, which folds to
+/// itself, and the only uppercase-bearing metadata is what an SDK `signedFetch` attaches on a
+/// scene's behalf, refused here either way. Name a key here only for a signer that cannot be
+/// shipped ahead of this service.
 const CANONICAL_METADATA_KEYS: &[&str] = &[];
 
-/// Why a signed-fetch request was turned down at the REST gate.
-///
 /// The metadata gate answers before signature verification (upstream #492), so it has no
-/// [`AuthChainError`] to report: it carries the metadata it read instead, which the response echoes
-/// back.
+/// [`AuthChainError`] to report: it carries the metadata it read instead, which the response
+/// echoes back.
 #[derive(Debug)]
 pub enum SignedFetchRejection {
     Chain(AuthChainError),
@@ -37,10 +34,8 @@ impl From<AuthChainError> for SignedFetchRejection {
     }
 }
 
-/// The metadata of a request the "not for scenes" gate refuses, as the gate read it.
-///
-/// Read straight off the header so the gate can answer before any crypto: a refused request is a
-/// 400 that costs no catalyst round-trip (upstream #492).
+/// Read straight off the header so the "not for scenes" gate can answer before any crypto: a
+/// refused request is a 400 that costs no catalyst round-trip (upstream #492).
 fn refused_metadata(headers: &HeaderMap) -> Option<String> {
     let raw = headers
         .get(AUTH_METADATA_HEADER)
@@ -104,7 +99,6 @@ mod tests {
 
     #[tokio::test]
     async fn a_refused_signer_answers_before_verification() {
-        // No auth chain at all: reaching verification first would report the missing chain instead.
         let headers = headers_with_metadata(r#"{"signer":"decentraland-kernel-scene"}"#);
         let err = require_signer(&headers, "get", "/v1/mutes")
             .await
@@ -155,9 +149,8 @@ mod tests {
     const ROOT_KEY: &str = "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
     const EPHEMERAL_KEY: &str = "59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d";
 
-    /// A genuinely signed chain whose delivered metadata may differ from the metadata that went
-    /// into the signed payload -- the shape of the re-cased-key attack, where nothing about the
-    /// signature is weakened and only the bytes on the wire are rewritten.
+    /// The re-cased-key attack shape: a genuinely signed chain whose delivered metadata differs
+    /// from what went into the signed payload.
     async fn signed_headers(signed_payload: &str, delivered_metadata: &str) -> (String, HeaderMap) {
         use alloy::signers::{local::PrivateKeySigner, Signer as _};
 
@@ -226,12 +219,8 @@ mod tests {
     async fn a_re_cased_metadata_key_answers_from_the_gate_before_the_signature() {
         let ts = now_ms();
         let signed = build_payload("get", "/v1/mutes", &ts, SCENE_METADATA);
-        // The premise of the attack: under the pre-6.0.0 folded payload the rewrite was invisible,
-        // so the scene's own signature verified over the metadata the gate had just read as absent.
         assert_eq!(build_payload("get", "/v1/mutes", &ts, RECASED_KEY), signed);
         let (_, headers) = signed_headers(&signed, RECASED_KEY).await;
-        // Two layers refuse this and the earlier one wins: the 6.x signature would refuse the
-        // rewritten bytes a step later, but the gate answers first (upstream #493).
         let err = require_signer(&with_timestamp(headers, &ts), "get", "/v1/mutes")
             .await
             .expect_err("a scene-signed chain must not be served as a user identity");
@@ -243,8 +232,6 @@ mod tests {
 
     #[tokio::test]
     async fn a_re_spelled_signer_key_signed_as_delivered_is_refused_at_the_gate() {
-        // Nothing is rewritten after signing here, so the chain is authentic and the signature has
-        // nothing to object to: the gate is the only thing standing (upstream #493).
         let ts = now_ms();
         let signed =
             catalyrst_crypto::signed_fetch::build_payload_v6("get", "/v1/mutes", &ts, RECASED_KEY);
@@ -297,8 +284,6 @@ mod tests {
 
     #[tokio::test]
     async fn empty_metadata_verifies_under_either_payload_shape() {
-        // Every first-party social client signs `{}`, which folds to itself, so the legacy bytes a
-        // deployed client mints are identical to the 6.x bytes this gate now verifies.
         let ts = now_ms();
         let legacy = build_payload("get", "/v1/mutes", &ts, "{}");
         let v6 = catalyrst_crypto::signed_fetch::build_payload_v6("get", "/v1/mutes", &ts, "{}");

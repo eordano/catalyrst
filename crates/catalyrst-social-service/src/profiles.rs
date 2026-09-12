@@ -31,11 +31,8 @@ pub struct ProfileInfo {
 
 const CACHE_TTL: Duration = Duration::from_secs(300);
 
-/// Lowercase every address and drop duplicates, preserving first-seen order.
-///
-/// Membership is tracked with a `HashSet` (O(1) per probe) instead of a
-/// `Vec::contains` scan, which would make this shared enrichment primitive
-/// O(n^2) in the address count.
+/// Preserves first-seen order. `HashSet` rather than `Vec::contains`, which would make this
+/// shared enrichment primitive O(n^2) in the address count.
 fn dedup_lowercased(addresses: &[String]) -> Vec<String> {
     let mut seen = HashSet::with_capacity(addresses.len());
     let mut wanted = Vec::with_capacity(addresses.len());
@@ -186,7 +183,6 @@ impl ProfilesCache {
 mod tests {
     use super::dedup_lowercased;
 
-    /// The `Vec::contains` reference this fix replaced.
     fn reference(addrs: &[String]) -> Vec<String> {
         let mut w = Vec::new();
         for a in addrs {
@@ -198,7 +194,7 @@ mod tests {
         w
     }
 
-    /// A tiny seeded LCG so the 50 random cases are deterministic and need no rand dep.
+    /// Seeded so the random cases are deterministic and need no `rand` dep.
     struct Lcg(u64);
     impl Lcg {
         fn next(&mut self) -> u64 {
@@ -224,8 +220,6 @@ mod tests {
         let dups: Vec<String> = vec!["0xZ".to_string(); 8];
         assert_eq!(dedup_lowercased(&dups), reference(&dups));
 
-        // 50 deterministic pseudo-random lists over a 10-address alphabet with random
-        // casing.
         let alphabet = ["aa", "bb", "cc", "dd", "ee", "ff", "gg", "hh", "ii", "jj"];
         let mut rng = Lcg(0x1234_5678_9abc_def0);
         for _ in 0..50 {
@@ -250,8 +244,6 @@ mod tests {
 
     #[test]
     fn dedup_of_twenty_thousand_addresses_is_not_quadratic() {
-        // 20_000 addresses cycling through 5_000 unique values, alternating case, built
-        // OUTSIDE the timer.
         let addrs: Vec<String> = (0..20_000)
             .map(|i| {
                 let v = i % 5_000;
@@ -266,8 +258,6 @@ mod tests {
         let out = dedup_lowercased(&addrs);
         let elapsed = start.elapsed();
         assert_eq!(out.len(), 5_000);
-        // Comfortably true for O(n) (~tens of ms in debug), comfortably false for the
-        // O(n^2) Vec::contains version (>10s in debug).
         assert!(
             elapsed < std::time::Duration::from_secs(2),
             "dedup took {elapsed:?}, expected < 2s"

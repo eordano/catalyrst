@@ -313,10 +313,6 @@ async fn run_probe() -> CommsProbe {
 
 fn build_comms_config(probe: CommsProbe) -> AboutComms {
     let env = about_env();
-    // An advertised endpoint that does not answer costs the visitor the realm,
-    // not just comms: the client's entry gate waits on the handshake and sends
-    // them back to the login screen when it times out. Naming the realm offline
-    // lets them in with comms off, and they get the real thing next entry.
     let adapter = match crate::handlers::comms_health::comms_health().is_alive() {
         true => env.comms_fixed_adapter.clone(),
         false => OFFLINE_ADAPTER.to_string(),

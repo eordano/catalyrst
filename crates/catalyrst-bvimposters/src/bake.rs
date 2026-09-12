@@ -354,9 +354,6 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let store = Arc::new(Store::new(dir.path().join("root"), u64::MAX));
         store.init().unwrap();
-        // exec, not a plain command: the hang must not need a second fork,
-        // or fork-pressure from parallel test binaries can kill the script
-        // before the timeout fires with a non-timeout error.
         let script = write_script(dir.path(), "hang.sh", "exec sleep 30");
         let mut cfg = test_cfg(&script);
         cfg.timeout = Duration::from_millis(200);

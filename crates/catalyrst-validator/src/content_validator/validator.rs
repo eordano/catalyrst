@@ -20,7 +20,7 @@ use crate::types::*;
 #[async_trait]
 pub trait ExternalCalls: Send + Sync {
     /// `Ok(false)` / `Ok(None)` mean provable absence only. A store this node could not read is an
-    /// `Err`, never a miss: absence is a verdict about the caller, a fault is a verdict about us.
+    /// `Err`, never a miss.
     async fn is_content_stored_already(
         &self,
         hashes: &[String],

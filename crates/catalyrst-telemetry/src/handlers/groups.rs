@@ -19,9 +19,6 @@ pub struct Group {
     pub priority: i32,
 }
 
-// A rollout bucket must not move when Postgres or the Rust toolchain changes:
-// DefaultHasher is explicitly unstable across releases and hashtext is a
-// Postgres internal, so the bucket is FNV-1a computed here.
 fn bucket(group: &str, user_key: &str) -> u32 {
     let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
     for byte in group
@@ -51,7 +48,6 @@ async fn load_groups(pool: &sqlx::PgPool) -> Result<Vec<Group>, sqlx::Error> {
     .await
 }
 
-// Groups the user belongs to, most specific first (priority DESC, then name).
 pub async fn groups_for_user(pool: &sqlx::PgPool, user_key: &str) -> Vec<String> {
     match load_groups(pool).await {
         Ok(groups) => groups
@@ -68,8 +64,6 @@ pub async fn groups_for_user(pool: &sqlx::PgPool, user_key: &str) -> Vec<String>
 
 pub type FlagTarget = (String, String, String, Option<String>);
 
-// `groups` arrives in precedence order, so a flag targeted by two of the user's
-// groups resolves to the higher-priority one.
 pub async fn flag_targets_for(
     pool: &sqlx::PgPool,
     groups: &[String],

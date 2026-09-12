@@ -1,18 +1,5 @@
 import { z } from "zod";
 
-/*
- * The creators-data metrics artifact.
- *
- * `decentraland.org/creators-data` currently serves the marketing SPA: every
- * path under it answers 200 with HTML, so a JSON read fails and the ledger says
- * so. If it is ever deployed for real, the payload still decides whether any
- * number may be rendered -- the artifact carries its own `source`, and only
- * `"metabase"` is a real export. The one on disk today says `"fixture"`.
- *
- * This is spec S5.5 rule 5 in data form: a synthetic snapshot behind a warning
- * chip is still a lie, so a non-metabase artifact never becomes a `snapshot`.
- */
-
 export const METRICS_PATH_PREFIX = "/worlds";
 export const METRICS_PATH_SUFFIX = "/metrics";
 
@@ -41,11 +28,6 @@ export type ArtifactVerdict =
 
 const UNSTATED = "an unstated date";
 
-/**
- * Decides whether an artifact payload may be rendered at all. Pure, so the rule
- * is testable without a network: `creators-data-source.test.ts` asserts that
- * `source: "fixture"` maps to unavailable and only `"metabase"` maps to snapshot.
- */
 export function classifyMetricsArtifact(raw: unknown): ArtifactVerdict {
   const parsed = MetricsArtifactSchema.safeParse(raw);
   if (!parsed.success) {

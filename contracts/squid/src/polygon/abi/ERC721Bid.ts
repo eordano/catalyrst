@@ -117,7 +117,6 @@ export class Contract extends ContractBase {
     }
 }
 
-/// Event types
 export type BidCreatedEventArgs = EParams<typeof events.BidCreated>
 export type BidAcceptedEventArgs = EParams<typeof events.BidAccepted>
 export type BidCancelledEventArgs = EParams<typeof events.BidCancelled>
@@ -128,7 +127,6 @@ export type PauserAddedEventArgs = EParams<typeof events.PauserAdded>
 export type PauserRemovedEventArgs = EParams<typeof events.PauserRemoved>
 export type OwnershipTransferredEventArgs = EParams<typeof events.OwnershipTransferred>
 
-/// Function types
 export type GetBidByBidderParams = FunctionArguments<typeof functions.getBidByBidder>
 export type GetBidByBidderReturn = FunctionReturn<typeof functions.getBidByBidder>
 

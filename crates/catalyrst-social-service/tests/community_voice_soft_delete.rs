@@ -1,13 +1,9 @@
 //! A soft-deleted community grants no voice-chat authority.
 //!
 //! Every community-voice entry point authorizes off one lookup -- `Db::community_role` --
-//! and none of them loads the community. Because deletion is a soft delete
-//! (`rest::handlers::client::communities::delete` and `rest::fed::apply::apply_delete`
-//! both only `UPDATE communities SET active = FALSE`, leaving `community_members`
-//! untouched), an ex-owner used to keep start/end/kick/mute authority over a room whose
-//! community no longer existed.
-//!
-//! The REST-side twin of this file is `tests/community_soft_delete_standing.rs`.
+//! and none loads the community, so under a soft delete an ex-owner used to keep
+//! start/end/kick/mute authority over a room whose community no longer existed. REST-side
+//! twin: `tests/community_soft_delete_standing.rs`.
 
 use std::sync::Arc;
 
@@ -26,8 +22,6 @@ use uuid::Uuid;
 
 const FORMER_OWNER: &str = "0x000000000000000000000000000000000dde1e7e";
 
-// A scratch database, not a scratch schema: `sqlx::migrate!` takes a per-database advisory
-// lock, so concurrent tests sharing one database deadlock against each other.
 async fn setup() -> Option<ScratchDb> {
     let scratch =
         ScratchDb::create("CATALYRST_SOCIAL_SERVICE_TEST_PG", "cg_social_voicedel").await?;
@@ -91,7 +85,6 @@ fn service_ctx(db: Db, me: &str) -> ProcedureContext<Context> {
     }
 }
 
-/// The lookup every voice entry point shares.
 #[tokio::test]
 async fn community_role_ignores_members_of_a_soft_deleted_community() {
     let Some(scratch) = setup().await else {
@@ -132,7 +125,6 @@ async fn community_role_ignores_members_of_a_soft_deleted_community() {
     scratch.drop().await;
 }
 
-/// The exploit, at the RPC boundary: `start` is the entry point that opens the room.
 #[tokio::test]
 async fn a_former_owner_cannot_start_voice_chat_in_a_deleted_community() {
     let Some(scratch) = setup().await else {
@@ -163,7 +155,7 @@ async fn a_former_owner_cannot_start_voice_chat_in_a_deleted_community() {
     scratch.drop().await;
 }
 
-/// The `require_moderator` half of the surface, which the other six entry points share.
+/// Covers the `require_moderator` half, shared by the other six entry points.
 #[tokio::test]
 async fn a_former_owner_cannot_end_voice_chat_in_a_deleted_community() {
     let Some(scratch) = setup().await else {

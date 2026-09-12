@@ -1,7 +1,3 @@
-// DB-gated integration tests for the storage read cache and the value::text
-// passthrough. Set CATALYRST_WORLD_STORAGE_TEST_PG to a postgres URL to run;
-// each test works in a throwaway schema and drops it on the way out.
-
 use catalyrst_contract_gate::pg::ScratchSchema;
 use catalyrst_worlds::world_storage::config::{NamespaceLimits, StorageCacheConfig};
 use catalyrst_worlds::world_storage::handlers::common::raw_paginated_response;
@@ -55,8 +51,6 @@ async fn raw_world_value_text(pool: &PgPool, key: &str) -> Option<String> {
     .map(|r| r.get("value"))
 }
 
-// A direct SQL write that bypasses Storage: a subsequent cached read must NOT see it,
-// a subsequent uncached read must.
 async fn sneaky_world_update(pool: &PgPool, key: &str, value: &Value) {
     sqlx::query(
         "UPDATE world_storage SET value = $4::jsonb
@@ -235,8 +229,6 @@ async fn delete_all_paths_invalidate_their_scope() {
         .await
         .unwrap()
         .is_none());
-    // The other player's cached entry survives a per-player clear: remove their row
-    // behind the cache's back and the read must still be served.
     sqlx::query(
         "DELETE FROM player_storage
          WHERE world_name = $1 AND place_id = $2::uuid AND player_address = $3",

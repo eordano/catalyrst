@@ -41,24 +41,8 @@ export type GrantPeriod = {
 };
 
 export type GrantBudget = {
-  /**
-   * "live" -- every number below came from GET /budgets on this node.
-   * "unavailable" -- no number below is a measurement; `reason` says why and
-   *   `categories` is empty. Never render `unavailable` as zeros: a zero reads
-   *   as "the budget is spent", which is a different claim from "we do not
-   *   know". Callers must show the reason instead.
-   * "fixture" -- only produced by `fixtureBudget()`, which exists for stories
-   *   and layout work. `loadGrantBudget` never returns it.
-   */
   source: "live" | "fixture" | "unavailable";
-  /** Set when source !== "live". Safe to show to a visitor. */
   reason?: string;
-  /**
-   * finish_at of the newest budget period the node holds. The mirror is only
-   * as fresh as the last sync (GOVERNANCE_POLL_ENABLED is unset, so the sync
-   * loop never runs -- catalyrst-governance/src/config.rs:133), so this is the
-   * honest "data as of" for the page.
-   */
   asOf?: string;
   submissionThresholdVp: string;
   period: GrantPeriod;
@@ -179,12 +163,6 @@ export type LoadBudgetOptions = {
   fetchImpl?: typeof fetch;
 };
 
-/**
- * GET /budgets on catalyrst-governance (crates/catalyrst-governance/src/lib.rs:41,
- * handler handlers/read.rs:220 -- a public read, no auth extractor of any kind).
- * A failure is reported via `unavailableBudget`, never replaced with
- * `fixtureBudget()`'s plausible-looking money.
- */
 export async function loadGrantBudget(
   opts: LoadBudgetOptions = {},
 ): Promise<GrantBudget> {

@@ -85,17 +85,8 @@ describe("proxy signer", () => {
   });
 });
 
-// Every case below is drift the shipped code accepted. Two guards shipped, and
-// neither looked at a type: `return parsed as T` in twFetch checked nothing at
-// all, and the sign proxy's `!parsed.signature` only asked whether something
-// truthy was there. Each case asserts BOTH halves -- the schema rejects it, and
-// the guard that shipped waved it through -- because a case the old code
-// already caught would prove nothing.
-
-/** twFetch's `return parsed as T`: a cast, so every payload got through. */
 const oldTwFetchGuard = (_v: unknown) => true;
 
-/** proxySign's `!res.ok || !parsed.signature`, on a 200. */
 const oldSignatureGuard = (v: unknown) =>
   Boolean((v as { signature?: unknown } | null)?.signature);
 
@@ -109,7 +100,6 @@ describe("upstream drift at the thirdweb boundaries", () => {
     ...over,
   });
 
-  /** A key a JSON body simply does not carry, not one set to undefined. */
   const without = (o: Record<string, unknown>, key: string) => {
     const copy = { ...o };
     delete copy[key];
@@ -119,12 +109,7 @@ describe("upstream drift at the thirdweb boundaries", () => {
   const authCases: [string, unknown, boolean][] = [
     ["what thirdweb sends today", authResult(), true],
     ["a field thirdweb added since", authResult({ profiles: [] }), true],
-    // The token stops being the bearer string and becomes a wrapper. The old
-    // cast handed it on, `Bearer [object Object]` went out on the next call,
-    // and thirdweb answered 401 -- read by the UI as the user's code expiring.
     ["token wrapped in an object", authResult({ token: { jwt: "jwt-123" } }), false],
-    // The v2 spelling. The old cast handed back a ThirdwebAuthResult whose
-    // walletAddress was undefined, and makeInAppSigner threw on it.
     [
       "walletAddress renamed to address",
       without(authResult({ address: "0xabc" }), "walletAddress"),
@@ -141,10 +126,6 @@ describe("upstream drift at the thirdweb boundaries", () => {
 
   const signCases: [string, unknown, boolean][] = [
     ["what the proxy sends today", { signature: "0xsigned" }, true],
-    // A split signature is what an enclave change would most plausibly look
-    // like. Truthy, so the old guard passed it, and it reached the auth chain
-    // stringified as "[object Object]" -- a chain that fails validation on a
-    // catalyst server rather than here.
     ["signature split into r/s/v", { signature: { r: "0x1", s: "0x2", v: 27 } }, false],
     ["signature arrived as bytes", { signature: [1, 2, 3] }, false],
   ];
@@ -183,9 +164,6 @@ describe("upstream drift at the thirdweb boundaries", () => {
     );
   });
 
-  // The order inside proxySign is load-bearing: validating the success shape
-  // before the status test would answer a configuration failure with a
-  // complaint about a missing signature.
   test("a 503 stays a ThirdwebError and never becomes a validation error", async () => {
     vi.stubGlobal(
       "fetch",

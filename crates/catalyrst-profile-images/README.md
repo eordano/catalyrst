@@ -18,7 +18,7 @@ GET /entities/{entityId}/body.png   -> 200 image/png   (256x512)
 
 ## What this crate implements
 
-A local avatar-render pipeline with a content-addressed disk cache. The primary backend (`PROFILE_IMAGES_BACKEND=render`):
+A local avatar-render pipeline with a content-addressed disk cache. Primary backend (`PROFILE_IMAGES_BACKEND=render`):
 
 1. `GET /entities/{id}/{face,body}.png` serves from the disk cache if present;
 2. on a miss, resolve the profile entity from the local content core - `GET <PROFILE_IMAGES_CONTENT_URL>/contents/{id}` -> `metadata.avatars[0].avatar`, as upstream's `scripts/local_entity_snapshot.sh` does;
@@ -41,7 +41,7 @@ Entity ids are validated as canonical CIDs (no path traversal); responses carry 
 
 ### Single-flight (`src/queue.rs`)
 
-`RenderQueue::render_once` keeps a per-entity-id map of in-flight renders: the first caller leads and renders; other callers for the same id park on a `broadcast` channel for the outcome. One render emits both face and body, so concurrent face+body requests collapse to one Godot invocation. A `Semaphore` caps concurrent Godot processes (`PROFILE_IMAGES_RENDER_MAX_CONCURRENT`, default 1); the leader re-checks the cache after acquiring its slot. Outcomes: `Rendered` / `NotFound` (no avatar -> 404) / `Failed(msg)` (-> 502 unless the proxy fallback is enabled).
+`RenderQueue::render_once` keeps a per-entity-id map of in-flight renders: the first caller leads and renders, other callers for the same id park on a `broadcast` channel for the outcome. One render emits both face and body, so concurrent face+body requests collapse to one Godot invocation. A `Semaphore` caps concurrent Godot processes (`PROFILE_IMAGES_RENDER_MAX_CONCURRENT`, default 1); the leader re-checks the cache after acquiring its slot. Outcomes: `Rendered` / `NotFound` (no avatar -> 404) / `Failed(msg)` (-> 502 unless the proxy fallback is enabled).
 
 ### Backends
 
@@ -53,7 +53,7 @@ Under `render`, the proxy is consulted only when `PROFILE_IMAGES_RENDER_FALLBACK
 
 ### Prerequisite: the Godot client must be built
 
-`nix run .#install-units` only builds this Rust crate. Build the exported godot-explorer client once from its checkout:
+`nix run .#install-units` builds only this Rust crate. Build the exported godot-explorer client once from its checkout:
 
 ```bash
 cd /path/to/godot-explorer
@@ -94,4 +94,4 @@ Add to the `CatalyrstUrlsSource` SERVICES map (an nginx/gateway rewrite of the p
 { "profile-images", ("/profile-images", <deployed-port>) },
 ```
 
-so `https://profile-images.decentraland.org/entities/{id}/face.png` resolves to `http://<catalyrst-host>/profile-images/entities/{id}/face.png`, which proxies to this service. See the integration note in the deploy runbook.
+so `https://profile-images.decentraland.org/entities/{id}/face.png` resolves to `http://<catalyrst-host>/profile-images/entities/{id}/face.png`, proxied to this service. See the integration note in the deploy runbook.

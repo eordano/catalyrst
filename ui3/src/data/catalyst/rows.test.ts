@@ -1,30 +1,3 @@
-// The two properties that keep a row guard from turning into a second copy of
-// its schema, asserted once per guard.
-//
-// A guard exists because a perf build replaces the schema modules with accepting
-// stubs (rows.ts says why). Written by hand and kept beside the mapper, it is
-// the only thing that can still reject a row in that build -- and a hand-written
-// restatement of a shape is exactly the thing that drifts away from it, so the
-// drift has to be a test failure rather than a code review.
-//
-//   ACCEPTS WHAT THE SCHEMA ACCEPTED  the guard must not reject anything the
-//     schema would have kept. If it did, the default build would start dropping
-//     rows it used to render and the perf-parity gate would go red for a reason
-//     that has nothing to do with perf mode. Exercised against schema-valid rows
-//     built to sit right on the guard's edge -- empty strings, empty arrays, slot
-//     zero -- because those are the ones a careless guard rejects.
-//
-//   THE MAPPER SURVIVES THE MINIMAL ROW  the smallest object the guard admits,
-//     carrying its required fields and nothing else, must go through the mapper
-//     without throwing. This is the one that catches drift that matters: a mapper
-//     that grows a new unconditional read fails it immediately, while a field
-//     added to a schema does not -- which is the point, since a guard tracks the
-//     mapper and not the shape.
-//
-// These run in whichever mode vitest resolved (one process holds one, see
-// vitest.perf-parity.config.ts) and are mode-independent by construction: they
-// call the guards and mappers directly and never touch a schema through a
-// reader. The cross-mode half lives in the perf-parity gate's `guarded` group.
 
 import { describe, expect, test } from "vitest";
 
@@ -76,13 +49,9 @@ import type { AvatarWire, ProfileEnvelopeWire } from "./schemas/profile";
 type GuardCase = {
   what: string;
   guard: RowGuard;
-  /** The least a guard-passing row can be: its required fields, emptiest legal value, nothing else. */
   minimal: Record<string, unknown>;
-  /** Everything the guard's own doc comment claims is safe to hand this row to. */
   map: (row: Record<string, unknown>) => unknown;
-  /** Schema-valid rows sitting on the guard's edge. It must accept every one. */
   edges: Record<string, unknown>[];
-  /** Rows a mapper could not survive or could only fake. It must reject every one. */
   rejects: unknown[];
 };
 
@@ -261,12 +230,6 @@ const CASES: GuardCase[] = [
   },
 ];
 
-/**
- * Which schema stands behind each guard. Kept beside the cases rather than in
- * them because it is the only part the perf build replaces: under DCL_PERF the
- * accepting stub says yes to every edge row, so the acceptance test degrades to
- * "the guard accepts these", which is still the claim being made.
- */
 const SCHEMAS: Record<string, { safeParse: (v: unknown) => { success: boolean } }> = {
   place: PlaceSchema,
   "place category": CategorySchema,
@@ -305,9 +268,6 @@ describe.each(CASES)("the $what guard", (c) => {
 });
 
 describe("the acceptance property, stated once more against the real schemas", () => {
-  // Only meaningful in the checking build; under DCL_PERF every safeParse says
-  // yes and this asserts nothing, which is why the guards above are tested
-  // directly as well.
   test("a schema-valid edge row is never rejected by its guard", () => {
     for (const c of CASES) {
       const schema = SCHEMAS[c.what];
@@ -318,10 +278,6 @@ describe("the acceptance property, stated once more against the real schemas", (
     }
   });
 
-  // The one deliberate exception, named so it cannot be introduced silently
-  // elsewhere: this rejection already existed as reader logic (`r.success &&
-  // r.data.name` in fetchCategories), so absorbing it changes nothing in the
-  // default build and makes it run in perf too.
   test("isRenderablePlaceCategory is stricter than its schema, and only it", () => {
     const unnamed = { name: "", active: true, count: 0, i18n: { en: null } };
     expect(CategorySchema.safeParse(unnamed).success).toBe(true);
@@ -369,15 +325,11 @@ describe("the helpers a guard is built out of", () => {
 });
 
 describe("the readers whose row semantics the guards changed", () => {
-  // The owned lists are the one guard with no mapper behind it: the kept row
-  // contributes only its urn, so the whole requirement is that the urn is a
-  // string. Without it the perf build pushed a number into a `string[]`.
   test("parseOwned keeps urns and nothing that is not one", () => {
     expect(parseOwned([{ urn: "a" }, { urn: 5 }, { name: "b" }, null, "c"])).toEqual(["a"]);
     expect(parseOwnedEmotes([{ urn: "e" }, {}])).toEqual(["e"]);
     expect(parseOwned("not a list")).toEqual([]);
   });
-
 
   test("parseNotifications keeps the sort meaningful by dropping non-numeric timestamps", () => {
     const rows = parseNotifications({
@@ -395,9 +347,6 @@ describe("the readers whose row semantics the guards changed", () => {
     expect(parseNotifications(null)).toEqual([]);
   });
 
-  // Reached directly rather than through `parseProfileEnvelope`, because the
-  // schema throws before this in the checking build. This is the perf-mode path:
-  // `.parse` is the identity there, and `env.avatars.map` used to be a TypeError.
   test("normalizeProfileEnvelope is total on an envelope that carries no avatars", () => {
     expect(normalizeProfileEnvelope({} as ProfileEnvelopeWire).avatars).toEqual([]);
     expect(

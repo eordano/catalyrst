@@ -1,6 +1,6 @@
 [package]
 name = "catalyrst-drpc"
-version = "0.24.0"
+version = "0.24.1"
 edition = "2021"
 description = "Decentraland RPC (protobuf-over-transport, ports + modules + streams), vendored from decentraland/rpc-rust 2.3.6. Carries the wire protocol the explorer speaks to catalyrst-quests and catalyrst-social-service."
 license = "Apache-2.0"

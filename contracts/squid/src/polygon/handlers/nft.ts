@@ -203,11 +203,6 @@ export async function handleTransferNFT(
   nft.updatedAt = timestamp;
   nft.transferredAt = timestamp;
 
-  // Record this transfer as a candidate gift notification. We do NOT emit here:
-  // whether it is an actual gift (vs a marketplace purchase) is decided
-  // post-batch, once every Sale of the batch has been tracked. Within a single
-  // transaction the ERC721 Transfer log is processed before the marketplace
-  // event that records the sale, so the sale is not yet known at this point.
   inMemoryData.transferGiftCandidates.set(`${txHash}-${nft.id}`, {
     nftId: nft.id,
     from: event.from,

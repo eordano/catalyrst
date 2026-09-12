@@ -10,7 +10,6 @@ const SCENES = [
   { id: "s3", title: "Parkour Park", href: "/creator-hub/scene-editor?pointer=-30%2C55" },
 ];
 
-/** The scene list is picked by name; every other prop is real. */
 const SCENE_SETS = {
   none: [],
   three: SCENES,
@@ -54,7 +53,6 @@ type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {};
 
-/** Kept as its own export: `creatorhub-pages-home--unauthenticated` is a screen-tour deep link. */
 export const Unauthenticated: Story = {
   args: { signedIn: false, sceneSet: "none" },
 };
@@ -78,10 +76,6 @@ const CASES: { label: string; args: Partial<HomeStoryArgs> }[] = [
   { label: "Scenes loading", args: { signedIn: true, rescoping: true } },
 ];
 
-/**
- * `chrome={false}` because the rail is a `<nav>` and the content well a `<main id="ch-main">`:
- * stacking framed instances gives axe duplicate landmarks and duplicate ids.
- */
 export const Catalog: Story = {
   name: "Catalog (every state)",
   parameters: { controls: { disable: true } },

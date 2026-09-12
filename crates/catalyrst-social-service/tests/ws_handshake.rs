@@ -54,8 +54,7 @@ async fn make_frame(ts_ms: i64) -> (String, String) {
     signed_frame(ts_ms, "{}").await
 }
 
-/// A genuinely signed frame whose metadata is delivered exactly as signed, under the 6.x payload
-/// this socket verifies.
+/// Metadata delivered exactly as signed, under the 6.x payload this socket verifies.
 async fn signed_frame(ts_ms: i64, metadata: &str) -> (String, String) {
     let root: PrivateKeySigner = "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
         .parse()
@@ -242,8 +241,6 @@ async fn ws_handshake_re_spelled_scene_signer_key_gets_close_3003() {
     let url = format!("ws://{}/", addr);
     let (mut socket, _resp) = tokio_tungstenite::connect_async(&url).await.unwrap();
 
-    // Signed under this spelling from the start, so the chain is authentic: only the pre-gate
-    // stands between a scene-signed socket and every RPC service on it (upstream #493).
     let now_ms = Utc::now().timestamp_millis();
     let (_, frame) = signed_frame(now_ms, r#"{"Signer":"decentraland-kernel-scene"}"#).await;
     socket.send(Message::Text(frame.into())).await.unwrap();

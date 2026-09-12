@@ -63,8 +63,8 @@ pub fn verify_handshake(
     verify_handshake_bytes(&request.auth_chain, now_ms)
 }
 
-/// Verify a signed-fetch auth chain from its raw header-bag bytes. Shared by the player and
-/// scene-listener handshake paths, which sign the identical `"connect"/"/"` payload.
+/// Shared by the player and scene-listener handshake paths, which sign the identical
+/// `"connect"/"/"` payload.
 pub fn verify_handshake_bytes(
     auth_chain: &[u8],
     now_ms: i64,

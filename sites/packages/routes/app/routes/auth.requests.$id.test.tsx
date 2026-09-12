@@ -37,8 +37,6 @@ const routes = [
   },
 ];
 
-// The real loader feeds the real first paint, the way the SSR entry does: no effect has run yet,
-// so what shows is exactly what the URL alone decides.
 async function firstPaint(path: string): Promise<{ data: Record<string, unknown>; html: string }> {
   const handler = createStaticHandler(routes);
   const context = await handler.query(new Request(`https://catalyst.example.com${path}`));
@@ -134,8 +132,6 @@ function ready(method: AllowedMethod, params: unknown[]): ReadyRequest {
 
 type CardOverrides = Partial<Parameters<typeof ApprovalCard>[0]>;
 
-// The ready view is rendered the way the effect would hand it over: the recovery's verdict on the
-// request decides whether the effects gate shows, and the props carry what the user has ticked.
 function card(request: ReadyRequest, overrides: CardOverrides = {}): string {
   return renderToString(
     <ApprovalCard
@@ -165,8 +161,6 @@ function approveDisabled(html: string): boolean {
 }
 
 describe("approval gates", () => {
-  // Tightened in auth #489: readability is not a verdict on what a signature is then used for, so
-  // every personal_sign reaches the wallet behind the same acknowledgment an opaque one does.
   it("gates a readable personal_sign message behind the effects acknowledgment", () => {
     const request = ready("personal_sign", ["Sign in to Decentraland\nNonce: 1234", SENDER]);
     const html = card(request);
@@ -194,8 +188,6 @@ describe("approval gates", () => {
     expect(opaque).not.toContain("log you in to another site");
   });
 
-  // A message with an override is already classified opaque, and an opaque one is escaped before it
-  // is shown: it can neither reorder the block it sits in nor spell an address it does not sign.
   it("shows an override inside a signed message as a visible escape", () => {
     const request = ready("personal_sign", ["Pay \u{202e}0xattacker\u{202c} now", SENDER]);
     const { detail } = describeRequest(request);
@@ -204,7 +196,6 @@ describe("approval gates", () => {
     expect(card(request)).not.toContain("\u{202e}");
   });
 
-  // A sender is text the request supplied and nothing holds it to an address shape.
   it("shows a sender that would reorder its chip as a visible escape", () => {
     const request = { ...ready("personal_sign", ["hello", SENDER]), sender: "0x\u{202e}dead" };
     const html = card(request);
@@ -212,8 +203,6 @@ describe("approval gates", () => {
     expect(html).toContain("u{202e}");
   });
 
-  // Cut first, escaped after: an escape is never shown half-written, and a hidden character that
-  // survived into the kept prefix is still shown as one.
   it("escapes what survives the cut of a long sender", () => {
     const request = {
       ...ready("personal_sign", ["hello", SENDER]),
@@ -301,9 +290,6 @@ describe("approval gates", () => {
     expect(approveDisabled(card(request, { effectsAcknowledged: true }))).toBe(false);
   });
 
-  // SSR paints the pre-measurement state: no layout effect runs under renderToString, so this pins
-  // the default-open behaviour only. Which requests the gate applies to, and what it does once the
-  // block has been measured, are pinned in auth-message-scroll.test.ts.
   it("paints the acknowledgment open before the message block has been measured", () => {
     const html = card(ready("personal_sign", ["Sign in to Decentraland\nNonce: 1234", SENDER]));
     const checkbox = html.match(/<input[^>]*type="checkbox"[^>]*>/g)?.at(-1);
@@ -362,8 +348,6 @@ describe("transaction preview", () => {
     expect(describeRequest(request).note).toBe("Not sent to the wallet: gas, from");
   });
 
-  // The dispatched value and the previewed value are one canonicalised string, so a wallet that
-  // reads a decimal as text cannot sign an amount the card never showed.
   it("shows a decimal value as the hex quantity the wallet is handed", () => {
     const request = ready("eth_sendTransaction", [{ to: TO, data: "0x", value: "10000000" }]);
     const summary = describeRequest(request);
@@ -398,8 +382,6 @@ describe("transaction preview", () => {
     expect(card(request)).toContain(TO);
   });
 
-  // Nothing bounds the keys a scene puts on the transaction object, so the note names a few and
-  // counts the rest the way upstream's listAddresses does.
   it("names three dropped fields and counts the rest", () => {
     const request = ready("eth_sendTransaction", [
       { to: TO, data: "0x", gas: "0x1", nonce: "0x1", from: SENDER, type: "0x2", chainId: "0x89" },
@@ -419,8 +401,6 @@ describe("transaction preview", () => {
   });
 });
 
-// Unreachable from a validated request -- personal_sign refuses a non-string first param -- so this
-// pins the fallback the detail box falls back to rather than a rendered class of request.
 describe("a message that is not text", () => {
   it("keeps the shape of the dump it prints", () => {
     const request: ReadyRequest = ready("personal_sign", [{ note: "hi" }, SENDER]);

@@ -285,7 +285,6 @@ function atPath(v: unknown, path: string[]): unknown {
   return cur;
 }
 
-/** Immutably set a nested key, creating plain objects on the way down. */
 function withPath(v: CompValue, path: string[], leaf: unknown): CompValue {
   if (path.length === 0) return v;
   const head = path[0];
@@ -296,7 +295,6 @@ function withPath(v: CompValue, path: string[], leaf: unknown): CompValue {
   return { ...v, [head]: rest.length === 0 ? leaf : withPath(base, rest, leaf) };
 }
 
-/** SDK colours are 0..1 floats; <input type=color> speaks #rrggbb. */
 function rgbToHex(c: unknown): string {
   const o = c !== null && typeof c === "object" ? (c as Record<string, unknown>) : {};
   const ch = (k: string) => {
@@ -364,7 +362,6 @@ function TextField({
   value: string;
   placeholder?: string;
   onCommit?: (s: string) => void;
-  /** Optional datalist element id to suggest values without restricting input. */
   list?: string;
 }) {
   const [draft, setDraft] = useState(value);
@@ -407,22 +404,6 @@ function BoolField({
   );
 }
 
-// ---------------------------------------------------------------------------
-// asset-packs::Actions / Triggers ("smart items") inline forms.
-//
-// Shapes come from the vendored component registry and a real composite:
-//   asset-packs::Actions  -> { id?: int, value: ActionEntry[] }
-//     ActionEntry = { name, type, jsonPayload /* JSON *string* */,
-//                     allowedInBasicView?, basicViewId?, default? }
-//   asset-packs::Triggers -> { value: TriggerEntry[] }
-//     TriggerEntry = { type, conditions?: [{ id?, type, value /* string */ }],
-//                      operation?: "and"|"or", actions: [{ id?, name? }],
-//                      basicViewId? }
-// jsonPayload is a STRING containing JSON; Triggers.actions reference actions BY
-// NAME. Primitive leaf fields render as real inputs here; the payload object and
-// anything we cannot type stays a per-entry JSON textarea (validated on blur).
-// ---------------------------------------------------------------------------
-
 const ACTION_TYPE_OPTIONS: readonly string[] = [
   "play_animation", "stop_animation", "set_state", "start_tween", "set_counter",
   "increment_counter", "decrease_counter", "play_sound", "stop_sound", "set_visibility",
@@ -439,7 +420,6 @@ const ACTION_TYPE_OPTIONS: readonly string[] = [
   "reset_skybox", "call_script_method", "log_to_console", "delete",
 ];
 
-// The closed TriggerType enum (component-schemas.json + gen-vocab) -- a select.
 const TRIGGER_TYPE_OPTIONS: readonly { value: string; label: string }[] = [
   { value: "on_click", label: "on_click (item clicked)" },
   { value: "on_input_action", label: "on_input_action (E pressed)" },
@@ -469,14 +449,12 @@ const CONDITION_TYPE_OPTIONS: readonly string[] = [
   "when_previous_state_is_not",
 ];
 
-/** Read the `value: entry[]` array a smart-item component carries (default key `value`). */
 function entryList(v: CompValue, key = "value"): Record<string, unknown>[] {
   const val = v[key];
   if (!Array.isArray(val)) return [];
   return val.filter((e): e is Record<string, unknown> => e !== null && typeof e === "object");
 }
 
-/** Canonical pretty-print of a jsonPayload that may arrive as a string or an object. */
 function payloadText(raw: unknown): string {
   if (typeof raw === "string") {
     try {
@@ -489,12 +467,6 @@ function payloadText(raw: unknown): string {
   return "{}";
 }
 
-/**
- * Editable JSON box for one payload object. Validates with JSON.parse on blur;
- * an invalid edit keeps the old value and shows the standard error styling used
- * by the Edit-as-JSON modal. Commits a compact single-line string (the stored
- * representation) and only when the value actually changed.
- */
 function PayloadField({
   id,
   raw,
@@ -524,8 +496,6 @@ function PayloadField({
     }
     setError(null);
     const next = JSON.stringify(parsed);
-    // No-op guard: do not re-author an unchanged component (avoids a bus write
-    // for the exact value the engine already has).
     if (next.replace(/\s/g, "") === canonical.replace(/\s/g, "")) return;
     onCommit(next);
   };
@@ -573,7 +543,6 @@ interface EntryListShellProps {
   children?: ReactNode;
 }
 
-/** Group header + one row per entry + the add button, reused by both components. */
 function EntryListShell({ title, emptyHint, count, addLabel, disabled, onAdd, children }: EntryListShellProps) {
   return (
     <>
@@ -921,9 +890,6 @@ function bodyFor(
   };
   const set = (path: string[]) =>
     onWrite ? (leaf: unknown) => onWrite(withPath(v, path, leaf)) : undefined;
-  // One select for both mesh oneofs; `keep` is what survives a shape switch --
-  // the collider keeps its sibling fields (collisionMask), the renderer starts
-  // the value fresh because its shape payloads do not overlap.
   const meshShapeSelect = (id: string, keep: CompValue) => (
     <select
       id={id}
@@ -1114,7 +1080,6 @@ function bodyFor(
       const rd = onWrite === undefined;
       const patchValue = (list: Record<string, unknown>[]) =>
         onWrite?.({ ...v, value: list });
-      // Triggers reference actions BY NAME -- suggest the sibling Actions' names.
       const actionsRaw = sibling?.["asset-packs::Actions"];
       const actionNames: string[] = [];
       if (actionsRaw !== null && typeof actionsRaw === "object") {
@@ -1160,7 +1125,6 @@ function bodyFor(
 }
 
 interface RealComponentCardsProps {
-  /** Live component values by name, so the fields show the scene rather than defaults. */
   componentValues?: Record<string, unknown>;
   components?: string[] | null;
   transform?: EditorTransform | null;
@@ -1272,7 +1236,6 @@ export interface DeInspectorPanelProps {
   onDeleteComponent?: DeleteComponentFn;
   onNudgeTransform?: NudgeFieldFn;
   interactionsOpen?: boolean;
-  /** Bumped by the host to re-open a section the user has since closed. */
   revealNonce?: number;
   interactionsPreset?: DeInteractionsPreset | null;
 }
@@ -1379,7 +1342,6 @@ export function DeInspectorPanel({
 type AddComponentGroup = "3D Content" | "Interaction";
 
 interface AddComponentDef {
-  /** Engine component id -- emitted verbatim on the bus, never localized. */
   name: string;
   label: string;
   group: AddComponentGroup;

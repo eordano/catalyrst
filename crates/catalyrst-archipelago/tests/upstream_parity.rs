@@ -237,10 +237,6 @@ async fn heartbeat_auth_required_body_byte_exact() {
 
 #[tokio::test]
 async fn dense_plaza_at_island_max_peers_assigns_every_peer() {
-    // 10 co-located peers, island cap 3: the BFS frontier must not orphan the
-    // queued-but-unprocessed peers when the cap is hit. Every peer must land
-    // in an island, islands must number ceil(10/3) = 4, and none may exceed
-    // the cap.
     let cfg = ClusterConfig {
         island_max_peers: 3,
         ..ClusterConfig::default()

@@ -27,7 +27,6 @@ import {
 const NOW = Date.parse("2026-07-31T14:03:22Z");
 const iso = (offsetMs: number) => new Date(NOW - offsetMs).toISOString();
 
-/** One of every state, built only through the constructors. */
 const CASES: { state: DatumState; datum: Datum<number>; showable: boolean }[] = [
   {
     state: "live",

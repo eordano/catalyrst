@@ -179,7 +179,6 @@ impl SceneListenerCellMapper {
 /// numbers its parcels from 0,0, so a parcel only means something together with its realm.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SceneListenerState {
-    /// Announced parcel set per realm: the parcel-exact visibility filter.
     pub parcels_by_realm: std::collections::HashMap<String, std::collections::HashSet<i32>>,
     /// Deduped, sorted `SpatialGrid` cell keys covering every announced realm's parcels. The
     /// grid is one global coordinate space, so realms overlap in it; that only ever over-covers,
@@ -201,7 +200,6 @@ impl SceneListenerState {
         }
     }
 
-    /// Whether a subject standing in `parcel` of `realm` is observed.
     pub fn observes(&self, realm: Option<&str>, parcel: i32) -> bool {
         realm
             .and_then(|r| self.parcels_by_realm.get(r))
@@ -300,7 +298,6 @@ impl SceneListenerState {
     }
 }
 
-// Thread-local so parallel test threads do not cross-count.
 #[cfg(test)]
 thread_local! {
     pub static SCENE_LISTENER_EXAMINED: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
@@ -330,7 +327,6 @@ impl SpatialGrid {
         cell_coord(v, self.inverse_cell_size)
     }
 
-    /// Packs a cell coordinate pair into the key `peers_in_cell` takes.
     pub fn pack_key(x: i32, z: i32) -> i64 {
         ((x as i64) << 32) | (z as u32 as i64)
     }
@@ -572,7 +568,6 @@ impl SpatialAreaOfInterest {
     }
 }
 
-// Thread-local so parallel test threads do not cross-count.
 #[cfg(test)]
 thread_local! {
     pub static CANDIDATES_EXAMINED: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
@@ -583,8 +578,6 @@ mod tests {
     use super::*;
     use crate::snapshot::PeerSnapshot;
 
-    // Upstream's `ScanCellRadius` at its shipped radii and cell size. Ours is derived per query
-    // (`SpatialGrid::scan_cell_radius`), so this only exists for the parity pin.
     const UPSTREAM_SCAN_CELL_RADIUS: i32 = 2;
 
     fn v3(x: f32, z: f32) -> Vector3 {
@@ -750,8 +743,6 @@ mod tests {
         assert_eq!(c.count(), 0);
     }
 
-    // Every tier boundary is inclusive on its own side; the observer sits at the origin so each
-    // subject's x is its distance. The two farthest straddle the max radius one unit apart.
     #[test]
     fn distance_tiers_and_max_radius_cutoff() {
         let mut board = SnapshotBoard::new(8, 8);
@@ -782,9 +773,6 @@ mod tests {
         );
     }
 
-    // Runs at the shipped cell size and at one that does not divide the max radius: 200 / 100
-    // is a whole 2, so only the 48-unit grid (200 / 48 = 4.17 cells) can tell a floored ring
-    // from a ceiled one, and a floored ring drops peers standing in the outer strip.
     #[test]
     fn grid_query_matches_linear_scan() {
         let mut board = SnapshotBoard::new(600, 8);
@@ -845,9 +833,6 @@ mod tests {
         }
     }
 
-    // N peers in fixed-size clusters of C, each cluster 1km apart (beyond the 200-unit max radius
-    // and its 500-unit-wide scan ring): a linear scan examines N*(N-1), the grid examines only
-    // clustermates.
     #[test]
     fn aoi_candidate_checks_scale_with_local_density() {
         const C: u32 = 10;
@@ -893,8 +878,6 @@ mod tests {
         );
     }
 
-    // ParcelEncoderOptions default: parcel size 16. Grid cell 100, so parcel (0,0) spans world
-    // [0,16)^2 inside cell (0,0).
     const PARCEL_SIZE: f32 = 16.0;
 
     fn mapper_fixture() -> (SpatialGrid, SceneListenerCellMapper) {
@@ -954,9 +937,6 @@ mod tests {
         );
     }
 
-    // The cover is derived from the rect's two corners rather than from each parcel's four
-    // corners; that shortcut is only valid while the two agree exactly. An 8x8 rect spans world
-    // [0,128)^2, crossing both cell boundaries at 100.
     #[test]
     fn rect_cover_matches_every_parcel_inside_it() {
         let (grid, mapper) = mapper_fixture();
@@ -991,8 +971,6 @@ mod tests {
         );
     }
 
-    // The full-budget shape: 4096 parcels is 64x64 x 16 units = 1024 units a side, eleven
-    // 100-unit cells with the closed max corner.
     #[test]
     fn full_budget_rect_covers_bounded_cells() {
         let (_, mapper) = mapper_fixture();

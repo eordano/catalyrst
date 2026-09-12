@@ -131,8 +131,6 @@
   font-weight: 600;
 }
 
-/* --- worlds table -------------------------------------------------------- */
-
 .ai__scroll {
   overflow-x: auto;
   border: 1px solid var(--line);
@@ -229,8 +227,6 @@
   margin-bottom: 2px;
 }
 
-/* --- busiest ------------------------------------------------------------- */
-
 .ai__busiestgrid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
@@ -292,8 +288,6 @@
   line-height: 1.6;
   color: var(--ink-45);
 }
-
-/* --- parcel lookup ------------------------------------------------------- */
 
 .ai__lookup {
   margin-top: 14px;
@@ -368,8 +362,6 @@
 .ai__parcel .ai__tiles {
   margin-top: 14px;
 }
-
-/* --- no-address ---------------------------------------------------------- */
 
 .ai__noaddressactions {
   display: flex;

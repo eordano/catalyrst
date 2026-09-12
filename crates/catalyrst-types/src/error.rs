@@ -190,10 +190,9 @@ impl IntoResponse for MarketplaceApiError {
     }
 }
 
-/// Generic message-passthrough service error over the [`ApiErrorBody`]
-/// envelope (`{"ok":false,"error":msg,"message":msg}`). Services whose errors
-/// are just status+message use this directly; domain-specific variants stay in
-/// the service crates, either wrapping this or keeping their own envelope.
+/// Serializes as the [`ApiErrorBody`] envelope (`{"ok":false,"error":msg,"message":msg}`).
+/// For services whose errors are just status+message; domain-specific variants stay in the
+/// service crates.
 #[derive(Debug, Error)]
 pub enum ApiError {
     #[error("{message}")]

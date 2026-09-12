@@ -156,9 +156,6 @@ impl CreditsComponent {
                 "admin_grant_credits kind must be one of grant|purchase|refund",
             ));
         }
-        // A negative grant silently DEBITS a wallet (and can drive `available`
-        // below the earned bucket); a zero grant writes a meaningless ledger
-        // row. Same exact-decimal gate as spend/refund/revoke.
         let amount = crate::money::CreditAmount::parse_positive(amount)?;
         let amount = amount.as_str();
         let mut tx = self.pool.begin().await?;
@@ -269,8 +266,6 @@ impl CreditsComponent {
         actor: Option<&str>,
         detail: &JsonValue,
     ) -> Result<GrantOutcome, ApiError> {
-        // Same class as the missing `spend` guard: a NEGATIVE amount here
-        // MINTS credits (`GREATEST(available - (-5), 0)` = available + 5).
         let amount = crate::money::CreditAmount::parse_positive(amount)?;
         let amount = amount.as_str();
         let mut tx = self.pool.begin().await?;
@@ -320,14 +315,6 @@ impl CreditsComponent {
         let earned_removed: String = row.get("earned_removed");
         let paid_removed: String = row.get("paid_removed");
 
-        // Ledger rows are selected by PostgreSQL in NUMERIC from the same values
-        // that moved the balance. The old f64 filter dropped positive-but-
-        // sub-f64 portions (`1e-400::numeric > 0` is TRUE in PostgreSQL, `0.0`
-        // in Rust) and its fallback then wrote the whole `removed` amount to
-        // the `paid` bucket even when the debit had come out of `earned`,
-        // desynchronising the earned-bucket reconcile invariant.
-        // `earned_removed + paid_removed == removed`, both >= 0, so when
-        // `removed` is zero no row is written and nothing moved.
         sqlx::query(crate::ports::wallet::LEDGER_SPLIT_INSERT)
             .bind(address)
             .bind(&earned_removed)

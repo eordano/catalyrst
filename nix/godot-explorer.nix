@@ -27,19 +27,6 @@
 , livekitSupport ? false
 }:
 
-# A hermetic Linux export of decentraland/godot-explorer.
-#
-# The engine is a FORK (decentraland/godotengine, "Protocol Squad"), not stock
-# Godot, and the project validates the running binary against the exact
-# `<version>.stable.gh.<sha>` string -- so the editor and the export templates
-# have to come from that fork's publish, pinned by hash, rather than from
-# nixpkgs. Everything else is built from source: the gdext library in `lib/`
-# compiles here, and the export itself runs headless during the build.
-#
-# Bumping the engine means bumping godotBuildSha AND all three hashes together;
-# they are one artifact set, and mixing an editor with another build's templates
-# fails the version check rather than degrading quietly.
-
 let
   godotVersion = "4.6.2";
   godotBuildSha = "6289a3b2b";
@@ -54,9 +41,6 @@ let
   };
 
   runtimeLibs = [
-    # sentry's GDExtension links libcurl; when it is missing the extension fails
-    # to load and every SentrySDK reference in the project's GDScript becomes a
-    # parse error, which reads like a source problem rather than a link one.
     curl
     libGL
     libxkbcommon
@@ -78,7 +62,6 @@ let
     xorg.libXrender
   ];
 
-  # The fork's editor build. Used only during this build, to run the export.
   godotEditor = stdenv.mkDerivation {
     pname = "godot-editor-dcl";
     version = releaseTag;
@@ -96,8 +79,6 @@ let
         $out/bin/godot4
       runHook postInstall
     '';
-    # Godot dlopens Vulkan and the Wayland/X libs, so autoPatchelf cannot see
-    # them from the ELF alone.
     postFixup = ''
       wrapProgram $out/bin/godot4 \
         --prefix LD_LIBRARY_PATH : ${lib.makeLibraryPath runtimeLibs}
@@ -105,14 +86,6 @@ let
     meta.sourceProvenance = [ lib.sourceTypes.binaryNativeCode ];
   };
 
-  # Export templates, laid out where Godot looks for them.
-  #
-  # The directory is the PLAIN version, `4.6.2.stable` -- not the fork tag. The
-  # editor reports `4.6.2.stable.gh.<sha>` from --version but resolves templates
-  # under the version without the `.gh.<sha>` suffix, which the export error
-  # names explicitly:
-  #   No export template found at the expected path:
-  #   .../export_templates/4.6.2.stable/linux_release.x86_64
   exportTemplates = stdenv.mkDerivation {
     pname = "godot-export-templates-dcl";
     version = releaseTag;
@@ -142,21 +115,11 @@ let
     meta.sourceProvenance = [ lib.sourceTypes.binaryNativeCode ];
   };
 
-  # rusty_v8 downloads a prebuilt V8 static lib from GitHub in its build script,
-  # which the sandbox forbids. Its `RUSTY_V8_ARCHIVE` accepts a local path when
-  # the value is not an http(s) URL, and `copy_archive` sniffs the gzip magic --
-  # so a fetched .a.gz store path is handed over as-is. The alternative,
-  # V8_FROM_SOURCE=1, builds V8 with depot_tools and is hours of work per bump.
   librustyV8 = fetchurl {
     url = "https://github.com/denoland/rusty_v8/releases/download/v0.106.0/librusty_v8_release_x86_64-unknown-linux-gnu.a.gz";
     hash = "sha256-jLYl/CJp2Z+Ut6qZlh6u+CtR8KN+ToNTB+72QnVbIKM=";
   };
 
-  # webrtc-sys does the same thing as rusty_v8 -- its build script fetches a
-  # prebuilt libwebrtc from a GitHub release. `LK_CUSTOM_WEBRTC` overrides the
-  # lookup with a directory holding include/ and lib/, which is what this
-  # unpacks to. The tag and triple are what webrtc-sys-build computes for a
-  # linux x86_64 release build; they must move together with the crate.
   libwebrtc = stdenv.mkDerivation {
     pname = "libwebrtc-livekit";
     version = "h264-true-prefixed";
@@ -178,26 +141,16 @@ let
     meta.sourceProvenance = [ lib.sourceTypes.binaryNativeCode ];
   };
 
-  # The SDK component .proto files are not vendored in the repo: xtask fetches
-  # @dcl/protocol from npm and copies `package/proto/**` into
-  # lib/src/dcl/components/proto/**, which lib/build.rs then reads to generate
-  # the component bindings. Pinned to the same tarball the repo pins, so the
-  # generated components match the checkout rather than whatever `next` points
-  # at today.
   dclProtocol = fetchurl {
     url = "https://registry.npmjs.org/@dcl/protocol/-/protocol-1.0.0-30827383791.commit-0ff6038.tgz";
     hash = "sha256-4t1VLgNC0ahSnomBbldPWJ8dlXTxAxo+fMTZ5ISt08s=";
   };
 
-  # The project's GDScript references SentrySDK/SentryUser unconditionally, so
-  # without this addon the export fails at parse time rather than degrading.
-  # xtask installs it into godot/addons/sentry; same pin as the repo's.
   sentryAddon = fetchurl {
     url = "https://github.com/getsentry/sentry-godot/releases/download/1.6.0/sentry-godot-1.6.0+4e3e3e5.zip";
     hash = "sha256-qnEh/sbnnpsMRsfrzC9Xqf7qFnyJbF1vMYOSYg5Lueg=";
   };
 
-  # The gdext library the project loads as `libdclgodot.so`. Built from source.
   dclgodotLib = rustPlatform.buildRustPackage {
     pname = "dclgodot";
     version = "1.13.0";
@@ -209,15 +162,6 @@ let
     };
     nativeBuildInputs = [ pkg-config protobuf rustPlatform.bindgenHook ];
 
-    # Wearable and profile resolution funnel through peer_base(); upstream hard-
-    # codes it to peer.decentraland.org per DclEnvironment, so a self-hosted
-    # realm silently resolves its avatars against Decentraland's catalyst
-    # instead of its own. Honour DCL_PEER_BASE when set, which reaches
-    # peer_content() and peer_lambdas() with it. Unset keeps upstream behaviour
-    # exactly, so this stays a superset rather than a fork of the semantics.
-    #
-    # --replace-fail so an upstream refactor of this function breaks the build
-    # here rather than silently reverting us to the public catalyst.
     postPatch = ''
       # The engine ships a THIRD-PARTY optimized-asset bucket as its default and
       # reaches it for wearables unless a CLI override is passed -- so a node
@@ -263,8 +207,6 @@ let
 }'
     '';
 
-    # Stage the protos before cargo runs: build.rs reads the directory eagerly
-    # and panics if it is absent.
     preBuild = ''
       mkdir -p src/dcl/components
       tar -xzf ${dclProtocol} -C "$TMPDIR" package/proto
@@ -280,13 +222,10 @@ let
       mkdir -p ../.bin/protoc/bin
       ln -sf ${protobuf}/bin/protoc ../.bin/protoc/bin/protoc
     '';
-    # webrtc-sys links against X11/Xext directly, so the X libs have to be here
-    # and not only in the export derivation's runtime closure.
     buildInputs = runtimeLibs;
     PROTOC = "${protobuf}/bin/protoc";
     RUSTY_V8_ARCHIVE = librustyV8;
     LK_CUSTOM_WEBRTC = libwebrtc;
-    # A cdylib has no tests worth running here and several touch the network.
     doCheck = false;
     installPhase = ''
       runHook preInstall

@@ -13,8 +13,8 @@ use axum::http::StatusCode;
 use flate2::read::{GzDecoder, ZlibDecoder};
 use std::io::Read;
 
-/// Shared sqlx-error-to-response mapper: logs at `error!` with a per-caller context label and
-/// returns a generic message, so a query's internal detail never reaches the client.
+/// Logs at `error!` with a per-caller context label and returns a generic message, so a query's
+/// internal detail never reaches the client.
 pub(crate) fn db_err(context: &str, e: sqlx::Error) -> (StatusCode, String) {
     tracing::error!(error = %e, "{} db error", context);
     (StatusCode::INTERNAL_SERVER_ERROR, "database error".into())

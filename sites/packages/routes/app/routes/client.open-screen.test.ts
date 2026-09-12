@@ -1,8 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// The route pulls in the OpenScreen component (which imports @ui + CSS) only as
-// the default export the Component renders -- the loader never calls it. Stub it
-// so this loader test doesn't drag the whole presentation/@ui graph in.
 vi.mock("@features/stories/client/open-screen/OpenScreen", () => ({
   default: () => null,
 }));
@@ -53,8 +50,6 @@ function jsonResponse(body: unknown): Response {
   });
 }
 
-// Point the loader at a stubbed flags service whose /dash/experiments row for
-// client_open_screen is `row` (and whose /dash/flags map is empty).
 function overrideRow(row: unknown) {
   process.env.TELEMETRY_URL = TELEMETRY;
   vi.stubGlobal("fetch", fetchMock);
@@ -90,8 +85,6 @@ describe("GET /client/open-screen -- genesis arm", () => {
     const res = thrown as Response;
     expect(res.status).toBe(302);
     expect(res.headers.get("Location")).toBe("/places");
-    // The reorder guarantee: a session that can never see the genesis screen is
-    // not diluted into the arm's exposure denominator.
     expect(exposure).not.toHaveBeenCalled();
   });
 

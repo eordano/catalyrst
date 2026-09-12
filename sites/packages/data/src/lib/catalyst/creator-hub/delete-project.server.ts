@@ -8,8 +8,6 @@ import { loadCreatorScenes } from "../create/index.server";
 
 export type LoadDeleteProjectResult = {
   data: DeleteProjectData;
-  /** "unavailable" when the scene read failed: the empty list that follows is
-   *  the absence of an answer, not the absence of scenes. */
   source: "live" | "empty" | "unavailable";
 };
 

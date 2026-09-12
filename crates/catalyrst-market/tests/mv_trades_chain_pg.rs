@@ -1,17 +1,3 @@
-// The mv_trades migration chain applied greenfield, then judged by what
-// Postgres compiled and by the status it computes from real indexer-shaped rows
-// (marketplace-server 0446723 + 668fd54).
-//
-// Greenfield means the schemas the chain assumes exist -- marketplace,
-// favorites, squid_marketplace -- are created first and the connection runs
-// with them on its search_path, exactly as the deployed role does; 0004's view
-// reads squid_marketplace.nft/item, so the two are stubbed with the columns the
-// views touch. squid_trades is provisioned by 0011 itself, so the
-// contract-scoped branch is the one under test.
-//
-// Set CATALYRST_MARKET_TEST_PG to run; each test builds a throwaway database
-// and drops it on the way out.
-
 use std::time::Duration;
 
 use sqlx::postgres::PgPoolOptions;

@@ -17,15 +17,6 @@ type ModalProps = {
   closeOnBackdrop?: boolean;
   closeOnEsc?: boolean;
   showClose?: boolean;
-  /**
-   * `true` (default) -- today's behaviour: the dialog is `createPortal`ed to `document.body`
-   * on a `position: fixed; inset: 0` backdrop, it locks body scroll and it traps focus.
-   *
-   * `false` -- render the same card *in place*, in normal document flow, with no global side
-   * effects (no portal, no body scroll lock, no focus trap/restore). Lets several dialogs be
-   * laid out side by side on one page -- which is what a Storybook `Catalog` needs, since
-   * portalled fixed backdrops stack on top of one another and only the topmost is visible.
-   */
   portal?: boolean;
 };
 

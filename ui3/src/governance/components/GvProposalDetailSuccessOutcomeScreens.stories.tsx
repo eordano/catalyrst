@@ -4,7 +4,6 @@ import GvProposalDetailSuccessOutcomeScreens from "./GvProposalDetailSuccessOutc
 
 const VARIANTS = ["new", "update", "pending", "bid"] as const;
 
-/** Every outcome screen, in the order the variant stories used to declare them. */
 const CASES: ComponentProps<typeof GvProposalDetailSuccessOutcomeScreens>[] = [
   { variant: "new" },
   { variant: "pending" },
@@ -37,19 +36,12 @@ type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {};
 
-// The modal backdrop is `position: fixed; inset: 0`, so stacked entries would all pile onto the
-// viewport. `transform` makes each <section> the containing block for its own fixed backdrop.
 const cell: CSSProperties = {
   position: "relative",
   height: 520,
   transform: "translateZ(0)",
 };
 
-/**
- * Every outcome rendered at once. `Default` flips between them with the Controls panel; this story
- * keeps all five in the render + a11y + visual-diff gates, since the success card, the pending card
- * and the loading state are structurally different subtrees.
- */
 export const Catalog: Story = {
   name: "Catalog (every outcome)",
   parameters: { controls: { disable: true } },
@@ -57,7 +49,6 @@ export const Catalog: Story = {
     <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
       {CASES.map((props, i) => (
         // <section> demotes each entry's unnamed header/footer/aside to `generic`
-        // (HTML-AAM scoped mapping) so the stack does not invent extra landmarks.
         <section key={i} style={cell}>
           <GvProposalDetailSuccessOutcomeScreens {...props} />
         </section>

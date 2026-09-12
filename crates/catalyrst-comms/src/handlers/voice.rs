@@ -218,8 +218,6 @@ pub async fn get_voice_chat_status(
     }))
 }
 
-/// Request body for community voice chat create/join.
-///
 /// # Trust boundary
 ///
 /// `user_address` and `user_role` are taken **verbatim from the request body**.
@@ -330,7 +328,6 @@ impl ServiceClaimedCommunityRole {
         self.claimed_wallet_address_lowercased.as_unverified_text()
     }
 
-    /// See the free function of the same name.
     fn the_gatekeeper_service_claimed_a_role_that_grants_voice_speaker_rights(&self) -> bool {
         the_gatekeeper_service_claimed_a_role_that_grants_voice_speaker_rights(
             &self.claimed_community_role_name_lowercased,
@@ -362,8 +359,6 @@ fn the_gatekeeper_service_claimed_a_role_that_grants_voice_speaker_rights(
     )
 }
 
-/// Build the LiveKit participant metadata blob for a community voice join.
-///
 /// The `role` it writes is the gatekeeper service's **claim**, echoed to every other
 /// participant in the room; hence the parameter type. Nothing here consults a
 /// database, so nothing here can produce a verified standing.
@@ -393,8 +388,6 @@ fn community_join_metadata(
     metadata
 }
 
-/// Create or join a community voice chat room.
-///
 /// # Trust boundary -- INTENTIONAL, do not "fix" without reading this
 ///
 /// This handler performs **no** per-user authorization. It does not verify a
@@ -1059,7 +1052,6 @@ mod tests {
         assert!(claimed.the_gatekeeper_service_claimed_a_role_that_grants_voice_speaker_rights());
     }
 
-    /// An omitted `user_role` is read as the claim `"none"`, which grants nothing.
     #[test]
     fn an_omitted_claimed_role_is_read_as_none_and_grants_no_speaker_rights() {
         let claimed = ServiceClaimedCommunityRole::shape_check_only_from_the_request_body(
@@ -1098,8 +1090,6 @@ mod tests {
         );
     }
 
-    /// The path-parameter shape check keeps its two messages, their order, and the
-    /// lowercasing; only its name and return type changed.
     #[test]
     fn the_path_parameter_shape_check_keeps_its_messages_order_and_lowercasing() {
         let empty_community =

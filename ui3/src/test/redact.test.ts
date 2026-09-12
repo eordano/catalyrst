@@ -2,10 +2,6 @@ import { afterEach, beforeEach, expect, test } from "vitest";
 import { z } from "zod";
 import { check, resetValidationFailures, setValidationDevMode, setValidationReporter } from "../validate";
 
-// The P0 this pins: several persisted stores are keyed by the signer address, so
-// the record KEY lands in the zod issue path -- and `detail` reaches a
-// console.warn that sites patches globally and POSTs to /internal/client-error.
-// "Paths, never values" was not enough on its own.
 const Store = z.record(z.string(), z.object({ txHash: z.string() }));
 const WALLET = "0x1d9fd6a04e5e1cbb0f5b3ac7a0d0dbd8c0d63e11";
 
@@ -19,7 +15,6 @@ test("a wallet-keyed path is redacted before it can reach any sink", () => {
   const blob = JSON.stringify(seen);
   expect(blob).not.toContain(WALLET);
   expect(blob).not.toContain("0x1d9fd6");
-  // The shape must survive, or the report stops being actionable.
   expect(seen[0]?.paths).toEqual(["<key>.txHash"]);
 });
 

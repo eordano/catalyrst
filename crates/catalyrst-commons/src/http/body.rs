@@ -1,8 +1,6 @@
 use anyhow::{anyhow, Result};
 use futures::StreamExt;
 
-/// Reads a response body, refusing to buffer more than `max_bytes`.
-///
 /// The advertised `Content-Length` is checked first so an oversized body costs nothing,
 /// but the running total is enforced too: a chunked or lying upstream never gets to grow
 /// the buffer past the cap.

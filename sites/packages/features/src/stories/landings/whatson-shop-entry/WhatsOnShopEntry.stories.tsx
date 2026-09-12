@@ -1,6 +1,3 @@
-// Storybook-only fixtures: the live fetchCatalog loader does not run in
-// Storybook, so these feed representative display data. Production stays on
-// the real loaders + schema-honesty (see the whats-on route loader).
 import type { Meta, StoryObj } from "@ui/docs/sb";
 import { expect, fn, userEvent, waitFor } from "@ui/docs/sb";
 
@@ -137,7 +134,6 @@ export const Base: Story = {
     },
   },
   play: async ({ args, canvas, canvasElement }) => {
-    // Today's surface, untouched: the schedule chrome paints, no shop entry.
     await canvas.findByRole("tab", { name: "All" });
     await canvas.findByText("Neon Rooftop Concert -- LIVE");
     expect(canvasElement.querySelector(".wo-shop-entry")).toBeNull();
@@ -154,7 +150,6 @@ export const Pill: Story = {
     await waitFor(() =>
       expect(args.navigate).toHaveBeenCalledWith("/shop?from=whatson-shop-entry"),
     );
-    // The shared primary-metric conversion fires on the click-through.
     expect(args.track).toHaveBeenCalledWith(
       "lp_whatson_shop_opened",
       expect.objectContaining({ target: "pill", item_id: null, variant: "pill" }),
@@ -181,7 +176,6 @@ export const Rail: Story = {
   play: async ({ args, canvas }) => {
     await canvas.findByRole("heading", { name: "Fresh emotes on sale" });
     await canvas.findByText("45 MANA");
-    // The credits quote wins over the MANA price when present.
     await canvas.findByText("12 credits");
     await userEvent.click(
       await canvas.findByRole("link", { name: /Starlight Twirl/ }),
@@ -205,8 +199,6 @@ export const Rail: Story = {
   },
 };
 
-// Catalog reading unavailable: say so and keep the CTA -- no invented items,
-// never a dead-end.
 export const RailUnavailable: Story = {
   args: {
     arm: "rail",

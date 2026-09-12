@@ -2,12 +2,6 @@ import { getJSON } from "../client";
 import type { GetOptions } from "../client";
 import { parseNotifications, type Notification } from "./notifications";
 
-/**
- * `unavailable` replaces the old `fromFixture` flag, which was set on every
- * failure and on an empty feed alike -- and named after a fixture this module
- * never loaded. An empty feed is a real answer; a failed read is not, and the
- * panel must not render "no notifications yet" for it.
- */
 export type NotificationsData = {
   address: string;
   notifications: Notification[];

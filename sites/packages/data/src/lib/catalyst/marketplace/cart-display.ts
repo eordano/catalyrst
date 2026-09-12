@@ -52,9 +52,6 @@ export function useDisplayLines(source: CartLine[]): DisplayLine[] {
       .then((resolved) => {
         if (!cancelled) setRows(resolved);
       })
-      // Nothing to hand back when the enrichment pass fails: the rows stay at
-      // `fallback`, built from the cart lines themselves, so no name, quantity
-      // or price is invented for a lookup that did not answer.
       .catch(() => undefined);
     return () => {
       cancelled = true;

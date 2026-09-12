@@ -540,10 +540,6 @@ pub(crate) const PLACE_RANKING_IS_EDITORIAL: &str =
 pub(crate) const WORLD_RANKING_IS_EDITORIAL: &str =
     "The ranking of this world is editorial and can only be changed with the admin token";
 
-// The read surface is place_indexed, the write reaches `place` alone, so a
-// destination served out of place_world_local is findable and unwritable. A
-// 200 here means the ranking is stored; anything else must say so rather than
-// echo the request back.
 const RANKING_NOT_WRITABLE: &str = "ranking is not writable for this destination on this server";
 
 fn body_content_rating(body: &Option<Json<Value>>) -> Result<String, ApiError> {

@@ -44,12 +44,10 @@ export class Contract extends ContractBase {
     }
 }
 
-/// Event types
 export type MemberSetEventArgs = EParams<typeof events.MemberSet>
 export type MetaTransactionExecutedEventArgs = EParams<typeof events.MetaTransactionExecuted>
 export type OwnershipTransferredEventArgs = EParams<typeof events.OwnershipTransferred>
 
-/// Function types
 export type DomainSeparatorParams = FunctionArguments<typeof functions.domainSeparator>
 export type DomainSeparatorReturn = FunctionReturn<typeof functions.domainSeparator>
 

@@ -149,9 +149,6 @@ export async function placeAssetOnBus(
   asset: DeCatalogItem,
   drop?: { x: number; y: number } | null,
 ): Promise<void> {
-  // The live builder catalog carries glbUrl; the bundled seed catalog carries
-  // src. Reading only glbUrl placed seed assets as EMPTY entities -- a named
-  // Transform with no model.
   const glb = asset?.glbUrl || asset?.src;
   let absUrl: string | null = null;
   if (typeof glb === "string" && glb) {

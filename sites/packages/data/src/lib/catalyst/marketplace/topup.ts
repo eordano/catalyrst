@@ -47,9 +47,6 @@ export async function quoteManaTopup(
   return ManaTopupQuoteOutSchema.parse(raw);
 }
 
-// The 202 answer is an ad-hoc `json!({ "status": "pending" })` in
-// catalyrst-credits' topup handler; no ts-rs DTO exists for it, so this stays
-// the one hand-written schema in the module.
 const ManaTopupPendingSchema = z.object({ status: z.literal("pending") });
 
 export type ManaTopupResult =

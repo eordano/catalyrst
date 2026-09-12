@@ -168,8 +168,6 @@ export async function checkNameAvailability(
     }),
   );
   const rows = parseEnsResults(env.data);
-  // A minted-name row we could not validate must not read as "claimable":
-  // that answer is what a buyer acts on.
   if (env.data.length > 0 && rows.length === 0) {
     throw new CatalystError(
       "name lookup rows did not match the nft-result shape",

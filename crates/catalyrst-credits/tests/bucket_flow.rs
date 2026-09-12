@@ -200,10 +200,6 @@ async fn expired_history_wallet_refunds_normally_without_expiry() {
     let _serial = SERIAL.lock().await;
     let Some(pool) = pool().await else { return };
     let addr = scratch_wallet();
-    // A wallet whose earned bucket was historically expired under the old
-    // seasons regime: the balance holds only paid credits, but the ledger
-    // carries claim/expire history. Historical 'expire' rows stay valid;
-    // refunds work normally and no expiry is ever set again.
     seed(&pool, &addr, 0.0, 15.0).await;
     for (kind, amt) in [("claim", 20.0), ("expire", 20.0)] {
         sqlx::query(
@@ -219,7 +215,6 @@ async fn expired_history_wallet_refunds_normally_without_expiry() {
     }
     let credits = CreditsComponent::new(pool.clone());
 
-    // A refund under a tx_ref that carries NO spend rows restores nothing.
     let outcome = credits
         .refund(&addr, "5", "test:bucket-no-spend", None)
         .await
@@ -232,9 +227,6 @@ async fn expired_history_wallet_refunds_normally_without_expiry() {
     assert_eq!(balances(&pool, &addr).await, (15.0, 0.0));
     assert!(ledger(&pool, &addr, "refund").await.is_empty());
 
-    // The expiry behaviour this test exists for: a wallet with historical
-    // claim/expire rows refunds a REAL spend normally and never re-acquires an
-    // expiry.
     credits
         .spend(&addr, "5", "test:bucket-historic-spend", None)
         .await

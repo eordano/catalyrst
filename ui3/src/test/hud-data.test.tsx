@@ -69,8 +69,6 @@ describe("friends pushes", () => {
   test("the Friends panel lists pushed friends with online/offline groups", async () => {
     const { user, bridge } = renderHud();
     await user.click(within(sidebar()).getByRole("button", { name: "Friends" }));
-    // The panel is lazy -- wait for it to mount (and subscribe) before pushing, and sign in:
-    // the reconciled Friends panel gates its roster behind a non-guest identity.
     await screen.findByRole("tab", { name: "Friends" });
     bridge.pushIdentity({ isGuest: false });
 

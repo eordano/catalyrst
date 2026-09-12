@@ -117,10 +117,6 @@ fn default_lk_ws_url() -> String {
     "wss://livekit.dcl.example".into()
 }
 fn default_lk_ttl_secs() -> i64 {
-    // A token is only re-minted on IslandChanged, so a peer that sits in one
-    // island must not outlive its token: keep the lifetime well past any
-    // realistic single-island dwell. Eviction is handled by RemoveParticipant
-    // plus the is_kicked re-admission gate, not by a short TTL.
     21600
 }
 
@@ -145,11 +141,9 @@ fn default_gossip_skew_secs() -> i64 {
     60
 }
 
-/// The upstream LiveKit dev placeholders (`devkey`/`devsecret`, any case)
-/// count as unset wherever `livekit_configured`-style logic runs: a token
-/// minted against them is rejected by every real SFU, so keeping them would
-/// only make `is_ready()` lie. Scrubbing them back to `None` leaves LiveKit
-/// visibly unconfigured instead.
+/// The upstream LiveKit dev placeholders (`devkey`/`devsecret`, any case) count as unset:
+/// a token minted against them is rejected by every real SFU, so keeping them would only
+/// make `is_ready()` lie.
 fn scrub_placeholder_livekit_creds(livekit: &mut LivekitConfig) {
     for (name, slot) in [
         ("api_key", &mut livekit.api_key),
@@ -360,7 +354,6 @@ mod tests {
         assert_eq!(lk.api_key.as_deref(), Some("APIabc"));
         assert_eq!(lk.api_secret.as_deref(), Some("supersecret"));
 
-        // One placeholder side alone is scrubbed, so is_ready() stays false.
         let mut lk = LivekitConfig {
             api_key: Some("APIabc".into()),
             api_secret: Some("devsecret".into()),

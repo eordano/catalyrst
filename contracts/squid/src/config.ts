@@ -2,10 +2,10 @@ import { ChainId, Network } from "@dcl/schemas";
 
 const BLOCK_RANGES: Record<string, { from: number }> = {
   [ChainId.ETHEREUM_MAINNET]: {
-    from: 4944642, // LANDProxy contract creation
+    from: 4944642,
   },
   [ChainId.ETHEREUM_SEPOLIA]: {
-    from: 3831219, // LANDProxy contract creation
+    from: 3831219,
   },
   [ChainId.MATIC_MAINNET]: {
     from: 0,

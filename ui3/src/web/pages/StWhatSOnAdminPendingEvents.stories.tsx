@@ -17,7 +17,6 @@ const APPROVED: EventItem[] = [
   { id: "a3", name: "Dragon City Night Market", creator: "dragoncity.dcl", time: "18:00", dateLabel: "13 JUL", hue: 18 },
 ];
 
-/** Both review queues as one payload preset. Ignored while `loading` or `allowed: false`. */
 const QUEUES = {
   full: { pending: PENDING, approved: APPROVED },
   empty: { pending: [], approved: [] },
@@ -26,7 +25,6 @@ const QUEUES = {
 type QueueKey = keyof typeof QUEUES;
 const QUEUE_KEYS = Object.keys(QUEUES) as QueueKey[];
 
-/** Story args: the queues are picked by name, `loading`/`allowed` pass straight through. */
 type PendingEventsStoryArgs = Omit<
   ComponentProps<typeof StWhatSOnAdminPendingEvents>,
   "pending" | "approved"
@@ -59,11 +57,8 @@ type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {};
 
-/** Both queues empty. */
 export const Empty: Story = { args: { queue: "empty" } };
 
-/** The spinner that replaces the whole body. */
 export const Loading: Story = { args: { queue: "empty", loading: true } };
 
-/** The not-authorized notice. */
 export const Unauthorized: Story = { args: { queue: "empty", allowed: false } };

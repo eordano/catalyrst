@@ -13,11 +13,9 @@ const PLAYBACK_ERROR: WatcherToasts = [
   },
 ];
 
-/** The toast stack is picked by name; `none` is the quiet page. */
 const TOASTS = { none: [] as WatcherToasts, playbackError: PLAYBACK_ERROR };
 type ToastName = keyof typeof TOASTS;
 
-/** Story args: the toast stack is picked by name, everything else is a real prop. */
 type WatcherStoryArgs = Omit<WatcherProps, "toasts"> & { toastPreset: ToastName };
 
 const meta = {
@@ -52,12 +50,6 @@ type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {};
 
-/**
- * Every state rendered at once. `Default` flips between them with the `state` /
- * `sidebarOpen` / `toastPreset` controls; this story keeps the sidebar and fullscreen
- * live layouts, the onboarding card, the joining spinner, the nobody-is-casting waiting
- * screen and the playback-error toast in the render + a11y + visual-diff gates.
- */
 export const Catalog: Story = {
   name: "Catalog (every state)",
   parameters: {

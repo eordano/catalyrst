@@ -486,10 +486,6 @@ async fn livekit_token(State(s): State<AppState>, body: Bytes) -> impl IntoRespo
         )
             .into_response();
     }
-    // Do not trust the client-chosen room: resolve the caller's authorized
-    // island server-side and mint against that. `req.room` is enumerable via
-    // the public GET /islands, so honoring it lets any client join/publish to
-    // any island.
     let addr = req.address.to_ascii_lowercase();
     let Some((island_id, _)) = s.cluster.island_of(&addr) else {
         return (

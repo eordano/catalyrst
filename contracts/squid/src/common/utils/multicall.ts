@@ -6,7 +6,7 @@ import { Block, Context } from "../../eth/processor";
 import { Coordinate } from "../../types";
 import { getAddresses } from "./addresses";
 
-const MULTICALL_CONTRACT = "0xcA11bde05977b3631167028862bE2a173976CA11"; // has the same address on different networks
+const MULTICALL_CONTRACT = "0xcA11bde05977b3631167028862bE2a173976CA11";
 const hardcodedMulticallCreationBlock = {
   id: "0014353601-7a3f0",
   number: 14353601,
@@ -20,7 +20,7 @@ const hardcodedMulticallCreationBlock = {
 export async function tokenURIMutilcall(
   ctx: Context,
   lastBlock: Block,
-  tokenIds: Map<string, bigint[]> // contractAddress => tokenIds[]
+  tokenIds: Map<string, bigint[]>
 ): Promise<Map<string, string>> {
   const chainId = process.env.ETHEREUM_CHAIN_ID || ChainId.ETHEREUM_MAINNET;
 

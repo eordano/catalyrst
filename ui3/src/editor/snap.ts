@@ -62,11 +62,6 @@ function same(a: EditorVec | undefined, b: EditorVec | undefined): boolean {
   return a.x === b.x && a.y === b.y && a.z === b.z && a.w === b.w;
 }
 
-// The engine's gizmo emits free-float transforms and has no snap concept, so
-// the grid is applied once on release. Anything finer than this is Rust work.
-//
-// `prev` is what keeps a translate from silently re-rounding a rotation the
-// drag never touched: a field that did not move is left exactly as authored.
 export function quantizeTransform(
   t: EditorTransform,
   snap: SnapState,

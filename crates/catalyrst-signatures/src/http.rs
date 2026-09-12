@@ -10,9 +10,6 @@ pub struct Ok2<T: Serialize>(pub StatusCode, pub T);
 
 impl<T: Serialize> IntoResponse for Ok2<T> {
     fn into_response(self) -> Response {
-        // Rendering through serde_json::Value keeps the published key order the
-        // same whether or not serde_json's preserve_order feature is unified on
-        // by the rest of the workspace.
         (self.0, Json(json!(ApiOk::new(self.1)))).into_response()
     }
 }

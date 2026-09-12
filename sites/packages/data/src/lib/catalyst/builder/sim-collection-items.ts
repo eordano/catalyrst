@@ -14,15 +14,6 @@ export type SimDraftFile = { name: string; size: number; fileType: string };
 export type SimEntry = { ts: number; files: SimDraftFile[] };
 export type SimStore = Record<string, SimEntry>;
 
-/**
- * `null` when storage could not be read or held something else.
- *
- * Only the read and the parse are inside the try. `check` throws in dev by
- * design, and a catch wide enough to cover it would collapse a drifted store
- * back into the same `null` an unreadable one produces -- detection wired in and
- * never firing. The `typeof` guard stays as the production fallback, because
- * `check` returns the ORIGINAL value when it rejects outside dev.
- */
 function readStore(): SimStore | null {
   if (typeof window === "undefined") return null;
   let parsed: unknown;
@@ -70,7 +61,6 @@ export function saveSimCollectionItems(
   collectionId: string,
   files: SimDraftFile[],
 ): void {
-  // Unreadable storage cannot be merged into, so this starts a fresh one.
   const store = prune(readStore() ?? {});
   store[collectionId] = {
     ts: Date.now(),

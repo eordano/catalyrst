@@ -126,12 +126,6 @@ pub(super) fn validate_auth_chain(chain: &AuthChain) -> Result<VerifiedChain, St
     Ok(VerifiedChain { sender })
 }
 
-// Without this, a lone `[{"type":"SIGNER","payload":<addr>,"signature":""}]`
-// makes `derive_final_authority` echo the SIGNER's own payload back as the
-// "final authority", so `verify_auth_chain` is tautologically true and any
-// attacker-chosen address is accepted with no signature. Mirror the structural
-// integrity `catalyrst_crypto::signed_fetch::handshake::extract_from_object`
-// enforces: >=2 links, SIGNER only at index 0, every non-SIGNER link signed.
 fn assert_chain_structure(chain: &AuthChain) -> Result<(), String> {
     use catalyrst_crypto::AuthLinkType;
 
@@ -158,12 +152,6 @@ fn assert_chain_structure(chain: &AuthChain) -> Result<(), String> {
     Ok(())
 }
 
-// Upstream's createIdentityHandler validation (auth-server logic/auth-chain.ts):
-// the owner is the first link's payload, the final authority is the ephemeral
-// address in the LAST link's payload, and the whole chain must verify against
-// it. A chain whose last link is not an ephemeral delegation is refused rather
-// than resolved to whatever address signed it, so a signed-entity chain can
-// never be stored as a login identity.
 pub(super) fn validate_identity_chain(chain: &AuthChain) -> Result<(String, String), String> {
     let (Some(first), Some(last)) = (chain.first(), chain.last()) else {
         return Err("Auth chain is required".into());

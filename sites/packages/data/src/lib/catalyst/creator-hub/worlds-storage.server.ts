@@ -14,15 +14,6 @@ import {
 import { loadManageWorlds } from "./manage-worlds.server";
 import type { GetOptions } from "../client";
 
-/**
- * The real header tile: deployed bytes and quota from worlds-content-server.
- *
- * The `/world-storage/*` reads below stay exactly as they are. They resolve to
- * a 400 Invalid Auth Chain (ADR-44 -- that endpoint needs a signed fetch made by
- * the scene runtime) and they are the honest record of a gated endpoint; they
- * become live for free the day the edge routes them. They also measure a
- * different thing: the KV store a scene writes at runtime, not deployed bytes.
- */
 export { loadWalletStats } from "../wcs.server";
 
 const EMPTY_PLAYERS: PlayerEntry = { addresses: [], profileNames: {} };

@@ -112,10 +112,6 @@ function postTelemetry(url: string, payload: string): boolean {
   }
 }
 
-// Dev-only advisory shape check. Production and test builds skip it entirely,
-// so the contract is never bundled or fetched there; the authoritative
-// enforcement lives at ingest (catalyrst-telemetry). Never throws, always lets
-// the event send -- analytics must not break the app.
 function devValidate(event: string, props: Record<string, unknown>): void {
   const env = (import.meta as { env?: { DEV?: boolean; TEST?: boolean } }).env;
   if (!env?.DEV || env.TEST) return;

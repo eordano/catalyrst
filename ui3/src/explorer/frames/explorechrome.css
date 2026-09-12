@@ -7,8 +7,6 @@
   color: #fff;
   background: transparent;
 }
-/* Only a genuinely fresh open animates in -- a route switch under the same mounted
-   ExploreChrome must not replay the fade (see the openChromes guard in the .tsx). */
 .xc--enter { animation: u-fade-in 0.25s linear; }
 .xc__skip {
   position: absolute;

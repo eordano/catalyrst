@@ -1,7 +1,3 @@
-// Remote profile pictures get interpolated into inline styles; a crafted value
-// could otherwise close the url("...") token and inject arbitrary declarations.
-// Parse, allow only http(s), re-serialize, and refuse anything that could still
-// terminate the quoted token.
 export function safeCssUrl(raw: string | null | undefined): string | null {
   if (!raw) return null;
   let url: URL;

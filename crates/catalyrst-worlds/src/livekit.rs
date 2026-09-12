@@ -1,13 +1,12 @@
 use catalyrst_livekit::{VideoGrants, TRACK_SOURCE_MICROPHONE};
 
 /// The worlds join grant. Participant metadata is where the gatekeeper attests
-/// `isGuest`, and clients read that bit to decide whether a peer is verified. A
-/// participant that can rewrite its own metadata can present as verified, so
-/// `can_update_own_metadata` must stay false -- matching the scene-adapter grant
-/// in catalyrst-comms. `can_publish_sources` is restricted to microphone, as
-/// upstream does unconditionally, so a routine signed-fetch token can never
-/// publish camera or screen-share tracks into world rooms. `room_list` stays
-/// `None` (the claim is omitted) as a deliberate divergence from upstream.
+/// `isGuest` and clients read that bit to decide whether a peer is verified, so
+/// `can_update_own_metadata` must stay false -- matching the scene-adapter grant in
+/// catalyrst-comms -- or a participant can present itself as verified.
+/// `can_publish_sources` is restricted to microphone, as upstream does unconditionally,
+/// so a routine signed-fetch token can never publish camera or screen-share tracks into
+/// world rooms. `room_list` stays `None` (claim omitted), a deliberate divergence.
 pub fn join_grants(room: impl Into<String>) -> VideoGrants {
     VideoGrants {
         room_join: true,

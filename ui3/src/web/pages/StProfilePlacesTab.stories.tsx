@@ -60,17 +60,11 @@ const PLACES: Place[] = [
   },
 ];
 
-/** The place list is picked by name: the four-card fixture, or nothing to show. */
 const PLACE_SETS = { four: PLACES, none: [] as Place[] };
 type PlaceSetKey = keyof typeof PLACE_SETS;
 
-/** Which empty copy the tab shows. */
 const EMPTY_VIEWS = ["owner", "favorites", "member"] as const;
 
-/**
- * Story args: the place list is picked by name through the synthetic `placeSet` key, so the
- * type stays assignable to the component's own props (which `component:` is checked against).
- */
 type PlacesStoryArgs = {
   placeSet: PlaceSetKey;
   isOwnProfile: boolean;
@@ -149,13 +143,6 @@ const CATALOG: { label: string; args: PlacesStoryArgs }[] = [
   { label: "loading", args: { placeSet: "none", isOwnProfile: false, loading: true } },
 ];
 
-/**
- * Every state at once. `Default` flips between them from the Controls panel; this keeps the
- * member grid, the owner grid, all three empty-state copies and the skeleton in the render +
- * a11y + visual-diff gates. `chrome={false}` so stacking does not emit N `<main>` landmarks,
- * and `labelSuffix` makes each copy's `nav[aria-label="Profile sections"]` uniquely named --
- * axe's `landmark-unique` compares accessible names, so a fixed label would fail N times.
- */
 export const Catalog: Story = {
   name: "Catalog (every state)",
   parameters: { controls: { disable: true } },

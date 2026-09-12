@@ -5,8 +5,6 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { queryClient } from "../app/queryClient";
 import { isEditorShell, isNativeHost, startNativeHostBridge } from "./nativeHost";
 
-// Set before any dynamic import: on warm-cache boots the engine can become
-// ready (and auto-start into Genesis Plaza) before the BootGate chunk loads.
 if (typeof window !== "undefined") {
   window.dclDeferStart = true;
 }
@@ -22,8 +20,6 @@ if (import.meta.env.PROD) {
   globalThis.__UI3_ASSET_BASE__ = entryUrl.slice(0, entryUrl.lastIndexOf("/") + 1);
 }
 
-// A native host always mounts the HUD (isEditorShell is false there): the
-// engine passes preview through NativeHostEvent::Ready, not the query string.
 const isEditor = typeof window !== "undefined" && isEditorShell(window.location.search);
 
 function mount(): void {
@@ -54,11 +50,6 @@ function mount(): void {
 }
 
 if (isEditor) {
-  // Editor/preview mode deliberately skips BootGate (the editor owns its own
-  // chrome) -- but BootGate is the ONLY caller of dclEngineStart(), and
-  // dclDeferStart was already set to true above. Without this the engine
-  // reaches dclEngineReady and then waits forever, leaving the Creator Hub
-  // viewport (and Preview) parked on the "Decentraland Web" splash.
   window.dclDeferStart = false;
   const startNow = () => {
     void window.dclEngineStart?.();

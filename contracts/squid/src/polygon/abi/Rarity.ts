@@ -55,13 +55,11 @@ export class Contract extends ContractBase {
     }
 }
 
-/// Event types
 export type AddRarityEventArgs = EParams<typeof events.AddRarity>
 export type MetaTransactionExecutedEventArgs = EParams<typeof events.MetaTransactionExecuted>
 export type OwnershipTransferredEventArgs = EParams<typeof events.OwnershipTransferred>
 export type UpdatePriceEventArgs = EParams<typeof events.UpdatePrice>
 
-/// Function types
 export type AddRaritiesParams = FunctionArguments<typeof functions.addRarities>
 export type AddRaritiesReturn = FunctionReturn<typeof functions.addRarities>
 

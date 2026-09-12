@@ -1,30 +1,12 @@
 //! The authority to ban, or to lift a ban on, one wallet in **one community**.
 //!
-//! # This is not the other eight bans
+//! `ban` names nine unrelated authorities across this workspace. The nearest others are a
+//! **scene** ban from one place (`catalyrst-comms`' `handlers::scene_bans`), a **global
+//! platform** ban (`catalyrst-comms`' `handlers::user_bans`) and a **world** ban
+//! (`catalyrst-worlds`' `ports::bans`). None is interchangeable with another.
 //!
-//! `ban` names nine unrelated authorities across this workspace. The four nearest ones:
-//!
-//! - a **community** ban -- this module;
-//! - a **scene** ban from one place (`catalyrst-comms`' `handlers::scene_bans`);
-//! - a **global platform** ban across every place (`catalyrst-comms`' `handlers::user_bans`);
-//! - a **world** ban (`catalyrst-worlds`' `ports::bans`).
-//!
-//! No two mean the same thing, none of them is interchangeable with another, and the
-//! reason this module has a name this long is that the short one produced two different
-//! predicates for the same action.
-//!
-//! # The divergence this module closes
-//!
-//! Before it, banning a wallet from one community had **three** implementations:
-//!
-//! | entry point | table read | predicate |
-//! |---|---|---|
-//! | `client::members::ban_member` | `community_members` | `has_permission(BanPlayers)` and `can_act_on_member`, with both role lookups swallowing SQL errors |
-//! | `writes::members::fed_ban_member` | `community_role_current` | `require_min_role(Mod)` and `target >= actor` |
-//! | `fed::consumer`'s `CommunityBan` arm | `community_role_current` | `require_min_role(Mod)` **and nothing about the target at all** |
-//!
-//! The first two are equivalent over the five-by-five tier matrix; the third is strictly
-//! more permissive and would let a moderator ban the community owner. All three now reach
+//! All three community-ban entry points -- `client::members`, `writes::members` and
+//! `fed::consumer` -- reach
 //! [`decide_whether_the_acting_party_outranks_the_target`], and nothing else does.
 
 #![deny(clippy::wildcard_enum_match_arm)]
@@ -40,11 +22,8 @@ use super::standing::{
     CommunityMembershipStanding, CommunityMembershipTierSourceTable,
 };
 
-/// How the party performing the moderation proved who it was.
-///
-/// Private to this module; a value never escapes it. It records provenance so the two
-/// authentications cannot smear into one another, without letting a caller read one as
-/// the other.
+/// Records provenance so the three authentications cannot smear into one another. Never
+/// escapes this module.
 #[derive(Debug)]
 enum HowTheActingPartyWasAuthenticated {
     /// An end user's ADR-44 signed fetch, verified on this node against this request's
@@ -53,11 +32,9 @@ enum HowTheActingPartyWasAuthenticated {
     /// A federation envelope whose EIP-712 signature was checked against the wallet that
     /// also completed the outer signed fetch on this node.
     EnvelopeSignerMatchesOuterSigner(VerifiedWalletAddress),
-    /// A gossip envelope relayed by a peer catalyst server. The originating wallet is
-    /// **recovered from the envelope's own EIP-712 signature**, not established through
-    /// the shared ADR-44 chokepoint, so it arrives here as text and cannot be minted into
-    /// a [`VerifiedWalletAddress`]. That asymmetry is deliberate and is
-    /// why this arm looks different from the other two.
+    /// The originating wallet is **recovered from the envelope's own EIP-712 signature**,
+    /// not established through the shared ADR-44 chokepoint, so it arrives as text and
+    /// cannot be minted into a [`VerifiedWalletAddress`].
     PeerRelayedGossipEnvelope {
         originating_wallet_address_lowercase: String,
     },
@@ -90,23 +67,9 @@ impl HowTheActingPartyWasAuthenticated {
 }
 
 /// THE predicate. Both moderation authorities in this module reach it, from all three of
-/// their constructors, and nothing else in the crate does.
-///
-/// Reproduces, exactly:
-///
-/// - `client::members::ban_member`'s
-///   `!has_permission(actor, BanPlayers) || (!can_act_on_member(actor, target) && is_member(target))`;
-/// - `writes::members::fed_ban_member`'s `require_min_role(Mod)` followed by
-///   `target_role >= actor` -- equivalent to the above over every pair of tiers, because
-///   `has_permission(_, BanPlayers)` admits exactly `{Moderator, Owner}` and, for an
-///   actor drawn from that set, `target >= actor` and
-///   `!can_act_on_member(actor, target) && is_member(target)` agree on all five target
-///   tiers;
-/// - `writes::members::fed_unban_member`'s and `fed::consumer`'s unban predicate, which
-///   is already spelled the first way.
-///
-/// It **tightens** `fed::consumer`'s `CommunityBan` arm, which checked the acting party's
-/// tier and never looked at the target's.
+/// their constructors, and nothing else in the crate does. It **tightens**
+/// `fed::consumer`'s former `CommunityBan` arm, which checked the acting party's tier and
+/// never looked at the target's.
 fn decide_whether_the_acting_party_outranks_the_target(
     acting_party_standing: &CommunityMembershipStanding,
     target_wallet_standing: &CommunityMembershipStanding,
@@ -142,12 +105,8 @@ fn decide_whether_the_acting_party_outranks_the_target(
     Ok(())
 }
 
-/// Load the acting party's and the target's standings from one named table, then apply
-/// [`decide_whether_the_acting_party_outranks_the_target`].
-///
-/// A query failure becomes
-/// [`AuthorityNotEstablished::UndeterminedStoreUnavailable`] and never a
-/// refusal, so an outage cannot read as a decision in either direction.
+/// A query failure becomes [`AuthorityNotEstablished::UndeterminedStoreUnavailable`] and
+/// never a refusal, so an outage cannot read as a decision in either direction.
 async fn resolve_moderation_authority_over_one_member(
     pool: &PgPool,
     how_the_acting_party_was_authenticated: HowTheActingPartyWasAuthenticated,
@@ -192,8 +151,8 @@ async fn resolve_moderation_authority_over_one_member(
     })
 }
 
-/// Which key identifies the community, and therefore which table is read. The two are the
-/// same choice, so they are one type rather than two parameters that could disagree.
+/// Which key identifies the community, and therefore which table is read -- one type
+/// rather than two parameters that could disagree.
 #[derive(Debug, Clone, Copy)]
 enum CommunityIdentifierForTheTableBeingRead<'a> {
     /// The client path's UUID key into `community_members`.
@@ -202,8 +161,7 @@ enum CommunityIdentifierForTheTableBeingRead<'a> {
     FederatedCommunityHexId(&'a str),
 }
 
-/// The shared body of both authorities in this module. Not public: a caller must name
-/// which authority it holds, not this.
+/// Not public: a caller must name which authority it holds, not this.
 #[derive(Debug)]
 struct ResolvedModerationAuthorityOverOneMember {
     community_identifier_text: String,
@@ -215,54 +173,45 @@ struct ResolvedModerationAuthorityOverOneMember {
 
 macro_rules! shared_accessors {
     () => {
-        /// The community this authority is scoped to. It is **one** community; the type
-        /// carries no power over any other.
+        /// **One** community; the type carries no power over any other.
         pub fn community_identifier_text(&self) -> &str {
             &self.0.community_identifier_text
         }
 
-        /// The wallet this authority is scoped to, lowercased.
         pub fn target_wallet_address_lowercase(&self) -> &str {
             &self.0.target_wallet_address_lowercase
         }
 
-        /// The acting party's wallet, lowercased. This is what the write should record as
-        /// `banned_by` / `unbanned_by`.
+        /// What the write should record as `banned_by` / `unbanned_by`.
         pub fn acting_wallet_address_lowercase(&self) -> String {
             self.0
                 .how_the_acting_party_was_authenticated
                 .acting_wallet_address_lowercase()
         }
 
-        /// An audit string that names both the wallet and **how it was established**, so
-        /// an audit row cannot claim more than the server proved.
+        /// Names both the wallet and **how it was established**, so an audit row cannot
+        /// claim more than the server proved.
         pub fn audit_actor_description(&self) -> String {
             self.0
                 .how_the_acting_party_was_authenticated
                 .audit_actor_description()
         }
 
-        /// The acting party's standing, including which table answered.
         pub fn acting_party_standing(&self) -> &CommunityMembershipStanding {
             &self.0.acting_party_standing
         }
 
-        /// The target's standing, including which table answered.
         pub fn target_wallet_standing(&self) -> &CommunityMembershipStanding {
             &self.0.target_wallet_standing
         }
 
-        /// Which table decided. The client and federation paths read different tables and
-        /// this is where that is recorded rather than inferred.
         pub fn source_table(&self) -> CommunityMembershipTierSourceTable {
             self.0.acting_party_standing.source_table()
         }
     };
 }
 
-/// A community owner or moderator may ban one wallet from **this one community**.
-///
-/// A value of this type exists only downstream of
+/// A value exists only downstream of
 /// [`decide_whether_the_acting_party_outranks_the_target`]. Holding one is the proof; the
 /// write that follows does not re-derive anything.
 #[derive(Debug)]
@@ -271,11 +220,7 @@ pub struct CommunityBanAuthority(ResolvedModerationAuthorityOverOneMember);
 impl CommunityBanAuthority {
     const WHAT: &'static str = "ban";
 
-    /// The client write path: an end user proved a wallet by ADR-44 signed fetch on this
-    /// node, and the community is keyed by UUID, so `community_members` answers.
-    ///
-    /// Replaces the pair of `load_role_uuid` calls at the top of
-    /// `client::members::ban_member`.
+    /// The client write path: keyed by UUID, so `community_members` answers.
     pub async fn resolve_from_end_user_signed_fetch_on_this_node(
         pool: &PgPool,
         banning_wallet: &VerifiedWalletAddress,
@@ -297,12 +242,8 @@ impl CommunityBanAuthority {
         .map(Self)
     }
 
-    /// The direct federation write path: an EIP-712 envelope delivered over a signed
-    /// fetch by the same wallet, keyed by the federation's hex community id, so
-    /// `community_role_current` answers.
-    ///
-    /// Replaces `require_min_role(.., Role::Mod)` plus the `target_role >= actor` test in
-    /// `writes::members::fed_ban_member`.
+    /// An EIP-712 envelope delivered over a signed fetch by the same wallet, keyed by the
+    /// federation's hex community id, so `community_role_current` answers.
     pub async fn resolve_from_federation_envelope_signed_by_the_originating_wallet(
         pool: &PgPool,
         originating_wallet: &VerifiedWalletAddress,
@@ -322,13 +263,10 @@ impl CommunityBanAuthority {
         .map(Self)
     }
 
-    /// The gossip consumer path: a peer catalyst server relayed an envelope, and the
-    /// originating wallet was recovered from the envelope's own signature.
-    ///
-    /// **Deliberate behaviour change (BC-2).** `fed::consumer`'s `CommunityBan` arm only
-    /// required the acting party to hold at least the moderator tier and never consulted
-    /// the target's, so a relayed envelope could ban the community owner while both other
-    /// entry points refused. It now reaches the same predicate as they do.
+    /// **Deliberate behaviour change (BC-2).** `fed::consumer`'s former `CommunityBan`
+    /// arm only required the acting party to hold at least the moderator tier and never
+    /// consulted the target's, so a relayed envelope could ban the community owner while
+    /// both other entry points refused. It now reaches the same predicate as they do.
     pub async fn resolve_from_gossip_envelope_relayed_by_a_peer_catalyst_server(
         pool: &PgPool,
         originating_wallet_address_recovered_from_the_envelope_signature: &str,
@@ -353,21 +291,16 @@ impl CommunityBanAuthority {
     shared_accessors!();
 }
 
-/// A community owner or moderator may lift an existing ban on one wallet in **this one
-/// community**.
-///
-/// A separate type from [`CommunityBanAuthority`]
-/// because it is a different action on the same subject, and a witness of one must not
-/// be usable as a witness of the other. The predicate behind them is shared on purpose;
-/// the *names* are not.
+/// A separate type from [`CommunityBanAuthority`] so a witness of one cannot be used as a
+/// witness of the other. The predicate behind them is shared on purpose; the *names* are
+/// not.
 #[derive(Debug)]
 pub struct CommunityUnbanAuthority(ResolvedModerationAuthorityOverOneMember);
 
 impl CommunityUnbanAuthority {
     const WHAT: &'static str = "unban";
 
-    /// The client write path. Replaces the pair of `load_role_uuid` calls at the top of
-    /// `client::members::unban_member`.
+    /// The client write path: keyed by UUID, so `community_members` answers.
     pub async fn resolve_from_end_user_signed_fetch_on_this_node(
         pool: &PgPool,
         unbanning_wallet: &VerifiedWalletAddress,
@@ -389,8 +322,7 @@ impl CommunityUnbanAuthority {
         .map(Self)
     }
 
-    /// The direct federation write path. Replaces the `load_role` pair and the inline
-    /// predicate in `writes::members::fed_unban_member`.
+    /// Keyed by the federation's hex community id, so `community_role_current` answers.
     pub async fn resolve_from_federation_envelope_signed_by_the_originating_wallet(
         pool: &PgPool,
         originating_wallet: &VerifiedWalletAddress,
@@ -410,9 +342,8 @@ impl CommunityUnbanAuthority {
         .map(Self)
     }
 
-    /// The gossip consumer path. Replaces the `load_role` pair and the inline predicate in
-    /// `fed::consumer`'s `CommunityUnban` arm. Behaviour-preserving: that arm already
-    /// spelled the shared predicate.
+    /// Behaviour-preserving, unlike [`CommunityBanAuthority`]'s gossip arm (BC-2): the
+    /// former `CommunityUnban` arm already spelled the shared predicate.
     pub async fn resolve_from_gossip_envelope_relayed_by_a_peer_catalyst_server(
         pool: &PgPool,
         originating_wallet_address_recovered_from_the_envelope_signature: &str,
@@ -460,8 +391,6 @@ mod tests {
         decide_whether_the_acting_party_outranks_the_target(&actor, &target, "ban").is_ok()
     }
 
-    /// P9's non-DB half: the shared predicate reproduces the **client** path's inline
-    /// predicate over the full five-by-five matrix.
     #[test]
     #[allow(clippy::nonminimal_bool)]
     fn the_shared_predicate_matches_the_client_paths_former_inline_predicate() {
@@ -480,15 +409,12 @@ mod tests {
         }
     }
 
-    /// P9's other non-DB half: the shared predicate reproduces the **federation** REST
-    /// path's `require_min_role(Mod)` followed by `target >= actor`, over the same matrix.
     #[test]
     fn the_shared_predicate_matches_the_federation_paths_former_inline_predicate() {
         for actor_text in EVERY_TIER_TEXT {
             for target_text in EVERY_TIER_TEXT {
                 let actor = Tier::parse_role_text_as_stored_in_a_table(actor_text);
                 let target = Tier::parse_role_text_as_stored_in_a_table(target_text);
-                // require_min_role(.., Role::Mod): reject Banned, then reject actual < Mod.
                 let former_fed_predicate = actor != Tier::BannedFromThisCommunity
                     && actor >= Tier::ModeratorOfThisCommunity
                     && target < actor;
@@ -501,15 +427,12 @@ mod tests {
         }
     }
 
-    /// The gossip arm's former predicate is the one that differed. This records exactly
-    /// where, so BC-2's blast radius is a list rather than a claim.
     #[test]
     fn the_gossip_arms_former_predicate_was_more_permissive_in_exactly_these_cases() {
         let mut tightened = Vec::new();
         for actor_text in EVERY_TIER_TEXT {
             for target_text in EVERY_TIER_TEXT {
                 let actor = Tier::parse_role_text_as_stored_in_a_table(actor_text);
-                // fed::consumer's CommunityBan arm: require_min_role(Mod), no target test.
                 let former_gossip_predicate = actor != Tier::BannedFromThisCommunity
                     && actor >= Tier::ModeratorOfThisCommunity;
                 if former_gossip_predicate && !decide(actor_text, target_text) {
@@ -530,10 +453,6 @@ mod tests {
 
     #[test]
     fn a_backing_store_failure_is_never_a_refusal() {
-        // The predicate itself has no failure mode; the guarantee is structural. This
-        // asserts the shape: the only Err a decision can produce is a refusal, and the
-        // only Err a load can produce is an undetermined. `Result<_, AuthorityNotEstablished>`
-        // with no `bool` and no `Option` is what makes `.unwrap_or(false)` a type error.
         let actor = standing_for_tests(
             "owner",
             true,

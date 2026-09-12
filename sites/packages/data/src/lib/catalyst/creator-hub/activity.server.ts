@@ -63,12 +63,9 @@ export type ActivityOptions = {
   address?: string | null;
   signal?: AbortSignal;
   fetchImpl?: typeof fetch;
-  /** worlds-content-server base override (tests) */
   wcsBase?: string;
 };
 
-/** Per-row 7-day peaks cost one presence read each. Beyond this many rows the
- *  page stops asking and says so, rather than hanging on 100 requests. */
 export const PEAK_LOOKUP_LIMIT = 50;
 
 function label(path: string, query?: Query): string {
@@ -118,9 +115,6 @@ async function loadCurrentWorlds(
   if (!res.ok) return unavailableFrom(res.err, endpoint);
   const takenAt = res.value[0]?.taken_at ?? "";
   if (!takenAt) {
-    // A 200 with no rows: the sampler ran and nothing was live. There is no
-    // snapshot timestamp on the payload to age it against, so it is not
-    // presented as a fresh sample.
     return noSample(
       endpoint,
       new Date().toISOString(),
@@ -147,17 +141,8 @@ async function loadCurrentScenes(
   return sampledAt(res.value, endpoint, takenAt, DEFAULT_CADENCE_SECONDS);
 }
 
-/** `deployedScenes: null` means "not known from a wcs row" -- which is NOT the
- *  same as a wcs row that said 0, so it must not take the never-deployed
- *  branch. Only a source that actually reported 0 may claim that. */
 export type JoinSubject = { name: string; deployedScenes: number | null };
 
-/**
- * THE JOIN RULE. A world absent from the presence snapshot yields `no-sample`;
- * a world present with `count: 0` yields a showable `0` with a mandatory note.
- * These are different facts and this codebase must never be able to confuse
- * them, so there is exactly one function that decides it.
- */
 export function joinWorldPresence(
   world: JoinSubject,
   rows: Datum<WorldOccupancyRow[]>,
@@ -191,11 +176,6 @@ export function joinWorldPresence(
   };
 }
 
-/**
- * `/live-data` is a real-time read of the comms rooms that currently have
- * users. A world missing from a successful read is a genuine zero, and the note
- * says how that was derived instead of implying it was measured.
- */
 export function joinLiveUsers(
   world: string,
   live: Datum<LiveData>,
@@ -212,13 +192,10 @@ export type ActivityWorldRow = {
   world: ManagedWorld;
   kind: WorldRowKind;
   jumpUrl: string;
-  /** headcount from the presence sampler */
   now: Datum<number>;
   nowNote: string | null;
-  /** the worlds server's own instant figure for the same world */
   liveUsers: Datum<number>;
   liveUsersNote: string | null;
-  /** they routinely disagree; say so rather than reconcile */
   disagreement: string | null;
   peak7d: Datum<number>;
 };
@@ -287,12 +264,6 @@ function isUnavailable(d: Datum<unknown>): boolean {
   return d.state === "unavailable";
 }
 
-/**
- * `Promise.allSettled`, never `Promise.all`: one dead source must not empty the
- * page. Every loader below already answers with a degraded `Datum` rather than
- * throwing; this converts a *programming* failure (a rejected promise) into the
- * same shape instead of taking the whole screen down with it.
- */
 async function settleAll(
   entries: { endpoint: string; load: () => Promise<Datum<unknown>> }[],
 ): Promise<Datum<unknown>[]> {
@@ -310,11 +281,6 @@ const NO_ADDRESS_NOTE =
 const WCS_WORLDS_ENDPOINT =
   "GET worlds-content-server.decentraland.org/worlds?authorized_deployer=";
 
-/**
- * The index screen. `Promise.allSettled`, never `Promise.all`: one dead source
- * must not empty the page, and each source becomes its own `Datum` so the
- * screen can say which half is missing.
- */
 export async function loadActivityIndex(
   opts: ActivityOptions = {},
 ): Promise<ActivityIndexData> {
@@ -376,8 +342,6 @@ export async function loadActivityIndex(
       };
     }),
   );
-  // A row that failed to assemble is dropped rather than rendered half-built;
-  // the world list datum above still reports the true row count.
   const rows: ActivityWorldRow[] = settledRows.flatMap((r) =>
     r.status === "fulfilled" ? [r.value] : [],
   );
@@ -404,11 +368,8 @@ export type WorldActivityData = {
   world: string;
   address: string;
   readAt: string;
-  /** the wcs row for this world, when the caller's address deploys it */
   row: ManagedWorld | null;
-  /** false only when wcs does not list it AND /world/{n}/about 404s */
   worldKnown: boolean;
-  /** true when the caller's address does not deploy it -- a neutral fact, not a gate */
   foreign: boolean;
   about: Datum<WorldAbout>;
   realm: Datum<RealmAbout>;
@@ -432,9 +393,6 @@ async function loadWorldAbout(
   const endpoint = label(path);
   const res = await settled(getJSON<unknown>(path, get(opts)));
   if (!res.ok) {
-    // Only a definite 404 is evidence of absence. Any other failure (a 502
-    // upstream, a timeout) proves nothing about the world and must never
-    // become a not-found page -- unreadable is a different fact from absent.
     const absent =
       res.err instanceof CatalystError && res.err.status === 404;
     return {
@@ -467,13 +425,6 @@ async function loadRealmAbout(opts: ActivityOptions): Promise<Datum<RealmAbout>>
   return liveNow(parsed.data, endpoint);
 }
 
-/**
- * Likes / dislikes / favourites for a world.
- *
- * A 200 with an empty `data` array is a real answer -- Places has no record of
- * this world -- and is returned as a showable empty list so the screen renders
- * an empty state, not a row of zeros.
- */
 async function loadReception(
   world: string,
   opts: ActivityOptions,
@@ -498,20 +449,11 @@ async function loadPermissionsDatum(
     "GET",
     `${catalystBase()}/world/${encodeURIComponent(world)}/permissions`,
   );
-  // `base` is pinned to catalystBase() on purpose. `loadWorldPermissions`
-  // otherwise defaults to `worldsBase()`, which rewrites the hostname to
-  // worlds.example.com and 404s every path (verified: catalyst.example.com answers 200
-  // here, worlds.example.com answers 404). Without this the ACL panel would be
-  // permanently unavailable *and* its note would name an endpoint that was
-  // never called -- the label and the request must be the same URL.
   const res = await settled(
     loadWorldPermissions(world, { ...get(opts), base: catalystBase() }),
   );
   if (!res.ok) return unavailableFrom(res.err, endpoint);
   if (res.value.fallback) {
-    // `loadWorldPermissions` swallows its own failure and answers with an empty
-    // permission set. An empty ACL and an unread ACL look identical, so the
-    // fallback is surfaced as unavailable rather than rendered as "no one".
     return unavailableFrom(
       new Error("permissions read did not return a usable payload"),
       endpoint,
@@ -521,10 +463,6 @@ async function loadPermissionsDatum(
   return liveNow(res.value.permissions, endpoint);
 }
 
-/**
- * The world page. Ownership is context, never a gate: occupancy is public, so a
- * world the caller does not deploy still renders, with a neutral line saying so.
- */
 export async function loadWorldActivity(
   world: string,
   opts: ActivityOptions = {},
@@ -603,18 +541,12 @@ export async function loadWorldActivity(
     ? (myWorlds.value.worlds.find((w) => w.name.trim().toLowerCase() === key) ?? null)
     : null;
 
-  // Presence knows about worlds catalyst has no scenes for, so a world is
-  // "known" if ANY upstream has heard of it.
   const inPresence =
     showable(presenceWorlds) &&
     presenceWorlds.value.some((r) => r.world_name.trim().toLowerCase() === key);
-  // Unreadable-about keeps the world "known": the page then renders its
-  // honest unavailable sections instead of claiming the world does not exist.
   const worldKnown =
     row !== null || showable(about) || inPresence || !aboutAbsent;
 
-  // Only a wcs row that actually reported 0 may take the "never deployed"
-  // branch. Without one the count is unknown, which is a different fact.
   const subject: JoinSubject = {
     name: world,
     deployedScenes: row ? row.deployedScenes : null,
@@ -664,11 +596,6 @@ export type SceneActivityData = {
   history: Datum<BucketizedHistory>;
 };
 
-/**
- * A parcel can be looked up, never listed: nothing on this stack maps a wallet
- * to the parcels it deployed to. `/presence/current/scenes` keys occupancy by
- * pointer with no owner field.
- */
 export async function loadSceneActivity(
   pointer: string,
   opts: ActivityOptions = {},

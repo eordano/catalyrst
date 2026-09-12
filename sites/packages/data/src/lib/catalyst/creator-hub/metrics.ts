@@ -20,9 +20,6 @@ export const SummarySchema = z.object({
   onSaleItems: z.number().int().nonnegative().nullable(),
   sales7d: z.number().int().nonnegative().nullable(),
   salesVolumeMana7d: z.number().nonnegative().nullable(),
-  // The flag that says the sales numbers above were not read. Defaulting it to
-  // `false` claimed they had been -- exactly backwards -- so it is required and
-  // `loadCreatorMetrics` is the only thing that decides it.
   salesUnavailable: z.boolean(),
   scenes: ScenesSummarySchema.nullable(),
 });

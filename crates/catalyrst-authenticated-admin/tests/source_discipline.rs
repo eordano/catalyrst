@@ -70,8 +70,6 @@ fn the_admin_identity_field_is_not_public() {
         .expect("AuthenticatedAdminIdentity declaration exists");
     let end = start + LIB[start..].find('}').expect("declaration closes");
     let declaration = &LIB[start..end];
-    // Match a public field by shape rather than by a trailing comma: the last field of a
-    // struct is written without one, and an `ends_with(",")` check would wave it through.
     let pub_field = Regex::new(r"^pub(\([^)]*\))?\s+[A-Za-z_]\w*\s*:").expect("valid regex");
     assert!(
         !code_lines(declaration).any(|line| pub_field.is_match(line)),
@@ -95,9 +93,6 @@ fn the_admin_identity_derives_nothing() {
         .iter()
         .position(|line| line.starts_with("pub struct AuthenticatedAdminIdentity"))
         .expect("AuthenticatedAdminIdentity declaration exists");
-    // Collect every attribute line in the contiguous prelude above the struct, not just the
-    // nearest one: a `#[derive(Deserialize)]` can hide behind a later `#[serde(...)]` or a
-    // doc comment, and inspecting only the closest line would miss it.
     let mut attrs: Vec<&str> = Vec::new();
     for line in lines[..declaration].iter().rev() {
         if line.is_empty() || line.starts_with("//") || line.starts_with("///") {
@@ -124,10 +119,6 @@ fn admin_identity_is_constructed_only_in_from_request_parts() {
     let mut constructions: Vec<(PathBuf, String)> = Vec::new();
     for (path, source) in every_crate_source() {
         for line in code_lines(&source) {
-            // A struct-literal construction is `AuthenticatedAdminIdentity {`. Exclude the
-            // three other ways the name can sit immediately before a `{`: the struct
-            // declaration, an `impl ... {` header, and a `-> AuthenticatedAdminIdentity {`
-            // return type (where the `{` opens a fn body, not a literal).
             let constructs = (line.contains("AuthenticatedAdminIdentity {")
                 || line.contains("AuthenticatedAdminIdentity{"))
                 && !line.contains("struct AuthenticatedAdminIdentity")
@@ -155,8 +146,6 @@ fn admin_identity_is_constructed_only_in_from_request_parts() {
          inside from_request_parts"
     );
 
-    // The one construction must sit inside the FromRequestParts impl: between the start of
-    // `fn from_request_parts` and the next 4-space-indented `fn ` after it.
     let start = LIB
         .find("fn from_request_parts")
         .expect("from_request_parts exists");

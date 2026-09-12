@@ -8,7 +8,6 @@ const COLLECTION = "0x03b1940d80394614a5ba60abbf73fa749068bdad";
 const OTHER_TOPIC =
   "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
 
-// itemId is the indexed 4th topic of the Issue event (padded to 32 bytes).
 const topicForItem = (itemId: number) =>
   "0x" + itemId.toString(16).padStart(64, "0");
 
@@ -34,11 +33,10 @@ describe("selectIssueLogForTrade", () => {
   });
 
   it("when a tx mints the same item twice it returns a distinct Issue log per call", () => {
-    // Mirrors tx 0xa49ba5...: item 5 issued twice, item 15 once, all via OffChainMarketplace.
     const logs: IssueLogLike[] = [
-      issueLog(3, 5), // item 5, issued #1
-      issueLog(10, 5), // item 5, issued #2
-      issueLog(17, 15), // item 15, issued #1
+      issueLog(3, 5),
+      issueLog(10, 5),
+      issueLog(17, 15),
     ];
     const consumed = new Set<string>();
     const params = { ...baseParams(), consumedIssueLogs: consumed };
@@ -93,11 +91,11 @@ describe("selectIssueLogForTrade", () => {
 
   it("when logs belong to another item, tx or contract they are ignored", () => {
     const logs: IssueLogLike[] = [
-      issueLog(3, 15), // different item
-      issueLog(4, 5, { transactionIndex: 9 }), // different tx
-      issueLog(5, 5, { address: "0xdeadbeef" }), // different contract
-      issueLog(6, 5, { topics: [OTHER_TOPIC, "0x", "0x", topicForItem(5)] }), // not an Issue
-      issueLog(7, 5), // the only valid match
+      issueLog(3, 15),
+      issueLog(4, 5, { transactionIndex: 9 }),
+      issueLog(5, 5, { address: "0xdeadbeef" }),
+      issueLog(6, 5, { topics: [OTHER_TOPIC, "0x", "0x", topicForItem(5)] }),
+      issueLog(7, 5),
     ];
     const chosen = selectIssueLogForTrade(logs, {
       ...baseParams(),

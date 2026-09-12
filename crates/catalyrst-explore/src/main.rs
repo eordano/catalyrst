@@ -46,8 +46,6 @@ async fn main() -> Result<()> {
                 async move { ([(CONTENT_TYPE, "application/json")], body).into_response() }
             }),
         )
-        // Members each ship their own /status probe, which cannot survive being
-        // merged onto one port. The bundle owns it and reports every member.
         .route(
             "/status",
             get(move || {
@@ -93,9 +91,6 @@ fn mount(
     }
 }
 
-// Members are merged into one Router, and axum panics when two of them claim
-// the same path. places, events and worlds each serve their own spec at
-// /openapi.json, so in the bundle each one gets its own path instead.
 fn spec_route<S>(router: Router<S>, spec: serde_json::Value, path: &'static str) -> Router<S>
 where
     S: Clone + Send + Sync + 'static,
@@ -125,10 +120,6 @@ fn health_body(members: &[(&'static str, bool)]) -> String {
 async fn build_places() -> (Result<Router>, Result<Router>) {
     match build_places_state().await {
         Ok(state) => {
-            // Events owns GET /v1/destinations/{id}/events in this combined
-            // process. The standalone Places router also exposes a proxy for
-            // that route, so use its bundle variant to avoid an axum merge
-            // panic caused by registering the same method and path twice.
             let (router, spec) = catalyrst_places::api_router_with_spec_for_bundle();
             let api = match serde_json::to_value(spec) {
                 Ok(spec) => {

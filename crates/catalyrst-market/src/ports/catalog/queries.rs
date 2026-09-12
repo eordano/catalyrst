@@ -328,10 +328,9 @@ pub fn build_collections_items_count_query(f: &CatalogFilters) -> (String, PgArg
     (b.sql, b.args)
 }
 
-/// Upstream `getItemIdsByTagOrNameQuery`: one row per matched item carrying
-/// the best-matching word and its similarity. Words come from the item's
-/// name and from its collection's name; see logic::search_match for why a
-/// name substring or whole-string similarity is not enough.
+/// Upstream `getItemIdsByTagOrNameQuery`: one row per matched item carrying the best-matching
+/// word and its similarity, drawn from the item's name and its collection's name. See
+/// logic::search_match for why a name substring or whole-string similarity is not enough.
 pub(super) fn build_search_query(f: &CatalogFilters) -> (String, PgArguments) {
     let mut b = Builder::new();
     let search = f.search.clone().unwrap_or_default();

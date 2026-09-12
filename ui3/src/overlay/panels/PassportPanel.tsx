@@ -52,11 +52,9 @@ export type PassportBadgeSection = {
   badges: PassportBadgeCard[];
 };
 export type PassportBadges = {
-  /** null when the category list was never read -- not "there are none". */
   categories: string[] | null;
   earned: PassportBadgeMedallion[];
   sections: PassportBadgeSection[];
-  /** Set when the badge read failed; `earned` is then empty and means nothing. */
   unavailable?: string | null;
 };
 
@@ -73,9 +71,7 @@ export type PassportData = {
   profile: PassportProfile;
   badges: PassportBadges;
   photos: PassportPhoto[];
-  /** Set when the photo read failed; `photos` is then empty and means nothing. */
   photosUnavailable?: string | null;
-  /** Set when the profile read failed; the profile fields are placeholders. */
   profileUnavailable?: string | null;
 };
 

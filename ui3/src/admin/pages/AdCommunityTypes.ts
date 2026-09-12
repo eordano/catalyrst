@@ -10,7 +10,6 @@ export type CommunityModerationCard = {
   ownerName: string | null;
   privacy: "public" | "private";
   active: boolean;
-  /** Null when the source listing reported no suspension state at all. */
   suspended: boolean | null;
   membersCount: number;
   thumbnail: string;

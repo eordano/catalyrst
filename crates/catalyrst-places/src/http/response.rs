@@ -1,8 +1,5 @@
 use serde::Serialize;
 
-// Structurally catalyrst_types::ApiOk, kept local because the committed ts-rs
-// binding and the OpenAPI schema name both come from this declaration site --
-// re-exporting the shared type renames both.
 #[derive(Debug, Serialize, utoipa::ToSchema)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "places/"))]
 pub struct ApiData<T> {

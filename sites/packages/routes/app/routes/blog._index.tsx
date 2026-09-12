@@ -66,10 +66,6 @@ export async function loader({ request }: Route.LoaderArgs) {
     FALLBACK,
   );
 
-  // Second experiment on this surface, its own key, assigned independently.
-  // Draft until activated: a non-empty flags-service override row (or the
-  // BLOG_SHOP_ENTRY_EXPERIMENT env var) turns it on; otherwise every session
-  // gets base. ?arm= / ?variant=lp_blog_shop_entry:<arm> still force a preview.
   const shop = await storyLoader(request, SHOP_ENTRY_STORY, SHOP_ENTRY_FALLBACK, {
     skipExposure: true,
   });
@@ -110,8 +106,6 @@ export async function loader({ request }: Route.LoaderArgs) {
       : Promise.resolve(null),
   ]);
 
-  // A forced arm is QA/preview driving the surface, and an inactive experiment
-  // samples nobody: neither counts as an exposure.
   if (shopActive && !forcedShop) {
     trackExposure({
       sid,

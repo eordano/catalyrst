@@ -1,66 +1,40 @@
 //! The peer admission gate: `federation-peers.toml`, read at boot, adjudicated, and
-//! fail-closed.
-//!
-//! # Why this file exists
-//!
-//! [`catalyrst_fed::FederationRegistry::from_file`] is well built and, before this
-//! module, was never called anywhere in the workspace. `PeerCert::mtls_root_pem` was
-//! declared and never read. `PeerCert::gossip_pubkey` was declared and never read.
-//! The shipped `deploy/config/federation-peers.toml` has been sitting on disk
-//! containing a `TODO:` placeholder that nothing would have rejected, because nothing
-//! looked. An allowlist nobody consults is not an allowlist; it is a comment that
-//! costs a file.
-//!
-//! `parse_file` rejects only *empty* required fields. It is a well-made gate with no
-//! door attached. [`AdmittedPeer::admit`] is the door.
+//! fail-closed. [`catalyrst_fed::FederationRegistry::parse_file`] rejects only *empty*
+//! required fields; [`AdmittedPeer::admit`] is the actual gate.
 //!
 //! # The pin is the admission decision
 //!
-//! A peer's identity is established by TLS against **its own pinned root**, taken
-//! from `mtls_root_pem` in the registry, and by nothing else. Checking that a URL's
-//! scheme is `https` proves nothing about *who answers*: any WebPKI-valid host that
-//! wins a DNS race is then the peer. So an admitted peer carries a
-//! [`reqwest::Client`] whose trust store contains that root **and no other**, and
-//! holding an [`AdmittedPeer`] is the evidence that such a client was successfully
-//! built.
+//! A peer's identity is established by TLS against **its own pinned root**
+//! (`mtls_root_pem`) and by nothing else -- an `https` scheme proves nothing about who
+//! answers, since any WebPKI-valid host that wins a DNS race is then the peer. So an
+//! admitted peer carries a [`reqwest::Client`] trusting that root and no other, and
+//! holding an [`AdmittedPeer`] is the evidence such a client was built.
 //!
 //! ## reqwest 0.13 hazard -- read before touching the client builder
 //!
-//! `ClientBuilder::tls_built_in_root_certs` **does not exist in reqwest 0.13** (it was
-//! removed; verified by compile against the workspace's exact feature set, which
-//! errors `E0599: no method named tls_built_in_root_certs`). In 0.13,
+//! `ClientBuilder::tls_built_in_root_certs` does not exist in reqwest 0.13, and
 //! `add_root_certificate` alone routes through
-//! `rustls_platform_verifier::Verifier::new_with_extra_roots` -- that is, the pinned
-//! root is added *alongside* the ambient system trust store, which is precisely the
-//! defeat this module exists to prevent.
+//! `rustls_platform_verifier::Verifier::new_with_extra_roots`, adding the pinned root
+//! *alongside* the ambient system trust store -- precisely the defeat this module
+//! exists to prevent. `ClientBuilder::tls_certs_only` is the method that actually
+//! pins. **Do not replace it with `add_root_certificate` or `tls_certs_merge`**: that
+//! compiles, and silently converts the pin back into ordinary WebPKI.
 //!
-//! [`ClientBuilder::tls_certs_only`] is the method that actually pins: its
-//! documentation is "This option disables any native or built-in roots, and **only**
-//! uses the roots provided to this method", and it is the branch that reaches
-//! `config_builder.with_root_certificates(..)`. **Do not replace it with
-//! `add_root_certificate` or `tls_certs_merge`.** Doing so compiles, and silently
-//! converts the pin back into ordinary WebPKI.
+//! The only test that catches that swap is
+//! `pinned_client_rejects_a_webpki_valid_host` in
+//! `tests/federation_peer_admission.rs`. Its sibling
+//! `pinned_client_trusts_only_its_own_root` does not -- both roots there are private,
+//! so a merged client rejects the wrong server for the same reason a pinned one does.
+//! Measured against a regressed build, not assumed.
 //!
-//! The test that catches that swap is `pinned_client_rejects_a_webpki_valid_host` in
-//! `tests/federation_peer_admission.rs` -- and *only* that one. Its sibling
-//! `pinned_client_trusts_only_its_own_root` does **not** catch it: both roots in that
-//! test are private, so a merged client rejects the wrong server for the same reason
-//! a pinned one does. This was measured, not assumed -- the regressed build was built
-//! and run. Deleting the WebPKI test because "the other one covers TLS" removes the
-//! only thing standing between this file and an ordinary HTTPS client.
-//!
-//! Likewise `Certificate::from_pem` is deliberately **not** used: under `__rustls` it
+//! Likewise `Certificate::from_pem` is deliberately not used: under `__rustls` it
 //! parses nothing and returns `Ok` for any bytes, so a typo'd root yields an empty
-//! trust store and a peer that is admitted at boot and unreachable forever. See the
-//! comment at the call site.
+//! trust store and a peer admitted at boot and unreachable forever.
 //!
-//! # Scope of what a peer may say
-//!
-//! Nothing in this module reads, stores, or forwards an ownership or permission claim.
-//! An [`AdmittedPeer`] exposes exactly one outbound capability -- fetch a listing from
-//! a URL this file constructs -- and that URL is built from registry fields only. No
-//! value from any peer *response* ever constructs a URL, so there is no SSRF surface
-//! and no follow-up fetch.
+//! Nothing here reads, stores or forwards an ownership or permission claim. An
+//! [`AdmittedPeer`] exposes one outbound capability -- fetch a listing from a URL this
+//! file builds out of registry fields only -- so no peer *response* value ever
+//! constructs a URL: no SSRF surface, no follow-up fetch.
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -72,8 +46,8 @@ use url::Url;
 use crate::fed::config::WorldsFedConfig;
 use crate::fed::names::PeerId;
 
-/// Hostname suffixes reserved by RFC 2606 / RFC 6761. A peer id ending in one of
-/// these is a copy-paste from an example file, never a peer.
+/// Hostname suffixes reserved by RFC 2606 / RFC 6761. A peer id ending in one of these
+/// is a copy-paste from an example file, never a peer.
 const RESERVED_TEST_SUFFIXES: &[&str] = &[".invalid", ".example", ".test", ".localhost", ".local"];
 
 /// Unsubstituted markers from the template `dao_proposal` line.
@@ -83,13 +57,9 @@ const DAO_PROPOSAL_TEMPLATE_MARKERS: &[&str] = &["<space>", "<id>"];
 const PLACEHOLDER_ADDED_AT: &str = "1970-01-01";
 
 /// Why one entry in the peer file was refused. Every variant is **fatal**: it aborts
-/// process startup.
-///
-/// The peer file is a small, hand-curated, DAO-gated allowlist. A bad entry is a
-/// deploy-time operator error, not a runtime condition to route around. Booting with
-/// four peers when the operator wrote five makes "we federate with X" and "we *tried*
-/// to federate with X" the same observable state, and there is no later moment at
-/// which anyone finds out which one happened.
+/// process startup, because a bad entry in a hand-curated DAO-gated allowlist is a
+/// deploy-time operator error, and booting with four peers when the operator wrote
+/// five makes "we federate with X" and "we tried to" the same observable state.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PeerNotAdmitted {
     PlaceholderDaoProposal {
@@ -110,13 +80,10 @@ pub enum PeerNotAdmitted {
     NoPinnedRoot {
         peer_id: String,
     },
-    /// A pinned root supplied alongside a cleartext `http://` loopback URL.
-    ///
-    /// The two are individually valid and together meaningless: a root certificate
-    /// authenticates a TLS handshake, and there is no handshake on cleartext. Refused
-    /// rather than warned about, because every reader of that entry -- the operator,
-    /// the boot log, `/federation/worlds/peers` -- would otherwise be told the peer is
-    /// pinned, and the pin would be doing nothing.
+    /// A pinned root alongside a cleartext `http://` loopback URL: meaningless, since
+    /// there is no handshake for the root to authenticate. Refused rather than warned
+    /// about, or the boot log and `/federation/worlds/peers` would report the peer as
+    /// pinned while the pin does nothing.
     PinnedRootOnCleartextUrl {
         peer_id: String,
         url: String,
@@ -238,13 +205,9 @@ impl std::fmt::Display for PeerNotAdmitted {
     }
 }
 
-/// A peer that is in the file, is valid, and is not a *worlds* peer.
-///
-/// Recorded rather than dropped so `GET /federation/worlds/peers` can show why a peer
-/// present in the file is absent from the peer list. "Absent because it runs no
-/// worlds server" and "absent because we forgot to look" must never be the same
-/// observable state -- that confusion is the whole failure mode this module was
-/// written to end.
+/// A peer that is in the file, is valid, and is not a *worlds* peer. Recorded rather
+/// than dropped so `GET /federation/worlds/peers` can distinguish "absent because it
+/// runs no worlds server" from "absent because we forgot to look".
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 #[serde(tag = "reason", rename_all = "camelCase")]
 pub enum PeerOmitted {
@@ -264,13 +227,13 @@ impl std::fmt::Display for PeerOmitted {
     }
 }
 
-/// A peer that cleared every gate in [`PeerNotAdmitted`] and for which a
-/// root-pinned TLS client was successfully built.
+/// A peer that cleared every gate in [`PeerNotAdmitted`] and for which a root-pinned
+/// TLS client was built.
 ///
 /// A witness type in the house style of `FederatedCommunityWriteAuthority`
 /// (`catalyrst-social-service/src/rest/fed/authority.rs`): private fields, no public
-/// constructor, obtainable only from [`AdmittedPeer::admit`]. A function that takes
-/// an `&AdmittedPeer` cannot be handed a peer that was merely *present in the file*.
+/// constructor, obtainable only from [`AdmittedPeer::admit`], so a function taking
+/// `&AdmittedPeer` cannot be handed a peer that was merely present in the file.
 #[derive(Clone)]
 pub struct AdmittedPeer {
     peer_id: PeerId,
@@ -278,20 +241,18 @@ pub struct AdmittedPeer {
     worlds_url: Url,
     dao_proposal: String,
     added_at: String,
-    /// True when this peer was admitted through the loopback dev escape hatch, so
-    /// its `http` client is *not* pinned to anything. Surfaced so an operator reading
-    /// `/federation/worlds/peers` can see that a peer is unauthenticated.
+    /// Admitted through the loopback dev escape hatch, so the `http` client is *not*
+    /// pinned. Surfaced on `/federation/worlds/peers` so an operator can see that a
+    /// peer is unauthenticated.
     insecure_loopback: bool,
     /// Trusts this peer's pinned root and nothing else -- unless
     /// [`Self::insecure_loopback`] is set, in which case it speaks plain http to a
-    /// literal loopback address and trusts nothing because there is nothing to trust.
+    /// literal loopback address.
     http: reqwest::Client,
 }
 
 impl std::fmt::Debug for AdmittedPeer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        // Hand-written so a stray `{:?}` in a log line can never print the client's
-        // trust material or a future credential field.
         f.debug_struct("AdmittedPeer")
             .field("peer_id", &self.peer_id)
             .field("worlds_url", &self.worlds_url.as_str())
@@ -317,27 +278,21 @@ impl AdmittedPeer {
         &self.added_at
     }
 
-    /// Whether this peer's channel is unauthenticated (loopback dev opt-out).
     pub fn is_insecure_loopback(&self) -> bool {
         self.insecure_loopback
     }
 
-    /// The pinned client. Only usable against this peer, because it trusts only this
-    /// peer's root.
+    /// Usable only against this peer: it trusts only this peer's root.
     pub fn http(&self) -> &reqwest::Client {
         &self.http
     }
 
-    /// The **one** place a peer URL is constructed.
-    ///
-    /// The path is fixed here; only integer `limit`/`offset` are appended. No value
-    /// from any peer *response* reaches this function -- there is no parameter that
-    /// could carry one -- so there is no SSRF surface and no follow-up fetch.
+    /// The **one** place a peer URL is constructed. The path is fixed here and only
+    /// integer `limit`/`offset` are appended, so no value from a peer response can
+    /// reach it: no SSRF surface, no follow-up fetch.
     pub fn worlds_listing_url(&self, limit: i64, offset: i64) -> Url {
         let mut u = self.worlds_url.clone();
         {
-            // `expect` is sound: admission rejects any URL that `cannot_be_a_base`,
-            // and http/https never can.
             let mut segments = u
                 .path_segments_mut()
                 .expect("an admitted worlds_url is always a base URL");
@@ -350,27 +305,19 @@ impl AdmittedPeer {
         u
     }
 
-    /// Adjudicate one peer-file entry.
+    /// Adjudicate one peer-file entry. Evaluation order is fixed and tested --
+    /// `dao_proposal`, `added_at`, `gossip_pubkey`, `peer_id` suffix, then the URL and
+    /// the pinned root -- so the first reason reported for an entry is reproducible.
     ///
-    /// Evaluation order is fixed and tested: `dao_proposal`, `added_at`,
-    /// `gossip_pubkey`, `peer_id` suffix, then the URL and the pinned root. It is
-    /// fixed so that the *first* reason reported for a given entry is stable across
-    /// runs, which is what makes an operator-facing error message reproducible.
-    ///
-    /// Note the ordering consequence, which is deliberate: the placeholder and
-    /// pinned-root checks run **before** the "no worlds_url => omit" branch. An entry
-    /// with a `TODO:` proposal and no worlds URL is *fatal*, not omitted. A peer file
-    /// entry that names no proposal, carries no key and pins no root proves nothing
-    /// about anybody, whatever scope it was meant for, and refusing it is the
-    /// fail-closed direction.
+    /// Deliberate consequence: the placeholder and pinned-root checks run **before**
+    /// the "no worlds_url => omit" branch, so an entry with a `TODO:` proposal and no
+    /// worlds URL is fatal rather than omitted. An entry naming no proposal, carrying
+    /// no key and pinning no root proves nothing about anybody, whatever scope it was
+    /// meant for.
     pub fn admit(
         cert: &PeerCert,
         cfg: &WorldsFedConfig,
     ) -> Result<AdmissionOutcome, PeerNotAdmitted> {
-        // `catalyrst_fed::canonical_peer_id`, not a local `to_ascii_lowercase`. A
-        // private fold here is exactly what made two file entries mint one `PeerId`:
-        // the registry keyed on the raw string and this line quietly disagreed with
-        // it. There is now one definition and both sides call it.
         let canonical_id = canonical_peer_id(&cert.peer_id);
 
         let dao = cert.dao_proposal.trim();
@@ -393,10 +340,6 @@ impl AdmittedPeer {
             });
         }
 
-        // A placeholder check and nothing more. The key is not otherwise read: this
-        // slice has no signed channel to a worlds peer, and inventing a use for the
-        // key here would be exactly the second, weaker verification that must not
-        // exist alongside `consumer.rs::preverify`.
         if cert.gossip_pubkey == [0u8; 32] {
             return Err(PeerNotAdmitted::ZeroGossipPubkey {
                 peer_id: canonical_id,
@@ -418,9 +361,6 @@ impl AdmittedPeer {
 
         if raw_worlds_url.is_empty() {
             if pem.is_empty() {
-                // The loopback opt-out cannot apply: with no URL there is no host to
-                // check against loopback, so there is nothing that could make an
-                // absent root safe.
                 return Err(PeerNotAdmitted::NoPinnedRoot {
                     peer_id: canonical_id,
                 });
@@ -456,9 +396,6 @@ impl AdmittedPeer {
             });
         }
 
-        // Normalise: credentials would be sent on every poll, a query would be
-        // clobbered by `worlds_listing_url`, and a fragment is never transmitted.
-        // Dropping them is the conservative reading, and it is loud.
         if !url.username().is_empty() || url.password().is_some() {
             tracing::warn!(
                 peer_id = %canonical_id,
@@ -477,16 +414,11 @@ impl AdmittedPeer {
             url.set_query(None);
             url.set_fragment(None);
         }
-        // Trailing slash off, so `worlds_listing_url` appends exactly one segment.
         if url.path().ends_with('/') && url.path() != "/" {
             let trimmed = url.path().trim_end_matches('/').to_string();
             url.set_path(&trimmed);
         }
 
-        // A root pinned over cleartext is an orphaned config field: read, stored,
-        // and inert. Refused here so no reader is told the peer is pinned when the
-        // transport cannot carry a pin. `loopback_opt_out` is the only way to reach
-        // this function with a non-https scheme, so this is exactly the http case.
         if loopback_opt_out && !pem.is_empty() {
             return Err(PeerNotAdmitted::PinnedRootOnCleartextUrl {
                 peer_id: canonical_id,
@@ -515,28 +447,6 @@ impl AdmittedPeer {
                     source: e.to_string(),
                 })?
         } else {
-            // `from_pem_bundle`, NOT `from_pem`. Under the `__rustls` feature --
-            // which is what this workspace builds -- `Certificate::from_pem` parses
-            // *nothing*: it stores the bytes verbatim (`Cert::Pem(buf)`) and returns
-            // `Ok` for any input whatsoever, deferring the parse to `build()`. And
-            // the deferred parse does not fail either, because
-            // `read_pem_certs` on a string containing no PEM block yields an empty
-            // vector, not an error. The result would be an *empty* root store, a
-            // peer admitted at boot, and a poller that reports "unreachable" for the
-            // rest of the process's life over what is really a typo in a config file.
-            //
-            // That is fail-closed at connect time and fail-OPEN at review time, and
-            // it is exactly the orphaned-config defect this module exists to end: a
-            // field that is technically read but whose garbage value produces no
-            // error anybody sees.
-            //
-            // `from_pem_bundle` runs `read_pem_certs` eagerly, so malformed base64
-            // is an error here; the explicit emptiness check below catches the "no
-            // CERTIFICATE block at all" case that `read_pem_certs` reports as
-            // success. A block that is well-formed base64 but is not a certificate
-            // survives both and is caught by `build()` below as `ClientBuildFailed`,
-            // when `RootCertStore::add` rejects the DER. Between the three, every
-            // unusable value is refused at boot.
             let roots = reqwest::Certificate::from_pem_bundle(pem.as_bytes()).map_err(|e| {
                 PeerNotAdmitted::UnusablePinnedRoot {
                     peer_id: canonical_id.clone(),
@@ -550,10 +460,6 @@ impl AdmittedPeer {
                 });
             }
             base_client_builder()
-                // `tls_certs_only`, NOT `add_root_certificate`. See the module docs:
-                // in reqwest 0.13 the latter *adds* to the platform trust store, so
-                // any WebPKI-valid host would still answer as this peer. This is the
-                // single line that makes the peer file mean anything.
                 .tls_certs_only(roots)
                 .build()
                 .map_err(|e| PeerNotAdmitted::ClientBuildFailed {
@@ -567,12 +473,6 @@ impl AdmittedPeer {
             worlds_url: url,
             dao_proposal: dao.to_string(),
             added_at: added.to_string(),
-            // `loopback_opt_out` alone, not `&& pem.is_empty()`. The conjunction was
-            // the bug: a cleartext peer that also carried a pem reported itself as
-            // pinned and secure, on a channel with no TLS at all. The contradiction is
-            // now refused above, so the two spellings agree -- but this stays the
-            // single-fact version, because what this field answers is "is the channel
-            // authenticated", and cleartext is the whole answer.
             insecure_loopback: loopback_opt_out,
             http,
         }))
@@ -581,20 +481,15 @@ impl AdmittedPeer {
 
 fn base_client_builder() -> reqwest::ClientBuilder {
     reqwest::Client::builder()
-        // A redirect off the pinned host silently defeats the pin: the pin is
-        // checked per-connection, and the second connection would be to whatever
-        // host the peer named.
         .redirect(reqwest::redirect::Policy::none())
         .connect_timeout(Duration::from_secs(10))
         .timeout(Duration::from_secs(30))
         .user_agent(concat!("catalyrst-worlds/", env!("CARGO_PKG_VERSION")))
 }
 
-/// `127.0.0.0/8`, `::1`, or the literal name `localhost`.
-///
-/// Deliberately strict: it is a *literal* check, not a resolution. A hostname that
-/// happens to resolve to 127.0.0.1 today is not loopback for this purpose, because
-/// what it resolves to is not under our control.
+/// `127.0.0.0/8`, `::1`, or the literal name `localhost`. A *literal* check, never a
+/// resolution: a hostname that happens to resolve to 127.0.0.1 today is not loopback
+/// here, because what it resolves to is not under our control.
 fn is_loopback_host(host: &str) -> bool {
     let bare = host.trim_start_matches('[').trim_end_matches(']');
     if bare.eq_ignore_ascii_case("localhost") {
@@ -606,7 +501,6 @@ fn is_loopback_host(host: &str) -> bool {
     }
 }
 
-/// One entry's verdict.
 #[derive(Debug)]
 pub enum AdmissionOutcome {
     Admitted(AdmittedPeer),
@@ -615,33 +509,25 @@ pub enum AdmissionOutcome {
 
 /// The worlds-federation peer set for the lifetime of this process.
 ///
-/// Two states, not `Option<Vec<_>>`. "Federation was never requested" and "federation
-/// was requested and yielded nothing" must not be the same value at a call site: that
-/// collapse is precisely how the shipped config came to be orphaned, and it is how a
-/// caller ends up treating an empty allowlist as "no allowlist, allow everyone".
-///
-/// [`Self::NotConfigured`] makes the federation routes answer **503** naming the
-/// variable. It never produces an empty list that a later code path could append to.
+/// Two states, not `Option<Vec<_>>`: "federation was never requested" and "requested
+/// and yielded nothing" must not collapse at a call site into "no allowlist, allow
+/// everyone". [`Self::NotConfigured`] makes the federation routes answer **503**
+/// naming the variable, and never produces an appendable empty list.
 #[derive(Debug)]
 pub enum WorldsFederationPeers {
     /// `WORLDS_FED_PEERS_FILE` was never set. Not an error; federation is off.
     NotConfigured,
-    /// The file loaded and every entry was adjudicated.
     Admitted {
         path: PathBuf,
         peers: Vec<AdmittedPeer>,
-        /// Entries deliberately not contacted, each with a legible reason. Surfaced
-        /// on `GET /federation/worlds/peers` so an omission is never silent.
+        /// Surfaced on `GET /federation/worlds/peers` so an omission is never silent.
         omitted: Vec<PeerOmitted>,
     },
 }
 
 impl WorldsFederationPeers {
-    /// Read `WORLDS_FED_PEERS_FILE` and adjudicate it.
-    ///
-    /// Call this from `build_state` **before** the `Arc<AppStateInner>` is
-    /// constructed, so any refusal aborts process startup rather than degrading a
-    /// process that is already serving.
+    /// Call this from `build_state` **before** the `Arc<AppStateInner>` is built, so a
+    /// refusal aborts startup rather than degrading a process that is already serving.
     pub fn load_from_env() -> Result<Self> {
         Self::load(&WorldsFedConfig::from_env()?)
     }
@@ -659,12 +545,9 @@ impl WorldsFederationPeers {
         Self::load_file(path, cfg)
     }
 
-    /// Adjudicate a specific file.
-    ///
-    /// A missing, unreadable, or malformed file is a **boot failure**, following
-    /// `catalyrst-fed/src/gossip.rs`, which refuses to start rather than hand out a
-    /// publisher that silently reaches nobody. An operator who named a peer file and
-    /// got a running server with no federation has been told nothing.
+    /// A missing, unreadable or malformed file is a **boot failure**, following
+    /// `catalyrst-fed/src/gossip.rs`: an operator who named a peer file and got a
+    /// running server with no federation has been told nothing.
     pub fn load_file(path: &Path, cfg: &WorldsFedConfig) -> Result<Self> {
         let registry = catalyrst_fed::FederationRegistry::from_file(path).map_err(|e| {
             anyhow!(
@@ -674,18 +557,6 @@ impl WorldsFederationPeers {
             )
         })?;
 
-        // `FederationRegistry` stores a HashMap, so `all()` order is arbitrary. Sort
-        // by peer_id: the "first rejection" carried in the boot error must be the
-        // same one on every run, or the operator-facing message is a coin flip.
-        //
-        // This sort no longer decides anything but that message. It used to order the
-        // *raw* ids, and because two entries could then mint one `PeerId`, the last
-        // one to poll took the other's mirror namespace -- so an ASCII comparison
-        // nobody chose was picking which of two DAO-admitted hosts we published. That
-        // cannot happen now: `parse_file` refuses a file whose ids collide under
-        // `canonical_peer_id`, so these ids are canonical, distinct, and unique. The
-        // comparison is therefore a total order with no ties, and every peer here has
-        // its own namespace whatever order it is visited in.
         let mut certs = registry.all();
         certs.sort_by(|a, b| a.peer_id.cmp(&b.peer_id));
         debug_assert!(
@@ -717,9 +588,6 @@ impl WorldsFederationPeers {
                     omitted.push(o);
                 }
                 Err(e) => {
-                    // Every rejection is logged, not just the first, so one boot
-                    // attempt tells the operator about all five problems in the file
-                    // rather than making them fix one per restart.
                     tracing::error!("federation peer rejected: {e}");
                     rejected.push(e);
                 }
@@ -751,29 +619,25 @@ impl WorldsFederationPeers {
         })
     }
 
-    /// `true` only in the [`Self::Admitted`] state. An empty `peers` list is still
-    /// configured -- that is the distinction the enum exists to preserve.
+    /// An empty `peers` list is still configured -- the distinction the enum exists
+    /// to preserve.
     pub fn is_configured(&self) -> bool {
         matches!(self, Self::Admitted { .. })
     }
 
-    /// `true` when the peer file has at least one entry in it, admitted or omitted.
+    /// `true` when the peer file has at least one entry, admitted or omitted.
     ///
-    /// Distinct from `!peers().is_empty()` on purpose, and the distinction is load
-    /// bearing: a file listing peers that are all `Omitted` for running no worlds
-    /// server admits nobody, but it is still a file somebody wrote entries into. A
-    /// file that names nobody at all is the one that cannot be told apart from a
-    /// truncated write or `[[peers]]` for `[[peer]]`, and it is the only state
+    /// Load-bearingly distinct from `!peers().is_empty()`: a file whose peers are all
+    /// `Omitted` still had entries written into it, whereas a file naming nobody at
+    /// all cannot be told apart from a truncated write or `[[peers]]` for `[[peer]]`
+    /// -- the only state
     /// [`RemoteWorldsComponent::revoke_peers_no_longer_admitted`] refuses to sweep on.
     pub fn names_any_peer(&self) -> bool {
         !self.peers().is_empty() || !self.omitted().is_empty()
     }
 
-    /// The admitted peers, or an empty slice when unconfigured.
-    ///
-    /// Callers that must distinguish "no peers" from "no federation" match on the
-    /// enum instead; this accessor exists for iteration by the poller, which has
-    /// nothing to do in either case.
+    /// An empty slice when unconfigured. Callers that must distinguish "no peers" from
+    /// "no federation" match on the enum instead.
     pub fn peers(&self) -> &[AdmittedPeer] {
         match self {
             Self::NotConfigured => &[],
@@ -795,9 +659,8 @@ impl WorldsFederationPeers {
         }
     }
 
-    /// Look up one admitted peer by id. Returns `None` for an id that is in the file
-    /// but was omitted -- an omitted peer is not a worlds peer, and must not be
-    /// addressable as one.
+    /// `None` for an id that is in the file but was omitted -- an omitted peer is not
+    /// a worlds peer and must not be addressable as one.
     pub fn get(&self, peer_id: &str) -> Option<&AdmittedPeer> {
         let needle = canonical_peer_id(peer_id);
         self.peers().iter().find(|p| p.peer_id().as_str() == needle)

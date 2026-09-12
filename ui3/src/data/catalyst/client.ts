@@ -38,10 +38,6 @@ function errMessage(err: unknown, fallback: string): string {
 
 const DEFAULT_BASE = "https://catalyst.example.com";
 
-// The overlay is a client-only build served from the origin that also fronts
-// the catalyst API, so the served origin is the portable default. DEFAULT_BASE
-// is reached only in SSR/non-browser bundles: import.meta.env.SSR is statically
-// false in the client build, folding this branch (and the baked host) away.
 function defaultBase(): string {
   return import.meta.env.SSR ? DEFAULT_BASE : window.location.origin;
 }
@@ -66,9 +62,6 @@ export type ServiceName =
   | "map"
   | "satellite";
 
-// One line per service so a deployment (or the standalone build) can repoint
-// each backend independently; the default fronts them all on the serving
-// origin (see defaultBase) under the path prefixes the catalyst router exposes.
 const SERVICE_PATHS: Record<ServiceName, string> = {
   places: "/places",
   events: "/events",

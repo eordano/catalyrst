@@ -41,13 +41,6 @@ function label(base: string, path: string, query?: Query): string {
 
 export type MyWorlds = { worlds: ManagedWorld[]; total: number };
 
-/**
- * `GET {wcs}/worlds?authorized_deployer={address}&limit=100&sort=last_deployed_at&order=desc`
- *
- * A 200 with no rows is a real answer and returns `{state:"live", value: []}`.
- * A failed read returns `unavailable` -- never `[]`, because an empty list and a
- * dead host must not render the same.
- */
 export async function loadMyWorlds(
   address: string,
   opts: WcsOptions = {},
@@ -78,11 +71,6 @@ export async function loadMyWorlds(
   }
 }
 
-/**
- * `GET {wcs}/wallet/{address}/stats` -- deployed-content bytes and quota.
- * `usedSpace` / `maxAllowedSpace` / `dclNames[].size` are decimal byte strings;
- * callers parse them with `bytesFromString` (BigInt), never `Number`.
- */
 export async function loadWalletStats(
   address: string,
   opts: WcsOptions = {},
@@ -106,10 +94,6 @@ export async function loadWalletStats(
   }
 }
 
-/**
- * `GET {wcs}/live-data` -- the worlds server's own instantaneous comms figure.
- * Real-time read: staleness is undefined for it, so it is never `sampled`.
- */
 export async function loadLiveData(opts: WcsOptions = {}): Promise<Datum<LiveData>> {
   const base = wcsBase(opts.base);
   const endpoint = label(base, WCS_LIVE_DATA_PATH);
@@ -129,7 +113,6 @@ export async function loadLiveData(opts: WcsOptions = {}): Promise<Datum<LiveDat
   }
 }
 
-/** `GET {wcs}/status` -- platform totals (world counts, comms rooms/users). */
 export async function loadPlatformStatus(
   opts: WcsOptions = {},
 ): Promise<Datum<PlatformStatus>> {

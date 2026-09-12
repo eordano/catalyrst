@@ -82,9 +82,6 @@ export default function CreatorHubOperatorMetrics({
     track(OPERATOR_EVENTS.dashboardFunnelClicked, { target }, ctx);
   }
 
-  // `null` rows mean the read failed, not that nobody is anywhere. `source` is
-  // already "unavailable" in that case and the view suppresses the whole
-  // occupancy section, so an empty list is never presented as a measurement.
   const sceneRows = (presence.scenes ?? []).map((s) => ({
     key: s.pointer,
     label: s.scene_name || s.pointer,

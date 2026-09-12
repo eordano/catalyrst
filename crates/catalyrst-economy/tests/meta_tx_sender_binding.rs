@@ -51,8 +51,6 @@ async fn a_garbage_signature_is_rejected_and_charges_no_one() {
     support::seed_collection(&scratch.pool, COLLECTION).await;
     let base = support::spawn_app(&scratch, 10).await;
 
-    // userAddress == from, so the from/userAddress bind passes, but the r/s/v are
-    // not a signature over any digest this account produced.
     let calldata = support::split_sig_calldata(VICTIM);
     let (status, body) = support::post_transaction(&base, VICTIM, COLLECTION, &calldata).await;
 
@@ -76,8 +74,6 @@ async fn a_signature_from_another_key_cannot_burn_a_victims_quota() {
     let base = support::spawn_app(&scratch, 10).await;
 
     let attacker = PrivateKeySigner::random();
-    // Calldata claims userAddress == VICTIM (so from == userAddress holds) but the
-    // signature is the attacker's, who does not hold VICTIM's key.
     let victim: Address = VICTIM.parse().expect("victim address");
     let calldata = support::signed_split_calldata_as(victim, &attacker, FS);
     let (status, body) = support::post_transaction(&base, VICTIM, COLLECTION, &calldata).await;
@@ -108,9 +104,6 @@ async fn a_from_that_disagrees_with_the_signed_user_address_is_rejected() {
     let base = support::spawn_app(&scratch, 10).await;
 
     let attacker = PrivateKeySigner::random();
-    // A perfectly valid signature by the attacker, over their own userAddress, but
-    // posted under VICTIM's `from`: the bind refuses it before anything is keyed
-    // on VICTIM.
     let calldata = support::signed_split_calldata(&attacker, FS);
     let (status, body) = support::post_transaction(&base, VICTIM, COLLECTION, &calldata).await;
 
@@ -163,8 +156,6 @@ async fn a_target_without_a_verifiable_domain_is_refused() {
 
     let key = PrivateKeySigner::random();
     let user = format!("{:#x}", key.address());
-    // Even a correctly-signed payload is refused: the target reports no domain
-    // separator and is not in the audited table, so the digest cannot be rebuilt.
     let calldata = support::signed_split_calldata(&key, FS);
     let (status, body) = support::post_transaction(
         &base,

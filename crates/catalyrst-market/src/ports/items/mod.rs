@@ -372,15 +372,13 @@ pub fn parse_filters(pairs: &[(String, String)]) -> Result<ItemFilters, ApiError
     })
 }
 
-/// The catalog-items-only params (`/v3/catalog/items`, marketplace-server #382),
-/// deliberately kept OUT of the shared `parse_filters` so `/v1/items` keeps its
-/// current unsorted, MANA-ranged behaviour untouched.
+/// `/v3/catalog/items` only (marketplace-server #382), deliberately kept OUT of the shared
+/// `parse_filters` so `/v1/items` keeps its unsorted, MANA-ranged behaviour untouched.
 ///
-/// `sort_by` reuses the shop's `ShopSortBy` (newest/cheapest/most_expensive/name)
-/// rather than the /v1 `ItemSortBy`: the /v3 feed displays a credit price, so
-/// "cheapest" must order by that credit price, not the raw MANA `item.price`.
-/// `min_price_credits`/`max_price_credits` filter on that same credit expression
-/// so the filter and the displayed price can never disagree.
+/// `sort_by` reuses the shop's `ShopSortBy` rather than the /v1 `ItemSortBy` because the /v3
+/// feed displays a credit price, so "cheapest" must order by that. The
+/// `min_price_credits`/`max_price_credits` filters use the same credit expression, so filter
+/// and displayed price can never disagree.
 #[derive(Debug, Clone, Default)]
 pub struct CatalogItemsParams {
     pub sort_by: Option<ShopSortBy>,

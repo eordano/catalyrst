@@ -35,8 +35,6 @@ enum Action {
 
 const WAIT_RECHECK: Duration = Duration::from_millis(250);
 
-/// Keyed async cache with a TTL, optional bounded size, and single-flight fetches.
-///
 /// Concurrent misses on the same key elect one leader and park the rest on a
 /// [`Notify`]; the leader always wakes them, including when its task is cancelled
 /// mid-fetch (see `LeaderGuard`), so a dropped caller can never strand the others.
@@ -132,8 +130,6 @@ where
         self.map.is_empty()
     }
 
-    /// Drops every cached entry so the next read refetches. Used by writers whose side
-    /// effects change what cached reads must return.
     pub fn clear(&self) {
         self.map.clear();
     }
@@ -206,8 +202,6 @@ where
 
             match action {
                 Action::Wait(notify) => {
-                    // notify_waiters() stores no permit: a leader finishing between the
-                    // guard drop and this first poll would otherwise never wake us.
                     let _ = tokio::time::timeout(WAIT_RECHECK, notify.notified()).await;
                     continue;
                 }

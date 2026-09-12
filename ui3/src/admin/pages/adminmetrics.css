@@ -265,10 +265,6 @@
   color: rgba(255, 255, 255, 0.5);
 }
 
-/* ---- honest tiles ------------------------------------------------- */
-/* A metric tile is either a real measurement with its provenance, or an
-   explicit empty state carrying the reason. Never a zero and never a dash:
-   both still read as a measurement. */
 .am__tiles {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));

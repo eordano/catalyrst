@@ -29,10 +29,8 @@ const BIDS: GvBid[] = [
   },
 ];
 
-/** Every branch of the flow's `state` switch. The prop is a bare `string`, so enumerate it here. */
 const STATES = ["default", "casting", "error", "redirect"] as const;
 
-/** Every state, in the order the variant stories used to declare them. */
 const CASES: ComponentProps<typeof GvBidVotingFlow>[] = [
   { state: "default" },
   { state: "casting" },
@@ -62,11 +60,6 @@ type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {};
 
-/**
- * Every state rendered at once. `Default` flips between them with the Controls panel; this story
- * keeps all four in the render + a11y + visual-diff gates, since the bid list, the casting spinner,
- * the error action and the Snapshot redirect are structurally different subtrees.
- */
 export const Catalog: Story = {
   name: "Catalog (every state)",
   parameters: {
@@ -76,7 +69,6 @@ export const Catalog: Story = {
     <div className="gv" style={{ display: "flex", flexDirection: "column", gap: 48 }}>
       {CASES.map((props, i) => (
         // <section> demotes each entry's unnamed header/footer/aside to `generic`
-        // (HTML-AAM scoped mapping) so the stack does not invent extra landmarks.
         <section key={i}>
           <GvBidVotingFlow bids={BIDS} vote="Yes" {...props} chrome={false} />
         </section>

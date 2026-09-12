@@ -1,5 +1,5 @@
-//! Item 4: /denylist.json is served from a primed in-memory cache, not by
-//! re-reading + re-parsing the file on every request.
+//! /denylist.json is served from a primed in-memory cache, not by re-reading +
+//! re-parsing the file on every request.
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
@@ -43,7 +43,6 @@ async fn denylist_is_served_from_cache_not_disk() {
     let body1 = get_json(&app, "/denylist.json").await;
     assert_eq!(body1["users"].as_array().unwrap().len(), 3);
 
-    // Yank the backing file. A cached serve still returns 3; a disk read returns 0.
     std::fs::remove_file(&path).unwrap();
     let body2 = get_json(&app, "/denylist.json").await;
     assert_eq!(
@@ -70,7 +69,6 @@ async fn admin_reload_refreshes_cache_from_disk() {
     let body1 = get_json(&app, "/denylist.json").await;
     assert_eq!(body1["users"].as_array().unwrap().len(), 2);
 
-    // Grow the file on disk; the cache should not change until a reload.
     std::fs::write(&path, r#"{"users":["0xaaa","0xbbb","0xccc","0xddd"]}"#).unwrap();
     let body_stale = get_json(&app, "/denylist.json").await;
     assert_eq!(body_stale["users"].as_array().unwrap().len(), 2);

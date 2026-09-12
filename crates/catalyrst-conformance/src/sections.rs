@@ -101,14 +101,6 @@ pub(crate) async fn run_content_section(
                 "profile, limit=5, DESC",
                 "/deployments?entityType=profile&limit=5&sortingOrder=DESC",
             ),
-            // entityTimestamp, not the default local_timestamp: that key is when
-            // THIS node first received a row, so ASC selects bootstrap order and
-            // two independently-synced catalysts compare unrelated entity sets.
-            // Pinning a node-independent key makes the check compare the same
-            // rows, which is the only way a shape difference can surface here.
-            // onlyCurrentlyPointed: snapshots carry active entities only, so a
-            // node bootstrapped after 2021 never holds the overwritten 2020 rows
-            // the two oldest Foundation peers still serve (peer-ec2 lacks them too).
             (
                 "scene, limit=5, ASC by entityTimestamp, onlyCurrentlyPointed",
                 "/deployments?entityType=scene&limit=5&sortingOrder=ASC&sortingField=entityTimestamp&onlyCurrentlyPointed=true",

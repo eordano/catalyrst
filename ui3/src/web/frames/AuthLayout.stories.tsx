@@ -1,7 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import AuthLayout from "./AuthLayout";
 
-/** The panel contents each former variant story passed as `children`. */
 const PANEL = {
   signIn: (
     <>
@@ -51,12 +50,6 @@ type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {};
 
-/**
- * Every shell configuration at once. `Default` flips between them with the controls;
- * this story keeps all four in the render + a11y + visual-diff gates, since each turns a
- * different set of chrome slots on (brand wordmark vs glyph, top-left/bottom-left slots,
- * centered panel, footer-less bare shell).
- */
 export const Catalog: Story = {
   name: "Catalog (every state)",
   parameters: { controls: { disable: true } },

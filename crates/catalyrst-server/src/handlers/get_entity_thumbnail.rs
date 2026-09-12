@@ -115,8 +115,6 @@ pub(crate) async fn serve_content_blob(
             Ok(response)
         }
         Some(ParsedRange::Range { start, end }) => {
-            // HEAD needs only the headers (which come from `file_info` + the 32-byte sniff),
-            // so skip the range read entirely rather than fetching bytes only to discard them.
             let body: Bytes = if *method == Method::HEAD {
                 Bytes::new()
             } else {
@@ -172,7 +170,6 @@ pub(crate) async fn serve_content_blob(
                 return Ok(response);
             }
 
-            // HEAD needs only the headers, so skip the whole-blob read on that path.
             let body: Bytes = if *method == Method::HEAD {
                 Bytes::new()
             } else {
@@ -209,7 +206,6 @@ mod head_body_tests {
     const HASH: &str = "bafkreihdwdcefgh4dqkjv67uzcmw7ojee6xedzdetojuzjevtenosa7776";
 
     fn make_blob() -> Bytes {
-        // 1 MiB; first 8 bytes are the PNG signature so the 32-byte sniff yields "image/png".
         let mut blob = vec![0u8; 1024 * 1024];
         blob[..8].copy_from_slice(&[0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]);
         for (i, b) in blob.iter_mut().enumerate().skip(8) {
@@ -290,13 +286,11 @@ mod head_body_tests {
 
     #[tokio::test]
     async fn head_serve_content_blob_skips_body_reads() {
-        // NB: this test never sets STORAGE_X_ACCEL_BASE, so the None branch reaches `retrieve`.
         let blob = make_blob();
         let size = blob.len() as u64;
         let storage = RecordingStorage::new(blob.clone());
         let state = crate::test_support::app_state_with_storage(storage.clone());
 
-        // (a) HEAD, no Range -> 200, empty body, headers from file_info + sniff, zero retrieve().
         let resp = serve_content_blob(&state, HASH, &Method::HEAD, &HeaderMap::new())
             .await
             .unwrap();
@@ -309,7 +303,6 @@ mod head_body_tests {
         assert_eq!(storage.retrieve_calls.load(Ordering::SeqCst), 0);
         assert_eq!(&*storage.ranges.lock().unwrap(), &[(0, 31)]);
 
-        // (b) HEAD with a Range -> 206, empty body, correct Content-Range/Length, still no read.
         let mut headers = HeaderMap::new();
         headers.insert("range", "bytes=5-9".parse().unwrap());
         let resp = serve_content_blob(&state, HASH, &Method::HEAD, &headers)
@@ -326,7 +319,6 @@ mod head_body_tests {
         assert_eq!(storage.retrieve_calls.load(Ordering::SeqCst), 0);
         assert!(storage.ranges.lock().unwrap().iter().all(|&w| w == (0, 31)));
 
-        // (c) GET, no Range -> full body byte-for-byte, Content-Type identical, one retrieve().
         let resp = serve_content_blob(&state, HASH, &Method::GET, &HeaderMap::new())
             .await
             .unwrap();
@@ -336,7 +328,6 @@ mod head_body_tests {
         assert_eq!(body, blob);
         assert_eq!(storage.retrieve_calls.load(Ordering::SeqCst), 1);
 
-        // (d) GET with a Range -> exactly blob[5..=9], and the data window is now read.
         let resp = serve_content_blob(&state, HASH, &Method::GET, &headers)
             .await
             .unwrap();

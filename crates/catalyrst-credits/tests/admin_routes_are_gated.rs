@@ -1,15 +1,13 @@
 //! The credits leg of the compile-forced admin gate (see `docs/auth-arc-plan.md` S4).
 //!
 //! The compiler forces the bearer check *if* an admin handler names the `RequireAdmin` extractor
-//! in its signature. It cannot force a *new* admin route to declare it, and it cannot stop
-//! someone re-introducing a hand-rolled `authorize_admin()` body call on a fresh handler. This
-//! scan closes that residual gap for credits, whose admin surface is a single sub-router
+//! in its signature. It cannot force a *new* admin route to declare it, nor stop someone
+//! re-introducing a hand-rolled `authorize_admin()` body call on a fresh handler. This scan
+//! closes that residual gap for credits, whose admin surface is a single sub-router
 //! (`handlers/admin/`): it reads every handler the router registers and asserts each one takes
 //! the extractor. It is a convention with a script attached, not a type guarantee -- the same
-//! species of guard the workspace already trusts in
-//! `catalyrst-server/tests/source_discipline.rs`,
-//! `catalyrst-authenticated-admin/tests/source_discipline.rs`, and the badges pilot's
-//! `admin_routes_are_gated.rs`. Cite it as such.
+//! species of guard as `catalyrst-server/tests/source_discipline.rs` and
+//! `catalyrst-authenticated-admin/tests/source_discipline.rs`. Cite it as such.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -63,8 +61,6 @@ fn registered_handlers(router_src: &str) -> Vec<String> {
         while let Some(rel) = router_src[from..].find(&needle) {
             let idx = from + rel;
             from = idx + needle.len();
-            // Require a word boundary before the method token so `target(` / `delete_pack`
-            // never masquerade as a routing combinator.
             if idx > 0 {
                 let prev = bytes[idx - 1];
                 if prev.is_ascii_alphanumeric() || prev == b'_' {
@@ -201,8 +197,6 @@ fn require_admin_is_minted_only_via_the_shared_verified_extractor() {
         "handlers/admin/common.rs no longer delegates to the shared verified extractor; \
          RequireAdmin could be minted without the bearer check"
     );
-    // The inner field stays private (a bare tuple field, no `pub`): a `pub` field would let a
-    // sibling module or downstream crate mint a RequireAdmin from an unverified value.
     assert!(
         common.contains("pub(crate) struct RequireAdmin(AuthenticatedAdminIdentity);"),
         "RequireAdmin's inner identity field changed shape or gained visibility; it must stay a \

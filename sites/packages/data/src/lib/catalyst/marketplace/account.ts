@@ -25,9 +25,6 @@ export { OrderSchema, type Order };
 import { shortAddress } from "../format/address";
 import { warnInvalid } from "../warn";
 
-// `/users/{addr}/wearables` and `/emotes` rows are distinct DTOs with the same
-// fields; one parser serves both, and this assert fails the build if they drift
-// apart.
 type Mutual<A, B> = A extends B ? (B extends A ? true : false) : false;
 type Assert<T extends true> = T;
 export type _AssertProfileItemShapesMatch = Assert<
@@ -103,11 +100,6 @@ export type AssetsPage = {
   totalItems?: number | null;
 };
 
-/**
- * `null` when the envelope did not parse. Every caller turns that into a thrown
- * read: an owned-asset page is a claim about what a wallet holds, and an empty
- * one for an unreadable response reads as "you own nothing".
- */
 export function parseAssetsEnvelope(raw: unknown): AssetsPage | null {
   const r = AssetsEnvelopeSchema.safeParse(raw);
   if (r.success) return r.data.data;
@@ -232,7 +224,6 @@ export async function fetchCreatorCollections(
   };
 }
 
-/** `null` means the read failed -- "no tiles known", not "no rarities". */
 export async function fetchCollectionTiles(
   contractAddress: string,
   opts: GetOptions = {},

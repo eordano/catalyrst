@@ -7,10 +7,6 @@ import chromeCss from "../frames/dcleditorchrome.css?raw";
 
 afterEach(cleanup);
 
-// These assertions are the study's conclusions, not preferences. Each one
-// corresponds to a finding in the dclux editor UX observation study: if a
-// future refactor moves Preview behind a tab or lets a tab reorder itself, the
-// design has been undone and this should go red.
 describe("DeRibbon", () => {
   const tabNames = (): string[] => screen.getAllByRole("tab").map((t) => t.textContent ?? "");
   const groupLabels = (container: HTMLElement): string[] =>
@@ -28,9 +24,6 @@ describe("DeRibbon", () => {
     expect(tabNames()).toEqual(["Home", "Insert", "Interact", "Scene & Publish"]);
   });
 
-  // TEST is 275 events across 44 of 48 videos and terminates every loop, so the
-  // in-editor run must never be a tab away. It is pinned as "Play"; Publish lives
-  // on the app bar with its target split, not duplicated here.
   it("keeps Undo, Redo and Play reachable from every tab", () => {
     const seen: string[] = [];
     render(<DeRibbon commands={{ play: () => seen.push("play") }} tab="scene" busLive />);
@@ -53,8 +46,6 @@ describe("DeRibbon", () => {
     expect(seen).toEqual([]);
   });
 
-  // A persona split is not a surface split: the code tools opt in as a group,
-  // and the tab strip is byte-identical either way.
   it("hides the code tools until they are opted into, without moving a tab", () => {
     const noop = () => undefined;
     const { rerender } = render(<DeRibbon commands={{ code: noop }} tab="interact" />);
@@ -79,9 +70,6 @@ describe("DeRibbon", () => {
     expect(labels[labels.length - 1]).toBe("button_lights");
   });
 
-  // "Dishonest failure surfaces" is one of the eight complaint classes. A
-  // capability the editor does not have is not rendered at all; a capability
-  // blocked by the current state is disabled and names the state.
   it("omits commands that have no handler, and disables only what the state blocks", () => {
     const noop = () => undefined;
     const { rerender } = render(<DeRibbon commands={{ undo: noop }} canUndo />);
@@ -108,8 +96,6 @@ describe("DeRibbon", () => {
     expect(spy).toHaveBeenCalledOnce();
   });
 
-  // "Invisible mode state": snap must be readable at all times, and nothing may
-  // change it as a side effect.
   it("always shows snap state in the status bar, honestly when unknown", () => {
     const { rerender } = render(<DeRibbon />);
     expect(screen.getByText(/snap n\/a/i)).toBeTruthy();
@@ -177,8 +163,6 @@ describe("DeRibbon", () => {
     }
   });
 
-  // The study inventory survives as documentation rather than as dead buttons,
-  // and a command may never be both shipped and deferred.
   it("gives every deferred command a reason, and never ships it too", () => {
     const shipped = new Set(RIBBON_TABS.flatMap((t) => t.groups.flatMap((g) => g.cmds.map((c) => c.id))));
     expect(RIBBON_DEFERRED.length).toBeGreaterThan(0);
@@ -188,7 +172,6 @@ describe("DeRibbon", () => {
     }
   });
 
-  // The four defects of the prototype's numeric field, in one test.
   it("types a decimal, commits on Enter and on blur, and reverts on Escape", () => {
     const spy = vi.fn();
     render(<DeRibbon hasSelection numeric={{ position: { x: 1, y: 2, z: 3 }, onCommit: spy }} />);
@@ -216,9 +199,6 @@ describe("DeRibbon", () => {
     expect(screen.getByText(RIBBON_TABS.find((t) => t.id === "scene")!.empty)).toBeTruthy();
   });
 
-  // The bug this rebuild exists to fix: an in-flow block paints below every
-  // positioned descendant, so the band needs its own layer and hit-testing.
-  // The live proof is a browser elementFromPoint; this guards the rule itself.
   it("keeps the ribbon on its own layer above the engine iframe", () => {
     const rule = /\.eui-root\s*>\s*\.rb\s*\{([^}]*)\}/.exec(chromeCss);
     expect(rule).not.toBeNull();
@@ -228,14 +208,10 @@ describe("DeRibbon", () => {
     expect(body).toMatch(/pointer-events:\s*auto/);
     expect(chromeCss).toMatch(/--eui-top-inset:\s*calc\(var\(--eui-chrome-h\)/);
   });
-  // These three shipped as defects and were fixed in 4df12bfe9. Each regresses
-  // silently on a rename or a height tweak, so each gets a guard.
   it("names its toggles rb-toggle, so the global .toggle pill cannot claim them", () => {
     render(<DeRibbon commands={{ snap: () => undefined }} pressed={{ snap: false }} />);
     const snap = screen.getByRole("button", { name: "Snap" });
     expect(snap.className).toContain("rb-toggle");
-    // atoms/toggle.css declares a global unnamespaced `.toggle { width: 42px }`
-    // which clamped these to a pill and painted the label outside the button.
     expect(snap.className.split(/\s+/)).not.toContain("toggle");
   });
 

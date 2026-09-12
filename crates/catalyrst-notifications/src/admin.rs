@@ -98,8 +98,6 @@ mod tests {
         assert!(is_forbidden(check_admin(Some("secret"), None)));
     }
 
-    // Empty configured secret must reject like the canonical gate; an empty
-    // presented bearer is currently ACCEPTED, so this probe fails-open.
     #[test]
     fn probe_fails_closed_when_secret_empty() {
         assert!(is_forbidden(check_admin(Some(""), Some(""))));

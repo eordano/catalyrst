@@ -72,11 +72,6 @@ export type SaveSceneResult = {
   entities: number;
   filename: string;
   contentWarnings?: string[];
-  /**
-   * Cloud copy outcome: true = pushed to the signed-in account's server
-   * drafts, false = push attempted but unavailable (signed out / offline /
-   * server error), undefined = not attempted (canceled saves).
-   */
   serverSynced?: boolean;
 };
 
@@ -135,11 +130,6 @@ async function persistCompositeText(
   opts: SaveSceneOptions = {},
 ): Promise<SaveSceneResult> {
   const result = await persistCompositeTextLocal(text, entities, opts);
-  // The server draft is the durability floor: push it even when the local
-  // write fell back to a download OR the user canceled the folder picker --
-  // clicking Save expressed intent to save, and declining a local folder
-  // should not silently discard the cloud copy. Signed-out/offline pushes
-  // report serverSynced: false and the UI says so.
   const serverSynced = await pushServerCopy(result.text, opts.project);
   return { ...result, serverSynced };
 }
@@ -162,9 +152,6 @@ async function persistCompositeTextLocal(
     }
   }
 
-  // Wizard-created projects have no stashed composite handle, but the create
-  // wizard persisted their project-folder handle -- write there instead of
-  // falling through to the save-file picker.
   if (!handle && !opts.writer && typeof window !== "undefined") {
     try {
       const { handleStore, slugifyProjectTitle, ensureHandlePermission } = await import(
@@ -305,7 +292,6 @@ async function readEngineComposite(
     return null;
   }
 }
-
 
 const builderAssetCache = new Map<
   string,

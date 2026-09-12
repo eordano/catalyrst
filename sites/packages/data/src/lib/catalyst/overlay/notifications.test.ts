@@ -49,8 +49,6 @@ describe("parseNotifications", () => {
     const mixed = parseNotifications({
       notifications: [
         full,
-        // every NotificationItem field is wire-required: a sparse row is
-        // dropped, not defaulted into an unread notification from 1970
         { id: "y", type: "badge_granted", timestamp: "1" },
         { nope: true },
         42,

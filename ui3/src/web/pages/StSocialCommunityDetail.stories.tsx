@@ -120,11 +120,6 @@ type EventsKey = keyof typeof EVENT_SETS;
 
 const STATES = ["default", "loading", "notFound"];
 
-/**
- * Story args: the three data blobs are picked by name. The preset keys deliberately do not
- * reuse the real prop names -- `Meta<TArgs>` type-checks `component:` as `ComponentType<TArgs>`,
- * so `TArgs` has to stay assignable to the component's own props.
- */
 type CommunityStoryArgs = Omit<CommunityDetailProps, "community" | "members" | "events"> & {
   communityPreset: CommunityKey;
   memberSet: MembersKey;
@@ -180,22 +175,16 @@ type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {};
 
-/** Signed in and already a member -- the leave CTA. */
 export const SignedInMember: Story = { args: { isLoggedIn: true, isMember: true } };
 
-/** A private community seen by a non-member -- the gate. */
 export const PrivateGated: Story = {
   args: { communityPreset: "privateLounge", isLoggedIn: true },
 };
 
-/** No members and no events. */
 export const Empty: Story = { args: { memberSet: "empty", eventSet: "empty" } };
 
-/** The mobile tab switcher. */
 export const MobileTabbed: Story = { args: { mobile: true } };
 
-/** The loading spinner. */
 export const Loading: Story = { args: { state: "loading" } };
 
-/** The missing-community screen. */
 export const NotFound: Story = { args: { state: "notFound" } };

@@ -91,7 +91,6 @@
   border-radius: 50%;
   background: var(--brand);
 }
-/* keep the native radio for a11y/keyboard, hidden behind the custom control */
 .pd__input {
   position: absolute;
   opacity: 0;
@@ -103,7 +102,6 @@
   gap: 12px;
   margin-top: 4px;
 }
-/* Deny: ghost outline tuned for the violet card (the atom's ghost is greyed for dark panels). */
 .pd__deny {
   border-color: rgba(255, 255, 255, 0.35);
   color: #fff;

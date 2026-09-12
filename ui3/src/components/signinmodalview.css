@@ -1,15 +1,3 @@
-/* This modal was authored against a white page and hardcoded every colour for
-   it, while ui3 is dark-FIRST: :root in atoms/primitives.css is the dark
-   palette and html.theme-light overrides it. So in the default theme the
-   controls rendered as white islands, and hover replaced their opaque `#fff`
-   with `rgba(0,0,0,.02)` -- 2% black, effectively transparent. The control
-   dissolved into the dark modal and took its near-black label with it.
-   Hovering a sign-in button made it vanish.
-
-   Everything below now goes through tokens that already flip with the theme.
-   The rule this file broke: a hover state must change a surface, never swap an
-   opaque one for a translucent one, because "slightly darker" is only true on
-   a light ground. */
 .signin {
   display: flex;
   flex-direction: column;
@@ -18,8 +6,6 @@
   --signin-surface: var(--panel);
   --signin-surface-hover: var(--panel-2);
   --signin-line: var(--line);
-  /* Derived from the ink so it keeps the same contrast against the surface in
-     both themes; a fixed rgba only works against the ground it was picked on. */
   --signin-line-hover: color-mix(in srgb, var(--text) 28%, transparent);
 }
 
@@ -171,8 +157,6 @@
   width: 220px;
   height: 220px;
   border-radius: 12px;
-  /* Deliberately NOT themed: a QR needs a light quiet zone to scan, so this
-     stays white in dark mode with the code drawn dark on top of it. */
   background: #fff;
   padding: 8px;
   box-sizing: border-box;

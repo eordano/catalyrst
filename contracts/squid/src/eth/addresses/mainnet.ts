@@ -8,7 +8,6 @@ export const ERC721Bid = "0xe479dfd9664c693b2e2992300930b00bfde08233";
 export const DCLControllerV2 = "0xbe92b49aee993adea3a002adcda189a2b7dec56c";
 export const OffChainMarketplace = "0x2d6b3508f9aca32d2550f92b2addba932e73c1ff";
 export const OffChainMarketplaceV2 = "0x1b67d0e31eeb6b52d8eeed71d3616c2f5b33b8e7";
-// Not deployed on mainnet yet.
 export const OffChainMarketplaceV3 = Null;
 export const Spoke = "0xfe91aaa1012b47499cfe8758874f2d2c52b22cd8";
 

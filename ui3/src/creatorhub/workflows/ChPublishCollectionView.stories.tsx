@@ -84,13 +84,6 @@ type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {};
 
-/**
- * Kept as its own export. The panel ids are `useId()`-derived now, so that is no longer the
- * reason -- the Terms heading is the fixed string "Content & curation terms", so two Terms
- * regions on one page carry the same accessible name whatever their ids are, and axe's
- * landmark-unique fires (observed: `landmark-unique` on the second `section[aria-labelledby]`).
- * The catalog can therefore hold only one Terms entry; `accepted: true` lives here.
- */
 export const TermsAccepted: Story = {
   args: { step: "terms", view: "terms", accepted: true },
 };

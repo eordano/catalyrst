@@ -141,8 +141,8 @@ pub struct MapData {
     pub estates_all: HashMap<String, Vec<(i32, i32)>>,
 }
 
-/// Per-epoch response cache, wholesale-cleared whenever the map build yields a new `keyed_at`.
-/// The LRU cap bounds growth between builds, which the plain HashMap did not.
+/// Wholesale-cleared whenever the map build yields a new `keyed_at`; the LRU cap bounds
+/// growth between builds.
 struct GenCache {
     keyed_at: i64,
     entries: lru::LruCache<String, Arc<Vec<u8>>>,
@@ -537,7 +537,6 @@ mod tests {
     use super::*;
 
     fn lazy_component(tiles_cap: usize, png_cap: usize) -> MapComponent {
-        // connect_lazy performs no I/O and the cache paths never touch the pool.
         let pool = sqlx::postgres::PgPoolOptions::new()
             .connect_lazy("postgres://u:p@127.0.0.1:5999/db")
             .unwrap();
@@ -554,8 +553,6 @@ mod tests {
     #[tokio::test]
     async fn gen_cache_bounded_within_epoch() {
         let mc = lazy_component(8, 8);
-        // No MapData installed, so last_updated_at() == 0 == keyed_at: all 100 inserts share
-        // one epoch and never trigger the wholesale clear.
         for i in 0..100u32 {
             mc.store_tiles_response(format!("k{i}"), Arc::new(vec![i as u8]));
         }

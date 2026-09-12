@@ -114,7 +114,6 @@
   font-variant-numeric: tabular-nums;
   opacity: 0.75;
 }
-/* Full opacity on the brand fill -- 0.75 lands at 3.33:1 there. */
 .ds__filter.is-active .ds__filtercount {
   opacity: 1;
 }

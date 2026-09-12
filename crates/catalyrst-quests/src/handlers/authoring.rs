@@ -73,9 +73,8 @@ pub struct GetQuestUpdatesResponse {
     pub updates: Vec<String>,
 }
 
-/// Shape-only check for a URL the server never fetches. `image_link` is rendered by the
-/// client, so the SSRF guard applied to `webhook_url` would only reject hosts the
-/// deployment can legitimately serve art from.
+/// Shape-only: `image_link` is rendered by the client and never fetched here, so the SSRF
+/// guard applied to `webhook_url` would only reject hosts that legitimately serve art.
 fn is_http_url_shape(value: &str) -> bool {
     let Ok(url) = reqwest::Url::parse(value.trim()) else {
         return false;

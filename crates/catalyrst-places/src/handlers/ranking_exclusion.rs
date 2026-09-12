@@ -9,16 +9,6 @@ use crate::http::response::ApiData;
 use crate::ports::places::{PlaceRow, WorldRow};
 use crate::AppState;
 
-// A destination that stays browsable while the automated score leaves it
-// alone: featuring moves where it shows, hiding takes it out of browse and
-// disabling takes it out of the catalogue, so none of those say "list it
-// normally, just do not rank it". Editorial by definition, so the admin token
-// alone opens it -- the data team token that writes scores must not.
-//
-// The read surface is place_indexed, the write reaches `place` alone, so a
-// destination served out of place_world_local is findable and unwritable. A
-// 200 here means the flag is stored; anything else must say so rather than
-// echo the request back.
 const NOT_WRITABLE: &str = "ranking exclusion is not writable for this destination on this server";
 
 async fn set_place_exclusion(

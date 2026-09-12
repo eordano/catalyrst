@@ -63,11 +63,10 @@ fn emote_play_mode_clause(modes: &[String]) -> Option<bool> {
     }
 }
 
-/// The asset-type-aware whole-credit price of an item, as a BARE expression (no
-/// `::bigint AS price_credits` alias). WHERE and ORDER BY cannot reference a SELECT
-/// alias inside an expression, so the credit-range filter and the credit sorts
-/// re-derive the price from this -- the one expression the row is priced by, so
-/// filter, sort and displayed price can never disagree.
+/// A BARE expression (no `::bigint AS price_credits` alias): WHERE and ORDER BY cannot
+/// reference a SELECT alias inside an expression, so the credit-range filter and the credit
+/// sorts re-derive the price from this one expression and can never disagree with the
+/// displayed price.
 fn price_credits_expr(rate_p: &str) -> String {
     format!(
         "CASE\n\
@@ -95,15 +94,11 @@ fn price_credits_select(rate_p: &str) -> String {
     format!("{}::bigint as price_credits", price_credits_expr(rate_p))
 }
 
-/// Ordering for the catalog-items feed (`/v3/catalog/items`). A deterministic
-/// order is not cosmetic: the feed is paged with LIMIT/OFFSET, and without an
-/// ORDER BY Postgres may return a row on two pages (or none) as the plan shifts.
-/// Every arm ends in `item.id ASC` so each order is TOTAL, and only fixed
-/// expressions reach ORDER BY -- user input never does.
+/// `/v3/catalog/items` is paged with LIMIT/OFFSET, so without a TOTAL order Postgres may
+/// return a row on two pages (or none) as the plan shifts -- hence the `item.id ASC` tail on
+/// every arm. Only fixed expressions reach ORDER BY; user input never does.
 fn catalog_items_order_by(sort_by: Option<ShopSortBy>, price_credits_expr: &str) -> String {
     match sort_by {
-        // Not-for-sale items price at 0 credits; NULLIF sends them last so "cheapest"
-        // means the cheapest thing you can actually buy.
         Some(ShopSortBy::Cheapest) => {
             format!(" ORDER BY NULLIF({price_credits_expr}, 0) ASC NULLS LAST, item.id ASC ")
         }
@@ -152,11 +147,6 @@ fn build_items_query_with(
 
     let mut wheres: Vec<String> = Vec::new();
 
-    // The shop's browse feed mirrors the base WHERE /v2/catalog applies: an
-    // item whose collection curation did not approve does not belong in a
-    // storefront. Browse only -- /v1/items is also how a single item is
-    // fetched by id, and making those 404 is a different decision. `= true`
-    // rather than IS NOT FALSE: the flag is NULL for most unapproved items.
     if catalog.is_some() {
         wheres.push(" item.search_is_collection_approved = true ".to_string());
     }
@@ -330,10 +320,6 @@ fn build_items_query_with(
         wheres.push(format!(" item.urn = ANY ({}) ", p));
     }
 
-    // The credit price expression and its rate placeholder are shared by the SELECT
-    // column, the credit-range filter and the credit sorts, so emit the rate ONCE --
-    // after the standard filter binds, before the credit-range binds -- and reuse
-    // the placeholder everywhere it appears.
     let (price_credits_column, price_expr) = match rate_numeric {
         Some(rate) => {
             let rate_p = emit(Bind::Text(rate.to_string()), &mut binds, &mut next_idx);
@@ -345,10 +331,6 @@ fn build_items_query_with(
         None => (String::new(), None),
     };
 
-    // Credit-denominated price range (the Shop's own unit), as opposed to the
-    // MANA-wei min/max above. NULLIF drops not-for-sale items (0-credit price) out
-    // of BOTH bounds: "at most 5 credits" must not surface items that carry no
-    // price at all. Only /v3/catalog/items reaches this branch.
     if let (Some(catalog), Some(expr)) = (catalog, price_expr.as_deref()) {
         if let Some(min) = catalog.min_price_credits {
             let p = emit(Bind::Text(min.to_string()), &mut binds, &mut next_idx);
@@ -362,8 +344,6 @@ fn build_items_query_with(
 
     let where_clause = where_from(&wheres);
 
-    // The catalog feed sorts by the credit price it displays (ShopSortBy); /v1/items
-    // keeps its own MANA-priced ItemSortBy behaviour untouched.
     let order_by = match (catalog, price_expr.as_deref()) {
         (Some(catalog), Some(expr)) => catalog_items_order_by(catalog.sort_by, expr),
         _ => filters
@@ -461,9 +441,8 @@ mod tests {
         assert!(!sql.contains("price_credits"), "{sql}");
     }
 
-    /// Upstream dfc17f9: a term matches any word of the item's name or of
-    /// its collection's name, never the whole search_text (a short term
-    /// against name+description scored below the trigram threshold).
+    /// Upstream dfc17f9: never the whole search_text, where a short term against
+    /// name+description scores below the trigram threshold.
     #[test]
     fn items_search_matches_name_words_and_collection_words() {
         let filters = ItemFilters {
@@ -485,9 +464,8 @@ mod tests {
         assert_eq!(bind_texts(&binds), vec!["pirate hat".to_string()]);
     }
 
-    /// Upstream dfc17f9: only the shop's browse feed hides items of
-    /// unapproved collections; /v1/items keeps serving them (it is also how a
-    /// single item is fetched by id).
+    /// Upstream dfc17f9: /v1/items keeps serving unapproved collections -- it is also how a
+    /// single item is fetched by id.
     #[test]
     fn only_the_catalog_items_feed_hides_unapproved_collections() {
         let (browse, _) = build_catalog_items_query(
@@ -576,8 +554,6 @@ mod tests {
     #[test]
     fn catalog_items_sort_cheapest_orders_by_the_credit_price_nulls_last() {
         let sql = catalog_sql(Some(ShopSortBy::Cheapest));
-        // Sorts by the credit price expression (not the raw MANA item.price), and NULLIF
-        // sends not-for-sale (0-credit) items last.
         assert!(sql.contains("ORDER BY NULLIF(CASE"), "{sql}");
         assert!(sql.contains(", 0) ASC NULLS LAST, item.id ASC"), "{sql}");
     }
@@ -624,8 +600,6 @@ mod tests {
             ..Default::default()
         };
         let (sql, binds) = build_catalog_items_query(&ItemFilters::default(), &catalog, "0.5");
-        // NULLIF over the SAME credit expression the row is priced by, so the filter and
-        // the displayed price can never disagree; not-for-sale items drop from both bounds.
         assert!(sql.contains("NULLIF(CASE"), "{sql}");
         assert!(sql.contains(", 0) >= $"), "{sql}");
         assert!(sql.contains(", 0) <= $"), "{sql}");
@@ -643,8 +617,6 @@ mod tests {
 
     #[test]
     fn v1_items_sort_stays_mana_priced_and_untouched() {
-        // /v1/items keeps its own ItemSortBy vocabulary: `cheapest` there is the raw MANA
-        // item.price, and no credit price expression is ever built.
         let filters = ItemFilters {
             sort_by: Some(ItemSortBy::Cheapest),
             ..Default::default()
@@ -672,8 +644,6 @@ mod tests {
 
     #[test]
     fn parse_catalog_items_params_drops_an_unsupported_sort() {
-        // `recently_listed` is a /v1 ItemSortBy value, not a ShopSortBy one, so it must not
-        // reach ORDER BY -- it falls back to the newest default.
         let params = crate::ports::items::parse_catalog_items_params(&[(
             "sortBy".into(),
             "recently_listed".into(),

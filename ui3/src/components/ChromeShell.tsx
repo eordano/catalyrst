@@ -15,16 +15,10 @@ type ChromeShellProps<Id extends string = string> = {
   topbar?: ReactNode;
   subnav?: boolean;
   brand?: ReactNode;
-  /** Renders the brand as a link (e.g. back to the section's front door). */
   brandHref?: string;
   tabs?: readonly ChromeTab<Id>[];
   active?: NoInfer<Id>;
   onTab?: (id: NoInfer<Id>) => void;
-  /** Router-owned fronts pass their `navigate(href)` so a tab click becomes a
-   *  client-side transition instead of a full document reload. The tab stays
-   *  a real `<a href>` throughout -- a plain click is intercepted, but a
-   *  modified click (new tab, new window) still falls through to the browser.
-   *  Router-less consumers omit this and get the plain-<a> default. */
   onNavigate?: (href: string) => void;
   tabsLabel?: string;
   right?: ReactNode;
@@ -52,8 +46,6 @@ export default function ChromeShell<Id extends string = string>({
   const menuId = useId();
   const [menuOpen, setMenuOpen] = useState(false);
 
-  // The strip hides its scrollbar; when it overflows, an edge fade is the cue
-  // and the active tab is brought into view on mount and on tab change.
   useEffect(() => {
     const nav = tabsRef.current;
     if (!nav) return;
@@ -72,7 +64,6 @@ export default function ChromeShell<Id extends string = string>({
     return () => ro.disconnect();
   }, [active, tabs]);
 
-  // Covers client-side transitions; a plain-<a> navigation reloads anyway.
   useEffect(() => {
     setMenuOpen(false);
   }, [active]);
@@ -144,9 +135,8 @@ export default function ChromeShell<Id extends string = string>({
             {tabs.map((tab) => renderTab(tab, "cs__tab"))}
           </nav>
 
-          {/* On narrow screens the strip clipped its labels to fragments, so
-              it collapses into this disclosure instead (css hides one or the
-              other; nothing here reads the viewport). */}
+          {
+}
           {tabs.length > 0 ? (
             <button
               type="button"

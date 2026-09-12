@@ -4,7 +4,6 @@ import "./dropdown.css";
 
 type DropdownProps = {
   options?: string[];
-  // Per-option tooltip text, index-aligned with options.
   optionTitles?: (string | null | undefined)[];
   value?: string;
   defaultValue?: string;

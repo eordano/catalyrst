@@ -92,7 +92,6 @@ describe("sid cookie convergence helpers", () => {
     expect(at("https://studio.catalyst.example.com/studio")).toBe("catalyst.example.com");
     expect(at("https://catalyst.example.com/")).toBe("catalyst.example.com");
     expect(at("https://sites.example.com/")).toBeUndefined();
-    // A suffix match that is not a subdomain must never widen.
     expect(at("https://evilcatalyst.example.com/")).toBeUndefined();
   });
 

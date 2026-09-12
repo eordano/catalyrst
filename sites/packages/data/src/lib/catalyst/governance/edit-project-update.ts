@@ -40,15 +40,7 @@ export type ProjectSummary = {
 };
 
 export type EditUpdateData = {
-  /**
-   * "live" -- the update below is a record this node holds.
-   * "unavailable" -- there is nothing to edit here; `reason` says why. Callers
-   *   must render the reason, never an editable form full of fixture text.
-   * "fixture" -- only produced by `fixtureEditUpdate()`, for stories and layout
-   *   work. `loadEditUpdate` never returns it.
-   */
   source: "live" | "fixture" | "unavailable";
-  /** Set when source === "unavailable". Safe to show to a visitor. */
   reason?: string;
   project: ProjectSummary;
   update: ProjectUpdate;
@@ -247,13 +239,6 @@ const ProjectsMetaResponseSchema = z.object({
   data: z.array(ProjectMetaSchema),
 });
 
-/**
- * Updates arrive nested inside GET /projects/{id}
- * (catalyrst-governance/src/handlers/read.rs:201 -> parse.rs:151). There is
- * no standalone GET /updates?project_id= route on this node -- lib.rs:29-44
- * registers none -- so the edit form must not fall back to fixture text on
- * a failed read.
- */
 const ProjectDetailResponseSchema = ProjectMetaSchema.extend({
   updates: z.array(UpdateSchema).nullish(),
 });

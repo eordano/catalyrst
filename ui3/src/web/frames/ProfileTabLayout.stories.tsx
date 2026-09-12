@@ -116,7 +116,6 @@ const Panel = ({ children }: { children?: ReactNode }) => (
   </section>
 );
 
-/** The header action clusters each former variant story passed. */
 const ACTIONS = {
   none: undefined,
   member: <MemberActions />,
@@ -130,7 +129,6 @@ const ACTIONS = {
   ),
 };
 
-/** The split-layout `aside`; `none` collapses the layout back to a single column. */
 const ASIDE = {
   none: undefined,
   wearablePreview: (
@@ -140,7 +138,6 @@ const ASIDE = {
   ),
 };
 
-/** The tab body each former variant story rendered as `children`. */
 const BODY = {
   overviewPanels: (
     <>
@@ -190,9 +187,6 @@ const meta = {
   component: ProfileTabLayout,
   parameters: { layout: "fullscreen" },
   argTypes: {
-    // `profile` and `tabs` are object-valued props, so their presets ride the same
-    // `options` + `mapping` route `EmptyState` uses for ReactNode props: the control offers
-    // the preset names, the mapping resolves each to the real descriptor.
     profile: {
       control: "select",
       options: PROFILE_KEYS,
@@ -308,19 +302,6 @@ const CATALOG: { label: string; props: ProfileTabLayoutProps }[] = [
   },
 ];
 
-/**
- * Every state at once. `Default` flips between them from the Controls panel -- every prop the
- * former variant stories differed by (`profile`, `tabs`, `activeTab`, `actions`, `aside`,
- * `children`, `showWalletIcon`, `showCopy`, `bodyPadded`) is an `options` + `mapping` control.
- * This keeps the split layout, the full-width body, both header variants and the two profile
- * fallbacks in the render + a11y + visual-diff gates.
- *
- * Each entry gets a `labelSuffix` because the frame owns two named landmarks --
- * `section[aria-label="Profile summary"]` and `nav[aria-label="Profile sections"]`. axe's
- * `landmark-unique` compares accessible names, so fixed labels would fail six times over. The
- * bare `<section>` wrapper demotes the split layout's unnamed `<aside>` to `generic` under the
- * HTML-AAM scoped mapping. The frame has no `chrome` prop and emits no `<main>`, so none is needed.
- */
 export const Catalog: Story = {
   name: "Catalog (every state)",
   parameters: { controls: { disable: true } },

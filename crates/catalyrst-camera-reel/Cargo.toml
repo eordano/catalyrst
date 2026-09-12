@@ -1,6 +1,6 @@
 [package]
 name = "catalyrst-camera-reel"
-version = "0.24.0"
+version = "0.24.1"
 edition = "2021"
 description = "Rust port of decentraland/camera-reel-service (camera-reel-service.decentraland.org), content-addressed disk store + places_events DB"
 

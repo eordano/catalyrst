@@ -2,8 +2,7 @@ use std::time::Duration;
 
 pub const USER_AGENT: &str = concat!("catalyrst/", env!("CARGO_PKG_VERSION"));
 
-/// Shape of a catalyrst outbound HTTP client. Redirect following is opt-in: for
-/// user-supplied URLs each hop has to be re-checked against the SSRF guards, which
+/// Redirect following is opt-in: for user-supplied URLs each hop has to be re-checked against the SSRF guards, which
 /// reqwest's own redirect policy cannot do.
 #[derive(Clone, Debug)]
 pub struct HttpClientCfg {
@@ -55,8 +54,6 @@ impl HttpClientCfg {
         self
     }
 
-    /// The configured builder, for callers that need extra knobs -- DNS pinning via
-    /// `resolve`, custom headers, proxies.
     pub fn builder(&self) -> reqwest::ClientBuilder {
         let redirect = match self.max_redirects {
             Some(max) => reqwest::redirect::Policy::limited(max),
@@ -76,8 +73,8 @@ pub fn try_http_client(cfg: &HttpClientCfg) -> reqwest::Result<reqwest::Client> 
     cfg.builder().build()
 }
 
-/// Builds the client, or falls back to a default one so a TLS-backend hiccup degrades
-/// the timeouts rather than taking the service down at startup.
+/// Falls back to a default client so a TLS-backend hiccup degrades the timeouts rather
+/// than taking the service down at startup.
 pub fn http_client(name: &str, cfg: &HttpClientCfg) -> reqwest::Client {
     match try_http_client(cfg) {
         Ok(client) => client,

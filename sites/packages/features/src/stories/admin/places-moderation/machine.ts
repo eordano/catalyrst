@@ -67,21 +67,6 @@ export const MODERATE_EVENTS = {
   failed: "admin_place_moderation_failed",
 } as const;
 
-/**
- * There is no auth-gate step any more.
- *
- * It used to be the initial state, with an unconditional `SIGN_IN -> queue`
- * transition behind a button labelled "Open moderation console". Nothing was
- * checked: clicking it revealed the console to any anonymous visitor. That is
- * exactly the frontend-authorization theatre this surface must not have.
- *
- * Access is decided entirely server-side by
- * `catalyrst-places/src/handlers/admin.rs:41` -> `auth.rs:88-100`, and the
- * route loader reports that answer: `admin.places-moderation.tsx` renders this
- * wizard only when `loadReportQueue` came back ok, and renders the unavailable
- * reason otherwise. Entering `queue` therefore *is* the server's answer, not a
- * click.
- */
 export const STATE_TO_SLUG = {
   queue: "queue",
   reviewReport: "review-report",

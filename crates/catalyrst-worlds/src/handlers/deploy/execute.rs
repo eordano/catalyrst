@@ -128,7 +128,6 @@ pub(super) async fn deploy_entity_inner(
     let now_ms = chrono::Utc::now().timestamp_millis();
     match entity.get("timestamp").and_then(|v| v.as_i64()) {
         Some(ts) => {
-            // One ttl, branched both ways, so a garbage timestamp can't dodge both guards.
             let ttl = now_ms.saturating_sub(ts);
             if ttl > ENTITY_TTL_MS {
                 errors.push(format!(
@@ -223,11 +222,6 @@ pub(super) async fn deploy_entity_inner(
         .map(|a| canon_pointer_set(a))
         .unwrap_or_default();
 
-    // Upstream `SceneParcels` rejects non-canonical or duplicated coordinates instead of
-    // normalizing them, and pins the declared base into the scene's own parcel set -- so a
-    // deployment can't be authorized/sized against a normalized set it isn't literally
-    // placed on, nor claim a base outside its footprint (which would then key the wrong
-    // scene identity for comms/ban lookups).
     let pointers_canonical = raw_pointers
         .map(|a| is_canonical_parcel_set(a))
         .unwrap_or(false);
@@ -249,10 +243,6 @@ pub(super) async fn deploy_entity_inner(
             .map(|base| raw_parcels.is_some_and(|a| a.iter().any(|p| p.as_str() == Some(base))))
             .unwrap_or(false);
         if !base_included {
-            // Verbatim upstream text, parcel list and trailing period included
-            // (worlds-content-server logic/validations/scene.ts): this string is
-            // the client-visible contract, and a deployer matching on it must
-            // not have to special-case our node.
             let listed = raw_parcels
                 .map(|a| {
                     a.iter()
@@ -294,7 +284,6 @@ pub(super) async fn deploy_entity_inner(
                         total_content_size = total_content_size.saturating_add(blob.len() as i64);
                     }
                     None => {
-                        // clients omit files the /available-content probe reported as stored
                         let already_stored =
                             crate::handlers::contents::is_retrievable_content_key(hash)
                                 && matches!(
@@ -397,11 +386,6 @@ pub(super) async fn deploy_entity_inner(
         .map(|oid| address_matches_account_id(&signer, oid))
         .unwrap_or(false);
 
-    // A world-name owner may replace every overlapping scene; a parcel-scoped deployer must
-    // hold permission for the full footprint of every already-deployed scene the deploy would
-    // replace -- not just the new scene's own parcels -- so it can't silently remove a scene
-    // reaching into parcels it was never granted. The exact set of replaced identities is
-    // captured here and re-enforced under the worlds row lock inside `deploy_scene`.
     let replacement = if owns_name {
         SceneReplacement::UnrestrictedOwner
     } else {
@@ -438,10 +422,6 @@ pub(super) async fn deploy_entity_inner(
                 );
             }
         };
-        // A deployment grant authorizes this deploy only if it covers EVERY required parcel:
-        // world-wide grants cover all parcels, otherwise every parcel in the union of the new
-        // pointers and the replaced scenes' footprints must fall inside the grantee's scoped
-        // parcel set. Fail-closed.
         let mut authorized = false;
         for r in records.iter().filter(|r| {
             r.permission_type == "deployment" && r.address.eq_ignore_ascii_case(&signer)
@@ -543,7 +523,6 @@ pub(super) async fn deploy_entity_inner(
         )
         .await
     {
-        // A scoped deployer whose overlap snapshot went stale gets 409 (retryable), not 500.
         if e.is_conflict() {
             tracing::info!(world = %world_name, entity_id = %entity_id, "deploy conflict: overlapping-scene set changed under a scoped authorization");
             return e.into_response();

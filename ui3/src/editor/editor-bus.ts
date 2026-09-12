@@ -6,9 +6,6 @@ import type {
   EditorTool,
 } from "./bus-protocol";
 import { EDITOR_BUS_CHANNEL } from "./bus-protocol";
-// Imported from the generated module directly rather than re-exported through
-// ./bus-protocol: the perf build's alias matches on `/generated/editor-bus-schemas`,
-// so routing it through the barrel would leave zod in the perf bundle.
 import { SceneToPageMessageSchema } from "../generated/editor-bus-schemas";
 import { check } from "../validate";
 import { RPC_TIMEOUT_MS, EXPORT_COMPOSITE_TIMEOUT_MS } from "./editor-config";
@@ -120,14 +117,7 @@ export function createEditorBus(): EditorBus {
 
   channel.onmessage = (ev: MessageEvent) => {
     const env = (ev?.data ?? null) as BusEnvelope | null;
-    // The coarse guard stays, and stays FIRST: this same channel also carries
-    // page-to-scene traffic, which is correctly ignored here and must not be
-    // validated against the scene-to-page shape.
     if (!env || typeof env !== "object" || env.to !== "page" || !env.msg) return;
-    // Past the filter the payload was a cast, so a renamed or wrong-typed field
-    // from the editor scene -- a separate build -- silently fell through to the
-    // listener fan-out below. `check` hands the value back on a production
-    // rejection, so that fan-out still behaves exactly as it does today.
     const msg = check(SceneToPageMessageSchema, env.msg, "editor-bus/scene-to-page");
     if (msg.type === "rpc-reply" && pending.has(msg.id)) {
       const entry = pending.get(msg.id);

@@ -28,17 +28,12 @@ import { startBlockByNetwork } from "./addresses/startBlocks";
 const addresses = getAddresses(Network.MATIC);
 const chainId = process.env.POLYGON_CHAIN_ID || ChainId.MATIC_MAINNET;
 
-// SQD Network Portal dataset (replaces the deprecated v2 archive gateway). See portalSource for
-// the shared-vs-public endpoint selection and why it hinges on SQD_PORTAL_API_KEY.
 const PORTAL_DATASET = `polygon-${
   chainId == ChainId.MATIC_MAINNET ? "mainnet" : "amoy-testnet"
 }`;
 const RPC_ENDPOINT = process.env.RPC_ENDPOINT_POLYGON;
 const collections = loadCollections();
 
-// Field selection for the Portal stream. Portal fetches ONLY these fields -- unlike
-// the v2 gateway it does not merge a default set -- so anything a handler reads must
-// be listed here (required fields like log topic indices are always present).
 export const fields = {
   block: { timestamp: true },
   log: { address: true, topics: true, data: true, transactionHash: true },
@@ -46,9 +41,6 @@ export const fields = {
 } satisfies FieldSelection;
 export type Fields = typeof fields;
 
-// RPC client for contract-state reads (owner(), the collection multicall, rarities,
-// item/store data). Portal only ingests logs/blocks; eth_call still goes through the
-// RPC endpoint, so Portal (data) and RPC (state) run as two independent channels.
 export const rpc = new RpcClient({
   url: assertNotNull(RPC_ENDPOINT, "RPC_ENDPOINT_POLYGON is not set"),
   capacity: 10,
@@ -57,8 +49,6 @@ export const rpc = new RpcClient({
 
 export const logger: Logger = createLogger("sqd:polygon");
 
-// A ChainContext for the generated ABI contract wrappers (ContractBase / Multicall),
-// backed by the RPC client above. Shape matches @subsquid/evm-abi's `Chain`.
 export const chainContext = {
   _chain: {
     client: {
@@ -68,9 +58,6 @@ export const chainContext = {
   },
 };
 
-// Types kept API-compatible with the previous evm-processor exports so handlers and
-// util files do not need to change. `Block` is the block HEADER (matching the prior
-// naming); `Context` is the augmented batch context, including `_chain` for RPC.
 export type Block = evmObjects.BlockHeader<Fields>;
 export type Log = evmObjects.Log<Fields>;
 export type Transaction = evmObjects.Transaction<Fields>;
@@ -188,8 +175,6 @@ export const dataSource = new DataSourceBuilder()
     },
     include: { transaction: true },
   })
-  // V3 Traded carries an extra indexed _tradeDigest, so its topic must come from the V3 module:
-  // filtering the V3 address with the V1/V2 topic matches nothing and fails silently.
   .addLog({
     where: {
       address: [addresses.OffChainMarketplaceV3],
@@ -197,9 +182,6 @@ export const dataSource = new DataSourceBuilder()
     },
     include: { transaction: true },
   })
-  // Fee configuration of the V3 marketplace. handleTraded needs these values on every trade and
-  // used to fetch them over RPC each time; ingesting the changes instead keeps the cached copy
-  // current for free. Only the OffChainMarketplace address: that is the contract handleTraded reads.
   .addLog({
     where: {
       address: [addresses.OffChainMarketplace],

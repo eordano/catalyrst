@@ -454,8 +454,6 @@ pub async fn get_event_list(
     list_events(&state, &headers, &pairs, "/api/events").await
 }
 
-// The legacy and the unified list are one read; `signed_path` is the route
-// the caller signed, which is the only thing that differs between them.
 pub(crate) async fn list_events(
     state: &AppState,
     headers: &HeaderMap,
@@ -591,8 +589,6 @@ fn is_soft_deleted(evt: &EventRecord) -> bool {
     evt.deleted_by_user || evt.deleted_by_admin || evt.deleted_at.is_some()
 }
 
-// Approved, unrejected events are public; the admin and the creator also see
-// the event while it is pending, rejected or deleted.
 pub(crate) fn visible_to_viewer(evt: &EventRecord, viewer: Option<&str>, admin: bool) -> bool {
     if admin {
         return true;
@@ -605,9 +601,6 @@ pub(crate) fn visible_to_viewer(evt: &EventRecord, viewer: Option<&str>, admin: 
     !is_soft_deleted(evt) && evt.approved && !evt.rejected
 }
 
-// Upstream's moderator tier: the service bearer or a signed moderator wallet.
-// Only the bearer is `admin`, which keeps deleted rows and the precise
-// moderation selectors behind it.
 pub(crate) async fn viewer_is_admin(
     state: &AppState,
     headers: &HeaderMap,
@@ -730,7 +723,6 @@ mod envelope_tests {
         )
         .expect("community query parses")
         .expect("community query is servable");
-        // The handler keys the WithTotal envelope off this condition.
         assert!(!filters.places_ids.is_empty() || filters.community_id.is_some());
 
         let body = ApiOk::new(EventListData::WithTotal(EventListWithTotal {

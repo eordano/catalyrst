@@ -11,10 +11,6 @@ use crate::AppState;
 
 use super::db_err;
 
-// SQL math must stay identical to the deploy tree's metabase
-// experiment-readout query (the Metabase cards + story-readout.ts share it);
-// port changes there first.
-
 const SYNTHETIC_PREFIXES: [&str; 4] = [
     "readout_probe_",
     "verify_readout_",

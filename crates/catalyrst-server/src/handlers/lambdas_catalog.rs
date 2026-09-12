@@ -9,45 +9,45 @@ use serde_json::{json, Map, Value};
 use sqlx::PgPool;
 
 use crate::errors::{bad_request, not_found};
-use crate::handlers::base_wearables::BASE_AVATARS_COLLECTION_ID;
+use crate::handlers::base_wearables::{self, BaseWearable, BASE_AVATARS_COLLECTION_ID};
 use crate::handlers::definitions::{
-    extract_emote_definition, extract_wearable_definition, SORTED_RARITIES,
+    default_sort_direction, extract_emote_definition, extract_wearable_definition, validate_rarity,
+    validate_sort, SORTED_RARITIES,
 };
 use crate::query_params::{parse_query_string, qs_get_array, qs_get_string};
 use crate::state::AppState;
 use catalyrst_commons::cache::TtlMap;
 
-const OUTFITS_CACHE_TTL: Duration = Duration::from_secs(60);
-const OUTFITS_CACHE_MAX_ENTRIES: usize = 50_000;
+type Cache = Arc<TtlMap<String, Value>>;
 
-const COLLECTIONS_CACHE_TTL: Duration = Duration::from_secs(300);
-
-fn collections_cache() -> &'static Arc<TtlMap<String, Value>> {
-    static C: OnceLock<Arc<TtlMap<String, Value>>> = OnceLock::new();
-    C.get_or_init(|| {
+fn static_cache(
+    cell: &'static OnceLock<Cache>,
+    name: &'static str,
+    ttl_secs: u64,
+    max_entries: usize,
+) -> &'static Cache {
+    cell.get_or_init(|| {
         Arc::new(TtlMap::bounded(
-            "nfts_collections",
-            COLLECTIONS_CACHE_TTL,
-            8,
+            name,
+            Duration::from_secs(ttl_secs),
+            max_entries,
         ))
     })
 }
 
-pub(crate) fn outfits_cache() -> &'static Arc<TtlMap<String, Value>> {
-    static C: OnceLock<Arc<TtlMap<String, Value>>> = OnceLock::new();
-    C.get_or_init(|| {
-        Arc::new(TtlMap::bounded(
-            "outfits",
-            OUTFITS_CACHE_TTL,
-            OUTFITS_CACHE_MAX_ENTRIES,
-        ))
-    })
+fn collections_cache() -> &'static Cache {
+    static C: OnceLock<Cache> = OnceLock::new();
+    static_cache(&C, "nfts_collections", 300, 8)
 }
 
-/// A deployment can create or replace an outfits entity, so a client that
-/// saves and re-reads within the TTL must not get the stale list (or a
-/// cached not-found). Deployment success paths call this alongside their
-/// `deployments_cache.clear()`.
+pub(crate) fn outfits_cache() -> &'static Cache {
+    static C: OnceLock<Cache> = OnceLock::new();
+    static_cache(&C, "outfits", 60, 50_000)
+}
+
+/// A deployment can create or replace an outfits entity, so a client that saves and re-reads within
+/// the TTL must not get the stale list (or a cached not-found). Deployment success paths call this
+/// alongside their `deployments_cache.clear()`.
 pub(crate) fn invalidate_outfits_cache() {
     outfits_cache().clear();
 }
@@ -72,20 +72,14 @@ fn catalog_params_from_query(qs: &str) -> CatalogParams {
 
 /// DELIBERATE DIVERGENCE from stock catalyst / lamb2, added 2026-08-26.
 ///
-/// Upstream's global catalog takes no `collectionType`: lamb2's
-/// `parseCatalogQuery` reads only collectionId/itemIds/textSearch, so
-/// `?collectionType=` alone answers the "you must use one of the filters" 400
-/// and, alongside a real filter, is silently dropped (verified against
-/// peer.decentraland.org: both the 400 body and the echoed `filters` object are
-/// byte-identical to ours without this feature). `collectionType` is upstream's
-/// parameter for the per-owner inventory endpoint
-/// `/lambdas/explorer/{address}/wearables`, not for this one.
+/// Upstream's global catalog takes no `collectionType`: lamb2's `parseCatalogQuery` reads only
+/// collectionId/itemIds/textSearch, so `?collectionType=` alone answers the "you must use one of the
+/// filters" 400 and, alongside a real filter, is silently dropped. `collectionType` is upstream's
+/// parameter for `/lambdas/explorer/{address}/wearables`, not for this one.
 ///
-/// We accept it here as an extension. The invariant that keeps the divergence
-/// honest: with no `collectionType` in the query the response is byte-identical
-/// to upstream -- no new key in `filters`, no change to `next`, no change to the
-/// 400. Every behaviour below is reachable only when a caller opts in by naming
-/// at least one type.
+/// The invariant that keeps the divergence honest: with no `collectionType` in the query the response
+/// is byte-identical to upstream -- no new key in `filters`, no change to `next`, no change to the
+/// 400. Every behaviour below is reachable only when a caller opts in by naming at least one type.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum CollectionType {
     BaseWearable,
@@ -112,30 +106,36 @@ impl CollectionType {
     }
 }
 
-/// Parses the opt-in `collectionType` filter, preserving caller order and
-/// dropping repeats. An unrecognised value is refused rather than ignored: a
-/// silently-dropped typo would widen the result set to everything, which is the
-/// opposite of what the caller asked for.
+/// Preserves caller order and drops repeats. An unrecognised value is refused rather than ignored: a
+/// silently-dropped typo would widen the result set to everything.
 fn parse_collection_types(raw: &[String]) -> Result<Vec<CollectionType>, Response> {
-    let mut out: Vec<CollectionType> = Vec::new();
+    let mut out = Vec::new();
     for value in raw {
-        match CollectionType::parse(value) {
-            Some(t) if !out.contains(&t) => out.push(t),
-            Some(_) => {}
-            None => {
-                return Err(bad_request(&format!(
-                    "Invalid collectionType '{value}'. Valid values are: 'base-wearable', 'on-chain', 'third-party'"
-                )))
-            }
+        let t = CollectionType::parse(value).ok_or_else(|| {
+            bad_request(&format!(
+                "Invalid collectionType '{value}'. Valid values are: 'base-wearable', 'on-chain', 'third-party'"
+            ))
+        })?;
+        if !out.contains(&t) {
+            out.push(t);
         }
     }
     Ok(out)
 }
 
-/// The catalog's extended filter set, all opt-in. Shares its vocabulary and its
-/// error wording with `/lambdas/explorer/{address}/wearables` via
-/// `handlers::definitions`, so a caller who learned the per-owner endpoint does
-/// not have to learn a second dialect here.
+fn qp(key: &str, value: &str) -> String {
+    format!("{key}={}", urlencoding::encode(value))
+}
+
+fn lower_nonempty(v: &Option<String>) -> Option<String> {
+    v.as_deref()
+        .map(str::to_lowercase)
+        .filter(|s| !s.is_empty())
+}
+
+/// All opt-in. Shares its vocabulary and error wording with
+/// `/lambdas/explorer/{address}/wearables` via `handlers::definitions`, so a caller who learned the
+/// per-owner endpoint does not have to learn a second dialect here.
 #[derive(Debug, Default, Clone)]
 struct ExtendedFilters {
     collection_types: Vec<CollectionType>,
@@ -147,10 +147,9 @@ struct ExtendedFilters {
 }
 
 impl ExtendedFilters {
-    /// True when at least one of these opt-in filters narrows the result set, so
-    /// the caller has expressed an intent and the upstream
-    /// "you must use one of the filters" 400 no longer applies. `sort` alone
-    /// does not count: ordering everything is not a filter.
+    /// True once the caller has expressed an intent, so the upstream "you must use one of the
+    /// filters" 400 no longer applies. `sort` alone does not count: ordering everything is not a
+    /// filter.
     fn narrows(&self) -> bool {
         !self.collection_types.is_empty()
             || !self.categories.is_empty()
@@ -163,24 +162,17 @@ impl ExtendedFilters {
     }
 
     fn query_parts(&self) -> Vec<String> {
-        let mut parts = Vec::new();
-        for t in &self.collection_types {
-            parts.push(format!("collectionType={}", t.as_str()));
-        }
-        for c in &self.categories {
-            parts.push(format!("category={}", urlencoding::encode(c)));
-        }
-        if let Some(ref r) = self.rarity {
-            parts.push(format!("rarity={}", urlencoding::encode(r)));
-        }
-        if let Some(ref n) = self.name {
-            parts.push(format!("name={}", urlencoding::encode(n)));
-        }
-        if let Some(ref s) = self.sort {
-            parts.push(format!("orderBy={}", urlencoding::encode(s)));
-            if let Some(ref d) = self.direction {
-                parts.push(format!("direction={d}"));
-            }
+        let mut parts: Vec<String> = self
+            .collection_types
+            .iter()
+            .map(|t| format!("collectionType={}", t.as_str()))
+            .collect();
+        parts.extend(self.categories.iter().map(|c| qp("category", c)));
+        parts.extend(self.rarity.iter().map(|r| qp("rarity", r)));
+        parts.extend(self.name.iter().map(|n| qp("name", n)));
+        if let Some(s) = &self.sort {
+            parts.push(qp("orderBy", s));
+            parts.extend(self.direction.iter().map(|d| format!("direction={d}")));
         }
         parts
     }
@@ -193,31 +185,26 @@ impl ExtendedFilters {
         if !self.categories.is_empty() {
             m.insert("categories".into(), json!(self.categories));
         }
-        if let Some(ref r) = self.rarity {
+        if let Some(r) = &self.rarity {
             m.insert("rarity".into(), json!(r));
         }
-        if let Some(ref n) = self.name {
+        if let Some(n) = &self.name {
             m.insert("name".into(), json!(n));
         }
-        if let Some(ref s) = self.sort {
+        if let Some(s) = &self.sort {
             m.insert("orderBy".into(), json!(s));
-            if let Some(ref d) = self.direction {
+            if let Some(d) = &self.direction {
                 m.insert("direction".into(), json!(d));
             }
         }
     }
 }
 
-/// Parses the extended filters and enforces the one rule the tiering makes
-/// necessary: `orderBy` needs the query to resolve to a single tier.
-///
-/// Base wearables and on-chain items come from different stores (an in-memory
-/// entity list and the squid index) behind a two-phase, urn-keyed cursor that
-/// serves every base wearable before the first on-chain item. A global
-/// `orderBy=rarity` across both would either have to buffer the whole on-chain
-/// set to merge it, or return pages whose order contradicts the parameter.
-/// Refusing is the only answer that does not lie, and naming `collectionType`
-/// in the message points the caller straight at the fix.
+/// Enforces the one rule the tiering makes necessary: `orderBy` needs the query to resolve to a
+/// single tier. Base wearables and on-chain items come from different stores (an in-memory entity
+/// list and the squid index) behind a two-phase, urn-keyed cursor that serves every base wearable
+/// before the first on-chain item, so a global `orderBy=rarity` across both would either buffer the
+/// whole on-chain set to merge it or return pages whose order contradicts the parameter.
 fn parse_extended_filters(p: &CatalogParams) -> Result<ExtendedFilters, Response> {
     let collection_types = parse_collection_types(&p.collection_type)?;
 
@@ -228,56 +215,38 @@ fn parse_extended_filters(p: &CatalogParams) -> Result<ExtendedFilters, Response
         .filter(|c| !c.is_empty())
         .collect();
 
-    let rarity = p
-        .rarity
-        .as_ref()
-        .map(|r| r.to_lowercase())
-        .filter(|r| !r.is_empty());
-    if let Some(ref r) = rarity {
-        crate::handlers::definitions::validate_rarity(r).map_err(|e| bad_request(&e))?;
+    let rarity = lower_nonempty(&p.rarity);
+    if let Some(r) = &rarity {
+        validate_rarity(r).map_err(|e| bad_request(&e))?;
     }
 
-    let name = p
-        .name
-        .as_ref()
-        .map(|n| n.to_lowercase())
-        .filter(|n| !n.is_empty());
-
-    let sort = p
-        .order_by
-        .as_ref()
-        .map(|s| s.to_lowercase())
-        .filter(|s| !s.is_empty());
-    let direction = match (&sort, &p.direction) {
-        (None, _) => None,
-        (Some(s), Some(d)) if !d.is_empty() => {
-            let d = d.to_uppercase();
-            crate::handlers::definitions::validate_sort(s, &d).map_err(|e| bad_request(&e))?;
-            Some(d)
-        }
-        (Some(s), _) => {
-            let d = crate::handlers::definitions::default_sort_direction(s).to_string();
-            crate::handlers::definitions::validate_sort(s, &d).map_err(|e| bad_request(&e))?;
+    let sort = lower_nonempty(&p.order_by);
+    let direction = match &sort {
+        None => None,
+        Some(s) => {
+            let d = match p.direction.as_deref() {
+                Some(d) if !d.is_empty() => d.to_uppercase(),
+                _ => default_sort_direction(s).to_string(),
+            };
+            validate_sort(s, &d).map_err(|e| bad_request(&e))?;
             Some(d)
         }
     };
 
-    let filters = ExtendedFilters {
-        collection_types,
-        categories,
-        rarity,
-        name,
-        sort,
-        direction,
-    };
-
-    if filters.sort.is_some() && filters.collection_types.len() != 1 {
+    if sort.is_some() && collection_types.len() != 1 {
         return Err(bad_request(
             "Sorting the global catalog needs a single collectionType: base wearables and on-chain items are paged from different stores, so 'orderBy' is only well defined within one of them. Add exactly one 'collectionType' (for example 'collectionType=on-chain').",
         ));
     }
 
-    Ok(filters)
+    Ok(ExtendedFilters {
+        collection_types,
+        categories,
+        rarity,
+        name: lower_nonempty(&p.name),
+        sort,
+        direction,
+    })
 }
 
 const MAX_LIMIT: i64 = 500;
@@ -289,11 +258,9 @@ fn cursor_to_squid(last_id: &str) -> String {
 
 #[derive(Debug, Deserialize, Default)]
 pub struct CatalogParams {
-    #[serde(default)]
-    #[serde(rename = "collectionId")]
+    #[serde(default, rename = "collectionId")]
     collection_id: Vec<String>,
-    #[serde(default)]
-    #[serde(rename = "collectionType")]
+    #[serde(default, rename = "collectionType")]
     collection_type: Vec<String>,
     #[serde(default)]
     category: Vec<String>,
@@ -302,11 +269,9 @@ pub struct CatalogParams {
     #[serde(rename = "orderBy")]
     order_by: Option<String>,
     direction: Option<String>,
-    #[serde(default)]
-    #[serde(rename = "wearableId")]
+    #[serde(default, rename = "wearableId")]
     wearable_id: Vec<String>,
-    #[serde(default)]
-    #[serde(rename = "emoteId")]
+    #[serde(default, rename = "emoteId")]
     emote_id: Vec<String>,
     #[serde(rename = "textSearch")]
     text_search: Option<String>,
@@ -319,21 +284,21 @@ struct CatalogFilters {
     collection_ids: Option<Vec<String>>,
     item_ids: Option<Vec<String>>,
     text_search: Option<String>,
-    /// Empty for an upstream-shaped query, which is what keeps the echoed
-    /// `filters` object byte-identical to stock catalyst until a caller opts in.
+    /// Empty for an upstream-shaped query, which keeps the echoed `filters` object byte-identical to
+    /// stock catalyst until a caller opts in.
     extended: ExtendedFilters,
 }
 
 impl CatalogFilters {
     fn to_json(&self) -> Value {
         let mut m = Map::new();
-        if let Some(ref c) = self.collection_ids {
+        if let Some(c) = &self.collection_ids {
             m.insert("collectionIds".into(), json!(c));
         }
-        if let Some(ref i) = self.item_ids {
+        if let Some(i) = &self.item_ids {
             m.insert("itemIds".into(), json!(i));
         }
-        if let Some(ref t) = self.text_search {
+        if let Some(t) = &self.text_search {
             m.insert("textSearch".into(), json!(t));
         }
         self.extended.write_json(&mut m);
@@ -351,8 +316,12 @@ fn clamp_limit(raw: &Option<String>) -> i64 {
     catalyrst_types::limit_or_max(raw.as_ref().and_then(|s| s.parse().ok()), MAX_LIMIT)
 }
 
-/// `extended` is `Default` for callers that do not offer the extension (the
-/// emotes catalog), which keeps their behaviour byte-identical to upstream.
+fn non_empty(v: Vec<String>) -> Option<Vec<String>> {
+    (!v.is_empty()).then_some(v)
+}
+
+/// `extended` is `Default` for callers that do not offer the extension (the emotes catalog), which
+/// keeps their behaviour byte-identical to upstream.
 fn parse_catalog_query(
     p: &CatalogParams,
     item_ids_in: &[String],
@@ -361,21 +330,8 @@ fn parse_catalog_query(
 ) -> Result<CatalogQuery, Response> {
     let collection_ids: Vec<String> = p.collection_id.iter().map(|s| s.to_lowercase()).collect();
     let item_ids: Vec<String> = item_ids_in.iter().map(|s| s.to_lowercase()).collect();
-    let text_search = p
-        .text_search
-        .as_ref()
-        .map(|s| s.to_lowercase())
-        .filter(|s| !s.is_empty());
-    let last_id = p
-        .last_id
-        .as_ref()
-        .map(|s| s.to_lowercase())
-        .filter(|s| !s.is_empty());
+    let text_search = lower_nonempty(&p.text_search);
 
-    // Upstream's rule, widened only by our own opt-in filters: an extended
-    // filter that narrows the set is a filter, so it satisfies this the same way
-    // collectionId does. With none supplied `extended` is empty and the 400 --
-    // message included -- is byte-identical to stock catalyst.
     if collection_ids.is_empty()
         && item_ids.is_empty()
         && text_search.is_none()
@@ -385,12 +341,10 @@ fn parse_catalog_query(
             "You must use one of the filters: 'textSearch', 'collectionId' or '{id_param_name}'"
         )));
     }
-    if let Some(ref t) = text_search {
-        if t.chars().count() < 3 {
-            return Err(bad_request(
-                "The text search must be at least 3 characters long",
-            ));
-        }
+    if text_search.as_ref().is_some_and(|t| t.chars().count() < 3) {
+        return Err(bad_request(
+            "The text search must be at least 3 characters long",
+        ));
     }
     let items_label = if id_param_name == "wearableId" {
         "wearables"
@@ -410,21 +364,13 @@ fn parse_catalog_query(
 
     Ok(CatalogQuery {
         filters: CatalogFilters {
-            collection_ids: if collection_ids.is_empty() {
-                None
-            } else {
-                Some(collection_ids)
-            },
-            item_ids: if item_ids.is_empty() {
-                None
-            } else {
-                Some(item_ids)
-            },
+            collection_ids: non_empty(collection_ids),
+            item_ids: non_empty(item_ids),
             text_search,
             extended,
         },
         limit: clamp_limit(&p.limit),
-        last_id,
+        last_id: lower_nonempty(&p.last_id),
     })
 }
 
@@ -435,23 +381,24 @@ fn build_next_query(
     id_param_name: &str,
 ) -> String {
     let mut parts: Vec<String> = Vec::new();
-    if let Some(ref ids) = filters.collection_ids {
-        for id in ids {
-            parts.push(format!("collectionId={}", urlencoding::encode(id)));
-        }
-    }
-    if let Some(ref ids) = filters.item_ids {
-        for id in ids {
-            parts.push(format!("{}={}", id_param_name, urlencoding::encode(id)));
-        }
-    }
-    if let Some(ref t) = filters.text_search {
-        parts.push(format!("textSearch={}", urlencoding::encode(t)));
-    }
-    // Empty unless the caller opted in, so `next` stays byte-identical upstream.
+    parts.extend(
+        filters
+            .collection_ids
+            .iter()
+            .flatten()
+            .map(|id| qp("collectionId", id)),
+    );
+    parts.extend(
+        filters
+            .item_ids
+            .iter()
+            .flatten()
+            .map(|id| qp(id_param_name, id)),
+    );
+    parts.extend(filters.text_search.iter().map(|t| qp("textSearch", t)));
     parts.extend(filters.extended.query_parts());
     parts.push(format!("limit={limit}"));
-    parts.push(format!("lastId={}", urlencoding::encode(next_last_id)));
+    parts.push(qp("lastId", next_last_id));
     parts.join("&")
 }
 
@@ -461,6 +408,19 @@ enum Bind {
     Int(i64),
 }
 
+struct SqlBuilder {
+    sql: String,
+    binds: Vec<Bind>,
+}
+
+impl SqlBuilder {
+    /// `clause` receives the 1-based placeholder index that `bind` will occupy.
+    fn add(&mut self, clause: impl FnOnce(usize) -> String, bind: Bind) {
+        self.sql.push_str(&clause(self.binds.len() + 1));
+        self.binds.push(bind);
+    }
+}
+
 async fn fetch_item_urns(
     pool: &PgPool,
     item_type_prefix: &str,
@@ -468,108 +428,101 @@ async fn fetch_item_urns(
     limit: i64,
     last_id: &Option<String>,
 ) -> Vec<String> {
-    let item_type_clause = if item_type_prefix == "wearable" {
+    let wearable = item_type_prefix == "wearable";
+    let item_type_clause = if wearable {
         "(item_type LIKE 'wearable%' OR item_type LIKE 'smart_wearable%')"
     } else {
         "item_type LIKE 'emote%'"
     };
-    let mut sql = format!(
-        "SELECT urn FROM squid_marketplace.item \
-         WHERE urn IS NOT NULL AND {item_type_clause}"
-    );
-    let mut binds: Vec<Bind> = Vec::new();
+    let rarity_column = if wearable {
+        "search_wearable_rarity"
+    } else {
+        "search_emote_rarity"
+    };
+    let mut q = SqlBuilder {
+        sql: format!(
+            "SELECT urn FROM squid_marketplace.item \
+             WHERE urn IS NOT NULL AND {item_type_clause}"
+        ),
+        binds: Vec::new(),
+    };
 
-    let mut idx = 1;
-
-    if let Some(ref cids) = filters.collection_ids {
-        sql.push_str(" AND (");
-        let mut clauses = Vec::new();
-        for c in cids {
-            clauses.push(format!("lower(urn) LIKE ${idx}"));
-            binds.push(Bind::Text(format!(
-                "{}:%",
-                cursor_to_squid(&c.to_lowercase())
-            )));
-            idx += 1;
-        }
-        sql.push_str(&clauses.join(" OR "));
-        sql.push(')');
+    if let Some(cids) = &filters.collection_ids {
+        let clauses: Vec<String> = cids
+            .iter()
+            .map(|c| {
+                q.binds.push(Bind::Text(format!(
+                    "{}:%",
+                    cursor_to_squid(&c.to_lowercase())
+                )));
+                format!("lower(urn) LIKE ${}", q.binds.len())
+            })
+            .collect();
+        q.sql.push_str(&format!(" AND ({})", clauses.join(" OR ")));
     }
 
-    if let Some(ref iids) = filters.item_ids {
-        sql.push_str(&format!(" AND lower(urn) = ANY(${idx})"));
-        binds.push(Bind::TextArray(
-            iids.iter()
-                .map(|s| cursor_to_squid(&s.to_lowercase()))
-                .collect(),
-        ));
-        idx += 1;
+    if let Some(iids) = &filters.item_ids {
+        q.add(
+            |idx| format!(" AND lower(urn) = ANY(${idx})"),
+            Bind::TextArray(
+                iids.iter()
+                    .map(|s| cursor_to_squid(&s.to_lowercase()))
+                    .collect(),
+            ),
+        );
     }
 
-    if let Some(ref t) = filters.text_search {
-        sql.push_str(&format!(" AND search_text ILIKE ${idx}"));
-        binds.push(Bind::Text(format!("%{t}%")));
-        idx += 1;
+    if let Some(t) = &filters.text_search {
+        q.add(
+            |idx| format!(" AND search_text ILIKE ${idx}"),
+            Bind::Text(format!("%{t}%")),
+        );
     }
 
     let ext = &filters.extended;
 
     if !ext.categories.is_empty() {
-        let column = if item_type_prefix == "wearable" {
+        let column = if wearable {
             "search_wearable_category"
         } else {
             "search_emote_category"
         };
-        sql.push_str(&format!(" AND lower({column}::text) = ANY(${idx})"));
-        binds.push(Bind::TextArray(ext.categories.clone()));
-        idx += 1;
+        q.add(
+            |idx| format!(" AND lower({column}::text) = ANY(${idx})"),
+            Bind::TextArray(ext.categories.clone()),
+        );
     }
 
-    if let Some(ref r) = ext.rarity {
-        let column = if item_type_prefix == "wearable" {
-            "search_wearable_rarity"
-        } else {
-            "search_emote_rarity"
-        };
-        sql.push_str(&format!(" AND lower({column}) = ${idx}"));
-        binds.push(Bind::Text(r.clone()));
-        idx += 1;
+    if let Some(r) = &ext.rarity {
+        q.add(
+            |idx| format!(" AND lower({rarity_column}) = ${idx}"),
+            Bind::Text(r.clone()),
+        );
     }
 
-    // `name` narrows the same indexed column `textSearch` uses; the two are
-    // separate parameters because the explorer surface names them separately,
-    // and a caller may legitimately pass both.
-    if let Some(ref n) = ext.name {
-        sql.push_str(&format!(" AND search_text ILIKE ${idx}"));
-        binds.push(Bind::Text(format!("%{n}%")));
-        idx += 1;
+    if let Some(n) = &ext.name {
+        q.add(
+            |idx| format!(" AND search_text ILIKE ${idx}"),
+            Bind::Text(format!("%{n}%")),
+        );
     }
 
-    if let Some(ref cursor) = last_id {
-        sql.push_str(&format!(" AND lower(urn) > ${idx}"));
-        binds.push(Bind::Text(cursor_to_squid(&cursor.to_lowercase())));
-        idx += 1;
+    if let Some(cursor) = last_id {
+        q.add(
+            |idx| format!(" AND lower(urn) > ${idx}"),
+            Bind::Text(cursor_to_squid(&cursor.to_lowercase())),
+        );
     }
 
-    // The cursor stays urn-keyed in every case, so an ordered page is the
-    // requested sort applied to the urn-ordered window rather than a global
-    // re-ordering. `parse_extended_filters` is what makes that honest: it
-    // refuses `orderBy` unless the query names a single tier, and the ordering
-    // below is a stable tiebreak on urn so pages never overlap or skip.
     let order = match (ext.sort.as_deref(), ext.direction.as_deref()) {
         (Some("rarity"), Some(dir)) => {
-            let column = if item_type_prefix == "wearable" {
-                "search_wearable_rarity"
-            } else {
-                "search_emote_rarity"
-            };
             let ranks: Vec<String> = SORTED_RARITIES
                 .iter()
                 .enumerate()
                 .map(|(i, r)| format!("WHEN '{r}' THEN {i}"))
                 .collect();
             format!(
-                "CASE lower({column}) {} ELSE -1 END {dir}, urn ASC",
+                "CASE lower({rarity_column}) {} ELSE -1 END {dir}, urn ASC",
                 ranks.join(" ")
             )
         }
@@ -577,70 +530,38 @@ async fn fetch_item_urns(
         (Some("name"), Some(dir)) => format!("lower(search_text) {dir}, urn ASC"),
         _ => "urn ASC".to_string(),
     };
-    sql.push_str(&format!(" ORDER BY {order} LIMIT ${idx}"));
-    binds.push(Bind::Int(limit + 1));
+    q.add(
+        |idx| format!(" ORDER BY {order} LIMIT ${idx}"),
+        Bind::Int(limit + 1),
+    );
 
-    let mut q = sqlx::query_scalar::<_, String>(sqlx::AssertSqlSafe(sql));
-    for b in binds {
-        q = match b {
-            Bind::Text(s) => q.bind(s),
-            Bind::TextArray(a) => q.bind(a),
-            Bind::Int(n) => q.bind(n),
+    let mut query = sqlx::query_scalar::<_, String>(sqlx::AssertSqlSafe(q.sql));
+    for b in q.binds {
+        query = match b {
+            Bind::Text(s) => query.bind(s),
+            Bind::TextArray(a) => query.bind(a),
+            Bind::Int(n) => query.bind(n),
         };
     }
 
-    q.fetch_all(pool).await.unwrap_or_default()
+    query.fetch_all(pool).await.unwrap_or_default()
 }
 
-fn paginate(mut definitions: Vec<Value>, limit: i64) -> (Vec<Value>, Option<String>) {
-    definitions.sort_by(|a, b| {
-        let ai = a
-            .get("id")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_lowercase();
-        let bi = b
-            .get("id")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_lowercase();
-        ai.cmp(&bi)
-    });
-    let has_more = definitions.len() as i64 > limit;
-    if has_more {
-        definitions.truncate(limit as usize);
-    }
-    let next = if has_more {
-        definitions
-            .last()
-            .and_then(|d| d.get("id"))
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string())
-    } else {
-        None
-    };
-    (definitions, next)
+fn id_key(v: &Value) -> String {
+    v["id"].as_str().unwrap_or("").to_lowercase()
 }
 
+fn paginate(definitions: Vec<Value>, limit: i64) -> (Vec<Value>, Option<String>) {
+    paginate_merged(Vec::new(), definitions, limit)
+}
+
+/// `pre_merge` is served first and never reordered; `on_chain` is sorted by id behind it.
 fn paginate_merged(
-    pre_merge: Vec<Value>,
+    mut merged: Vec<Value>,
     mut on_chain: Vec<Value>,
     limit: i64,
 ) -> (Vec<Value>, Option<String>) {
-    on_chain.sort_by(|a, b| {
-        let ai = a
-            .get("id")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_lowercase();
-        let bi = b
-            .get("id")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_lowercase();
-        ai.cmp(&bi)
-    });
-    let mut merged = pre_merge;
+    on_chain.sort_by_key(id_key);
     merged.extend(on_chain);
     let has_more = merged.len() as i64 > limit;
     if has_more {
@@ -649,9 +570,8 @@ fn paginate_merged(
     let next = if has_more {
         merged
             .last()
-            .and_then(|d| d.get("id"))
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string())
+            .and_then(|d| d["id"].as_str())
+            .map(String::from)
     } else {
         None
     };
@@ -659,50 +579,34 @@ fn paginate_merged(
 }
 
 fn filter_and_extract_base_wearables(
-    base: &[crate::handlers::base_wearables::BaseWearable],
+    base: &[BaseWearable],
     filters: &CatalogFilters,
     last_id: &Option<String>,
     max_results: usize,
     content_public_url: &str,
 ) -> Vec<Value> {
-    let mut matched: Vec<&crate::handlers::base_wearables::BaseWearable> = base
+    let ext = &filters.extended;
+    let mut matched: Vec<&BaseWearable> = base
         .iter()
         .filter(|w| {
             let lc_urn = w.urn.to_lowercase();
-            if let Some(lid) = last_id {
-                if &lc_urn <= lid {
-                    return false;
-                }
-            }
-            if let Some(ref ids) = filters.item_ids {
-                if !ids.contains(&lc_urn) {
-                    return false;
-                }
-            }
-            if let Some(ref t) = filters.text_search {
-                let haystack = w.english_name.as_deref().unwrap_or(&w.name).to_lowercase();
-                if !haystack.contains(t) {
-                    return false;
-                }
-            }
-            let ext = &filters.extended;
-            if !ext.categories.is_empty() && !ext.categories.contains(&w.category.to_lowercase()) {
-                return false;
-            }
-            // Base wearables carry no rarity. A rarity filter is therefore a
-            // statement that the caller wants graded items, which this tier has
-            // none of -- narrowing it to empty is the honest answer, not
-            // ignoring the parameter and returning ungraded ones.
-            if ext.rarity.is_some() {
-                return false;
-            }
-            if let Some(ref n) = ext.name {
-                let haystack = w.english_name.as_deref().unwrap_or(&w.name).to_lowercase();
-                if !haystack.contains(n) {
-                    return false;
-                }
-            }
-            true
+            let haystack = w.english_name.as_deref().unwrap_or(&w.name).to_lowercase();
+            last_id.as_ref().is_none_or(|lid| lc_urn > *lid)
+                && filters
+                    .item_ids
+                    .as_ref()
+                    .is_none_or(|ids| ids.contains(&lc_urn))
+                && filters
+                    .text_search
+                    .as_ref()
+                    .is_none_or(|t| haystack.contains(t.as_str()))
+                && (ext.categories.is_empty()
+                    || ext.categories.contains(&w.category.to_lowercase()))
+                && ext.rarity.is_none()
+                && ext
+                    .name
+                    .as_ref()
+                    .is_none_or(|n| haystack.contains(n.as_str()))
         })
         .collect();
     matched.sort_by_key(|a| a.urn.to_lowercase());
@@ -713,8 +617,48 @@ fn filter_and_extract_base_wearables(
         .collect()
 }
 
+async fn definitions_for(
+    state: &AppState,
+    pointers: Vec<String>,
+    extract: impl Fn(&Value, &str) -> Option<Value>,
+) -> Vec<Value> {
+    if pointers.is_empty() {
+        return Vec::new();
+    }
+    let entities = state
+        .database
+        .active_entities_by_pointers(&pointers)
+        .await
+        .unwrap_or_default();
+    entities
+        .iter()
+        .filter_map(|e| extract(e, &state.content_public_url))
+        .collect()
+}
+
+fn catalog_response(
+    items_key: &str,
+    items: Vec<Value>,
+    filters: &CatalogFilters,
+    limit: i64,
+    next_last_id: Option<String>,
+    id_param_name: &str,
+) -> Response {
+    let mut pagination = Map::new();
+    pagination.insert("limit".into(), json!(limit));
+    if let Some(nl) = next_last_id {
+        let next = format!("?{}", build_next_query(filters, limit, &nl, id_param_name));
+        pagination.insert("next".into(), json!(next));
+    }
+    Json(json!({
+        items_key: items,
+        "filters": filters.to_json(),
+        "pagination": Value::Object(pagination),
+    }))
+    .into_response()
+}
+
 async fn catalog_wearables_with_base(state: &AppState, query: CatalogQuery) -> Response {
-    let content_public_url = &state.content_public_url;
     let filters = &query.filters;
     let limit = query.limit;
 
@@ -722,78 +666,53 @@ async fn catalog_wearables_with_base(state: &AppState, query: CatalogQuery) -> R
         &filters.collection_ids,
         Some(c) if c.len() == 1 && c[0] == BASE_AVATARS_COLLECTION_ID
     );
-    let base_collection_allowed = match &filters.collection_ids {
-        None => true,
-        Some(c) => c.iter().any(|id| id == BASE_AVATARS_COLLECTION_ID),
-    } && filters.extended.allows(CollectionType::BaseWearable);
-
-    // `third-party` is a real upstream tier that this endpoint has no source
-    // for: the catalog reads base wearables and the squid index, neither of
-    // which holds third-party items. Naming it alone therefore selects nothing
-    // here, which is why it is accepted as a value but contributes no branch.
-    let on_chain_allowed = filters.extended.allows(CollectionType::OnChain);
-
-    let mut off_chain: Vec<Value> = Vec::new();
-    let mut on_chain_cursor = query.last_id.clone();
+    let base_collection_allowed = filters
+        .collection_ids
+        .as_ref()
+        .is_none_or(|c| c.iter().any(|id| id == BASE_AVATARS_COLLECTION_ID))
+        && filters.extended.allows(CollectionType::BaseWearable);
     let cursor_in_base_range = query
         .last_id
         .as_ref()
-        .map(|l| l.starts_with(BASE_AVATARS_COLLECTION_ID))
-        .unwrap_or(true);
-    if base_collection_allowed && cursor_in_base_range {
-        let base = crate::handlers::base_wearables::fetch_base_wearables(state).await;
+        .is_none_or(|l| l.starts_with(BASE_AVATARS_COLLECTION_ID));
 
-        off_chain = filter_and_extract_base_wearables(
+    let (off_chain, on_chain_cursor) = if base_collection_allowed && cursor_in_base_range {
+        let base = base_wearables::fetch_base_wearables(state).await;
+        let off_chain = filter_and_extract_base_wearables(
             &base,
             filters,
             &query.last_id,
             (limit + 1) as usize,
-            content_public_url,
+            &state.content_public_url,
         );
-        on_chain_cursor = None;
-    }
+        (off_chain, None)
+    } else {
+        (Vec::new(), query.last_id.clone())
+    };
 
     let remaining = limit - off_chain.len() as i64;
-    let mut on_chain_defs: Vec<Value> = Vec::new();
-    if !only_base_collection && on_chain_allowed && remaining >= 0 {
+    let mut on_chain_defs = Vec::new();
+    if !only_base_collection && filters.extended.allows(CollectionType::OnChain) && remaining >= 0 {
         if let Some(pool) = state.squid_pool.as_ref() {
             let urns =
                 fetch_item_urns(pool, "wearable", filters, remaining + 1, &on_chain_cursor).await;
-            if !urns.is_empty() {
-                let pointers: Vec<String> = urns
-                    .iter()
-                    .map(|u| u.replacen(":mainnet:", ":ethereum:", 1).to_lowercase())
-                    .collect();
-                let entities = state
-                    .database
-                    .active_entities_by_pointers(&pointers)
-                    .await
-                    .unwrap_or_default();
-                on_chain_defs = entities
-                    .iter()
-                    .filter_map(|e| extract_wearable_definition(e, content_public_url))
-                    .collect();
-            }
+            let pointers = urns
+                .iter()
+                .map(|u| u.replacen(":mainnet:", ":ethereum:", 1).to_lowercase())
+                .collect();
+            on_chain_defs = definitions_for(state, pointers, extract_wearable_definition).await;
         }
     }
 
     let (items, next_last_id) = paginate_merged(off_chain, on_chain_defs, limit);
-
-    let next =
-        next_last_id.map(|nl| format!("?{}", build_next_query(filters, limit, &nl, "wearableId")));
-
-    let mut pagination = Map::new();
-    pagination.insert("limit".into(), json!(limit));
-    if let Some(n) = next {
-        pagination.insert("next".into(), json!(n));
-    }
-
-    let body = json!({
-        "wearables": items,
-        "filters": filters.to_json(),
-        "pagination": Value::Object(pagination),
-    });
-    Json(body).into_response()
+    catalog_response(
+        "wearables",
+        items,
+        filters,
+        limit,
+        next_last_id,
+        "wearableId",
+    )
 }
 
 async fn catalog(
@@ -804,18 +723,16 @@ async fn catalog(
     items_key: &str,
     extract: impl Fn(&Value, &str) -> Option<Value>,
 ) -> Response {
-    let pool = match state.squid_pool.as_ref() {
-        Some(p) => p,
-        None => {
-            let body = json!({
-                items_key: [],
-                "filters": query.filters.to_json(),
-                "pagination": { "limit": query.limit },
-            });
-            return Json(body).into_response();
-        }
+    let Some(pool) = state.squid_pool.as_ref() else {
+        return catalog_response(
+            items_key,
+            Vec::new(),
+            &query.filters,
+            query.limit,
+            None,
+            id_param_name,
+        );
     };
-
     let urns = fetch_item_urns(
         pool,
         item_type_prefix,
@@ -824,88 +741,68 @@ async fn catalog(
         &query.last_id,
     )
     .await;
-
-    let pointers: Vec<String> = urns.iter().map(|u| u.to_lowercase()).collect();
-    let entities = if pointers.is_empty() {
-        Vec::new()
-    } else {
-        state
-            .database
-            .active_entities_by_pointers(&pointers)
-            .await
-            .unwrap_or_default()
-    };
-
-    let content_public_url = &state.content_public_url;
-    let definitions: Vec<Value> = entities
-        .iter()
-        .filter_map(|e| extract(e, content_public_url))
-        .collect();
-
+    let pointers = urns.iter().map(|u| u.to_lowercase()).collect();
+    let definitions = definitions_for(state, pointers, extract).await;
     let (items, next_last_id) = paginate(definitions, query.limit);
+    catalog_response(
+        items_key,
+        items,
+        &query.filters,
+        query.limit,
+        next_last_id,
+        id_param_name,
+    )
+}
 
-    let next = next_last_id.map(|nl| {
-        format!(
-            "?{}",
-            build_next_query(&query.filters, query.limit, &nl, id_param_name)
-        )
-    });
-
-    let mut pagination = Map::new();
-    pagination.insert("limit".into(), json!(query.limit));
-    if let Some(n) = next {
-        pagination.insert("next".into(), json!(n));
-    }
-
-    let body = json!({
-        items_key: items,
-        "filters": query.filters.to_json(),
-        "pagination": Value::Object(pagination),
-    });
-    Json(body).into_response()
+fn wearables_query(qs: &str) -> Result<CatalogQuery, Response> {
+    let p = catalog_params_from_query(qs);
+    let extended = parse_extended_filters(&p)?;
+    parse_catalog_query(&p, &p.wearable_id, "wearableId", extended)
 }
 
 pub async fn collections_wearables_catalog(
     State(state): State<Arc<AppState>>,
     request: Request,
 ) -> Response {
-    let params = catalog_params_from_query(request.uri().query().unwrap_or(""));
-    let extended = match parse_extended_filters(&params) {
-        Ok(e) => e,
-        Err(resp) => return resp,
-    };
-    let query = match parse_catalog_query(&params, &params.wearable_id, "wearableId", extended) {
-        Ok(q) => q,
-        Err(resp) => return resp,
-    };
-    catalog_wearables_with_base(&state, query).await
+    match wearables_query(request.uri().query().unwrap_or("")) {
+        Ok(query) => catalog_wearables_with_base(&state, query).await,
+        Err(resp) => resp,
+    }
 }
 
 pub async fn collections_emotes_catalog(
     State(state): State<Arc<AppState>>,
     request: Request,
 ) -> Response {
-    let params = catalog_params_from_query(request.uri().query().unwrap_or(""));
-    // The emotes catalog is upstream-shaped: it has no off-chain tier to select
-    // between, so it does not offer the extension and stays byte-identical.
-    let query = match parse_catalog_query(
-        &params,
-        &params.emote_id,
-        "emoteId",
-        ExtendedFilters::default(),
-    ) {
-        Ok(q) => q,
-        Err(resp) => return resp,
-    };
-    catalog(
-        &state,
-        query,
-        "emote",
-        "emoteId",
-        "emotes",
-        extract_emote_definition,
-    )
-    .await
+    let p = catalog_params_from_query(request.uri().query().unwrap_or(""));
+    match parse_catalog_query(&p, &p.emote_id, "emoteId", ExtendedFilters::default()) {
+        Ok(query) => {
+            catalog(
+                &state,
+                query,
+                "emote",
+                "emoteId",
+                "emotes",
+                extract_emote_definition,
+            )
+            .await
+        }
+        Err(resp) => resp,
+    }
+}
+
+fn base_collections() -> Vec<Value> {
+    vec![
+        json!({ "id": BASE_AVATARS_COLLECTION_ID, "name": "Base Wearables" }),
+        json!({ "id": BASE_EMOTES_COLLECTION_ID, "name": "Base Emotes" }),
+    ]
+}
+
+fn chain_ok<T, E>(a: Result<Vec<T>, E>, b: Result<Vec<T>, E>) -> Vec<T> {
+    a.unwrap_or_default()
+        .into_iter()
+        .chain(b.unwrap_or_default())
+        .collect()
 }
 
 pub async fn nfts_collections(State(state): State<Arc<AppState>>) -> Response {
@@ -915,26 +812,21 @@ pub async fn nfts_collections(State(state): State<Arc<AppState>>) -> Response {
         .get_or_fetch(network.clone(), move || async move {
             use crate::handlers::external_graph;
 
-            let mut collections: Vec<Value> = vec![
-                json!({ "id": BASE_AVATARS_COLLECTION_ID, "name": "Base Wearables" }),
-                json!({ "id": BASE_EMOTES_COLLECTION_ID, "name": "Base Emotes" }),
-            ];
+            let mut collections = base_collections();
 
-            let local: Vec<(String, String)> = if let Some(pool) = pool.as_ref() {
-                let (eth, poly) = tokio::join!(
-                    external_graph::collections_from_squid(
-                        pool,
-                        "ETHEREUM",
-                        Some((":mainnet:", ":ethereum:")),
-                    ),
-                    external_graph::collections_from_squid(pool, "POLYGON", None),
-                );
-                eth.unwrap_or_default()
-                    .into_iter()
-                    .chain(poly.unwrap_or_default())
-                    .collect()
-            } else {
-                Vec::new()
+            let local = match pool.as_ref() {
+                Some(pool) => {
+                    let (eth, poly) = tokio::join!(
+                        external_graph::collections_from_squid(
+                            pool,
+                            "ETHEREUM",
+                            Some((":mainnet:", ":ethereum:")),
+                        ),
+                        external_graph::collections_from_squid(pool, "POLYGON", None),
+                    );
+                    chain_ok(eth, poly)
+                }
+                None => Vec::new(),
             };
 
             let items = if !local.is_empty() {
@@ -946,10 +838,7 @@ pub async fn nfts_collections(State(state): State<Arc<AppState>>) -> Response {
                             external_graph::collections(&urls.eth_collections),
                             external_graph::collections(&urls.matic_collections),
                         );
-                        l1.unwrap_or_default()
-                            .into_iter()
-                            .chain(l2.unwrap_or_default())
-                            .collect()
+                        chain_ok(l1, l2)
                     }
                     Err(e) => {
                         tracing::warn!(error = %e, "collection catalog upstream unavailable");
@@ -957,76 +846,69 @@ pub async fn nfts_collections(State(state): State<Arc<AppState>>) -> Response {
                     }
                 }
             };
-            for (urn, name) in items {
-                collections.push(json!({ "id": urn, "name": name }));
-            }
+            collections.extend(
+                items
+                    .into_iter()
+                    .map(|(urn, name)| json!({ "id": urn, "name": name })),
+            );
 
             Ok::<Value, ()>(json!({ "collections": collections }))
         })
         .await;
 
     match cached {
-        Ok(v) => Json(v).into_response(),
-
-        Err(_) => Json(json!({ "collections": [
-            json!({ "id": BASE_AVATARS_COLLECTION_ID, "name": "Base Wearables" }),
-            json!({ "id": BASE_EMOTES_COLLECTION_ID, "name": "Base Emotes" }),
-        ] }))
-        .into_response(),
+        Ok(v) => Json(v),
+        Err(_) => Json(json!({ "collections": base_collections() })),
     }
+    .into_response()
 }
 
 pub async fn outfits(State(state): State<Arc<AppState>>, Path(id): Path<String>) -> Response {
     let address = id.to_lowercase();
-    let state_arc = state.clone();
-    let address_for_fetch = address.clone();
+    let key = address.clone();
     let cached = outfits_cache()
-        .get_or_fetch(address.clone(), move || async move {
-            let pointer = format!("{address_for_fetch}:outfits");
-            let entity = match state_arc.database.find_entity_by_pointer(&pointer).await {
+        .get_or_fetch(key, move || async move {
+            let pointer = format!("{address}:outfits");
+            let mut entity = match state.database.find_entity_by_pointer(&pointer).await {
                 Ok(Some(e)) => e,
                 Ok(None) | Err(_) => return Ok::<Value, ()>(Value::Null),
             };
 
-            let owned_names: Vec<String> = match state_arc.squid_pool.as_ref() {
+            let owned_names = match state.squid_pool.as_ref() {
                 Some(pool) => {
-                    super::profile_processing::fetch_owned_ens_names(pool, &address_for_fetch).await
+                    super::profile_processing::fetch_owned_ens_names(pool, &address).await
                 }
                 None => Vec::new(),
             };
 
-            let mut entity = entity;
-            let has_names = !owned_names.is_empty();
             if let Some(metadata) = entity.get_mut("metadata").and_then(|m| m.as_object_mut()) {
-                if !has_names {
+                if owned_names.is_empty() {
                     if let Some(outfits) =
                         metadata.get_mut("outfits").and_then(|o| o.as_array_mut())
                     {
                         outfits.retain(|o| {
                             o.get("slot")
                                 .and_then(|s| s.as_i64())
-                                .map(|s| s <= 4)
-                                .unwrap_or(true)
+                                .is_none_or(|s| s <= 4)
                         });
                     }
                 }
                 metadata.insert("namesForExtraSlots".into(), json!(owned_names));
             }
-            Ok::<Value, ()>(entity)
+            Ok(entity)
         })
         .await;
 
     match cached {
-        Ok(v) if v.is_null() => not_found("Outfits not found"),
-        Ok(v) => Json(v).into_response(),
-        Err(_) => not_found("Outfits not found"),
+        Ok(v) if !v.is_null() => Json(v).into_response(),
+        _ => not_found("Outfits not found"),
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     fn sample_wearable_entity() -> Value {
         json!({
@@ -1082,51 +964,43 @@ mod tests {
 
     #[test]
     fn cursor_ethereum_to_mainnet_roundtrip() {
-        assert_eq!(
-            cursor_to_squid("urn:decentraland:ethereum:collections-v1:0xabc:0"),
-            "urn:decentraland:mainnet:collections-v1:0xabc:0"
-        );
-
-        assert_eq!(
-            cursor_to_squid("urn:decentraland:matic:collections-v2:0xabc:0"),
-            "urn:decentraland:matic:collections-v2:0xabc:0"
-        );
-
-        assert_eq!(
-            cursor_to_squid("urn:decentraland:off-chain:base-avatars:eyes_00"),
-            "urn:decentraland:off-chain:base-avatars:eyes_00"
-        );
-
-        assert_eq!(
-            cursor_to_squid(":ethereum::ethereum:"),
-            ":mainnet::mainnet:"
-        );
+        for (input, want) in [
+            (
+                "urn:decentraland:ethereum:collections-v1:0xabc:0",
+                "urn:decentraland:mainnet:collections-v1:0xabc:0",
+            ),
+            (
+                "urn:decentraland:matic:collections-v2:0xabc:0",
+                "urn:decentraland:matic:collections-v2:0xabc:0",
+            ),
+            (
+                "urn:decentraland:off-chain:base-avatars:eyes_00",
+                "urn:decentraland:off-chain:base-avatars:eyes_00",
+            ),
+            (":ethereum::ethereum:", ":mainnet::mainnet:"),
+        ] {
+            assert_eq!(cursor_to_squid(input), want);
+        }
     }
 
     #[test]
     fn clamp_limit_defaults_and_caps() {
         assert_eq!(clamp_limit(&None), MAX_LIMIT);
-        assert_eq!(clamp_limit(&Some("0".into())), MAX_LIMIT);
-        assert_eq!(clamp_limit(&Some("9999".into())), MAX_LIMIT);
-        assert_eq!(clamp_limit(&Some("abc".into())), MAX_LIMIT);
+        for raw in ["0", "9999", "abc"] {
+            assert_eq!(clamp_limit(&Some(raw.into())), MAX_LIMIT);
+        }
         assert_eq!(clamp_limit(&Some("10".into())), 10);
+    }
+
+    fn parse_plain(p: &CatalogParams) -> Result<CatalogQuery, Response> {
+        parse_catalog_query(p, &[], "wearableId", ExtendedFilters::default())
     }
 
     #[test]
     fn parse_requires_a_filter() {
-        let p = CatalogParams::default();
-        assert!(parse_catalog_query(&p, &[], "wearableId", ExtendedFilters::default()).is_err());
+        assert!(parse_plain(&CatalogParams::default()).is_err());
     }
 
-    fn wearables_query(qs: &str) -> Result<CatalogQuery, Response> {
-        let p = catalog_params_from_query(qs);
-        let extended = parse_extended_filters(&p)?;
-        parse_catalog_query(&p, &p.wearable_id, "wearableId", extended)
-    }
-
-    // The invariant the whole divergence rests on: an upstream-shaped query must
-    // be indistinguishable from upstream. If this fails, the extension has
-    // leaked into the default surface.
     #[test]
     fn an_upstream_shaped_query_is_untouched_by_the_extension() {
         let q = wearables_query("collectionId=urn:c1").unwrap();
@@ -1162,8 +1036,6 @@ mod tests {
 
     #[test]
     fn ordering_alone_is_not_a_filter() {
-        // orderBy narrows nothing, so it must not unlock the unfiltered catalog.
-        // It fails on the single-tier rule first, which is still a 400.
         assert!(wearables_query("orderBy=rarity").is_err());
     }
 
@@ -1176,7 +1048,7 @@ mod tests {
     fn an_unknown_rarity_is_refused_with_the_explorer_wording() {
         assert!(wearables_query("rarity=ultra").is_err());
         assert_eq!(
-            crate::handlers::definitions::validate_rarity("ultra").unwrap_err(),
+            validate_rarity("ultra").unwrap_err(),
             "Invalid rarity requested: 'ultra'."
         );
     }
@@ -1232,7 +1104,7 @@ mod tests {
     #[test]
     fn a_rarity_filter_excludes_the_ungraded_base_tier() {
         let q = wearables_query("rarity=mythic").unwrap();
-        let base = crate::handlers::base_wearables::BaseWearable {
+        let base = BaseWearable {
             urn: "urn:decentraland:off-chain:base-avatars:aviatorstyle".into(),
             name: "aviatorstyle".into(),
             english_name: None,
@@ -1252,7 +1124,7 @@ mod tests {
             text_search: Some("ab".into()),
             ..Default::default()
         };
-        assert!(parse_catalog_query(&p, &[], "wearableId", ExtendedFilters::default()).is_err());
+        assert!(parse_plain(&p).is_err());
     }
 
     #[test]
@@ -1261,9 +1133,8 @@ mod tests {
             collection_id: vec!["URN:Decentraland".into()],
             ..Default::default()
         };
-        let q = parse_catalog_query(&p, &[], "wearableId", ExtendedFilters::default()).unwrap();
         assert_eq!(
-            q.filters.collection_ids.unwrap(),
+            parse_plain(&p).unwrap().filters.collection_ids.unwrap(),
             vec!["urn:decentraland".to_string()]
         );
     }
@@ -1284,8 +1155,7 @@ mod tests {
 
     #[test]
     fn paginate_no_overflow_has_no_next() {
-        let defs = vec![json!({ "id": "urn:a" })];
-        let (items, next) = paginate(defs, 2);
+        let (items, next) = paginate(vec![json!({ "id": "urn:a" })], 2);
         assert_eq!(items.len(), 1);
         assert!(next.is_none());
     }
@@ -1298,9 +1168,8 @@ mod tests {
             text_search: Some("hat".into()),
             extended: ExtendedFilters::default(),
         };
-        let q = build_next_query(&f, 50, "urn:c1:5", "wearableId");
         assert_eq!(
-            q,
+            build_next_query(&f, 50, "urn:c1:5", "wearableId"),
             "collectionId=urn%3Ac1&textSearch=hat&limit=50&lastId=urn%3Ac1%3A5"
         );
     }
@@ -1347,32 +1216,36 @@ mod tests {
         );
     }
 
-    use std::sync::atomic::{AtomicUsize, Ordering};
-    use std::sync::Arc as StdArc;
-    use std::time::Duration as StdDuration;
+    /// Fetches through `cache`, counting how often the fetch closure actually runs.
+    async fn counted_fetch(
+        cache: &TtlMap<String, Value>,
+        key: &str,
+        counter: &Arc<AtomicUsize>,
+        value: Value,
+    ) -> Value {
+        let c = counter.clone();
+        cache
+            .get_or_fetch(key.to_string(), || async move {
+                c.fetch_add(1, Ordering::SeqCst);
+                Ok::<_, ()>(value)
+            })
+            .await
+            .unwrap()
+    }
 
     #[tokio::test]
     async fn outfits_cache_second_call_is_a_hit() {
         let cache: TtlMap<String, Value> =
-            TtlMap::bounded("outfits_test", StdDuration::from_secs(60), 100);
-        let counter = StdArc::new(AtomicUsize::new(0));
-
-        let c = counter.clone();
-        let v1 = cache
-            .get_or_fetch("0xabc".to_string(), || async move {
-                c.fetch_add(1, Ordering::SeqCst);
-                Ok::<_, ()>(json!({ "id": "outfit-entity", "metadata": { "outfits": [] } }))
-            })
-            .await
-            .unwrap();
-        let c = counter.clone();
-        let v2 = cache
-            .get_or_fetch("0xabc".to_string(), || async move {
-                c.fetch_add(1, Ordering::SeqCst);
-                Ok::<_, ()>(json!(null))
-            })
-            .await
-            .unwrap();
+            TtlMap::bounded("outfits_test", Duration::from_secs(60), 100);
+        let counter = Arc::new(AtomicUsize::new(0));
+        let v1 = counted_fetch(
+            &cache,
+            "0xabc",
+            &counter,
+            json!({ "id": "outfit-entity", "metadata": { "outfits": [] } }),
+        )
+        .await;
+        let v2 = counted_fetch(&cache, "0xabc", &counter, json!(null)).await;
         assert_eq!(v1, v2);
         assert_eq!(counter.load(Ordering::SeqCst), 1);
     }
@@ -1380,25 +1253,10 @@ mod tests {
     #[tokio::test]
     async fn outfits_cache_caches_not_found_sentinel() {
         let cache: TtlMap<String, Value> =
-            TtlMap::bounded("outfits_test_nf", StdDuration::from_secs(60), 100);
-        let counter = StdArc::new(AtomicUsize::new(0));
-
-        let c = counter.clone();
-        cache
-            .get_or_fetch("0xnone".to_string(), || async move {
-                c.fetch_add(1, Ordering::SeqCst);
-                Ok::<_, ()>(Value::Null)
-            })
-            .await
-            .unwrap();
-        let c = counter.clone();
-        let v = cache
-            .get_or_fetch("0xnone".to_string(), || async move {
-                c.fetch_add(1, Ordering::SeqCst);
-                Ok::<_, ()>(json!({ "x": 1 }))
-            })
-            .await
-            .unwrap();
+            TtlMap::bounded("outfits_test_nf", Duration::from_secs(60), 100);
+        let counter = Arc::new(AtomicUsize::new(0));
+        counted_fetch(&cache, "0xnone", &counter, Value::Null).await;
+        let v = counted_fetch(&cache, "0xnone", &counter, json!({ "x": 1 })).await;
         assert!(v.is_null(), "404 sentinel must HIT");
         assert_eq!(counter.load(Ordering::SeqCst), 1);
     }

@@ -2,7 +2,7 @@
 
 ## Networking, firewall, sandboxing
 
-Reference: `nixos/configuration.nix`. Everything rides the TLS reverse proxy except UDP media/game traffic (proxies can't forward UDP).
+Reference: `nixos/configuration.nix`. Everything rides the TLS reverse proxy except UDP media/game traffic (proxies cannot forward UDP).
 
 | Port | Proto | Service | Notes |
 |---|---|---|---|
@@ -21,7 +21,7 @@ Cloudflare/CDN IP refresh - two decoupled sources of truth:
 - Proxy `real_ip` include: refreshed daily from `https://www.cloudflare.com/ips-v4`/`ips-v6`; fail-soft (HTTP/sanity failure exits 0, last-good snapshot kept - never empty). Sanity: v4 `^[0-9].*/[0-9]+$`, v6 `^[0-9a-fA-F:].*/[0-9]+$`; atomic `mktemp`+`mv`, proxy reload, refresh-timestamp metric. A one-shot seed (the firewall list) lets the proxy start fresh.
 - Firewall input rules: hardcoded in declarative host config, updated by hand; `CloudflareIpsStale` (`cloudflare_ips_refresh_timestamp_seconds` > 7d) catches drift.
 
-systemd sandbox carve-outs - four nested hardening profiles (`baseSandbox` -> `commsHardening` -> `noPgSandbox` -> `noJitHardening`); deliberate omissions, don't tighten without reading why:
+systemd sandbox carve-outs - four nested hardening profiles (`baseSandbox` -> `commsHardening` -> `noPgSandbox` -> `noJitHardening`). The omissions are deliberate; do not tighten without reading why:
 
 - `PrivateUsers` omitted from `baseSandbox`: child userns hides real UID from Postgres `SO_PEERCRED` peer auth; re-added (`noPgSandbox`) only for non-postgres services.
 - `~@resources` unfiltered: carve-out for `mbind`/`set_mempolicy`/`sched_setattr`; `catalyrst-pulse` (Rust) doesn't need it - cleanup candidate.
@@ -49,15 +49,7 @@ GET  /admin/auth/me                   -> { address } | 401
 
 `Nonce:` = `HMAC(SESSION_SECRET, host|address|exp)`, 5-minute expiry - no nonce store, not replayable cross-host/address. `verify` re-checks host, expiry, nonce HMAC, recovered signer in `ADMIN_ADDRESSES`, then mints `cat_admin` = `base64url({addr,exp}) . base64url(HMAC)` - `HttpOnly; SameSite=Strict; Secure`. Mutations require same-origin `Origin`/`Referer` when present.
 
-| Env | Meaning | Default |
-|---|---|---|
-| `ADMIN_ADDRESSES` | comma-separated `0x...` allowlist | unset -> read-only |
-| `SESSION_SECRET` | HMAC key for cookie + nonce | unset -> read-only |
-| `ADMIN_SESSION_TTL_SECS` | session lifetime | 43200 (12h) |
-| `ADMIN_COOKIE_INSECURE` | `1` drops the `Secure` flag (plain-HTTP private nets only; localhost is already a secure context) | unset |
-| `COMMS_MODERATOR_TOKEN` / `MODERATOR_TOKEN` | bearer forwarded to comms for ban/warn/unban | unset -> social controls hidden |
-| `AB_REGISTRY_ADMIN_TOKEN` / `API_ADMIN_TOKEN` | bearer forwarded to the registry for re-ingest / cache flush | unset -> create controls hidden |
-| `DEBUGGING_SECRET` | secret injected into scene-state reload | unset -> scene controls hidden |
+Env vars - `ADMIN_ADDRESSES`, `SESSION_SECRET`, `ADMIN_SESSION_TTL_SECS`, `ADMIN_COOKIE_INSECURE`, `COMMS_MODERATOR_TOKEN`/`MODERATOR_TOKEN` (unset -> social controls hidden), `AB_REGISTRY_ADMIN_TOKEN`/`API_ADMIN_TOKEN` (unset -> create controls hidden), `DEBUGGING_SECRET` (unset -> scene controls hidden) - are defined in the [catalyrst-live env reference](../DEPLOYMENT.md#environment-variable-reference-catalyrst-live).
 
 The console accepts its own env name or the sibling's native name. Unsupported proxy actions return 501, audited "unsupported". Telemetry `/dash/*` pages carry no token - loopback-trusted; must stay firewalled to loopback/private network.
 

@@ -2,14 +2,14 @@
 
 Three pilot crates (`catalyrst-events`, `catalyrst-places`, `catalyrst-worlds`) carry
 typed route contracts: every route in the service router is annotated with
-`#[utoipa::path]`, the axum router is built with `utoipa-axum`'s `OpenApiRouter` +
-`routes!` so the path string in the annotation is the single source for both the
-mounted route and the spec, and each service serves its spec at `GET /openapi.json`.
+`#[utoipa::path]`; the axum router is built with `utoipa-axum`'s `OpenApiRouter` +
+`routes!`, so the path string in the annotation is the single source for both the
+mounted route and the spec; each service serves its spec at `GET /openapi.json`.
 The generated specs and TypeScript clients are committed under
 `catalyrst/ui3/src/generated/catalyst/openapi/` and consumed by sites through
 `catalyrst/sites/packages/data/src/lib/catalyst/typed.ts` (`eventsApiPath` / `placesApiPath` /
-`worldsApiPath`). A server-side route rename therefore fails `tsc` in sites at every
-stale call site.
+`worldsApiPath`), so a server-side route rename fails `tsc` in sites at every stale
+call site.
 
 Errors use one shared envelope: `catalyrst_types::ApiErrorBody`
 (`{ ok: false, error, message, federation_adr? }`, feature `openapi` adds the

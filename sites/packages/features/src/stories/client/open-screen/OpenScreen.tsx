@@ -219,10 +219,6 @@ function GenesisSpawn({
     emitJumpedIn(busiest.id);
     navigate(placeJumpPath(busiest.id));
   };
-  // Opting out (browse instead) must cancel the pending auto-jump: otherwise a
-  // timer that fires mid-navigation would override the user's choice and fling
-  // them into the scene they explicitly declined. Setting jumpedRef makes the
-  // scheduled jump() a no-op -- the same guard "Jump now" already relies on.
   const cancelAutoJump = () => {
     jumpedRef.current = true;
   };
@@ -236,9 +232,6 @@ function GenesisSpawn({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [busiest, jumpDelayMs]);
 
-  // No live reading: never dead-end on a "browse instead" prompt. The loader
-  // redirects server-side; this covers the client-only render (Storybook, edge
-  // cases) so the player still lands on Places with zero clicks.
   const redirectedRef = useRef(false);
   useEffect(() => {
     if (busiest || redirectedRef.current) return;
@@ -377,9 +370,6 @@ function ChooserCard({
     );
   }
   return (
-    // No aria-label: the accessible name is composed from the visible title +
-    // subtitle so a screen reader hears the differentiating context (the place
-    // name / online count), not just the generic card title.
     <a href={href} onClick={onClick} style={CHOOSER}>
       <div style={CHOOSER_TITLE}>{title}</div>
       <div style={CHOOSER_SUB}>{subtitle}</div>

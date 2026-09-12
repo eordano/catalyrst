@@ -30,9 +30,6 @@ function asDescription(v: unknown): string | null {
   return typeof v === "string" && v.length > 0 ? v : null;
 }
 
-// Variants arrive as bare names from older engine builds and as
-// {name, description} from builds that author tooltips; normalize both so
-// consumers never branch on the wire shape.
 function toVariant(v: unknown): EngineVariant | null {
   if (typeof v === "string") return { label: v, description: null };
   if (v && typeof v === "object") {
@@ -60,11 +57,6 @@ function toEngineSetting(s: SettingEntry): EngineSetting {
   };
 }
 
-// One GetSettings per mounted surface: the engine answers with a full snapshot
-// push and echoes another after every SetSetting, so consumers render the
-// clamped/applied values without a poll loop. Writes are optimistic; the echo
-// reconciles them. `connected` goes false only after the attach loop gives up,
-// so panels can say honestly that changes will not stick.
 export function useEngineSettings(): {
   info: EngineSettingInfo | null;
   values: Record<string, number>;

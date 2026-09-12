@@ -1,9 +1,5 @@
 import { type Place } from "@data/lib/catalyst/places/index";
 
-// The minimal place shape the open-screen arms render/navigate to. A place is an
-// "open place" only when it has a positive live reading -- `toOpenPlace` returns
-// null otherwise, so the schema-honesty invariant (never surface a fabricated or
-// zero reading as live) is enforced at the projection, not the render.
 export type OpenPlace = {
   id: string;
   title: string | null;
@@ -21,10 +17,6 @@ export function toOpenPlace(p: Place | null | undefined): OpenPlace | null {
   };
 }
 
-// Pick the busiest live place (highest user_count) and a distinct "surprise"
-// place (a random other live place, or the busiest itself when it is the only
-// one). Returns nulls when nothing is live so the genesis arm redirects and the
-// three-cards arm disables its live-scene cards. `rng` is injectable for tests.
 export function selectLiveTargets(
   places: Place[] | null | undefined,
   rng: () => number = Math.random,

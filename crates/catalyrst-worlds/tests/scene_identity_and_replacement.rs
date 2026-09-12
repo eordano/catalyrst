@@ -105,8 +105,6 @@ async fn a_base_outside_the_scene_footprint_never_becomes_the_scene_identity() {
     let wc = WorldsComponent::new(scratch.pool.clone());
     let world = "identity.dcl.eth";
 
-    // The scene claims a base parcel it does not occupy. Trusting it would send the comms
-    // gatekeeper's scene-ban probe to `/parcels/100,100/...`, where nobody has bans.
     deploy(
         &wc,
         world,
@@ -234,8 +232,6 @@ async fn a_scoped_deploy_rolls_back_when_an_unauthorized_scene_survives() {
     .await
     .expect("existing scene");
 
-    // The authorization snapshot said nothing overlapped; by the time the transaction runs
-    // something does. The deployment must not silently land on top of it.
     let err = deploy(
         &wc,
         world,
@@ -308,7 +304,6 @@ async fn undeploy_scene_removes_only_the_authorized_identities() {
         "the unauthorized neighbour must survive"
     );
 
-    // The owner path passes no allow-list at all.
     assert_eq!(wc.undeploy_scene(world, "5,5", None).await.unwrap(), 1);
     assert!(entity_ids(&wc, world).await.is_empty());
 

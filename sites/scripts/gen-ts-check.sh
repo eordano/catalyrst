@@ -59,7 +59,6 @@ cargo test --features '$feature_list'$pkg_flags export_bindings" || fail_toolcha
   spec_set_rc=0
   node "$SITES/scripts/gen-openapi-ts.mts" "$TMP/catalyst/openapi" \
     "${OPENAPI_SPECS[@]}" || spec_set_rc=$?
-  # 3 is the generator's spec-set verdict, not a build failure: report it as drift.
   [[ $spec_set_rc -eq 0 || $spec_set_rc -eq 3 ]] || fail_toolchain
 fi
 if [[ $check_bridge -eq 1 ]]; then

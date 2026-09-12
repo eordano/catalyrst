@@ -6,7 +6,6 @@ function req(url: string, cookie?: string): Request {
   return new Request(url, { headers: cookie ? { cookie } : {} });
 }
 
-/** The Set-Cookie values a sidLoader's wrap() attached, in emission order. */
 function cookies(base: ReturnType<typeof sidLoader>): string[] {
   const result = base.wrap({}) as { init?: { headers?: HeadersInit } | null };
   const headers = result.init?.headers;

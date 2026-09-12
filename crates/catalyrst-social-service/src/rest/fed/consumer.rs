@@ -324,14 +324,11 @@ pub async fn apply_envelope(state: &AppState, env: &GossipEnvelope) -> Result<()
             )
             .await
             .map_err(|refusal| match refusal {
-                // Keep the wording this arm has always logged for a genuine refusal...
                 catalyrst_authenticated_principal::AuthorityNotEstablished::
                     RefusedLacksAuthority { .. } => format!(
                     "{} doesn't have permission to unban {}",
                     signer, signed.message.target
                 ),
-                // ...but never let an outage wear it. That collapse is the defect the
-                // typed refusal exists to prevent.
                 other => operator_log_message_for_refusal(&other),
             })?;
             apply::apply_unban(pool, &signed, &signer)

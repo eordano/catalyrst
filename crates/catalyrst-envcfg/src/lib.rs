@@ -14,9 +14,6 @@ fn trimmed(key: &str) -> Option<String> {
         .filter(|s| !s.is_empty())
 }
 
-/// Endpoints have no built-in default on purpose: every value this stack once
-/// defaulted to was a live production Decentraland host, so an unset variable
-/// silently sent real traffic upstream. Fail closed instead.
 pub fn required_endpoint(key: &str) -> Result<String> {
     trimmed(key).ok_or_else(|| {
         anyhow!(
@@ -28,8 +25,8 @@ pub fn required_endpoint(key: &str) -> Result<String> {
     })
 }
 
-/// For endpoints a service in this stack implements itself; the fallback is that
-/// service's loopback port on this host, never an upstream host.
+/// For endpoints a service in this stack implements itself: the fallback is
+/// loopback on this host, never an upstream host.
 pub fn local_endpoint(key: &str, port: u16) -> String {
     trimmed(key).unwrap_or_else(|| format!("http://127.0.0.1:{port}"))
 }
@@ -83,8 +80,6 @@ pub fn env_bool(key: &str, default: bool) -> bool {
     }
 }
 
-/// Standard service-bin tracing bootstrap: `RUST_LOG` via `EnvFilter` with a
-/// per-service default filter, target names off.
 pub fn init_tracing(default_filter: &str) {
     tracing_subscriber::fmt()
         .with_env_filter(
@@ -95,9 +90,8 @@ pub fn init_tracing(default_filter: &str) {
         .init();
 }
 
-/// Standard service-bin tail: parse `host:port`, log `<name> listening`,
-/// bind, and serve `app` until shutdown. Bins that need extra serve behavior
-/// (connect-info, graceful shutdown, TLS) keep their own tail.
+/// Bins that need extra serve behavior (connect-info, graceful shutdown, TLS)
+/// keep their own tail.
 pub async fn run_service(
     name: &str,
     host: impl std::fmt::Display,

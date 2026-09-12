@@ -46,14 +46,14 @@ export function handleBidCreated(
     bid.network = NetworkModel.POLYGON;
     bid.bidAddress = contractAddress;
     bid.status = OrderStatus.open;
-    bid.category = Category.wearable; // hardcoded since ethereum has this and polygon doesn't
+    bid.category = Category.wearable;
     bid.nftAddress = _tokenAddress;
     bid.bidder = Buffer.from(_bidder.slice(2), "hex");
     bid.price = _price;
     bid.fingerprint =
       _fingerprint === "0x"
         ? Buffer.from("")
-        : Buffer.from(_fingerprint.slice(2), "hex"); // hack to avoid saving 0x in hex in the db
+        : Buffer.from(_fingerprint.slice(2), "hex");
     bid.tokenId = _tokenId;
     bid.blockchainId = _id;
     bid.blockNumber = BigInt(block.header.height);

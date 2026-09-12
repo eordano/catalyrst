@@ -277,9 +277,6 @@ fn build_create_raw(
     world: bool,
 ) -> Value {
     let now = Utc::now();
-    // Recurrence expansion is not implemented: a recurrent event still gets the
-    // single start date. Both arms of the original branch produced exactly this,
-    // so collapsing changes nothing but makes the gap legible.
     let recurrent_dates = vec![start_at];
     let (next_start, next_finish) = compute_next(start_at, body.duration, &recurrent_dates);
     let finish_at = start_at + Duration::milliseconds(body.duration.max(0));
@@ -419,8 +416,6 @@ pub async fn create_event(
     Ok(Json(ApiOk::new(record)))
 }
 
-// validate_create judges the world-limits skip on the REQUESTED flag; the
-// stored flag follows the resolution, as upstream's resolveLocation does.
 async fn build_create(
     places: &Places,
     body: &CreateEventBody,
@@ -438,13 +433,10 @@ async fn build_create(
     build_create_raw(body, signer, start_at, place_id.as_deref(), world)
 }
 
-// An explicit null counts as present, as upstream keys the edit on the key.
 fn location_touched(body: &UpdateEventBody) -> bool {
     body.x.is_some() || body.y.is_some() || body.server.is_some() || body.world.is_some()
 }
 
-// Upstream re-resolves the destination from the merged location on every edit
-// that touches it, so the stored place_id and world flag follow the event.
 async fn resolve_location(places: &Places, raw: &mut Map<String, Value>) {
     let world = raw.get("world").and_then(|v| v.as_bool()).unwrap_or(false);
     let server = raw.get("server").and_then(|v| v.as_str()).map(String::from);

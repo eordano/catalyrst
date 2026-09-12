@@ -129,9 +129,6 @@ export const CREATORHUB_NAV: NavItem[] = [
       </svg>
     ),
   },
-  // Inserted inside the existing `group: "Manage"` run -- buildNavGroups() below
-  // derives groups by array adjacency, so a non-adjacent insert silently forks
-  // a duplicate "Manage" header with no gate to catch it.
   {
     id: "activity",
     group: "Manage",

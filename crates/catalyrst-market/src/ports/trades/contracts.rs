@@ -3,12 +3,11 @@ pub struct OffChainMarketplace {
     pub name: &'static str,
     pub version: &'static str,
     pub address: &'static str,
-    /// V3 keys a cancellation on the trade's EIP-712 digest; V1 and V2 key it
-    /// on keccak256 of the signature bytes, which `hashed_signature` already
-    /// stores. Decides whether a digest is recorded for the trade at all: the
-    /// indexer only writes one for the versions that use it, and storing one
-    /// for a V2 trade would leave the two join columns meaning different
-    /// things on each side.
+    /// V3 keys a cancellation on the trade's EIP-712 digest; V1 and V2 key it on keccak256 of
+    /// the signature bytes, which `hashed_signature` already stores. Also decides whether a
+    /// digest is recorded at all -- the indexer only writes one for the versions that use it,
+    /// and storing one for a V2 trade would leave the join columns meaning different things
+    /// on each side.
     pub cancels_by_digest: bool,
 }
 
@@ -61,11 +60,10 @@ pub fn offchain_marketplace_v3(chain_id: i64) -> Option<OffChainMarketplace> {
     }
 }
 
-/// The versions a new trade may be signed against on a chain, newest first.
-/// The EIP-712 domain names its verifying contract, so the version is part of
-/// what the signer signed and pinning one would reject every trade signed
-/// against the other while clients roll over; newest first so a signature
-/// that verifies against both settles on the newest deployment.
+/// Newest first. The EIP-712 domain names its verifying contract, so the version is part of
+/// what the signer signed: pinning one would reject every trade signed against the other
+/// while clients roll over, and newest-first settles an ambiguous signature on the newest
+/// deployment.
 pub fn offchain_marketplaces(chain_id: i64) -> Vec<OffChainMarketplace> {
     [
         offchain_marketplace_v3(chain_id),

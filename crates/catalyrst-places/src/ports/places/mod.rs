@@ -432,10 +432,6 @@ mod destinations_order_tests {
         );
     }
 
-    // Upstream's ranking column is `float DEFAULT 0`, so a never-ranked
-    // destination and one a replace run just cleared are the same number and
-    // tie. Ours lives in `raw`, where never-ranked is an absent key, so the
-    // prefix has to read that absence as the same 0 rather than sort it last.
     #[test]
     fn an_absent_ranking_sorts_as_the_zero_upstream_stores() {
         let prefix = destinations_ranking_prefix(&destinations());
@@ -613,8 +609,6 @@ mod ranking_replace_tests {
         );
     }
 
-    // Reported once, or the caller's skip counts exceed what it sent and
-    // anything totalling them double counts.
     #[test]
     fn a_curated_world_row_is_reported_under_curated_only() {
         let entries = vec![entry("both", 5.0)];
@@ -687,9 +681,6 @@ mod ranking_replace_tests {
         );
     }
 
-    // Two rows can answer one name when a world carries both an id and a
-    // matching name; the resolution must stay deterministic so a rerun of the
-    // same export writes the same row.
     #[test]
     fn a_name_matching_two_rows_resolves_to_the_first_one() {
         let entries = vec![entry("dup.dcl.eth", 3.0)];
@@ -709,10 +700,6 @@ mod ranking_replace_tests {
         );
     }
 
-    // Name resolution is case-insensitive, so two casings the handler's
-    // duplicate check reads as two destinations land on one row. Only the
-    // first claims it; the second is a collision the run is refused for,
-    // rather than a second write the UPDATE would pick a winner between.
     #[test]
     fn two_ids_resolving_to_one_row_collide_instead_of_writing_twice() {
         let entries = vec![entry("Named.dcl.eth", 10.0), entry("named.dcl.eth", 20.0)];

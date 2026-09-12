@@ -19,16 +19,14 @@ fn bearer_token(headers: &HeaderMap) -> Option<String> {
         .map(|s| s.to_string())
 }
 
-/// Map the shared verifier's refusal back onto this crate's historical wire response, so the
-/// migration onto `catalyrst-authenticated-principal`'s constant-time comparison changes no
-/// status code or body a client can observe. Same pattern as
+/// Preserves this crate's historical wire response across the migration onto
+/// `catalyrst-authenticated-principal`'s constant-time comparison. Same pattern as
 /// `catalyrst-telemetry`'s `admin_rejection_as_legacy_forbidden`.
 ///
 /// The shared verifier only ever returns `CredentialNotConfigured` (503) or one of
 /// `AuthenticationMissingOrInvalid` / `PresentedSharedSecretDidNotMatch` (401) for this
-/// comparison -- never `RefusedLacksAuthority` or `UndeterminedStoreUnavailable` -- so matching
-/// on `http_status()` here is exhaustive in practice for every refusal this function can
-/// produce.
+/// comparison, so matching on `http_status()` is exhaustive for every refusal this function
+/// can produce.
 fn admin_rejection_as_legacy_forbidden(refusal: &AuthorityNotEstablished) -> Response {
     match refusal.http_status() {
         503 => forbidden("admin token not configured"),
@@ -73,10 +71,6 @@ mod tests {
         String::from_utf8(bytes.to_vec()).unwrap()
     }
 
-    // Serializes every test in this module: `require_admin` reads the real process
-    // environment variable directly (matching its pre-migration behaviour byte for byte), so
-    // concurrent tests mutating `ADMIN_TOKEN_ENV` would race. `std::sync::Mutex` rather than
-    // anything async since these are plain `#[test]`s.
     fn env_lock() -> &'static std::sync::Mutex<()> {
         static LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
         LOCK.get_or_init(|| std::sync::Mutex::new(()))
@@ -84,13 +78,9 @@ mod tests {
 
     #[tokio::test]
     async fn unset_token_and_bad_token_return_the_exact_same_403_as_before_the_migration() {
-        // Every env mutation and `require_admin` call happens under the guard;
-        // the body reads below only touch already-materialized responses, so
-        // the guard drops before any await (clippy::await_holding_lock).
         let (unset_resp, missing_resp, wrong_resp) = {
             let _guard = env_lock().lock().unwrap();
 
-            // Unset-token case: the historical 403 body names the unset env var.
             std::env::remove_var(ADMIN_TOKEN_ENV);
             let unset_resp = require_admin(&HeaderMap::new()).expect_err("unset token must refuse");
 

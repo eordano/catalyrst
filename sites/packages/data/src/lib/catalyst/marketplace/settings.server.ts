@@ -10,13 +10,6 @@ import {
   type Store,
 } from "./settings";
 
-/**
- * "catalyst" -- `store` is what this node holds for the address.
- * "empty" -- the node answered and the address has published no store.
- * "unavailable" -- the read failed. `store` is blank because we know nothing,
- *   so the editor must not present those blanks as the seller's current
- *   settings -- saving them would erase a store we simply could not read.
- */
 export type StoreResult = {
   store: Store;
   source: "catalyst" | "empty" | "unavailable";

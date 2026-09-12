@@ -3,8 +3,6 @@
 //! ever fails, the Rust has drifted out from under a proof; this file is the
 //! durable form of that proof.
 //!
-//! Run: `cargo test -p catalyrst-scene-state --test formal_properties`
-//!
 //! Scope discipline, inherited verbatim from `Props.v`: the LWW fragment below
 //! is PUT_COMPONENT + DELETE_COMPONENT only, one component-id space, no caps,
 //! no APPEND, no DELETE_ENTITY, well-formed frames. Every fragment was excluded
@@ -77,8 +75,6 @@ fn observable(ops: &[CrdtMessage], probes: &[CrdtMessage]) -> (Vec<CrdtMessage>,
     (snapshot, answers)
 }
 
-// Code: crdt.rs data_compare + the lww_set Equal arm.
-
 /// Sample values: the tombstone, the empty payload, and payloads chosen to
 /// exercise both the length rule and the lexicographic rule.
 fn value() -> impl Strategy<Value = Option<Vec<u8>>> {
@@ -107,7 +103,6 @@ proptest! {
         prop_assert_eq!(u8::from(ab) + u8::from(ba) + u8::from(eq), 1);
     }
 
-    /// Transitivity.
     #[test]
     fn value_order_is_transitive(a in value(), b in value(), c in value()) {
         if wins(a.as_deref(), b.as_deref()) && wins(b.as_deref(), c.as_deref()) {
@@ -147,8 +142,6 @@ proptest! {
         let next = write(E, C, ts1, v1.as_deref());
         let mut e = build(&[seed]);
         if e.apply(&next) == ApplyResult::Applied {
-            // a DELETE_COMPONENT lands as a tombstone carrying its timestamp,
-            // exactly as upstream's `createDumpLwwFunctionFromCrdt` dumps it
             let expect = match v1.as_deref() {
                 Some(d) => vec![put(E, C, ts1, d)],
                 None => vec![del_comp(E, C, ts1)],
@@ -196,8 +189,6 @@ proptest! {
     }
 }
 
-// Covers the highest-traffic path: Transform, MeshRenderer, Material.
-
 fn lww_message() -> impl Strategy<Value = CrdtMessage> {
     (1u32..3, 1u32..3, 0u32..4, value()).prop_map(|(e, c, t, v)| write(e, c, t, v.as_deref()))
 }
@@ -232,8 +223,6 @@ proptest! {
         prop_assert_eq!(observable(&ops, &probes), observable(&shuffled, &probes));
     }
 }
-
-// Code: crdt.rs decode_batch `_ => {}` then `off += len`.
 
 proptest! {
     /// A record with an unknown type (PUT_COMPONENT_NETWORK = 5,

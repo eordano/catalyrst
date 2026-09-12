@@ -43,24 +43,6 @@ export const WEARABLE_CATEGORIES = [
   "skin",
 ] as const;
 
-/**
- * What a wearable definition actually carries.
- *
- * `rarity` is a StandardProps field in `@dcl/schemas`: on-chain collection
- * items have one and base avatars are *prohibited* from carrying it, so an
- * absent rarity is a fact about the item, not a read that failed. `common` --
- * the old default -- is a real tier with its own colour and price band, so
- * every base wearable used to render as a common drop.
- *
- * `category` and `bodyShapes` get no fallback of any kind. `category` picks
- * the slot an item equips into, so a defaulted `upper_body` puts a hat where
- * the shirt goes; `bodyShapes` decides whether the item can be worn at all.
- * An item whose definition does not say is dropped from the catalog rather
- * than mis-slotted, which is what `parseCatalog` below does with a rejection.
- *
- * `name` is required because `mapWearable` always supplies one -- from the URN
- * slug when the definition omits it, which is a fact about the URN.
- */
 export const WearableSchema = z.object({
   urn: z.string().min(1),
   name: z.string(),
@@ -82,14 +64,6 @@ export const CategorySchema = z.object({
 });
 export type Category = z.infer<typeof CategorySchema>;
 
-/**
- * `bodyShape`, `eyes`, `hair` and `skin` are required on every `AvatarInfo` in
- * `@dcl/schemas`, so a profile that does not carry them is not a profile.
- * Defaulting them produced a plausible stranger -- BaseMale, a skin tone, no
- * wearables -- that the panel then invited the wearer to save back over the
- * avatar we had merely failed to read. A rejection reaches `fetchEquipped`,
- * which returns null, and the panel says so.
- */
 export const EquippedSchema = z.object({
   bodyShape: z.string(),
   skinColor: z.string(),
@@ -99,9 +73,6 @@ export const EquippedSchema = z.object({
 });
 export type Equipped = z.infer<typeof EquippedSchema>;
 
-/** `amount` is how many copies the wallet owns. An absent amount is not "one" --
- *  nothing here reads it, and inventing a quantity is how a broken read becomes
- *  a claim about someone's holdings. */
 export const OwnedElementSchema = z
   .object({
     urn: z.string(),
@@ -130,8 +101,6 @@ export function parseOwned(raw: unknown): string[] {
   return out;
 }
 
-/** A label read off the URN. Not a name the definition gave us, but a fact
- *  about the item, which an empty tile is not. */
 export function urnLabel(urn: string): string {
   const last = urn.split(":").pop() ?? "";
   if (!last || /^\d+$/.test(last)) return urn;
@@ -183,19 +152,11 @@ export function rarityLabel(rarity: string): string {
   return rarity.charAt(0).toUpperCase() + rarity.slice(1);
 }
 
-/**
- * What was actually read about the player's own items.
- *
- * "loaded" is the only arm that carries a claim about how many items exist.
- * A failed read used to arrive here as `[]`, which the panel rendered as
- * "your inventory is empty" -- an answer nobody measured.
- */
 export type InventoryState =
   | { status: "loaded"; empty: boolean }
   | { status: "not-connected" }
   | { status: "unavailable"; reason: string };
 
-/** Whether the browsable catalog is all of it, some of it, or none of it. */
 export type CatalogState =
   | { status: "complete" }
   | { status: "partial"; reason: string }

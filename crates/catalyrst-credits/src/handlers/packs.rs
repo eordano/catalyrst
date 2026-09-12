@@ -492,27 +492,21 @@ mod tests {
 /// Characterizes `exceeds_mock_topup_cap` on the shared edge-input set used
 /// across all decimal-string validators in this crate (see the sibling
 /// `characterization_*` tests in money.rs, ports/pricing.rs, ports/checkout.rs,
-/// and purchase_intent.rs). This function is the ONLY one of the five with no
-/// digit/grammar validation at all -- it is pure length/lexicographic string
-/// comparison against the cap `"10000"`, and it is only ever reached after
+/// and purchase_intent.rs). This is the ONLY one of the five with no
+/// digit/grammar validation at all -- pure length/lexicographic comparison
+/// against the cap `"10000"` -- and it is only ever reached after
 /// `validate_positive_amount` (handlers/admin/common.rs) has already rejected
-/// anything containing `e`/`E`/`-`/repeated `.`/whitespace. Called standalone
-/// (as here) on ungated input it silently mis-reads scientific notation and
-/// leading/trailing whitespace as "small" (not exceeding the cap) rather than
-/// erroring -- captured below so a future refactor cannot change this quietly.
+/// anything containing `e`/`E`/`-`/repeated `.`/whitespace. Standalone on
+/// ungated input it silently mis-reads scientific notation and surrounding
+/// whitespace as "small".
 #[cfg(test)]
 mod characterization_exceeds_mock_topup_cap {
     use super::exceeds_mock_topup_cap;
 
     #[test]
     fn current_accept_reject_on_edge_inputs() {
-        // Scientific notation is read as a short alphanumeric int_part
-        // ("1e18" has only 4 chars, less than cap "10000"'s 5) and passes
-        // AS IF IT WERE SMALL -- this function has no digit-grammar check.
         assert!(!exceeds_mock_topup_cap("1e18"));
         assert!(!exceeds_mock_topup_cap("1E18"));
-        // No .trim() in this function at all: leading/trailing whitespace
-        // just rides along inside int_part/frac_part.
         assert!(!exceeds_mock_topup_cap(" 1.5 "));
         assert!(!exceeds_mock_topup_cap(".5"));
         assert!(!exceeds_mock_topup_cap("5."));
@@ -520,9 +514,6 @@ mod characterization_exceeds_mock_topup_cap {
         assert!(!exceeds_mock_topup_cap(""));
         assert!(!exceeds_mock_topup_cap("-1"));
         assert!(!exceeds_mock_topup_cap("1.2.3"));
-        // A genuinely huge plain-digit integer (no exponent) IS correctly
-        // flagged, because the length/lexicographic compare works fine on
-        // ordinary digit strings.
         assert!(exceeds_mock_topup_cap(&"9".repeat(50)));
     }
 }

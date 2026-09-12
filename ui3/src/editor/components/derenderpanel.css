@@ -1,10 +1,3 @@
-/* The pane is docked, not floating: it must clear the whole chrome band.
-   --eui-chrome-h is 53px (appbar in the wizard; 0px in the bare editor) plus
-   the 152px ribbon, so --eui-top-inset (chrome-h + 12px) already lands below
-   every ribbon row including the 24px status strip. The +44px instead of the
-   old fixed 24px clears the floating gizmo toolbar, which hangs off
-   --eui-top-inset at ~40px tall; the previous top: 96px covered the ribbon's
-   chrome row, stealing the rightmost buttons. */
 .erp {
   position: absolute;
   top: calc(var(--eui-top-inset, 12px) + 44px);
@@ -118,11 +111,6 @@
   background: #2d3039;
 }
 
-/* The honest-chip flow empties the save slot (DeWorkspace passes "") on an
-   idle, untouched scene, and deribbon.css keeps the .rb-save span mounted so
-   the slot never moves an empty pill would sit in the status strip. Hide it
-   while empty; any label brings it back. Lives here because deribbon.css is
-   out of this task's scope. */
 .rb-save:empty {
   display: none;
 }

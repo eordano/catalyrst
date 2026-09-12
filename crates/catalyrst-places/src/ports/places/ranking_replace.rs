@@ -9,9 +9,8 @@ use crate::http::errors::ApiError;
 use super::component::PlacesComponent;
 use super::query::{EXCLUDE_FROM_RANKING_SQL, RANKING_IS_SET_SQL};
 
-/// One destination's ranking for a single run of the automated score, already
-/// routed to its own leg: a place is addressed by its catalogue id, a world by
-/// its name or id, the way the caller's export names it.
+/// A place is addressed by its catalogue id, a world by its name or id, the way
+/// the caller's export names it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct RankingEntry {
     pub id: String,
@@ -77,17 +76,6 @@ pub(super) struct WorldBuckets {
     pub missing: Vec<String>,
 }
 
-// The buckets are exclusive so the caller's skip counts add up to what it
-// sent: a destination that is both curated and a world is reported once, under
-// curation, because that is the half a human would act on.
-//
-// `world` splits one table into the two upstream keeps apart, so a world row
-// addressed as a place is the same category error there and here: browse
-// orders worlds by their own leg and never reads a ranking written onto one.
-// A destination this node serves itself lives in place_world_local, outside
-// every statement below, so an id that resolves only there is named by the
-// export and unwritable here -- reported as world-backed rather than missing,
-// since the id does name a world.
 pub(super) fn classify_places(
     entries: &[RankingEntry],
     rows: &[CurationRow],
@@ -113,25 +101,6 @@ pub(super) fn classify_places(
     buckets
 }
 
-// A world is addressed by name and stored under a row id that need not be the
-// name, so the write travels with the resolved id while every report names the
-// id the caller sent. A world served out of place_world_local resolves through
-// the catalogue but not through this leg; upstream's result has no slot for
-// "found and unwritable", so it lands in `missing` rather than growing the
-// wire shape -- the same gap the single-destination ranking routes answer 503
-// for.
-//
-// The second return names every submitted id that resolved onto a row another
-// id in the same run had already claimed. Upstream matches `worlds.id`
-// exactly, so its duplicate check over the raw ids is complete; ours resolves
-// `lower(world_name)` the way find_world_by_id does, and two casings of one
-// name would otherwise both reach the write with different numbers and let the
-// UPDATE pick a winner. The caller sent two rankings for one destination
-// either way, which is the run its own export was meant to refuse. Upstream
-// answers 201 for that payload -- its `worlds.id` IS the lowercased name, so
-// the other casing simply does not match and is reported in skipped_missing --
-// and we refuse the whole run instead, which is an upstream-observable status
-// divergence taken deliberately.
 pub(super) fn classify_worlds(
     entries: &[RankingEntry],
     matches: &[WorldMatch],
@@ -191,10 +160,6 @@ fn world_resolution_sql() -> &'static str {
     &SQL
 }
 
-// Curation is protected by the predicate rather than by the caller: the route
-// classifies first, so these conditions are unreachable through HTTP, but a
-// clear-what-is-missing pass is dangerous enough that the guarantee belongs in
-// the same statement as the write.
 fn apply_sql(world: bool) -> String {
     let leg = if world { "TRUE" } else { "FALSE" };
     format!(
@@ -206,19 +171,6 @@ fn apply_sql(world: bool) -> String {
     )
 }
 
-// Every automated ranking the run did not name is cleared, which is what makes
-// the export authoritative for the whole uncurated population instead of only
-// for the rows it sends: a per-row write can say what ranks, never what
-// stopped ranking, so a destination that qualified once would keep its number
-// forever.
-//
-// Upstream's places clear carries no `world` guard, so a world-backed place
-// losing a stale ranking counts under places.cleared there. One table holds
-// both legs here, and a world=true row is the same row on either side of that
-// guard, so the same destination is swept by the worlds leg and counted under
-// worlds.cleared instead. The set of rows zeroed is identical; only which of
-// the two wire counters names them differs, and dropping the guard would move
-// every genuine world into places.cleared, which is worse.
 fn clear_sql(world: bool) -> String {
     let leg = if world { "TRUE" } else { "FALSE" };
     format!(
@@ -263,9 +215,7 @@ async fn clear_rankings(
 }
 
 impl PlacesComponent {
-    /// Replace the whole automated ranking set in one transaction.
-    ///
-    /// Both halves share the transaction because a clear followed by a separate
+    /// Both halves share one transaction because a clear followed by a separate
     /// write leaves a window where the entire uncurated population reads as
     /// unranked, and browse requests landing in it would see no order at all.
     pub async fn replace_ranking(

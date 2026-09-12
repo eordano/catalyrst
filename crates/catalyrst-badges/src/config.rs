@@ -3,10 +3,9 @@ use catalyrst_envcfg::{get_port, required};
 use std::env;
 use std::path::PathBuf;
 
-/// Default upstream host baked into the seed fixture (migrations/0002,
-/// 0005). Kept as the default `public_asset_base_url` so `tests/upstream_parity.rs`
-/// stays green with no env vars set -- self-hosted deployments override via
-/// `BADGES_PUBLIC_ASSET_BASE_URL`.
+/// The upstream host baked into the seed fixture (migrations/0002, 0005). Kept as the
+/// default `public_asset_base_url` so `tests/upstream_parity.rs` stays green with no env
+/// vars set; self-hosted deployments override via `BADGES_PUBLIC_ASSET_BASE_URL`.
 pub const DEFAULT_ASSET_BASE_URL: &str = "https://badges.decentraland.org";
 
 pub struct Config {
@@ -16,13 +15,11 @@ pub struct Config {
 
     pub admin_token: Option<String>,
 
-    /// Directory served at `/assets` (tower_http ServeDir). Missing files
-    /// 404 per-request rather than failing startup, so an unset/empty dir is
-    /// a soft degradation, not a crash.
+    /// Served at `/assets`. Missing files 404 per-request rather than failing startup, so an
+    /// unset/empty dir is a soft degradation, not a crash.
     pub assets_dir: PathBuf,
-    /// Host+scheme prefix substituted for `DEFAULT_ASSET_BASE_URL` in every
-    /// `assets` JSONB blob at serve time (DB rows stay upstream-parity-faithful;
-    /// only the HTTP response is environment-rewritten).
+    /// Substituted for `DEFAULT_ASSET_BASE_URL` in every `assets` JSONB blob at serve time;
+    /// the DB rows themselves are never rewritten.
     pub public_asset_base_url: String,
 }
 

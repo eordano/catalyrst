@@ -587,7 +587,7 @@ export default function CreatorHubHome({
 
           {templates.length > 0 ? <TemplatesStrip templates={templates} onCardClick={onCardClick} /> : null}
           {happenings.length > 0 ? <HappeningsStrip happenings={happenings} onCardClick={onCardClick} /> : null}
-          {/* Creation surfaces come first; the explore strip closes the page. */}
+          {}
           {network.length > 0 ? <LiveStrip scenes={network} onCardClick={onCardClick} /> : null}
         </div>
       </section>

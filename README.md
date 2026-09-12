@@ -131,32 +131,28 @@ cargo build --release --bin catalyrst-market        # standalone marketplace
 
 On Nix/NixOS, `nix develop` provides the full toolchain; `nix build
 .#catalyrst` / `.#catalyrst-all` build pinned artifacts. Binaries land in
-`target/release/catalyrst-<name>`; see
-[`docs/deploy.md`](./docs/deploy.md) for the bundle->port map
-and per-service env files. The HTTP stack uses `rustls`, but `openssl-sys` is
-pulled transitively via the Helios consensus light-client, so a system OpenSSL
-may be needed during compilation.
+`target/release/catalyrst-<name>`; see [`docs/deploy.md`](./docs/deploy.md) for
+the bundle->port map and per-service env files. A system OpenSSL may be needed at
+compile time - see [`docs/build-and-test.md`](./docs/build-and-test.md).
 
 ## Documentation
 
-Start at [docs/README.md](./docs/README.md) (index + reading order + trust policy).
-
-| Topic | Path |
-|---|---|
-| Architecture - composition contract, port truth, DB ownership, external deps | [docs/architecture.md](./docs/architecture.md) |
-| Building & testing (incl. NixOS notes, flake pins, test harnesses) | [docs/build-and-test.md](./docs/build-and-test.md) |
-| Sync pipeline invariants + snapshot CID convergency | [docs/content-sync.md](./docs/content-sync.md) |
-| Auth-chain + EIP-1654 | [docs/auth.md](./docs/auth.md) |
-| Third-party Merkle verification | [docs/third-party-merkle.md](./docs/third-party-merkle.md) |
-| Federation (signed writes, gossip, snapshot-pull) | [docs/federation.md](./docs/federation.md) |
-| OpenAPI 3.1 spec (content core) | [docs/openapi.yaml](./docs/openapi.yaml) |
-| Deploy: bundle runbook, explorer pointing, gateway mode | [docs/deploy.md](./docs/deploy.md) (nginx configs in [docs/deploy/](./docs/deploy/)) |
-| Operations: postgres, networking, observability, LiveKit, admin console | [docs/operations.md](./docs/operations.md) |
+Start at [docs/README.md](./docs/README.md) - index, reading order, trust policy.
+Highlights: [architecture.md](./docs/architecture.md) (composition contract, port
+truth, DB ownership, external deps); [build-and-test.md](./docs/build-and-test.md)
+(NixOS notes, flake pins, test harnesses); [content-sync.md](./docs/content-sync.md)
+(sync invariants + snapshot CID convergency); [auth.md](./docs/auth.md) (auth-chain +
+EIP-1654); [third-party-merkle.md](./docs/third-party-merkle.md);
+[federation.md](./docs/federation.md) (signed writes, gossip, snapshot-pull);
+[openapi.yaml](./docs/openapi.yaml) (OpenAPI 3.1, content core);
+[deploy.md](./docs/deploy.md) (bundle runbook, explorer pointing, gateway mode; nginx
+configs in [docs/deploy/](./docs/deploy/)); [operations.md](./docs/operations.md)
+(postgres, networking, observability, LiveKit, admin console).
 
 ## Run
 
-`catalyrst-live` runs in one of three modes - read-only (default), sync
-replica, or write node - all configured via environment variables:
+`catalyrst-live` runs in one of three modes - read-only (default), sync replica,
+or write node - all configured via environment variables:
 
 ```bash
 cargo build --release --bin catalyrst-live

@@ -74,7 +74,6 @@ const AUTH_API = "/auth-api";
 const ID_RE = /^[0-9a-fA-F-]{30,80}$/;
 const NO_STORE = { headers: { "cache-control": "no-store" } };
 
-// This route is server-rendered, and React warns when useLayoutEffect runs under renderToString.
 const useIsomorphicLayoutEffect = typeof document === "undefined" ? useEffect : useLayoutEffect;
 
 type LoadedRequest = {
@@ -162,8 +161,6 @@ const RDNS_BY_METHOD: Record<string, string> = {
   rabby: "io.rabby",
 };
 
-// What the rejection means for the person holding the phone; the technical reason rides along
-// underneath so a developer can see which rule the request broke.
 const REJECTION_COPY: Record<RejectionKind, string> = {
   retired_sign_in: "This request uses a retired sign-in method. Update the app that opened it.",
   unsupported_method: "This request uses a method this page can't hand to a wallet.",
@@ -186,8 +183,6 @@ const UNVERIFIABLE_NOTICE: Record<UnverifiableReason, string> = {
     "This page can't preview what this transaction will do with your assets. Only send it if you trust the app that requested it.",
 };
 
-// Nothing signed reaches the page as itself: a character that would reorder, hide or merge with its
-// neighbours is shown as an escape, so what is read here is what the wallet is handed.
 function typedDataDetail(value: unknown): string {
   if (typeof value === "string") {
     try {
@@ -205,9 +200,6 @@ function messageDetail(params: unknown[]): string {
   return truncateForDisplay(JSON.stringify(sanitizeTypedDataForDisplay(params), null, 2));
 }
 
-// The dropped names are keys off the transaction object, which nothing bounds: a scene can send a
-// megabyte of them, or one key a megabyte long. Upstream answers the same shape with listAddresses
-// (shared/text.ts): the first three, then a count.
 const MAX_LISTED_DROPPED_FIELDS = 3;
 
 function droppedFieldsNote(dropped: string[]): string {
@@ -225,9 +217,6 @@ export function describeRequest(request: ReadyRequest): RequestSummary {
     case "personal_sign": {
       const message = decodeSignatureMessage(request.params[0]);
       if (message === null) return { title: "Sign a message", detail: messageDetail(request.params) };
-      // Readable text is shown as it was signed, newlines included: escaping it would hide the very
-      // shape the acknowledgment asks the user to read. A message the classification already calls
-      // opaque is the one that can carry an override, so that one is escaped.
       return {
         title: "Sign a message",
         detail: isOpaqueSignatureMessage(message)
@@ -362,8 +351,6 @@ const brandFooter: CSSProperties = {
   borderTop: "1px solid #2c2837",
 };
 
-// Keyed by the request id so a client-side change of id mounts a fresh page: no state, ref or
-// in-flight recovery of the previous request can be shown or answered under the new id.
 export default function AuthRequestRoute() {
   const loaded = useLoaderData<typeof loader>() as LoadedRequest;
   return <AuthRequestPage key={loaded.id} loaded={loaded} />;
@@ -483,9 +470,6 @@ export function AuthRequestPage({ loaded }: { loaded: LoadedRequest }) {
         return;
       }
 
-      // The signer element was only shape-checked at recover when the request named no sender;
-      // now that an account is connected it is held to the exact rule, and the transaction is
-      // rebuilt from the reviewed fields alone.
       const wallet = buildWalletRequest(request, sender);
       if (!wallet.ok) {
         await postOutcome(loaded.id, {
@@ -501,10 +485,6 @@ export function AuthRequestPage({ loaded }: { loaded: LoadedRequest }) {
         setMustValidate(false);
       }
 
-      // The wallet can move to another account while the code-match check is in flight. Only the
-      // account this request's signer rule was applied to may be handed it, and an account this page
-      // can no longer read is not that account: nothing is dispatched and nothing is answered, so the
-      // request stays available for whoever reopens the link.
       if (!isSameAccount(await getConnectedAddress().catch(() => null), sender)) {
         setExpectedAccount(sender);
         setPhase("different_account");
@@ -583,10 +563,6 @@ export function AuthRequestPage({ loaded }: { loaded: LoadedRequest }) {
           import("@data/lib/auth/deeplink-identity"),
         ]);
 
-      // Only the identity minted on this page counts as cached (so a failed post retries without
-      // a second signature); the site's session identity is never handed to the auth server, and
-      // the handoff identity is never stored as the site session -- one extra wallet signature per
-      // deep-link login buys that separation.
       const outcome = await completeDeepLinkSignIn({
         connect: async () => {
           selectWallet(rdns);
@@ -861,8 +837,6 @@ type ApprovalCardProps = {
   onDeny: () => void;
 };
 
-// Two independent gates in front of Approve: the code match the auth server asked for, and the
-// effects acknowledgment for anything this page cannot preview. Neither substitutes for the other.
 export function ApprovalCard({
   host,
   request,
@@ -889,11 +863,6 @@ export function ApprovalCard({
     effectsAcknowledged,
   });
 
-  // The one gate the page cannot compute: only the rendered block knows whether a readable message
-  // fits it. Until it has been scrolled to its end the acknowledgment cannot be ticked, so Approve
-  // stays blocked by the gate that already reads it. It starts open so a short message is never
-  // held, and the measurement runs before paint -- and again on every reflow that can change what
-  // fits -- so the checkbox is never enabled for a frame the measurement has not seen.
   const gatesOnReading = gatesOnMessageReading(request.method, unverifiable);
   const detailRef = useRef<HTMLPreElement>(null);
   const [readToEnd, setReadToEnd] = useState(true);
@@ -1032,9 +1001,6 @@ function Terminal({
 
 const CONTINUE_COUNTDOWN_SECONDS = 5;
 
-// Ported from auth's ContinueInApp view: the client is opened once the countdown ends, the
-// button stays for browsers that only hand a custom scheme to the OS on a user gesture, and a
-// launch that never took the focus away offers a retry instead of a dead end.
 function ContinueInApp({ deepLinkUrl }: { deepLinkUrl: string }) {
   const [countdown, setCountdown] = useState(CONTINUE_COUNTDOWN_SECONDS);
   const [deepLinkFailed, setDeepLinkFailed] = useState(false);
@@ -1109,9 +1075,6 @@ function ContinueInApp({ deepLinkUrl }: { deepLinkUrl: string }) {
   );
 }
 
-// The sender is text the request supplied and nothing has held it to an address shape. It is cut to
-// its ends first and escaped after, so what survives the cut cannot reorder or hide the chip and no
-// escape is ever shown half-written.
 function shorten(address: string): string {
   if (!address) return address;
   const cut =

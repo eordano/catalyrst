@@ -32,8 +32,6 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 
   const edit = await loadEditUpdate(id ?? "", { signal: request.signal });
 
-  // loadEditUpdate already blanks the record and carries the reason when it
-  // cannot serve one. Nothing to launder here.
   const safeEdit: EditUpdateData = edit;
 
   const payload = { sid, edit: safeEdit, assignment };

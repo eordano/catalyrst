@@ -75,11 +75,6 @@ lib.mkIf (cfg.enable && cfg.subServices.comms) {
     };
   };
 
-  # Mint livekit.yaml (the `keys:` block livekit's preStart merges) and
-  # livekit-api.env (archipelago + the explore/social bundles source it) on
-  # first boot if absent. Without this the credentials never exist -- the
-  # rotate timer below only ROTATES an existing pair -- and every comms unit
-  # fails LoadCredential on a fresh node.
   systemd.services.livekit-secret = {
     description = "Generate the LiveKit API key + secret on first boot";
     wantedBy = [ "multi-user.target" ];

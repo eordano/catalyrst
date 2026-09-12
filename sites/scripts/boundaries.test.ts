@@ -49,12 +49,6 @@ function specifiers(src: string): string[] {
 const owner = (abs: string) => packages.find((p) => abs.startsWith(p.absRoot + path.sep));
 const rel = (abs: string) => path.relative(SITES, abs);
 
-// Upward imports that predate the package split. `data` reaches up into `features`
-// for the port-contract types its XState machines own (FulfillFn, CommitFn,
-// SummaryView, PublishCollection) and two tests reach up into `routes` for the
-// loader/action they exercise. Each entry is debt: move the contract type down
-// into `data`, or move the test into the package that owns its subject. Adding a
-// line here is not a fix -- the test above fails for anything not listed.
 const WAIVED = new Set([
   "packages/data/src/lib/auth/pair-store.test.ts -> @routes/routes/internal.pair",
   "packages/data/src/lib/catalyst/creator-hub/scene-drafts.test.ts -> @routes/routes/api.creator-hub.drafts.$",
@@ -142,17 +136,12 @@ describe("package boundaries", () => {
     expect(violations).toEqual([]);
   });
 
-  // Filesystem reads are a back-channel the import graph cannot see: a module can
-  // reach into another package by building a path string. The set below is pinned
-  // so a new one fails this test; shrinking it is always safe.
   it("cross-package filesystem coupling stays within the pinned inventory", () => {
     const roots = packages.map((p) => {
       const segs = path.relative(SITES, p.absRoot).split(path.sep);
       return {
         pkg: p,
-        // path.join("packages", "data", "src", ...) in any formatting
         joined: segs.map((s) => JSON.stringify(s)).join(","),
-        // "packages/data/src/..." as one literal
         slash: segs.join("/"),
       };
     });

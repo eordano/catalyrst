@@ -112,8 +112,8 @@ fn a_signature_verifying_against_no_version_reports_the_newest_mismatch() {
     assert!(matches!(err, SignatureError::Mismatch { .. }), "{err:?}");
 }
 
-/// Upstream 4614fa8: r outside the curve order or a non-canonical high s pass
-/// the v-byte guard and must read as an invalid signature, not a server fault.
+/// Upstream 4614fa8: r outside the curve order or a non-canonical high s pass the v-byte
+/// guard and must read as an invalid signature, not a server fault.
 #[test]
 fn a_structurally_invalid_signature_is_invalid_not_a_server_error() {
     let mut trade = signed_trade();

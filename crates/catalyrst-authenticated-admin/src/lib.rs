@@ -1,44 +1,27 @@
 //! An unforgeable axum extractor for the workspace's static-bearer admin gate.
 //!
-//! # What this crate is
-//!
-//! The axum-facing companion to [`catalyrst_authenticated_principal`]. That crate is
-//! deliberately I/O-free vocabulary -- its own `tests/source_discipline.rs` forbids `axum`,
-//! `sqlx`, `tokio` and friends -- so a [`FromRequestParts`] impl cannot live there. This
-//! crate is the one place that impl lives, and it does nothing but wire axum's request
-//! plumbing onto the verifier that already exists:
+//! The axum-facing companion to [`catalyrst_authenticated_principal`], which is deliberately
+//! I/O-free vocabulary -- its own `tests/source_discipline.rs` forbids `axum`, `sqlx` and
+//! `tokio` -- so a [`FromRequestParts`] impl cannot live there. This crate is that impl and
+//! nothing else; the verification is
 //! [`establish_platform_service_identity_by_comparing_presented_shared_secret`].
 //!
-//! # The defect it closes
+//! The defect it closes: `catalyrst-badges`, `-economy`, `-credits` and `-telemetry` each
+//! hand-roll a `require_admin()` / `authorize_admin()` gate that is a *forgettable function
+//! call* inside the handler body -- delete it and the handler still compiles and serves a
+//! production mutation to a stranger. [`AuthenticatedAdminIdentity`] must instead be *named in
+//! the handler signature*, and axum refuses a handler whose arguments are not extractors, so
+//! the check stops being a statement that can be dropped. Same model `catalyrst-server`
+//! already uses for its SIWE console (`AdminSession`): a private field, one construction site,
+//! and a `source_discipline` test pinning both. See `docs/auth-arc-plan.md`.
 //!
-//! Four crates (`catalyrst-badges`, `-economy`, `-credits`, `-telemetry`) each hand-roll a
-//! `require_admin()` / `authorize_admin()` gate that is a *forgettable function call* made
-//! inside the handler body. Delete the call and the handler still compiles and serves a
-//! production mutation to a stranger. [`AuthenticatedAdminIdentity`] replaces that pattern
-//! with a value that a handler must *name in its signature*: axum will not accept a handler
-//! into `Router::route` unless every argument is a valid extractor, and this type's only
-//! constructor is the [`FromRequestParts`] impl below, which runs the bearer check. The
-//! check stops being a statement that can be dropped and becomes a term in the type the
-//! router demands.
+//! A value proves the request presented the operator-configured admin bearer secret for this
+//! service -- a *service credential*, not a person and not a wallet. It says a service called;
+//! it never says the service may act.
 //!
-//! This is the same model `catalyrst-server` already uses for its SIWE console
-//! (`AdminSession`): a private field, one construction site, and a `source_discipline` test
-//! that pins both. See `docs/auth-arc-plan.md`.
-//!
-//! # What a value of [`AuthenticatedAdminIdentity`] proves -- and does not
-//!
-//! That the request presented the operator-configured admin bearer secret for this service.
-//! That is a *service credential*, not a person and not a wallet -- exactly the
-//! [`AuthenticatedPrincipal::PlatformServiceProvenBySharedBearerToken`] it wraps. It says a
-//! service called; it never says the service may act.
-//!
-//! # This pass builds only the crate
-//!
-//! No consumer is migrated here. Each adopting crate provides
-//! [`ConfiguredAdminBearerSecret`] to the extractor through axum's [`FromRef`] over its own
-//! `AppState`, and swaps its `require_admin()` body call for an
-//! [`AuthenticatedAdminIdentity`] argument. That is the Pilot phase and is out of scope for
-//! this crate landing.
+//! No consumer is migrated here: an adopting crate provides [`ConfiguredAdminBearerSecret`]
+//! through axum's [`FromRef`] over its own `AppState` and swaps its `require_admin()` body
+//! call for an [`AuthenticatedAdminIdentity`] argument.
 
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
@@ -56,16 +39,13 @@ use catalyrst_authenticated_principal::{
 /// Proof that this request carried the operator-configured admin bearer secret for the
 /// service reached through the state `S`.
 ///
-/// The inner `principal` is deliberately private, and it is always the
+/// The private `principal` is always the
 /// [`AuthenticatedPrincipal::PlatformServiceProvenBySharedBearerToken`] variant. A public
-/// field -- or any second constructor -- would let a handler mint one from a bare value and
-/// hand it to a gate, which is precisely the forgeable `require_admin()` this type exists to
-/// replace. The only construction path is the [`FromRequestParts`] impl below;
-/// `tests/source_discipline.rs` pins that as a fact about the source.
-///
-/// It derives nothing on purpose. No `Deserialize` (a request body must never become an
-/// admin identity), no `Clone`/`Default` (they widen how a value comes to exist) -- the same
-/// discipline as `catalyrst-server`'s `AdminSession`.
+/// field, or any second constructor, would let a handler mint one from a bare value -- exactly
+/// the forgeable `require_admin()` this replaces -- so the [`FromRequestParts`] impl below is
+/// the only construction path, pinned by `tests/source_discipline.rs`. It derives nothing:
+/// `Deserialize` would let a request body become an admin identity, and `Clone`/`Default`
+/// widen how a value comes to exist.
 pub struct AuthenticatedAdminIdentity {
     principal: AuthenticatedPrincipal,
 }
@@ -88,11 +68,9 @@ impl AuthenticatedAdminIdentity {
 
 /// The operator-configured admin secret and the environment variable that named it.
 ///
-/// Each adopting crate constructs one of these in its [`FromRef`] impl, reading the token
-/// out of wherever its own `AppState` keeps it (`state.admin_token`,
-/// `state.config.admin_token`, ...). It carries no verification of its own -- it is just the
-/// expected secret handed to the extractor, which compares it in constant time via the
-/// principal-crate chokepoint.
+/// Each adopting crate constructs one in its [`FromRef`] impl from wherever its own `AppState`
+/// keeps the token. It verifies nothing itself: it is the expected secret handed to the
+/// extractor, which compares it in constant time via the principal-crate chokepoint.
 #[derive(Clone)]
 pub struct ConfiguredAdminBearerSecret {
     /// The environment variable that named this credential, e.g.
@@ -106,21 +84,16 @@ pub struct ConfiguredAdminBearerSecret {
 
 /// The rejection returned when admin authentication is not established.
 ///
-/// Wraps the principal crate's [`AuthorityNotEstablished`], whose `http_status()` already
-/// draws the distinctions this arc adopts: **401** for a missing or mismatched secret,
-/// **503** for an unconfigured one. Every adopting crate gets identical status semantics for
-/// free, without teaching its own `ApiError` about admin auth. Adopting crates that want to
-/// fold this into their own error type can read the inner refusal via [`Self::refusal`].
+/// Wraps the principal crate's [`AuthorityNotEstablished`], whose `http_status()` is **401**
+/// for a missing or mismatched secret and **503** for an unconfigured one. Adopting crates
+/// that want their own error type can read the inner refusal via [`Self::refusal`].
 ///
 /// > Behaviour change to flag: the four current gates all return **403** for both an unset
-/// > token and a bad/missing token. This type returns **503** (unconfigured) vs **401**
-/// > (missing/mismatch) instead -- the deliberate semantics of the principal crate. Note it
-/// > in each crate's migration PR.
+/// > token and a bad/missing token. Note it in each crate's migration PR.
 pub struct AdminAuthRejection(AuthorityNotEstablished);
 
 impl AdminAuthRejection {
-    /// The underlying refusal, for adopting crates that want to map it onto their own error
-    /// type instead of using the built-in [`IntoResponse`].
+    /// For adopting crates mapping it onto their own error type instead of [`IntoResponse`].
     pub fn refusal(&self) -> &AuthorityNotEstablished {
         &self.0
     }
@@ -136,9 +109,6 @@ impl IntoResponse for AdminAuthRejection {
     fn into_response(self) -> Response {
         let status =
             StatusCode::from_u16(self.0.http_status()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
-        // A fixed, server-authored body keyed on the status class. Deliberately generic: it
-        // must not echo the operator-facing detail (which can name the environment variable
-        // behind a 503) back to the client.
         let body = match status {
             StatusCode::UNAUTHORIZED => "admin authentication required",
             StatusCode::SERVICE_UNAVAILABLE => "admin authentication unavailable",
@@ -148,13 +118,12 @@ impl IntoResponse for AdminAuthRejection {
     }
 }
 
-/// Parse the bearer token out of the `Authorization` header, requiring the exact `"Bearer "`
-/// prefix.
+/// Requires the exact `"Bearer "` prefix.
 ///
-/// The principal crate refuses to parse the header itself -- twenty of twenty-one gates in
-/// the workspace require this exact prefix, one accepts a lowercase variant, and widening
-/// the shared verifier would loosen all twenty at once. So the lone piece of header parsing
-/// lives here, matching the twenty-gate majority.
+/// The principal crate refuses to parse the header itself: twenty of the workspace's
+/// twenty-one gates require this exact prefix and one accepts a lowercase variant, so
+/// widening the shared verifier would loosen all twenty at once. The lone piece of header
+/// parsing lives here, matching the twenty-gate majority.
 fn bearer_token(headers: &HeaderMap) -> Option<String> {
     headers
         .get(header::AUTHORIZATION)
@@ -224,10 +193,6 @@ mod tests {
         AuthenticatedAdminIdentity::from_request_parts(&mut parts, state).await
     }
 
-    // Neither AuthenticatedAdminIdentity nor AdminAuthRejection derives Debug (the identity
-    // must derive nothing; the source-discipline test pins that), so these unwrap with a
-    // `match` rather than `.expect()` / `.expect_err()`, which would demand Debug on the
-    // other arm.
     async fn expect_identity(state: &TestState, auth: Option<&str>) -> AuthenticatedAdminIdentity {
         match extract(state, auth).await {
             Ok(identity) => identity,

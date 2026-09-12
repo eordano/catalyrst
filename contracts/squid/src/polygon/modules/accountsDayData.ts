@@ -53,14 +53,14 @@ export function getOrCreateAccountsDayData(
   timestamp: bigint,
   address: string
 ): AccountsDayData {
-  const dayID = timestamp / BigInt(86400); // unix timestamp for start of day / 86400 giving a unique day index
+  const dayID = timestamp / BigInt(86400);
   const dayStartTimestamp = dayID * BigInt(86400);
   const accountsDayDataId = dayID.toString() + "-" + address;
 
   let accountsDayData = accountsDayDatas.get(accountsDayDataId);
   if (!accountsDayData) {
     accountsDayData = new AccountsDayData({ id: accountsDayDataId });
-    accountsDayData.date = +dayStartTimestamp.toString(); // unix timestamp for start of day
+    accountsDayData.date = +dayStartTimestamp.toString();
     accountsDayData.earned = BigInt(0);
     accountsDayData.spent = BigInt(0);
     accountsDayData.sales = 0;

@@ -689,13 +689,12 @@ impl Db {
         Ok(id)
     }
 
-    /// Atomically check both participants are free and insert the pending call, or return `None` if
-    /// either is busy (upstream #450). The plain [`Self::start_private_voice_chat`] and a preceding
-    /// [`Self::are_users_being_called_or_calling_someone`] leave a TOCTOU window: two concurrent
-    /// starts sharing a participant can both pass the check and both insert. Per-participant
-    /// advisory locks taken in sorted order serialise every start touching either address, and the
-    /// busy re-check runs under those locks against the same expiration window the standalone check
-    /// uses, so the pair stays consistent. `pg_advisory_xact_lock` releases on commit/rollback.
+    /// `None` if either participant is busy (upstream #450). The plain
+    /// [`Self::start_private_voice_chat`] plus a preceding
+    /// [`Self::are_users_being_called_or_calling_someone`] leave a TOCTOU window: two
+    /// concurrent starts sharing a participant can both pass and both insert. Per-participant
+    /// advisory locks taken in **sorted order** serialise every start touching either address;
+    /// `pg_advisory_xact_lock` releases on commit/rollback.
     pub async fn start_private_voice_chat_if_free(
         &self,
         caller: &str,
@@ -811,8 +810,8 @@ impl Db {
         }))
     }
 
-    /// The pending call this address is on, on *either* side. Mirrors upstream
-    /// `getPrivateVoiceChatOfUser`, used to end a call when its party disconnects (upstream #479).
+    /// The pending call this address is on, on *either* side. Used to end a call when its
+    /// party disconnects (upstream #479).
     pub async fn get_private_voice_chat_of_user(
         &self,
         address: &str,
@@ -890,11 +889,6 @@ impl Db {
             Ok(u) => u,
             Err(_) => return Ok(None),
         };
-        // Membership rows outlive a soft delete (`communities.active = false`), so an ex-owner or
-        // ex-moderator of a deleted community would otherwise keep resolving to their old role and
-        // pass every role-keyed check -- start/join/moderate its voice room among them (upstream
-        // #460). The FK from community_members to communities guarantees the row exists, so
-        // requiring it to be active is the exact fix.
         let row = sqlx::query(
             r#"SELECT role FROM community_members
                WHERE community_id = $1 AND member_address = $2
@@ -907,9 +901,9 @@ impl Db {
         Ok(row.map(|r| r.get::<String, _>("role")))
     }
 
-    /// Live ban status from `community_bans` -- the record both the client REST ban and the
-    /// federation apply path write. `community_role` alone cannot answer this: a ban deletes the
-    /// membership row, so a role captured before the ban is exactly the stale value being raced.
+    /// Live ban status from `community_bans`, the record both the client REST ban and the
+    /// federation apply path write. `community_role` alone cannot answer this: a ban deletes
+    /// the membership row, so a role captured before the ban is the stale value being raced.
     pub async fn is_member_banned(
         &self,
         community_id: &str,
@@ -941,10 +935,9 @@ impl Db {
         Ok(row.map(|r| r.get::<String, _>("name")))
     }
 
-    /// Whether a community is private. `None` when the community row does not exist. Mirrors the
-    /// federated read in `rest::fed::authority::community_is_private`, but parses the id like the
-    /// sibling voice-chat reads (`community_role`, `community_name`) in this module rather than
-    /// via the hex helper, since the voice RPC payloads carry a canonical UUID string.
+    /// `None` when the community row does not exist. Parses the id as a canonical UUID like
+    /// the sibling voice-chat reads in this module, not via the hex helper that
+    /// `rest::fed::authority::community_is_private` uses.
     pub async fn community_is_private(&self, community_id: &str) -> Result<Option<bool>, DbError> {
         let cid = match Uuid::parse_str(community_id) {
             Ok(u) => u,

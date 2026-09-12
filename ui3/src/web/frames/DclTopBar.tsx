@@ -20,8 +20,6 @@ type NavMenuItem = { label: string; href: string };
 type NavLink = { id: string; label: string; href: string; caret?: boolean; menu?: NavMenuItem[] };
 
 const LEARN_MENU: NavMenuItem[] = [
-  // Absolute: the docs site is not proxied on every sub-origin (some 404 on
-  // /docs/), and docs.decentraland.org is the canonical home anyway.
   { label: "Docs", href: "https://docs.decentraland.org/" },
   { label: "Blog", href: "/blog" },
 ];

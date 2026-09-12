@@ -6,8 +6,7 @@
 > `https://social-api.decentraland.org`), using two funded-nothing test
 > identities. Re-run the commands at the bottom to refresh any claim here.
 > The reusable core of steps 1-4 below now exists as the crate's `upstream`
-> module -- compiling and unit-tested, not yet wired into the live request
-> path; see "Implementation status & wiring plan" at the end.
+> module -- see "Implementation status & wiring plan" at the end.
 
 The question under test: can this node sit between one trusted user's client
 and the upstream social service as a transparent middlebox -- showing the
@@ -23,9 +22,9 @@ same writes a direct client would produce (up)?
 | this node -> upstream | everything | absent by design -- no write-back, no read-through; local and upstream state diverge silently |
 
 The same probe binary -- built only from this workspace's generated protos and
-auth-chain code -- completes the full client bootstrap against both this node
-and the production upstream, proving protocol-level client compatibility in
-both A/B directions.
+auth-chain code -- completes the full client bootstrap against both this node and
+the production upstream, proving protocol-level client compatibility in both A/B
+directions.
 
 ## Down-direction defects (client sees different data here)
 
@@ -84,8 +83,8 @@ Verified consequences, live:
 
 ## What single-user transparency would take
 
-The trusted-single-user premise makes the hard part easy: the node may hold
-the user's ephemeral auth chain. The shortest path, in dependency order:
+The trusted-single-user premise makes the hard part easy: the node may hold the
+user's ephemeral auth chain. Shortest path, in dependency order:
 
 1. Upstream session client -- an outbound dcl-rpc WS session to the
    upstream, opened with the user's ephemeral chain (the probe already
@@ -159,8 +158,7 @@ What the module provides now:
   identity, signing the path without its query string as the probe verified
   upstream accepts.
 
-Wiring plan (the deliberately-not-yet-done part; each hook is a later,
-separately reviewable change):
+Wiring plan (not yet done; each hook is a later, separately reviewable change):
 
 1. Read-through at session bootstrap -- hold one shared
    `UpstreamSession` (and `Arc<UpstreamIdentity>`) in `AppState`

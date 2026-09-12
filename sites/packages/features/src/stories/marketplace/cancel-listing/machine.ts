@@ -7,7 +7,6 @@ import { track as defaultTrack, type TrackContext, type TrackFn } from "@core/li
 export type CancelOrder = {
   orderId: string;
   owner: string;
-  /** Null when the listing's wei price could not be read. */
   price: string | null;
   name: string;
   network: "ethereum" | "polygon";

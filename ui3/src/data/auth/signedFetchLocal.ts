@@ -8,11 +8,6 @@ import {
 } from "./engineLogin";
 import { signAuthChain } from "./signerCore";
 
-/**
- * One key, one rule. The stored identity is judged only by
- * `parseStoredIdentity`; a second guard here would be a second rule over the
- * same blob, and only one of them could carry the validation.
- */
 export function loadStoredIdentity(now = Date.now()): StoredAuthIdentity | null {
   let raw: string | null = null;
   try {

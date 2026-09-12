@@ -1,11 +1,4 @@
-/* Ribbon chrome. Tokens only -- ui3 is dark-first (:root in atoms/primitives.css
-   is the dark palette, html.theme-light overrides it), so any literal colour
-   here would vanish in one of the two themes. */
 
-/* The band's height is owned by the frame (--eui-ribbon-h in
-   frames/dcleditorchrome.css) so the layer that reserves the space and the
-   layer that fills it cannot disagree. The fallback is for hosts with no
-   .eui-root, such as Storybook and the tests. */
 .rb {
   --rb-ease: cubic-bezier(0.2, 0.9, 0.3, 1);
   --rb-fast: 0.12s;
@@ -38,8 +31,6 @@
   flex: none;
 }
 
-/* Full-height tabs put the active underline exactly on the chrome/deck seam,
-   which is what makes the deck read as belonging to the selected tab. */
 .rb-tabs {
   display: flex;
   align-self: stretch;
@@ -148,10 +139,6 @@
   color: var(--error);
 }
 
-/* The deck. Groups are separated by a rule and labelled underneath, which is
-   what makes a ribbon scannable as bands of related work rather than a wall.
-   The two inner gradients are attached `local`, so the edge shadow only appears
-   on the side that still has content hidden past the clip. */
 .rb-deck {
   flex: 1 1 auto;
   min-height: 0;
@@ -184,9 +171,6 @@
   border-right: none;
 }
 
-/* Column-major on purpose: items fill downward and wrap into a NEW COLUMN, so a
-   group of N reads as ceil(N/2) columns of 2 and its reading order survives.
-   A row-major grid would reorder every group. */
 .rb-cmds {
   display: flex;
   flex-direction: column;
@@ -243,7 +227,6 @@
   outline: var(--focus-ring-width) solid var(--focus-ring-color);
   outline-offset: -1px;
 }
-/* Frequency -> prominence, carried down to the individual command. */
 .rb-cmd.big {
   height: 29px;
   padding: 0 10px;
@@ -252,7 +235,6 @@
   background: var(--fill-3);
   color: var(--text);
 }
-/* Dashed is the off signal, so a toggle reads as a toggle before it is read. */
 .rb-cmd.rb-toggle {
   border-style: dashed;
 }
@@ -303,8 +285,6 @@
   outline: var(--focus-ring-width) solid var(--focus-ring-color);
   outline-offset: 1px;
 }
-/* The no-selection camera readout: same chrome as the editable fields, minus
-   the input affordances, so the slot reads as one instrument in both states. */
 .rb-num.rb-num-readonly {
   border-style: dashed;
   background: transparent;

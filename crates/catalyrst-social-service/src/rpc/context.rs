@@ -19,21 +19,20 @@ const FRIENDSHIP_RATE_LIMIT_PER_ACTOR: u32 = 30;
 const FRIENDSHIP_RATE_LIMIT_PER_PAIR: u32 = 10;
 const FRIENDSHIP_RATE_LIMIT_WINDOW: Duration = Duration::from_secs(60);
 
-/// How the pair bucket of [`FriendshipMutationLimiter`] is keyed. A friendship is symmetric while
-/// a block is not: a canonical (sorted) key for block/unblock would let the account being blocked
-/// spend the budget the victim needs, deciding whether the block lands (upstream #456).
+/// A friendship is symmetric while a block is not: a canonical (sorted) key for
+/// block/unblock would let the account being blocked spend the budget the victim needs,
+/// deciding whether the block lands (upstream #456).
 #[derive(Debug, Clone, Copy)]
 pub enum PairScope {
     Symmetric,
     Directional,
 }
 
-/// Abuse throttle for the friendship/block RPC mutations (upstream #456): each step publishes an
-/// update into the other account's subscription stream, so an unbounded REQUEST/CANCEL or
-/// block/unblock loop is a push-spam primitive. Budgets: 30 actions per actor and 10 per pair per
-/// minute. The two pair schemes keep distinct key prefixes so they can never merge by accident.
-/// In-process only -- unlike upstream's Redis window it is not shared across server instances, and
-/// having no backend it cannot fail, so upstream's fail-open path has no equivalent here.
+/// Abuse throttle for the friendship/block RPC mutations (upstream #456): each step publishes
+/// an update into the other account's subscription stream, so an unbounded REQUEST/CANCEL or
+/// block/unblock loop is a push-spam primitive. Budgets: 30 actions per actor and 10 per pair
+/// per minute. The two pair schemes keep distinct key prefixes so they can never merge.
+/// In-process only -- unlike upstream's Redis window it is not shared across instances.
 pub struct FriendshipMutationLimiter {
     per_actor: RateLimiter,
     per_pair: RateLimiter,
@@ -263,12 +262,9 @@ impl Context {
         }
     }
 
-    /// End the pending private voice call this address is on, on either side, because it just
-    /// disconnected (upstream #479). Without this, only the periodic expiry sweep clears a dropped
-    /// user's call, so the other party keeps ringing until the TTL elapses. Mirrors the RPC
-    /// `end_private_voice_chat` handler: delete the row, tell the gatekeeper as the party who
-    /// dropped, and publish `ENDED` to both parties -- our notification is already symmetric, so the
-    /// still-online party is told regardless of which side dropped.
+    /// Upstream #479. Without this, only the periodic expiry sweep clears a dropped user's
+    /// call, so the other party keeps ringing until the TTL elapses. The `ENDED` notification is
+    /// symmetric, so the still-online party is told regardless of which side dropped.
     pub async fn end_private_voice_chat_on_disconnect(&self, address: &str) {
         let chat = match self.0.db.get_private_voice_chat_of_user(address).await {
             Ok(Some(c)) => c,

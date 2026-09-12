@@ -365,15 +365,12 @@ mod tests {
         use crate::handlers::lambdas_catalog;
         use crate::test_support;
 
-        // A client reads its outfits before deploying: the not-found sentinel
-        // is now cached under its address.
         let address = "0x00000000000000000000000000000deadbeef061".to_string();
         lambdas_catalog::outfits_cache()
             .get_or_fetch(address.clone(), || async { Ok::<_, ()>(Value::Null) })
             .await
             .unwrap();
 
-        // The same client deploys an entity successfully.
         let state = test_support::app_state_with_deployer(Arc::new(test_support::OkDeployer));
         let body = CreateEntityRequest {
             entity_id: "QmOutfitsInvalidation".to_string(),
@@ -387,8 +384,6 @@ mod tests {
             .into_response();
         assert_eq!(response.status(), StatusCode::OK);
 
-        // A re-read within the old entry's TTL must refetch instead of serving
-        // the stale sentinel.
         let refetched = Arc::new(AtomicUsize::new(0));
         let r = refetched.clone();
         let v = lambdas_catalog::outfits_cache()

@@ -48,17 +48,14 @@ type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {};
 
-/** The probes ran and every host refused. The ledger says so per row. */
 export const ProbesFailing: Story = {
   args: { groups: GROUPS.probesFailing },
 };
 
-/** A legitimately empty group still appears, with the reason it is empty. */
 export const EmptySnapshotGroup: Story = {
   args: { groups: GROUPS.onlyEmptySnapshot },
 };
 
-/** Known-bad numbers, listed so nobody rediscovers them and wires them up. */
 export const ExcludedOnPurpose: Story = {
   args: { groups: GROUPS.onlyExcluded },
 };

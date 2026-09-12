@@ -7,11 +7,6 @@ import "./backpackequipview.css";
 
 const EYE_COLORS = ["#3a6ea5", "#4f8a3d", "#7a4a8c", "#8d5a3c", "#2a2a2a", "#9b2d2d"];
 
-/**
- * `rarity`, `thumbnail` and `description` are null when the item definition did
- * not carry one -- base avatars are prohibited from declaring a rarity at all.
- * Null draws no rarity chip rather than an invented tier.
- */
 type BqWearable = {
   urn: string;
   name: string;
@@ -27,11 +22,6 @@ type BqColorKind = "skin" | "hair" | "eye";
 
 type BqSaveResult = { entityId: string; deployed?: boolean };
 
-/**
- * Only "loaded" claims anything about how many items the player owns. A failed
- * ownership read arrives as "unavailable" and must never draw the empty-inventory
- * banner: "you own nothing" and "we could not ask" are different sentences.
- */
 type BqInventory =
   | { status: "loaded"; empty: boolean }
   | { status: "not-connected" }

@@ -46,13 +46,6 @@ fn key_set(v: &Value) -> Vec<String> {
     ks
 }
 
-// Top-level object keys in wire order, read from the serialized string.
-// serde_json::Value key iteration depends on the crate-wide preserve_order
-// feature (any workspace consumer, e.g. a bundler dependency, can switch it
-// on for every crate in the build), and the committed fixtures were captured
-// through a sorting round-trip - so neither side of a Value comparison can
-// pin the order production actually emits. Struct serialization to a string
-// emits declaration order in every build; this reads it back.
 fn wire_keys(json: &str) -> Vec<String> {
     let bytes = json.as_bytes();
     let mut out = Vec::new();

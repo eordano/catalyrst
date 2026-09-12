@@ -36,7 +36,6 @@ export function beginShellBrowserSignIn(): ShellSignIn {
   const identity = (async (): Promise<AuthIdentity | null> => {
     const { buildEphemeralMessage, DEFAULT_EXPIRATION_MS, generateEphemeralKey } =
       await import("./identity");
-    // cancel() during the lazy-chunk load must not still navigate away.
     if (cancelled) return null;
     const ephemeral = generateEphemeralKey();
     const expiration = new Date(Date.now() + DEFAULT_EXPIRATION_MS);

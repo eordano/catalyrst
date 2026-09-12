@@ -141,22 +141,6 @@ pub fn decode_batch(buf: &[u8]) -> Vec<CrdtMessage> {
             None => break,
         };
 
-        // WIRE-FORMAT STRICTNESS -- drop-on-garbage, and it is the oracle's rule.
-        //
-        // A record whose declared length is < HEADER_LEN, or which overruns the
-        // buffer, aborts the whole batch: every record after it is dropped. This
-        // was recorded as a possible divergence (resynchronise on the next 8-byte
-        // boundary instead), but `@dcl/ecs` settles it --
-        // `CrdtMessageProtocol.validate` returns false as soon as the declared
-        // length exceeds the bytes remaining, and `parseChunkMessage`'s
-        // `while ((header = getHeader(buffer)))` loop simply ENDS there. There is
-        // no resynchronisation anywhere in the reference reader, and there cannot
-        // be: nothing in the format marks a record boundary, so "the next 8-byte
-        // boundary" is a guess that can invent messages out of payload bytes.
-        // bevy-explorer's reader now does the same (`dcl/src/interface/mod.rs`
-        // `process_message_stream`), so all three agree.
-        //
-        // What WAS wrong is that it happened in silence; the drop is logged now.
         if len < HEADER_LEN || off + len > buf.len() {
             tracing::warn!(
                 offset = off,
@@ -173,13 +157,6 @@ pub fn decode_batch(buf: &[u8]) -> Vec<CrdtMessage> {
                 let component_id = read_u32(body, 4).unwrap();
                 let timestamp = read_u32(body, 8).unwrap();
                 let data_len = read_u32(body, 12).unwrap() as usize;
-                // EXACTLY the declared payload, not "at least". A record that
-                // frames correctly but whose `data_len` UNDERSTATES its payload
-                // used to be accepted with the value silently truncated to
-                // `data_len` bytes, while bevy-explorer rejects the same record
-                // outright (`dcl/src/interface/mod.rs`, defect 5b) -- so one peer
-                // stored a value the other refused, and payload bytes are exactly
-                // what breaks LWW ties. Both sides now drop the record.
                 if 16 + data_len != body.len() {
                     tracing::warn!(
                         offset = off,
@@ -379,8 +356,6 @@ impl CrdtEngine {
         Self::default()
     }
 
-    /// Cap the number of stored cells.
-    ///
     /// The budget is shared: at most `max_components` LWW cells, and at most
     /// `max_components / MAX_APPEND_VALUES_PER_CHANNEL` grow-only channels, so
     /// the number of retained payloads is bounded by `max_components` on each
@@ -410,10 +385,6 @@ impl CrdtEngine {
     }
 
     pub fn apply(&mut self, msg: &CrdtMessage) -> ApplyResult {
-        // A message for a removed entity is dropped, whatever its kind -- this is
-        // `if (entityState === EntityState.Removed) continue` in
-        // `@dcl/ecs systems/crdt/index.ts`. It also makes a re-sent
-        // DELETE_ENTITY `Ignored`, so it is not re-broadcast.
         if self.is_dead(msg.entity()) {
             return ApplyResult::Ignored;
         }
@@ -514,9 +485,6 @@ impl CrdtEngine {
                 let accept = match timestamp.cmp(&cur.timestamp) {
                     Ordering::Greater => true,
                     Ordering::Less => false,
-                    // Equal timestamps tie-break on the payload, `None` (the
-                    // component tombstone) below every payload -- `dataCompare`
-                    // in `@dcl/ecs systems/crdt/utils.ts`.
                     Ordering::Equal => {
                         data_compare(data.as_deref(), cur.data.as_deref()) == Ordering::Greater
                     }
@@ -531,8 +499,6 @@ impl CrdtEngine {
         }
     }
 
-    /// Push onto the grow-only channel for `(entity, component_id)`.
-    ///
     /// APPEND_VALUE is an event, not a value: upstream's
     /// `GrowOnlyValueSetComponentDefinition` pushes onto a list and every append
     /// on the wire carries timestamp 0, so appends must never be merged by LWW.
@@ -541,8 +507,6 @@ impl CrdtEngine {
     fn append(&mut self, entity: u32, component_id: u32, data: &[u8]) -> ApplyResult {
         let key = cell_key(entity, component_id);
         if !self.appends.contains_key(&key) && self.appends.len() >= self.max_append_channels {
-            // Same key-ordered rule as `enforce_cell_cap`: which channels exist
-            // is a function of the key set, not of arrival order.
             match self.appends.keys().next_back() {
                 Some(&largest) if largest > key => {
                     self.appends.remove(&largest);
@@ -630,7 +594,6 @@ impl CrdtEngine {
         self.deleted.len()
     }
 
-    /// Number of grow-only channels currently retained.
     pub fn append_channel_count(&self) -> usize {
         self.appends.len()
     }
@@ -661,7 +624,6 @@ impl CrdtEngine {
         let lo_key: CellKey = (lo as u16, 0, 0);
         let hi_key: CellKey = ((hi - 1) as u16, u16::MAX, u32::MAX);
 
-        // Highest generation seen per number, across both stores.
         let mut victims: BTreeMap<u16, u16> = BTreeMap::new();
         for (&(number, generation, _), _) in self.lww.range(lo_key..=hi_key) {
             let slot = victims.entry(number).or_insert(generation);
@@ -729,7 +691,6 @@ mod tests {
 
     #[test]
     fn entity_packing_matches_upstream() {
-        // `EntityUtils.toEntityId` / `fromEntityId`, @dcl/ecs engine/entity.ts.
         assert_eq!(pack_entity(1024, 0), 1024);
         assert_eq!(pack_entity(1024, 1), 1024 + 65536);
         assert_eq!(entity_number(1024 + 65536), 1024);
@@ -785,8 +746,6 @@ mod tests {
         let del2 = del_comp(1, 1, 6);
         assert_eq!(e.apply(&del2), ApplyResult::Applied);
 
-        // The tombstone survives in the snapshot: a joiner that did not learn
-        // about the delete would accept a stale write this engine rejects.
         assert_eq!(decode_batch(&e.snapshot()), vec![del_comp(1, 1, 6)]);
     }
 
@@ -878,7 +837,6 @@ mod tests {
         let relayed = e.apply_batch(&batch);
         assert_eq!(relayed, batch);
         assert_eq!(e.appended(1, 9), vec![vec![3], vec![2], vec![1]]);
-        // and they do not collide with the LWW cell of the same component id
         assert_eq!(e.component_count(), 0);
     }
 
@@ -978,7 +936,6 @@ mod tests {
             ApplyResult::Ignored,
             "the first entity deleted must still be dead after {n} deletes"
         );
-        // and the removal set is bounded structurally, by the u16 number space
         assert!(e.deleted_count() <= MAX_ENTITY_NUMBERS);
     }
 
@@ -1002,7 +959,6 @@ mod tests {
             e.apply(&put(pack_entity(7, 2), 1, 5, &[9])),
             ApplyResult::Ignored
         );
-        // the next generation is a different, live entity
         assert_eq!(
             e.apply(&put(pack_entity(7, 3), 1, 5, &[9])),
             ApplyResult::Applied
@@ -1113,11 +1069,11 @@ mod tests {
         assert_eq!(joiner().snapshot(), server().snapshot());
 
         for probe in [
-            put(1100, 1, 1, &[9]),                 // stale write under a tombstone
-            put(1100, 1, 3, &[9]),                 // fresh write over a tombstone
-            put(pack_entity(1102, 0), 4, 7, &[1]), // dead: older generation
-            put(pack_entity(1102, 2), 4, 7, &[1]), // dead: the killed generation
-            put(pack_entity(1102, 3), 4, 7, &[1]), // live: the recycled entity
+            put(1100, 1, 1, &[9]),
+            put(1100, 1, 3, &[9]),
+            put(pack_entity(1102, 0), 4, 7, &[1]),
+            put(pack_entity(1102, 2), 4, 7, &[1]),
+            put(pack_entity(1102, 3), 4, 7, &[1]),
             del_comp(1101, 1, 1),
         ] {
             assert_eq!(

@@ -171,9 +171,8 @@ fn typed_rows<T: DeserializeOwned>(endpoint: &'static str, rows: &[Value]) -> Op
     }
 }
 
-/// The typed-DTO-with-raw-fallback pattern shared by `proposals`/`projects`/`budgets`: try to
-/// decode every row as `T` and hand it to `wrap`, or fall back to the untyped envelope when a
-/// row no longer conforms.
+/// Shared by `proposals`/`projects`/`budgets`: falls back to the untyped envelope when a row
+/// no longer decodes as `T`.
 fn typed_or_raw<T: DeserializeOwned>(
     endpoint: &'static str,
     rows: Vec<Value>,

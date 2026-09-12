@@ -17,7 +17,6 @@ type MjPin = {
   x: number;
   y: number;
   category: string;
-  /** null renders an em dash: no headcount was read, which is not zero visitors */
   users: number | null;
   rating: number;
   live: boolean;
@@ -32,11 +31,6 @@ type MapJumpViewProps<P extends MjPin> = {
   value?: string;
   step?: string;
   source?: string;
-  /**
-   * Non-null when the destination list could not be read. The map then shows
-   * the reason and no pins: a pin here is a teleport target, so a substituted
-   * one would send the player to a coordinate nobody published.
-   */
   unavailableReason?: string | null;
   pins?: P[];
   categories?: readonly MjCategory[];

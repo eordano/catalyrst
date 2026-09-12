@@ -46,12 +46,6 @@ describe("deployment schema env var", () => {
     assert.doesNotMatch(script, /^export DB_SCHEMA/m);
   });
 
-  // Our units exec the nix wrappers, never indexer.sh/restart.sh, so no source may
-  // read process.env directly: every one of them must go through the helpers, which
-  // still accept the not-yet-renamed DB_SCHEMA the deployed environment carries.
-  // The processor entry points take the strict helper -- an unresolved schema there
-  // silently becomes stateSchema `<chain>_processor_undefined` and re-indexes from
-  // genesis over the live data, so it must abort the process instead.
   for (const source of ["src/eth/main.ts", "src/polygon/main.ts"]) {
     it(`${source} resolves the schema through requireDeploymentSchema()`, () => {
       const contents = read(source);
@@ -62,10 +56,6 @@ describe("deployment schema env var", () => {
     });
   }
 
-  // head-notification.ts stays on the permissive helper on purpose: it resolves at
-  // module-import time, before either entry point's guard could run, and already
-  // degrades to the unqualified `head_sync_status` table in local dev. Do not
-  // promote it to the strict helper.
   it("head-notification.ts keeps the permissive deploymentSchema()", () => {
     const contents = read("src/common/utils/head-notification.ts");
     assert.match(contents, /deploymentSchema\(\)/);

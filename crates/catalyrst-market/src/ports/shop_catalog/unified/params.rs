@@ -26,21 +26,19 @@ impl UnifiedSource {
     }
 }
 
-/// How the buyer acquires the item -- a SEPARATE question from how it is priced
-/// (`UnifiedSource` answers "how is it PRICED", nothing else).
+/// How the buyer acquires the item -- a SEPARATE question from how it is priced, which is all
+/// `UnifiedSource` answers.
 ///
 /// - `Trade`: an offchain-marketplace signed order, bought with `accept([trade])`.
-/// - `Store`: a CollectionStore mint, bought with `CollectionStore.buy(...)`.
-///   Not a listing at all: no order, no signature, and the supply is finite.
+/// - `Store`: a CollectionStore mint, bought with `CollectionStore.buy(...)`. Not a listing
+///   at all: no order, no signature, and the supply is finite.
 ///
-/// These two facts used to coincide -- everything MANA-priced was a legacy
-/// trade -- so one enum covered both. CollectionStore mints break the
-/// coincidence (MANA-priced AND not a trade), and collapsing them back into
-/// `source` would silently change the meaning of every existing
-/// `source == "legacy"` check. It also drives the buy path and the failure
-/// modes the client has to surface: a store buy re-validates the price
-/// on-chain (so it can revert on a price move) and can sell out between
-/// browse and checkout.
+/// The two facts used to coincide -- everything MANA-priced was a legacy trade -- so one enum
+/// covered both. CollectionStore mints break that, and collapsing them back into `source`
+/// would silently change the meaning of every existing `source == "legacy"` check. It also
+/// drives the buy path and the failure modes the client must surface: a store buy re-validates
+/// the price on-chain (so it can revert on a price move) and can sell out between browse and
+/// checkout.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UnifiedAcquisition {
     Trade,
@@ -108,20 +106,19 @@ pub fn parse_unified_group_by(pairs: &[(String, String)]) -> UnifiedGroupBy {
 pub struct UnifiedCatalogFilters {
     pub base: ShopCatalogFilters,
     pub source: Option<UnifiedSource>,
-    /// Lets a caller hide resales server-side: this feed is paginated and reports a
-    /// total, so dropping rows client-side yields short pages and an overstated count.
+    /// Hiding resales must happen server-side: this feed is paginated and reports a total, so
+    /// dropping rows client-side yields short pages and an overstated count.
     pub listing_type: Option<ShopListingType>,
 }
 
 pub const SHOP_GENDER_VALUES: &[&str] = &["male", "female", "unisex"];
 
-/// `wearableGender` in either encoding a caller might reach for: this feed's
-/// comma-separated lists (what `rarity` and `wearableCategory` take) and the
-/// repeated `&wearableGender=male&wearableGender=female` form /v1/items takes,
-/// which is where the param and its values come from. Reaching for the wrong
+/// Accepts either encoding a caller might reach for: this feed's comma-separated lists (what
+/// `rarity` and `wearableCategory` take) and the repeated
+/// `&wearableGender=male&wearableGender=female` form /v1/items takes. Reaching for the wrong
 /// one is what silently returned an unfiltered page (#391). Anything outside
-/// [`SHOP_GENDER_VALUES`] is dropped, so a typo leaves the feed unfiltered
-/// rather than asking for a body shape no item declares.
+/// [`SHOP_GENDER_VALUES`] is dropped, so a typo leaves the feed unfiltered rather than asking
+/// for a body shape no item declares.
 fn parse_wearable_genders(p: &Params) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     for gender in csv(p.get_string("wearableGender", None))
@@ -135,10 +132,9 @@ fn parse_wearable_genders(p: &Params) -> Vec<String> {
     out
 }
 
-/// The body shapes an item must DECLARE to satisfy a `wearableGender` request.
-/// `unisex` asks for both, so it is the same request as male + female -- which
-/// is exactly the set the response labels `unisex`. Mirrors the mapping
-/// /v1/items uses; per-module copy, as ports/nfts and ports/items each keep.
+/// `unisex` asks for both, so it is the same request as male + female -- exactly the set the
+/// response labels `unisex`. Mirrors the mapping /v1/items uses; a per-module copy, as
+/// ports/nfts and ports/items each keep.
 pub fn body_shapes_for_genders(genders: &[String]) -> Option<Vec<String>> {
     let has_unisex = genders.iter().any(|g| g == "unisex");
     let has_male = has_unisex || genders.iter().any(|g| g == "male");
@@ -174,12 +170,10 @@ pub fn parse_unified_filters(pairs: &[(String, String)]) -> UnifiedCatalogFilter
     }
 }
 
-/// The parsed trending request: the row count, the look-back window, and the
-/// NARROWED set of unified filters the ranking runs over. Only the fields
-/// upstream's trending handler reads are parsed -- category, rarity,
-/// wearableCategory, listingType, source, includeSocialEmotes -- so passing a
-/// browse-only param (creator, search, a sort, a page) has no effect: the ranking
-/// IS the sort here and a rail has no pages.
+/// `filters` is NARROWED to what upstream's trending handler reads -- category, rarity,
+/// wearableCategory, listingType, source, includeSocialEmotes -- so a browse-only param
+/// (creator, search, a sort, a page) has no effect: the ranking IS the sort and a rail has no
+/// pages.
 pub struct TrendingRequest {
     pub first: Option<i64>,
     pub days: Option<i64>,

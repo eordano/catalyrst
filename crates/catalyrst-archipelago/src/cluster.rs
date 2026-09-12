@@ -361,12 +361,6 @@ impl Cluster {
             while let Some(cur) = queue.pop_front() {
                 group.push(cur.clone());
                 if group.len() >= max_peers {
-                    // Cap reached. Release the queued-but-unprocessed peers so
-                    // they re-seed follow-up islands instead of being orphaned
-                    // (marked visited at enqueue time but never assigned). Each
-                    // pass removes at least the seed from the unvisited set, so
-                    // the single ascending pass terminates with every peer
-                    // assigned to some island.
                     for leftover in queue.drain(..) {
                         visited.remove(&leftover.address);
                     }

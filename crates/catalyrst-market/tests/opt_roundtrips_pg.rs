@@ -1,9 +1,3 @@
-// Every test self-skips unless CATALYRST_MARKET_TEST_PG points at a usable
-// Postgres 18 admin URL (via catalyrst_testgate::require_pg), via the shared
-// throwaway-database `ScratchDb` harness in catalyrst-contract-gate. To
-// actually run them, initdb an ephemeral cluster and export the TCP url --
-// NEVER point them at the live :5434/:5433 clusters.
-
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -89,8 +83,6 @@ async fn build_state(pool: PgPool) -> AppState {
     })
 }
 
-// Opt 1 -- trades_sync: the known-signature membership probe is scoped to the
-// tick's batch (WHERE hashed_signature = ANY($1)), not a full-table scan.
 #[tokio::test]
 async fn trades_membership_probe_is_batch_scoped() {
     let Some(scratch) = ScratchDb::builder(PG_VAR, "opt_market")
@@ -100,8 +92,6 @@ async fn trades_membership_probe_is_batch_scoped() {
     else {
         return;
     };
-    // 0002 carries a `DO $$ ... $$` dollar-quoted block (CREATE TYPE guard) that
-    // the line-splitting `apply_sql` helper mis-parses; raw_sql runs it whole.
     sqlx::raw_sql(include_str!("../migrations/0002_trades_schema.sql"))
         .execute(&scratch.pool)
         .await
@@ -156,7 +146,6 @@ async fn trades_membership_probe_is_batch_scoped() {
         );
     }
 
-    // Empty batch short-circuits without a query and returns nothing.
     let empty = catalyrst_market::trades_sync::known_signatures_among(&scratch.pool, &[])
         .await
         .expect("empty batch probe");
@@ -165,8 +154,6 @@ async fn trades_membership_probe_is_batch_scoped() {
     scratch.drop().await;
 }
 
-// Opt 2 -- federation snapshot: the three signature_hash fetch_alls run under a
-// single try_join! (concurrent) while producing a byte-identical log_hash.
 #[tokio::test]
 async fn snapshot_hash_queries_run_concurrently() {
     let Some(scratch) = ScratchDb::builder(PG_VAR, "opt_market")
@@ -219,7 +206,6 @@ async fn snapshot_hash_queries_run_concurrently() {
         .unwrap();
     }
 
-    // Wrap each local table behind a pg_sleep(0.4) view so every scan pays it.
     for t in [
         "market_bids_local",
         "market_orders_local",
@@ -244,8 +230,6 @@ async fn snapshot_hash_queries_run_concurrently() {
             .unwrap();
     let elapsed = t.elapsed();
 
-    // Parity: log_hash computed independently over sorted hashes, chain order
-    // bid  order  trade.
     let mut bid_sorted: Vec<&str> = bids.to_vec();
     bid_sorted.sort_unstable();
     let mut order_sorted: Vec<&str> = orders.to_vec();
@@ -267,8 +251,6 @@ async fn snapshot_hash_queries_run_concurrently() {
     assert_eq!(snap.latest_trades_seq, 2);
     assert_eq!(snap.domain, "DecentralandMarket");
 
-    // Concurrency: the three-way hash section runs in ~0.4s (concurrent), not
-    // 3x0.4s. MAX(seq) join adds ~0.4s. New total 0.8s; old >=1.6s.
     assert!(
         elapsed < Duration::from_millis(1250),
         "snapshot hash queries ran concurrently (elapsed {elapsed:?})"
@@ -310,9 +292,6 @@ fn signed_headers(wallet: &Wallet, method: &str, path: &str) -> HeaderMap {
     headers
 }
 
-// Squid tables the wearables_data/count/unique SQL joins over (user_assets/sql.rs).
-// Each real table is fronted by a view; the nft view carries pg_sleep so every
-// scan of it is observable in wall time.
 async fn create_wearable_squid_tables(pool: &PgPool, nft_sleep_secs: f64) {
     sqlx::query(
         "CREATE TABLE squid_marketplace.nft_real ( \
@@ -348,8 +327,6 @@ async fn create_wearable_squid_tables(pool: &PgPool, nft_sleep_secs: f64) {
         .unwrap();
 }
 
-// Opt 4 -- user wearables: the owned-assets query and the usage-grants lookup
-// run under tokio::join! instead of sequentially.
 #[tokio::test]
 async fn user_wearables_assets_and_grants_overlap() {
     let Some(scratch) = ScratchDb::builder(PG_VAR, "opt_market")
@@ -366,9 +343,6 @@ async fn user_wearables_assets_and_grants_overlap() {
         .apply_sql(include_str!("../migrations/0007_usage_grants.sql"))
         .await;
 
-    // grants_present=false in build_state's UserAssetsComponent, so the assets
-    // SQL never touches usage_grants -- the grants leg is purely the separate
-    // get_active_grants_for call, which we make cost 1.4s.
     scratch
         .apply_sql("ALTER TABLE marketplace.usage_grants RENAME TO usage_grants_real;")
         .await;
@@ -383,7 +357,6 @@ async fn user_wearables_assets_and_grants_overlap() {
     create_wearable_squid_tables(&scratch.pool, 0.2).await;
 
     let owner = "0x00000000000000000000000000000000000000aa";
-    // One owned wearable (assets leg = 3 nft scans x 0.2s = 0.6s).
     sqlx::query(
         "INSERT INTO squid_marketplace.nft_real \
             (id, contract_address, token_id, network, created_at, updated_at, urn, \
@@ -395,8 +368,6 @@ async fn user_wearables_assets_and_grants_overlap() {
     .execute(&scratch.pool)
     .await
     .unwrap();
-    // One active grant with a NON-matching urn (overlay no-op keeps the fixture
-    // trivial; grants leg = 1.4s regardless).
     sqlx::query(
         "INSERT INTO marketplace.usage_grants_real \
             (grantee_address, urn, category, unlock_at, status) \
@@ -419,18 +390,15 @@ async fn user_wearables_assets_and_grants_overlap() {
     .unwrap();
     let elapsed = t.elapsed();
 
-    // Parity anchor: total == 1, ok == true, the one element carries no lease
-    // overlay (status / unlockAt absent) since the grant urn does not match.
     assert!(resp.ok);
     assert_eq!(resp.data.total, 1);
     assert_eq!(resp.data.elements.len(), 1);
     let el = serde_json::to_value(&resp.data.elements[0]).unwrap();
     assert_eq!(el["tokenId"], "5");
-    assert_eq!(el["category"], "eyewear"); // NULL metadata -> default
+    assert_eq!(el["category"], "eyewear");
     assert!(el.get("status").is_none(), "no lease status overlay");
     assert!(el.get("unlockAt").is_none(), "no unlockAt overlay");
 
-    // Old = 0.6 + 1.4 = 2.0s sequential; new = max(0.6, 1.4) = 1.4s.
     assert!(
         elapsed < Duration::from_millis(1750),
         "assets and grants ran concurrently (elapsed {elapsed:?})"
@@ -439,8 +407,6 @@ async fn user_wearables_assets_and_grants_overlap() {
     scratch.drop().await;
 }
 
-// Opt 5 -- federation create_order: the lease and ownership authorization reads
-// run concurrently, precedence re-applied in Rust (identical verdicts).
 #[tokio::test]
 async fn create_order_auth_reads_overlap_with_identical_verdicts() {
     let Some(scratch) = ScratchDb::builder(PG_VAR, "opt_market")
@@ -457,8 +423,6 @@ async fn create_order_auth_reads_overlap_with_identical_verdicts() {
         .apply_sql(include_str!("../migrations/0007_usage_grants.sql"))
         .await;
 
-    // squid tables both auth queries join. nft fronted by a pg_sleep(0.6) view
-    // so each of the two auth scans pays 0.6s.
     sqlx::query(
         "CREATE TABLE squid_marketplace.account (id text PRIMARY KEY, address text NOT NULL)",
     )
@@ -494,9 +458,6 @@ async fn create_order_auth_reads_overlap_with_identical_verdicts() {
     .execute(&scratch.pool)
     .await
     .unwrap();
-    // A grant for the NOT-OWNED signer with a non-matching urn: keeps the lease
-    // join's usage_grants side non-empty for that signer so the query actually
-    // scans the nft view (pays 0.6s) yet still returns no active lease.
     sqlx::query(
         "INSERT INTO marketplace.usage_grants \
             (grantee_address, urn, category, unlock_at, status) \
@@ -533,8 +494,6 @@ async fn create_order_auth_reads_overlap_with_identical_verdicts() {
         (code, serde_json::to_value(&json.0).unwrap())
     }
 
-    // NOT-OWNED verdict + concurrency: old = lease 0.6 THEN owns 0.6 = 1.2s
-    // before the 403; new = both concurrent ~0.6s.
     let t = Instant::now();
     let (code, body) = post_order(&state, &not_owner, item_id).await;
     let elapsed = t.elapsed();
@@ -549,7 +508,6 @@ async fn create_order_auth_reads_overlap_with_identical_verdicts() {
         "auth reads ran concurrently (elapsed {elapsed:?})"
     );
 
-    // AUTHORIZED verdict parity (fresh nonce per request via envelope()).
     let (code, body) = post_order(&state, &owner, item_id).await;
     assert_eq!(code, StatusCode::OK);
     assert_eq!(body["ok"], true);

@@ -74,10 +74,9 @@ pub struct AppStateInner {
 pub type AppState = Arc<AppStateInner>;
 
 impl AppStateInner {
-    /// Best-effort voice-room eviction after a ban or a moderator kick, private communities
-    /// only -- upstream gates the gatekeeper call on `community.privacy === Private` and wraps
-    /// it in try/catch, so a failure is logged and never fails the request (upstream #482's
-    /// ban-side half: a ban landing after the join re-read must find the seat and remove it).
+    /// Best-effort, private communities only, matching upstream's `community.privacy ===
+    /// Private` gate: a failure is logged and never fails the request. Upstream #482's ban-side
+    /// half -- a ban landing after the join re-read must find the seat and remove it.
     pub async fn evict_from_private_community_voice(&self, community_id: Uuid, target: &str) {
         let private = match self.communities.is_private(community_id).await {
             Ok(p) => p,

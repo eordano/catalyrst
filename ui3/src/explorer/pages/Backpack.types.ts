@@ -80,8 +80,6 @@ export function iconFor(id: string): string {
   return ICON_ID[id] ?? id;
 }
 
-// Categories that are core avatar attributes rather than catalog-driven -- always shown
-// in the rail regardless of what's currently in the catalog.
 export const ALWAYS_VISIBLE_CATS = new Set<string>(["body_shape", "skin", "hair", "eyes"]);
 
 export function rarityLabel(r?: string | null): string {

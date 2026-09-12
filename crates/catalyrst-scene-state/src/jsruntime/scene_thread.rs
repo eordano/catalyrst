@@ -244,10 +244,6 @@ pub(super) fn run_scene_thread(
                 }
                 Ok(Command::ClientOpen { index, start, size }) => {
                     let mut h = host.borrow_mut();
-                    // A slot is only recycled after the previous holder's range
-                    // was reclaimed, but replace a spent channel defensively so
-                    // a reused index can never inherit the old one's queues or
-                    // its `closed` flag.
                     match h.clients.get_mut(&index) {
                         Some(existing) if existing.closed => {
                             *existing = ClientChannel::new(start, size);
@@ -263,8 +259,6 @@ pub(super) fn run_scene_thread(
                     let cap = h.client_inbound_max;
                     let floor = h.config.lock().network_floor();
 
-                    // The window this client is judged against is the one it
-                    // was handed at open time, not one recomputed now.
                     let Some((start, size)) = h.clients.get(&index).map(|c| (c.start, c.size))
                     else {
                         tracing::warn!(
@@ -655,11 +649,6 @@ fn op_register_scene(
                 (512, 512)
             }
         };
-        // The entity-range policy is frozen the moment a client is holding a
-        // range derived from it. `registerScene` is reachable from `onUpdate`,
-        // and a mid-session change re-partitions a space that live clients are
-        // already inside: two of them end up owning the same id, and a window
-        // can slide down over the reserved block (ROOT / PLAYER / CAMERA).
         HostState::with(scope, |c| {
             let h = c.borrow();
             let live = h.clients.values().filter(|ch| !ch.closed).count();
@@ -980,8 +969,6 @@ fn deliver_client_events(scope: &mut v8::PinScope, context: v8::Local<v8::Contex
                 to_open.push(*index);
             }
             if ch.closing && !ch.closed {
-                // Reclaim the window this client was actually given, not one
-                // recomputed from the current config.
                 to_close.push((*index, ch.start, ch.size));
             }
         }
@@ -1018,8 +1005,6 @@ fn deliver_client_events(scope: &mut v8::PinScope, context: v8::Local<v8::Contex
             let _ = observer.call(tc, recv, &[event.into()]);
         }
     }
-    // With no observer, `open_delivered` stays false so a scene that installs
-    // one later still learns about the clients already connected.
 
     for (index, start, size) in to_close {
         if let Some(observer) = observer {
@@ -1051,9 +1036,6 @@ fn deliver_client_events(scope: &mut v8::PinScope, context: v8::Local<v8::Contex
             if let Some(ch) = h.clients.get_mut(&index) {
                 ch.closed = true;
             }
-            // Only now is the slot safe to reissue: the range is empty, so a
-            // reconnect handed this index cannot have its entities eaten by a
-            // reclaim that was still pending.
             h.slots.release(index);
         });
     }
@@ -1094,16 +1076,8 @@ fn op_client_send(
         return;
     }
 
-    // `client.sendCrdtMessage` is the scene relaying/authoring state, so it is
-    // checked under the same server authority as `crdtSendToRenderer`. It used
-    // to decode-and-apply the bytes with no check at all, which meant the only
-    // range enforcement in the JS runtime gated a *queue* rather than the apply.
     let outcome = apply_as_server(scope, &bytes);
 
-    // Rejected records must not reach the wire either -- the client would apply
-    // a forged renderer-local write to its own engine. Pass the original bytes
-    // through untouched in the common case (nothing dropped) so records this
-    // server's decoder does not model are not silently lost in a re-encode.
     let payload = if outcome.dropped == 0 {
         bytes
     } else {

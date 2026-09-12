@@ -241,8 +241,6 @@ impl<'a> RoomServiceClient<'a> {
         identity: &str,
     ) -> Result<(), RoomServiceError> {
         use futures::StreamExt;
-        // Bound so a single ban cannot flood LiveKit with hundreds of
-        // simultaneous per-room RPCs.
         const KICK_CONCURRENCY: usize = 8;
         let rooms = self.list_rooms().await?;
         let lower = identity.to_lowercase();

@@ -298,8 +298,6 @@ export default function EventsPanel() {
 
   const signerAddress = useBridgeState((s) => s.identity.address);
   const attendance = useEventAttendance(selected?.id ?? null, signerAddress);
-  // Interest is hidden on live events (unity-explorer parity) and needs a
-  // signer behind the bridge; either gate missing keeps the ICS reminder.
   const canToggleInterest = !!selected && !selected.live && !!signerAddress && !!getBridge();
 
   const events: EventItem[] = evq.data?.data ?? [];

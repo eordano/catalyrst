@@ -55,8 +55,6 @@ impl SocialServiceImpl {
             }
             loop {
                 match rx.recv().await {
-                    // `ev` is an `Arc<SocialEvent>`; match by reference and clone only the
-                    // matched inner update.
                     Ok(ev) => match &*ev {
                         SocialEvent::FriendConnectivity(u) => {
                             if yielder.r#yield(u.clone()).await.is_err() {

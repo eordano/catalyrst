@@ -61,7 +61,6 @@ import { Wearable as WearableEntity } from "../../model";
 import { getNetwork as getURNNetwork } from "../../common/utils/network";
 
 export function buildWearableFromNFT(nft: NFT): WearableEntity {
-  // https://wearable-api.decentraland.org/v2/standards/erc721-metadata/collections/halloween_2019/wearables/funny_skull_mask/1
   let wearableId = "";
   if (nft.tokenURI) {
     wearableId = getWearableIdFromTokenURI(nft.tokenURI);
@@ -154,7 +153,7 @@ export function buildWearableFromNFT(nft: NFT): WearableEntity {
     "stay_safe",
     "sugarclub_yumi",
     "tech_tribal_marc0matic",
-    "3lau_basics", // threelau_basics
+    "3lau_basics",
     "winklevoss_capital",
     "wonderzone_meteorchaser",
     "wonderzone_steampunk",
@@ -223,9 +222,6 @@ function findWearable(id: string, collection: Wearable[]): WearableEntity {
 export function getWearableIdFromTokenURI(tokenURI: string): string {
   let splitted = tokenURI.split("/");
 
-  // https://wearable-api.decentraland.org/v2/standards/erc721-metadata/collections/halloween_2019/wearables/funny_skull_mask/1
-  // or
-  // dcl://halloween_2019/vampire_feet/55
   if (splitted.length == 11 || splitted.length == 5) {
     let ids = splitted.slice(-2);
     return ids[0];
@@ -337,9 +333,6 @@ export function buildWearableV1Metadata(
 export function getIssuedIdFromTokenURI(tokenURI: string): number {
   let splitted = tokenURI.split("/");
 
-  // https://wearable-api.decentraland.org/v2/standards/erc721-metadata/collections/halloween_2019/wearables/funny_skull_mask/1
-  // or
-  // dcl://halloween_2019/vampire_feet/55
   if (splitted.length == 11 || splitted.length == 5) {
     let issuedId = splitted.slice(-1);
     return parseInt(issuedId[0], 10);

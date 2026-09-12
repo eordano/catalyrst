@@ -19,8 +19,6 @@
   max-width: 100%;
   animation: u-fade-in .3s linear;
 }
-/* `<Modal portal={false}>` -- the same card laid out in normal document flow instead of
-   over the whole viewport, so several dialogs can sit side by side on one page. */
 .modal__backdrop--inline {
   position: relative; inset: auto; z-index: auto;
   animation: none;

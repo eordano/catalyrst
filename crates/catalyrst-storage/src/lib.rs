@@ -52,12 +52,10 @@ pub fn is_canonical_content_id(id: &str) -> bool {
     cidv0 || cidv1
 }
 
-/// Resolves an id to its canonical path, validating it, WITHOUT touching the filesystem.
-///
-/// Every read path uses this, as do `delete`/`delete_strict`. Reads leave the tree untouched: a
-/// resolve that created the shard would HEAL a destroyed one before every probe, so the damage would
-/// answer as an ordinary miss for every id in that shard. [`ensure_file_path`] is the write-only
-/// variant that also creates the parent.
+/// Resolves an id to its canonical path WITHOUT touching the filesystem: a resolve that created the
+/// shard would HEAL a destroyed one before every probe, so the damage would answer as an ordinary
+/// miss for every id in that shard. [`ensure_file_path`] is the write-only variant that also creates
+/// the parent.
 pub(crate) fn resolve_file_path(root: &Path, id: &str) -> Result<PathBuf, StorageError> {
     if !is_canonical_content_id(id) {
         return Err(StorageError::InvalidId(id.to_string()));
@@ -84,11 +82,10 @@ pub(crate) fn resolve_file_path(root: &Path, id: &str) -> Result<PathBuf, Storag
     Ok(file_path)
 }
 
-/// Resolves an id AND ensures its shard directory exists. For WRITE paths only -- see
-/// [`resolve_file_path`] for why reads must not create anything.
+/// WRITE paths only -- see [`resolve_file_path`] for why reads must not create anything.
 ///
-/// The shard is recorded in `known` at the moment its existence is proven, which is what lets a
-/// later disappearance be classified as damage rather than as "nothing was ever stored here".
+/// The shard is recorded in `known` the moment its existence is proven, which is what lets a later
+/// disappearance be classified as damage rather than as "nothing was ever stored here".
 pub(crate) async fn ensure_file_path(
     root: &Path,
     id: &str,
@@ -106,37 +103,31 @@ pub(crate) async fn ensure_file_path(
 
 /// The shard directories this instance has created or observed intact.
 ///
-/// Files live under a directory named by the first four hex digits of the id's SHA-1 (see
-/// [`hex_prefix`]), so the whole key space is the 65,536 values of a `u16` and the set is a fixed
-/// 8 KiB bitmap: no allocation and no cap. Upstream needs `MAX_TRACKED_DIRECTORIES` plus a
-/// FIFO eviction fallback because its flat mode lets ids nest arbitrarily; sharding is the only
-/// layout we have, and 65,536 entries never reach a budget that would need one.
+/// Shard names are the first four hex digits of the id's SHA-1 ([`hex_prefix`]), so the key space is
+/// the 65,536 values of a `u16` and the set is a fixed 8 KiB bitmap: no allocation, no cap, and none
+/// of upstream's `MAX_TRACKED_DIRECTORIES` + FIFO eviction, which it needs only because its flat mode
+/// lets ids nest arbitrarily.
 ///
-/// APPEND-ONLY. An observation is evidence about the past -- this instance saw that directory be a
-/// directory -- and nothing that happens later makes it untrue, so nothing clears it. Consuming the
-/// evidence to report the damage derived from it makes the FIRST read of a destroyed shard fault and
-/// every read after it answer "absent" over an unchanged disk, which is the silent data-loss report
-/// this whole unit exists to refuse; with concurrent readers it is worse, since one of them takes the
-/// fault and the rest are told the content is simply gone. The report is stable instead: it lasts
-/// exactly as long as the damage, and the store that recreates the shard ends it. Nothing here is a
-/// mkdir-skip cache -- [`ensure_file_path`] creates the tree unconditionally -- so no write path
-/// depends on an entry being droppable.
+/// APPEND-ONLY. An observation is evidence about the past and nothing later makes it untrue.
+/// Consuming that evidence to report the damage derived from it would make the FIRST read of a
+/// destroyed shard fault and every read after it answer "absent" over an unchanged disk -- the silent
+/// data-loss report this unit exists to refuse. The report instead lasts exactly as long as the
+/// damage, and the store that recreates the shard ends it. Nothing here is a mkdir-skip cache
+/// ([`ensure_file_path`] creates the tree unconditionally), so no write path depends on an entry
+/// being droppable.
 ///
 /// Concurrency: a plain array of `AtomicU64`, deliberately not a `Mutex<HashSet<_>>`. The storage
 /// structs are shared across tasks behind an `Arc` and every read consults this set, so a lock would
 /// put a contended critical section on the hot path and would be one more thing that must never be
-/// held across an `.await`; a fixed bitmap needs neither -- each membership test is one relaxed load
-/// and each mutation one relaxed `fetch_or`. `Relaxed` is sufficient because the bits are
-/// independent and publish no other memory: a stale load can only produce a MISS where a fault was
-/// possible, never a fault where the truth is a miss.
+/// held across an `.await`. `Relaxed` is sufficient because the bits are independent and publish no
+/// other memory: a stale load can only produce a MISS where a fault was possible, never a fault where
+/// the truth is a miss.
 #[derive(Debug)]
 pub(crate) struct KnownShards {
-    /// The storage root, which is observed BY CONSTRUCTION: `new()` is called on a root this process
-    /// has just created, so a read that finds it gone is looking at a destroyed tree rather than at a
-    /// node that never held anything. Kept out of the bitmap on purpose -- a 4-hex slot is the only
-    /// thing that fits there, and evidence that can be lost is evidence that decides the answer wrong.
+    /// Observed BY CONSTRUCTION: `new()` is called on a root this process has just created, so a read
+    /// that finds it gone is looking at a destroyed tree rather than at a node that never held
+    /// anything. Kept out of the bitmap, which only has room for 4-hex slots.
     root: PathBuf,
-    /// 65,536 bits, one per possible 4-hex shard name.
     words: [AtomicU64; 1024],
 }
 
@@ -152,14 +143,14 @@ impl KnownShards {
         &self.root
     }
 
-    /// `(word index, bit mask)` for a shard directory, or `None` if the final component is not a
-    /// name [`hex_prefix`] can produce -- an unshardable path is simply never remembered, so it
-    /// degrades to the conservative answer (a miss) rather than to a bogus fault.
+    /// `None` if the final component is not a name [`hex_prefix`] can produce -- an unshardable path
+    /// is never remembered, so it degrades to the conservative answer (a miss) rather than to a bogus
+    /// fault.
     ///
     /// LOWERCASE ONLY, because that is the whole alphabet `hex_prefix` emits and enumeration feeds
-    /// this log: a foreign `F049` restored from a case-preserving volume is a directory no id
-    /// resolves into, and folding it onto `f049`'s slot would have it vouch for a shard nothing was
-    /// ever stored in -- manufacturing damage for a read of an id that is merely absent.
+    /// this log: a foreign `F049` restored from a case-preserving volume is a directory no id resolves
+    /// into, and folding it onto `f049`'s slot would have it vouch for a shard nothing was ever stored
+    /// in -- manufacturing damage for a read of an id that is merely absent.
     fn slot(dir: &Path) -> Option<(usize, u64)> {
         let name = dir.file_name()?.to_str()?;
         let canonical_hex = |b: u8| b.is_ascii_digit() || (b'a'..=b'f').contains(&b);
@@ -170,34 +161,31 @@ impl KnownShards {
         Some((index / 64, 1u64 << (index % 64)))
     }
 
-    /// Whether this path names a shard at all -- the only names an id can resolve into, and so the
-    /// only ones whose damage costs the store a reachable id.
+    /// Shard names are the only ones an id can resolve into, and so the only ones whose damage costs
+    /// the store a reachable id.
     pub(crate) fn names_a_shard(dir: &Path) -> bool {
         Self::slot(dir).is_some()
     }
 
-    /// Records a shard directory as observed to exist. Opening one, statting through one or listing
-    /// one all prove the same thing, so every path that learns it goes through here.
+    /// Opening a shard, statting through one or listing one all prove the same thing, so every path
+    /// that learns it goes through here.
     pub(crate) fn remember(&self, dir: &Path) {
         if let Some((word, bit)) = Self::slot(dir) {
             self.words[word].fetch_or(bit, Ordering::Relaxed);
         }
     }
 
-    /// Records the shard holding `file_path` as observed to exist.
     pub(crate) fn remember_parent(&self, file_path: &Path) {
         if let Some(dir) = file_path.parent() {
             self.remember(dir);
         }
     }
 
-    /// Did this instance ever create or observe this shard directory?
     pub(crate) fn contains(&self, dir: &Path) -> bool {
         Self::slot(dir)
             .is_some_and(|(word, bit)| self.words[word].load(Ordering::Relaxed) & bit != 0)
     }
 
-    /// Did this instance ever create or observe the shard holding `file_path`?
     pub(crate) fn parent_known(&self, file_path: &Path) -> bool {
         file_path.parent().is_some_and(|dir| self.contains(dir))
     }
@@ -210,26 +198,16 @@ pub(crate) async fn stat_for_read(
 ) -> Result<Option<std::fs::Metadata>, StorageError> {
     match tokio::fs::metadata(path).await {
         Ok(meta) if meta.is_file() => {
-            // Statting a file PROVES its parent is an intact directory -- nothing can be statted
-            // inside a path that is not one. Recording that is what lets a LATER disappearance of
-            // the same shard read as damage. Load-bearing now that reads no longer create
-            // directories: an instance that only ever READS would otherwise never learn which
-            // shards exist and would answer a destroyed shard with "absent" for every id in it.
             known.remember_parent(path);
             Ok(Some(meta))
         }
         Ok(_) => {
-            // The stat SUCCEEDED, so the shard is provably an intact directory -- learn that even
-            // though this particular path is unusable: the evidence is about the parent, not about
-            // whatever occupies the path inside it.
             known.remember_parent(path);
             warn!(path = %path.display(), "storage path is not a regular file");
             Err(StorageError::Io(std::io::Error::other(
                 "storage path is not a regular file",
             )))
         }
-        // ENOENT, plus ENOTDIR/ENAMETOOLONG: no file of that name can exist at that path. Which of
-        // the two very different meanings of "absent" this is, only the parent can say.
         Err(e) if is_provably_absent(&e) => classify_absence(known, path, e).await,
         Err(e) => Err(e.into()),
     }
@@ -254,32 +232,22 @@ fn is_provably_absent(e: &std::io::Error) -> bool {
 
 /// Opens a file for reading under the SAME miss-vs-fault decision as [`stat_for_read`].
 ///
-/// One decision, not two: the caller that stats and then opens has to invent an answer for an
-/// `ENOENT` from the open that the stat said could not happen, and the available answer is
-/// `Ok(None)` -- reporting a file that vanished between the two syscalls, or a shard destroyed
-/// between them, as provable absence. That is the contract inversion this unit refuses. Opening
-/// first and `fstat`-ing the descriptor also removes the TOCTOU window entirely: the metadata
-/// describes the file the caller will actually read.
+/// One decision, not two: a caller that stats and then opens has to invent an answer for an `ENOENT`
+/// the stat said could not happen, and the available answer is `Ok(None)` -- reporting a file that
+/// vanished between the two syscalls as provable absence. Opening first and `fstat`-ing the
+/// descriptor also removes the TOCTOU window: the metadata describes the file the caller will read.
 pub(crate) async fn open_for_read(
     known: &KnownShards,
     path: &Path,
 ) -> Result<Option<(tokio::fs::File, std::fs::Metadata)>, StorageError> {
     let mut opts = tokio::fs::OpenOptions::new();
     opts.read(true);
-    // O_NONBLOCK, or the fstat below is never reached. `open(2)` on a FIFO with no writer BLOCKS
-    // until one appears -- forever, in practice -- and tokio runs it on the blocking pool, so a single
-    // FIFO left at a content path burned one pool thread per request against that id (default cap
-    // 512) and stopped the runtime from shutting down. It is a no-op for regular files, which are
-    // the only descriptors this function ever hands back.
     #[cfg(unix)]
     opts.custom_flags(libc::O_NONBLOCK);
 
     match opts.open(path).await {
         Ok(file) => {
             let meta = file.metadata().await?;
-            // A directory (or a FIFO, or a device) opens fine; only the read misbehaves, and by then
-            // the response has started. Same fault `stat_for_read` reports, decided before any body
-            // is streamed.
             known.remember_parent(path);
             if !meta.is_file() {
                 warn!(path = %path.display(), "storage path is not a regular file");
@@ -297,13 +265,11 @@ pub(crate) async fn open_for_read(
 /// Decides whether a file that is not there is an ordinary miss or a damaged store.
 ///
 /// Costs one syscall, and only after a stat has already failed -- hits, the hot path, are untouched.
-/// A second one is spent only when the shard itself is missing, which is the branch that has to tell
-/// "nothing was ever stored here" from "the tree was destroyed".
+/// A second is spent only when the shard itself is missing, the branch that has to tell "nothing was
+/// ever stored here" from "the tree was destroyed".
 ///
-/// The answer is DERIVED from the tree on every call, never from a report already made: an
-/// observation is not consumed by the fault it justifies, so the same damaged id answers the same
-/// way on the first read, the tenth, and to sixteen readers at once. Two surfaces over one root that
-/// have seen the same directories cannot disagree about it either.
+/// The answer is DERIVED from the tree on every call, never from a report already made, so the same
+/// damaged id answers the same way on the first read, the tenth, and to sixteen readers at once.
 async fn classify_absence(
     known: &KnownShards,
     path: &Path,
@@ -314,34 +280,19 @@ async fn classify_absence(
     };
 
     match tokio::fs::metadata(dir).await {
-        // An intact shard that simply does not hold this file: the ordinary miss. Remembered for the
-        // same reason a successful stat is -- it is proof the shard exists right now.
         Ok(meta) if meta.is_dir() => {
             known.remember(dir);
             Ok(None)
         }
-        // Something is AT the shard path but is not a directory. Never a legitimate empty state -- no
-        // id resolves to a 4-hex name, so nothing this storage writes can put a file, a fifo or a
-        // device node there, and whatever is there makes every id in the shard unreadable. Nothing on
-        // disk is removed: destroying something this storage cannot prove it owns is exactly what the
-        // id-validation rules refuse to do.
         Ok(_) => {
             warn!(path = %path.display(), "refusing to report absence: the shard path is not a directory");
             Err(err.into())
         }
         Err(probe) if probe.kind() == std::io::ErrorKind::NotFound => {
-            // The shard is gone. Reads no longer create it, so for a shard nothing was ever stored
-            // in this is the normal answer. It is a FAULT when this instance created or observed that
-            // directory, which means the tree it owns was destroyed underneath it, taking every id
-            // inside with it.
             if known.parent_known(path) {
                 warn!(path = %path.display(), "refusing to report absence: the shard directory was removed underneath us");
                 return Err(err.into());
             }
-            // A shard this instance never saw proves nothing on its own, so the walk continues to the
-            // one directory whose existence is not in question: this process created the root, so a
-            // root that is gone (or unreadable, or no longer a directory) is a destroyed store
-            // answering like an empty one -- for the whole key space, not one shard of it.
             match tokio::fs::metadata(known.root()).await {
                 Ok(meta) if meta.is_dir() => Ok(None),
                 _ => {
@@ -350,8 +301,6 @@ async fn classify_absence(
                 }
             }
         }
-        // The shard could not be read at all (EACCES, EIO, or ENOTDIR meaning an ANCESTOR is not a
-        // directory). This storage cannot answer the question and must not pretend the id is absent.
         Err(_) => {
             warn!(path = %path.display(), "refusing to report absence: the shard directory could not be read");
             Err(err.into())
@@ -367,18 +316,16 @@ pub(crate) const STAGING_SUFFIX: &str = ".tmp";
 ///
 /// Staging names carry the writer's pid, but pid reuse makes "is that process alive" unreliable, so
 /// age is the discriminator. Unlinking a live writer's staging file does not corrupt anything -- on
-/// POSIX its descriptor stays valid against the now-unnamed inode and the write completes into it --
-/// but the store then FAILS at the rename with `ENOENT`, so a careless sweep turns another process's
-/// healthy in-flight write into a spurious error. The threshold buys a margin far beyond any
-/// plausible single-file write (a multi-GB asset onto a slow disk) and matches upstream's
-/// `ONE_HOUR_IN_MS`, which governs the same class of reclamation.
+/// POSIX its descriptor stays valid against the now-unnamed inode -- but the store then FAILS at the
+/// rename with `ENOENT`, so a careless sweep turns another process's healthy in-flight write into a
+/// spurious error. The threshold clears any plausible single-file write (a multi-GB asset onto a slow
+/// disk) and matches upstream's `ONE_HOUR_IN_MS`.
 ///
-/// The sweep is also the backstop for what [`create_staging_file`]'s hand-off cannot cover: a
-/// cancellation during runtime shutdown, where the task that owns the guard may never be polled
-/// again, leaves residue that only the next start reclaims.
+/// The sweep also backstops what [`create_staging_file`]'s hand-off cannot cover: a cancellation
+/// during runtime shutdown, where the task owning the guard may never be polled again, leaves residue
+/// that only the next start reclaims.
 pub(crate) const STAGING_ORPHAN_AGE: std::time::Duration = std::time::Duration::from_secs(60 * 60);
 
-/// Builds the staging path a store writes before committing with a rename.
 pub(crate) fn staging_path(final_path: &Path, fallback_stem: &str, seq: u64) -> PathBuf {
     let base = final_path
         .file_name()
@@ -397,9 +344,8 @@ pub(crate) fn staging_path(final_path: &Path, fallback_stem: &str, seq: u64) -> 
 ///
 /// Every escape from `store()` has to remove it, and only the `write_all` error path used to: a
 /// `sync_all` or `rename` failure leaked it, and so did the whole future being DROPPED -- axum drops
-/// a handler's future the moment the client disconnects, and `sync_all` on a large asset is a wide
-/// window. Nothing else in the workspace reaps them, so a leaked staging file lived forever and
-/// enumeration then offered it as an id.
+/// a handler's future the moment the client disconnects. Nothing else in the workspace reaps them, so
+/// a leaked staging file lived forever and enumeration then offered it as an id.
 pub(crate) struct StagingGuard {
     path: PathBuf,
     armed: bool,
@@ -425,9 +371,6 @@ impl Drop for StagingGuard {
         if !self.armed {
             return;
         }
-        // Blocking unlink on purpose. `Drop` cannot await, and handing the work to the runtime would
-        // lose it in exactly the case that matters most -- a cancelled future during shutdown. One
-        // unlink in a directory that is already hot costs microseconds.
         let _ = std::fs::remove_file(&self.path);
     }
 }
@@ -436,13 +379,10 @@ impl Drop for StagingGuard {
 ///
 /// The create runs in a DETACHED task, and the guard travels THROUGH the channel, because a guard
 /// held by the caller cannot cover this step: tokio's fs calls run on the blocking pool and keep
-/// running after the awaiting future is dropped, so a store cancelled here went on to create the
-/// file milliseconds after the only thing that could remove it was gone. Reproduced -- a 1 ms timeout
-/// around `store()` leaked `<id>.<pid>.<seq>.tmp` every time, guard or no guard.
-///
-/// Ownership is what makes it airtight: the guard never exists apart from the file it names, and the
-/// oneshot either delivers both to a caller that is still there or drops both -- running the guard --
-/// when the receiver is gone. There is no instant at which the file exists and its guard does not.
+/// running after the awaiting future is dropped, so a store cancelled here went on to create the file
+/// milliseconds after the only thing that could remove it was gone (a 1 ms timeout around `store()`
+/// leaked `<id>.<pid>.<seq>.tmp` every time). The oneshot either delivers both to a caller that is
+/// still there or drops both -- running the guard -- so the file never exists without its guard.
 pub(crate) async fn create_staging_file(
     tmp_path: PathBuf,
 ) -> Result<(tokio::fs::File, StagingGuard), StorageError> {
@@ -450,8 +390,6 @@ pub(crate) async fn create_staging_file(
 
     tokio::spawn(async move {
         let mut opts = tokio::fs::OpenOptions::new();
-        // O_CREAT|O_EXCL: the staging name is unique to this call (pid plus a per-process counter),
-        // so an existing one is never ours to take over. O_NOFOLLOW refuses a planted symlink.
         opts.write(true).create_new(true);
         #[cfg(unix)]
         opts.custom_flags(libc::O_NOFOLLOW);
@@ -460,7 +398,6 @@ pub(crate) async fn create_staging_file(
             Ok(file) => {
                 let _ = tx.send(Ok((file, StagingGuard::new(tmp_path))));
             }
-            // Nothing was created, so there is nothing to guard.
             Err(e) => {
                 let _ = tx.send(Err(e));
             }
@@ -470,8 +407,6 @@ pub(crate) async fn create_staging_file(
     match rx.await {
         Ok(Ok(opened)) => Ok(opened),
         Ok(Err(e)) => Err(e.into()),
-        // The task always sends; the sender only vanishes if it panicked or the runtime is shutting
-        // down. Either way this store did not happen, and any file it made is guarded.
         Err(_) => Err(StorageError::Io(std::io::Error::other(
             "staging file creation did not complete",
         ))),
@@ -480,9 +415,8 @@ pub(crate) async fn create_staging_file(
 
 /// Removes staging files left behind by writers that died before their rename.
 ///
-/// Best effort by construction: every error is skipped, because a store that cannot be swept is
-/// still a store that must open. Costs one `readdir` per EXISTING shard, once per process -- nothing
-/// on a fresh root, and bounded by 65,536 on a full one.
+/// Best effort: every error is skipped, because a store that cannot be swept is still a store that
+/// must open. Costs one `readdir` per EXISTING shard, once per process -- bounded by 65,536.
 pub(crate) async fn sweep_stale_staging(root: &Path, kind: &str) -> usize {
     let started = std::time::Instant::now();
     let mut swept = 0usize;
@@ -540,10 +474,9 @@ pub(crate) async fn sweep_stale_staging(root: &Path, kind: &str) -> usize {
 
 /// Staging files still present in `shard_dir` after cleanup has had a chance to run.
 ///
-/// Cleanup is eventually-consistent BY CONSTRUCTION: the guard rides back through a oneshot owned by
-/// a detached task, so the unlink lands when that task is next polled, not at the instant the caller
-/// is cancelled. Sampling immediately therefore reads a race -- measured to still see the file in
-/// well under 1% of observations -- and would be flaky in both directions.
+/// Cleanup is eventually-consistent: the guard rides back through a oneshot owned by a detached task,
+/// so the unlink lands when that task is next polled, not when the caller is cancelled. Sampling
+/// immediately reads a race and would be flaky in both directions.
 #[cfg(test)]
 pub(crate) async fn wait_for_staging_cleanup(shard_dir: &Path) -> Vec<String> {
     let deadline = std::time::Instant::now() + std::time::Duration::from_millis(500);
@@ -668,7 +601,6 @@ mod tests {
         ));
     }
 
-    /// The observation log records one shard without touching its neighbours, and never unlearns.
     #[test]
     fn known_shards_record_one_shard_and_keep_it() {
         let known = KnownShards::new(PathBuf::from("/root"));
@@ -699,8 +631,6 @@ mod tests {
             "a non-4-hex parent is never remembered, so it can never manufacture a fault"
         );
 
-        // A foreign directory spelled in the case `hex_prefix` never emits. Crediting it would let
-        // an operator's copy answer for the shard the ids actually live in.
         let shouted = PathBuf::from("/root/F049/id");
         known.remember_parent(&shouted);
         assert!(!known.parent_known(&shouted));

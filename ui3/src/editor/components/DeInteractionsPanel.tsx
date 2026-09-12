@@ -179,7 +179,6 @@ interface AddedInteraction {
   triggersJson: string;
 }
 
-/** One-shot preselection from the ribbon; the nonce lets it repeat. */
 export interface DeInteractionsPreset {
   nonce: number;
   trigger?: string;

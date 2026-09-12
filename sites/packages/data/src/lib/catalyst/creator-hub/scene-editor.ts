@@ -25,9 +25,6 @@ export const TransformSchema = z.object({
 });
 export type Transform = z.infer<typeof TransformSchema>;
 
-/** The editor's own catalog shape. `deriveAssetCatalog` and the bundled
- *  `scene-editor-defaults.data.json` are the only producers, and both compute
- *  a hue per asset, so there is nothing for a default to stand in for. */
 export const AssetSchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -37,10 +34,7 @@ export const AssetSchema = z.object({
   thumbnailUrl: z.string().optional(),
   category: z.string().optional(),
   smart: z.boolean().optional(),
-  /** Path of the GLB inside `contents`; with `contents` it routes placement
-   *  through initAsset so the GLB's relative texture refs resolve. */
   glbFile: z.string().optional(),
-  /** file path -> content hash map from the asset pack. */
   contents: z.record(z.string(), z.string()).optional(),
 });
 export type Asset = z.infer<typeof AssetSchema>;
@@ -60,9 +54,6 @@ export const ComponentDefSchema = z.object({
 });
 export type ComponentDef = z.infer<typeof ComponentDefSchema>;
 
-/** `parent: 0` is the scene root, so a defaulted parent silently reparented an
- *  entity to the root; `components: []` said an entity carried none. Both are
- *  computed by `deriveHierarchy` for every node it emits. */
 export const HierarchyNodeSchema = z.object({
   entity: z.number(),
   name: z.string(),
@@ -72,9 +63,6 @@ export const HierarchyNodeSchema = z.object({
 });
 export type HierarchyNode = z.infer<typeof HierarchyNodeSchema>;
 
-/** `parcels`, `contentCount` and `live` are the three facts the editor header
- *  states about a scene -- how big it is, how many files it holds, and whether
- *  it is deployed. Every producer computes them from an active-entity read. */
 export const SceneInfoSchema = z.object({
   pointer: z.string(),
   title: z.string(),
@@ -167,10 +155,6 @@ export function newSceneSeed(
   return seed;
 }
 
-/** `pointers` and `content` are required on a catalyst entity. `content: []`
- *  was the sharp one: it becomes `contentCount`, and it is also the list the
- *  loader searches for `main.composite`, so a truncated entity opened as a
- *  deployed-but-empty scene instead of failing the read. */
 const ActiveEntitySchema = z.object({
   type: z.string(),
   pointers: z.array(z.string()),
@@ -198,9 +182,6 @@ const isObj = (v: unknown): v is Record<string, unknown> =>
 const unwrap = (raw: unknown): unknown =>
   isObj(raw) && "json" in raw ? (raw as { json: unknown }).json : raw;
 
-/** A composite with no `components` key is not a composite: every entity, name
- *  and transform in the scene lives in that array, so defaulting it to `[]`
- *  opened an empty editor over a scene whose contents we failed to read. */
 const CompositeSchema = z.object({
   version: z.number().optional(),
   components: z.array(
@@ -572,10 +553,6 @@ export function buildViewportUrl(opts: {
   if (opts.realm) q.set("realm", opts.realm);
   q.set("position", opts.position || "0,0");
   if (opts.preview) q.set("preview", "true");
-  // Two independent flags. editorUi used to default to on whenever a system
-  // scene was present, which read as "the system scene implies the editor
-  // chrome" -- it does not: the overlay reads editorUi to decide whether to
-  // mount the HUD, and the engine reads systemScene to decide what owns the UI.
   if (opts.systemScene) q.set("systemScene", opts.systemScene);
   if (opts.editorUi) q.set("editorUi", "1");
   return `${playUrl}/?${q.toString()}`;

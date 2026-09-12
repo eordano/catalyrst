@@ -12,10 +12,6 @@ use crate::http::response::ApiData;
 use crate::ports::places::{RankingEntry, ReplaceRankingResult};
 use crate::AppState;
 
-// A run of the automated score is one request, so the cap bounds how much a
-// single call may rewrite. It sits far above the real set and exists because
-// an unbounded bulk write that also clears what it omits is not something to
-// leave open.
 pub const MAX_RANKING_ENTRIES: usize = 5000;
 const MAX_ID_LEN: usize = 255;
 
@@ -61,8 +57,6 @@ fn parse_entry(value: &Value) -> Result<SubmittedEntry, ApiError> {
         .get("ranking")
         .and_then(Value::as_f64)
         .ok_or_else(|| ApiError::bad_request(BODY_SHAPE))?;
-    // A negative value from the automated score is always a broken run, so it
-    // is rejected here rather than written.
     if !ranking.is_finite() || ranking < 0.0 {
         return Err(ApiError::bad_request(
             "A ranking must be a number greater than or equal to 0",
@@ -94,11 +88,6 @@ fn parse_body(body: &Value) -> Result<Vec<SubmittedEntry>, ApiError> {
     items.iter().map(parse_entry).collect()
 }
 
-// An id sent twice means the caller computed two rankings for one destination
-// and whichever landed last would win silently, so a duplicate is a broken run
-// rather than a row to skip. Reported with the entity type, not the bare id:
-// the type is half of what identifies the row. The id itself is compared as
-// sent, because that is the key the caller's own export is unique on.
 fn duplicated_keys(entries: &[SubmittedEntry]) -> Vec<String> {
     let mut seen: HashSet<String> = HashSet::new();
     let mut duplicated: Vec<String> = Vec::new();
@@ -229,8 +218,6 @@ mod tests {
         assert!(parsed(json!({ "entries": [{ "entity_type": "place", "ranking": 1 }] })).is_err());
     }
 
-    // The single-destination route takes { ranking: number|null }; this one is
-    // a complete set, where an unranked destination is the omission itself.
     #[test]
     fn a_null_or_non_numeric_ranking_is_rejected() {
         assert!(parsed(
@@ -300,8 +287,6 @@ mod tests {
         assert_eq!(duplicated_keys(&entries), vec!["place:p".to_string()]);
     }
 
-    // The two id spaces are a catalogue id and a world name, so the same
-    // string under two entity types is two destinations, not one.
     #[test]
     fn the_same_id_under_two_entity_types_is_not_a_duplicate() {
         let entries = parsed(json!({ "entries": [
@@ -312,10 +297,6 @@ mod tests {
         assert!(duplicated_keys(&entries).is_empty());
     }
 
-    // Case-sensitive, mirroring the caller's own uniqueness check: two casings
-    // of one world name are not flagged here. They still refuse the run, one
-    // layer down, where name resolution is what discovers they are one row --
-    // ports/places/ranking_replace.rs::classify_worlds.
     #[test]
     fn two_casings_of_one_world_name_are_not_flagged_as_duplicates() {
         let entries = parsed(json!({ "entries": [

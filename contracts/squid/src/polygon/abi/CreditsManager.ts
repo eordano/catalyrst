@@ -36,8 +36,6 @@ export const functions = {};
 
 export class Contract extends ContractBase {}
 
-/// Event types
 export type CreditUsedEventArgs = EParams<typeof events.CreditUsed>;
 export type CreditsUsedEventArgs = EParams<typeof events.CreditsUsed>;
 
-/// Function types

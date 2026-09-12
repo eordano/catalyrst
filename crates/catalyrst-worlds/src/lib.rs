@@ -51,28 +51,22 @@ pub struct AppStateInner {
     /// `offline:offline` while it is down, because a comms endpoint that does
     /// not answer blocks entry outright rather than degrading it.
     pub sfu: catalyrst_livekit::SfuHealth,
-    /// The worlds-federation peer set, fixed for the lifetime of this process.
+    /// The worlds-federation peer set, fixed for the lifetime of this process and
+    /// resolved in [`build_state`] *before* this struct is built, so a bad
+    /// `federation-peers.toml` aborts startup rather than degrading a serving process.
     ///
-    /// Two states, never `Option<Vec<_>>`: see [`fed::peers::WorldsFederationPeers`].
-    /// It is resolved in [`build_state`] *before* this struct is constructed, so a
-    /// bad `federation-peers.toml` aborts startup instead of degrading a server that
-    /// is already answering requests.
-    ///
-    /// A peer in here is a source of content claims and nothing else. No ownership or
-    /// permission question resolves through this field; those go through
-    /// [`handlers::permissions::resolve_world_owner`] against the local tables and the
-    /// squid ENS index, exactly as they did before federation existed.
+    /// A peer here is a source of content claims and nothing else: no ownership or
+    /// permission question resolves through this field: those go through
+    /// [`handlers::permissions::resolve_world_owner`].
     pub fed_peers: fed::peers::WorldsFederationPeers,
     /// The read mirror: `remote_worlds` + `remote_peer_status`, and the poller that
     /// fills them.
     ///
-    /// Deliberately **not** part of [`ports::worlds::WorldsComponent`]. If mirrored
-    /// rows lived in that struct, `state.worlds.get_world(name)` could reach them, and
-    /// five separate owner comparisons would each have to remember not to. They cannot
-    /// reach them, because this is a different type with a different method set: no
-    /// method here returns a [`ports::worlds::WorldRecord`], no method writes a column
-    /// of `worlds` or `world_scenes`, and the rows it does return have no `owner` field
-    /// to compare against a signer in the first place.
+    /// Deliberately **not** part of [`ports::worlds::WorldsComponent`]: were mirrored
+    /// rows in that struct, `state.worlds.get_world(name)` could reach them and five
+    /// separate owner comparisons would each have to remember not to. No method here
+    /// returns a [`ports::worlds::WorldRecord`] or writes a column of `worlds` /
+    /// `world_scenes`, and the rows it returns have no `owner` field at all.
     pub mirror: fed::poll::WorldsMirror,
 }
 
@@ -81,12 +75,6 @@ pub type AppState = Arc<AppStateInner>;
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 pub async fn build_state(cfg: Config) -> Result<AppState> {
-    // FIRST, before the pool, before the migrations, before anything that costs
-    // money or leaves a mark: adjudicate the peer file. A refusal here must abort
-    // startup, and it is cheapest and clearest to abort before any side effect.
-    // `?` is the whole fail-closed contract: a missing file, malformed TOML, or a
-    // single unadmitted entry stops the process rather than producing a server that
-    // silently federates with nobody.
     let fed_peers = fed::peers::WorldsFederationPeers::load_from_env()?;
 
     let pool =
@@ -99,9 +87,6 @@ pub async fn build_state(cfg: Config) -> Result<AppState> {
         .await
         .context("failed to run worlds migrations")?;
 
-    // Stays fail-closed: never port upstream's IGNORE_NAME_OWNERSHIP_VALIDATION
-    // bypass (worlds-content-server #535), which swaps NAME ownership for the
-    // deployer's own address and a no-op subgraph.
     let squid_pool = match cfg.squid_database_url.as_deref() {
         Some(url) => {
             let opts = PgConnectOptions::from_str(url)
@@ -158,16 +143,6 @@ pub async fn build_state(cfg: Config) -> Result<AppState> {
 
     let mirror = fed::poll::WorldsMirror::new(pool.clone(), cfg.federation.clone(), &fed_peers);
 
-    // De-admission is a restart, and this is the line that makes the restart revoke
-    // something. It runs after the migrations -- 0006 adds the columns it writes -- and
-    // before the `AppState` that the router is built from exists, so there is no
-    // interleaving in which a request is served against rows belonging to a peer that
-    // has left the file.
-    //
-    // `?`, not a warning: if we cannot establish that we have stopped publishing a
-    // revoked peer, we must not start serving. The alternative is a process that boots
-    // successfully while republishing content the DAO withdrew, which is the failure
-    // this call exists to end.
     mirror
         .store()
         .revoke_peers_no_longer_admitted(&fed_peers)
@@ -195,7 +170,6 @@ pub async fn build_state(cfg: Config) -> Result<AppState> {
         cfg,
     });
 
-    // No-op unless federation is configured *and* at least one peer was admitted.
     fed::poll::spawn_poller(state.clone());
 
     Ok(state)
@@ -209,9 +183,6 @@ pub fn api_router_with_spec() -> (Router<AppState>, utoipa::openapi::OpenApi) {
     build_api(true)
 }
 
-// The explore bundle merges several members into one Router and axum panics on
-// a duplicate path. /status is a per-process liveness probe that the bundle
-// serves itself, so the bundle asks for this router without it.
 pub fn api_router_with_spec_without_status() -> (Router<AppState>, utoipa::openapi::OpenApi) {
     build_api(false)
 }
@@ -279,9 +250,6 @@ fn build_api(include_status: bool) -> (Router<AppState>, utoipa::openapi::OpenAp
         .routes(routes!(handlers::admin::access_log))
         .routes(routes!(handlers::gc::garbage_collect))
         .routes(routes!(handlers::gc::garbage_collect_root))
-        // Under /federation/worlds/ rather than at the root: catalyrst-explore merges
-        // this router alongside places and social, which already own
-        // /federation/places/* and /federation/communities/*.
         .routes(routes!(fed::handlers::get_federation_peers))
         .routes(routes!(fed::handlers::get_federation_mirror))
         .routes(routes!(fed::handlers::refresh_federation_mirror))

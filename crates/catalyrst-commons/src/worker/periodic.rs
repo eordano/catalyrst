@@ -55,9 +55,6 @@ impl PeriodicCfg {
     }
 }
 
-/// Spawns `task` on a `period` loop that logs every outcome under `name` and exits when
-/// `shutdown` is cancelled.
-///
 /// The first pass runs immediately (after any jitter) unless the config asks for
 /// [`PeriodicCfg::after_first_period`]. A panicking pass is caught and logged like an
 /// error rather than killing the loop, so one bad input cannot silently stop a service's

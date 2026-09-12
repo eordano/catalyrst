@@ -68,11 +68,6 @@ let
     RestrictRealtime = true;
     RestrictSUIDSGID = true;
     SystemCallArchitectures = "native";
-    # No RestrictFileSystems: these root oneshots exec openssl/awk from the Nix
-    # store, whose backing filesystem varies by host (ext4/btrfs/xfs/zfs) and is
-    # a network fs in a VM -- an allowlist that omits it denies EXEC and breaks
-    # secret generation on first boot. baseSandbox restricts no filesystems for
-    # the same reason; ProtectSystem=strict + ReadWritePaths already scope writes.
   };
 in
 {

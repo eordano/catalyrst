@@ -70,8 +70,6 @@ const WCS_WALLET_STATS_ENDPOINT =
 function worldMeta(d: WorldActivityData): Datum<WorldMeta> {
   const row = d.row;
   if (row) {
-    // The wcs row is the richer answer and is the one the caller's own list
-    // produced, so it wins when it exists.
     const value: WorldMeta = {
       title: row.title,
       owner: row.owner,
@@ -84,9 +82,6 @@ function worldMeta(d: WorldActivityData): Datum<WorldMeta> {
       : liveNow(value, WCS_WORLDS_ENDPOINT);
   }
 
-  // No wcs row: catalyst's /about knows the world exists but carries no owner,
-  // title, deploy time or scene count. Those fields stay null rather than being
-  // filled with a plausible default.
   if (!showable(d.about)) return d.about as Datum<WorldMeta>;
   const value: WorldMeta = {
     title: null,
@@ -205,11 +200,6 @@ function spawnDatum(d: WorldActivityData): Datum<string> {
   return liveNow(spawn, d.about.endpoint, d.about.readAt);
 }
 
-/**
- * Deployed-content bytes for this NAME, against the wallet quota. Both figures
- * are decimal byte strings that can exceed `Number.MAX_SAFE_INTEGER`, so they
- * are parsed with BigInt and formatted, never `Number()`d.
- */
 function storageDatum(
   world: string,
   stats: Datum<WalletStats>,
@@ -236,10 +226,6 @@ function accessRows(d: WorldActivityData): Datum<FactRow[]> {
   const p = d.permissions;
   if (!showable(p)) return p as Datum<FactRow[]>;
   const perms = p.value;
-  // One row per permission, with the allow-list inline. An `allow-list` with no
-  // wallets says "nobody but the owner" -- that is a real reading of the ACL, so
-  // it is stated rather than hidden. A separate always-present allow-list row
-  // would imply the list is meaningful even on an `unrestricted` world.
   const withList = (type: string, wallets: string[]) =>
     type === "allow-list"
       ? `${type} \u{2014} ${wallets.length === 0 ? "nobody but the owner" : wallets.join(", ")}`
@@ -278,8 +264,6 @@ function receptionRows(d: WorldActivityData): Datum<FactRow[]> {
   if (!showable(r)) return r as Datum<FactRow[]>;
   const row = r.value[0];
   if (!row) {
-    // A 200 with no rows: Places has no record of this world. Rendering four
-    // zeros here would invent a reception the API never reported.
     return noSample(
       r.endpoint,
       r.readAt,
@@ -304,14 +288,6 @@ function receptionRows(d: WorldActivityData): Datum<FactRow[]> {
   return liveNow(rows, r.endpoint, r.readAt);
 }
 
-/**
- * The four "not built" panels. Every reason is lifted from the source registry
- * rather than retyped, so the ledger and the panels cannot drift apart.
- *
- * Built in the component, not the loader: `NotBuiltSpec.today` is a `ReactNode`
- * and does not survive loader serialization. It depends on nothing but the
- * world name and the registry, both of which the component already has.
- */
 function notBuiltPanels(world: string): NotBuiltSpec[] {
   const entry = (id: string) => SOURCE_REGISTRY.find((e) => e.id === id);
 
@@ -336,15 +312,6 @@ function notBuiltPanels(world: string): NotBuiltSpec[] {
       id: crashes.id,
       title: "Did it break?",
       why: crashes.note,
-      // No `todayCli` here on purpose. This panel previously offered
-      // `python3 -m dclbots.run ...`, which is not a tool any creator has: it is
-      // an unpublished harness that exists only on one developer's machine and
-      // is not installable from anywhere. An escape hatch that cannot be run is
-      // the same defect as a number that was never measured -- it just fails at
-      // the creator's terminal instead of on the page.
-      //
-      // Restore a command here only when there is something a creator can
-      // actually install. Until then the panel states the gap and stops.
     });
   }
   if (notify) {
@@ -369,7 +336,6 @@ function notBuiltPanels(world: string): NotBuiltSpec[] {
 export async function loader({ request, params }: Route.LoaderArgs) {
   const world = decodeURIComponent(params.world ?? "").trim();
   const url = new URL(request.url);
-  // Scoping, not auth: occupancy is public and this page renders for any world.
   const address =
     url.searchParams.get("address")?.trim() || readWallet(request) || "";
   const from = url.searchParams.get("from");
@@ -415,9 +381,6 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     sceneUrn: sceneUrnDatum(activity),
     spawnCoordinates: spawnDatum(activity),
     storage: storageDatum(world, stats),
-    // Permanently unavailable, and value-less by construction. It is gated
-    // behind an ADR-44 signed fetch the browser cannot mint, AND it is a
-    // different number from deployed bytes. Never a `0 B` tile.
     sceneKvStorage: unavailableBecause(
       KV_STORAGE_ENDPOINT,
       "It returns 400 Invalid Auth Chain. It needs an ADR-44 signed fetch made by the scene runtime (realm + parcel metadata); this hub holds no such identity. It would also be a different number \u{2014} that endpoint sums the key-value store your scene writes at runtime, not the bytes you deployed.",

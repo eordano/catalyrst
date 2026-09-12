@@ -107,10 +107,6 @@ function toLocalCard(m: ProjectMeta): ProjectCardVM {
   };
 }
 
-// A server draft with no local copy still deserves a card: it is the scene a
-// wiped browser or new machine came back for. Same local: routing -- the
-// editor's clientLoader falls back to the server draft when the slug has no
-// local handle/meta.
 function toServerDraftCard(d: { id: string; title: string }): ProjectCardVM {
   return {
     id: `local:${d.id}`,
@@ -374,8 +370,6 @@ function ScenesView({
         ]);
         if (cancelled) return;
         const cards = (metas ?? []).map(toLocalCard);
-        // Account drafts with no local copy: the scenes a wiped browser or
-        // new machine came back for. Local copies win on slug collision.
         const localSlugs = new Set(cards.map((c) => c.slug));
         for (const d of serverDrafts ?? []) {
           if (!localSlugs.has(d.id)) cards.push(toServerDraftCard(d));

@@ -5,16 +5,6 @@ use crate::sanitize::MAX_SANITIZE_PASSES;
 use super::content_quality::build_content_quality_condition;
 use super::rows::{PlaceListFilters, PlaceOrderBy};
 
-// Strips markup for as many passes as src/sanitize.rs, then drops every angle
-// bracket that survived them: the sanitizer's fail-closed end state, applied
-// unconditionally because a text match has no use for a benign bracket either.
-// A word nested deeper than the pass cap survives here as bare text exactly as
-// it survives into a served description, so match and render agree.
-// Mirrored by both description_plain columns in
-// migrations/0004_place_plain_text.sql and pinned by the tests below; change
-// the two together. Inline rather than a reference to that column because the
-// archive's writers live outside this crate, so a query assuming 0004 had
-// been applied would fail on a stack still on the earlier migrations.
 pub(super) fn description_plain_sql() -> &'static str {
     static SQL: LazyLock<String> = LazyLock::new(|| {
         let mut stripped = "coalesce(description, '')".to_string();
@@ -34,23 +24,9 @@ pub(super) fn description_plain_sql() -> &'static str {
 pub(super) const SHOW_IN_PLACES_CLAUSE: &str =
     "(world IS FALSE OR COALESCE((raw->>'show_in_places')::bool, true) IS TRUE)";
 
-// The curation flag rides in `raw` next to the `ranking` it guards, so a
-// mirrored upstream row carries it verbatim and a resync preserves it; every
-// reader and writer must go through this expression rather than name a column.
-// Compare as jsonb, never cast: `raw` is third-party (worlds_mirror stores the
-// upstream /api/worlds row verbatim) and `(raw->>'exclude_from_ranking')::bool`
-// aborts the whole listing query on any value Postgres cannot read as a
-// boolean, not just that row. Every other SQL block that needs the flag builds
-// itself from this const at runtime -- place_columns() in rows.rs,
-// overlapping_places_sql() in catalog/sync.rs -- so the expression has exactly
-// one definition.
 pub(crate) const EXCLUDE_FROM_RANKING_SQL: &str =
     "COALESCE(raw->'exclude_from_ranking' = 'true'::jsonb, false)";
 
-// The stored ranking, read without a cast: `raw` is third-party, so a value
-// that is not a number at all must read as "no ranking" rather than abort the
-// statement over every other row. Only a numeric, non-zero ranking is worth
-// clearing; an absent one is already what a clear would write.
 pub(super) const RANKING_IS_SET_SQL: &str =
     "jsonb_typeof(raw->'ranking') = 'number' AND raw->'ranking' <> '0'::jsonb";
 
@@ -76,8 +52,6 @@ pub(super) fn build_where(f: &PlaceListFilters, road_positions: bool) -> (String
     } else if f.only_places {
         clauses.push("world IS FALSE".to_string());
     }
-    // A world whose owner opted out of the places directory is not listed:
-    // every upstream world query starts from `show_in_places IS true`.
     clauses.push(SHOW_IN_PLACES_CLAUSE.to_string());
     if f.only_highlighted {
         clauses.push("highlighted = TRUE".to_string());
@@ -103,8 +77,6 @@ pub(super) fn build_where(f: &PlaceListFilters, road_positions: bool) -> (String
         ));
         idx += 1;
     }
-    // Parcels select places and names select worlds; asked for together they
-    // are two selectors over one feed, so each row needs only its own.
     match (positions_clause, names_clause) {
         (Some(p), Some(n)) => clauses.push(format!("({p} OR {n})")),
         (Some(p), None) => clauses.push(p),
@@ -137,11 +109,6 @@ pub(super) fn build_where(f: &PlaceListFilters, road_positions: bool) -> (String
         binds.push(Bind::Text(format!("{}.%", sdk)));
         idx += 2;
     }
-    // A world is identified by its name, not its scene title: searching
-    // "flagtag" must reach flagtag.dcl.eth even though the scene is titled
-    // "Flag Tag". Title/description matching alone silently misses every world.
-    // Descriptions match with their markup stripped: the client renders none of
-    // it, so a word that only ever appears inside a tag must not be findable.
     if let Some(s) = &f.search {
         clauses.push(format!(
             "(to_tsvector('english', coalesce(title,'') || ' ' || ({plain})) @@ plainto_tsquery('english', ${0}) \
@@ -212,10 +179,6 @@ pub(super) fn destinations_highlighted_prefix(f: &PlaceListFilters) -> &'static 
     }
 }
 
-// An absent ranking sorts as the 0 upstream's column defaults to, not below
-// every number: upstream has one unranked population, and a replace run that
-// zeroed a row would otherwise leave it standing above the catalogue that was
-// never ranked at all.
 pub(super) fn destinations_ranking_prefix(f: &PlaceListFilters) -> &'static str {
     if f.destinations_mode {
         "COALESCE(NULLIF(raw->>'ranking','')::float8, 0) DESC, "
@@ -224,11 +187,6 @@ pub(super) fn destinations_ranking_prefix(f: &PlaceListFilters) -> &'static str 
     }
 }
 
-// Live users sort between the curation flag and the curated ranking: presence
-// reshuffles the featured shelf but never lifts an uncurated scene over it.
-// The clause must end in the primary key: a batch deployed in the same instant
-// ties on every column above it, and an untied sort lets the plan -- which
-// changes with the LIMIT -- decide the page contents.
 pub(super) fn build_order_by(
     highlighted_prefix: &str,
     live_prefix: &str,

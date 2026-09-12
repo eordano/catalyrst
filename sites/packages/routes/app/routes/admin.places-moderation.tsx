@@ -30,30 +30,6 @@ const FALLBACK: Assignment = {
   experimentKey: "admin_place_moderation_queue",
 };
 
-/**
- * Places moderation console.
- *
- * Read and writes are all admin-bearer gated on the server. Read directly in
- * this session:
- *
- *   catalyrst/crates/catalyrst-places/src/handlers/admin.rs:13-15  `gate()`
- *     -> catalyrst/crates/catalyrst-places/src/auth.rs:88-100  `require_admin_bearer`
- *        `expected: None`         -> 403 "Admin token not configured"
- *        bearer absent / mismatch -> 403 "Invalid admin credentials"
- *   `gate()` is the first statement of `get_reports` (admin.rs:41),
- *   `patch_report` (admin.rs:83) and `patch_place_disable` (admin.rs:131).
- *
- * Both directions therefore run server-side only:
- *   read  -- this loader calls `places-moderation.server.ts#loadReportQueue`.
- *   write -- the wizard posts to `/admin/places-decision`, whose action calls
- *           `places-moderation.server.ts#commitModerationDecision`.
- * `PLACES_ADMIN_AUTH_TOKEN` never enters the browser bundle.
- *
- * When the loader's answer is not `ok` the console is not rendered at all: the
- * page shows the server's reason. There is no sign-in button that reveals the
- * queue -- the previous `authGate -> queue` transition checked nothing and has
- * been removed from the machine.
- */
 export async function loader({ request }: Route.LoaderArgs) {
   const url = new URL(request.url);
   const step = url.searchParams.get("step")?.trim() || null;

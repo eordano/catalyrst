@@ -17,11 +17,6 @@ import {
 
 const baseDecentralandURN = "urn:decentraland:";
 
-/**
- * @dev The item's rawMetadata for wearables should follow: version:item_type:name:description:category:bodyshapes
- * If the item has been rescues, the metadata could be be version:item_type:name:description:category:bodyshapes:prev_hash:new_entity_timestamp
- * @param item
- */
 export function buildWearableItem(
   item: Item,
   wearables: Map<string, Wearable>
@@ -44,7 +39,7 @@ export function buildWearableItem(
     wearable.description = data[3];
     wearable.rarity = item.rarity as WearableRarity;
     wearable.category = data[4] as WearableCategory;
-    wearable.bodyShapes = data[5].split(",") as WearableBodyShape[]; // Could be more than one
+    wearable.bodyShapes = data[5].split(",") as WearableBodyShape[];
     wearable.network = ModelNetwork.POLYGON;
     return wearable;
   }

@@ -1,31 +1,3 @@
-/**
- * Server-only data layer for the places report queue.
- *
- * Server-side authorization, read in full before this module was written:
- *
- *   catalyrst/crates/catalyrst-places/src/handlers/admin.rs:13-15  `gate()`
- *     -> catalyrst-places/src/auth.rs:88-100  `require_admin_bearer`
- *        :90-91  `expected: None`      -> 403 "Admin token not configured"
- *        :92-96  bearer mismatch/absent -> 403 "Invalid admin credentials"
- *        the compare at :80-86 is timing-safe.
- *
- *   `gate()` is the first statement of all three handlers:
- *     get_reports          admin.rs:36-41
- *     patch_report         admin.rs:77-83
- *     patch_place_disable  admin.rs:125-131
- *
- * The credential is `PLACES_ADMIN_AUTH_TOKEN`
- * (catalyrst-places/src/config.rs:49). It is a server-to-server bearer and
- * must never reach a browser bundle -- that is the entire reason this file is
- * `.server.ts` and the reason the browser-side write in `places-moderation.ts`
- * was removed.
- *
- * On this node the token is unset: it appears in no `deploy/env/*.env` file
- * and not in `deploy/env/sites.env`. Every export below therefore answers
- * `not-configured` today. That is the correct, fail-closed outcome --
- * provisioning the token is a separate, deliberate act and is not part of this
- * change.
- */
 
 import { z } from "zod";
 
@@ -149,17 +121,6 @@ async function adminFetch(req: AdminRequest): Promise<RawResponse> {
   return { ok: true, payload };
 }
 
-/*
- * Row 1 -- read the report queue.
- * GET {catalyst}/places/api/reports
- */
-
-/**
- * `data` is required so a report queue that did not arrive cannot arrive as an
- * empty one. A failed parse takes the `unavailable("backend-error")` path
- * below, which the page renders as a reason; `data: []` would have rendered as
- * "no open reports".
- */
 const ReportListSchema = z.object({
   data: z.array(z.unknown()),
   total: z.number().nullish().transform((v) => v ?? null),
@@ -224,13 +185,6 @@ export async function loadReportQueue(
   }
   return available({ rows, total: parsed.data.total ?? rows.length });
 }
-
-/*
- * Rows 2 & 3 -- commit a moderation decision, and optionally disable
- * the reported place.
- * PATCH {catalyst}/places/api/reports/{id}
- * PATCH {catalyst}/places/api/places/{id}/disable
- */
 
 const ReportPatchResponseSchema = z.object({
   ok: z.boolean().nullish(),
@@ -320,8 +274,6 @@ export async function commitModerationDecision(
       signal: opts.signal,
     });
     if (!disableRes.ok) {
-      // The report patch already landed. Say so rather than implying the whole
-      // decision failed.
       return unavailableFromStatus(
         disableRes.status,
         `Report was updated, but disabling the place failed: ${disableRes.message}`,
@@ -339,11 +291,6 @@ export async function commitModerationDecision(
     disableBody,
   });
 }
-
-/*
- * Row 3 standalone -- disable / re-enable a place without a report.
- * PATCH {catalyst}/places/api/places/{id}/disable
- */
 
 const DisableInputSchema = z.object({
   placeId: z.string().min(1),

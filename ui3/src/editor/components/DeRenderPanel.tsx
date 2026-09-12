@@ -3,13 +3,6 @@ import Slider from "../../atoms/Slider";
 import Checkbox from "../../atoms/Checkbox";
 import "./derenderpanel.css";
 
-/** Live render-tuning pane: every control drives one of the engine's console
-    commands (crates/visuals/src/lib.rs) through the same-origin viewport
-    iframe, so a drag shows up in the frame immediately. Nothing here is
-    persisted into the scene -- it is a lens for finding values, and the
-    Copy button emits the equivalent console commands so a chosen look can
-    be replayed or committed as engine defaults. */
-
 export const TONEMAP_MODES = [
   "none",
   "reinhard",
@@ -50,10 +43,6 @@ interface RenderState {
   grassTipColor: string;
 }
 
-/** Engine defaults, mirrored from the command handlers' initial state. These
-    seed the controls; the engine is only written when a control changes.
-    Cloud values mirror the CloudCover insert_resource in visuals/lib.rs; DoF
-    mirrors DofSetting::High; grass mirrors ParcelGrassConfig::default(). */
 export const RENDER_DEFAULTS: RenderState = {
   tonemap: "blender",
   exposure: 0,
@@ -83,9 +72,6 @@ export const RENDER_DEFAULTS: RenderState = {
   grassTipColor: "#65a30d",
 };
 
-/** The console line each field maps to; also what Copy settings emits.
-    Multi-argument commands (dof, grass) collapse onto one key so a change to
-    any of their fields re-sends the whole command. */
 export function commandFor(key: keyof RenderState, s: RenderState): string {
   switch (key) {
     case "tonemap":
@@ -123,8 +109,6 @@ export function commandFor(key: keyof RenderState, s: RenderState): string {
     case "dofMaxCircle":
     case "dofMaxDepth":
     case "dofBokeh":
-      // A single engine command owns all DoF fields. There is no off switch
-      // on /dof itself; "off" approximates it by opening the aperture wide.
       return `/dof ${round2(s.dofFocalExtra)} ${s.dofSensorHeight} ${
         s.dofEnabled ? s.dofFstops : 9999
       } ${round2(s.dofMaxCircle)} ${round2(s.dofMaxDepth)} ${s.dofBokeh ? 1 : 0}`;
@@ -139,7 +123,6 @@ export function commandFor(key: keyof RenderState, s: RenderState): string {
   }
 }
 
-/** Copy/Reset iterate one representative key per engine command. */
 const ORDERED_KEYS: Array<keyof RenderState> = [
   "tonemap",
   "exposure",
@@ -191,11 +174,7 @@ function SliderRow({ label, value, min, max, step, format, onChange }: RowProps)
 }
 
 export interface DeRenderPanelProps {
-  /** Runs one console line (leading slash included) against the engine. */
   onCommand?: (line: string) => void;
-  /** Reads the engine's current render state back as one JSON string. Optional
-      because the /renderstate command may not exist on every deployed engine;
-      any failure keeps the seeded defaults. */
   onQueryState?: () => Promise<string>;
   onClose?: () => void;
   onOpenCameraSettings?: () => void;
@@ -209,8 +188,6 @@ export default function DeRenderPanel({
 }: DeRenderPanelProps) {
   const [s, setS] = useState<RenderState>(RENDER_DEFAULTS);
   const [copied, setCopied] = useState(false);
-  // One trailing timer per field: slider drags fire onChange per pixel, and
-  // the engine only needs the value it settles on.
   const timers = useRef<Partial<Record<keyof RenderState, ReturnType<typeof setTimeout>>>>({});
 
   const apply = (key: keyof RenderState, next: RenderState) => {
@@ -225,12 +202,6 @@ export default function DeRenderPanel({
   const set = <K extends keyof RenderState>(key: K, value: RenderState[K]) =>
     apply(key, { ...s, [key]: value });
 
-  // Read the engine's live render state back on open so the pane shows what
-  // the engine actually renders (including values set from the engine console
-  // rather than this pane) instead of the seeds. One setS batch: sync sends no
-  // commands, or every open would replay a full command burst at the engine.
-  // The /renderstate command may not exist on the deployed engine yet; any
-  // unknown-command reply or parse failure is swallowed and the seeds stand.
   const queryStateRef = useRef(onQueryState);
   queryStateRef.current = onQueryState;
   useEffect(() => {

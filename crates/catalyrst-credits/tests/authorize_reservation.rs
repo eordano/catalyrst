@@ -279,8 +279,6 @@ async fn expiry_sweep_frees_stale_reservations() {
     cleanup(&pool, &addr).await;
 }
 
-// Cross-lane conservation: balance pledged to a live authorization cannot be
-// re-spent through the shared checkout/escrow spend primitive.
 #[tokio::test]
 async fn a_live_reservation_blocks_a_checkout_spend_of_the_pledged_balance() {
     let Some(pool) = common::pool().await else {

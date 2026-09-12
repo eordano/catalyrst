@@ -196,9 +196,6 @@ async fn upstream_timeout_keeps_the_slot_even_when_the_broadcast_lands_late() {
     };
     support::seed_collection(&scratch.pool, COLLECTION).await;
 
-    // The mock receives the request, then answers 200 with a txHash long after
-    // the forwarder's timeout: the transaction lands upstream even though the
-    // client saw a timeout.
     let seen: Seen = Arc::new(Mutex::new(None));
     let mock = spawn_mock_upstream(
         MockBehaviour {
@@ -251,8 +248,6 @@ async fn upstream_connection_refused_refunds_the_slot() {
     };
     support::seed_collection(&scratch.pool, COLLECTION).await;
 
-    // Bind a port, then drop the listener: connecting to it is refused, so the
-    // request provably never reached an upstream.
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await
         .expect("bind throwaway port");
@@ -327,8 +322,6 @@ async fn upstream_524_keeps_the_slot_as_indeterminate() {
     };
     support::seed_collection(&scratch.pool, COLLECTION).await;
 
-    // 524 is Cloudflare's origin-timeout: the request reached the intermediary
-    // and the origin may have broadcast before the intermediary gave up.
     const UPSTREAM_BODY: &str = "<html>524: a timeout occurred</html>";
     let seen: Seen = Arc::new(Mutex::new(None));
     let mock = spawn_mock_upstream(

@@ -51,7 +51,6 @@ const NEWCOMER: OverviewProfile = {
   equipped: [],
 };
 
-/** The profile is picked by name: the fully-populated one, or an empty one in either accent. */
 const PROFILES = {
   populated: PROFILE,
   emptyTeal: NEWCOMER,
@@ -59,7 +58,6 @@ const PROFILES = {
 };
 type ProfileKey = keyof typeof PROFILES;
 
-/** Story args: the profile fixture is picked by name, the rest are real props. */
 type OverviewStoryArgs = {
   profilePreset: ProfileKey;
   isOwnProfile: boolean;
@@ -120,14 +118,6 @@ const CATALOG: { label: string; args: OverviewStoryArgs }[] = [
   { label: "loading", args: { ...BASE, loading: true } },
 ];
 
-/**
- * Every state at once. `Default` flips between them from the Controls panel; this keeps the
- * member view, the owner view, both empty profiles and the skeleton in the render + a11y +
- * visual-diff gates. `chrome={false}` so stacking does not emit N `<main>` landmarks, and
- * `labelSuffix` rides through to `ProfileTabLayout`, which owns this page's two named
- * landmarks (`section[aria-label="Profile summary"]` and `nav[aria-label="Profile sections"]`) --
- * axe's `landmark-unique` compares accessible names, so fixed labels would fail N times.
- */
 export const Catalog: Story = {
   name: "Catalog (every state)",
   parameters: { controls: { disable: true } },

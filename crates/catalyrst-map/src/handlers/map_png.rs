@@ -13,14 +13,12 @@ use crate::map::MapData;
 use crate::render::{render_estate_minimap, render_minimap, render_png, Coord};
 use crate::AppState;
 
-// Thread-local so parallel test threads do not cross-count.
 #[cfg(test)]
 thread_local! {
     pub(crate) static ESTATE_SELECT_VISITS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
-/// Estate parcel selection through the prebuilt index, replacing two full-map scans. Prefers
-/// owned parcels and falls back to all parcels carrying the estate id, as the scans did.
+/// Prefers owned parcels, falling back to all parcels carrying the estate id.
 fn select_estate_coords(data: &MapData, estate_id: &str) -> Vec<Coord> {
     let coords = data
         .estates_owned
@@ -395,7 +393,6 @@ mod tests {
         }
     }
 
-    // The two full-map scans visited 5000; the index visits 4.
     #[test]
     fn estate_lookup_visits_estate_size_not_map() {
         let n = 5000;
@@ -446,7 +443,6 @@ mod tests {
         got.sort_unstable();
         assert_eq!(got, vec![(0, 5), (1, 5), (2, 5)]);
 
-        // An absent estate selects nothing, preserving the 404/302 path.
         assert!(select_estate_coords(&data, "does-not-exist").is_empty());
     }
 }

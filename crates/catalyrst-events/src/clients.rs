@@ -9,9 +9,6 @@ pub use catalyrst_fed::comms::CommsGatekeeper;
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 
-// The id comes off an event row or a route segment and becomes one path
-// segment of an internal request, so it must never be able to add segments,
-// a query or a fragment.
 pub(crate) fn destination_url(base_url: &str, id: &str) -> String {
     format!(
         "{}/v1/destinations/{}",
@@ -20,10 +17,6 @@ pub(crate) fn destination_url(base_url: &str, id: &str) -> String {
     )
 }
 
-// Upstream resolves an event's destination in-process: a world event by the
-// world its `server` names, a genesis event by the place covering its parcel.
-// That catalog lives behind the places service here, so the same two lookups
-// go over HTTP and a miss keeps place_id null, as upstream stores it.
 pub(crate) fn place_lookup_url(base_url: &str, x: i32, y: i32) -> String {
     format!(
         "{}/api/places?positions={}&limit=1",
@@ -40,15 +33,10 @@ pub(crate) fn world_lookup_url(base_url: &str, name: &str) -> String {
     )
 }
 
-// Upstream's resolveLocation keys a world event on `world: true` with a server
-// named: a server alone, or a world flag alone, is a genesis event at its
-// parcel, and the stored flag follows this derivation rather than the request.
 pub(crate) fn is_world_event(world: bool, server: Option<&str>) -> bool {
     world && server.is_some_and(|s| !s.is_empty())
 }
 
-// Upstream keys a world by lower(world_name) and serves that key as the world
-// event's place_id, which is also what the mirrored catalog carries.
 pub(crate) fn world_destination_id(row: &Value, requested: &str) -> String {
     row.get("world_name")
         .and_then(|v| v.as_str())
@@ -73,8 +61,6 @@ struct ListResponse {
     data: Value,
 }
 
-// The viewer's auth chain travels with the read so the destination's
-// user_favorite/user_like/user_dislike flags are the viewer's own.
 fn forwarded_headers(headers: &HeaderMap) -> reqwest::header::HeaderMap {
     let mut out = reqwest::header::HeaderMap::new();
     for (name, value) in headers.iter() {
@@ -199,8 +185,6 @@ impl Places {
     }
 }
 
-// The places service the write paths resolve destinations through: one parcel
-// and one world exist, everything else misses.
 #[cfg(test)]
 pub(crate) mod test_support {
     use axum::extract::Query;

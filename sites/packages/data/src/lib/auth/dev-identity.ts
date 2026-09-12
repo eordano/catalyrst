@@ -48,16 +48,10 @@ type DevTypedData = {
   message: Record<string, unknown>;
 };
 
-/** Reads through `readDevSignerKey` so the stored key is judged by one rule. */
 export function hasDevSigner(): boolean {
   return readDevSignerKey() !== null;
 }
 
-/**
- * The try covers the storage read only: `check` throws in dev, and this key
- * exists only on a dev host, so that throw lands on exactly the person who can
- * clear it. The `startsWith` guard stays as the production fallback.
- */
 function readDevSignerKey(): string | null {
   if (!isDevHost()) return null;
   let pk: string | null = null;

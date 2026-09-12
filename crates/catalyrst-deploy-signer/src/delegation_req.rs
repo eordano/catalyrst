@@ -25,9 +25,6 @@ fn is_world_name(world: &str) -> bool {
         })
 }
 
-// Keep these charset gates in lockstep with sdk-multiplayer-server's
-// SCENE_ID_FORMAT / WORLD_FORMAT / PARCEL_FORMAT: every value below is
-// interpolated verbatim into the newline-delimited signed claim.
 pub(crate) fn validate_delegation_req(
     world: &str,
     scene_id: &str,

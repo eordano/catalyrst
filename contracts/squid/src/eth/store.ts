@@ -76,7 +76,7 @@ export const getStoredData = async (
     ...Array.from(parcels.values()).map(
       (p) => `parcel-${addresses.LANDRegistry}-${p.tokenId}`
     ),
-    ...Array.from(tokenIds.entries()) // for the NFTs created by the handleTransferWearableV1 that won't have the prefix added
+    ...Array.from(tokenIds.entries())
       .map(([contractAddress, tokenId]) =>
         tokenId.map((id) => `${contractAddress}-${id}`)
       )

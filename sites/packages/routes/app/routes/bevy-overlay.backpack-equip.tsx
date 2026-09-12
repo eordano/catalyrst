@@ -65,9 +65,6 @@ export async function loader({ request }: Route.LoaderArgs) {
       owned: [],
       catalog: [],
       categories: [],
-      // A BaseMale in a default skin tone is a stranger, not this player's
-      // avatar. The component below refuses to open the editor on null, which
-      // is the only honest answer when the profile never answered.
       equipped: null,
       inventory: { status: "unavailable", reason },
       catalogState: { status: "unavailable", reason },
@@ -78,9 +75,6 @@ export async function loader({ request }: Route.LoaderArgs) {
     sid,
     backpack,
     assignment,
-    // True exactly when the component below will substitute FIXTURE_EQUIPPED.
-    // A fixture-seeded editor must never deploy, even if a wallet signs in
-    // mid-session: saving it would write BaseMale over the real profile.
     fixtureSeeded: backpack.equipped === null,
   };
 
@@ -172,9 +166,6 @@ export default function BackpackEquipRoute({ loaderData }: Route.ComponentProps)
     }
   }, [fetcher.state, fetcher.data]);
 
-  // Without a profile read there is no avatar to edit, only a default one. The
-  // editor saves what it shows, so offering it here would write a body shape and
-  // colours nobody chose over the avatar we failed to load.
   if (backpack.equipped === null && backpack.inventory.status !== "not-connected") {
     return (
       <ClientStage nojs="Enable JavaScript to edit and save your avatar.">
@@ -208,8 +199,6 @@ export default function BackpackEquipRoute({ loaderData }: Route.ComponentProps)
         canRetry={!fixtureSeeded}
         save={({ wearables, colors }) => {
           if (fixtureSeeded) {
-            // Deliberately never reads getDeployIdentity here: signing in
-            // mid-session must not make this sample avatar deployable.
             return Promise.reject(
               new Error(
                 "this backpack opened without a signed-in wallet, so it shows a sample avatar; sign in and reopen the backpack to save yours",

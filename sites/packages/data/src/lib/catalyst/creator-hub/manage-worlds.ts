@@ -18,9 +18,6 @@ export const ManagedWorldSchema = z.object({
   blockedSince: z.string().nullish().transform((v) => v ?? null),
   deployedScenes: z.number(),
   thumbnail: z.string().nullish().transform((v) => v ?? null),
-  // How the viewer holds this world, and what the card's actions key off.
-  // "owner" was the default, so a row that lost its role was handed the
-  // strongest one there is -- every producer states it explicitly instead.
   role: z.enum(["owner", "collaborator", "operator"]),
 });
 export type ManagedWorld = z.infer<typeof ManagedWorldSchema>;

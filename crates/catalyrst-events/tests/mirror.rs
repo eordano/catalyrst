@@ -165,8 +165,6 @@ async fn local_overlay_wins_over_mirror_upsert() {
     scratch.drop().await;
 }
 
-/// Serves the real fixture page at offset 0 and an empty page beyond it, on
-/// an ephemeral port.
 async fn serve_upstream(fail_first_page: bool) -> SocketAddr {
     #[derive(serde::Deserialize)]
     struct Q {
@@ -229,9 +227,6 @@ async fn a_row_missed_once_survives_and_missed_twice_is_swept() {
     };
     let pool = scratch.pool.clone();
 
-    // With interval = 1h the cutoff sits 2h before the pass: a row last seen
-    // 90 minutes ago (missed by exactly one pass) survives, while a row last
-    // seen 3 hours ago (missed by two consecutive passes) is deleted.
     sqlx::query(
         "INSERT INTO event (id, name, raw, fetched_at) VALUES \
          ('missed-once', 'missed-once', '{}', now() - interval '90 minutes'), \
@@ -279,8 +274,6 @@ async fn sweep_fuse_refuses_mass_deletion_but_allows_small_sweeps() {
         .map(|e| e["id"].as_str().unwrap().to_string())
         .collect();
 
-    // 60 of 100 mirrored rows go stale: candidates 60 > max(50, 20% of 100),
-    // so the fuse trips and nothing is deleted.
     sqlx::query("UPDATE event SET fetched_at = now() - interval '3 hours' WHERE id = ANY($1)")
         .bind(&ids[..60])
         .execute(&pool)
@@ -300,8 +293,6 @@ async fn sweep_fuse_refuses_mass_deletion_but_allows_small_sweeps() {
         "a refused sweep deletes zero"
     );
 
-    // Refreshing 50 of the stale rows drops the candidate set under the
-    // threshold and the sweep proceeds.
     sqlx::query("UPDATE event SET fetched_at = now() WHERE id = ANY($1)")
         .bind(&ids[..50])
         .execute(&pool)

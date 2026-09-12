@@ -6,8 +6,6 @@ type WearablePreviewProps = AvatarSceneOptions & {
   emoteNonce?: number;
   className?: string;
   style?: CSSProperties;
-  /** Stop the render loop while this preview is scrolled out of view, and resume
-   *  it when it returns. Off by default so interactive previews keep animating. */
   pauseOffscreen?: boolean;
 };
 
@@ -41,15 +39,10 @@ export default function WearablePreview({
   const sceneRef = useRef<AvatarScene | null>(null);
   const visibleRef = useRef(true);
   const [status, setStatus] = useState<AvatarStatus>("loading");
-  // Gated tiles (pauseOffscreen, with IO support) don't boot their scene -- and
-  // so don't fetch a single GLB -- until the observer below reports them
-  // actually visible. Everything else boots on mount exactly as before.
   const [booted, setBooted] = useState<boolean>(
     () => !(pauseOffscreen && typeof IntersectionObserver !== "undefined"),
   );
 
-  // Camera props are applied to the live scene (setCamera) rather than keyed into
-  // the scene-creating effect -- a zoom/yaw nudge must not tear down and reload GLBs.
   const cameraRef = useRef({ zoom, yaw, pitch, fov, targetY });
   cameraRef.current = { zoom, yaw, pitch, fov, targetY };
 
@@ -95,8 +88,6 @@ export default function WearablePreview({
           },
         });
         sceneRef.current = scene;
-        // Adopt the visibility the observer has already settled on, so a stage
-        // created while off-screen starts paused instead of rendering once.
         scene.setActive(visibleRef.current);
         ro = new ResizeObserver(() => scene?.resize());
         ro.observe(node);
@@ -117,10 +108,6 @@ export default function WearablePreview({
     };
   }, [key, booted]);
 
-  // Independent of the scene-creating effect (so toggling visibility never
-  // tears down and reloads the GLBs): tracks visibility for the pause/resume
-  // loop, and -- the first time the tile is actually seen -- flips `booted`,
-  // which is what lets the effect above create the scene at all.
   useEffect(() => {
     if (!pauseOffscreen) return;
     const el = ref.current;

@@ -1,14 +1,4 @@
 #!/usr/bin/env bash
-# Applied migrations are immutable. Once a migration file is committed it may
-# already have run against a live DB (content, squid, per-crate), so editing,
-# deleting, or renaming it silently corrupts every deployment that applied the
-# old bytes -- an incident in both directions. A change goes in a NEW migration
-# with the next number instead. A file that was genuinely never applied anywhere
-# can be reshaped with ALLOW_MIGRATION_EDIT=1 (loud, deliberate).
-#
-# Tracked at catalyrst/sites/scripts/hooks/migration-immutability.sh; run from
-# the pre-commit hook. Fast path: exits 0 when no committed migration is staged
-# for modify/delete/rename.
 set -euo pipefail
 
 blocked=()

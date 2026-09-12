@@ -68,14 +68,6 @@ export const ReportCopySchema = z
   })
   .partial();
 
-/**
- * The copy fixture for the report wizard. Every key is required, so a
- * partial fixture file fails to parse rather than handing the page a
- * complete-looking title/message/reason-list nobody actually supplied.
- * `loadFixture` in landings.report-abuse.tsx turns a failed parse into
- * `null`, and the wizard falls back to its own built-in copy -- so a partial
- * file reads as no file rather than as this one.
- */
 export const ReportFixtureSchema = z.object({
   title: z.string(),
   successTitle: z.string(),
@@ -191,10 +183,6 @@ const PresignResponseSchema = z.object({
   files: z.array(PresignSlotSchema),
 });
 
-/** `evidenceKeys` is what the service says it stored. Defaulting to `[]` would
- *  tell a reporter their evidence was filed when the response never said so --
- *  the one claim on this screen they cannot check. Required: a create response
- *  without it is not a create response. */
 const CreatedReportSchema = z.object({
   data: z.object({
     id: z.string().min(1),

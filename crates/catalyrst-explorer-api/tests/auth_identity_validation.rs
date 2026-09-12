@@ -188,9 +188,6 @@ async fn identity_body_must_carry_the_persisted_shape() {
         .is_some_and(|e| e.starts_with("Invalid AuthIdentity")));
 }
 
-// The apex and gateway vhosts mount the crate under /auth-api and forward the
-// public pathname the browser signed; the fanout host (auth-api.example.com) strips
-// to the unprefixed route, which is the fallback.
 #[tokio::test]
 async fn x_original_path_rebinds_the_signed_path_to_the_public_prefix() {
     let app = app(&state().await);

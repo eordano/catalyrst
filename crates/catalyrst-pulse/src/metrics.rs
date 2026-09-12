@@ -7,8 +7,6 @@ use metrics::{counter, gauge, histogram};
 
 pub const DEFAULT_METRICS_BIND: &str = "127.0.0.1:5005";
 
-/// Install the Prometheus recorder and serve `/metrics` on `bind`.
-///
 /// Without it the facade below records into a no-op and the scrape target is dead, which
 /// pins `up{job="pulse"}` at 0 and burns the shared `ServiceDown` alert for every other job
 /// in its regex. A bind failure is therefore fatal rather than a warning: a metrics endpoint

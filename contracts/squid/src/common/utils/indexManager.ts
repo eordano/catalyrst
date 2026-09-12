@@ -1,52 +1,10 @@
-/**
- * Index Manager - Drop/Recreate indices for faster bulk indexing
- *
- * During initial sync, maintaining secondary indices is expensive. We drop the
- * non-essential ones and recreate them when the processor catches up with the
- * chain head. Only secondary indices used by the query layer are managed here --
- * never primary keys, unique constraints or FK-supporting indices.
- *
- * Indices are split per network (POLYGON_INDICES / ETH_INDICES) so each processor
- * manages only the tables it owns. Tables that both processors write (nft, order,
- * sale, bid, transfer, metadata, account, wearable) are managed by the Polygon
- * processor, which is by far the dominant writer of those rows; the ETH processor
- * only manages its exclusive tables (parcel, estate, ens, data).
- *
- * MOST query-layer indices are not needed by either processor's own path, which looks entities up
- * by primary key -- so dropping the shared ones during Polygon's backfill does not slow ETH's.
- * Two are the exception: getStoredData resolves orders by `nft_id` and items by `collection_id`,
- * neither of which is a primary key. Those carry `keepDuringBulkLoad` and are never dropped.
- * Assuming the write path was PK-only cost a 4.6x slowdown on a prod backfill before it was
- * caught, so verify against the actual store queries before adding an index here.
- *
- * All DDL runs on an independent connection, outside the batch transaction (see
- * withIndexConnection), so each CREATE/DROP INDEX autocommits on its own instead
- * of being held inside the multi-hour processor transaction. Callers must invoke
- * recreateIndices BEFORE their batch writes to any managed table (see the head
- * handlers): a plain CREATE INDEX takes a SHARE lock that conflicts with the ROW
- * EXCLUSIVE locks a writing batch transaction holds, and since that transaction
- * cannot commit until its handler returns, running the DDL after the writes would
- * self-deadlock on the same processor. A note on shared tables: when the Polygon
- * processor recreates a shared-table index (nft/order/sale/...) at head, a
- * concurrent ETH batch's upserts can briefly block on the same SHARE<->ROW EXCLUSIVE
- * conflict -- not a deadlock (it clears when the ETH batch commits), and it happens
- * once, so the practical impact is negligible.
- *
- * All logs use prefix [IndexMgr] for easy filtering in Grafana.
- */
 
 import { Store } from "@subsquid/typeorm-store";
 import { EntityManager, QueryRunner } from "typeorm";
 import { createSlackComponent, ISlackComponent } from "./slack";
 
-// Log prefix for easy filtering in Grafana
 const LOG_PREFIX = "[IndexMgr]";
 
-/**
- * `keepDuringBulkLoad` marks an index the PROCESSOR's own read path needs, not just the query
- * layer. Bulk mode leaves those in place: dropping them makes the backfill slower, because every
- * batch then seq-scans the table they serve. See the two flagged below.
- */
 export type ManagedIndex = {
   name: string;
   create: string;
@@ -54,9 +12,6 @@ export type ManagedIndex = {
 };
 export type IndexGroup = Record<string, ManagedIndex[]>;
 
-// Secondary indices owned by the Polygon processor (plus the shared marketplace
-// tables -- see file header). Do NOT include PKs, UNIQUE/REL constraints or any
-// index a constraint depends on. Grouped by table, heaviest first.
 export const POLYGON_INDICES: IndexGroup = {
   nft: [
     { name: "IDX_5f8cc4778564d0bd3c4ac3436d", create: `CREATE INDEX "IDX_5f8cc4778564d0bd3c4ac3436d" ON "nft" ("search_order_status", "search_order_expires_at", "category")` },
@@ -79,9 +34,6 @@ export const POLYGON_INDICES: IndexGroup = {
   order: [
     { name: "IDX_2485593ed8c9972197aeaf7da6", create: `CREATE INDEX "IDX_2485593ed8c9972197aeaf7da6" ON "order" ("expires_at_normalized")` },
     { name: "IDX_d01158fe15b1ead5c26fd7f4e9", create: `CREATE INDEX "IDX_d01158fe15b1ead5c26fd7f4e9" ON "order" ("item_id")` },
-    // KEPT during bulk load: getStoredData does `findBy(Order, { nft: In([...nftIds]) })` once per
-    // batch. Without this index that is a seq scan of `order` per batch, and it gets worse as the
-    // table grows -- measured at 4.6x slower overall on a prod backfill.
     { name: "IDX_f5047ff046d513a3598c1a2931", create: `CREATE INDEX "IDX_f5047ff046d513a3598c1a2931" ON "order" ("nft_id")`, keepDuringBulkLoad: true },
   ],
   sale: [
@@ -91,8 +43,6 @@ export const POLYGON_INDICES: IndexGroup = {
     { name: "IDX_8524438f82167bcb795bcb8663", create: `CREATE INDEX "IDX_8524438f82167bcb795bcb8663" ON "sale" ("nft_id")` },
   ],
   item: [
-    // KEPT during bulk load: getStoredData looks items up by `collection` (not by PK) once per
-    // batch, for the same reason as order.nft_id above.
     { name: "IDX_9ddbd0267ddb9c59621775f94e", create: `CREATE INDEX "IDX_9ddbd0267ddb9c59621775f94e" ON "item" ("collection_id", "blockchain_id")`, keepDuringBulkLoad: true },
     { name: "IDX_6d5bb320c601281cd3a213979e", create: `CREATE INDEX "IDX_6d5bb320c601281cd3a213979e" ON "item" ("metadata_id")` },
   ],
@@ -131,7 +81,6 @@ export const POLYGON_INDICES: IndexGroup = {
   ],
 };
 
-// Secondary indices owned exclusively by the ETH processor.
 export const ETH_INDICES: IndexGroup = {
   estate: [
     { name: "IDX_1f3ec6150afbb8a3fd75fae814", create: `CREATE INDEX "IDX_1f3ec6150afbb8a3fd75fae814" ON "estate" ("size")` },
@@ -157,10 +106,8 @@ export function flattenIndices(group: IndexGroup): ManagedIndex[] {
   return Object.values(group).flat();
 }
 
-// Threshold percentage for fresh sync detection (10% above initial block)
 const FRESH_SYNC_THRESHOLD_PERCENT = 0.1;
 
-// Polygon mainnet (137) => production; anything else (e.g. Amoy 80002) => dev.
 const isMainnet = process.env.POLYGON_CHAIN_ID === "137";
 const SQUID_ALERTS_CHANNEL = isMainnet ? "squid-alerts" : "squid-alerts-dev";
 
@@ -174,8 +121,6 @@ function getSlack(): ISlackComponent | undefined {
   return slackComponent;
 }
 
-// Sends a Slack alert via the shared bot-token component. Never throws -- alerting
-// must not break indexing. No-op (silently) when credentials are not configured.
 async function sendSlackNotification(message: string): Promise<void> {
   const slack = getSlack();
   if (!slack) return;
@@ -190,12 +135,6 @@ function em(store: Store): EntityManager {
   return (store as unknown as { em: () => EntityManager }).em();
 }
 
-// Runs index DDL on a fresh pooled connection OUTSIDE the batch transaction, so each
-// CREATE/DROP INDEX autocommits on its own instead of being held inside the
-// multi-hour processor transaction. The squid's schema lives in the search_path of
-// the transactional batch connection; we resolve it there and copy it onto the
-// independent connection, so unqualified table/index names and current_schema()
-// resolve to the squid's schema rather than public.
 async function withIndexConnection<T>(
   store: Store,
   fn: (runner: QueryRunner) => Promise<T>
@@ -216,20 +155,11 @@ async function withIndexConnection<T>(
   }
 }
 
-/**
- * Determine if this is a FRESH sync (new deploy) vs a RESTART of an already synced
- * squid. If currentBlock is within 10% of the configured initial block it is a
- * fresh sync.
- */
 export function isFreshSync(currentBlock: number, initialBlock: number): boolean {
   const threshold = Math.floor(initialBlock * (1 + FRESH_SYNC_THRESHOLD_PERCENT));
   return currentBlock < threshold;
 }
 
-// Checks whether an index exists in THIS squid's schema. Filtering by
-// current_schema() is essential: the production DB holds many squid schemas with
-// identically-named indices, so an unscoped check would report another schema's
-// index as ours and skip recreation, leaving this schema unindexed forever.
 async function indexExists(runner: QueryRunner, indexName: string): Promise<boolean> {
   const result = await runner.query(
     `SELECT 1 FROM pg_indexes WHERE indexname = $1 AND schemaname = current_schema()`,
@@ -268,12 +198,7 @@ async function getIndicesStatus(
   };
 }
 
-/**
- * Drop all managed indices in `group` for faster bulk loading. Runs each DROP on an
- * independent connection so it autocommits outside the batch transaction.
- */
 export async function dropIndicesForBulkLoad(store: Store, group: IndexGroup): Promise<void> {
-  // Anything the processor's own read path needs stays -- see keepDuringBulkLoad.
   const indices = flattenIndices(group).filter((idx) => !idx.keepDuringBulkLoad);
   await withIndexConnection(store, async (runner) => {
     const statusBefore = await getIndicesStatus(runner, indices);
@@ -298,8 +223,6 @@ export async function dropIndicesForBulkLoad(store: Store, group: IndexGroup): P
           skipped++;
           continue;
         }
-        // Each DROP runs in its own implicit transaction on the independent
-        // connection; a failure never aborts the others.
         await runner.query(`DROP INDEX IF EXISTS "${idx.name}"`);
         dropped++;
       } catch (e: any) {
@@ -315,11 +238,6 @@ export async function dropIndicesForBulkLoad(store: Store, group: IndexGroup): P
   });
 }
 
-/**
- * Recreate all managed indices in `group` (call when caught up with chain head).
- * Runs each CREATE on an independent connection so it autocommits outside the batch
- * transaction.
- */
 export async function recreateIndices(store: Store, group: IndexGroup): Promise<void> {
   const indices = flattenIndices(group);
   await withIndexConnection(store, async (runner) => {
@@ -385,9 +303,6 @@ export async function recreateIndices(store: Store, group: IndexGroup): Promise<
       );
     }
 
-    // Throw rather than return: per-index failures are caught inside the loop above, so without
-    // this the caller sees a clean return, latches "indices recreated" and never retries -- leaving
-    // production permanently missing an index with nothing but a Slack message to say so.
     const statusAfter = await getIndicesStatus(runner, indices);
     if (statusAfter.missingCount > 0) {
       throw new Error(

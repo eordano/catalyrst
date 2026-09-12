@@ -11,9 +11,6 @@ buildNpmPackage {
   src = ../sites;
   nodejs = nodejs_26;
 
-  # Regenerate whenever sites/package-lock.json changes:
-  #   nix run nixpkgs#prefetch-npm-deps -- catalyrst/sites/package-lock.json
-  # Keep in lockstep with sites/flake.nix (the dev-shell twin of this build).
   npmDepsHash = "sha256-H8wYV4cIG3tcPST7jnrM0ynKkn5frlpt7gJFmDxIdAw=";
 
   nativeBuildInputs = [ makeWrapper ];

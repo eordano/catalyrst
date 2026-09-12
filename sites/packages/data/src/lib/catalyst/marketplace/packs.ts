@@ -16,12 +16,6 @@ export type Pack = z.infer<typeof PackSchema>;
 
 export const PacksSchema = z.array(PackSchema);
 
-/**
- * `null` when the body is not a pack list. Every field of a pack is a term of
- * sale -- sku, credits, price, currency -- so a row that fails here has no price
- * to show; `loadPacks` turns the null into "unavailable" rather than a store
- * that appears to sell nothing.
- */
 export function parsePacks(raw: unknown): Pack[] | null {
   const r = PacksSchema.safeParse(raw);
   if (r.success) return r.data;

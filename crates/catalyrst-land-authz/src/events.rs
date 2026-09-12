@@ -14,8 +14,6 @@ pub const TOPIC_APPROVAL_FOR_ALL: &str =
 pub const TOPIC_APPROVAL: &str =
     "0x8c5be1e5ebec7d5bd14f71427d1e84f3dd0314c0f7b2291e5b200ac8c7c3b925";
 
-// LANDRegistry predates the final ERC721 event set and emits three Transfer
-// shapes; all three move a token and so all three clear its per-token rights.
 pub const TOPIC_TRANSFER_3: &str =
     "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
 pub const TOPIC_TRANSFER_5: &str =

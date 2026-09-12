@@ -35,9 +35,6 @@ export async function loadCreatorScenes(opts: {
   const creator = opts.creator?.trim();
   if (!creator) return [];
 
-  // A failed read propagates: every caller already separates "this creator has
-  // no scenes" from "we could not ask", and an empty list here rendered the
-  // creator's own scenes as gone.
   const needle = creator.toLowerCase();
   const { data } = await loadPlaces({ owner: creator, limit });
   if (data.length > 0) return data.slice(0, limit).map(toScene);

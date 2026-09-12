@@ -1,4 +1,6 @@
-//! Process-wide multipart upload budgets shared by every multipart route: admission takes a concurrency slot plus a zero-byte lease grown from actual parsed payload bytes -- never from Content-Length, which includes multipart framing.
+//! Process-wide multipart upload budgets shared by every multipart route: admission
+//! takes a concurrency slot plus a zero-byte lease grown from actual parsed payload
+//! bytes -- never from Content-Length, which includes multipart framing.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -218,10 +220,6 @@ pub fn timeout_response(message: &str) -> Response {
 mod tests {
     use super::*;
     use serde_json::json;
-
-    // The statics are process-wide and cargo runs tests concurrently, so every
-    // test here must fully release what it acquires and assert only on deltas
-    // it created itself (never on absolute counter values).
 
     #[test]
     fn upload_slot_cap_is_enforced_and_released_on_drop() {

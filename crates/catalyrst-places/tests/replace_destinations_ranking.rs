@@ -102,8 +102,6 @@ fn state_for(pool: &PgPool) -> AppState {
     )
 }
 
-// A node the operator never gave a writer to: the component reads, and every
-// write path answers 503 rather than reporting a run that never happened.
 fn state_without_writer(pool: &PgPool) -> AppState {
     state_from(PlacesComponent::new(pool.clone()), pool)
 }
@@ -211,8 +209,6 @@ async fn a_run_without_a_bearer_token_writes_nothing() {
     scratch.drop().await;
 }
 
-// Authorization is checked before the body, so a broken payload from a caller
-// with no token still reads as unauthorized rather than teaching it the shape.
 #[tokio::test]
 async fn the_token_is_checked_before_the_body() {
     let Some(scratch) = setup("cg_places_replace_authz_order").await else {
@@ -337,11 +333,6 @@ async fn the_run_writes_what_it_names_and_clears_what_it_omits() {
     assert!(result.places.skipped_missing.is_empty());
     assert!(result.worlds.skipped_missing.is_empty());
 
-    // Upstream's column defaults to 0, so a cleared destination and one that
-    // was never ranked are the same number and tie on it. The clear writes a
-    // literal 0 and a never-ranked row has no key at all, so the feed has to
-    // read the absence as the same 0 rather than sort the whole never-ranked
-    // catalogue below everything a run ever touched.
     let ids: Vec<String> = state
         .places
         .find_list(&PlaceListFilters {
@@ -369,10 +360,6 @@ async fn the_run_writes_what_it_names_and_clears_what_it_omits() {
     scratch.drop().await;
 }
 
-// The run is a whole-set replace, so a node that cannot write must say so:
-// applied=0 with every skip list empty reads as "the set was already what you
-// asked for", which is the false success the single-destination routes were
-// taught not to answer.
 #[tokio::test]
 async fn a_node_without_a_writer_refuses_the_run() {
     let Some(scratch) = setup("cg_places_replace_no_writer").await else {
@@ -400,13 +387,6 @@ async fn a_node_without_a_writer_refuses_the_run() {
     scratch.drop().await;
 }
 
-// Our world leg resolves a submitted id through lower(world_name), which
-// upstream's exact id match never does, so two casings the duplicate check
-// reads as two destinations resolve to one row. Refused as the duplicate it
-// is, rather than letting the UPDATE pick which ranking survives. Upstream
-// answers 201 for this payload -- its `worlds.id` IS the lowercased name, so
-// the unmatched casing lands in skipped_missing -- so the refusal is an
-// upstream-observable status divergence taken deliberately.
 #[tokio::test]
 async fn two_casings_of_one_world_name_reject_the_whole_run() {
     let Some(scratch) = setup("cg_places_replace_casing").await else {
@@ -495,9 +475,6 @@ async fn a_curated_destination_survives_the_clear() {
     scratch.drop().await;
 }
 
-// The bulk route captures no token identity, so curation wins for both
-// callers -- the admin override the single-destination routes carry must not
-// travel in here.
 #[tokio::test]
 async fn a_named_curated_destination_is_refused_under_either_token() {
     let Some(scratch) = setup("cg_places_replace_curated_named").await else {
@@ -638,9 +615,6 @@ async fn an_unknown_destination_is_reported_rather_than_failing_the_run() {
     scratch.drop().await;
 }
 
-// place_indexed reads both legs, the write reaches `place` alone: a world this
-// node serves itself is findable and unwritable, so the run must report it as
-// skipped instead of counting a write that never happened.
 #[tokio::test]
 async fn a_locally_served_world_is_never_counted_as_written() {
     let Some(scratch) = setup("cg_places_replace_local").await else {
@@ -679,8 +653,6 @@ async fn a_locally_served_world_is_never_counted_as_written() {
     scratch.drop().await;
 }
 
-// The single-destination admin route shares the same unwritable case, and used
-// to answer 200 with the caller's own number echoed back.
 #[tokio::test]
 async fn the_single_destination_ranking_route_refuses_an_unwritable_world() {
     let Some(scratch) = setup("cg_places_replace_single").await else {
@@ -713,9 +685,6 @@ async fn the_single_destination_ranking_route_refuses_an_unwritable_world() {
     scratch.drop().await;
 }
 
-// The single-destination routes share the bulk route's writer: a node the
-// operator never gave one answers 503 there, so echoing the caller's ranking
-// back at 200 here would be the same false success under a different path.
 #[tokio::test]
 async fn the_single_destination_routes_refuse_a_node_without_a_writer() {
     let Some(scratch) = setup("cg_places_single_no_writer").await else {

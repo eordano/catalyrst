@@ -6,8 +6,6 @@ import * as MarketplaceEthereumV3 from "../../abi/DecentralandMarketplaceEthereu
 import * as MarketplacePolygon from "../../polygon/abi/DecentralandMarketplacePolygon";
 import * as MarketplacePolygonV3 from "../../polygon/abi/DecentralandMarketplacePolygonV3";
 
-// Both topics are pinned so a regenerated or mis-wired ABI module breaks a test instead of matching
-// no logs at all: filtering a V3 address with the V1/V2 topic fails silently.
 const TRADED_TOPIC_V1_V2 =
   "0xaaecdfa7e74e704650fcb273f630f42f68974eff42bfffc1732cf30db9e4685b";
 const TRADED_TOPIC_V3 =

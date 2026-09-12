@@ -54,10 +54,6 @@ const MUTATING_TO_SCENE = new Set<PageToSceneMessage["type"]>([
   "component-written",
 ]);
 
-// Hosts the editor: app bar, ribbon workspace, and the page-side plumbing the
-// ribbon needs (disk save, publish draft, dirty tracking). All editing
-// controls live in the workspace ribbon -- this page adds no chrome of its
-// own beyond dismissible notices and a transient save-status strip.
 export default function EditorWizard({
   seed,
   onExit,
@@ -151,7 +147,6 @@ export default function EditorWizard({
       composite,
       assets: projectAssets(),
     });
-    // Best-effort server copy so the publish draft survives this browser.
     try {
       const { pushServerDraft } = await import(
         "@data/lib/catalyst/creator-hub/scene-drafts-client"
@@ -406,9 +401,6 @@ export default function EditorWizard({
         },
       );
       if (!res.written) {
-        // Local write declined -- but the cloud copy may still have landed
-        // (Save expressed intent; canceling the folder picker shouldn't
-        // silently discard it). Durable in the account = not dirty.
         if (res.serverSynced === true) dirtyRef.current = false;
         setDiskSave({ phase: "canceled", serverSynced: res.serverSynced });
       } else {

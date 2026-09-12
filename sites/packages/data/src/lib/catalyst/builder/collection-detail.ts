@@ -31,18 +31,6 @@ export const COLLECTION_STATUSES = [
 
 const nullableStr = z.string().nullish().transform((v) => v ?? null);
 
-/**
- * These three describe the shape the page renders; nothing is parsed with them.
- * Every value reaching them is assembled below from `LiveItemSchema` /
- * `OnchainItemRowSchema` or from `emptyCollection`, which is an explicit,
- * labelled empty -- not a parse result wearing one.
- *
- * They are still written strictly, `.catch()` included. A rarity that falls
- * back to "common" or a status that falls back to "not_ready" is a claim about
- * an item a creator is about to publish and price; the assemblers below already
- * pick those values from the enums, so anything else reaching here is a payload
- * we did not understand and must fail rather than downgrade.
- */
 export const WearableItemSchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -171,9 +159,6 @@ export async function fetchCollectionItems(
     `/v1/collections/${encodeURIComponent(id)}/items`,
     opts,
   );
-  // No `.catch([])`: a body that is not a list of items is a failed read, and
-  // every caller separates that from a collection that holds nothing. Swallowed
-  // here it told a creator their published collection was empty.
   const list = z
     .array(LiveItemSchema)
     .parse((raw as { data?: unknown })?.data ?? raw);

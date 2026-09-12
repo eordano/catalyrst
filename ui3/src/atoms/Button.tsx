@@ -19,8 +19,6 @@ function classes(variant: string, size: string, className: string, extra = "") {
 export default function Button(props: ButtonProps) {
   if (props.as === "a") {
     const { as: _as, variant = "primary", size = "md", className = "", children, ...rest } = props;
-    // An anchor cannot be `disabled`; the gated case is aria-disabled + a class
-    // that paints the disabled skin and swallows pointer events.
     const gated = rest["aria-disabled"] === true || rest["aria-disabled"] === "true";
     return (
       <a className={classes(variant, size, className, gated ? " is-disabled" : "")} {...rest}>

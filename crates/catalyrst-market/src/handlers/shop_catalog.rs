@@ -77,18 +77,17 @@ pub struct RelatedResponseBody {
     pub data: Vec<UnifiedItem>,
 }
 
-/// Blockchain ids are unbounded non-negative integers, so the whole constraint
-/// is a digit check (NOT a u64 parse): a huge id must still be accepted.
+/// Blockchain ids are unbounded non-negative integers, so this is a digit check, NOT a u64
+/// parse: a huge id must still be accepted.
 fn is_numeric_item_id(item_id: &str) -> bool {
     !item_id.is_empty() && item_id.bytes().all(|b| b.is_ascii_digit())
 }
 
-/// GET /v3/catalog/related -- items SIMILAR to one item, backing the PDP's
-/// fallback rail. Same item-unified, credit-priced shape as
-/// /v3/catalog/unified?groupBy=item. Unpaginated: `{ data }` only. A malformed
-/// deep link (absent/invalid contractAddress, or an itemId that is not a plain
-/// digit string) yields an empty rail WITHOUT touching the DB, so a bad URL
-/// never reaches `blockchain_id = itemId::numeric` and 500s.
+/// GET /v3/catalog/related -- same item-unified, credit-priced shape as
+/// /v3/catalog/unified?groupBy=item, unpaginated. A malformed deep link (absent/invalid
+/// contractAddress, or an itemId that is not a plain digit string) yields an empty rail
+/// WITHOUT touching the DB, so a bad URL never reaches `blockchain_id = itemId::numeric`
+/// and 500s.
 pub async fn get_related_catalog(
     State(state): State<AppState>,
     Query(pairs): Query<Vec<(String, String)>>,
@@ -120,13 +119,11 @@ pub struct TrendingResponseBody {
     pub data: Vec<TrendingItem>,
 }
 
-/// GET /v3/catalog/trending -- the items SELLING most right now, drawn from the
-/// same credit-buyable, item-unified universe as /v3/catalog/unified?groupBy=item
-/// so the client renders them with the same card at the same credit price.
-/// Unpaginated: `{ data }`. The ranking IS the order, so it accepts no sort and no
-/// page -- only `first`, `days`, and the shared unified filters (category, rarity,
-/// wearableCategory, listingType, source, includeSocialEmotes). Cached for an hour
-/// like the other shop rails: the window only moves at midnight.
+/// GET /v3/catalog/trending -- same credit-buyable, item-unified universe as
+/// /v3/catalog/unified?groupBy=item, so the client renders the same card at the same credit
+/// price. The ranking IS the order, so it accepts no sort and no page -- only `first`,
+/// `days`, and the shared unified filters. Cached for an hour: the window only moves at
+/// midnight.
 pub async fn get_trending_catalog(
     State(state): State<AppState>,
     Query(pairs): Query<Vec<(String, String)>>,
@@ -152,16 +149,11 @@ pub struct TopCreatorsResponseBody {
     pub data: Vec<TopCreator>,
 }
 
-/// GET /v3/catalog/creators -- the shop's creator rail: whose own catalogue
-/// earned the most lately. Attributes each sale to `item.creator` rather than
-/// the seller, so primary mints count (see `TopCreator`). Ranking is the
-/// windowed REVENUE; each row also carries the windowed sale count the ranking
-/// has to clear, the lifetime sales it displays and its approved catalogue
-/// counts, and creators with almost nothing published or too thin a window are
-/// floored out (see `build_top_creators_sql`). `first` (rows) and `days`
-/// (window) are clamped in the component. Unpaginated: `{ data }`. Cached for
-/// an hour like the other shop rails: the window is 30 days, so a fresher
-/// answer would change nothing a visitor could notice.
+/// GET /v3/catalog/creators -- creators ranked by windowed REVENUE, attributing each sale to
+/// `item.creator` rather than the seller so primary mints count (see `TopCreator` and
+/// `build_top_creators_sql` for the floors). `first` and `days` are clamped in the component.
+/// Unpaginated, cached for an hour: the window is 30 days, so a fresher answer would change
+/// nothing a visitor could notice.
 pub async fn get_top_creators(
     State(state): State<AppState>,
     Query(pairs): Query<Vec<(String, String)>>,
@@ -191,8 +183,6 @@ mod tests {
 
     #[test]
     fn numeric_item_id_guard_keeps_non_digit_ids_away_from_the_numeric_cast() {
-        // Without this guard a non-numeric id reaches `blockchain_id = itemId::numeric` and 500s
-        // a public GET from a malformed /item/:contractAddress/:itemId deep link. All of these must be rejected.
         for junk in [
             "abc",
             "1e3",
@@ -207,7 +197,6 @@ mod tests {
         }
 
         assert!(is_numeric_item_id("3"));
-        // Blockchain ids are unbounded integers, well past 2^53 -- a digit check must still accept them.
         assert!(is_numeric_item_id("90071992547409910000"));
     }
 }

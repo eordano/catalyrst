@@ -35,14 +35,6 @@ export const CurationCommentSchema = z.object({
 });
 export type CurationComment = z.infer<typeof CurationCommentSchema>;
 
-/**
- * Mirrors `CurationRowSchema` in `../builder/curation`: `isProgrammatic`,
- * `thumbs` and `comments` are curation facts, not blanks to fill in.
- * `is_programmatic` is required on catalyrst-builder's `ReviewRowOut`, so
- * `false` was a claim about how a collection was made; an empty `comments`
- * said a collection had drawn no review remarks, which is the one thing a
- * curator reads this row for.
- */
 export const CommitteeRowSchema = z.object({
   id: z.string(),
   name: z.string(),

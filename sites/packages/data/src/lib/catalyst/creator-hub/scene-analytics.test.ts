@@ -99,10 +99,6 @@ describe("when parsing the wire payload", () => {
   });
 
   it("should reject a scene whose measurement collections are missing", () => {
-    // These arrays are the measurements: the daily rows, the retention series
-    // and the deploy dates a creator reads the page for. Defaulting them to []
-    // drew an empty chart for a scene whose numbers were never in the payload,
-    // which is the same picture as a scene nobody visited.
     expect(() =>
       parseCreatorScenesStats({
         address: "0xabc",

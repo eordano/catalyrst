@@ -31,7 +31,6 @@ use catalyrst_crypto::{create_simple_auth_chain, Wallet};
 use serde_json::json;
 use sqlx::PgPool;
 
-// Well-known hardhat account #1 private key -- a valid secp256k1 key.
 const CREATOR_KEY: &str = "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d";
 
 async fn setup() -> Option<ScratchSchema> {
@@ -133,9 +132,6 @@ async fn submit_commit_from_non_epoch_author_catalyst_is_409() {
             .unwrap();
     assert_eq!(stored, "peer-a", "the creating catalyst must own the epoch");
 
-    // The creator IS a member, so this reaches the epoch-author guard rather
-    // than the membership guard. `commit` is never decoded on this path -- the
-    // 409 fires before any base64/MLS parsing -- so a placeholder is fine.
     let commit_path = format!("/mls/groups/{group_id}/commits");
     let commit_body = json!({ "epoch": 1, "commit": "AAAA" });
     let err = submit_commit(

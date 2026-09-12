@@ -5,24 +5,10 @@ import "./unbuiltpanel.css";
 
 export type UnbuiltPanelProps = {
   title: string;
-  /** Why it does not exist -- the verified reason, not an apology. */
   why: string;
-  /**
-   * What a creator can do instead, today. May contain a plain `<a>` or a
-   * `CliEscape`. It must not contain anything that looks like the missing
-   * capability: no button, no form, no toggle.
-   */
   today?: ReactNode;
 };
 
-/**
- * A capability that has no backend. It renders `<section role="note">` and has
- * **no click surface**: no button, no disabled control, no form, no link that
- * could return a fake success.
- *
- * A disabled button teaches "this will work once I'm signed in". A dashed note
- * naming the missing service teaches the truth, and the truth is the point.
- */
 export default function UnbuiltPanel({ title, why, today }: UnbuiltPanelProps) {
   return (
     <section className="ub" role="note">

@@ -20,40 +20,6 @@ const FALLBACK: Assignment = {
   experimentKey: "op_user_bans_console",
 };
 
-/**
- * Platform user bans -- BLOCK, for a reason worth stating precisely.
- *
- * This is the one blocked surface whose gate is both real and genuinely
- * satisfiable by a human operator without any secret:
- *
- *   catalyrst-comms/src/handlers/user_bans.rs:241  (list)
- *   catalyrst-comms/src/handlers/user_bans.rs:95-102, :164-171, :212-219
- *     (ban / unban / warn)
- *   -> catalyrst-comms/src/moderator.rs:65-116 `authorize_moderator`:
- *      a `MODERATOR_TOKEN` bearer, OR a signer present in `moderator_addresses`
- *      (and it explicitly rejects the scene signer).
- *
- * The wallet allowlist is populated on this node
- * (`deploy/env/catalyrst-comms.env:51`), so the gate is live and
- * wallet-satisfiable. What is broken is on this side: `user-bans.ts:135-139`
- * and `:233-263` sign the un-prefixed `/users/0x.../bans`, while nginx sets
- * `x-original-path` on `/comms/` (`01-catalyst.conf:127`) and
- * `catalyrst-crypto/src/signed_fetch.rs:119-134` verifies the *prefixed* value
- * -- proven by that crate's own test at `:671-687`. Every request 401s.
- *
- * The fix is named and small (sign `${COMMS_PREFIX}${path}` when the base is
- * the nginx edge), but the build gate requires it to be observed returning 200
- * from a `PLATFORM_USER_MODERATORS` wallet before it ships, and that runtime
- * check has not been done. So this stays BLOCK and is not wired.
- *
- * What is NOT done to "solve" this: putting `MODERATOR_TOKEN` in `sites.env`.
- * It is a server-to-server bearer; the wallet allowlist is the right gate for a
- * human operator and needs no secret at all.
- *
- * The loader therefore does not call `loadActiveBans`. Calling it produced a
- * 401 that the route swallowed into an empty list -- "no one is banned" and "you
- * cannot see who is banned" rendered identically.
- */
 export async function loader({ request }: Route.LoaderArgs) {
   const { sid, assignment, wrap } = await storyLoader(
     request,

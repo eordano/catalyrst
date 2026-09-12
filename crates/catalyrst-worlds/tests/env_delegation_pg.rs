@@ -1,8 +1,3 @@
-// DB-gated end-to-end coverage for the scene-scoped delegation grant on GET /env/{key}
-// (upstream f2eb3be): a valid delegation reads env values; env list/upsert/delete and
-// unrelated signers stay denied. Set CATALYRST_WORLD_STORAGE_TEST_PG to run; each test
-// works in a throwaway schema and drops it on the way out.
-
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use axum::routing::get;
@@ -29,8 +24,6 @@ const KEY: &str = "api-key";
 const SECRET: &str = "secret-api-key-12345";
 const DENIED: &str = "Unauthorized: Signer is not authorized to perform operations on this world";
 
-// Places resolves every lookup to PLACE; the worlds content server reports an owner
-// unrelated to every test wallet, so owner/deployer checks always come back false.
 async fn spawn_upstream_mock() -> String {
     let app = Router::new()
         .route(
@@ -168,8 +161,6 @@ fn base64_encode(data: &[u8]) -> String {
     out
 }
 
-// ADR-44 signed fetch with a minimal SIGNER + ECDSA_SIGNED_ENTITY chain; the payload is
-// lowercased exactly as verify_request rebuilds it.
 fn signed_request(
     method: &str,
     path: &str,
@@ -323,8 +314,6 @@ async fn parcel_mismatched_claim_is_rejected() {
 
     let authoritative = Wallet::from_hex(AUTHORITATIVE_KEY).unwrap();
     let worker = Wallet::from_hex(WORKER_KEY).unwrap();
-    // The claim is bound to another parcel; the parcel pins the place_id, so one
-    // scene's claim must never read another scene's env values.
     let scope = scope_header(&authoritative, &worker.address(), "10,-25");
 
     let (status, body) = send(

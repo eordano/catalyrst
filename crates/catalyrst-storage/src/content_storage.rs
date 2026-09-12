@@ -19,16 +19,6 @@ impl ContentStorage {
     pub async fn new(base_path: impl Into<PathBuf>) -> Result<Self, StorageError> {
         let root = base_path.into().join("contents");
         tokio::fs::create_dir_all(&root).await?;
-        // Staging files whose writer died before the rename have no other reaper.
-        //
-        // Off the critical path deliberately: this walks every shard directory,
-        // and a full content store is 65,536 of them -- 54s of the 89s this
-        // process used to take to reach its listener, with the port unbound and
-        // the front answering 502 for the whole window. Nothing here is a
-        // precondition for serving: it deletes only files older than
-        // STAGING_ORPHAN_AGE (1h), which is the same threshold that already made
-        // it safe to run against a live store, so running it beside startup
-        // rather than before it is safe for exactly the same reason.
         let sweep_root = root.clone();
         tokio::spawn(async move {
             crate::sweep_stale_staging(&sweep_root, "content").await;
@@ -47,12 +37,9 @@ impl ContentStorage {
     pub async fn store(&self, hash: &str, data: Bytes) -> Result<(), StorageError> {
         use tokio::io::AsyncWriteExt;
 
-        // The one path that creates the shard directory.
         let path = ensure_file_path(&self.root, hash, &self.known_shards).await?;
 
         let seq = TMP_SEQ.fetch_add(1, Ordering::Relaxed);
-        // The guard arrives with the file, so from the instant the staging file exists every exit
-        // -- an error, a `?`, or this future being dropped mid-write -- removes it.
         let (mut file, mut staging) =
             create_staging_file(staging_path(&path, "content", seq)).await?;
         file.write_all(&data).await?;
@@ -84,8 +71,6 @@ impl ContentStorage {
     }
 
     pub async fn retrieve_uncompressed(&self, hash: &str) -> Result<Option<Bytes>, StorageError> {
-        // Content is stored decompressed, so the "uncompressed" read is the same lookup as
-        // `retrieve` -- kept as its own method because callers name their intent explicitly.
         self.retrieve(hash).await
     }
 
@@ -102,12 +87,6 @@ impl ContentStorage {
         use futures::future::BoxFuture;
         use futures::stream::{self, StreamExt};
 
-        // `buffered` (NOT `buffer_unordered`) runs up to 32 stats concurrently while yielding in
-        // input order, so the result Vec matches a serial walk with no re-association bookkeeping.
-        // The futures are boxed and collected EAGERLY: keeping a lazy `Iterator::map` closure over
-        // the borrowed `&&str` items alive inside this async fn's state makes the async-trait caller
-        // require it to be higher-ranked-lifetime general ("FnOnce is not general enough"). Collecting
-        // consumes the closure here, so only the owned Vec of boxed futures crosses the await points.
         let futs: Vec<BoxFuture<'_, (&str, Result<bool, StorageError>)>> = hashes
             .iter()
             .map(|&hash| Box::pin(async move { (hash, self.exist(hash).await) }) as _)
@@ -164,8 +143,6 @@ impl ContentStorage {
         Ok(None)
     }
 
-    /// Opens the content for streaming, returning the file and its size.
-    ///
     /// Prefer this over `file_path()` + your own `File::open`: the two-step version has to invent an
     /// answer for an `ENOENT` the stat said was impossible, and answering `absent` there reports a
     /// shard destroyed between the two syscalls as a legitimate 404. Here the stat is an `fstat` of
@@ -183,10 +160,10 @@ impl ContentStorage {
 
     /// The bytes in `start..=end`, or `None` when the id is absent or the window starts past its end.
     ///
-    /// Reads the WINDOW, not the file. Slicing a range out of a whole-file read means a 30 MB model
-    /// resident to answer a 32-byte sniff, and one such read per concurrent request; the descriptor
-    /// this seeks on is the same one [`open_for_read`](Self::open_for_read) decides absence from, so
-    /// the size the window is clamped against is the file being read rather than an earlier stat's.
+    /// Reads the WINDOW, not the file: slicing a range out of a whole-file read means a 30 MB model
+    /// resident to answer a 32-byte sniff, once per concurrent request. The descriptor this seeks on
+    /// is the same one [`open_for_read`](Self::open_for_read) decides absence from, so the size the
+    /// window is clamped against is the file being read rather than an earlier stat's.
     pub async fn read_range(
         &self,
         hash: &str,
@@ -215,11 +192,10 @@ impl ContentStorage {
 
     /// The CIDv1 the stored bytes actually hash to, or `None` when the id is absent.
     ///
-    /// A key in this store is a claim about its own content, and nothing enforces the claim at
-    /// write time for content that arrived from anywhere but [`store`](Self::store). This is how a
-    /// caller checks the claim rather than assuming it: `exist()` answers "is there a file here",
-    /// which is a different and much weaker question. Streams the file, so a snapshot of hundreds
-    /// of megabytes costs a buffer, not its length.
+    /// A key in this store is a claim about its own content, and nothing enforces the claim at write
+    /// time for content that arrived from anywhere but [`store`](Self::store); `exist()` answers the
+    /// much weaker "is there a file here". Streams the file, so a snapshot of hundreds of megabytes
+    /// costs a buffer, not its length.
     pub async fn stored_content_hash(&self, hash: &str) -> Result<Option<String>, StorageError> {
         use tokio::io::AsyncReadExt;
 
@@ -243,10 +219,10 @@ impl ContentStorage {
 
     /// Moves stored content from one id to another, reporting whether there was anything to move.
     ///
-    /// For content whose key turned out to misdescribe it: the bytes are worth keeping and the key
-    /// is not. A rename settles that without re-reading a file that can run to hundreds of
-    /// megabytes, and it retires the wrong key in the same step -- leaving it in place would keep
-    /// serving bytes under a CID they do not hash to, which is the whole defect being repaired.
+    /// For content whose key turned out to misdescribe it: the bytes are worth keeping and the key is
+    /// not. A rename settles that without re-reading a file that can run to hundreds of megabytes, and
+    /// it retires the wrong key in the same step -- leaving it in place would keep serving bytes under
+    /// a CID they do not hash to.
     pub async fn rekey(&self, from: &str, to: &str) -> Result<bool, StorageError> {
         let src = resolve_file_path(&self.root, from)?;
         let dst = ensure_file_path(&self.root, to, &self.known_shards).await?;
@@ -280,7 +256,7 @@ impl ContentStorage {
         Ok(None)
     }
 
-    /// Every id this store actually holds, pulled one at a time -- see [`FileIds`] for the contract.
+    /// See [`FileIds`] for the contract.
     pub fn all_file_ids<'a>(&'a self, prefix: Option<&'a str>) -> FileIds<'a> {
         FileIds::new(&self.root, &self.known_shards, "content", prefix)
     }

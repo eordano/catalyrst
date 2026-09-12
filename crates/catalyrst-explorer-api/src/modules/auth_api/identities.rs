@@ -19,16 +19,9 @@ use super::{
 use crate::AppState;
 
 const IDENTITY_TTL_SECONDS: i64 = 3600;
-// Upstream keeps the status tombstone for two weeks (auth-server storage,
-// TWO_WEEKS_IN_SECONDS) so a late GET can still say why the identity is gone.
 const IDENTITY_STATUS_TTL_SECONDS: i64 = 14 * 24 * 3600;
 const MAX_PENDING_IDENTITIES: usize = 10_000;
 const MAX_IDENTITY_TOMBSTONES: usize = 50_000;
-// The /auth mount prefix is not part of the wire contract: upstream serves
-// this route at /identities and the sites page signs the public pathname it
-// fetches, so verification falls back to the unprefixed route and every vhost
-// that mounts the crate under another prefix forwards the public path in
-// x-original-path (01-catalyst.conf, 11-gateway.conf).
 const IDENTITY_SIGNED_PATH: &str = "/identities";
 const SIGNED_FETCH_TOLERANCE_SECS: i64 = 5 * 60;
 const SCENE_SIGNER: &str = "decentraland-kernel-scene";
@@ -66,10 +59,6 @@ pub struct IdentityRequestBody {
     pub is_mobile: Option<bool>,
 }
 
-// The identity is stored and served verbatim; this typed view only runs
-// upstream's create checks (auth-server createIdentityHandler) before the blob
-// is accepted. `expiration` and `publicKey` are required by upstream's schema
-// and never read by it either.
 #[derive(Debug, Deserialize)]
 struct StoredIdentity {
     #[allow(dead_code)]
@@ -197,9 +186,6 @@ fn scene_signer_gate() -> &'static SignerGate {
     })
 }
 
-// Upstream's `createSignedFetchMiddleware()` on this route: current payload
-// shape only, scenes turned away, and every refusal answered as 401 with the
-// ADR-44 pointer.
 async fn verify_identity_post(headers: &HeaderMap) -> Result<Signer, Response> {
     signed_fetch::verify_signed_fetch_meta_with_policy(
         headers,
@@ -223,12 +209,6 @@ async fn verify_identity_post(headers: &HeaderMap) -> Result<Signer, Response> {
     })
 }
 
-// Upstream leans on Redis TTLs (the identity for its hour, the tombstone for
-// two weeks); these maps have no reaper, so each new identity pays for the
-// sweep instead of a background task, and the caps keep a flood of
-// throwaway-wallet posts from growing memory without bound: a full identities
-// map refuses the login (the record is what the client comes back for), a full
-// tombstone map only drops the diagnostic 404 texts.
 fn sweep_expired_identities(state: &AppState, now: DateTime<Utc>) {
     state
         .auth_api

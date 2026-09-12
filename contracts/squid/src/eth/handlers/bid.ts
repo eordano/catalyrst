@@ -60,7 +60,7 @@ export function handleBidCreated(
     bid.fingerprint =
       _fingerprint === "0x"
         ? Buffer.from("")
-        : Buffer.from(_fingerprint.slice(2), "hex"); // hack to avoid saving 0x in hex in the db
+        : Buffer.from(_fingerprint.slice(2), "hex");
     bid.tokenId = _tokenId;
     bid.blockchainId = _id;
     bid.blockNumber = BigInt(block.header.height);

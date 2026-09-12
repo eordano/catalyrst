@@ -1,18 +1,3 @@
-/**
- * Operator dashboard place list -- a PUBLIC read.
- *
- * Server side: catalyrst-places/src/handlers/places.rs:66-73 `get_place_list`
- * calls `crate::auth::auth_address_optional` and gates nothing. `?owner=` is a
- * filter over public data. Anyone, signed in or not, gets the same answer.
- *
- * So this page must not present itself as privileged. The address in the URL
- * (or the cookie, or `DEMO_OWNER`) selects *whose places to display*; it does
- * not assert who the viewer is and grants nothing. `isDemo` exists so the UI
- * can say "demo address -- not you" instead of implying ownership.
- *
- * Every privileged control reachable from this dashboard (scene admins, scene
- * bans) is unavailable regardless of this value -- see `control-availability.ts`.
- */
 
 import { getJSON } from "../client";
 import type { GetOptions } from "../client";
@@ -32,11 +17,8 @@ const PLACES_PUBLIC_CHECK =
 
 export type LoadResult = {
   dashboard: OperatorDashboard;
-  /** The address the public filter was run for. Not an identity claim. */
   viewedAddress: string;
-  /** True when the address is the built-in demo value, not the viewer. */
   isDemo: boolean;
-  /** Provenance label the UI must render. */
   provenance: "public";
   places: ControlResult<OperatorPlace[]>;
 };

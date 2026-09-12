@@ -76,8 +76,6 @@ lib.mkIf cfg.enable {
 
   systemd.services.postgresql-ownership = {
     description = "least-priv DB ownership + grants for catalyrst / squid";
-    # postgresql-setup.service runs ensureDatabases/ensureUsers; ordering only
-    # after postgresql.service races DB+role creation and this DDL fails.
     after = [
       "postgresql.service"
       "postgresql-setup.service"

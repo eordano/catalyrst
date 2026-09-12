@@ -200,10 +200,6 @@ pub(super) struct DerivedSceneSettings {
     pub(super) thumbnail_hash: Option<String>,
 }
 
-// Scene metadata is deployer-controlled and unconstrained, so every deploy-derived
-// value is held to the same allow-list PUT /settings enforces; a value the policy
-// rejects resolves to None ("not expressed") rather than being stored or corrupted,
-// and None lets the deploy path preserve whatever the owner already configured.
 pub(super) fn scene_settings_from_entity(entity: &Value) -> DerivedSceneSettings {
     let meta = entity.get("metadata");
     let display = meta.and_then(|m| m.get("display"));
@@ -239,8 +235,6 @@ pub(super) fn scene_settings_from_entity(entity: &Value) -> DerivedSceneSettings
                 .map(|t| t.as_str().map(str::to_string))
                 .collect::<Option<Vec<_>>>()
         });
-    // None when the scene says nothing, so "not declared" stays distinguishable
-    // from "declared false" and a redeploy cannot silently revert owner settings.
     let single_player = wc
         .and_then(|c| c.get("fixedAdapter"))
         .map(|v| v.as_str() == Some("offline:offline"));
@@ -336,7 +330,6 @@ mod tests {
     fn effective_base_trusts_declared_base_only_when_a_member() {
         let parcels = vec!["0,0".to_string(), "0,1".to_string()];
 
-        // Declared base inside the footprint is used (canonicalized).
         assert_eq!(
             effective_base_parcel(&entity_with_base(json!("0,1")), &parcels),
             Some("0,1".to_string())
@@ -346,13 +339,10 @@ mod tests {
             Some("0,1".to_string())
         );
 
-        // Declared base outside the footprint is rejected: fall back to first canonical parcel,
-        // never resolving to some other scene's identity.
         assert_eq!(
             effective_base_parcel(&entity_with_base(json!("9,9")), &parcels),
             Some("0,0".to_string())
         );
-        // Absent / empty base also falls back to the first canonical parcel.
         assert_eq!(
             effective_base_parcel(&json!({ "metadata": { "scene": {} } }), &parcels),
             Some("0,0".to_string())
@@ -361,7 +351,6 @@ mod tests {
             effective_base_parcel(&entity_with_base(json!("")), &parcels),
             Some("0,0".to_string())
         );
-        // No parcels at all: no usable identity.
         assert_eq!(
             effective_base_parcel(&entity_with_base(json!("0,0")), &[]),
             None

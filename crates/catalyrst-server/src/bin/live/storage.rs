@@ -23,13 +23,11 @@ pub(crate) fn load_env_file(path: &str) {
     }
 }
 
-/// Do two configured storage roots name the same tree?
-///
 /// Resolved, not compared as strings: the answer decides whether a SECOND `ContentStorage` is built
 /// over a tree that already has one, and `./content`, `/var/lib/catalyrst/content` and a symlink
 /// between them are all the same files while looking nothing alike. A root that does not exist yet
-/// cannot be resolved, so that case falls back to the literal comparison -- which still catches the
-/// ordinary way this happens, two env vars set to the same value.
+/// cannot be resolved and falls back to the literal comparison, which still catches the ordinary
+/// case of two env vars set to the same value.
 pub(crate) fn same_storage_root(a: &str, b: &str) -> bool {
     if a == b {
         return true;
@@ -69,10 +67,6 @@ impl ContentStorage for LiveContentStorage {
         &self,
         hash: &str,
     ) -> Result<Option<(Body, u64)>, catalyrst_storage::StorageError> {
-        // One open, one decision. Statting via `file_path()` and then opening meant a second chance
-        // to be told the file was gone, and absorbing THAT `ENOENT` as `Ok(None)` broke the trait's
-        // contract (state.rs): a shard destroyed between the two syscalls became a 404 instead of a
-        // fault. `open_for_read` decides absence once, from the descriptor it hands back.
         let Some((file, size)) = miss_on_invalid_id(self.inner.open_for_read(hash).await)? else {
             return Ok(None);
         };

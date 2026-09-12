@@ -1,9 +1,3 @@
-# Real-IP restore only means anything behind Cloudflare's edge -- the
-# acme-dns01 wildcard shape whose DNS provider is Cloudflare specifically, not
-# every public exposure or every dns01 provider. Key on dnsProvider, not
-# exposure. (An operator using Cloudflare DNS without proxying traffic through
-# it is over-served here -- a future cloudflareProxied flag would separate the
-# two; the reference deployment is both, so this default holds.)
 {
   config,
   pkgs,

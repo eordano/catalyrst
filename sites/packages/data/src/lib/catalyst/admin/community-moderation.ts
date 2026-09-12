@@ -17,28 +17,6 @@ export function parseStatus(raw: string | null | undefined): CommunityStatus {
 
 const nullableStr = z.string().nullish().transform((v) => v ?? null);
 
-/**
- * Rows of `GET /v1/communities`, built at
- * `catalyrst-social-service/src/rest/ports/communities.rs:144-161` and enriched
- * at `handlers/communities.rs:123-141`.
- *
- * The `SELECT` at `ports/communities.rs:280` reads `c.name`, `c.description`,
- * `c.owner_address`, `c.private`, `c.unlisted` and `c.active` as non-null
- * columns and the row builder below it writes every one of them, so they are
- * all required here and a row missing one is dropped by
- * `loadModerationCommunities` rather than filled in. `membersCount` mattered
- * most: a moderation list that defaults it to 0 shows every community as
- * empty, which is a reason to suspend one. `privacy` and `ownerAddress` are
- * next: a moderator who cannot see whose community this is, or reads a private
- * one as public, is deciding on a community other than the one in front of them.
- *
- * `suspended` is genuinely absent, and that is the honest answer. `list()`
- * hard-filters `c.active = TRUE AND c.suspended = FALSE`
- * (`ports/communities.rs:196-199`) and never serialises the column, so
- * defaulting it to `false` had this page assert, of every community it could
- * see, a suspension state it had not been told. Null means "not reported", and
- * `statusLabel` renders that as Unknown.
- */
 export const CommunityRowSchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -89,7 +67,6 @@ export type CommunityModerationCard = {
   ownerName: string | null;
   privacy: "public" | "private";
   active: boolean;
-  /** Null when the listing did not report a suspension state at all. */
   suspended: boolean | null;
   membersCount: number;
   thumbnail: string;
@@ -98,11 +75,6 @@ export type CommunityModerationCard = {
   hue: number;
 };
 
-/**
- * The empty strings below are a rendering decision, not a parse default: the
- * card contract is that "" means "show the placeholder", and both an absent
- * thumbnail and an absent flag reason render that way.
- */
 function normalizeThumbnail(value: string | null): string {
   return value && value !== "N/A" ? value : "";
 }
@@ -179,12 +151,6 @@ export async function loadModerationCommunities(
 export const COMMUNITY_DECISIONS = ["suspend", "unsuspend"] as const;
 export type CommunityDecision = (typeof COMMUNITY_DECISIONS)[number];
 
-/**
- * `catalyrst-social-service/src/rest/handlers/admin.rs:139` answers a suspend
- * or unsuspend with `{ok, id, suspended}` and nothing else, so `ok` is not
- * optional. Defaulting it to `true` had a body that never said so report a
- * moderation action as applied.
- */
 export const SuspendResultSchema = z.object({
   ok: z.boolean(),
   id: z.string(),

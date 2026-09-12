@@ -22,12 +22,10 @@ const SAMPLE_ITEMS: NonNullable<Props["items"]> = [
   { id: "e3", name: "Neon Bow", category: "emote", sub: "greetings", rarity: "legendary", available: 88, price: "210" },
 ];
 
-/** The exact four the old `WearablesOnly` story listed -- enough to drop the emote tab strip. */
 const WEARABLES_ONLY: NonNullable<Props["items"]> = SAMPLE_ITEMS.filter((i) =>
   ["i1", "i2", "i3", "i7"].includes(i.id)
 );
 
-/** The two item sets the page has been shown with, picked by name. */
 const ITEMS = { mixed: SAMPLE_ITEMS, wearablesOnly: WEARABLES_ONLY } satisfies Record<
   string,
   NonNullable<Props["items"]>
@@ -38,7 +36,6 @@ const ITEMS_KEYS = Object.keys(ITEMS) as ItemsKey[];
 
 const STATES = ["ready", "loading", "empty"] satisfies NonNullable<Props["state"]>[];
 
-/** `itemSet` names a fixture; `state` and `isOwner` stay real props. */
 type CollectionStoryArgs = {
   itemSet: ItemsKey;
   state: NonNullable<Props["state"]>;
@@ -65,14 +62,6 @@ type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {};
 
-/**
- * Every state at once. `Default` flips between them from the Controls panel; this story keeps
- * all five in the render + a11y + visual-diff gates: `isOwner` adds the owner action bar, a
- * wearables-only item set drops the wearables/emotes tab strip entirely, and `loading` /
- * `empty` replace the table with a spinner and an empty-state card. `chrome={false}` because
- * stacking N copies of `MarketplaceChrome` would emit N `<main>` landmarks and fail axe's
- * landmark-unique.
- */
 export const Catalog: Story = {
   name: "Catalog (every state)",
   parameters: { controls: { disable: true } },

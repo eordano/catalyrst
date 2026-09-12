@@ -54,10 +54,8 @@ const DOCS = { termsDemo, ...LEGAL_DOCS };
 type DocKey = keyof typeof DOCS;
 const DOC_KEYS = Object.keys(DOCS) as DocKey[];
 
-/** `undefined` falls through to the doc's own table of contents; `empty` hides it. */
 const TOC: Record<string, TocItem[] | undefined> = { fromDoc: undefined, empty: [] };
 
-/** The story args: the doc and the TOC override are picked by name, the rest are real props. */
 type LegalDocStoryArgs = Omit<
   ComponentProps<typeof LegalDocPageLayout>,
   "doc" | "tableOfContents"
@@ -97,12 +95,6 @@ type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {};
 
-/*
- * These three are reachable from the `docName` control like every other doc, but their story
- * ids are hardcoded external consumers: tools/screen-tour/add-story-links.mts keeps
- * `web-frames-legaldocpagelayout--{terms,privacy,ethics}` in its MAPS and only console.warns
- * when an id stops resolving, so dropping the exports would silently break those deep links.
- */
 export const Terms: Story = { args: { docName: "termsDemo" } };
 
 export const Privacy: Story = { args: { docName: "privacy" } };
@@ -119,5 +111,4 @@ export const Security: Story = { args: { docName: "security" } };
 
 export const Brand: Story = { args: { docName: "brand" } };
 
-/** `tableOfContents={[]}` overrides the doc's own table of contents away. */
 export const PropOverride: Story = { args: { docName: "privacy", tocOverride: "empty" } };

@@ -9,10 +9,8 @@ use super::types::{
 use crate::config::DEFAULT_ASSET_BASE_URL;
 use crate::http::errors::ApiError;
 
-/// Recursively swaps any string value prefixed with `from` for the same
-/// suffix prefixed with `to`. Walks arbitrarily nested JSON so it doesn't
-/// need to know the `{"2d":{...},"3d":{...}}` shape; empty strings (the
-/// unfilled 3D fields in the seed fixture) never match a non-empty `from`
+/// Walks arbitrarily nested JSON so it need not know the `{"2d":{...},"3d":{...}}` shape;
+/// empty strings (the unfilled 3D fields in the seed fixture) never match a non-empty `from`
 /// prefix and pass through unchanged.
 fn rewrite_base(value: &serde_json::Value, from: &str, to: &str) -> serde_json::Value {
     if from == to {
@@ -68,11 +66,8 @@ impl BadgesComponent {
         }
     }
 
-    /// Swaps `DEFAULT_ASSET_BASE_URL` for `self.public_asset_base_url` in every
-    /// string value found anywhere inside an `assets` JSONB blob. DB rows stay
-    /// upstream-parity-faithful (always `badges.decentraland.org`); only the
-    /// HTTP response reflects the deployment's self-hosted asset host. A no-op
-    /// when the two are equal (the default deployment).
+    /// DB rows stay upstream-parity-faithful (always `badges.decentraland.org`); only the
+    /// HTTP response reflects the deployment's self-hosted asset host.
     fn rewrite_assets(&self, assets: Assets) -> Assets {
         rewrite_base(&assets, DEFAULT_ASSET_BASE_URL, &self.public_asset_base_url)
     }

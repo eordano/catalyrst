@@ -44,13 +44,6 @@ async function fetchLiveNames(
   return parseNames(raw?.elements ?? []);
 }
 
-/**
- * A 404 from `/world/{name}/about` is catalyst's answer for a NAME with no
- * scenes deployed, so it is a real zero. Anything else -- a broken read, a
- * payload we cannot parse, a response with no configurations block -- is not a
- * count, and throwing keeps it out of the world list rather than publishing it
- * as "0 scenes, unpublished".
- */
 async function resolveWorldScenes(
   worldName: string,
   opts: GetOptions = {},

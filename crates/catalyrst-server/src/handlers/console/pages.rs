@@ -34,11 +34,6 @@ pub async fn index(State(state): State<Arc<AppState>>) -> Html<String> {
     b.push_str("<h2>A self-hosted <em>Decentraland</em> realm.</h2>");
     b.push_str("<p>catalyrst is a from-scratch Rust implementation of the Decentraland service plane \u{2014} content &amp; lambdas, the explorer APIs, the social stack, the creator and marketplace planes, scene-state multiplayer and a federation layer. Everything an explorer talks to, from one workspace.</p>");
     if let Some(base) = realm_base_url(&state) {
-        // The protocol handler, not decentraland.org/play: that page forwards
-        // `realm` only for realms it whitelists and drops it silently otherwise,
-        // so the visitor boots the default Genesis realm instead of this one.
-        // It stays on the page as a labelled fallback because a browser link is
-        // all someone without the launcher installed can click.
         let deep = catalyrst_types::realm_deep_link(&base, (0, 0));
         let play = format!(
             "https://decentraland.org/play/?realm={}",

@@ -156,8 +156,7 @@ pub fn combined_sig_calldata(user_address: &str) -> String {
 
 /// A random key together with executeMetaTransaction calldata (legacy r/s/v
 /// overload) carrying a real EIP-712 signature over nonce 0 and
-/// [`TEST_DOMAIN_SEPARATOR`], which is what the fake chain reports. Recovery
-/// through the real pipeline lands back on this key's address.
+/// [`TEST_DOMAIN_SEPARATOR`], which is what the fake chain reports.
 pub fn signed_split_calldata(key: &PrivateKeySigner, function_signature: &[u8]) -> String {
     signed_split_calldata_as(key.address(), key, function_signature)
 }
@@ -391,8 +390,7 @@ pub async fn spawn_app(scratch: &Scratch, max_per_day: i64) -> String {
     serve(state).await
 }
 
-/// An app with no local broadcast provider whose only route is the
-/// upstream forward.
+/// No local broadcast provider, so the only route is the upstream forward.
 pub async fn spawn_app_upstream(
     scratch: &Scratch,
     max_per_day: i64,

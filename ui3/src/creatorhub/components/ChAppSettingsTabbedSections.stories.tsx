@@ -32,7 +32,6 @@ const meta = {
     progress: 0,
     initialError: null,
   },
-  // `initialTab` / `initialError` seed internal state, so remount when a control changes them.
   render: (args) => (
     <ChAppSettingsTabbedSections key={`${args.initialTab}|${args.initialError}`} {...args} />
   ),
@@ -45,12 +44,6 @@ export const Default: Story = {};
 
 type AsProps = ComponentProps<typeof ChAppSettingsTabbedSections>;
 
-/**
- * Ordering matters. The dialog title is an `h6` and the release notes render `h3`s, so any entry
- * that shows notes must be the last one on the page -- otherwise the next entry's `h6` is a
- * three-level jump and axe's document-scoped heading-order fires. `available` therefore drops its
- * notes (`releaseNotes: null`) and `downloaded` keeps them, last.
- */
 const CASES: { label: string; args: Partial<AsProps> }[] = [
   { label: "Scenes tab", args: { initialTab: "scenes" } },
   { label: "Editor tab", args: { initialTab: "editor" } },

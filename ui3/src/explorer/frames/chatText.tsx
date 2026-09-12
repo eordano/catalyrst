@@ -1,7 +1,3 @@
-// Rich chat text -- ports the SDK7 chat's `decorateMessageWithLinks`: turn a raw
-// message into clickable URLs, location coords (teleport), and @username mentions
-// (clickable -> profile viewer; highlighted when they mention you). Parsing is a pure
-// function so it's unit-testable; <MessageText> renders the tokens with handlers.
 
 import type { MouseEvent } from "react";
 import type { NearbyPlayer } from "../../generated/bridge/NearbyPlayer";
@@ -13,10 +9,6 @@ export type Token =
   | { type: "location"; value: string; x: number; y: number }
   | { type: "mention"; value: string; name: string; tag?: string };
 
-// URL -> world name -> location (x,y) -> @mention, scanned in one pass to keep original order.
-// Worlds are ENS names (e.g. boedo.dcl.eth) -> clickable "jump to realm". Coords require both
-// signs/commas so we don't linkify every number; mentions allow an optional #tag suffix
-// (Name#a1b2) like the engine's claimed-name disambiguation.
 const TOKEN_RE =
   /(?<url>https?:\/\/[^\s<>"']+)|(?<world>[a-z0-9][\w-]*\.(?:dcl\.)?eth\b)|(?<loc>-?\d{1,3}\s*,\s*-?\d{1,3})|(?<mention>@[\w-]+(?:#[\w]+)?)/gi;
 
@@ -46,7 +38,6 @@ export function parseMessage(text: string): Token[] {
   return tokens;
 }
 
-/** Lowercased name (and name#tag) \u{2192} address, from the nearby roster. */
 export function buildNameIndex(members: NearbyPlayer[]): Map<string, string> {
   const idx = new Map<string, string>();
   for (const m of members) {
@@ -62,7 +53,6 @@ function resolveMention(t: Extract<Token, { type: "mention" }>, index: Map<strin
   return index.get(`${t.name}#${t.tag}`.toLowerCase()) ?? index.get(t.name.toLowerCase());
 }
 
-/** Does this message @-mention me (by resolved address or by my bare name)? */
 export function mentionsMe(
   text: string,
   me: { address?: string; name?: string } | null,
@@ -90,13 +80,9 @@ export function MessageText({
 }: {
   text: string;
   members: NearbyPlayer[];
-  /** `string | undefined` because CSS-module class lookups are index-signature typed. */
   styles: { url: string | undefined; mention: string | undefined; location: string | undefined; world: string | undefined };
-  /** A resolved @mention was clicked (address known). */
   onMention: (address: string, name: string, e: MouseEvent) => void;
-  /** A location link (x,y) was clicked. */
   onLocation: (x: number, y: number) => void;
-  /** A world name (e.g. boedo.dcl.eth) was clicked \u{2192} prompt to jump to that realm. */
   onWorld?: (name: string) => void;
 }) {
   const index = buildNameIndex(members);

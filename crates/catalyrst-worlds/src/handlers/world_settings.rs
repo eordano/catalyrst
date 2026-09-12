@@ -75,9 +75,6 @@ fn settings_json(s: &WorldSettingsRow) -> Value {
         "spawn_coordinates": s.spawn_coordinates,
         "skybox_time": s.skybox_time,
         "categories": s.categories,
-        // NULL means neither the owner nor any scene expressed a preference, so
-        // report the effective default; the distinction only matters in storage,
-        // where NULL lets a scene that omits these preserve the owner's choice.
         "single_player": s.single_player.unwrap_or(false),
         "show_in_places": s.show_in_places.unwrap_or(true),
         "thumbnail_hash": s.thumbnail_hash,
@@ -415,9 +412,6 @@ async fn parse_multipart(
         input.skybox_time = if value == "null" {
             None
         } else {
-            // Number semantics, not parse::<i32>: trailing garbage ("12abc"),
-            // fractions ("1.5") and out-of-int4 values are refused with a 400
-            // instead of silently clearing the stored value.
             let time = value
                 .trim()
                 .parse::<f64>()
@@ -475,8 +469,6 @@ async fn parse_multipart(
                     values.len()
                 )));
             }
-            // The client only ever runs data[0], so a long list is a
-            // misunderstanding rather than a richer configuration.
             Some(values.iter().map(|v| v.trim().to_string()).collect())
         };
     }

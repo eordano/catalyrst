@@ -33,26 +33,14 @@ type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {};
 
-/**
- * Kept as its own export rather than folded into `Default`: the story id
- * `marketplace-pages-buy-status--pending` is a screen-tour deep link
- * (`tools/screen-tour/add-story-links.mts`).
- */
 export const Pending: Story = {
   args: { status: "pending" },
 };
 
-/** Kept for the same reason -- `marketplace-pages-buy-status--refunded` is a screen-tour deep link. */
 export const Refunded: Story = {
   args: { status: "refunded" },
 };
 
-/**
- * Every `status` at once. `Default` flips between them from the Controls panel; this story
- * keeps all five in the render + a11y + visual-diff gates, since each status renders a
- * different title/status-line/description/CTA subtree. `chrome={false}` because stacking N
- * copies of `MarketplaceChrome` would emit N `<main>` landmarks and fail axe's landmark-unique.
- */
 export const Catalog: Story = {
   name: "Catalog (every status)",
   parameters: { controls: { disable: true } },

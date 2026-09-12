@@ -33,14 +33,10 @@ type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {};
 
-/** The voting-power notice, with the form disabled. */
 export const VpNotMet: Story = { args: { vpNotMet: true } };
 
-/** The submission error banner. */
 export const Error: Story = { args: { error: SUBMIT_ERROR } };
 
-/** The loading gate, checked before the account gate. */
 export const Loading: Story = { args: { loading: true } };
 
-/** The sign-in gate for a disconnected wallet. */
 export const LoginGate: Story = { args: { account: "" } };

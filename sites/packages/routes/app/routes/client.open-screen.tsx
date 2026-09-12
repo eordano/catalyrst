@@ -55,9 +55,6 @@ export async function loader({ request }: Route.LoaderArgs) {
     { skipExposure: true },
   );
 
-  // Draft until activated: a non-empty flags-service override row (or the
-  // OPEN_SCREEN_EXPERIMENT env var) turns it on; otherwise every session gets
-  // base. ?arm= / ?variant=client_open_screen:<arm> still force a preview.
   const active = await experimentActive(OPEN_SCREEN_EXPERIMENT_KEY, {
     envActive:
       activeOpenScreenExperiment(
@@ -93,17 +90,10 @@ export async function loader({ request }: Route.LoaderArgs) {
     ({ busiest, surprise } = selectLiveTargets(mostActive));
   }
 
-  // No live scene reading for the genesis arm: never park the player on a
-  // dead-end "browse instead" prompt -- send them straight to the Places grid,
-  // server-side, so there is no screen and no click. This runs BEFORE
-  // trackExposure so a session that can never see the genesis screen is not
-  // counted as a genesis exposure, keeping the arm's conversion rate honest.
   if (arm === "genesis" && !busiest) {
     throw redirect(OPEN_SCREEN_TARGETS.explore);
   }
 
-  // A forced arm is QA/preview driving the surface, and an inactive experiment
-  // samples nobody: neither counts as an exposure.
   if (active && !forced) {
     trackExposure({
       sid,

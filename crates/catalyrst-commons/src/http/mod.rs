@@ -1,6 +1,3 @@
-//! Outbound HTTP: a uniformly configured [`reqwest::Client`], SSRF guards for
-//! user-supplied URLs, a size-capped body reader, and a retry ladder.
-
 mod body;
 mod client;
 mod guard;

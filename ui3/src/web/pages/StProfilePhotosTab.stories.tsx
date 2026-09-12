@@ -53,11 +53,9 @@ function makePhoto(i: number): Photo {
 
 const PHOTOS: Photo[] = Array.from({ length: 12 }, (_, i) => makePhoto(i));
 
-/** The photo list is picked by name: the twelve-shot reel, or nothing to show. */
 const PHOTO_SETS = { twelve: PHOTOS, none: [] as Photo[] };
 type PhotoSetKey = keyof typeof PHOTO_SETS;
 
-/** Story args: the photo list is picked by name, `isOwnProfile` is the real prop. */
 type PhotosStoryArgs = { photoSet: PhotoSetKey; isOwnProfile: boolean };
 
 const BASE: PhotosStoryArgs = { photoSet: "twelve", isOwnProfile: false };
@@ -110,13 +108,6 @@ const CATALOG: { label: string; args: PhotosStoryArgs }[] = [
   { label: "empty \u{2014} member", args: { photoSet: "none", isOwnProfile: false } },
 ];
 
-/**
- * Every state at once. `Default` flips between them from the Controls panel; this keeps the
- * member reel, the owner reel and both empty-state copies in the render + a11y + visual-diff
- * gates. `chrome={false}` so stacking does not emit N `<main>` landmarks, and `labelSuffix`
- * makes each copy's `nav[aria-label="Profile sections"]` uniquely named -- axe's
- * `landmark-unique` compares accessible names, so a fixed label would fail N times.
- */
 export const Catalog: Story = {
   name: "Catalog (every state)",
   parameters: { controls: { disable: true } },

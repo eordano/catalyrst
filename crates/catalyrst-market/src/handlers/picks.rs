@@ -29,8 +29,6 @@ async fn authenticate(
     method: &str,
     fallback_path: &str,
 ) -> Result<String, ApiError> {
-    // @dcl/crypto-middleware >=5.1.0: reject non-canonical signer/intent metadata
-    // (mixed case or whitespace) with 400 before the signature is validated.
     auth_chain::require_canonical_metadata(headers)?;
 
     let chain = auth_chain::extract_auth_chain(headers).map_err(auth_chain_error_to_api)?;
@@ -91,10 +89,8 @@ fn validate_list_ids(ids: &[String]) -> Result<(), ApiError> {
     Ok(())
 }
 
-/// Errors for the pick/unpick route. Upstream's `ListsNotFoundError` /
-/// `ItemNotFoundError` 404s carry the offending ids in a `data` payload
-/// (picks-handlers.ts:211-235: `{ok:false, message, data:{listIds}}` and
-/// `{ok:false, message, data:{itemId}}`), which the plain `ApiError` envelope
+/// Upstream's `ListsNotFoundError` / `ItemNotFoundError` 404s carry the offending ids in a
+/// `data` payload (picks-handlers.ts:211-235), which the plain `ApiError` envelope
 /// (`{ok, message}`) cannot express.
 #[derive(Debug)]
 pub enum PicksError {
@@ -235,14 +231,8 @@ pub async fn pick_unpick_in_bulk(
         all.extend(unpicked_from.iter().cloned());
         all.sort();
         all.dedup();
-        // Upstream `checkNonEditableLists` (863b04c): a list is flagged when
-        // the caller does not own it, it is not the shared default list, and
-        // no `edit` grant exists for the caller or for `*`. Nonexistent ids
-        // are not flagged and no-op downstream.
         let non_editable = state.lists.check_non_editable_lists(&all, &user).await?;
         if !non_editable.is_empty() {
-            // Upstream's ListsNotFoundError carries the offending list ids in
-            // the 404 body's `data.listIds`.
             return Err(PicksError::ListsNotFound(non_editable));
         }
         (picked_for, unpicked_from)
@@ -321,8 +311,8 @@ mod tests {
         assert!(empty.picked_for.is_none() && empty.unpicked_from.is_none());
     }
 
-    /// Upstream ListsNotFoundError 404 (picks-handlers.ts:213-224): the body
-    /// carries the offending ids as `data.listIds`, not just the message.
+    /// Upstream ListsNotFoundError 404 (picks-handlers.ts:213-224): the body carries the ids
+    /// as `data.listIds`, not just the message.
     #[tokio::test]
     async fn lists_not_found_404_carries_list_ids_payload() {
         let ids = vec![
@@ -345,9 +335,8 @@ mod tests {
         );
     }
 
-    /// Upstream ItemNotFoundError 404 (picks-handlers.ts:225-235): fixed
-    /// message plus the item id in `data.itemId` (the id is NOT embedded in
-    /// the message).
+    /// Upstream ItemNotFoundError 404 (picks-handlers.ts:225-235): a fixed message plus the
+    /// id in `data.itemId`, NOT embedded in the message.
     #[tokio::test]
     async fn item_not_found_404_carries_item_id_payload() {
         let item = "0xf1483f042614105cb943d3dd67157256cd003028-15";

@@ -13,15 +13,15 @@ pub enum Bind {
     Float(f64),
 }
 
-/// Unix second at which off-chain Estate trades started being validated against
-/// `EstateRegistry.getFingerprintV2`. Anything signed earlier carries a legacy v1
-/// (XOR) fingerprint that the upgraded registry rejects for large estates, so
-/// buying such a listing reverts on-chain.
+/// Unix second from which off-chain Estate trades are validated against
+/// `EstateRegistry.getFingerprintV2`. Anything signed earlier carries a legacy v1 (XOR)
+/// fingerprint the upgraded registry rejects for large estates, so buying such a listing
+/// reverts on-chain.
 const ESTATE_V2_FINGERPRINT_VALIDATION_CUTOFF: i64 = 1_779_284_232;
 
-/// Largest Estate (in LANDs) whose v1 fingerprint `verifyFingerprint` still honors
-/// through its fallback. Once the on-chain fallback deadline (2026-11-26 15:00 UTC)
-/// passes, smaller estates break too and this size guard must be dropped.
+/// Largest Estate (in LANDs) whose v1 fingerprint `verifyFingerprint` still honors through
+/// its fallback. Once the on-chain fallback deadline (2026-11-26 15:00 UTC) passes, smaller
+/// estates break too and this size guard must be dropped.
 const ESTATE_LR_XOR_SAFE_MAX_SIZE: i64 = 18;
 
 /// An estate whose `search_estate_size` has not been indexed yet must stay listed, so
@@ -317,9 +317,6 @@ pub fn build_nfts_query(filters: &NftFilters, for_count: bool) -> (String, Vec<B
 
     let main_sort = if for_count { "" } else { main_sort };
 
-    // Only the LAND-routed browse feed hides the now-unexecutable estate listing; every
-    // other query shape, and owner-scoped requests (My Assets), keep it visible so the
-    // owner still sees it and knows to re-create it.
     let broken_estate_exclusion = if is_land_routed(filters) && filters.owner.is_none() {
         broken_estate_trades_exclusion()
     } else {

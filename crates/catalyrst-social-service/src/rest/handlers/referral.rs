@@ -1,10 +1,8 @@
 //! Referral progress routes (upstream social-service-ea `/v1/referral-progress`).
 //!
-//! The invited user is always the signed-fetch signer: POST records the attribution
-//! (first referrer wins), PATCH marks the signer as signed up, GET reports the
-//! signer's own stats as a referrer. `rewardImages` stays empty on this backend --
-//! nothing here grants tiers or uploads reward art, so the honest zero-activity
-//! shape is also the steady state until a rewards pipeline exists.
+//! The invited user is always the signed-fetch signer: POST records the attribution (first
+//! referrer wins), PATCH marks the signer as signed up, GET reports the signer's own stats as
+//! a referrer. `rewardImages` stays empty -- nothing here grants tiers or uploads reward art.
 
 use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
@@ -72,8 +70,6 @@ pub async fn get_referral_progress(
     let signer = require_signer(&headers, "get", "/v1/referral-progress").await?;
     let referrer = signer.as_str().to_lowercase();
 
-    // Upstream counts tier_granted rows; PATCH only ever reaches signed_up, so a
-    // fresh backend truthfully reports zero accepted invites.
     let accepted: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM referral_progress WHERE referrer = $1 AND status = 'tier_granted'",
     )
@@ -89,8 +85,6 @@ pub async fn get_referral_progress(
     .await?
     .unwrap_or(0);
 
-    // The read reports the previously seen count, then records the current one --
-    // upstream uses the delta to badge "new invites accepted since last look".
     sqlx::query(
         "INSERT INTO referral_progress_viewed (referrer, invites_accepted_viewed) \
          VALUES ($1, $2) \
@@ -109,9 +103,8 @@ pub async fn get_referral_progress(
     }))
 }
 
-/// Resolves a create that found an existing row: a same-referrer duplicate is an
-/// idempotent no-op (204) so client retries converge; a different referrer is a
-/// genuine conflict -- attribution is first-wins.
+/// A same-referrer duplicate is an idempotent no-op (204) so client retries converge; a
+/// different referrer is a conflict -- attribution is first-wins.
 fn resolve_existing(
     existing: &str,
     referrer: &str,
@@ -177,8 +170,6 @@ pub async fn create_referral(
     .rows_affected();
 
     if inserted == 0 {
-        // A concurrent create won the insert race; resolve against the stored row
-        // instead of writing a second, contradictory attribution.
         let stored: Option<String> =
             sqlx::query_scalar("SELECT referrer FROM referral_progress WHERE invited_user = $1")
                 .bind(&invited)
@@ -222,8 +213,6 @@ pub async fn update_referral_signed_up(
         None => Err(CommError::not_found(format!(
             "Referral progress not found for user: {invited}"
         ))),
-        // Only a pending referral can be marked signed up; a repeat PATCH after the
-        // transition reports the same 400 upstream answers.
         Some(current) if current != "pending" => Err(CommError::bad_request(format!(
             "Invalid referral status: {current}. Expected: pending"
         ))),

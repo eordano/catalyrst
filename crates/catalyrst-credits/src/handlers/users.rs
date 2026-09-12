@@ -35,9 +35,6 @@ pub async fn progress(
     let has_started = state.credits.has_started(&wallet).await?;
     let credits_row = state.credits.user_credits(&wallet).await?;
 
-    // Earned credits no longer expire (the seasons domain was removed), so the
-    // earned slice is always live and expiresIn is always 0. Goals were
-    // season-scoped and are gone; the list stays in the wire shape, empty.
     let credits = match credits_row {
         Some(c) => CreditsData {
             available: c.available,

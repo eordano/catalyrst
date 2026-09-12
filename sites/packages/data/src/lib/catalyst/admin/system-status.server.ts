@@ -47,12 +47,6 @@ export type SystemStatus = {
   probes: SystemProbe[];
 };
 
-/**
- * Deployed surfaces worth a click from the operator. These are stable public
- * routes, not derived from the live probe set, so the list renders even when
- * the collector has never run. Live up/down for each comes from `probes`
- * (keyed by name) and the systemd `units`; this is only the address book.
- */
 const LINKS: SystemLink[] = [
   { label: "Catalyst \u{2014} /about", href: "/about", scope: "public" },
   { label: "Marketplace", href: "/marketplace", scope: "public" },

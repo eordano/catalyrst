@@ -413,7 +413,6 @@ async fn banned_user_cannot_create_or_auto_accept_requests() {
     let cid = rand_uuid();
     seed_community(&pool, cid, owner, true).await;
     seed_member(&pool, cid, owner, "owner").await;
-    // A pending invite would auto-accept an opposite request_to_join without the ban check.
     seed_request(&pool, cid, &banned_addr, "invite").await;
     seed_ban(&pool, cid, &banned_addr, owner).await;
 

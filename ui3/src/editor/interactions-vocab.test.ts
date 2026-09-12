@@ -1,6 +1,3 @@
-// The composer may support fewer ids than the vocabulary, never more: an id the
-// composer emits without a chip phrase would reach the ribbon as a raw
-// "on_click"-style string.
 import { describe, expect, it } from "vitest";
 import { ACTION_CHIP, TRIGGER_CHIP } from "./interactions-vocab";
 import { ACTIONS, TRIGGERS } from "./components/DeInteractionsPanel";

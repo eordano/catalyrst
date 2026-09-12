@@ -47,7 +47,6 @@ type Feed = {
   dayLabels: string[];
 };
 
-/** A whole page payload per preset: the live rail, the upcoming rail and the day calendar. */
 const FEEDS = {
   full: { liveNow: LIVE_NOW, upcoming: UPCOMING, allDays: ALL_DAYS, dayLabels: DAY_LABELS },
   noLiveNow: { liveNow: [], upcoming: UPCOMING, allDays: ALL_DAYS, dayLabels: DAY_LABELS },
@@ -57,7 +56,6 @@ const FEEDS = {
 type FeedKey = keyof typeof FEEDS;
 const FEED_KEYS = Object.keys(FEEDS) as FeedKey[];
 
-/** Story args: the page payload is picked by name, `loading` is passed straight through. */
 type WhatsOnStoryArgs = Omit<
   ComponentProps<typeof StWhatSOn>,
   "liveNow" | "upcoming" | "allDays" | "dayLabels"
@@ -88,11 +86,8 @@ type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {};
 
-/** Upcoming and All Experiences deferred; only Live Now renders. */
 export const Loading: Story = { args: { loading: true } };
 
-/** An empty Live Now rail. */
 export const NoLiveNow: Story = { args: { feed: "noLiveNow" } };
 
-/** An empty calendar. */
 export const EmptyCalendar: Story = { args: { feed: "emptyCalendar" } };

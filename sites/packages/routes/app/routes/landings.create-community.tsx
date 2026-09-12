@@ -34,9 +34,6 @@ function draftFromCommunity(c: Community): CommunityDraft {
     name: c.name,
     description: c.description ?? "",
     privacy: c.privacy,
-    // The list response strips `visibility` for an unsigned read. Seeding the
-    // form with "all" would re-assert a listing setting nobody read back, so an
-    // unknown visibility leaves the draft's own default for the user to choose.
     ...(c.visibility ? { visibility: c.visibility } : {}),
     hasThumbnail: Boolean(thumb),
     thumbnailPreviewUrl: thumb,

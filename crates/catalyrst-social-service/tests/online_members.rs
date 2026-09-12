@@ -257,7 +257,6 @@ async fn build_state(pool: PgPool, peers_stats: PeersStatsClient) -> AppState {
     })
 }
 
-/// Serves a canned archipelago-stats `/peers` body on an ephemeral port.
 async fn mock_peers_source(body: &'static str) -> String {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
@@ -296,8 +295,6 @@ async fn only_online_reflects_the_presence_source() {
     seed_member(&pool, cid, m2, "member").await;
     seed_member(&pool, cid, m3, "member").await;
 
-    // Mixed-case ids plus a non-member peer: the handler lowercases and the
-    // membership filter drops peers that are not in this community.
     let base = mock_peers_source(
         r#"{"ok":true,"peers":[
             {"id":"0x0000000000000000000000000000000000000001"},

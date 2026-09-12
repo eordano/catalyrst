@@ -670,8 +670,6 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         )
         .route("/about", get(handlers::about::get_about));
 
-    // One set of limiters for both mounts: /entities and /content/entities are the same endpoint,
-    // so a client alternating paths must draw from a single budget.
     let post_entities_limiters = crate::rate_limit::PostEntitiesLimiters::from_env();
 
     let mut app = top

@@ -80,7 +80,6 @@
 }
 .cs__tabs::-webkit-scrollbar { display: none; }
 
-/* The scrollbar is hidden, so an overflowing strip fades at its edges as the cue. */
 .cs__tabs[data-overflow="true"] {
   -webkit-mask-image: linear-gradient(
     to right,
@@ -143,8 +142,6 @@ a.cs__brand {
 .cs__tab:hover .cs__tabicon,
 .cs__tab.is-active .cs__tabicon { color: currentColor; }
 
-/* The narrow-screen replacements for the tab strip. Hidden by default; the
-   media query below swaps them in and the strip out. */
 .cs__menubtn,
 .cs__menu {
   display: none;
@@ -169,8 +166,6 @@ a.cs__brand {
   .cs__tab { padding: 0 10px; font-size: 13px; }
 }
 
-/* Phone widths: the strip clipped its labels to fragments behind the brand,
-   so it yields to a disclosure naming the current section. */
 @media (max-width: 640px) {
   .cs__tabs { display: none; }
 

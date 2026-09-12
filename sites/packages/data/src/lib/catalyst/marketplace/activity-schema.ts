@@ -9,12 +9,6 @@ export { SaleSchema };
 const nullableStr = z.string().nullish().transform((v) => v ?? null);
 const nullableNum = z.number().nullish().transform((v) => v ?? null);
 
-/**
- * A settled sale, straight from catalyrst-market's `Sale`. Every field it
- * carries is a fact about a transfer that happened, so a row missing its price,
- * buyer or timestamp is not a sale with gaps -- `parseSale` drops it instead of
- * putting a nameless zero-MANA trade at the top of the activity feed.
- */
 export type Sale = z.infer<typeof SaleSchema>;
 
 export type SalesEnvelope = { data: Sale[]; total: number };

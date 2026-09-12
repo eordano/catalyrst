@@ -11,8 +11,6 @@ pub(super) const UNWANTED_THUMBNAIL_HASHES: [&str; 2] = [
     "QmdfTbBqBPQ7VNxZEYEj14VmRuZBkqFbiwReogJgS1zR1n",
 ];
 
-// Compared against the whole title after the trailing counter is stripped and
-// the result lowercased, so "Scene" hides while "Scene of the Crime" stays.
 pub const PLACEHOLDER_TITLES: [&str; 8] = [
     "untitled",
     "interactive-text",
@@ -24,11 +22,6 @@ pub const PLACEHOLDER_TITLES: [&str; 8] = [
     "empty",
 ];
 
-// Postgres ARE syntax, applied with `!~` (case-sensitive) on purpose: the
-// first alternative spells out the word boundaries because `\m`/`\M` treat
-// `_` as a word character and `\b` means backspace there; the second relies
-// on the capital T of a camel-cased `Test` and must stay case-sensitive so
-// `contest` survives while `conTest` does not.
 pub const TEST_WORD_TITLE_REGEX: &str =
     "(^|[^A-Za-z0-9])[Tt][Ee][Ss][Tt]([^A-Za-z0-9]|$)|(^|[A-Za-z0-9])Test([A-Z]|[^A-Za-z0-9]|$)";
 
@@ -45,16 +38,6 @@ pub(super) fn placeholder_image_patterns() -> Vec<String> {
 
 pub(super) const ROAD_POSITIONS_TABLE: &str = "road_positions";
 
-// Emits the eligibility gate for the generic destinations feed, or None when
-// neither branch asked for it. `idx` is the next free bind index; the binds
-// come back in the order the clause references them. `road_positions` says
-// whether migrations/0005_road_positions.sql has been applied: without the
-// table the road leg is left out rather than failing every feed read.
-// The creator leg reads upstream's p.owner as raw->>'owner' and its
-// COALESCE(w.owner, lp.creator_address) as raw->>'creator_address'; drop the
-// world_name arm once the deployment's world-places sync writes the
-// deployer, until then it stands in for the NAME holder no local world
-// row records.
 pub(super) fn build_content_quality_condition(
     f: &PlaceListFilters,
     road_positions: bool,
@@ -106,9 +89,6 @@ pub(super) fn build_content_quality_condition(
     Some((clause, binds))
 }
 
-// The `regex` crate only approximates the Postgres ARE dialect these
-// patterns run under; keep this module a fast pre-filter and put any new
-// title fixture through the real `!~` in tests/destinations_content_gate.rs.
 #[cfg(test)]
 mod tests {
     use super::*;

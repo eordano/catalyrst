@@ -78,7 +78,6 @@ export class Contract extends ContractBase {
     }
 }
 
-/// Event types
 export type AcceptedTokenSetEventArgs = EParams<typeof events.AcceptedTokenSet>
 export type CommitteeMethodSetEventArgs = EParams<typeof events.CommitteeMethodSet>
 export type CommitteeSetEventArgs = EParams<typeof events.CommitteeSet>
@@ -87,7 +86,6 @@ export type MetaTransactionExecutedEventArgs = EParams<typeof events.MetaTransac
 export type OwnershipTransferredEventArgs = EParams<typeof events.OwnershipTransferred>
 export type RaritiesSetEventArgs = EParams<typeof events.RaritiesSet>
 
-/// Function types
 export type AcceptedTokenParams = FunctionArguments<typeof functions.acceptedToken>
 export type AcceptedTokenReturn = FunctionReturn<typeof functions.acceptedToken>
 

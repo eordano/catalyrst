@@ -4,7 +4,6 @@ import { loadGrantBudget } from "./grant-budget";
 
 const BASE = "http://gov.test";
 
-/** One period, in the exact wire shape GET /budgets serves (BudgetRow). */
 const PERIODS = {
   data: [
     {

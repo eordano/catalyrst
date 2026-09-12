@@ -50,8 +50,7 @@ impl PlacesComponent {
         }
     }
 
-    /// The deployment's own content base, whose thumbnails are exempt from the
-    /// internal-host image filter.
+    /// Thumbnails from this base are exempt from the internal-host image filter.
     pub fn with_content_origin(mut self, base_url: &str) -> Self {
         self.content_origin = ContentOrigin::parse(base_url);
         self
@@ -562,10 +561,6 @@ impl PlacesComponent {
         Ok(())
     }
 
-    // Returns the rows written: the read surface is place_indexed, so an
-    // entity this leg found may live in place_world_local, which this
-    // statement cannot reach. Callers must not report a ranking they did not
-    // store.
     pub async fn set_ranking(
         &self,
         entity_id: &str,
@@ -587,12 +582,6 @@ impl PlacesComponent {
         Ok(updated)
     }
 
-    // The route gates on the row it read and this writes it, so the condition
-    // travels with the write: an admin curating the entity in between must not
-    // let the score through. A refusal is only reported once the row is known
-    // to be curated; a row this leg cannot write at all -- the read surface is
-    // place_indexed, the write reaches `place` alone -- is its own outcome, so
-    // the route can say so instead of echoing a ranking it never stored.
     pub async fn set_ranking_from_score(
         &self,
         entity_id: &str,
@@ -632,14 +621,6 @@ impl PlacesComponent {
         }
     }
 
-    // Excluding zeroes the ranking in the same statement: the flag says the
-    // score must not place this entity, and a value it wrote earlier would
-    // otherwise freeze at the number just declared untrustworthy. Clearing the
-    // flag leaves the ranking where it is until the next run computes one.
-    //
-    // Returns the rows written: the read surface is place_indexed, so an entity
-    // this leg found may live in place_world_local, which this statement cannot
-    // reach. Callers must not report a change they did not make.
     pub async fn set_exclude_from_ranking(
         &self,
         entity_id: &str,

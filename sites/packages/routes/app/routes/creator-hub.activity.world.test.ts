@@ -2,16 +2,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { loader } from "./creator-hub.activity_.$world";
 
-/*
- * Two behaviours, both of which the honesty rules turn on:
- *
- *  1. A world nobody has heard of is a 404, not an empty page of zeros.
- *  2. Partial degradation must be PARTIAL. Presence down with wcs and catalyst
- *     up is a 200 whose deploy/reception readings are still showable -- one dead
- *     source must never take the whole screen down, and must never be repaired
- *     into a zero either.
- */
-
 const WORLD = "petbarn.dcl.eth";
 const ADDRESS = "0x1111111111111111111111111111111111111111";
 const SHOWABLE = new Set(["live", "sampled", "snapshot"]);
@@ -48,12 +38,6 @@ function stubFetch(routes: Routes) {
   });
 }
 
-/**
- * Everything up except `/presence/*`, which rejects at the socket.
- *
- * `myWorlds: false` models "catalyst knows this world, your address does not
- * deploy it" -- the neutral, still-public case.
- */
 function presenceDownRoutes({ myWorlds = true } = {}): Routes {
   return [
     {
@@ -63,8 +47,6 @@ function presenceDownRoutes({ myWorlds = true } = {}): Routes {
       },
     },
     {
-      // `authorized_deployer`, not `/worlds`: the Places API path is
-      // `/places/api/worlds?names=` and would otherwise be swallowed here.
       match: (u) => u.includes("authorized_deployer"),
       reply: () => json(myWorlds ? { total: 1, worlds: [WCS_ROW] } : { total: 0, worlds: [] }),
     },
@@ -163,7 +145,6 @@ describe("GET /creator-hub/activity/:world", () => {
 
     const res = await loader(get(WORLD) as never);
 
-    // Partial degradation must be partial.
     expect(res.init?.status ?? 200).toBe(200);
 
     const payload = res.data as Record<string, unknown>;
@@ -173,14 +154,12 @@ describe("GET /creator-hub/activity/:world", () => {
     const state = (key: string) =>
       (payload[key] as Record<string, unknown>).state as string;
 
-    // Still readable -- a dead presence collector says nothing about these.
     expect(SHOWABLE.has(state("sceneUrn"))).toBe(true);
     expect(SHOWABLE.has(state("spawnCoordinates"))).toBe(true);
     expect(SHOWABLE.has(state("storage"))).toBe(true);
     expect(SHOWABLE.has(state("reception"))).toBe(true);
     expect(SHOWABLE.has(state("worldMeta"))).toBe(true);
 
-    // Unreadable -- and value-less, never zero.
     for (const key of ["inThisWorld", "history", "peak", "occupiedSnapshots"]) {
       const d = payload[key] as Record<string, unknown>;
       expect(SHOWABLE.has(d.state as string)).toBe(false);
@@ -201,12 +180,10 @@ describe("GET /creator-hub/activity/:world", () => {
   });
 
   it("does not gate a world the caller does not deploy", async () => {
-    // The caller deploys nothing...
     stubFetch(presenceDownRoutes({ myWorlds: false }));
 
     const res = await loader(get(WORLD) as never);
 
-    // ...but catalyst knows the world, so it renders. No lock, no 403.
     expect(res.init?.status ?? 200).toBe(200);
     const payload = res.data as Record<string, unknown>;
     expect(payload.notFound).toBe(false);

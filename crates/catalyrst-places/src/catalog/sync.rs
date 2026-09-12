@@ -53,10 +53,6 @@ const UPSERT: &str = r#"
     RETURNING (xmax = 0) AS inserted
 "#;
 
-// The enabled Genesis City places overlapping the incoming parcels, minus the
-// row just written: the superseded place is still here because PRUNE only
-// runs once the whole pass is over. Built at runtime so the curation flag
-// keeps its single definition in ports/places/query.rs.
 fn overlapping_places_sql() -> &'static str {
     static SQL: LazyLock<String> = LazyLock::new(|| {
         format!(
@@ -74,9 +70,6 @@ fn overlapping_places_sql() -> &'static str {
     &SQL
 }
 
-// Written verbatim, nulls included: upstream's insert carries the
-// predecessor's ranking and banner as they are, so an unranked highlighted
-// predecessor leaves the new row unranked rather than at the derived default.
 const INHERIT_CURATION: &str = r#"
     UPDATE place
     SET highlighted = $2,
@@ -102,12 +95,6 @@ pub struct CurationCandidate {
     pub curation: Curation,
 }
 
-// A redeployment with a different base parcel lands on a new row (the id is
-// derived from the base), so without this the highlighted flag and the
-// hand-set ranking silently reset to the defaults. Inheriting is deliberately
-// narrow: exactly one curated predecessor, published by the same known
-// creator, or nothing -- a deployment on someone else's parcels is a takeover
-// and must not promote an uncurated scene into the highlighted shelf.
 pub fn inherited_curation(
     candidates: &[CurationCandidate],
     creator: Option<&str>,
@@ -201,8 +188,6 @@ async fn run_once(
     Ok((derived, pruned))
 }
 
-// One transaction: a fresh row must never become visible at the default
-// curation while its predecessor's is still being copied over.
 async fn upsert(places: &PgPool, p: &DerivedPlace) -> Result<()> {
     let mut tx = places.begin().await?;
     let row = sqlx::query(UPSERT)

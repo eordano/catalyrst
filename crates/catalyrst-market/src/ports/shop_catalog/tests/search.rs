@@ -15,9 +15,8 @@ fn shop_search_escapes_ilike_wildcards() {
     assert!(bind_texts(&binds).contains(&"50%_off".to_string()));
 }
 
-/// Upstream dfc17f9: a shop search matches any WORD of the item's name or of
-/// its collection's name, and only rows that are not collection items (LAND,
-/// estates, names) fall back to a name substring.
+/// Upstream dfc17f9: only rows that are not collection items (LAND, estates, names) fall back
+/// to a name substring.
 #[test]
 fn shop_search_matches_item_words_and_collection_words() {
     let filters = ShopCatalogFilters {

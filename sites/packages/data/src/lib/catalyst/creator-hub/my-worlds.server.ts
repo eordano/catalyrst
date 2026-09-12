@@ -16,18 +16,6 @@ import {
   type Datum,
 } from "./datum.server";
 
-/**
- * Two hosts answer "which worlds are mine", and they do not agree:
- *
- *   catalyst `/lambdas/users/{address}/names` -- the NAMEs this address owns on
- *     this stack. A NAME can exist with nothing deployed to it.
- *   worlds-content-server `/worlds?authorized_deployer={address}` -- worlds
- *     upstream has content for, including ones deployed by a collaborator.
- *
- * This is the split stack, and the union states it rather than smoothing it:
- * every row carries where it came from, and a host that failed is named instead
- * of silently shrinking the list.
- */
 export type WorldOrigin = "catalyst.example.com" | "upstream" | "both";
 
 export type UnionedWorld = ManagedWorld & { origin: WorldOrigin };
@@ -37,9 +25,7 @@ export type MyWorldsUnion = {
   rows: UnionedWorld[];
   dclOne: Datum<DclName[]>;
   upstream: Datum<ManagedWorld[]>;
-  /** exactly one host answered -- the list is real but incomplete */
   partial: boolean;
-  /** neither host answered -- render an error state, not an empty table */
   bothFailed: boolean;
 };
 
@@ -92,23 +78,12 @@ function blankWorld(name: string): ManagedWorld {
     spawnCoordinates: null,
     lastDeployedAt: null,
     blockedSince: null,
-    // Not "zero scenes" -- this row came from the NAME registry, which does not
-    // know about deployments. The upstream row is what can answer that, and
-    // when there is no upstream row the screen must not claim a count.
     deployedScenes: 0,
     thumbnail: null,
     role: "owner",
   };
 }
 
-/**
- * Unions the two lists on world name.
- *
- * `deployedScenes` is only ever taken from the upstream row, because only
- * worlds-content-server measures it. A catalyst.example.com-only row keeps 0 *and* is marked
- * `origin: "catalyst.example.com"`, which is the signal the UI needs to avoid printing a
- * scene count that nobody reported.
- */
 export function unionWorlds(
   names: DclName[],
   upstream: ManagedWorld[],

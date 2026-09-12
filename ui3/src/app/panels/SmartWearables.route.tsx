@@ -15,8 +15,6 @@ function shortPid(pid: string): string {
 
 export default function SmartWearablesPanel(_props: SmartWearablesPanelProps = {}) {
   const portables = useBridgeState((s) => s.portables);
-  // Pending rows survive re-renders but reconcile on the next portables push:
-  // a stopped portable drops out of the list, a survivor gets its button back.
   const [stopping, setStopping] = useState<ReadonlySet<string>>(new Set());
   const lastPushRef = useRef(portables);
   useEffect(() => {

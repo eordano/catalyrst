@@ -1,10 +1,9 @@
-//! Claims, as first-class types.
+//! Claims, as first-class types: everything here is something a caller **told us**.
 //!
-//! Everything in this file is something a caller **told us**. Nothing in this file has any
-//! conversion into [`crate::VerifiedWalletAddress`] or into any membership
-//! standing, and none of these types has `AsRef<str>` or a `PartialEq` against a verified
-//! type. Turning a claim into an identity requires a signature check; turning a claim into
-//! a standing requires a database round-trip. **The absence of a `From` impl is how those
+//! Nothing in this file has any conversion into [`crate::VerifiedWalletAddress`] or into any
+//! membership standing, and none of these types has `AsRef<str>` or a `PartialEq` against a
+//! verified type. Turning a claim into an identity requires a signature check; turning a claim
+//! into a standing requires a database round-trip. **The absence of a `From` impl is how those
 //! requirements are expressed.**
 //!
 //! This is also where the crate's only `Deserialize` derives live, and
@@ -22,39 +21,27 @@ const MAXIMUM_OPERATOR_DISPLAY_NAME_LENGTH: usize = 100;
 /// `.chars().take(100)`, which this type reproduces exactly.
 const MAXIMUM_ADMINISTRATOR_DISPLAY_NAME_CHARACTERS: usize = 100;
 
-/// A wallet address a caller **told us about**.
+/// A wallet address a caller **told us about**: a string that arrived in a request body or a
+/// query string, proving nothing whatsoever.
 ///
-/// # What a value of this type proves
-///
-/// Nothing whatsoever. It is a string that arrived in a request body or a query string.
-///
-/// # What it does NOT prove
-///
-/// That anybody controls this address; that it is well-formed; that the caller has any
-/// relationship to it at all. This is the type of `CommunityVoiceChatBody.user_address` in
-/// `catalyrst-comms/src/handlers/voice.rs`, where a caller holding
-/// `COMMS_GATEKEEPER_AUTH_TOKEN` may name **any** wallet. That trust boundary is
-/// deliberate, documented in that file, and pinned by
+/// It does not prove that anybody controls this address, that it is well-formed, or that the
+/// caller has any relationship to it at all. This is the type of
+/// `CommunityVoiceChatBody.user_address` in `catalyrst-comms/src/handlers/voice.rs`, where a
+/// caller holding `COMMS_GATEKEEPER_AUTH_TOKEN` may name **any** wallet. That trust boundary
+/// is deliberate, documented in that file, and pinned by
 /// `catalyrst-comms/tests/voice_auth_fail_closed.rs`; this type documents it in the type
 /// system rather than changing it.
 ///
-/// # How a value is obtained
-///
-/// Deserialized from a request, or built from untrusted text with
-/// [`Self::from_untrusted_text`]. Both are safe, because the value asserts nothing.
-///
-/// # Deliberately absent
-///
-/// `From<ClaimedWalletAddressNobodyHasVerified> for VerifiedWalletAddress`,
-/// `TryFrom`, `AsRef<str>`, and any `PartialEq` against a verified type. There is one exit,
-/// [`Self::as_unverified_text`], named so it is visible at every use site.
+/// Deliberately absent: `From<ClaimedWalletAddressNobodyHasVerified> for
+/// VerifiedWalletAddress`, `TryFrom`, `AsRef<str>`, and any `PartialEq` against a verified
+/// type. There is one exit, [`Self::as_unverified_text`], named so it is visible at every use
+/// site.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Deserialize)]
 #[serde(transparent)]
 pub struct ClaimedWalletAddressNobodyHasVerified(String);
 
 impl ClaimedWalletAddressNobodyHasVerified {
-    /// Wrap untrusted text. Safe by construction: the result proves nothing, so there is
-    /// nothing to forge.
+    /// Safe by construction: the result proves nothing, so there is nothing to forge.
     pub fn from_untrusted_text(raw: impl Into<String>) -> Self {
         Self(raw.into())
     }
@@ -69,30 +56,20 @@ impl ClaimedWalletAddressNobodyHasVerified {
 /// A community role name a caller **told us about** -- `user_role` in
 /// `catalyrst-comms/src/handlers/voice.rs`.
 ///
-/// # What a value of this type proves
-///
-/// Nothing. A service holding a bearer token asserted that some wallet holds some role.
-///
-/// # What it does NOT prove
-///
-/// That the named wallet holds that role, that the role name is one of the tiers the
-/// database can store, or that any community was consulted. The comms voice path decides
-/// LiveKit publish rights from this claim and does not look in a database; that is the
+/// It proves nothing: a service holding a bearer token asserted that some wallet holds some
+/// role. Not that the named wallet holds it, not that the name is one of the tiers the
+/// database can store, not that any community was consulted. The comms voice path decides
+/// LiveKit publish rights from this claim without looking in a database; that is the
 /// documented behaviour of that path and this type does not change it.
 ///
-/// # How a value is obtained
-///
-/// Deserialized from a request body, or [`Self::from_untrusted_text`].
-///
-/// # Deliberately absent
-///
-/// Any conversion into a membership standing. That requires reading the row.
+/// Deliberately absent: any conversion into a membership standing. That requires reading the
+/// row.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Deserialize)]
 #[serde(transparent)]
 pub struct ClaimedCommunityRoleNameNobodyHasVerified(String);
 
 impl ClaimedCommunityRoleNameNobodyHasVerified {
-    /// Wrap untrusted text. Safe by construction: the result proves nothing.
+    /// Safe by construction: the result proves nothing.
     pub fn from_untrusted_text(raw: impl Into<String>) -> Self {
         Self(raw.into())
     }
@@ -106,25 +83,14 @@ impl ClaimedCommunityRoleNameNobodyHasVerified {
 /// The human name a token-holding caller put in the `?moderator=` query parameter
 /// (`catalyrst-comms/src/moderator.rs`).
 ///
-/// # What a value of this type proves
+/// It proves only that the text is non-empty, at most 100 bytes, and drawn from
+/// `[A-Za-z0-9 _.-]`: *shape-checked*, never *authenticated*. Not that such an operator
+/// exists, that they authorized anything, or that the token holder is that person -- whoever
+/// holds the moderation service token may write any name here.
 ///
-/// Only that the text is non-empty, at most 100 bytes, and drawn from
-/// `[A-Za-z0-9 _.-]`. It has been *shape-checked*, never *authenticated*.
-///
-/// # What it does NOT prove
-///
-/// That such an operator exists, that they authorized anything, or that the token holder
-/// is that person. Whoever holds the moderation service token may write any name here.
-///
-/// # How a value is obtained
-///
-/// [`Self::sanitize`], which is the charset and length check lifted verbatim from
-/// `sanitize_moderator_name` in `catalyrst-comms/src/moderator.rs`.
-///
-/// # Deliberately absent
-///
-/// `as_str`. The only exit is [`Self::into_audit_column_value`], which consumes the value,
-/// so this name cannot be compared against an allowlist or against a verified address.
+/// Deliberately no `as_str`. The only exit is [`Self::into_audit_column_value`], which
+/// consumes the value, so this name cannot be compared against an allowlist or against a
+/// verified address.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UnverifiedOperatorDisplayName(String);
 
@@ -158,29 +124,17 @@ impl UnverifiedOperatorDisplayName {
 }
 
 /// The human name a client put in the `x-catalyrst-admin` header
-/// (`catalyrst-badges/src/admin.rs`, and the same header in economy, credits and
-/// telemetry).
+/// (`catalyrst-badges/src/admin.rs`, and the same header in economy, credits and telemetry).
 ///
-/// # What a value of this type proves
+/// It proves only that the text is non-empty after trimming; it is attacker-chosen, and says
+/// nothing about who acted. The bearer token accompanying this header authenticates a
+/// *service*; this header names a person nobody checked. An audit row that must record
+/// something real uses [`crate::AuthenticatedPrincipal::audit_actor_description`] instead.
 ///
-/// Only that the text is non-empty after trimming. It is attacker-chosen.
-///
-/// # What it does NOT prove
-///
-/// Anything about who acted. The bearer token that accompanies this header authenticates a
-/// *service*; this header names a person nobody checked. The replacement for an audit row
-/// that must record something real is
-/// [`crate::AuthenticatedPrincipal::audit_actor_description`].
-///
-/// # How a value is obtained
-///
-/// [`Self::sanitize`].
-///
-/// # Deliberately absent
-///
-/// `as_str`, and the `unwrap_or("admin-token")` fallback that `catalyrst-badges`' current
-/// `admin_actor` applies. Substituting a literal when the header is missing is a decision
-/// for the migrating caller to make explicitly, not a silent property of this type.
+/// Deliberately absent: `as_str`, and the `unwrap_or("admin-token")` fallback that
+/// `catalyrst-badges`' current `admin_actor` applies. Substituting a literal when the header
+/// is missing is a decision for the migrating caller to make explicitly, not a silent property
+/// of this type.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UnverifiedAdminDisplayName(String);
 
@@ -217,8 +171,6 @@ mod tests {
     fn a_claimed_wallet_address_deserializes_transparently_from_a_bare_string() {
         let claimed: ClaimedWalletAddressNobodyHasVerified =
             serde_json::from_str("\"0xDEADBEEF\"").expect("transparent newtype over a string");
-        // Deliberately NOT normalized: a claim is recorded as it arrived, so an audit row
-        // shows what the caller actually sent.
         assert_eq!(claimed.as_unverified_text(), "0xDEADBEEF");
     }
 
@@ -231,7 +183,6 @@ mod tests {
 
     #[test]
     fn a_claimed_role_name_accepts_text_no_database_would_ever_hold() {
-        // The point of the type: nothing constrains a claim to the tier vocabulary.
         let claimed = ClaimedCommunityRoleNameNobodyHasVerified::from_untrusted_text(
             "owner'; DROP TABLE community_members;--",
         );
@@ -303,11 +254,4 @@ mod tests {
         assert!(UnverifiedOperatorDisplayName::sanitize(hostile).is_none());
         assert!(UnverifiedAdminDisplayName::sanitize(hostile).is_some());
     }
-
-    // Deliberately impossible, and each is a compile error today:
-    //
-    //   let verified: VerifiedWalletAddress = claimed.into();      // E0277
-    //   VerifiedWalletAddress::try_from(claimed);                  // E0277
-    //   claimed.as_unverified_text() == verified                                   // E0277
-    //   allowlist.contains(&claimed)                                               // E0308
 }

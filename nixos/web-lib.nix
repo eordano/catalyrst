@@ -1,6 +1,3 @@
-# nginx building blocks shared by web.nix and web-gateway.nix. A plain
-# function (helpers.nix-style), not a module: both consumers import it so the
-# header/location fragments stay byte-identical across the vhost files.
 { cfg, lib }:
 let
   inherit (cfg) domain;

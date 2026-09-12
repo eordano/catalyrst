@@ -9,9 +9,6 @@ export type ThirdwebSession = {
   address: string;
 };
 
-/** The try covers the read and the parse only, so the dev throw from `check`
- *  is not swallowed by the catch that exists to tolerate a bad blob. The
- *  token/address guard stays as the production fallback. */
 export function getThirdwebSession(): ThirdwebSession | null {
   if (typeof window === "undefined") return null;
   let parsed: unknown;

@@ -23,7 +23,6 @@ pub struct V1EventRecord {
     pub destination: Option<Value>,
 }
 
-// Event ids are uuids; a non-uuid is not found rather than a cast error.
 pub fn is_uuid(id: &str) -> bool {
     let bytes = id.as_bytes();
     bytes.len() == 36
@@ -33,9 +32,6 @@ pub fn is_uuid(id: &str) -> bool {
         })
 }
 
-// A mirrored world event carries its world id in `place_id` on the wire; a
-// locally written one names its world in `server` only, so both spellings
-// resolve, the same way the list's destination_ids clause matches them.
 pub fn destination_id(event: &EventRecord) -> Option<String> {
     event
         .place_id
@@ -63,9 +59,6 @@ fn start_key(event: &EventRecord) -> i64 {
         .unwrap_or(i64::MAX)
 }
 
-// Live occurrences first, then upcoming, both by soonest start; the stable
-// sort keeps the repository's next_start_at/id order for ties, and an event
-// without any start sorts last.
 pub fn order_destination_events(events: &mut [EventRecord], now: DateTime<Utc>) {
     events.sort_by(|a, b| {
         let (live_a, live_b) = (is_live_at(a, now), is_live_at(b, now));

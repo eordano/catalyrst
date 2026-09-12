@@ -1,8 +1,5 @@
 import { z } from "zod";
 
-// Single source shared with the ui3 SPA panel: the catalog data lives in ui3
-// (both surfaces render it through the same presentational component); this
-// module remains the validating loader for the sites surface.
 import settingsFixture from "@ui/data/settings/settings-catalog.data.json";
 
 const ModuleSchema = z

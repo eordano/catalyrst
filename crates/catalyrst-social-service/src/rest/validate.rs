@@ -74,20 +74,15 @@ fn confusable_to_latin(c: char) -> Option<&'static str> {
     })
 }
 
-/// Reduces a name to the form used for restricted-name comparison and the emptiness check.
-///
 /// Raw code-point equality treats a reserved name and the same name wearing one invisible
-/// character, a fullwidth variant, a decomposed accent, or a cross-script lookalike as different
-/// strings while a reader sees one name. The fold removes those differences before comparing:
-/// NFKC (collapses compatibility forms, recomposes decomposed marks), removal of characters that
-/// occupy no visual space wherever they appear, mapping of cross-script letters that render as
-/// Latin, then lowercasing and whitespace collapse. Used only for comparison; the submitted name
-/// is stored as given (port of #483).
+/// character, a fullwidth variant, a decomposed accent, or a cross-script lookalike as
+/// different strings while a reader sees one name. The fold applies NFKC, removes zero-width
+/// characters, maps cross-script letters that render as Latin, then lowercases and collapses
+/// whitespace. Comparison only; the submitted name is stored as given (port of #483).
 pub fn fold_name_for_comparison(name: &str) -> String {
     let ignorable = CodePointSetData::new::<DefaultIgnorableCodePoint>();
     let mut mapped = String::with_capacity(name.len());
     for c in name.nfkc() {
-        // U+2800 BRAILLE PATTERN BLANK renders as nothing but is a symbol, so no property claims it.
         if ignorable.contains(c) || c == '\u{2800}' {
             continue;
         }
@@ -113,8 +108,6 @@ pub fn fold_name_for_comparison(name: &str) -> String {
 }
 
 pub fn validate_name(name: &str) -> Result<(), String> {
-    // An all-invisible name folds to empty, so the emptiness check reads the same reduced form the
-    // restricted list is compared against rather than raw `trim`, which strips only whitespace.
     if fold_name_for_comparison(name).is_empty() {
         return Err("name is required".to_string());
     }

@@ -26,21 +26,10 @@ export const HypothesisSchema = z.object({
 });
 
 export const MetricSchema = z.object({
-  // Human-readable label for the primary metric (may be prose, e.g. a ratio
-  // description). NOT a machine event reference -- the readout uses the bound
-  // `numerator`/`denominator` events below.
   primary: z.string(),
-  // Machine-readable event binding, resolved by telemetry-metrics-check against
-  // the generated telemetry-contract. `numerator` is the success event counted;
-  // `denominator` is the base it is divided by (omit -> experiment_exposed).
-  // Both must be exact registered event names (or listed in externalEvents).
   numerator: z.string().optional(),
   denominator: z.string().optional(),
-  // Guardrail EVENTS (exact registered names), watched for regressions.
   guardrails: z.array(z.string()).default([]),
-  // Events emitted OUTSIDE the sites TS harvest (e.g. by the catalyrst-*
-  // backend workers) -- accepted by the gate without a contract entry, since the
-  // contract only covers sites-emitted events.
   externalEvents: z.array(z.string()).optional(),
 });
 

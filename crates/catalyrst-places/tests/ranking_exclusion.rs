@@ -234,9 +234,6 @@ async fn seed_raw(pool: &PgPool, id: &str, raw: serde_json::Value) {
         .expect("seed raw place");
 }
 
-// `raw` carries third-party JSON, so the flag's reader must survive a value
-// that is not a boolean at all: casting one aborts the whole listing, not the
-// row that holds it.
 #[tokio::test]
 async fn a_junk_exclusion_flag_reads_as_false_instead_of_failing_the_listing() {
     let Some(scratch) = setup("cg_places_rankexcl_junk").await else {
@@ -347,9 +344,6 @@ fn admin_headers() -> HeaderMap {
     headers
 }
 
-// place_indexed reads both legs, the write reaches `place` alone: a world our
-// own catalyrst-worlds serves lives in place_world_local, so the route must
-// refuse rather than answer 200 with a flag nothing stored.
 #[tokio::test]
 async fn a_locally_served_world_is_never_reported_as_excluded() {
     let Some(scratch) = setup("cg_places_rankexcl_local").await else {

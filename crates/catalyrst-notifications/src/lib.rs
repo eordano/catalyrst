@@ -23,11 +23,9 @@ pub struct AppStateInner {
     pub admin_token: Option<String>,
 }
 
-/// Small side pools for the first-wear poller: the canonical
-/// [`catalyrst_db::connect_pool`] constructor with the connection count turned
-/// down to 2. `idle_timeout` is pinned at 600s to match the ~60s poll cadence --
-/// without it these near-idle pools would recycle every connection between
-/// polls and reconnect-churn all four backing DBs on each tick.
+/// `idle_timeout` is pinned at 600s against the ~60s poll cadence: without it these
+/// near-idle 2-connection pools would recycle every connection between polls and
+/// reconnect-churn all four backing DBs each tick.
 async fn first_wear_pool(url: &str) -> Result<sqlx::PgPool, catalyrst_db::PoolError> {
     catalyrst_db::connect_pool(
         url,

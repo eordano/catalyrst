@@ -141,8 +141,6 @@ describe("validateAuthRequest method and impersonation guards", () => {
     expect(isEphemeralMessage("Decentraland Login\nnot an ephemeral payload")).toBe(false);
   });
 
-  // The consumer reads both values by offset and ignores the prefixes, so a forgery that keeps the
-  // offsets still yields a usable identity and must still be caught.
   it("blocks a payload that re-prefixes lines two and three at the same offsets", () => {
     const forged = ephemeralPayload({
       addressPrefix: "x".repeat("Ephemeral address: ".length),
@@ -246,9 +244,6 @@ describe("validateAuthRequest signature params", () => {
   });
 });
 
-// The bounds auth/src/shared/auth/signMethodGuard.ts added in #489: a payload past any of them is
-// refused at recover time, before anything parses, escapes or pretty-prints it, rather than shown
-// behind a display truncation.
 describe("validateAuthRequest signature payload bounds", () => {
   const method = "eth_signTypedData_v4";
 
@@ -288,8 +283,6 @@ describe("validateAuthRequest signature payload bounds", () => {
     expect(result.message).toContain("the message is too large to review");
   });
 
-  // A size cap alone does not bound the serializer: a few kilobytes of "[" expand into megabytes of
-  // indentation and recurse as deep as they nest, so depth is judged before anything stringifies.
   it("refuses typed data nested past the depth a review can render", () => {
     const nest = (depth: number): unknown =>
       depth === 0 ? "leaf" : { next: nest(depth - 1) };
@@ -340,7 +333,6 @@ describe("validateAuthRequest signature payload bounds", () => {
     ).toBe(true);
   });
 
-  // The scan walks the raw text, so a digit string is text and never a literal to judge.
   it("reads a number inside a string as text, escapes included", () => {
     const uint256 = "210624583337114373395836055367340864637790190801098222508621955073";
     expect(
@@ -442,8 +434,6 @@ describe("buildTransactionParams", () => {
     expect(buildTransactionParams([{ to: "0xdef" }])).toEqual([{ to: "0xdef", data: "0x", value: "0x0" }]);
   });
 
-  // 1e7 wei. A signer that reads a non-hex string as text would sign 0x3130303030303030, about
-  // 3.5 ETH, so the decimal form must never reach the wallet.
   it("dispatches a decimal value as the hex quantity the preview showed", () => {
     expect(buildTransactionParams([{ to: "0xdef", data: "0x", value: "10000000" }])).toEqual([
       { to: "0xdef", data: "0x", value: "0x989680" },
@@ -482,9 +472,6 @@ describe("buildTransactionParams", () => {
     expect(() => buildTransactionParams([{ to: 42 }])).toThrow(/missing a "to" address/);
   });
 
-  // The recover guard reads the "0x" prefix case-insensitively, so a "0X" target reaches this far.
-  // Dispatched as sent it would be signed, displayed and looked up in a spelling no explorer or
-  // relay reads back, so both the target and the calldata are spelled one way from here on.
   it("dispatches the target and the calldata lowercased", () => {
     expect(
       buildTransactionParams([{ to: "0XFEF5C99885C3036E591B6E6DB52482891834A5F4", data: "0xA9059CBB" }]),
@@ -634,9 +621,6 @@ describe("isOpaqueSignatureMessage", () => {
 });
 
 describe("unverifiableReason", () => {
-  // Tightened in auth #489: every personal_sign is classified as unverified, readable or not, and
-  // the acknowledgment is unconditional for that view. Reading the text says nothing about what the
-  // signature is then used for -- a login elsewhere, an off-chain order, a spending permission.
   it("gates readable personal_sign text as a signature whose use cannot be checked", () => {
     expect(unverifiableReason("personal_sign", ["Sign in to Decentraland\nNonce: 1234", SIGNER])).toBe(
       "unverified_message",
@@ -695,8 +679,6 @@ describe("toHexQuantity", () => {
   });
 });
 
-// A "0X"-prefixed value the signer comparison accepts must be recognized as an address everywhere
-// else, or a valid request is refused for its casing alone. Calldata is never compared that way.
 describe("an uppercase 0X prefix", () => {
   const upper = `0X${SIGNER.slice(2)}`;
 
@@ -723,9 +705,6 @@ describe("an uppercase 0X prefix", () => {
   });
 });
 
-// Lifted from auth/src/shared/auth/metaTransactionTypedData.spec.ts, whose fixtures are the shapes
-// decentraland-transactions builds: DOMAIN_TYPE and OFFCHAIN_META_TRANSACTION_TYPE inlined so the
-// rule is pinned to the literal struct a Decentraland contract hashes.
 const DOMAIN_TYPE = [
   { name: "name", type: "string" },
   { name: "version", type: "string" },
@@ -854,11 +833,6 @@ const MALFORMED_META_TRANSACTIONS: [string, () => unknown][] = [
   ],
 ];
 
-// Upstream reaches its MetaTransaction rules only once the domain's verifyingContract has resolved
-// to a contract Decentraland vouches for; for every other contract the request degrades to the
-// unverified view (auth #489, classifyRequest.ts). This page has no registry to resolve one, so no
-// MetaTransaction is turned away at recover: a payload an external wallet would happily sign is
-// shown as the typed data it is, behind the acknowledgment every other signature already gets.
 describe("validateAuthRequest serves every MetaTransaction behind the acknowledgment", () => {
   const method = "eth_signTypedData_v4";
 
@@ -905,7 +879,6 @@ describe("validateAuthRequest serves every MetaTransaction behind the acknowledg
   });
 });
 
-// The rule itself, kept for the day a contract registry can say which MetaTransactions it governs.
 describe("metaTransactionDomainProblem", () => {
   it("passes the payload decentraland-transactions builds", () => {
     expect(metaTransactionDomainProblem(metaTransaction())).toBeNull();
@@ -954,10 +927,6 @@ describe("metaTransactionDomainProblem", () => {
   });
 });
 
-// Upstream holds generic typed data to its schema only where its page is the confirmation, never in
-// the recover-time guard: an external wallet shows the payload itself, so a request it can sign must
-// not be turned away here for a quirk a review could not render. These are the payloads
-// Decentraland's own dApps sign; no shape rule on this page may start rejecting one of them.
 describe("validateAuthRequest against the typed data Decentraland's dApps sign", () => {
   const method = "eth_signTypedData_v4";
 

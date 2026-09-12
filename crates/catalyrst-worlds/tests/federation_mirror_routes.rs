@@ -1,18 +1,16 @@
-//! The four federation routes, driven through the real axum router.
-//!
-//! The two assertions this file exists for:
+//! The four federation routes, driven through the real axum router, for two
+//! assertions:
 //!
 //! 1. `POST /admin/federation/worlds/refresh` authenticates its caller **before** it
-//!    contacts anybody. Asserted not by reading the code but by counting inbound
-//!    requests at the peer: an unauthenticated call must leave that counter at zero.
-//!    This is the exact shape of the confused deputy that was caught before merge --
-//!    a route holding privileged outbound reach that does not authenticate its own
-//!    caller -- and the federated version is worse because it crosses a trust boundary.
-//! 2. The mirror response contains no `owner` key, and none of the other authority
-//!    words either, against the wire bytes rather than against the struct definition.
+//!    contacts anybody -- asserted by counting inbound requests at the peer, which an
+//!    unauthenticated call must leave at zero. A route with privileged outbound reach
+//!    that does not authenticate its caller is a confused deputy, worse here because
+//!    it crosses a trust boundary.
+//! 2. The mirror response carries no `owner` key or other authority word, against the
+//!    wire bytes rather than the struct definition.
 //!
-//! Skips are announced on stderr by [`skipped`]; a pass tally from this file is not
-//! evidence that anything ran.
+//! Skips are announced on stderr by [`skipped`]; a pass tally is not evidence that
+//! anything ran.
 
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -69,8 +67,6 @@ async fn setup_db() -> Option<ScratchSchema> {
     Some(scratch)
 }
 
-// --- the stub peer, counting every inbound request -------------------------
-
 #[derive(Clone)]
 struct StubState {
     body: String,
@@ -125,8 +121,6 @@ impl StubPeer {
         self.hits.load(Ordering::SeqCst)
     }
 }
-
-// --- the app under test -----------------------------------------------------
 
 fn fed_config() -> WorldsFedConfig {
     WorldsFedConfig {
@@ -243,7 +237,6 @@ fn listing(names: &[&str]) -> String {
             json!({
                 "name": n,
                 "title": format!("{n} title"),
-                // The ownership claim a real peer sends on every entry.
                 "owner": "0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
                 "deployed_scenes": 2
             })
@@ -252,9 +245,8 @@ fn listing(names: &[&str]) -> String {
     json!({ "worlds": worlds, "total": worlds.len() }).to_string()
 }
 
-/// **The confused-deputy assertion.** An unauthenticated refresh is refused, and the
-/// peer never sees a request -- proven by the peer's own counter, not by reading the
-/// handler.
+/// An unauthenticated refresh is refused and the peer never sees a request -- proven
+/// by the peer's own counter, not by reading the handler.
 #[tokio::test]
 async fn an_unauthenticated_refresh_is_refused_before_any_peer_is_contacted() {
     let Some(scratch) = setup_db().await else {
@@ -298,8 +290,6 @@ async fn an_unauthenticated_refresh_is_refused_before_any_peer_is_contacted() {
         );
     }
 
-    // The same route, authenticated, does reach the peer -- otherwise the assertion
-    // above would be satisfied by a route that never works.
     let (status, body) = call(
         &app,
         Request::builder()
@@ -375,7 +365,6 @@ async fn the_published_mirror_is_peer_qualified_and_carries_no_ownership_key() {
     };
     let (app, state) = build_app(scratch.pool.clone(), peers);
 
-    // Poll through the authenticated admin route, as an operator would.
     let (status, _) = call(
         &app,
         Request::builder()
@@ -416,12 +405,9 @@ async fn the_published_mirror_is_peer_qualified_and_carries_no_ownership_key() {
         );
     }
 
-    // The listing comes with peer health, so `worlds: []` can never be read without
-    // also being told whether anyone answered.
     assert_eq!(body["peers"][0]["peerId"], json!(PEER_A));
     assert_eq!(body["peers"][0]["status"]["hasEverSucceeded"], json!(true));
 
-    // And none of it reached the local surfaces.
     let (status, local) = call(&app, get_req("/worlds")).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(
@@ -436,9 +422,6 @@ async fn the_published_mirror_is_peer_qualified_and_carries_no_ownership_key() {
         "this server must not vouch for a peer's world under its own origin"
     );
 
-    // /worlds/{name}/comms is the one that matters most: a mirrored row must not be
-    // able to mint a LiveKit token in our cluster. There is no `worlds` row, so the
-    // handler 404s before it ever reaches the access check.
     let (status, _) = call(
         &app,
         Request::builder()
@@ -459,17 +442,14 @@ async fn the_published_mirror_is_peer_qualified_and_carries_no_ownership_key() {
     scratch.drop().await;
 }
 
-/// **Finding F, at the layer the operator actually reads.** A collision probe that
-/// could not run must not reach the refresh JSON as an empty collision list.
+/// A collision probe that could not run must not reach the refresh JSON as an empty
+/// collision list. `local_names_also_claimed` errors were swallowed into `Vec::new()`
+/// in `fed/poll.rs` and rendered as `localNameCollisions: []` -- the identical bytes a
+/// server with no collisions produces (the same defect class as the zod laundering in
+/// `catalyrst/sites/packages/data/src/lib/catalyst/wcs.ts`).
 ///
-/// `local_names_also_claimed` errors were swallowed into `Vec::new()` in
-/// `fed/poll.rs`, and `refresh_federation_mirror` rendered that as
-/// `localNameCollisions: []` -- the identical bytes a server with no collisions
-/// produces. Same defect class as the zod laundering in `catalyrst/sites/packages/data/src/lib/catalyst/wcs.ts`: a failure
-/// rendering as a measurement.
-///
-/// Both states are exercised in one test, against one route, so the assertion is that
-/// they *differ* rather than that either looks a particular way in isolation.
+/// Both states are exercised against one route, so the assertion is that they *differ*
+/// rather than that either looks a particular way in isolation.
 #[tokio::test]
 async fn a_refresh_reports_an_unavailable_collision_probe_as_null_not_as_an_empty_list() {
     let Some(scratch) = setup_db().await else {
@@ -494,7 +474,6 @@ async fn a_refresh_reports_an_unavailable_collision_probe_as_null_not_as_an_empt
             .unwrap()
     }
 
-    // Knowledge of an absence: the probe ran, and there is nothing to report.
     let (status, body) = call(&app, refresh_req()).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body["polled"][0]["ok"], json!(true));
@@ -505,9 +484,6 @@ async fn a_refresh_reports_an_unavailable_collision_probe_as_null_not_as_an_empt
     );
     assert_eq!(body["polled"][0]["localNameCollisionsError"], json!(null));
 
-    // Break the one table the probe reads. The mirror write does not touch it, so the
-    // poll still succeeds -- which is the whole difficulty: `ok: true` alongside one
-    // thing that was not checked.
     sqlx::query("DROP TABLE worlds CASCADE")
         .execute(&scratch.pool)
         .await
@@ -539,8 +515,6 @@ async fn a_refresh_reports_an_unavailable_collision_probe_as_null_not_as_an_empt
         "and it must say why: {result}"
     );
 
-    // The same absence is visible on the public health block, without an admin token:
-    // fresh rows, and a recorded note that one thing about them went unchecked.
     let (status, peers_body) = call(&app, get_req("/federation/worlds/peers")).await;
     assert_eq!(status, StatusCode::OK);
     let status_block = &peers_body["peers"][0]["status"];
@@ -619,9 +593,6 @@ async fn every_federation_route_answers_503_when_federation_is_not_configured() 
         ),
     ] {
         let mut req = Request::builder().method(method).uri(uri);
-        // The admin routes authenticate FIRST, so they only reach the 503 with a
-        // valid bearer. That ordering is the point: an unauthenticated caller learns
-        // nothing about our configuration.
         if uri.starts_with("/admin/") {
             req = req
                 .header("authorization", format!("Bearer {ADMIN_TOKEN}"))

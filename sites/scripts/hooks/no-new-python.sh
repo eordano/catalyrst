@@ -1,6 +1,4 @@
 #!/usr/bin/env bash
-# The python migration only removes python: a newly added .py file or python
-# shebang fails the commit. Existing python may still be edited on its way out.
 set -euo pipefail
 bad=()
 while IFS= read -r f; do

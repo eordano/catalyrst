@@ -95,7 +95,6 @@ export class Contract extends ContractBase {
     }
 }
 
-/// Event types
 export type OrderCreatedEventArgs = EParams<typeof events.OrderCreated>
 export type OrderSuccessfulEventArgs = EParams<typeof events.OrderSuccessful>
 export type OrderCancelledEventArgs = EParams<typeof events.OrderCancelled>
@@ -110,7 +109,6 @@ export type UnpauseEventArgs = EParams<typeof events.Unpause>
 export type OwnershipTransferredEventArgs = EParams<typeof events.OwnershipTransferred>
 export type MigratedEventArgs = EParams<typeof events.Migrated>
 
-/// Function types
 export type SetOwnerCutPerMillionParams = FunctionArguments<typeof functions.setOwnerCutPerMillion>
 export type SetOwnerCutPerMillionReturn = FunctionReturn<typeof functions.setOwnerCutPerMillion>
 

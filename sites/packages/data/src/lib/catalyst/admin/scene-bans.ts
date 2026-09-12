@@ -24,13 +24,6 @@ export function shortAddress(value: string): string {
 
 const nullableStr = z.string().nullish().transform((v) => v ?? null);
 
-/**
- * `base_position` and `user_count` are required. Both are on every row of
- * `src/fixtures/operator-scene-bans.json`, which is what
- * `scene-bans.server.ts#loadOperatorPlaces` parses. The old default of "0,0"
- * for a missing position named a real parcel, and 0 for a missing `user_count`
- * claimed an empty scene; a row without them is dropped instead.
- */
 export const PlaceRefSchema = z.object({
   id: z.string(),
   title: nullableStr,
@@ -50,11 +43,6 @@ export const BanRowSchema = z.object({
 
 export type BanRow = z.infer<typeof BanRowSchema>;
 
-/**
- * Required across the board: `catalyrst-comms/src/handlers/scene_bans.rs:105-114`
- * writes all five keys on every response. `results: []` was the dangerous one --
- * a ban list that failed to arrive rendered as a scene with nobody banned.
- */
 export const BansEnvelopeSchema = z.object({
   results: z.array(BanRowSchema),
   total: z.number(),
@@ -65,7 +53,6 @@ export const BansEnvelopeSchema = z.object({
 
 export type BansPage = z.infer<typeof BansEnvelopeSchema>;
 
-/** Null when the response could not be read -- never an empty ban list. */
 export async function loadSceneBans(
   placeId: string,
   opts: GetOptions & { limit?: number; offset?: number } = {},

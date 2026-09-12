@@ -5,15 +5,6 @@ import type { DclEventWire, EventAttendeeWire, EventCategoryWire } from "./schem
 
 export { EventAttendeeSchema, EventCategorySchema, EventSchema };
 
-// The wire -> `DclEvent` normalization, which the schema module cannot carry: a
-// perf build replaces it with an accepting stub, and a stub reproduces no
-// transform. Here it runs whether or not validation did, so an event the
-// service left blank arrives null in both builds rather than undefined in one.
-//
-// Every field a schema marks nullish is restated, so the type below is exactly
-// what a caller gets and a field added to the schema shows up as its honest
-// `| undefined` until it is normalized here too.
-
 export function normalizeEvent(e: DclEventWire) {
   return {
     ...e,
@@ -37,11 +28,6 @@ export function normalizeEvent(e: DclEventWire) {
 
 export type DclEvent = ReturnType<typeof normalizeEvent>;
 
-/**
- * `i18n` is optional-chained because in perf mode the row reaching here was
- * never checked, so the object itself can be missing. Making it total is what
- * keeps one unlabelled row from taking the whole category list down.
- */
 export function normalizeEventCategory(c: EventCategoryWire) {
   return { ...c, i18n: { en: c.i18n?.en ?? null } };
 }
@@ -68,21 +54,6 @@ function warnInvalid(kind: string, issues: unknown): void {
   if (isDev()) console.warn(`[catalyst] ${kind} failed schema validation`, issues);
 }
 
-// What these readers can USE, as opposed to what their schemas declare. A perf
-// build strips the schema and keeps the row, so the guard is the only thing left
-// standing between a non-event and the list. See rows.ts.
-//
-// Both are identity: every accessor below is already total against a row that is
-// merely thin -- `eventCoords` chains `x ?? position?.[0] ?? 0`, `eventStart`
-// chains next_start_at then start_at, `formatEventTime` answers "Soon" to
-// anything falsy -- so the one field an event cannot be without is the id its card
-// is keyed by and its detail route addressed by. `normalizeEventCategory`
-// optional-chains `i18n` for the same reason.
-
-/**
- * `normalizeEventCategory` already tolerates a missing `i18n`; a missing `name`
- * is a chip with no key, no label and no filter behind it.
- */
 function hasCategoryName(row: unknown): boolean {
   return isRecord(row) && typeof row.name === "string";
 }
@@ -147,10 +118,6 @@ export function normalizeEventAttendee(a: EventAttendeeWire) {
 
 export type EventAttendee = ReturnType<typeof normalizeEventAttendee>;
 
-/**
- * The only field the attendance readers dereference is `user`
- * (`isAttending` lowercases it); a row without one matches nobody.
- */
 export function hasAttendeeUser(row: unknown): boolean {
   return isRecord(row) && typeof row.user === "string";
 }

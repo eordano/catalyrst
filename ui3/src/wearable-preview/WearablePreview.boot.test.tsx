@@ -2,12 +2,6 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { render, cleanup, waitFor } from "@testing-library/react";
 import WearablePreview from "./WearablePreview";
 
-// Charter item 1 (avatar boot-on-visible): the scene-creating effect is gated
-// on `booted`, which starts false only for pauseOffscreen consumers with
-// IntersectionObserver support -- every other combination boots on mount
-// exactly as before the change. createAvatarScene stands in for "did the
-// scene (and so its GLB fetches) actually boot".
-
 const createAvatarScene = vi.fn(() => ({
   resize: vi.fn(),
   dispose: vi.fn(),

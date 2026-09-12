@@ -1,8 +1,4 @@
 #!/usr/bin/env bash
-# 1200-line cap on source files: a staged .rs/.ts/.tsx/.nix file over the cap
-# fails the commit unless the commit shrinks it, so the files already over
-# the line can be worked down but nothing grows past it. Generated and
-# vendored trees are exempt.
 set -euo pipefail
 
 cap=${LINE_CAP:-1200}

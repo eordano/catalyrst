@@ -24,8 +24,6 @@ impl<T> Slot<T> {
     }
 }
 
-/// Single-slot async cache: one value, refetched once its TTL lapses.
-///
 /// A failed refresh serves the previous value rather than propagating the error, so a
 /// flaky upstream degrades into staleness instead of an outage. The refresh runs under
 /// the slot mutex, so concurrent callers coalesce onto one fetch.
@@ -130,8 +128,6 @@ impl<T: Clone> TtlCell<T> {
             .map(|c| c.value.clone())
     }
 
-    /// The last value fetched, however old. For degraded reads that prefer stale data
-    /// over no data.
     pub async fn last(&self) -> Option<T> {
         self.slot
             .lock()

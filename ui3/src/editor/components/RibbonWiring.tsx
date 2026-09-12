@@ -4,9 +4,7 @@ const label = (map: Record<string, string>, id: string | null | undefined, fallb
   id ? (map[id] ?? id) : fallback;
 
 export interface RibbonWiringState {
-  /** The entity carries at least one asset-packs component. */
   smart: boolean;
-  /** It has at least one trigger, which is the only thing that makes it react. */
   wired: boolean;
   trigger?: string | null;
   action?: string | null;
@@ -17,9 +15,6 @@ export interface RibbonWiringProps {
   onOpen?: () => void;
 }
 
-// Read-only on purpose: the prototype let these chips cycle through the trigger
-// vocabulary without ever writing a component, so an item could read
-// "on_delay -> teleport_player" and still be unwired.
 export default function RibbonWiring({ state, onOpen }: RibbonWiringProps) {
   if (!state.smart) {
     return <span className="rb-hint">This item has no smart-item behaviour.</span>;

@@ -25,9 +25,6 @@ pub struct EventListFilters {
     pub estate_id: Option<String>,
     pub community_id: Option<String>,
     pub places_ids: Vec<String>,
-    // A destination id is a place uuid or a world name: the wire `place_id`
-    // carries either, and a locally written world event names its world in
-    // `server` only, so both spellings are matched.
     pub destination_ids: Vec<String>,
     pub from: Option<DateTime<Utc>>,
     pub to: Option<DateTime<Utc>>,
@@ -39,16 +36,8 @@ pub struct EventListFilters {
     pub admin: bool,
     pub only_attendee: bool,
     pub owner: bool,
-    // Upstream lets a signed viewer see their own pending and rejected events
-    // in every list; the flag is the list's opt-in so a plain default filter
-    // still emits the public-only clause.
     pub include_own: bool,
-    // Upstream hides deleted rows unless an admin opts in with allow_deleted,
-    // and an explicit `deleted` selector still wins over the opt-in.
     pub include_deleted: bool,
-    // Upstream's moderator tier (the admin bearer or a moderator wallet) sees
-    // pending and rejected events by default; deleted rows and the precise
-    // approved/rejected/deleted selectors stay behind `admin`.
     pub include_unapproved: bool,
 }
 
@@ -87,8 +76,6 @@ struct EventRow {
     coordinates_y: Option<i32>,
     description: Option<String>,
     raw: Value,
-    // Only the list query selects the folded `count(*) OVER()`; every other
-    // EVENT_COLUMNS query omits the column and decodes with total_count = 0.
     #[sqlx(default)]
     total_count: i64,
 }
@@ -101,10 +88,6 @@ impl EventsComponent {
         }
     }
 
-    // Upstream's placeIds carries place uuids and world names alike, and a
-    // world event is keyed by its world: the wire `place_id` matches either
-    // spelling, and a locally written world event names its world in
-    // `server` only, so both are matched.
     fn destination_clause(ids: &[String], binds: &mut Vec<EventBind>) -> String {
         let ids: Vec<String> = ids.iter().map(|d| d.to_lowercase()).collect();
         let p = next_placeholder(binds, EventBind::TextArray(ids));
@@ -298,9 +281,6 @@ impl EventsComponent {
             None => Vec::new(),
         };
 
-        // The window aggregate carries the pre-LIMIT/OFFSET total on every returned row, so a
-        // non-empty page needs no second query. An empty page cannot report it: when the offset
-        // ran past the end (or limit <= 0) the true total is still recoverable only by counting.
         let total = if with_total {
             match rows.first() {
                 Some(r) => r.total_count,

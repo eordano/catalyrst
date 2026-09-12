@@ -207,7 +207,6 @@ impl SocialServiceImpl {
             });
         }
 
-        // Symmetric pair budget: a friendship is one relationship however the two ends act on it.
         if !context
             .server_context
             .friendship_limiter()

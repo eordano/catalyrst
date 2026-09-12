@@ -25,8 +25,6 @@ const TOOLS: { id: EditorTool; Icon: ComponentType; title: string }[] = [
   { id: "scale", Icon: IconScale, title: "Scale (R)" },
 ];
 
-// The one place the save chip is decided: playing overrides the label because
-// runtime edits are not persisted, and both bars must say so identically.
 export function saveChip(playing: boolean, saveLabel: string, saveClass: string): { label: string; cls: string } {
   return playing ? { label: "Runtime", cls: "dim" } : { label: saveLabel, cls: saveClass };
 }

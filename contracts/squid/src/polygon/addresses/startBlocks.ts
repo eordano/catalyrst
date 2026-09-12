@@ -17,6 +17,6 @@ export const startBlockByNetwork: Record<string, Record<string, number>> = {
     MarketplaceV2: 5706656,
     BidV1: 21834173,
     BidV2: 5706662,
-    Spoke: 5706662, // we won't track the Spoke events for AMOY
+    Spoke: 5706662,
   },
 };

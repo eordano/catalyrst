@@ -22,24 +22,6 @@ const DEFAULT_ASSIGNMENT: Assignment = {
   experimentKey: "admin_debug_console",
 };
 
-/**
- * `?authorized=1` is gone.
- *
- * It was never an access control. It was a query parameter the visitor sets,
- * checked by nobody, that turned a 17,640-byte SSR response into a 27,891-byte
- * one for the same anonymous caller -- revealing a wall of admin-looking forms
- * that made no HTTP calls at all.
- *
- * Both reads behind this page are genuinely public -- neither
- * `catalyrst-governance/src/handlers/health.rs:3` nor
- * `catalyrst-governance/src/handlers/read.rs:220` takes an auth extractor of
- * any kind -- so there is nothing here to gate. The page renders them
- * unconditionally and says so, and the "tools" section renders a permanent
- * unavailable state instead of buttons.
- *
- * It is removed rather than hidden: the parameter is no longer read anywhere,
- * so there is no state it can still reach.
- */
 function parsePanel(raw: string | null): DebugPanel {
   return raw === "Debug" ? "Debug" : "Admin";
 }

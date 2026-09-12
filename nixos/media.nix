@@ -1,7 +1,3 @@
-# LibreTranslate: the real translation backend behind the social bundle's
-# /translate route (see bundles.nix's TRANSLATE_BACKEND_URL). Gated the same
-# way as the social bundle itself -- it only needs to run where catalyrst-social
-# does.
 {
   config,
   lib,
@@ -17,13 +13,7 @@ lib.mkIf (cfg.enable && cfg.subServices.social) {
     host = "127.0.0.1";
     port = facts.units.libretranslate.port;
     disableWebUI = true;
-    # Download the argos models at startup. A fresh box ships none, so without
-    # this the daemon crashes on an empty language list (IndexError at
-    # languages[0]). All cfg.translateLanguages packs download on first boot
-    # (network required, several GB); models then cache under the state dir.
     updateModels = true;
-    # LibreTranslate CLI flags go through extraArgs as an attrset (rendered
-    # by lib.cli.toCommandLineShellGNU), not a raw argv list.
     extraArgs = {
       load-only = lib.concatStringsSep "," cfg.translateLanguages;
     };
@@ -44,9 +34,6 @@ lib.mkIf (cfg.enable && cfg.subServices.social) {
     }
   ];
 
-  # The nixpkgs unit sets no Restart= and re-runs --update-models on every
-  # start, so a failed argos fetch would otherwise leave /translate dead
-  # until a manual restart.
   systemd.services.libretranslate.serviceConfig = {
     Restart = "on-failure";
     RestartSec = 30;

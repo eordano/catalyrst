@@ -29,16 +29,8 @@ export function normalizeAddress(addr: string | null | undefined): string {
   return (addr ?? "").trim().toLowerCase();
 }
 
-/*
- * Validation truth for every read below is the generated world-storage schema
- * (the ts-rs image of catalyrst-world-storage's DTOs). Usage bytes are plain
- * numbers, never strings and never absent; /env and /players answer
- * KeyListResponse with `data: string[]`, not per-row `{key}` objects.
- */
 export type Usage = z.infer<typeof UsageResponseSchema>;
 
-/** Throws when the payload is not a UsageResponse; the loader reports the
- *  quota as unread instead of rendering a zero nobody measured. */
 export async function fetchUsage(
   endpoint: "world" | "env" | { player: string },
   opts: GetOptions = {},
@@ -56,11 +48,6 @@ export async function fetchUsage(
 export const StorageValueSchema = StorageValueRowSchema;
 export type StorageValue = z.infer<typeof StorageValueSchema>;
 
-/**
- * Throws when the envelope does not parse. An empty list here means the store
- * is empty; returning one for an unreadable response would render "no values"
- * over a broken endpoint.
- */
 export async function fetchValues(
   opts: GetOptions = {},
 ): Promise<StorageValue[]> {
@@ -73,8 +60,6 @@ export async function fetchValues(
   return env.data.data;
 }
 
-/** The view keeps the `{key}` row shape consumers render; the wire sends bare
- *  strings, lifted post-parse. */
 export type EnvKey = { key: string };
 
 export async function fetchEnvKeys(opts: GetOptions = {}): Promise<EnvKey[]> {
@@ -160,7 +145,6 @@ export function coerceStep(raw: string | null | undefined): StorageStep {
     ? (raw as StorageStep)
     : "select";
 }
-
 
 export type WriteScope = {
   realm: string;

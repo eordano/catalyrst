@@ -175,8 +175,6 @@ pub async fn get_lists(
     headers: HeaderMap,
     Query(pairs): Query<Vec<(String, String)>>,
 ) -> Result<Json<ListsEnvelope>, ApiError> {
-    // @dcl/crypto-middleware >=5.1.0: reject non-canonical signer/intent metadata
-    // (mixed case or whitespace) with 400 before the signature is validated.
     auth_chain::require_canonical_metadata(&headers)?;
     let user_address = auth_chain::require_signer(&headers, "get", "/v1/lists")
         .await
@@ -229,9 +227,8 @@ pub async fn get_lists(
     }))
 }
 
-/// Upstream envelope math (`getPicksByListIdHandler`): a page with no results
-/// zeroes `total` and `pages` even when the pre-pagination count is not zero
-/// (e.g. an offset past the end).
+/// Upstream envelope math (`getPicksByListIdHandler`): a page with no results zeroes `total`
+/// and `pages` even when the pre-pagination count is not zero (e.g. an offset past the end).
 fn picks_page(picks: Vec<ListPick>, count: i64, limit: i64, offset: i64) -> PicksPage {
     let page = if limit > 0 { offset / limit } else { 0 };
     let pages = if !picks.is_empty() && limit > 0 {
@@ -276,8 +273,6 @@ pub async fn get_list_picks(
     let user_address =
         auth_chain::optional_signer(&headers, "get", &format!("/v1/lists/{id}/picks")).await?;
 
-    // Guarded here (as POST /v1/picks does for body list ids) instead of
-    // letting the `$1::uuid` bind blow up in postgres as a 500.
     if !is_uuid(&id) {
         return Err(ApiError::bad_request("The list id must be a UUID."));
     }
@@ -446,9 +441,6 @@ mod tests {
 
     #[test]
     fn picks_page_zeroes_total_and_pages_when_the_page_is_empty() {
-        // Upstream: `total: picks.length > 0 ? count : 0` and
-        // `pages: picks.length > 0 ? Math.ceil(count / limit) : 0` -- an offset
-        // past the end reports 0/0 even though the count was nonzero.
         let page = picks_page(Vec::new(), 5, 2, 10);
         assert_eq!(page.total, 0);
         assert_eq!(page.pages, 0);

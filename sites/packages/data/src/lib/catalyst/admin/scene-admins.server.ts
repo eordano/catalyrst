@@ -1,30 +1,3 @@
-/**
- * Scene admins.
- *
- * Two different things live on this page and they must not be confused:
- *
- * 1. The place list. `GET /places/api/places?owner=0x...` is a **public,
- *    unauthenticated filter** (catalyrst-places/src/handlers/places.rs:66-73,
- *    `auth_address_optional`, no gate). It is fine to call, and it confers no
- *    authority whatsoever. The `owner` value is a filter, not a claim about
- *    who you are -- which is why `viewedAddressIsDemo` exists and why the UI
- *    must say "viewing places for address X (public data)" rather than
- *    "your places".
- *
- * 2. The grants themselves. BLOCK.
- *      list    catalyrst-comms/src/handlers/scene_admin.rs:56-62
- *      grant   catalyrst-comms/src/handlers/scene_admin.rs:123-131
- *      revoke  catalyrst-comms/src/handlers/scene_admin.rs:145-157
- *              -> ports/scene_perms.rs:16-114, denies on pool failure :27-34
- *    The checks are real and good. They are unreachable: there is no nginx
- *    `location` for `/scene-admin`, and the correct public path
- *    (`/comms/scene-admin`) is used nowhere. Adding that edge route is a
- *    deployment change, not part of a UI change.
- *
- * Previously this module returned `grants: []` unconditionally
- * (scene-admins.server.ts:51), which rendered as "this place has no scene
- * admins". It now returns the unavailable reason instead.
- */
 
 import { getJSON } from "../client";
 import type { GetOptions } from "../client";
@@ -33,23 +6,15 @@ import { parsePlaces, normalizeAddress, type OperatedPlace } from "./scene-admin
 import { controlStatus } from "./control-availability";
 import { unavailable, type ControlResult, type Unavailable } from "./availability";
 
-/**
- * A well-known address used when no address is supplied. It is a demo value,
- * not the viewer. Anything rendering it must say so -- hence `isDemo` on the
- * result.
- */
 export const DEMO_OWNER = "0x5188e308fee25ac49c10f9fd9270d953c4822ce5";
 
 const PLACES_PUBLIC_CHECK =
   "catalyrst-places/src/handlers/places.rs:66-73 (auth_address_optional, no gate)";
 
 export type SceneAdminsData = {
-  /** The address the public place filter was run for. Not an identity claim. */
   viewedAddress: string;
-  /** True when `viewedAddress` is the built-in demo address, not the viewer. */
   isDemo: boolean;
   places: ControlResult<OperatedPlace[]>;
-  /** Always unavailable on this node. See the module comment. */
   grants: Unavailable;
   selectedPlaceId: string | null;
 };

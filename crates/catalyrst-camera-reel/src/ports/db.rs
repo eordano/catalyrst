@@ -70,9 +70,6 @@ impl Database {
             }
         }
         if public_only {
-            // Non-owner / public reads must never surface moderator-rejected
-            // images. Owner-authenticated reads (public_only = false) keep the
-            // existing "owner can see their own" visibility model.
             qb.push(" AND is_public = true AND review_status <> 'rejected'");
         }
         Ok(qb)
@@ -183,10 +180,9 @@ impl Database {
         Ok(())
     }
 
-    /// Count rows other than `exclude_id` whose `url` or `thumbnail_url` points
-    /// at the content-addressed `hash` (last path segment `/{hash}`). Used to
-    /// keep a shared blob alive while any other row still references it, since
-    /// blobs are keyed purely by content hash and multiple rows can share one.
+    /// Matches `hash` as the last path segment of `url` or `thumbnail_url`. Blobs are keyed
+    /// purely by content hash, so several rows can share one and it must outlive any single
+    /// deletion.
     pub async fn count_other_images_with_hash(
         &self,
         hash: &str,
@@ -205,11 +201,9 @@ impl Database {
         Ok(count as u64)
     }
 
-    /// Whether the content-addressed `hash` may still be served as bytes.
-    /// Blobs are keyed purely by content hash and can be shared by several
-    /// rows, so a hash is withheld only when every row referencing it has been
-    /// moderator-`rejected`. Hashes with no referencing row at all (e.g. legacy
-    /// or orphaned blobs) remain servable -- rejection is the sole gate here.
+    /// Withheld only when every row referencing the hash is moderator-`rejected`; a hash
+    /// with no referencing row at all (legacy or orphaned blob) stays servable. Rejection is
+    /// the sole gate.
     pub async fn hash_is_servable(&self, hash: &str) -> Result<bool, sqlx::Error> {
         let sql = format!(
             "SELECT \

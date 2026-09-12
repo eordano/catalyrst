@@ -71,8 +71,6 @@ async fn fixture_tables(pool: &PgPool) {
     .unwrap();
 }
 
-// The raw document is what every write derives the columns from, so a seed
-// carries `approved` in both places the way a mirrored or created row does.
 async fn seed_event(pool: &PgPool, id: &str, creator: &str) {
     seed_event_with(pool, id, creator, true).await;
 }
@@ -98,8 +96,6 @@ async fn seed_event_with(pool: &PgPool, id: &str, creator: &str, approved: bool)
 
 const PLACE_UUID: &str = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
 
-// The places service the write paths resolve destinations through: one parcel
-// and one world exist, everything else misses.
 async fn stub_places() -> String {
     use axum::extract::Query;
     use axum::routing::get;

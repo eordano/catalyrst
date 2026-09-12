@@ -21,9 +21,7 @@ export type BackpackData = {
   catalog: Wearable[];
   categories: Category[];
   equipped: Equipped | null;
-  /** Only `{ status: "loaded" }` asserts anything about what the player owns. */
   inventory: InventoryState;
-  /** Says whether `catalog` is everything this node could offer. */
   catalogState: CatalogState;
 };
 
@@ -45,14 +43,6 @@ function extractWearables(raw: unknown): RawWearable[] {
   return (d.wearables ?? d.data ?? []) as RawWearable[];
 }
 
-/**
- * null when the definition does not say which slot the item occupies.
- *
- * `category` used to fall back to `upper_body`, which silently moved a hat
- * into the shirt slot on equip; `rarity` used to fall back to `base`, which
- * labelled an on-chain drop as a free item. Both now pass through as read, and
- * an item with no category is left out of the catalog instead of mis-slotted.
- */
 function mapWearable(w: RawWearable): Wearable | null {
   if (!w.id) return null;
   const category = w.data?.category?.trim();
@@ -94,7 +84,6 @@ function buildCategories(): Category[] {
   }));
 }
 
-/** null when the base catalog could not be read -- not an empty catalog. */
 async function fetchBaseCatalog(opts: GetOptions): Promise<Wearable[] | null> {
   try {
     const raw = await getJSON<unknown>(
@@ -109,11 +98,6 @@ async function fetchBaseCatalog(opts: GetOptions): Promise<Wearable[] | null> {
   }
 }
 
-/**
- * `failed` counts the chunks that did not answer. A dropped chunk silently
- * removes items from the grid, so the count travels with the definitions and
- * the panel says the list is incomplete.
- */
 async function fetchWearableDefs(
   urns: string[],
   opts: GetOptions,
@@ -141,7 +125,6 @@ async function fetchWearableDefs(
   };
 }
 
-/** null when the ownership read failed -- never an empty inventory. */
 async function fetchOwnedUrns(
   address: string,
   opts: GetOptions,
@@ -200,9 +183,6 @@ async function fetchEquipped(address: string, opts: GetOptions): Promise<Equippe
     }
   } catch {
   }
-  // A defaulted avatar is a real-looking one: BaseMale, a skin tone, no
-  // wearables. Rendering that for a failed profile read invites the wearer to
-  // save it back over the avatar we merely failed to fetch.
   return null;
 }
 

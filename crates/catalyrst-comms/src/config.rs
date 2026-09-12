@@ -172,8 +172,6 @@ mod tests {
     /// `resolve_livekit_env` tests: exercise the real env-resolution path.
     #[test]
     fn catalyst_url_defaults_to_local_5141_and_blank_falls_back() {
-        // from_env needs these to construct a Config at all; the dev-creds
-        // opt-in keeps the LiveKit gate from refusing to boot mid-test.
         std::env::set_var("COMMS_PG_CONNECTION_STRING", "postgres://localhost/x");
         std::env::set_var("LAMBDAS_URL", "http://127.0.0.1:1");
         std::env::set_var("LIVEKIT_ALLOW_DEV_CREDS", "1");
@@ -199,8 +197,6 @@ mod tests {
             "an explicit CATALYST_URL must pass through unchanged"
         );
 
-        // Same process-wide env, so the LiveKit endpoint split rides this
-        // test instead of racing it from a sibling.
         std::env::remove_var("LIVEKIT_API_HOST");
         std::env::set_var("LIVEKIT_WS_URL", "  ");
         let single = Config::from_env().unwrap();
@@ -241,8 +237,6 @@ mod tests {
 
     #[test]
     fn placeholder_creds_are_treated_as_unset() {
-        // devkey/devsecret (any case) must NOT count as configured: without
-        // the opt-in the service refuses to boot...
         for (k, s) in [
             ("devkey", "devsecret"),
             ("DevKey", "DEVSECRET"),
@@ -255,7 +249,6 @@ mod tests {
                 "({k:?}, {s:?}) must refuse to boot without LIVEKIT_ALLOW_DEV_CREDS"
             );
         }
-        // ...and with it, the gate + warning path runs with configured=false.
         let (k, s, configured) =
             resolve_livekit_env("devkey".into(), "devsecret".into(), true).unwrap();
         assert_eq!((k.as_str(), s.as_str()), ("devkey", "devsecret"));

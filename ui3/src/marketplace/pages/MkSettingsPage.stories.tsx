@@ -16,7 +16,6 @@ const SELLING = {
 
 type SellingKey = keyof typeof SELLING;
 
-/** `sellingFixture` names the authorization rows; everything else is a real prop. */
 type SettingsStoryArgs = {
   address: string;
   isLoading: boolean;
@@ -52,10 +51,6 @@ const CASES: { label: string; args: Partial<SettingsStoryArgs> }[] = [
   { label: "No authorizations", args: { sellingFixture: "none" } },
 ];
 
-/**
- * Every state at once. `chrome={false}` because stacking N copies of `MarketplaceChrome` would
- * emit N `<main>` landmarks and fail axe's landmark-unique.
- */
 export const Catalog: Story = {
   name: "Catalog (every state)",
   parameters: { controls: { disable: true } },

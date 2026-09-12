@@ -52,7 +52,7 @@ Embeds V8 (via the [`v8`] crate - i.e. `rusty_v8`, the same engine `deno_core` w
 
 ## V8 under Nix (offline build) - IMPORTANT
 
-The `v8`/`rusty_v8` crate's `build.rs` normally downloads a prebuilt `librusty_v8_release_<target>.a` from GitHub, which fails inside the Nix sandbox (no network). The fix - the same one nixpkgs uses for `deno`, `codex`, `windmill`, etc. - is to fetch that archive as a fixed-output derivation (pinned by hash, network allowed) and hand its path to the crate via the `RUSTY_V8_ARCHIVE` env var; the build then links the prebuilt static V8. Already wired in the workspace `flake.nix`:
+The `v8`/`rusty_v8` crate's `build.rs` normally downloads a prebuilt `librusty_v8_release_<target>.a` from GitHub, which fails inside the Nix sandbox (no network). The fix - the same one nixpkgs uses for `deno`, `codex`, `windmill` - is to fetch that archive as a fixed-output derivation (pinned by hash, network allowed) and hand its path to the crate via `RUSTY_V8_ARCHIVE`; the build then links the prebuilt static V8. Already wired in the workspace `flake.nix`:
 
 ```nix
 librusty_v8 = pkgs.callPackage ./crates/catalyrst-scene-state/nix/librusty_v8.nix { };
@@ -75,7 +75,7 @@ nix-prefetch-url \
   | xargs nix hash to-sri --type sha256
 ```
 
-No from-source V8 build, no `gn`/`ninja`, no debian sysroot download - just the ~37 MB prebuilt archive. (nixpkgs also offers a from-source `rusty-v8` derivation if a prebuilt archive is ever unavailable for a target; the prebuilt path is what `deno` itself ships with.)
+No from-source V8 build, no `gn`/`ninja`, no debian sysroot download - just the ~37 MB prebuilt archive, the path `deno` itself ships with. (nixpkgs also offers a from-source `rusty-v8` derivation if a prebuilt archive is ever unavailable for a target.)
 
 [`v8`]: https://crates.io/crates/v8
 
@@ -99,4 +99,4 @@ No from-source V8 build, no `gn`/`ninja`, no debian sysroot download - just the 
 cargo test -p catalyrst-scene-state
 ```
 
-Covers the CRDT codec + LWW merge (`crdt.rs`), the relay merge/snapshot path (`runtime.rs`), and three V8 integration tests running real JavaScript: an `onStart` write via `EngineApi.crdtSendToRenderer`; client-message relay through the `registerScene` observer + `getMessages`/`sendCrdtMessage`; and entity-range reclaim on client close.
+Covers the CRDT codec + LWW merge (`crdt.rs`), the relay merge/snapshot path (`runtime.rs`), and three V8 integration tests running real JavaScript: an `onStart` write via `EngineApi.crdtSendToRenderer`; client-message relay through the `registerScene` observer + `getMessages`/`sendCrdtMessage`; entity-range reclaim on client close.

@@ -35,12 +35,6 @@ type OperatorAuth =
   | { authorized: true; mode: "wallet" | "edge" }
   | { authorized: false; reason: string };
 
-/**
- * With ADMIN_WALLETS unset the page trusts the edge alone: the exported nixos
- * module only routes /server through the nginx superadmin CIDR gate (loopback
- * by default), so a fresh unconfigured node still reaches its own operator
- * page. Setting ADMIN_WALLETS upgrades every request to wallet auth.
- */
 function operatorAuthorized(request: Request): OperatorAuth {
   const raw = process.env.ADMIN_WALLETS;
   const wallets = (raw ?? "")
@@ -60,7 +54,6 @@ function operatorAuthorized(request: Request): OperatorAuth {
   };
 }
 
-/** facts.nix service keys this node enables; null (unset, e.g. dev) means all. */
 function enabledKeys(): Set<string> | null {
   const raw = process.env.CATALYRST_ENABLED_SERVICES;
   if (!raw || raw.trim() === "") return null;

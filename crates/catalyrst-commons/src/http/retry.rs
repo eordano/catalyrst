@@ -15,8 +15,6 @@ pub enum RetryDecision<T> {
     },
 }
 
-/// Runs `op` until it reports `Done`, backing off between attempts.
-///
 /// Rate limiting gets its own, longer ladder and its own attempt budget: a 429 means the
 /// upstream is fine and we are early, which deserves more patience than a transient
 /// failure. `Ok(None)` means the budget ran out; `Err` only ever comes from `op` itself.

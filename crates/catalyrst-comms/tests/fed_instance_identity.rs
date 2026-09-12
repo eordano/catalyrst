@@ -84,8 +84,6 @@ async fn build_state_resolves_fed_peer_id_to_persisted_row(
     _pool_opts: PgPoolOptions,
     connect_opts: PgConnectOptions,
 ) {
-    // `build_state` connects its own pool from `Config::database_url`, so hand it
-    // the URL of this test's migrated database.
     let url = connect_opts.to_url_lossy().to_string();
     let cfg = test_config(url);
     assert!(
@@ -118,14 +116,11 @@ async fn build_state_resolves_fed_peer_id_to_persisted_row(
 /// point of the backfill.
 #[sqlx::test]
 async fn backfill_rewrites_legacy_local_epoch_author(pool: PgPool) {
-    // 0004 creates `mls_groups`; it has no dependency on the intervening
-    // migrations, and none of 0005..0008 touch `epoch_author`.
     sqlx::raw_sql(include_str!("../migrations/0004_mls_messaging.sql"))
         .execute(&pool)
         .await
         .expect("apply migration 0004");
 
-    // A group minted under the old default -- epoch_author == "local".
     sqlx::query(
         "INSERT INTO mls_groups (group_id, creator, group_kind, epoch_author, ciphersuite) \
          VALUES ($1, $2, 'channel', 'local', 1)",

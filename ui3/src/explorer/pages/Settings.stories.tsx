@@ -73,8 +73,6 @@ const meta = {
 } satisfies Meta<typeof SettingsPanel>;
 
 export default meta;
-// Render-only stories: the panel's props are all required, so args-typed
-// StoryObj<typeof meta> would demand a full args block each story.
 type Story = StoryObj;
 
 export const Default: Story = {

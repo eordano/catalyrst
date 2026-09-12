@@ -30,10 +30,10 @@ import {
 } from "./accountsDayData";
 
 const CREDIT_CONTRACTS = [
-  "0xa1691afad71b9a92d329f1a95c39d3077d8f2f5f", // old CreditsManager contract Amoy
-  "0x037566bc90f85e76587e1b07f9184585f09c1420", // new CreditsManager contract Amoy
-  "0x6a03991dfa9d661ef7ad3c6f88b31f16e5a282cf", // CreditsManager contract Mainnet
-  "0xe9f961e6ded4e1476bbee4faab886d63a2493eb9", // new CreditsManager contract Mainnet
+  "0xa1691afad71b9a92d329f1a95c39d3077d8f2f5f",
+  "0x037566bc90f85e76587e1b07f9184585f09c1420",
+  "0x6a03991dfa9d661ef7ad3c6f88b31f16e5a282cf",
+  "0xe9f961e6ded4e1476bbee4faab886d63a2493eb9",
 ];
 
 function isCreditSale(buyer: string): boolean {
@@ -42,21 +42,20 @@ function isCreditSale(buyer: string): boolean {
 
 export function isTransakOperation(buyer: string): boolean {
   return [
-    "0xed038688ecf1193f8d9717eb3930f0bf0d745cb4", // Transak Polygon
-    "0xcb9bd5acd627e8fccf9eb8d4ba72aeb1cd8ff5ef", // Transak Multicall Polygon Amoy
-    "0x4a598b7ec77b1562ad0df7dc64a162695ce4c78a", // Transak Multicall Polygon Mainnet
-    "0xab88cd272863b197b48762ea283f24a13f6586dd", // Transak Multicall Ethereum Mainnet
+    "0xed038688ecf1193f8d9717eb3930f0bf0d745cb4",
+    "0xcb9bd5acd627e8fccf9eb8d4ba72aeb1cd8ff5ef",
+    "0x4a598b7ec77b1562ad0df7dc64a162695ce4c78a",
+    "0xab88cd272863b197b48762ea283f24a13f6586dd",
   ].includes(buyer);
 }
 
 export function isAxelarOperation(buyer: string): boolean {
   return [
-    "0xea749fd6ba492dbc14c24fe8a3d08769229b896c", // Axelar Polygon & Ethereum old contract
-    "0xad6cea45f98444a922a2b4fe96b8c90f0862d2f4", // Axelar Polygon & Ethereum new contract
+    "0xea749fd6ba492dbc14c24fe8a3d08769229b896c",
+    "0xad6cea45f98444a922a2b4fe96b8c90f0862d2f4",
   ].includes(buyer);
 }
 
-// check if the buyer in a sale was a third party provider (to pay with credit card, cross chain, etc)
 export function isThirdPartySale(buyer: string): boolean {
   if (isTransakOperation(buyer) || isAxelarOperation(buyer)) {
     return true;
@@ -127,10 +126,8 @@ export async function trackSale(
   const saleId = `${BigInt(count.salesTotal).toString()}-${Network.POLYGON}`;
   const sale = new Sale({ id: saleId });
   sale.type = type;
-  // real buyer is the buyer that is paying for the NFT
   sale.realBuyer = buyer;
   sale.operation = getOperation(buyer);
-  // buyer is the address that will own the NFT (beneficiary of the NFT). If it's a third party or credit sale, we need to get the owner of the NFT
   sale.buyer =
     isThirdPartySale(buyer) || isCreditSale(buyer)
       ? await getOwner(ctx, block, nft.contractAddress, nft.tokenId)
@@ -176,13 +173,10 @@ export async function trackSale(
       royaltiesCollectorAccount.royalties =
         royaltiesCollectorAccount.royalties + sale.royaltiesCut;
     } else {
-      // If there is not royalties receiver, all the fees goes to the fees collector
       sale.feesCollectorCut = sale.feesCollectorCut + sale.royaltiesCut;
       sale.royaltiesCut = BigInt(0);
     }
   }
-
-  // we update the count here because the sale has the updated values based on the royalties reciever
 
   count.creatorEarningsManaTotal =
     count.creatorEarningsManaTotal +
@@ -310,8 +304,8 @@ export function updateAnalyticsDayData(
   analyticsDayData.volume = analyticsDayData.volume + sale.price;
   analyticsDayData.creatorsEarnings =
     sale.type == SaleType.mint
-      ? analyticsDayData.creatorsEarnings + (sale.price - sale.feesCollectorCut) // if it's a MINT, the creator earning is the sale price
-      : analyticsDayData.creatorsEarnings + sale.royaltiesCut; // if it's a secondary sale, the creator earning is the royaltiesCut (if it's set already)
+      ? analyticsDayData.creatorsEarnings + (sale.price - sale.feesCollectorCut)
+      : analyticsDayData.creatorsEarnings + sale.royaltiesCut;
 
   analyticsDayData.daoEarnings =
     analyticsDayData.daoEarnings + sale.feesCollectorCut;
@@ -325,14 +319,14 @@ export function getOrCreateItemDayData(
   itemId: string
 ): ItemsDayData {
   const timestamp = blockTimestamp;
-  const dayID = timestamp / BigInt(86400); // unix timestamp for start of day / 86400 giving a unique day index
+  const dayID = timestamp / BigInt(86400);
   const dayStartTimestamp = dayID * BigInt(86400);
   const itemDayDataId = dayID.toString() + "-" + itemId;
 
   let itemDayData = itemsDayDatas.get(itemDayDataId);
   if (!itemDayData) {
     itemDayData = new ItemsDayData({ id: itemDayDataId });
-    itemDayData.date = +dayStartTimestamp.toString(); // unix timestamp for start of day
+    itemDayData.date = +dayStartTimestamp.toString();
     itemDayData.sales = 0;
     itemDayData.volume = BigInt(0);
   }

@@ -334,9 +334,6 @@ mod http_handlers {
             &self,
             hash: &str,
         ) -> Result<Option<(Body, u64)>, catalyrst_storage::StorageError> {
-            // Mirrors live/storage.rs: one open, one absence decision. The stat-then-open version
-            // this replaced absorbed the open's ENOENT as `Ok(None)`, reporting a shard destroyed
-            // between the two syscalls as a 404 -- the inversion state.rs's contract forbids.
             let Some((file, size)) = self.inner.open_for_read(hash).await? else {
                 return Ok(None);
             };

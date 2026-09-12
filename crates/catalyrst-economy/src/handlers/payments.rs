@@ -336,10 +336,9 @@ mod tests {
         assert_eq!(no_contracts["manaToken"], serde_json::Value::Null);
     }
 
-    /// The struct must carry the same wire shape as the retired `json!({...})`
-    /// payload. The parameterized cases compare parsed JSON (object key order is
-    /// not part of the contract and flips with serde_json's preserve_order
-    /// feature); a canonical case still pins the exact bytes.
+    /// The parameterized cases compare parsed JSON (object key order is not part
+    /// of the contract and flips with serde_json's preserve_order feature); a
+    /// canonical case still pins the exact bytes.
     #[test]
     fn config_wire_bytes_match_the_old_json_macro() {
         let old = |pay_to: Option<Address>, mana_token: Option<Address>, chain_id: u64| {

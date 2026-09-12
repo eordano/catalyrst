@@ -1,6 +1,3 @@
-# The gateway.decentraland.org-shaped surface: gateway.<domain> plus the
-# per-service subdomains the unity-explorer --base-domain flag fans onto.
-# Everything here is gated on gateway.enable; the base edge lives in web.nix.
 {
   config,
   lib,
@@ -18,10 +15,6 @@ let
     contentReadLocations
     ;
 
-  # The SANs this file's vhosts answer on, appended to web.nix's domain cert
-  # through security.acme's list merge so each name stays next to the vhost
-  # (and the gate) that serves it. acme-http01 only: the acme-dns01 branch's
-  # "*.<domain>" wildcard already covers every subdomain.
   gatewaySans = [
     "gateway.${domain}"
     "peer.${domain}"
@@ -42,8 +35,6 @@ let
     "marketplace-api.${domain}"
     "transactions-api.${domain}"
     "ab-cdn.${domain}"
-    # Second spelling of the same abgen host: the client's OPTIMIZED_ASSETS /
-    # asset-bundle-registry override URLs use abcdn.<domain>.
     "abcdn.${domain}"
     "profile-images.${domain}"
     "builder-api.${domain}"
@@ -168,8 +159,6 @@ let
         lib.nameValuePair "${sub}.${domain}" {
           forceSSL = true;
           useACMEHost = domain;
-          # The OPTIMIZED_ASSETS / asset-bundle-registry override URLs spell the
-          # abgen host abcdn.<domain>; answer both spellings on one vhost.
           serverAliases = lib.optionals (sub == "ab-cdn") [ "abcdn.${domain}" ];
           extraConfig = ''
             ${secHeaders}
@@ -221,8 +210,6 @@ let
         assets-cdn = 5145;
         metamorph-api = 5145;
         camera-reel-service = 5144;
-        # catalyrst-builder rides the create bundle on 5144; its routes are
-        # rooted at /v1 so the host proxies unstripped like camera-reel.
         builder-api = 5144;
         credits = 5146;
         marketplace-api = 5146;

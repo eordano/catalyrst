@@ -73,10 +73,6 @@ function rateNumerator(metric: string): string {
 
 const EXPOSURE_EVENT = "experiment_exposed";
 
-// Prefer the machine-readable event binding (metric.numerator/.denominator) over
-// stripping the human `primary` label -- the label is prose (verb stems, `_ctr`,
-// ratios) and does not reliably name an event. Falls back to the strip for
-// stories not yet bound.
 function metricNumerator(story: StoryMeta): string {
   return story.metric.numerator ?? rateNumerator(story.metric.primary);
 }
@@ -132,8 +128,6 @@ async function fetchSqlCounts(
   }
   let res: Response;
   try {
-    // /dash/sql sits behind the telemetry admin gate; without the token the
-    // service answers 403 and the readout reports "unreachable".
     const token = env("TELEMETRY_ADMIN_TOKEN");
     res = await doFetch(`${base}/dash/sql`, {
       method: "POST",

@@ -4,10 +4,9 @@
 //! `catalyrst-explore` merges this router at the root alongside places and social,
 //! which already own `/federation/places/*` and `/federation/communities/*`.
 //!
-//! Every response is a typed struct with `utoipa::ToSchema` and a `ts_rs` export,
-//! following `handlers/live_data.rs` -- not a `json!` macro. That is not tidiness: the
-//! guarantee "**no `owner` key exists in the mirror response**" is only checkable by a
-//! reviewer if there is a type to look at.
+//! Every response is a typed struct with `utoipa::ToSchema` and a `ts_rs` export rather
+//! than a `json!` macro, so the guarantee "**no `owner` key exists in the mirror
+//! response**" is checkable by a reviewer.
 
 use axum::body::Bytes;
 use axum::extract::{Path, Query, State};
@@ -22,8 +21,6 @@ use crate::fed::poll::PollOutcome;
 use crate::fed::store::RemoteWorld;
 use crate::http::ApiError;
 use crate::AppState;
-
-// GET /federation/worlds/peers
 
 /// Health of one peer's mirror.
 ///
@@ -91,11 +88,6 @@ pub struct FederationPeerView {
     /// True when this peer was admitted through `WORLDS_FED_ALLOW_INSECURE_LOOPBACK_PEERS`
     /// and is therefore spoken to in **cleartext, authenticated by nothing**. Surfaced so
     /// a two-node test rig is never mistaken for a federation deployment.
-    // Derived from the scheme alone. It used to be `cleartext && no pinned root`, which
-    // reported `false` - secure - for a cleartext peer that carried a pem, on a channel
-    // with no TLS for the pem to apply to. That combination is now refused at admission
-    // (`PeerNotAdmitted::PinnedRootOnCleartextUrl`), so cleartext and unauthenticated
-    // are the same fact again; this field states the one that matters.
     pub insecure_loopback: bool,
     pub status: FederationPeerStatusView,
 }
@@ -202,8 +194,6 @@ pub async fn get_federation_peers(
     }))
 }
 
-// GET /federation/worlds/mirror
-
 /// One mirrored world, as published.
 ///
 /// **There is no `owner` key, and no field it could be renamed from.** There is no
@@ -292,10 +282,6 @@ pub async fn get_federation_mirror(
         ));
     }
 
-    // `?peer=` is resolved against the ADMITTED set before it reaches SQL. An id that
-    // is in the file but was omitted is not addressable, and an id that is in neither
-    // is a 404 rather than an empty listing that looks like a healthy peer with no
-    // worlds.
     let peer = match q.peer.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
         Some(raw) => match state.fed_peers.get(raw) {
             Some(p) => Some(p.peer_id().clone()),
@@ -311,12 +297,6 @@ pub async fn get_federation_mirror(
     let limit = q.limit.unwrap_or(100).clamp(1, 1000);
     let offset = q.offset.unwrap_or(0).max(0);
 
-    // `state.fed_peers` is passed to the row query and then read again, below, to build
-    // the `peers[]` health block. One value, two reads, one request -- so a row can only
-    // appear here for a peer that also appears there. That is the property the audit
-    // found missing: before it, a peer removed from the file kept its worlds published
-    // with no status line at all, which is to say with no `hasEverSucceeded` and no
-    // `lastSuccessAt` for the most stale data we held.
     let (rows, total) = state
         .mirror
         .store()
@@ -350,8 +330,6 @@ pub async fn get_federation_mirror(
         .collect();
 
     Ok(Json(FederationMirrorResponse {
-        // `rows` is dead after this expression, so move each row's owned fields into the
-        // view rather than cloning them (`total`/`peers` come from other values).
         worlds: rows
             .into_iter()
             .map(RemoteWorld::into_published_view)
@@ -360,8 +338,6 @@ pub async fn get_federation_mirror(
         peers,
     }))
 }
-
-// POST /admin/federation/worlds/refresh
 
 #[derive(Debug, Serialize, utoipa::ToSchema)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "worlds/"))]
@@ -397,8 +373,7 @@ pub struct FederationRefreshResponse {
 }
 
 /// The reason attached to a `null` collision list on a peer whose poll failed. A
-/// constant so a test asserts the contract rather than a literal, and so the wording
-/// says *which* thing did not happen.
+/// constant so a test asserts the contract rather than a literal.
 pub const NOT_PROBED_POLL_FAILED: &str =
     "not checked: the poll failed before the local name collision probe ran";
 
@@ -435,10 +410,6 @@ pub async fn refresh_federation_mirror(
     let polled = results
         .into_iter()
         .map(|(peer_id, outcome)| match outcome {
-            // `ok: true` is about the fetch and the write. The collision probe runs
-            // after both and decides nothing, so it can fail inside a poll that
-            // succeeded -- and when it does, this is `null` with a reason rather than an
-            // empty list that reads as a clean check.
             PollOutcome::Polled(r) => FederationRefreshPeerResult {
                 peer_id: peer_id.as_str().to_string(),
                 ok: true,
@@ -449,11 +420,6 @@ pub async fn refresh_federation_mirror(
                 local_name_collisions_error: r.collisions.unavailable_reason().map(str::to_string),
                 error: None,
             },
-            // A failed peer is reported as failed, with zeroes that are explicitly
-            // paired with `ok: false`. It is never reported as a peer with no worlds --
-            // and, for the same reason, never as a peer with no collisions: this poll
-            // never got as far as having names to probe with, so the list is absent
-            // rather than empty.
             PollOutcome::Failed(e) => FederationRefreshPeerResult {
                 peer_id: peer_id.as_str().to_string(),
                 ok: false,
@@ -469,8 +435,6 @@ pub async fn refresh_federation_mirror(
 
     Ok(Json(FederationRefreshResponse { polled }))
 }
-
-// PUT /admin/federation/worlds/{peer_id}/{world_name}/hidden
 
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "worlds/"))]
@@ -510,15 +474,6 @@ pub struct SetMirrorHiddenResponse {
         (status = 503, body = catalyrst_types::ApiErrorBody)
     )
 )]
-// `body: Bytes`, NOT `Json<SetMirrorHiddenRequest>`, and that is the whole of the
-// route's authorization ordering.
-//
-// `Json` is an axum extractor, and extractors run before the handler body. With it, an
-// anonymous caller who sent a body that did not deserialise got 415 or 422 from the
-// extractor and never reached `authorize_admin`. Nothing was writable that way, but the
-// route was an unauthenticated oracle for its own request schema, and this module's
-// claim to authenticate its caller as its first statement was false. `Bytes` cannot
-// fail, so the first thing that can answer this route is the credential check.
 pub async fn set_mirror_world_hidden(
     State(state): State<AppState>,
     Path((peer_id, world_name)): Path<(String, String)>,
@@ -527,10 +482,6 @@ pub async fn set_mirror_world_hidden(
 ) -> Result<Json<SetMirrorHiddenResponse>, ApiError> {
     admin::authorize_admin(&state, &headers)?;
 
-    // Only now does the shape of the request matter. Deliberately does not check
-    // Content-Type: the 415 that `Json` produced is exactly the pre-auth signal being
-    // removed, and an authenticated admin sending the right bytes under the wrong
-    // header is not a case worth failing.
     let body: SetMirrorHiddenRequest = serde_json::from_slice(&body)
         .map_err(|e| ApiError::bad_request(format!("request body is not valid JSON: {e}")))?;
 
@@ -577,7 +528,6 @@ pub async fn set_mirror_world_hidden(
     }))
 }
 
-/// The status code returned for every federation route when
-/// `WORLDS_FED_PEERS_FILE` is unset. Named so tests assert the contract rather than a
-/// literal.
+/// Returned by every federation route when `WORLDS_FED_PEERS_FILE` is unset. Named so
+/// tests assert the contract rather than a literal.
 pub const NOT_CONFIGURED_STATUS: StatusCode = StatusCode::SERVICE_UNAVAILABLE;

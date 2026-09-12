@@ -8,12 +8,6 @@ import type { ApiOk as RsApiOk } from "@ui/generated/catalyst/events/ApiOk";
 import type { ScheduleRecord as RsSchedule } from "@ui/generated/catalyst/events/ScheduleRecord";
 import { warnInvalid } from "../warn";
 
-/**
- * Validation truth is catalyrst-events' `ScheduleRecord`. `background` and
- * `active` are non-null there, so a row that carries neither is not a schedule
- * with no colours that nobody switched on -- it is a row we did not understand,
- * and `parseSchedules` drops it instead of casting it back into the list.
- */
 export { ScheduleRecordSchema as ScheduleSchema };
 
 export type Schedule = z.infer<typeof ScheduleRecordSchema>;
@@ -101,10 +95,6 @@ export function isoToDateInput(iso: string | null): string {
   return d.toISOString().slice(0, 10);
 }
 
-/** An unread `active` becomes `false` in the draft, never `true`: the editor
- *  must not pre-arm a schedule as live on the strength of a field it did not
- *  read. Same for `background` -- the wizard's own palette, not a colour the
- *  record never carried. */
 export function scheduleToDraft(s: Schedule): ScheduleDraft {
   const base = emptyDraft();
   return {

@@ -20,8 +20,6 @@ export default defineConfig({
     storybookTest({ configDir: ".storybook", tags: { exclude: ["no-test"] } }),
   ],
   optimizeDeps: {
-    // pre-bundle everything the suite imports: a cold cache re-optimizing
-    // mid-run reloads the tester page and aborts in-flight tests
     include: [
       "@storybook/addon-a11y/preview",
       "@storybook/addon-links",

@@ -1,6 +1,3 @@
-// Full-screen photo viewer (lightbox) for one camera-reel photo: large image with
-// prev/next navigation, an info sidebar (date - scene+coords - people in the shot),
-// and the reel actions (jump in - download - copy link - share to X - two-step delete).
 
 import { useEffect, useRef, useState } from "react";
 import { Avatar } from "../../atoms/primitives";
@@ -33,7 +30,6 @@ export type ReelPhoto = {
   metadata?: ReelPhotoMeta;
 };
 
-/** Parse a camera-reel `dateTime` (unix seconds, unix ms, or ISO) to epoch ms. */
 export function photoTime(dateTime: string | undefined): number {
   if (!dateTime) return 0;
   if (/^\d+$/.test(dateTime)) {
@@ -66,7 +62,6 @@ const ICON = {
 type PhotoDetailProps = {
   photos: ReelPhoto[];
   index: number;
-  /** The reel is the local player's own, so delete is allowed. */
   isSelf: boolean;
   onIndex: (i: number) => void;
   onClose: () => void;

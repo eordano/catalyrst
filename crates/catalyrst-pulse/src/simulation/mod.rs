@@ -271,8 +271,6 @@ pub struct PeerSimulation {
     observer_features: u32,
     delta_batch_buffer: Vec<BatchSubject>,
 
-    // The board is immutable for the duration of simulate_tick, so observers sharing a
-    // subject+baseline+tier produce identical output. Cleared at the top of every tick.
     tick_scan_cache: HashMap<(u32, u32), Arc<IntermediateScan>>,
     tick_delta_cache: HashMap<(u32, u32, u8), Arc<PlayerStateDeltaTier0>>,
 }
@@ -285,8 +283,6 @@ impl PeerSimulation {
         let base_tick_ms = simulation_steps[0];
         let tier_divisors = simulation_steps.iter().map(|s| s / base_tick_ms).collect();
 
-        // Both halves of this ordering are measured on different clocks (ticks vs wall time), so a
-        // configuration that inverts it has to be visible at boot.
         let sweep_worst_case_ms = (VIEW_STALE_TICKS + SWEEP_CHECK_INTERVAL) * base_tick_ms;
         if sweep_worst_case_ms >= DEFAULT_DISCONNECTION_CLEAN_TIMEOUT_MS {
             tracing::warn!(
@@ -1053,7 +1049,6 @@ struct IntermediateScan {
     target_seq: u32,
 }
 
-// Thread-local so parallel test threads do not cross-count.
 #[cfg(test)]
 thread_local! {
     pub static SCAN_CALLS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };

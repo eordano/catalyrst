@@ -8,10 +8,6 @@ export interface ISlackComponent {
   sendMessage(channel: string, message: string): Promise<SlackMessageResponse>;
 }
 
-// Ops alerting is not wired up in this deployment, so this is a no-op that keeps
-// the component's shape. Callers already treat Slack as optional -- they skip it
-// when SLACK_BOT_TOKEN/SLACK_SIGNING_SECRET are unset -- and this drops the
-// @slack/bolt dependency without touching them.
 export function createSlackComponent(_config: {
   botToken: string;
   signingSecret: string;

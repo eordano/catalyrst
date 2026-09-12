@@ -1,11 +1,4 @@
 #!/usr/bin/env bash
-# Local twin of CI's sqlx-prepare-check job: the committed offline query cache
-# (crates/catalyrst-server/.sqlx) must match the query! macros + migrated
-# schema, or every offline build breaks. Spins up a throwaway postgres that
-# listens ONLY on a unix socket in its own mktemp dir -- no TCP port, so it can
-# never collide with the 5xxx listeners or a concurrent guard run -- applies
-# the server migrations in lexical order, then re-prepares and diffs.
-# --regen swaps the diff for a rewrite of .sqlx/ (stage the result).
 set -euo pipefail
 
 SITES="$(cd "$(dirname "$0")/.." && pwd)"

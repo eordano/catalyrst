@@ -139,8 +139,6 @@ impl DatagramDeduper {
                 true
             }
             Some(last) => {
-                // RFC 1982 serial arithmetic: (seq - last) as i32 > 0 means seq is ahead of
-                // last, correct across u32 wraparound.
                 if (seq.wrapping_sub(last) as i32) > 0 {
                     self.last_seen.insert(channel_id, seq);
                     true

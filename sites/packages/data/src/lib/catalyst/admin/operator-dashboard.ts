@@ -1,31 +1,5 @@
 import { z } from "zod";
 
-/**
- * Read against `catalyrst-places/src/ports/places/rows.rs:43-95` (`PlaceRow`),
- * which is what `GET /places/api/places` serialises, and mirrored by the
- * generated `generated-schemas/places.ts`.
- *
- * `highlighted`, `disabled` and `world` are `bool` there -- always present, so
- * they are required here and a row that omits one is dropped rather than
- * silently rendered as not-highlighted. `user_visits`, `likes`, `dislikes` and
- * `favorites` are `i32` and get the same treatment.
- *
- * `user_count` is `Option<i32>`: null is the honest reading of a place whose
- * headcount was not reported, and 0 is a measurement nobody took.
- *
- * `visits_24h`, `banned_count` and `admin_count` are NOT fields of `PlaceRow`
- * and never arrive. They used to default to 0, and the dashboard summed those
- * zeros into "24h visits", "Banned (total)" and "Admins (total)" KPI cards --
- * three figures with no source at all. They are gone from the schema and from
- * the page; nothing here may reintroduce them without a server field to read.
- *
- * `headcount` is likewise absent from `PlaceRow`. It stays as an explicit null
- * so the sparkline says the history is unavailable instead of drawing a flat
- * line of zeroes.
- *
- * `title` is `Option<String>` upstream, so null is the honest reading of a
- * place that has no title; callers fall back to the coordinates or the id.
- */
 export const OperatorPlaceSchema = z.object({
   id: z.string(),
   title: z.string().nullish().transform((v) => v ?? null),
@@ -44,12 +18,6 @@ export const OperatorPlaceSchema = z.object({
 });
 export type OperatorPlace = z.infer<typeof OperatorPlaceSchema>;
 
-/**
- * The envelope around the place list is assembled by the loader, not parsed
- * from a payload: no endpoint on this node publishes a snapshot cadence, so
- * `snapshot_taken_at` and `snapshot_interval_min` are null rather than a
- * plausible "30 minutes" nobody configured.
- */
 export const OperatorDashboardSchema = z.object({
   _source: z.string().optional(),
   owner: z.string(),
@@ -81,11 +49,6 @@ export function coerceRange(raw: string | null | undefined): Range {
     : DEFAULT_RANGE;
 }
 
-/**
- * `headcountUnreported` is part of the answer, not a diagnostic: the live-player
- * total only covers the places that reported one, and a reader has to be told
- * how many places are missing from it.
- */
 export type DashboardTotals = {
   placeCount: number;
   totalLivePlayers: number;

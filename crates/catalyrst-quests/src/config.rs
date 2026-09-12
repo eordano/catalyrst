@@ -1,6 +1,5 @@
-/// Loopback by default, matching every other catalyrst HTTP service: the public
-/// API is meant to arrive through the nginx front. An operator that genuinely
-/// wants this reachable directly sets QUESTS_BIND.
+/// Loopback like every other catalyrst HTTP service: public traffic arrives through the
+/// nginx front. Set QUESTS_BIND to bind elsewhere.
 pub fn bind_addr() -> String {
     std::env::var("QUESTS_BIND").unwrap_or_else(|_| "127.0.0.1:5155".to_string())
 }

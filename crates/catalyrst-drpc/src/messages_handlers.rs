@@ -1,7 +1,3 @@
-//! It contains the types that the [`RpcServer`](crate::server::RpcServer)  and [`RpcClient`](crate::client::RpcClient) use to handle messages (requests and reponses).
-//!
-//! Also, it contains the type [`StreamsHandler`] to handle streams. This type is used by both because they both receive and return StreamMessages
-//!
 use crate::{
     rpc_protocol::{
         fill_remote_error,
@@ -27,8 +23,6 @@ use tokio::sync::{
 };
 use tracing::{debug, error};
 
-// ClientMessagesHandler is the only user of these; without the gate a
-// server-only build (catalyrst-quests) warns on four unused imports.
 #[cfg(feature = "client")]
 use crate::rpc_protocol::parse::parse_header;
 #[cfg(feature = "client")]
@@ -38,16 +32,10 @@ use tokio_util::sync::CancellationToken;
 #[cfg(feature = "client")]
 use tracing::info;
 
-/// It's in charge of handling every request that the client sends
-///
-/// It spawns a background tasks to process every request
-///
 #[derive(Default)]
 #[cfg(feature = "server")]
 pub struct ServerMessagesHandler {
-    /// Data structure in charge of handling all messages related to streams
     pub streams_handler: Arc<StreamsHandler>,
-    /// Stores listeners for client streams messages
     listeners: Mutex<HashMap<u32, AsyncChannelSender<StreamPackage>>>,
 }
 
@@ -60,9 +48,7 @@ impl ServerMessagesHandler {
         }
     }
 
-    /// Receive a unary procedure handler returned future and process it in a spawned background task.
-    ///
-    /// This function aims to run the procedure handler in spawned task to achieve processing requests concurrently.
+    /// Runs the handler in a spawned task, so requests are processed concurrently.
     pub fn process_unary_request<T: Transport + ?Sized + 'static>(
         &self,
         transport: Arc<T>,
@@ -99,9 +85,7 @@ impl ServerMessagesHandler {
         });
     }
 
-    /// Receive a server streams procedure handler returned future and process it in a spawned background task.
-    ///
-    /// This function aims to run the procedure handler in spawned task to achieve processing requests concurrently.
+    /// Runs the handler in a spawned task, so requests are processed concurrently.
     pub fn process_server_streams_request<T: Transport + ?Sized + 'static>(
         self: Arc<Self>,
         transport: Arc<T>,
@@ -165,9 +149,7 @@ impl ServerMessagesHandler {
         });
     }
 
-    /// Receive a client streams procedure handler returned future and process it in a spawned background task.
-    ///
-    /// This function aims to run the procedure handler in spawned task to achieve processing requests concurrently.
+    /// Runs the handler in a spawned task, so requests are processed concurrently.
     pub fn process_client_streams_request<T: Transport + ?Sized + 'static>(
         self: Arc<Self>,
         transport: Arc<T>,
@@ -190,9 +172,7 @@ impl ServerMessagesHandler {
         });
     }
 
-    /// Receive a bidirectional streams procedure handler returned future and process it in a spawned background task.
-    ///
-    /// This function aims to run the procedure handler in spawned task to achieve processing requests concurrently.
+    /// Runs the handler in a spawned task, so requests are processed concurrently.
     pub fn process_bidir_streams_request<T: Transport + ?Sized + 'static>(
         self: Arc<Self>,
         transport: Arc<T>,
@@ -257,9 +237,6 @@ impl ServerMessagesHandler {
         });
     }
 
-    /// Notify the listener for a client streams procedure that the client sent a new [`StreamMessage`]
-    ///
-    /// This function aims to run the procedure handler in spawned task to achieve processing requests concurrently.
     pub fn notify_new_client_stream(self: Arc<Self>, message_number: u32, payload: Vec<u8>) {
         tokio::spawn(async move {
             let lock = self.listeners.lock().await;
@@ -284,10 +261,7 @@ impl ServerMessagesHandler {
         });
     }
 
-    /// Sends a common response [`Response`] through the given transport
-    ///
-    /// If it fails to send the response, it will retry it as long as the [`Transport::send`] doesn't return a [`TransportError::Closed`]
-    ///
+    /// Retries until [`Transport::send`] reports [`TransportError::Closed`].
     pub async fn send_response<T: Transport + ?Sized>(
         &self,
         transport: Arc<T>,
@@ -317,7 +291,6 @@ impl ServerMessagesHandler {
         }
     }
 
-    /// Sends a [`StreamMessage`] in order to open the stream on the other half
     async fn open_server_stream<T: Transport + ?Sized>(
         &self,
         transport: Arc<T>,
@@ -350,7 +323,6 @@ impl ServerMessagesHandler {
         Ok(receiver)
     }
 
-    /// Register a listener for a specific message_id used for client and bidirectional streams
     pub async fn register_listener(
         &self,
         message_id: u32,
@@ -360,7 +332,6 @@ impl ServerMessagesHandler {
         lock.insert(message_id, callback);
     }
 
-    /// Unregister a listener for a specific message_id used for client and bidirectional streams
     pub async fn unregister_listener(&self, message_id: u32) {
         let mut lock = self.listeners.lock().await;
         lock.remove(&message_id);
@@ -369,43 +340,19 @@ impl ServerMessagesHandler {
 
 type StreamPackage = (RpcMessageTypes, u32, StreamMessage);
 
-/// `ClientMessagesHandler` is in charge of sending message through the transport, processing the responses and sending them through their attached listeners
-///
-/// It runs a background task listening for new messages (responses) in the given transport.
-///
-/// It's the data structure that actually owns the Transport attached to a `RpcClient`. The transport is drilled down up to get to `ClientMEssagesHandler`
-///
-///
+/// Owns the transport a `RpcClient` was built with, and routes each raw response to the
+/// listener registered for its message id.
 #[cfg(feature = "client")]
 pub struct ClientMessagesHandler<T: Transport + ?Sized> {
-    /// Transport received by a `RpcClient`
     pub transport: Arc<T>,
-    /// Data structure in charge of handling all messages related to streams
     pub streams_handler: Arc<StreamsHandler>,
-    /// One time listeners for responses.
-    ///
-    /// The listeners here are removed once the transport receives the response for their message id
-    ///
-    /// The raw response (`Vec<u8>`) is sent through the listener
-    ///
-    /// - key : Message id assigned to a request. A response is returned with the same message id
-    /// - value : A oneshot sender from a oneshot channel. It expects the raw response body (`Vec<u8>`) and the function awaiting to receive this is in chage of decoding the raw response body
-    ///
+    /// Keyed by request message id; removed once that response arrives. The receiving side
+    /// decodes the raw body.
     one_time_listeners: Mutex<HashMap<u32, OneShotSender<Vec<u8>>>>,
-    /// Listeners for streams.
-    ///
-    /// A listeners is called every time that the transport receives a response with the listener's message id
-    ///
-    /// The raw response (`Vec<u8>`) is sent through the listener
-    ///
-    /// - key : Message id assigned to a stream request
-    /// - value : An `async_channel` sender from `async_channel` channel. It expects the raw response body (`Vec<u8>`) and a `StreamProtocol` instance awaiting to receive this is in chage of decoding the raw response body
-    ///
+    /// Keyed by stream-request message id; fires on every response carrying that id.
     listeners: Mutex<HashMap<u32, AsyncChannelSender<StreamPackage>>>,
-    /// Process cancellation token is used for cancelling the background task spawned with `ClientMessagesHandler::start(self: Arc<Self>)`
-    ///
-    /// If the cancellation token is never triggered, the background task cotinues until the `RpcClient` owning this is dropped
-    ///
+    /// Never triggering it leaves the background task running until the owning `RpcClient` is
+    /// dropped.
     process_cancellation_token: CancellationToken,
 }
 
@@ -421,10 +368,6 @@ impl<T: Transport + ?Sized + 'static> ClientMessagesHandler<T> {
         }
     }
 
-    /// Starts a background task to listen responses from the [`RpcServer`](crate::server::RpcServer)  sent to the transport.
-    ///
-    /// The receiver is an [`Arc<Self>`] in order to be able to process in a backgroun taks and mutate the state of the listeners
-    ///
     pub fn start(self: Arc<Self>) {
         let token = self.process_cancellation_token.clone();
         tokio::spawn(async move {
@@ -440,12 +383,10 @@ impl<T: Transport + ?Sized + 'static> ClientMessagesHandler<T> {
         });
     }
 
-    /// Stops the background task listening responses in the transport
     pub fn stop(&self) {
         self.process_cancellation_token.cancel();
     }
 
-    /// In charge of looping in the transport wating for new responses and sending the response through a listener
     async fn process(&self) {
         loop {
             match self.transport.receive().await {
@@ -485,7 +426,6 @@ impl<T: Transport + ?Sized + 'static> ClientMessagesHandler<T> {
                                         error!("> ClientMessagesHandler > process > Error while decoding bytes into a StreamMessage, something seems to be bad implemented")
                                     }
                                 } else {
-                                    // If there is no listener for the message, then it's an ACK message for a StreamMessage from the Server
                                     self.streams_handler
                                         .clone()
                                         .message_acknowledged_by_peer(message_number, data)
@@ -509,12 +449,8 @@ impl<T: Transport + ?Sized + 'static> ClientMessagesHandler<T> {
         }
     }
 
-    /// It spawns a background task to wait for the server to acknowledge the open of client streams or biderectional streams.
-    ///
-    ///  After the server acknowledges the open, it starts sending stram messages.
-    ///
-    /// The receiver of the function is an [`Arc<Self>`] because an instance should be cloned for the background task and mutate the state of the message listeners
-    ///
+    /// Sending only begins once the server acknowledges the open, and both the wait and the
+    /// sending happen in a spawned task.
     pub fn await_server_ack_open_and_send_streams<M: Message + 'static>(
         self: Arc<Self>,
         open_promise: OneShotReceiver<Vec<u8>>,
@@ -560,7 +496,6 @@ impl<T: Transport + ?Sized + 'static> ClientMessagesHandler<T> {
         });
     }
 
-    /// Registers a one time listener. It will be used only one time and then removed.
     pub async fn register_one_time_listener(
         &self,
         message_number: u32,
@@ -570,7 +505,6 @@ impl<T: Transport + ?Sized + 'static> ClientMessagesHandler<T> {
         lock.insert(message_number, callback);
     }
 
-    /// Registers a listener which will be more than one time
     pub async fn register_listener(
         &self,
         message_number: u32,
@@ -580,14 +514,13 @@ impl<T: Transport + ?Sized + 'static> ClientMessagesHandler<T> {
         lock.insert(message_number, callback);
     }
 
-    /// Unregister a listener
     pub async fn unregister_listener(&self, message_number: u32) {
         let mut lock = self.listeners.lock().await;
         lock.remove(&message_number);
     }
 }
 
-/// In charge of handling the acknowledge listeners for Stream Messages so that it knows that it has to send the next [`StreamMessage`]
+/// Holds the per-message acknowledge listeners that pace stream sending.
 #[derive(Default)]
 pub struct StreamsHandler {
     ack_listeners: Mutex<HashMap<String, OneShotSender<Vec<u8>>>>,
@@ -600,7 +533,6 @@ impl StreamsHandler {
         }
     }
 
-    /// It sends a message through the given `transport` in the parameter to close an opened stream procedure
     async fn close_stream<T: Transport + ?Sized>(
         &self,
         transport: Arc<T>,
@@ -628,12 +560,9 @@ impl StreamsHandler {
         Ok(())
     }
 
-    /// As it receives encoded messages from the `stream_generator`, it'll be sending [`StreamMessage`]s through the given transport in the parameters.
-    ///
-    /// It handles the sequence id for each [`StreamMessage`], it'll await for the acknowlegde of each message in the other half to conitnue with the messages sending.
-    ///
-    /// Also, it stops the generator and break the loop if the other half closed the stream. Otherwise, it will close the stream when the `stream_generator` doesn't have more messages.
-    ///
+    /// One message in flight at a time: each [`StreamMessage`] carries the next sequence id
+    /// and the next is not sent until the peer acknowledges it. The peer closing the stream
+    /// stops the generator; otherwise the stream is closed when the generator runs dry.
     pub async fn send_streams_through_transport<T: Transport + ?Sized>(
         &self,
         transport: Arc<T>,
@@ -700,10 +629,9 @@ impl StreamsHandler {
         Ok(())
     }
 
-    /// Sends a [`StreamMessage`] through the given transport and registers the created acknowledge listener for the sent message and return it.
-    ///
-    /// If it fails to send the[`StreamMessage`], the function will try to send a [`RemoteError`] to notify the client as long as [`Transport::send`] doesn't return [`TransportError::Closed`]
-    ///
+    /// Returns the acknowledge listener registered for the message. A send failure is reported
+    /// to the client as a [`RemoteError`], unless [`Transport::send`] says
+    /// [`TransportError::Closed`].
     async fn send_stream<T: Transport + ?Sized>(
         &self,
         transport: Arc<T>,
@@ -746,7 +674,7 @@ impl StreamsHandler {
         Ok(rx)
     }
 
-    /// Notify the acknowledge listener registered in [`send_stream`](#method.send_stream) that the message was acknowledge by the other peer and it can continue sending the pending messages
+    /// Releases the sender in [`send_stream`](#method.send_stream) to send the next message.
     pub fn message_acknowledged_by_peer(self: Arc<Self>, message_number: u32, payload: Vec<u8>) {
         tokio::spawn(async move {
             match parse_protocol_message::<StreamMessage>(&payload) {
@@ -780,14 +708,11 @@ impl StreamsHandler {
     }
 }
 
-/// Reusable function for sending a remote erorr
 async fn send_remote_error<T: Transport + ?Sized>(
     transport: Arc<T>,
     message_number: u32,
     mut remote_error: RemoteError,
 ) {
-    // We have to complete the RemoteError message becaue the message_identifier is 0 because
-    // `message_number` (message_identifier) is not given to the procedure_handler and it's unable to build the identifier
     fill_remote_error(&mut remote_error, message_number);
     if let Err(err) = transport.send(remote_error.encode_to_vec()).await {
         error!("> send_remote_error > Error while sending the remote error through a transport > RemoteError: {remote_error:?} - Error: {err:?}")

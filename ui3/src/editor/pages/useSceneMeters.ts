@@ -7,7 +7,6 @@ import type { RibbonMeter } from "../components/DeRibbon";
 const POLL_MS = 5000;
 const ENTITIES = /^entities:\s*(\d+)$/m;
 
-/** The deployment ceiling every explorer enforces, from the parcel count. */
 function entityLimit(parcels: number): number {
   if (parcels <= 0) return 0;
   return Math.floor(Math.log2(parcels + 1) * 200);
@@ -19,10 +18,6 @@ interface Options {
   scene: LiveSceneInfo | null;
 }
 
-// /scene_stats is the only console command in the engine that reports a scene
-// budget, and all it reports is the entity count. Triangles, materials and
-// bytes have no source anywhere in the bevy crates, so they get no meter rather
-// than a plausible-looking number.
 export function useSceneMeters({ busRef, busLive, scene }: Options): RibbonMeter[] {
   const [entities, setEntities] = useState<number | null>(null);
   const parcels = scene?.parcels?.length ?? 0;

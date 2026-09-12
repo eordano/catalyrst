@@ -38,7 +38,6 @@ export const WithDocs: Story = {
   args: { docs: "/create/learn" },
 };
 
-/** Multi-line commands keep their line breaks and scroll rather than wrap. */
 export const TwoStep: Story = {
   args: {
     command:

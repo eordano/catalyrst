@@ -119,7 +119,6 @@ fn emit_uncaptured(msg: &str) {
     {
         use std::io::Write;
         use std::os::fd::FromRawFd;
-        // ManuallyDrop: this borrows fd 2, it must never close it.
         let mut fd2 = std::mem::ManuallyDrop::new(unsafe { std::fs::File::from_raw_fd(2) });
         if fd2.write_all(msg.as_bytes()).is_ok() {
             return;
@@ -140,13 +139,6 @@ fn record_skip(requirement: &str, detail: &str) {
         .append(true)
         .open(path)
     {
-        // One `write_all` of one buffer, not `writeln!`. `Write for File` turns a
-        // format string into one syscall per fragment, so two tests skipping at the
-        // same time interleave mid-record and both records are lost. libtest runs
-        // tests in parallel by default, so that is the normal case, not the rare
-        // one -- and the skiplog is the artifact that is supposed to be read
-        // *instead of* the pass tally. A record that corrupts under load is worse
-        // than no record, because the tally still says "ok".
         let line = format!("{test}\t{requirement}\t{detail}\n");
         let _ = f.write_all(line.as_bytes());
     }

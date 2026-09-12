@@ -39,8 +39,6 @@ describe("LobbyNew terms nudge", () => {
     expect(screen.queryByRole("alert")).toBeNull();
   });
 
-  // the alert is assertive, so it must mount once and stay put rather than
-  // re-announcing on every keystroke
   test("further typing does not re-raise the alert", async () => {
     render(<LobbyNew />);
     const field = screen.getByLabelText("Username");
@@ -48,8 +46,6 @@ describe("LobbyNew terms nudge", () => {
     expect(screen.getAllByRole("alert")).toHaveLength(1);
   });
 
-  // every control that flips the CTA emphasis must also raise the terms, or the two
-  // signals disagree about whether the visitor has committed to the guest path
   test.each([
     ["Random name", "button"],
     ["Random", "button"],

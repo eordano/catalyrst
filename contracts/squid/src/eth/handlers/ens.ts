@@ -32,11 +32,6 @@ export function handleNameRegistered(
 
   const ens = new ENS({ id });
   ens.tokenId = BigInt(tokenId);
-  // The owner is the beneficiary the name is registered *for*, never the caller
-  // that registered it: a DCLControllerV2 purchase is called by the controller
-  // contract, so keying off _caller records that contract as the owner of every
-  // name bought through it. This entity also replaces the one buildENSFromNFT
-  // derives from the mint, so its owner must agree with nft.owner.
   let owner = accounts.get(`${_beneficiary}-${ModelNetwork.ETHEREUM}`);
   if (!owner) {
     owner = createAccount(_beneficiary);
@@ -49,7 +44,6 @@ export function handleNameRegistered(
   ens.subdomain = _subdomain;
   ens.createdAt = _createdDate;
 
-  // Store orderHash if provided (from Squid Router CORAL flow)
   if (orderHash) {
     ens.orderHash = orderHash;
   }

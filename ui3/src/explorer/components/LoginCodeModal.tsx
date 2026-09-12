@@ -19,10 +19,6 @@ export default function LoginCodeModal() {
     if (loginCode) setDismissed(false);
   }, [key]);
 
-  // Stable callback: Modal's key-handling effect deps include onClose, and this component
-  // is always mounted (it self-hides via `return null` below) -- a fresh arrow function here
-  // would re-run the effect on every unrelated app re-render, re-capturing and restoring
-  // focus (e.g. stealing focus back from Chat's input right after the user closed it).
   const dismiss = useCallback(() => setDismissed(true), []);
 
   if (!loginCode || dismissed) return null;

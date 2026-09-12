@@ -70,8 +70,6 @@ impl SceneBansComponent {
         Ok(res.rows_affected())
     }
 
-    /// Ban lookup for the enforcement hot path.
-    ///
     /// A database fault propagates as `Err`; it must never read as "not banned".
     /// Collapsing the error to `0` here silently un-banned a banned user for the
     /// duration of any transient DB hiccup, and did so invisibly to every caller

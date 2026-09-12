@@ -192,8 +192,6 @@ export function createHandleStore(backend: HandleBackend = indexedDbBackend()): 
         return null;
       }
     },
-    // A storage backend that threw has not told us the wallet has no projects.
-    // `[]` here is the same claim as a real empty store, so it is null instead.
     async list() {
       try {
         const all = await backend.listMeta();

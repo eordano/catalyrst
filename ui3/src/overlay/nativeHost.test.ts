@@ -95,7 +95,6 @@ describe("computeInteractiveRects", () => {
   it("captures portal subtrees mounted outside the overlay root", () => {
     const root = overlayRoot();
     root.appendChild(el("auto", [10, 20, 100, 40]));
-    // components/Modal.tsx portals straight to document.body.
     const portal = el("none", [0, 0, 0, 0]);
     portal.appendChild(el("auto", [300, 200, 400, 300]));
     document.body.appendChild(portal);
@@ -141,8 +140,6 @@ describe("startNativeHostBridge", () => {
     window.__dclNativeHost = { post };
     vi.advanceTimersByTime(300);
     stop();
-    // hash gate: geometry already measured while the host was absent, so a
-    // late-arriving host sees no re-emit until geometry actually changes.
     expect(post).not.toHaveBeenCalled();
   });
 
@@ -230,8 +227,6 @@ describe("isEditorShell", () => {
   });
 
   it("never treats a native host as the editor shell", () => {
-    // Regression: --preview + --hud must still mount the HUD (the native
-    // host carries preview via the Ready event, not the query).
     window.__dclNativeHost = { post: () => {} };
     expect(isEditorShell("?preview=true")).toBe(false);
     expect(isEditorShell("?editorUi=1")).toBe(false);

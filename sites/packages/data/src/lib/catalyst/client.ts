@@ -39,11 +39,6 @@ async function errorFromResponse(res: Response, url: string): Promise<CatalystEr
 
 const DEFAULT_BASE = "https://catalyst.example.com";
 
-// A browser build reads the catalyst API same-origin: the catalyrst edge fronts
-// it at the deployment's own origin, so a baked foreign host is CSP-refused under
-// the app's `default-src 'self'`. `__CATALYST_BASE__` is the escape for a local
-// dev server with no same-origin catalyst; SSR resolves via CATALYST_URL and
-// never reaches this branch.
 function browserBase(): string | undefined {
   if (typeof window === "undefined") return undefined;
   const w = window as Window & { __CATALYST_BASE__?: string };
@@ -62,9 +57,6 @@ export function worldsBase(override?: string): string {
     typeof process !== "undefined" ? process.env?.WORLDS_URL : undefined;
   if (override) return override.replace(/\/$/, "");
   if (env) return env.replace(/\/$/, "");
-  // Derive `worlds.<domain>` from the canonical catalyst host, never the browser
-  // origin: the same-origin read fix must not synthesize a bogus
-  // `worlds.<own-origin>` for a same-origin deployment.
   const cb = (
     (typeof process !== "undefined" ? process.env?.CATALYST_URL : undefined) ??
     DEFAULT_BASE

@@ -1,5 +1,5 @@
 use serde_json::Value;
-use sqlx::postgres::PgRow;
+use sqlx::postgres::{PgArguments, PgRow};
 use sqlx::{PgPool, Row};
 
 use crate::access::AccessSetting;
@@ -11,6 +11,8 @@ use super::types::{
     WorldInfoRow, WorldManifest, WorldRecord, WorldScene, WorldSettingsRow, WorldSettingsUpdate,
     WorldsListFilters, WorldsListOptions, WorldsOrderBy,
 };
+
+type PgQuery<'q> = sqlx::query::Query<'q, sqlx::Postgres, PgArguments>;
 
 /// The upsert shared by `store_access` and `modify_access_atomically`: both persist a full
 /// replacement of a world's access JSON, differing only in which executor (pool vs. an
@@ -34,8 +36,44 @@ async fn upsert_world_access(
     Ok(())
 }
 
+async fn ensure_world(
+    executor: impl sqlx::PgExecutor<'_>,
+    world_name: &str,
+    owner: &str,
+) -> Result<(), ApiError> {
+    sqlx::query(
+        r#"INSERT INTO worlds (name, owner, access, created_at, updated_at)
+           VALUES (lower($1), lower($2), $3::jsonb, now(), now())
+           ON CONFLICT (name) DO NOTHING"#,
+    )
+    .bind(world_name)
+    .bind(owner)
+    .bind(default_access_json())
+    .execute(executor)
+    .await?;
+    Ok(())
+}
+
+async fn lock_world(executor: impl sqlx::PgExecutor<'_>, world_name: &str) -> Result<(), ApiError> {
+    sqlx::query(r#"SELECT name FROM worlds WHERE lower(name) = lower($1) FOR UPDATE"#)
+        .bind(world_name)
+        .execute(executor)
+        .await?;
+    Ok(())
+}
+
 fn default_access_json() -> Value {
     serde_json::json!({ "type": "unrestricted" })
+}
+
+fn access_json(access: &AccessSetting) -> Result<Value, ApiError> {
+    serde_json::to_value(access).map_err(|e| ApiError::internal(format!("serialize access: {e}")))
+}
+
+fn access_setting(r: &PgRow) -> AccessSetting {
+    r.get::<Option<Value>, _>("access")
+        .and_then(|v| serde_json::from_value(v).ok())
+        .unwrap_or_default()
 }
 
 /// The world-shape rectangle spanned by every deployed scene's parcels; runs
@@ -58,14 +96,8 @@ async fn bounding_rectangle(
     .await?;
 
     Ok(row.and_then(|r| {
-        let min_x: Option<i32> = r.get("min_x");
-        let max_x: Option<i32> = r.get("max_x");
-        let min_y: Option<i32> = r.get("min_y");
-        let max_y: Option<i32> = r.get("max_y");
-        match (min_x, max_x, min_y, max_y) {
-            (Some(a), Some(b), Some(c), Some(d)) => Some((a, b, c, d)),
-            _ => None,
-        }
+        let col = |c: &str| r.get::<Option<i32>, _>(c);
+        Some((col("min_x")?, col("max_x")?, col("min_y")?, col("max_y")?))
     }))
 }
 
@@ -75,6 +107,31 @@ fn world_scene_from_row(row: &PgRow) -> WorldScene {
         entity: row.get("entity"),
         parcels: row.get("parcels"),
         deployer: row.get("deployer"),
+    }
+}
+
+fn parcels_and_base(r: &PgRow) -> (Vec<String>, Option<String>) {
+    let entity: Value = r.get("entity");
+    let parcels: Vec<String> = r.get("parcels");
+    let base = effective_base_parcel(&entity, &parcels);
+    (parcels, base)
+}
+
+fn world_settings_from_row(r: &PgRow) -> WorldSettingsRow {
+    WorldSettingsRow {
+        title: r.get("title"),
+        description: r.get("description"),
+        content_rating: r.get("content_rating"),
+        spawn_coordinates: r.get("spawn_coordinates"),
+        skybox_time: r.get("skybox_time"),
+        categories: r.get("categories"),
+        single_player: r.get("single_player"),
+        show_in_places: r.get("show_in_places"),
+        thumbnail_hash: r.get("thumbnail_hash"),
+        access_type: r.get("access_type"),
+        realm_name_override: r.get("realm_name_override"),
+        preview_wearable_urns: r.get("preview_wearable_urns"),
+        settings_version: r.get("settings_version"),
     }
 }
 
@@ -92,6 +149,25 @@ impl WorldsComponent {
         &self.pool
     }
 
+    async fn scenes(&self, query: PgQuery<'_>) -> Result<Vec<WorldScene>, ApiError> {
+        let rows = query.fetch_all(&self.pool).await?;
+        Ok(rows.iter().map(world_scene_from_row).collect())
+    }
+
+    /// Runs `delete` against `world_scenes` under the world's row lock and reports the
+    /// number of rows it removed.
+    async fn delete_scenes_locked(
+        &self,
+        world_name: &str,
+        delete: PgQuery<'_>,
+    ) -> Result<u64, ApiError> {
+        let mut tx = self.pool.begin().await?;
+        lock_world(&mut *tx, world_name).await?;
+        let affected = delete.execute(&mut *tx).await?.rows_affected();
+        tx.commit().await?;
+        Ok(affected)
+    }
+
     pub async fn get_world(&self, world_name: &str) -> Result<Option<WorldRecord>, ApiError> {
         let row = sqlx::query(
             r#"SELECT name, owner, access, blocked_since, spawn_coordinates,
@@ -103,49 +179,41 @@ impl WorldsComponent {
         .fetch_optional(&self.pool)
         .await?;
 
-        Ok(row.map(|r| {
-            let access = r
-                .get::<Option<Value>, _>("access")
-                .and_then(|v| serde_json::from_value::<AccessSetting>(v).ok())
-                .unwrap_or_default();
-            WorldRecord {
-                name: r.get("name"),
-                owner: r.get("owner"),
-                access,
-                blocked_since: r.get("blocked_since"),
-                spawn_coordinates: r.get("spawn_coordinates"),
-                skybox_time: r.get("skybox_time"),
-                single_player: r.get::<Option<bool>, _>("single_player").unwrap_or(false),
-                realm_name_override: r.get("realm_name_override"),
-                preview_wearable_urns: r.get("preview_wearable_urns"),
-            }
+        Ok(row.map(|r| WorldRecord {
+            name: r.get("name"),
+            owner: r.get("owner"),
+            access: access_setting(&r),
+            blocked_since: r.get("blocked_since"),
+            spawn_coordinates: r.get("spawn_coordinates"),
+            skybox_time: r.get("skybox_time"),
+            single_player: r.get::<Option<bool>, _>("single_player").unwrap_or(false),
+            realm_name_override: r.get("realm_name_override"),
+            preview_wearable_urns: r.get("preview_wearable_urns"),
         }))
     }
 
     pub async fn is_world_valid(&self, world_name: &str) -> Result<bool, ApiError> {
-        let exists: bool = sqlx::query_scalar(
+        Ok(sqlx::query_scalar(
             r#"SELECT EXISTS(
                  SELECT 1 FROM world_scenes WHERE lower(world_name) = lower($1)
                )"#,
         )
         .bind(world_name)
         .fetch_one(&self.pool)
-        .await?;
-        Ok(exists)
+        .await?)
     }
 
     pub async fn get_scenes(&self, world_name: &str) -> Result<Vec<WorldScene>, ApiError> {
-        let rows = sqlx::query(
-            r#"SELECT entity_id, entity, parcels, deployer
+        self.scenes(
+            sqlx::query(
+                r#"SELECT entity_id, entity, parcels, deployer
                FROM world_scenes
                WHERE lower(world_name) = lower($1)
                ORDER BY created_at DESC"#,
+            )
+            .bind(world_name),
         )
-        .bind(world_name)
-        .fetch_all(&self.pool)
-        .await?;
-
-        Ok(rows.iter().map(world_scene_from_row).collect())
+        .await
     }
 
     /// The already-deployed scenes whose parcels overlap `parcels`; a deploy/undeploy must
@@ -159,17 +227,16 @@ impl WorldsComponent {
         if parcels.is_empty() {
             return Ok(Vec::new());
         }
-        let rows = sqlx::query(
-            r#"SELECT entity_id, entity, parcels, deployer
+        self.scenes(
+            sqlx::query(
+                r#"SELECT entity_id, entity, parcels, deployer
                FROM world_scenes
                WHERE lower(world_name) = lower($1) AND parcels && $2::text[]"#,
+            )
+            .bind(world_name)
+            .bind(parcels),
         )
-        .bind(world_name)
-        .bind(parcels)
-        .fetch_all(&self.pool)
-        .await?;
-
-        Ok(rows.iter().map(world_scene_from_row).collect())
+        .await
     }
 
     pub async fn list_index_scenes(
@@ -198,10 +265,7 @@ impl WorldsComponent {
 
         Ok(rows
             .iter()
-            .map(|r| {
-                let world_name: String = r.get("world_name");
-                (world_name, world_scene_from_row(r))
-            })
+            .map(|r| (r.get("world_name"), world_scene_from_row(r)))
             .collect())
     }
 
@@ -262,11 +326,7 @@ impl WorldsComponent {
         .fetch_optional(&self.pool)
         .await?;
 
-        Ok(row.and_then(|r| {
-            let entity: Value = r.get("entity");
-            let parcels: Vec<String> = r.get("parcels");
-            effective_base_parcel(&entity, &parcels)
-        }))
+        Ok(row.and_then(|r| parcels_and_base(&r).1))
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -284,8 +344,6 @@ impl WorldsComponent {
         replacement: &SceneReplacement,
     ) -> Result<(), ApiError> {
         let mut s = scene_settings_from_entity(entity);
-        // The bytes are checked against the same formats the settings endpoint
-        // accepts, since a promoted thumbnail is served verbatim to consumers.
         if let Some(hash) = s.thumbnail_hash.take() {
             s.thumbnail_hash =
                 crate::settings_policy::storable_thumbnail_hash(contents_dir, &hash).await;
@@ -293,10 +351,6 @@ impl WorldsComponent {
 
         let mut tx = self.pool.begin().await?;
 
-        // The upsert takes the worlds row lock; settings columns are written on
-        // INSERT (first deploy) but left unchanged on UPDATE -- the refresh
-        // decision needs the scene count read AFTER the lock is acquired, so a
-        // concurrent deploy cannot race it under READ COMMITTED.
         let is_insert: bool = sqlx::query_scalar(
             r#"INSERT INTO worlds (
                    name, owner, access, blocked_since, spawn_coordinates,
@@ -328,9 +382,6 @@ impl WorldsComponent {
         .await?;
 
         if !is_insert {
-            // Refresh settings iff no non-overlapping scene survives this deploy:
-            // every currently deployed scene is being replaced (or none exist), so
-            // the incoming scene ends up alone in the world.
             let sole_occupant: bool = sqlx::query_scalar(
                 r#"SELECT COUNT(*) FILTER (WHERE NOT (parcels && $2::text[])) = 0
                    FROM world_scenes WHERE lower(world_name) = lower($1)"#,
@@ -341,9 +392,6 @@ impl WorldsComponent {
             .await?;
 
             if sole_occupant {
-                // A field the scene does not express (NULL) falls back to the
-                // stored value; the IS DISTINCT FROM guard keeps a republish of
-                // unchanged metadata from bumping the settings version.
                 sqlx::query(
                     r#"UPDATE worlds SET
                          title = COALESCE($2, title),
@@ -391,7 +439,6 @@ impl WorldsComponent {
                 .await?;
             }
             SceneReplacement::Scoped(entity_ids) => {
-                // Replace only the exact scene identities the caller was authorized for.
                 sqlx::query(
                     r#"DELETE FROM world_scenes
                        WHERE lower(world_name) = lower($1)
@@ -404,9 +451,6 @@ impl WorldsComponent {
                 .execute(&mut *tx)
                 .await?;
 
-                // The worlds upsert above locks this world's row, serializing deploys; this
-                // final overlap probe rejects a scene that appeared after the caller's
-                // authorization snapshot was taken, rather than deleting it unauthorized.
                 let leftover: Option<String> = sqlx::query_scalar(
                     r#"SELECT entity_id FROM world_scenes
                        WHERE lower(world_name) = lower($1) AND parcels && $2
@@ -459,58 +503,32 @@ impl WorldsComponent {
         parcel: &str,
         authorized_entity_ids: Option<&[String]>,
     ) -> Result<u64, ApiError> {
-        // Serialize against a concurrent deploy on the same world: take the
-        // worlds-row lock before deleting the scene at this parcel.
-        let mut tx = self.pool.begin().await?;
-        sqlx::query(r#"SELECT name FROM worlds WHERE lower(name) = lower($1) FOR UPDATE"#)
-            .bind(world_name)
-            .execute(&mut *tx)
-            .await?;
-        let res = match authorized_entity_ids {
-            Some(ids) => {
-                sqlx::query(
-                    r#"DELETE FROM world_scenes
+        let delete = match authorized_entity_ids {
+            Some(ids) => sqlx::query(
+                r#"DELETE FROM world_scenes
                        WHERE lower(world_name) = lower($1) AND $2 = ANY(parcels)
                          AND entity_id = ANY($3::text[])"#,
-                )
-                .bind(world_name)
-                .bind(parcel)
-                .bind(ids)
-                .execute(&mut *tx)
-                .await?
-            }
-            None => {
-                sqlx::query(
-                    r#"DELETE FROM world_scenes
+            )
+            .bind(world_name)
+            .bind(parcel)
+            .bind(ids),
+            None => sqlx::query(
+                r#"DELETE FROM world_scenes
                        WHERE lower(world_name) = lower($1) AND $2 = ANY(parcels)"#,
-                )
-                .bind(world_name)
-                .bind(parcel)
-                .execute(&mut *tx)
-                .await?
-            }
+            )
+            .bind(world_name)
+            .bind(parcel),
         };
-        let affected = res.rows_affected();
-        tx.commit().await?;
-        Ok(affected)
+        self.delete_scenes_locked(world_name, delete).await
     }
 
     pub async fn undeploy_world(&self, world_name: &str) -> Result<u64, ApiError> {
-        // Serialize against a concurrent deploy on the same world: take the
-        // worlds-row lock before deleting its scenes so a deploy cannot slip a
-        // scene in between the lock check and the delete.
-        let mut tx = self.pool.begin().await?;
-        sqlx::query(r#"SELECT name FROM worlds WHERE lower(name) = lower($1) FOR UPDATE"#)
-            .bind(world_name)
-            .execute(&mut *tx)
-            .await?;
-        let res = sqlx::query(r#"DELETE FROM world_scenes WHERE lower(world_name) = lower($1)"#)
-            .bind(world_name)
-            .execute(&mut *tx)
-            .await?;
-        let affected = res.rows_affected();
-        tx.commit().await?;
-        Ok(affected)
+        self.delete_scenes_locked(
+            world_name,
+            sqlx::query(r#"DELETE FROM world_scenes WHERE lower(world_name) = lower($1)"#)
+                .bind(world_name),
+        )
+        .await
     }
 
     pub async fn list_scenes(
@@ -528,10 +546,8 @@ impl WorldsComponent {
         Ok(rows
             .into_iter()
             .map(|r| {
-                let entity: Value = r.get("entity");
-                let parcels: Vec<String> = r.get("parcels");
-                let base = effective_base_parcel(&entity, &parcels);
-                (r.get::<String, _>("entity_id"), parcels, base)
+                let (parcels, base) = parcels_and_base(&r);
+                (r.get("entity_id"), parcels, base)
             })
             .collect())
     }
@@ -555,15 +571,14 @@ impl WorldsComponent {
     }
 
     pub async fn is_wallet_blocked(&self, wallet: &str) -> Result<bool, ApiError> {
-        let exists: bool = sqlx::query_scalar(
+        Ok(sqlx::query_scalar(
             r#"SELECT EXISTS(
                  SELECT 1 FROM blocked WHERE lower(wallet) = lower($1)
                )"#,
         )
         .bind(wallet)
         .fetch_one(&self.pool)
-        .await?;
-        Ok(exists)
+        .await?)
     }
 
     pub async fn admin_list_worlds(
@@ -590,23 +605,16 @@ impl WorldsComponent {
 
         Ok(rows
             .into_iter()
-            .map(|r| {
-                let access_type = r
+            .map(|r| WorldAdminRow {
+                name: r.get("name"),
+                owner: r.get("owner"),
+                access_type: r
                     .get::<Option<Value>, _>("access")
-                    .and_then(|v| {
-                        v.get("type")
-                            .and_then(|t| t.as_str())
-                            .map(|s| s.to_string())
-                    })
-                    .unwrap_or_else(|| "unrestricted".to_string());
-                WorldAdminRow {
-                    name: r.get("name"),
-                    owner: r.get("owner"),
-                    access_type,
-                    blocked_since: r.get("blocked_since"),
-                    spawn_coordinates: r.get("spawn_coordinates"),
-                    scene_count: r.get("scene_count"),
-                }
+                    .and_then(|v| v.get("type")?.as_str().map(str::to_string))
+                    .unwrap_or_else(|| "unrestricted".to_string()),
+                blocked_since: r.get("blocked_since"),
+                spawn_coordinates: r.get("spawn_coordinates"),
+                scene_count: r.get("scene_count"),
             })
             .collect())
     }
@@ -730,17 +738,7 @@ impl WorldsComponent {
         world_name: &str,
         owner: &str,
     ) -> Result<(), ApiError> {
-        sqlx::query(
-            r#"INSERT INTO worlds (name, owner, access, created_at, updated_at)
-               VALUES (lower($1), lower($2), $3::jsonb, now(), now())
-               ON CONFLICT (name) DO NOTHING"#,
-        )
-        .bind(world_name)
-        .bind(owner)
-        .bind(default_access_json())
-        .execute(&self.pool)
-        .await?;
-        Ok(())
+        ensure_world(&self.pool, world_name, owner).await
     }
 
     pub async fn list_worlds_public(
@@ -869,21 +867,7 @@ impl WorldsComponent {
         .fetch_optional(&self.pool)
         .await?;
 
-        Ok(row.map(|r| WorldSettingsRow {
-            title: r.get("title"),
-            description: r.get("description"),
-            content_rating: r.get("content_rating"),
-            spawn_coordinates: r.get("spawn_coordinates"),
-            skybox_time: r.get("skybox_time"),
-            categories: r.get("categories"),
-            single_player: r.get("single_player"),
-            show_in_places: r.get("show_in_places"),
-            thumbnail_hash: r.get("thumbnail_hash"),
-            access_type: r.get("access_type"),
-            realm_name_override: r.get("realm_name_override"),
-            preview_wearable_urns: r.get("preview_wearable_urns"),
-            settings_version: r.get("settings_version"),
-        }))
+        Ok(row.as_ref().map(world_settings_from_row))
     }
 
     pub async fn update_world_settings(
@@ -894,22 +878,8 @@ impl WorldsComponent {
     ) -> Result<(WorldSettingsRow, Option<String>), ApiError> {
         let mut tx = self.pool.begin().await?;
 
-        // A spawn coordinate is validated against the world's deployed shape, so
-        // the worlds row lock is held across validation and the write -- deploy
-        // and undeploy take the same lock before touching world_scenes. FOR
-        // UPDATE locks nothing when the row does not exist yet, so materialize
-        // it first; a failed validation rolls it back with the transaction.
         if input.spawn_coordinates.is_some() {
-            sqlx::query(
-                r#"INSERT INTO worlds (name, owner, access, created_at, updated_at)
-                   VALUES (lower($1), lower($2), $3::jsonb, now(), now())
-                   ON CONFLICT (name) DO NOTHING"#,
-            )
-            .bind(world_name)
-            .bind(owner)
-            .bind(default_access_json())
-            .execute(&mut *tx)
-            .await?;
+            ensure_world(&mut *tx, world_name, owner).await?;
         }
 
         let old_spawn: Option<String> = sqlx::query_scalar(
@@ -939,14 +909,9 @@ impl WorldsComponent {
             }
         }
 
-        let skybox_provided = input.skybox_time_provided;
-        let categories: Option<Vec<String>> = if input.categories_provided {
-            Some(input.categories.clone().unwrap_or_default())
-        } else {
-            None
-        };
-        // spawn_coordinates deliberately excluded: only settings columns move the
-        // version, matching the upstream settings-write policy.
+        let categories: Option<Vec<String>> = input
+            .categories_provided
+            .then(|| input.categories.clone().unwrap_or_default());
         let has_settings_patch = input.title.is_some()
             || input.description.is_some()
             || input.content_rating.is_some()
@@ -1002,7 +967,7 @@ impl WorldsComponent {
         .bind(input.single_player)
         .bind(input.show_in_places)
         .bind(&input.thumbnail_hash)
-        .bind(skybox_provided)
+        .bind(input.skybox_time_provided)
         .bind(has_settings_patch)
         .bind(&input.realm_name_override)
         .bind(input.realm_name_override_provided)
@@ -1013,24 +978,7 @@ impl WorldsComponent {
 
         tx.commit().await?;
 
-        Ok((
-            WorldSettingsRow {
-                title: row.get("title"),
-                description: row.get("description"),
-                content_rating: row.get("content_rating"),
-                spawn_coordinates: row.get("spawn_coordinates"),
-                skybox_time: row.get("skybox_time"),
-                categories: row.get("categories"),
-                single_player: row.get("single_player"),
-                show_in_places: row.get("show_in_places"),
-                thumbnail_hash: row.get("thumbnail_hash"),
-                access_type: row.get("access_type"),
-                realm_name_override: row.get("realm_name_override"),
-                preview_wearable_urns: row.get("preview_wearable_urns"),
-                settings_version: row.get("settings_version"),
-            },
-            old_spawn,
-        ))
+        Ok((world_settings_from_row(&row), old_spawn))
     }
 
     pub async fn get_world_manifest(
@@ -1068,7 +1016,7 @@ impl WorldsComponent {
         .await?;
         let parcels: Vec<String> = rows.into_iter().map(|r| r.get("parcel")).collect();
 
-        let spawn: Option<String> = sqlx::query_scalar(
+        let spawn_coordinates: Option<String> = sqlx::query_scalar(
             r#"SELECT spawn_coordinates FROM worlds WHERE lower(name) = lower($1)"#,
         )
         .bind(world_name)
@@ -1078,7 +1026,7 @@ impl WorldsComponent {
 
         Ok(Some(WorldManifest {
             parcels,
-            spawn_coordinates: spawn,
+            spawn_coordinates,
             total,
         }))
     }
@@ -1385,7 +1333,7 @@ impl WorldsComponent {
         permission: &str,
         address: &str,
     ) -> Result<bool, ApiError> {
-        let exists: bool = sqlx::query_scalar(
+        Ok(sqlx::query_scalar(
             r#"SELECT EXISTS(
                  SELECT 1 FROM world_permissions wp
                  WHERE lower(wp.world_name) = lower($1)
@@ -1399,8 +1347,7 @@ impl WorldsComponent {
         .bind(permission)
         .bind(address)
         .fetch_one(&self.pool)
-        .await?;
-        Ok(exists)
+        .await?)
     }
 
     pub async fn store_access(
@@ -1408,9 +1355,7 @@ impl WorldsComponent {
         world_name: &str,
         access: &AccessSetting,
     ) -> Result<(), ApiError> {
-        let json = serde_json::to_value(access)
-            .map_err(|e| ApiError::internal(format!("serialize access: {e}")))?;
-        upsert_world_access(&self.pool, world_name, &json).await
+        upsert_world_access(&self.pool, world_name, &access_json(access)?).await
     }
 
     pub async fn modify_access_atomically<F>(
@@ -1427,15 +1372,10 @@ impl WorldsComponent {
                 .bind(world_name)
                 .fetch_optional(&mut *tx)
                 .await?;
-        let current = row
-            .and_then(|r| r.get::<Option<Value>, _>("access"))
-            .and_then(|v| serde_json::from_value::<AccessSetting>(v).ok())
-            .unwrap_or_default();
+        let current = row.as_ref().map(access_setting).unwrap_or_default();
 
         let updated = modifier(current)?;
-        let json = serde_json::to_value(&updated)
-            .map_err(|e| ApiError::internal(format!("serialize access: {e}")))?;
-        upsert_world_access(&mut *tx, world_name, &json).await?;
+        upsert_world_access(&mut *tx, world_name, &access_json(&updated)?).await?;
         tx.commit().await?;
         Ok(updated)
     }

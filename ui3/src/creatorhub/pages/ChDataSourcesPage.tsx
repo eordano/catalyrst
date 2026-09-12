@@ -19,29 +19,15 @@ export const SOURCE_FILTERS: { id: SourceFilter; label: string }[] = [
 ];
 
 export type ChDataSourcesPageProps = {
-  /**
-   * Every group in class order, including the empty ones. The page renders
-   * what it is given and counts what it renders -- it never invents a row.
-   */
   groups: readonly SourceLedgerGroup[];
-  /** ISO timestamp of this request. `null` renders as an unknown read time. */
   readAt?: string | null;
   filter?: SourceFilter;
   onFilterChange?: (filter: SourceFilter) => void;
   onRefresh?: () => void;
   refreshing?: boolean;
-  /** Pinned clock, for deterministic stories and tests. */
   now?: number;
 };
 
-/**
- * The source ledger: every datum the hub can show, its state, probed live.
- *
- * `live` and `sampled` rows are probed on the request that renders this page,
- * so the ledger cannot claim "live" for something that is down. `unbuilt` and
- * `excluded` rows are constants and are never probed -- probing something that
- * does not exist is theatre.
- */
 export default function ChDataSourcesPage({
   groups,
   readAt = null,

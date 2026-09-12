@@ -17,7 +17,6 @@ function jumpIn() {
   fireEvent.click(screen.getByRole("checkbox"));
   const jump = screen.getByText("Continue as guest");
   fireEvent.click(jump.closest("button") ?? jump);
-  // Continue as guest now lands on the destination picker; skipping it starts the loading gate.
   const skip = screen.getByText("Skip to Genesis Plaza");
   fireEvent.click(skip.closest("button") ?? skip);
 }
@@ -97,7 +96,6 @@ describe("boot gate release", () => {
     advance(MIN_LOADING_MS + 500);
     expect(screen.queryByTestId("world-content")).toBeNull();
 
-    // No grace reveal: an alive engine says nothing about the scene's assets.
     advance(30000);
     expect(screen.queryByTestId("world-content")).toBeNull();
 
@@ -200,9 +198,6 @@ describe("boot gate release", () => {
     expect(chosen).toBeTruthy();
     expect(chosen).not.toBe("Bevy_User");
 
-    // The engine's login task replaces the profile wholesale when it completes.
-    // With no profile deployed for the address the replacement is the default,
-    // so the engine reports the chosen name gone.
     bridge.pushIdentity({ isGuest: false, name: "Bevy_User" });
 
     const sends = bridge.sentOf("SetAvatar");

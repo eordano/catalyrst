@@ -16,13 +16,9 @@ const N: usize = 20;
 
 async fn setup() -> Option<ScratchSchema> {
     let scratch = ScratchSchema::create("CATALYRST_COMMS_TEST_PG", "cg_comms_sceneperms").await?;
-    // scene_admin (probed first by is_scene_owner_or_admin).
     scratch
         .apply_sql(include_str!("../migrations/0001_comms.sql"))
         .await;
-    // Minimal places/squid fixture tables, created unqualified so they land in
-    // the scratch schema via search_path. `apply_sql` splits on lines ending in
-    // `;`, so keep each CREATE TABLE to its own single-line statement.
     scratch
         .apply_sql(
             "CREATE TABLE place (id text PRIMARY KEY, raw jsonb NOT NULL, base_position text NOT NULL DEFAULT '0,0');",
@@ -48,8 +44,6 @@ async fn insert_place(pool: &sqlx::PgPool, id: &str, y: usize) {
 }
 
 async fn seed(pool: &sqlx::PgPool) {
-    // p1: 20 parcels on row y=0; all owned by 0xother EXCEPT the last coord
-    // (19,0), owned by a MIXED-CASE 0xOwNeR (exercises lower()). No estate.
     insert_place(pool, "p1", 0).await;
     let mut rows = Vec::new();
     for x in 0..N {

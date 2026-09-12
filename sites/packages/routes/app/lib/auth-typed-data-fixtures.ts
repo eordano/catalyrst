@@ -1,9 +1,3 @@
-// Lifted from auth/src/shared/auth/__fixtures__/decentralandTypedData.ts: the generic (non
-// MetaTransaction) typed data Decentraland's own dApps ask a wallet to sign. Three are golden
-// vectors of exactly what ethers v5 puts on the wire for the domain, types and values each dApp
-// passes it -- derived EIP712Domain, declared keys only, integers as decimal strings, lowercased
-// addresses, hexlified bytes -- and the builder's cheque is the JSON the builder assembles by hand.
-// Imported by the tests that pin what this page accepts and what it shows.
 
 export type TypedDataFixtureField = { name: string; type: string };
 
@@ -22,9 +16,6 @@ const COLLECTION_TOKEN_ID =
 const LAND_TOKEN_ID = "3402823669209384634633746074317682114580";
 const COLLECTION = "0x3c2b9b4bd4f8f9a1c0d2e3f4a5b6c7d8e9f0a1b2";
 
-// decentraland-dapps getTradeSignature: the Polygon marketplace domain (salt bytes32(137)) with
-// OFFCHAIN_MARKETPLACE_TYPES for a wearable listed for 1 MANA, one ownership check, and the
-// beneficiary as the wallet reported it.
 const OFFCHAIN_MARKETPLACE_TRADE: DappTypedData = {
   types: {
     Trade: [
@@ -113,8 +104,6 @@ const OFFCHAIN_MARKETPLACE_TRADE: DappTypedData = {
   },
 };
 
-// marketplace signListing: the mainnet Rentals domain with its chainId handed over as bytes32(1),
-// a LAND listed for two rental periods. ethers wrote the chainId as "1" and declared it uint256.
 const RENTALS_LISTING: DappTypedData = {
   types: {
     Listing: [
@@ -155,8 +144,6 @@ const RENTALS_LISTING: DappTypedData = {
   },
 };
 
-// snapshot.js Client712.vote on an approval proposal: a domain with neither chainId nor verifying
-// contract, and the message as the client completes it.
 const GOVERNANCE_SNAPSHOT_VOTE: DappTypedData = {
   types: {
     Vote: [
@@ -188,8 +175,6 @@ const GOVERNANCE_SNAPSHOT_VOTE: DappTypedData = {
   },
 };
 
-// builder getPublishItemsSignature: JSON.stringify of this object, with a numeric qty and a
-// checksummed verifying contract.
 const BUILDER_CONSUME_SLOTS: DappTypedData = {
   domain: {
     name: "Decentraland Third Party Registry",

@@ -24,12 +24,6 @@ function label(path: string, query: Record<string, string | number>): string {
   return endpointLabel("GET", `${catalystBase()}${path}${buildQuery(query)}`);
 }
 
-/**
- * A history read that succeeds but returns no rows is NOT a zero series and is
- * not a failure either: the collector simply has no snapshots for this subject,
- * because it has not been in the poll set. That is `no-sample`, with the reason
- * spelled out, so the screen renders an empty state rather than a flat line.
- */
 export async function loadWorldOccupancyHistory(
   world: string,
   limit: number,
@@ -58,11 +52,6 @@ export async function loadWorldOccupancyHistory(
   }
 }
 
-/**
- * The Genesis-parcel escape hatch: occupancy history for one pointer. There is
- * no way to list a wallet's parcels -- presence keys occupancy by pointer with
- * no owner field -- so a pointer can only ever be looked up.
- */
 export async function loadSceneOccupancyHistory(
   pointer: string,
   limit: number,

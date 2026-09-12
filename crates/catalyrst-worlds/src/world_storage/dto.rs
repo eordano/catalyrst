@@ -1,13 +1,8 @@
-//! Typed wire shapes for the world-storage REST responses.
-//!
-//! These are the payloads `sites` consumes (creator-hub/worlds-storage.ts):
-//! the `/usage/*` size reports, the `{ data, pagination }` envelopes of the
-//! values/env/players listings, and the value rows inside them. The raw-splice
-//! listing path in `handlers::common` stays byte-identical for stored JSON;
-//! `ValuesListResponse` mirrors its shape and a test below pins the two
-//! together. Note the wire truth the generated TS exposes: `GET /env` and
-//! `GET /players` both serve a plain string list under `data`, not key
-//! objects.
+//! Typed wire shapes for the world-storage REST responses, as `sites` consumes them
+//! (creator-hub/worlds-storage.ts). The raw-splice listing path in `handlers::common`
+//! stays byte-identical for stored JSON; `ValuesListResponse` mirrors its shape and a
+//! test below pins the two together. `GET /env` and `GET /players` both serve a plain
+//! string list under `data`, not key objects.
 
 use serde::Serialize;
 use serde_json::Value;

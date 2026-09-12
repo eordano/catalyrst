@@ -1,10 +1,8 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import DclTopBar from "./DclTopBar";
 
-/** Every chrome variant. */
 const VARIANTS = ["default", "dao", "sites"] as const;
 
-/** Union of every `LINK_DEFS` id, plus `""` for "no link highlighted". */
 const NAV_IDS = ["", "explore", "whatson", "shop", "create", "learn", "vote", "events"] as const;
 
 const meta = {
@@ -35,15 +33,6 @@ const meta = {
 
 export default meta;
 type Story = StoryObj<typeof meta>;
-
-/*
- * The four exports below are thin arg presets over the collapsed `meta` -- the variant space
- * itself now lives in `meta.argTypes`, so every combination is reachable from the Controls
- * panel. They keep their own exports (rather than folding into a single `Default`) because
- * `tools/screen-tour/add-story-links.mts` and the shipped `tools/screen-tour/tours/*` data
- * deep-link their story ids, and a missing id only console.warns. No state is dropped from
- * the render/axe/screenshot gates, so no `Catalog` is needed here.
- */
 
 export const SignedOut: Story = { args: { signedIn: false } };
 

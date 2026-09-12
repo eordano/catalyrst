@@ -1,9 +1,3 @@
-// The fixed vocabularies the wearable and emote readers are written against,
-// and the one rule that reads one of them.
-//
-// Separate from schemas/backpack.ts, which a perf build aliases to an accepting
-// stub: a vocabulary put there would come back as a shim, and `bucketEmoteCategory`
-// decides output rather than acceptance, so it has to run in both modes.
 
 export const RARITIES = [
   "unique",
@@ -48,10 +42,6 @@ export const EMOTE_CATEGORIES = [
   "miscellaneous",
 ];
 
-/**
- * A category the UI has no tab for is still a stated category, so it lands in
- * the catch-all bucket. One the metadata never stated stays unstated.
- */
 export function bucketEmoteCategory(category: string | null): string | null {
   if (category == null || EMOTE_CATEGORIES.includes(category)) return category;
   return "miscellaneous";

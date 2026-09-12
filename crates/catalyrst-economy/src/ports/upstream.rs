@@ -9,10 +9,9 @@ use crate::http::errors::ApiError;
 
 pub const DEFAULT_UPSTREAM_TIMEOUT_MS: u64 = 30_000;
 
-/// Broadcast provider that forwards the already-validated request body verbatim
-/// to a full transactions-server deployment and relays its response (status +
-/// body) untouched, so a client talking to this node sees exactly what it would
-/// see talking to the upstream.
+/// Forwards the already-validated request body verbatim to a full
+/// transactions-server deployment and relays its response (status + body)
+/// untouched, so a client sees exactly what the upstream would return.
 pub struct UpstreamForwarder {
     http: reqwest::Client,
     url: String,
@@ -41,19 +40,17 @@ impl UpstreamForwarder {
         &self.url
     }
 
-    /// Sends the body to the upstream `/v1/transactions` endpoint. The outgoing
-    /// request carries only the payload and its content-type: no header from
-    /// the inbound request is copied, so node-local credentials (authorization,
+    /// Targets the upstream `/v1/transactions` endpoint. The outgoing request
+    /// carries only the payload and its content-type: no header from the
+    /// inbound request is copied, so node-local credentials (authorization,
     /// cookies, admin tokens) can never leak upstream.
     ///
-    /// Transport failures split on whether the request can have reached the
-    /// upstream. A connect-level failure (connection refused, DNS) provably
-    /// never sent the body: it maps to `RelayerUnavailable` (503) and the
-    /// quota slot is refunded. A timeout or response-read failure happens
-    /// after the request went out, so the upstream may have broadcast the
-    /// transaction anyway: it maps to `RelayerTimeout` (504), which
-    /// `reservation_disposition` classifies Keep so a landed transaction can
-    /// never escape the daily quota.
+    /// A connect-level failure (connection refused, DNS) provably never sent
+    /// the body: it maps to `RelayerUnavailable` (503) and the quota slot is
+    /// refunded. A timeout or response-read failure happens after the request
+    /// went out, so the upstream may have broadcast the transaction anyway: it
+    /// maps to `RelayerTimeout` (504), which `reservation_disposition`
+    /// classifies Keep so a landed transaction can never escape the daily quota.
     pub async fn forward(
         &self,
         body: &[u8],
@@ -107,7 +104,6 @@ fn endpoint_url(base_url: &str) -> String {
     format!("{}/v1/transactions", base_url.trim_end_matches('/'))
 }
 
-/// An upstream response captured for verbatim relay to the client.
 pub struct ForwardedResponse {
     status: u16,
     content_type: Option<String>,

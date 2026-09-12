@@ -8,7 +8,6 @@ import { qk } from "../data/queryKeys";
 import { renderBoot } from "./harness";
 import type { BootHarness } from "./harness";
 
-// The fields catalyrst-places always serializes; the schema now requires them.
 const placeDefaults = {
   positions: [],
   categories: [],
@@ -193,7 +192,6 @@ describe("destinationFromSearch", () => {
       realm: "//evil.example/x",
     });
   });
-
 
   test("reads realm and position, realm wins", () => {
     expect(destinationFromSearch("?realm=flagtag.dcl.eth")).toEqual({

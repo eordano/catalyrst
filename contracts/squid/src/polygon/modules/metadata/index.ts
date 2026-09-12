@@ -19,9 +19,6 @@ import {
   setNFTEmoteSearchFields,
 } from "./emote";
 
-/**
- * @notice the item's metadata must follow: version:item_type:representation_id:data
- */
 export function buildItemMetadata(
   item: Item,
   metadatas: Map<string, Metadata>,

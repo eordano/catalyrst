@@ -22,9 +22,6 @@ impl BackendKind {
 
 pub const DEFAULT_LLM_MODEL: &str = "gpt-4o-mini";
 
-// Abuse bounds for the unauthenticated public /translate. Char limit is
-// LibreTranslate parity: characters are summed across the whole batch, not
-// per item, so a batch cannot multiply the per-request work.
 pub const DEFAULT_TRANSLATE_CHAR_LIMIT: u64 = 5000;
 pub const DEFAULT_TRANSLATE_BATCH_LIMIT: u64 = 100;
 pub const DEFAULT_TRANSLATE_REQUEST_TIMEOUT_SECS: u64 = 30;
@@ -52,8 +49,6 @@ impl Config {
         let llm_base_url = env::var("TRANSLATE_LLM_BASE_URL")
             .ok()
             .filter(|s| !s.is_empty());
-        // Selection is fail-closed: with TRANSLATE_BACKEND unset we stay on the mock and
-        // never emit a real LLM/upstream call. `llm` and `http` demand their own explicit URL.
         let backend_kind = match env::var("TRANSLATE_BACKEND").ok().as_deref() {
             Some("mock") => BackendKind::Mock,
             Some("http") => BackendKind::Http,

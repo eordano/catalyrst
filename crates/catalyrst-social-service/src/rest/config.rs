@@ -31,8 +31,6 @@ impl Config {
             .map(|s| s.trim().to_lowercase())
             .filter(|s| !s.is_empty())
             .collect();
-        // Folded once here so the denylist is compared on the same reduced form submitted names are
-        // (port of #483). Folding subsumes trimming, so blank entries drop out.
         let restricted_names = env::var("RESTRICTED_NAMES")
             .unwrap_or_default()
             .split(',')

@@ -27,9 +27,6 @@ pub async fn cast_any() -> Response {
     )
 }
 
-// Handles both PUT (get-or-create an RTMP ingress for the caller's scene) and DELETE (revoke it),
-// matching comms-gatekeeper's scene-stream-access. Fails closed when LiveKit ingress credentials
-// are absent so a missing config can never masquerade as a granted stream key.
 pub async fn scene_stream_access(
     State(state): State<AppState>,
     method: Method,

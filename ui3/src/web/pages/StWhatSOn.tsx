@@ -17,7 +17,6 @@ const poster = (hue: number, image?: string | null): CSSProperties => {
 export type WoLiveCard = {
   id: string;
   title: string;
-  /** null renders an em dash: the count was not read, which is not a zero */
   users: number | null;
   isEvent: boolean;
   creator: string;

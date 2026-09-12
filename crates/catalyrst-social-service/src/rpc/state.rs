@@ -109,9 +109,6 @@ fn spawn_rpc_server(
                     )
                     .await;
             });
-            // End the dropping party's pending private voice call now they are fully offline, so the
-            // other party stops ringing instead of waiting for the expiry sweep (upstream #479).
-            // Gated on the last connection closing so a still-present multi-session user keeps it.
             let voice_ctx = forget_ctx.clone();
             tokio::spawn(async move {
                 voice_ctx

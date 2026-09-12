@@ -129,11 +129,9 @@ mod tests {
     fn power_steps_match_upstream_velocity_constants() {
         let (max, pow, bits) = VEL;
 
-        // VelocityXQuantizedStep: coarsest step, between the two largest magnitudes.
         let coarsest = decode_power(254, max, pow, bits) - decode_power(252, max, pow, bits);
         assert!((coarsest - 0.784_301_6).abs() < 1e-6);
 
-        // Near-zero step: the smallest nonzero magnitude.
         let near_zero = decode_power(2, max, pow, bits);
         assert!((near_zero - 0.003_100_006).abs() < 1e-7);
     }

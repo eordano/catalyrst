@@ -66,9 +66,6 @@ impl CreditsComponent {
         }))
     }
 
-    // Seasons, weeks, and goals were removed (legacy); there is nothing left to
-    // claim, but POST /captcha stays wire-compatible: the slider gate still runs
-    // and the response keeps its shape with zero credits granted.
     pub async fn claim_credits(&self, address: &str) -> Result<ClaimOutcome, ApiError> {
         let blocked =
             sqlx::query("SELECT is_blocked_for_claiming FROM user_credits WHERE address = $1")

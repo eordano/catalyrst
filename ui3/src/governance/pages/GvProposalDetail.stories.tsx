@@ -55,7 +55,6 @@ const FINISHED_POLL: GvProposal = {
   budget: { size: "\u{2014}", beneficiary: "\u{2014}", tier: "\u{2014}" },
 };
 
-/** The proposal blobs the stories used to differ by, now pickable by name. */
 const PROPOSALS = { activeGrant: PROPOSAL, finishedPoll: FINISHED_POLL };
 type ProposalKey = keyof typeof PROPOSALS;
 const PROPOSAL_KEYS: ProposalKey[] = ["activeGrant", "finishedPoll"];
@@ -117,7 +116,6 @@ const VP_SERIES: GvVpSeries = {
 
 type ProposalDetailProps = ComponentProps<typeof GvProposalDetail>;
 
-/** Everything a rendered proposal needs besides the proposal blob itself. */
 const READY_PROPS = {
   choices: CHOICES,
   survey: SURVEY,
@@ -129,11 +127,6 @@ const READY_PROPS = {
     "https://forum.decentraland.org/t/grant-request-decentraland-builders-hackathon-season-5",
 } satisfies Partial<ProposalDetailProps>;
 
-/**
- * The story args: the proposal blob is picked by name, everything else is a real prop.
- * The synthetic key must not shadow a real prop name -- `component:` is type-checked against
- * `ComponentType<ProposalStoryArgs>`, so these args have to stay assignable to the real props.
- */
 type ProposalStoryArgs = Omit<ProposalDetailProps, "proposal"> & { proposalFixture: ProposalKey };
 
 const meta = {
@@ -166,16 +159,8 @@ type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {};
 
-/*
- * Reachable from the `proposalFixture` control like the active grant, but kept as its own export
- * because the story id is a hardcoded external consumer: tools/screen-tour/add-story-links.mts
- * lists `governance-pages-proposal-detail--finished` in its MAPS and only console.warns when an id
- * stops resolving, so dropping the export would silently break that deep link.
- */
 export const Finished: Story = { args: { proposalFixture: "finishedPoll" } };
 
-/** The loading spinner, before the proposal resolves. */
 export const Loading: Story = { args: { state: "loading" } };
 
-/** Also what an unknown proposal id renders. */
 export const NotFound: Story = { args: { state: "error" } };

@@ -1,10 +1,4 @@
 # shellcheck shell=bash
-# coverage-tour-lib.sh — sourced by coverage-tour.sh; not executable on its own.
-# Holds the tour's process management, tcase harness, stub servers, node
-# sidecars, fixture writers, and per-command wrappers. The case functions and
-# the driver table stay in coverage-tour.sh. Expects the caller's config vars
-# (BIN WORK LOGS SREQ LH WS KEY ADDR STUB STUB_PORT DEAD NODE and the fixture
-# dirs) to be set before any function here runs.
 
 PIDS=()
 cleanup() {
@@ -35,8 +29,6 @@ need_pty() { command -v script > /dev/null || skip "no script(1) for PTY"; }
 
 PASS=0; FAIL=0; SKIP=0; FAILED_CASES=()
 declare -A RESULT
-# The subshell must NOT sit in a tested context (if/&&/!): that would void its
-# set -e and reduce every case to its last command's status.
 tcase() { # NN name fn
   local id="$1 $2"
   echo "$id" | grep -qE "$FILTER" || return 0
@@ -52,8 +44,6 @@ tcase() { # NN name fn
   fi
 }
 skip() { touch "$LOGS/.skip"; echo "skip: $*"; exit 1; }
-# set -e ignores a leading `!`, so a `! cmd` assert that goes wrong would not
-# fail the case; `fails cmd` counts.
 fails() {
   local rc=0
   "$@" || rc=$?
@@ -206,7 +196,6 @@ setTimeout(() => { try { ws.close() } catch {} ; setTimeout(() => process.exit(0
 JSEOF
 }
 
-# node signer: EIP-191 personal_sign via the npm scene's ethereum-cryptography
 write_signer() {
   cat > "$WORK/personal-sign.mjs" <<'JSEOF'
 // personal-sign.mjs <npm-scene-dir> <privkey-hex> <message>
@@ -303,8 +292,6 @@ need_signer() { write_signer; test -d "$NPM_SCENE/node_modules/ethereum-cryptogr
 need_npm_scene() { test -d "$NPM_SCENE/node_modules/@dcl/sdk-commands" || skip "${1:-no full npm scene}"; }
 
 setup_fixtures() {
-  # Free the fixed tour port range from any leftover of a previous run so a
-  # server never connects to a stranger holding its port.
   pkill -9 -f "$BIN start" 2>/dev/null || true
   pkill -9 -f "$(basename "$TUNNEL_BIN")" 2>/dev/null || true
   sleep 1
@@ -324,8 +311,6 @@ start_and_wait() { # port args... (uses $STARTDIR; server log goes to $LOGS/.sta
   ( cd "$STARTDIR" && exec "$BIN" start -p "$port" "$@" ) > "$LOGS/.start-$port.log" 2>&1 &
   local pid=$!
   PIDS+=("$pid"); SERVER_PID=$pid
-  # Guard against connecting to a leftover server on the fixed port: if our own
-  # process exited (bind refused), fail loudly instead of probing a stranger.
   local i=0
   until curl -sf -m 2 -o /dev/null "$LH:$port/about"; do
     kill -0 "$pid" 2>/dev/null || { echo "start on $port exited early:"; tail -n 5 "$LOGS/.start-$port.log"; return 1; }

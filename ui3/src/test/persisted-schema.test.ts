@@ -4,20 +4,12 @@ import {
   StoredAuthIdentitySchema,
 } from "../data/persisted-schemas";
 
-// Every case below is drift a persisted blob can actually carry -- a value
-// written by an older build and read by this one -- and every one of them got
-// past the guard that shipped before the schema landed. Each case asserts BOTH
-// halves: the schema rejects it and the old guard did not. A case the old guard
-// already caught would prove nothing.
-
 function without<T extends object>(o: T, key: keyof T): Omit<T, keyof T> {
   const copy = { ...o };
   delete copy[key];
   return copy;
 }
 
-/** `isStoredIdentity`, as it stood in engineLogin.ts and (duplicated) in
- *  signedFetchLocal.ts. It never looked inside `authChain` at all. */
 const oldIdentityGuard = (v: unknown) => {
   const s = v as {
     ephemeralIdentity?: { privateKey?: unknown };
@@ -84,7 +76,6 @@ describe("stored identity validation", () => {
   for (const [name, value, shouldPass] of cases) {
     test(name, () => {
       expect(StoredAuthIdentitySchema.safeParse(value).success).toBe(shouldPass);
-      // The guard that shipped before let every one of these through, valid or not.
       expect(oldIdentityGuard(value)).toBe(true);
     });
   }
@@ -119,7 +110,6 @@ const place = (over: Record<string, unknown> = {}) => ({
 });
 
 describe("recent places validation", () => {
-  // `Array.isArray` was the whole of it, so a list of anything was a list of places.
   const oldRecentGuard = (v: unknown) => Array.isArray(v);
 
   const cases: [string, unknown, boolean][] = [

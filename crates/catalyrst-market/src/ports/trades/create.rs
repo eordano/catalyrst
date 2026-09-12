@@ -215,8 +215,6 @@ fn validate_structure(trade: &TradeCreation) -> Result<(), TradeCreationError> {
     Ok(())
 }
 
-// Only an ERC721 send is checked, matching marketplace-server: a bid sends
-// fungibles the escrow settles, and an item order mints rather than transfers.
 async fn verify_sent_ownership(
     trade: &TradeCreation,
     chain: Option<&TradeChainAccess<'_>>,
@@ -291,9 +289,6 @@ pub async fn create_trade(
         });
     }
     validate_structure(trade)?;
-    // Resolving the signature also says WHICH marketplace version signed it,
-    // which is what the trade's contract and digest are recorded from: the
-    // same trade signed against V2 and V3 has different digests.
     let matched = resolve_signature(trade, &candidates)
         .map_err(|e| TradeCreationError::InvalidSignature(e.to_string()))?;
     verify_sent_ownership(trade, chain).await?;

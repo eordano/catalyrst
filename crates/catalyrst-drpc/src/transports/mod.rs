@@ -1,7 +1,3 @@
-//! Transports out of the box for the communications between two ends using Decentraland RPC.
-//!
-//! The Decentraland RPC implementation uses protobuf for the messages format and uses whatever transport or wire that meet the requirements of the [`Transport`] trait.
-//!
 use async_trait::async_trait;
 
 pub mod error;
@@ -14,14 +10,8 @@ pub type TransportMessage = Vec<u8>;
 
 #[derive(Debug)]
 pub enum TransportError {
-    /// Error while the underlying transport is running.
-    ///
-    /// For example: A peer reset the connection in a websocket connection
-    ///
     Internal(Box<dyn std::error::Error + Send + Sync>),
-    /// Transport is already closed
     Closed,
-    /// When the received message is not a binary
     NotBinaryMessage,
 }
 

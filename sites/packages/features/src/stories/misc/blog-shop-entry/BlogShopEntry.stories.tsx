@@ -1,6 +1,3 @@
-// Storybook-only fixtures: the live fetchCatalog loader does not run in
-// Storybook, so these feed representative display data. Production stays on
-// the real loaders + schema-honesty (see the blog index route loader).
 import type { Meta, StoryObj } from "@ui/docs/sb";
 import { expect, fn, userEvent, waitFor } from "@ui/docs/sb";
 
@@ -183,7 +180,6 @@ export const Base: Story = {
     },
   },
   play: async ({ args, canvas, canvasElement }) => {
-    // Today's surface, untouched: the post grid paints, no shop entry exists.
     await canvas.findByText("Platform update: what shipped this quarter");
     expect(canvasElement.querySelector(".blog-shop-entry")).toBeNull();
     expect(args.track).not.toHaveBeenCalled();
@@ -197,7 +193,6 @@ export const Card: Story = {
     await waitFor(() =>
       expect(args.navigate).toHaveBeenCalledWith("/shop?from=blog-shop-entry"),
     );
-    // The shared primary-metric conversion fires on the click-through.
     expect(args.track).toHaveBeenCalledWith(
       "lp_blog_shop_opened",
       expect.objectContaining({ target: "card", item_id: null, variant: "card" }),
@@ -224,7 +219,6 @@ export const Rail: Story = {
   play: async ({ args, canvas }) => {
     await canvas.findByRole("heading", { name: "Fresh drops on sale" });
     await canvas.findByText("140 MANA");
-    // The credits quote wins over the MANA price when present.
     await canvas.findByText("40 credits");
     await userEvent.click(
       await canvas.findByRole("link", { name: /Comet Trail Hoodie/ }),
@@ -248,8 +242,6 @@ export const Rail: Story = {
   },
 };
 
-// Catalog reading unavailable: say so and keep the CTA -- no invented items,
-// never a dead-end.
 export const RailUnavailable: Story = {
   args: {
     arm: "rail",

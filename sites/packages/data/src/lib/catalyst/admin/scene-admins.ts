@@ -16,15 +16,6 @@ export const SceneAdminRowSchema = z.object({
 });
 export type SceneAdminRow = z.infer<typeof SceneAdminRowSchema>;
 
-/**
- * `GET /places/api/places` rows -- `catalyrst-places/src/ports/places/rows.rs:43-95`.
- *
- * `positions`, `base_position` and `world` are non-optional there, so they are
- * required here. `base_position` in particular was defaulting to "0,0", which
- * is a real parcel: a place whose coordinates failed to arrive was rendered,
- * and linked, as the place at the origin. Such a row is dropped by
- * `parsePlaces` now.
- */
 export const OperatedPlaceSchema = z.object({
   id: z.string(),
   title: z.string().nullish().transform((v) => v ?? null),
@@ -48,7 +39,6 @@ export type GrantKind = "explicit" | "implicit";
 
 export type AdminEntry = {
   admin: string;
-  /** Null when the grant carries no profile name; render the address instead. */
   name: string | null;
   kind: GrantKind;
   canBeRemoved: boolean;

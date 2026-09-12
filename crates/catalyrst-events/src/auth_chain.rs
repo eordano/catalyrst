@@ -196,7 +196,6 @@ mod canonical_metadata_tests {
     #[test]
     fn rejects_non_canonical_signer_and_intent() {
         for meta in [
-            // The exploit this closes: a mixed-case kernel-scene signer.
             r#"{"origin":"https://play.decentraland.org","signer":"Decentraland-Kernel-Scene"}"#,
             r#"{"signer":" dcl:marketplace"}"#,
             r#"{"intent":"Dcl:Intent"}"#,

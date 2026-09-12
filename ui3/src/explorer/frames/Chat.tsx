@@ -1,8 +1,3 @@
-// React DOM chat -- Explorer 2.0 design, three states:
-//   - collapsed (hidden): a borderless translucent input bar; focusing it opens chat
-//   - open + idle (not hovered/focused): translucent -- bubbles float over the world
-//   - open + active (hover/focus): full solid panel -- navbar, emoji, members, borders
-// Incoming messages come from useBridgeState().chat; sends go via sendBridge("SendChat", ...).
 
 import type { ButtonHTMLAttributes, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -17,9 +12,6 @@ import type { ProfileCardProps } from "../components/ProfileCard";
 import type { ProfileCardUser } from "../components/ProfileCardPresentation";
 import styles from "./Chat.module.css";
 
-// The chat's world: everything it reads and every action it fires, injected so
-// the same view can sit over the explorer bridge (default export) or any other
-// room transport (a host's own page rooms). Optional actions render inert.
 export type ChatIo = {
   chat: BridgeChatLine[];
   players: NearbyPlayer[];
@@ -35,7 +27,6 @@ const MAX_LEN = 500;
 const PARCEL_SIZE = 16;
 const ADDRESS_RE = /^0x[0-9a-fA-F]{6,}$/;
 
-// DCL rarity name colors -- gives each sender a stable, on-brand color.
 const RARITY = [
   "#73d3d3", "#acf8f8", "#ff8362", "#ff4bed", "#caff73", "#a14bf3",
   "#e8b9ff", "#fea217", "#81e1ff", "#ff7439", "#ffa25a", "#ffc95b",
@@ -64,7 +55,6 @@ function findMember(members: NearbyPlayer[], address: string): NearbyPlayer | un
   return members.find((m) => m.address.toLowerCase() === address.toLowerCase());
 }
 
-/** Split "Name#a1b2" into the colored base and a dimmer #tag. */
 function splitName(label: string): { base: string; tag: string } {
   const i = label.indexOf("#");
   return i >= 0 ? { base: label.slice(0, i), tag: label.slice(i) } : { base: label, tag: "" };
@@ -81,8 +71,6 @@ function senderColor(sender: string): string {
   return RARITY[hash(sender) % RARITY.length] ?? SYSTEM_COLOR;
 }
 
-/** Our Avatar atom takes a numeric hue rather than upstream's raw CSS color -- map the
- *  rarity hex into a hue so the avatar tint and the colored sender name stay in sync. */
 function hexToHue(hex: string): number {
   const n = parseInt(hex.slice(1), 16);
   const r = ((n >> 16) & 255) / 255;
@@ -171,7 +159,6 @@ function CharRing({ len }: { len: number }) {
   );
 }
 
-/** Local stand-in for upstream's shared design/ControlButton -- same look, module-local. */
 function CtrlButton({
   variant = "ghost",
   shape = "square",
@@ -223,11 +210,8 @@ export function ChatBubble({
   name: string;
   members?: NearbyPlayer[];
   me?: { address?: string; name?: string } | null;
-  /** Open the profile viewer for a user, anchored at the click. */
   onOpenProfile?: (user: ProfileCardUser, e: ReactMouseEvent) => void;
-  /** A location link (x,y) in the message was clicked -> teleport. */
   onLocation?: (x: number, y: number) => void;
-  /** A world name (e.g. boedo.dcl.eth) in the message was clicked -> prompt to jump there. */
   onVisitWorld?: (name: string) => void;
 }) {
   const color = senderColor(line.sender);
@@ -236,12 +220,10 @@ export function ChatBubble({
   const sender: ProfileCardUser = { address: line.sender, name, picture: senderMember?.picture };
   const highlight = mentionsMe(line.message, me ?? null, buildNameIndex(members));
 
-  // Open the profile menu -- on left-click OR right-click (suppress the browser menu).
   const openSender = (e: ReactMouseEvent): void => {
     if (e.type === "contextmenu") e.preventDefault();
     onOpenProfile?.(sender, e);
   };
-  // Clicking an @mention opens that user's profile (resolved against the roster).
   const onMention = (address: string, mname: string, e: ReactMouseEvent): void => {
     if (e.type === "contextmenu") e.preventDefault();
     const m = findMember(members, address);
@@ -339,21 +321,13 @@ export function ChatView({
 }: {
   open: boolean;
   onToggle: () => void;
-  /** Friends (and other left-docked panels) share chat's bottom-left dock; hide it
-   *  entirely when one is open so they don't overlap. */
   hidden?: boolean;
   io: ChatIo;
-  /** Static in-flow layout for hosts that dock the chat in their own chrome. */
   docked?: boolean;
   title?: string;
-  /** Members-panel header and empty-state copy -- a page-room host replaces the
-   *  explorer's "Nearby" vocabulary; explorer defaults stay put. */
   membersTitle?: string;
   membersEmpty?: string;
-  /** The empty chat line; hosts whose rooms keep no history state that here. */
   emptyLine?: string;
-  /** The member/sender profile popup; a host with no profiles omits it and the
-   *  click simply does nothing extra. The explorer wrapper passes the real one. */
   profileCard?: (props: ProfileCardProps) => ReactNode;
 }) {
   const [draft, setDraft] = useState("");
@@ -373,8 +347,6 @@ export function ChatView({
   const ProfileCardImpl = profileCard;
   const members = players;
 
-  // Emoji dataset is lazy-loaded -- fetch it the first time the picker opens or a
-  // ":shortcode" is being typed, then suggestions recompute once it lands.
   useEffect(() => {
     if (emojiReady || (scQuery == null && !picker)) return undefined;
     let alive = true;
@@ -390,23 +362,17 @@ export function ChatView({
     [emojiReady, scQuery],
   );
 
-  // "active" = the user is interacting -> show the full solid panel + chrome.
   const active = open && (hovered || focused || picker);
-  const bare = !active; // collapsed or idle-open -> borderless translucent input only
+  const bare = !active;
 
   const nameByAddr = useMemo(() => {
     const m = new Map<string, string>();
     for (const mem of members) if (mem.name.trim()) m.set(mem.address.toLowerCase(), mem.name);
     return m;
   }, [members]);
-  // Roster name wins (freshest); else fall back to the name the push itself carried
-  // (covers the gap before a just-joined sender shows up in the nearby roster); else
-  // format the address/id.
   const resolveName = (sender: string, pushedName?: string): string =>
     nameByAddr.get(sender.toLowerCase()) ?? (pushedName?.trim() || displaySender(sender));
 
-  // the blocked set is the union of both directions, and filtering at render time means
-  // a blocked sender's messages leave the list retroactively, not just from the block onward
   const blockedSet = useMemo(
     () => new Set(blocked.map((a) => a.toLowerCase())),
     [blocked],
@@ -448,14 +414,10 @@ export function ChatView({
     if (el) el.scrollTop = el.scrollHeight;
   }, [lines, open, active]);
 
-  // Opening chat (e.g. via the sidebar icon) focuses the input so it comes up in the
-  // active/focused state, ready to type -- matches Unity's "click chat -> start typing".
   useEffect(() => {
     if (open) inputRef.current?.focus();
   }, [open]);
 
-  // Leaving the chat (click outside -> not hovered/focused) resets the nearby-members
-  // overlay, so re-entering shows messages -- not the members list left open from before.
   useEffect(() => {
     if (!active) setShowMembers(false);
   }, [active]);
@@ -464,11 +426,9 @@ export function ChatView({
     if (!open) onToggle();
   };
 
-  // Profile viewer: clicking a name/avatar/@mention opens the shared profile card at the click.
   const openProfile = (user: ProfileCardUser, e: ReactMouseEvent): void => {
     setProfileTarget({ user, x: e.clientX, y: e.clientY });
   };
-  // "Mention" from the viewer drops @name into the draft, ready to send.
   const insertMention = (name: string): void => {
     setDraft((d) => `${d.replace(/\s*$/, "")} @${name} `.trimStart());
     openIfClosed();
@@ -481,7 +441,6 @@ export function ChatView({
     const m = value.match(SHORTCODE_RE);
     const code = m?.[1];
     setScQuery(code ?? null);
-    // @mention autocomplete from the nearby roster (trailing @partial).
     const mm = value.match(MENTION_RE);
     const mention = mm?.[1];
     setMentionQuery(mention ?? null);
@@ -517,7 +476,7 @@ export function ChatView({
   };
 
   const onKeyDown = (e: ReactKeyboardEvent): void => {
-    e.stopPropagation(); // keep movement keys out of the engine while typing
+    e.stopPropagation();
     if (e.key === "Enter") {
       e.preventDefault();
       const firstMention = mentionSug[0];

@@ -2,22 +2,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import "./cliescape.css";
 
 export type CliEscapeProps = {
-  /** The exact command, verbatim. Copyable, never executable from here. */
   command: string;
-  /** What the command actually does, in one sentence. */
   explain: string;
   docs?: string;
 };
 
-/**
- * The escape hatch from an unbuilt panel: the command that really works,
- * copyable.
- *
- * There is deliberately **no Run button**. The browser cannot reach
- * `dcl-one-sdk` or an explorer's `--mcp` port, so a Run control could only ever
- * report a success it did not cause -- the exact failure this whole feature
- * exists to prevent. Copy is the only affordance.
- */
 export default function CliEscape({ command, explain, docs }: CliEscapeProps) {
   const [copied, setCopied] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -48,8 +37,8 @@ export default function CliEscape({ command, explain, docs }: CliEscapeProps) {
           {copied ? "Copied" : "Copy"}
         </button>
       </div>
-      {/* tabIndex keeps the horizontally scrollable block reachable by keyboard;
-          it is a scroll container, not a control. */}
+      {
+}
       <pre className="cli__code" tabIndex={0}>
         <code>{command}</code>
       </pre>

@@ -1,8 +1,3 @@
-// Pins what the Interact tab's chips mean: {cat:"doors", smart:true} is the
-// doors SHELF (smart items of that category, case-insensitively -- the catalog
-// holds "Seats" next to "doors"), never a substring search. The chips shipped
-// as query:"door" once, which surfaced anything door-NAMED and missed a smart
-// item named without its category word.
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { DeCatalogTab } from "./DeAssetsPanel";

@@ -8,8 +8,6 @@ use crate::sanitize::{sanitize_image_url, sanitize_place_description, ContentOri
 
 use super::query::EXCLUDE_FROM_RANKING_SQL;
 
-// Built at runtime rather than written out, so the curation flag has one
-// definition (query.rs) instead of a copy every reader could drift from.
 pub(super) fn place_columns() -> &'static str {
     static SQL: LazyLock<String> = LazyLock::new(|| {
         format!(
@@ -113,8 +111,6 @@ pub struct PlaceRow {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub live: Option<bool>,
-    // Present (null or the event name) exactly when `live` is, and null
-    // whenever `live` is false, so the two can never disagree.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schema(value_type = Option<String>)]
     #[cfg_attr(feature = "ts", ts(optional, type = "string | null"))]

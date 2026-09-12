@@ -20,9 +20,6 @@ fn keys_of(v: &Value) -> Vec<String> {
     ks
 }
 
-// 64 wire-shaped hex chars derived from this run's random wallet address.
-// The test PG is shared and long-lived, so inserted ids must be unique per
-// run or a rerun collides with its own previous rows.
 fn per_run_hex64(addr: &str) -> String {
     let h = addr.trim_start_matches("0x");
     format!("{h}{h}")[..64].to_string()

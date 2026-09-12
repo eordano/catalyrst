@@ -10,9 +10,6 @@ function isVoiceParticipantsPush(
   return !!p && p.kind === "voiceParticipants" && Array.isArray(p.participants);
 }
 
-// The loader replays the last push per kind on subscribe, so a surface mounted
-// mid-session still paints the current roster. Volume writes are optimistic;
-// the engine's next roster push reconciles them.
 export function useVoiceParticipants(): {
   participants: VoiceParticipant[];
   setVolume: (address: string, volume: number) => void;

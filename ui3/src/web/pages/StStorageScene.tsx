@@ -324,7 +324,6 @@ type StStorageSceneProps = {
   position?: string | null;
   initialDialog?: "add" | "edit" | null;
   embedded?: boolean;
-  /** Forwarded to `Modal`. `false` renders the dialogs in place instead of portalling them. */
   portal?: boolean;
 };
 

@@ -1,5 +1,3 @@
-//! Ingest-side telemetry contract guard.
-//!
 //! The authoritative enforcement layer for telemetry event shapes. Mirrors the
 //! sites TS validator (`packages/core/src/lib/telemetry/validate.ts`) against the
 //! machine-readable contract generated from the sites TS registry
@@ -7,8 +5,7 @@
 //!
 //! Loaded fail-open: no `TELEMETRY_CONTRACT_PATH` / missing / unparseable file
 //! disables validation (accept everything). When enabled, a bad event is flagged
-//! (quarantine-by-`invalid_reason`), never rejected -- no data loss, no client
-//! breakage.
+//! (quarantine-by-`invalid_reason`), never rejected.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -16,7 +13,6 @@ use std::sync::Arc;
 use serde::Deserialize;
 use serde_json::Value;
 
-/// One declared property of a contract event (or a context prop).
 #[derive(Debug, Clone, Deserialize)]
 pub struct ContractProp {
     /// `string | number | boolean | enum-string | enum-number | unknown`.
@@ -28,7 +24,6 @@ pub struct ContractProp {
     pub optional: bool,
 }
 
-/// One event's declared shape.
 #[derive(Debug, Clone, Deserialize)]
 pub struct ContractEvent {
     /// A loose event opts out of prop validation entirely.
@@ -38,7 +33,6 @@ pub struct ContractEvent {
     pub props: HashMap<String, ContractProp>,
 }
 
-/// The whole machine-readable contract.
 #[derive(Debug, Clone, Deserialize)]
 pub struct Contract {
     #[serde(default)]
@@ -51,9 +45,9 @@ pub struct Contract {
     pub events: HashMap<String, ContractEvent>,
 }
 
-/// Load the contract from `TELEMETRY_CONTRACT_PATH`. Fail-open: any of unset /
-/// missing / unreadable / unparseable logs a single warning and returns `None`
-/// (validation disabled -- accept every event as today).
+/// Loads from `TELEMETRY_CONTRACT_PATH`. Fail-open: any of unset / missing /
+/// unreadable / unparseable logs a single warning and returns `None`
+/// (validation disabled).
 pub fn load_from_env() -> Option<Arc<Contract>> {
     let path = match std::env::var("TELEMETRY_CONTRACT_PATH") {
         Ok(p) if !p.trim().is_empty() => p,
@@ -116,8 +110,8 @@ fn numbers_eq(a: &Value, b: &Value) -> bool {
     }
 }
 
-/// Render a contract enum value bare (strings without quotes) for the `{a, b}`
-/// list in a problem message, matching the TS `values.join(", ")`.
+/// Strings render without quotes, for the `{a, b}` list in a problem message,
+/// matching the TS `values.join(", ")`.
 fn bare(v: &Value) -> String {
     match v {
         Value::String(s) => s.clone(),
@@ -129,20 +123,11 @@ fn join_values(values: &[Value]) -> String {
     values.iter().map(bare).collect::<Vec<_>>().join(", ")
 }
 
-/// Validate one DCL event's props against the contract. Returns a human-readable
-/// problem string, or `None` when the event is valid.
-///
-/// Mirrors `validateEventAgainst` in sites `validate.ts`:
-/// - unknown event -> problem
-/// - loose event -> ok
-/// - missing required prop -> problem
-/// - wrong `string`/`number`/`boolean` kind -> problem
-/// - `enum-string` / `enum-number` value not in `values` -> problem
-/// - `unknown` kind -> accept
-/// - extra props (incl. injected context fields) -> allowed
-///
-/// All problems found are collected and joined with `; ` (the TS collects an
-/// array); collapsed here to a single `Option<String>` for the stored flag.
+/// Returns a human-readable problem string, or `None` when the event is valid.
+/// Mirrors `validateEventAgainst` in sites `validate.ts`: unknown events and
+/// missing or ill-typed required props are problems; `loose` events and the
+/// `unknown` kind accept, and extra props (incl. injected context fields) are
+/// allowed. All problems are joined with `; ` into the single stored flag.
 pub fn validate_event(contract: &Contract, event_name: &str, properties: &Value) -> Option<String> {
     let ev = match contract.events.get(event_name) {
         None => {
@@ -156,8 +141,6 @@ pub fn validate_event(contract: &Contract, event_name: &str, properties: &Value)
         return None;
     }
 
-    // `properties` may legitimately be null / absent / not an object; treat any
-    // non-object as "no props present".
     let empty = serde_json::Map::new();
     let props = properties.as_object().unwrap_or(&empty);
 
@@ -204,7 +187,6 @@ pub fn validate_event(contract: &Contract, event_name: &str, properties: &Value)
                     }
                 }
             }
-            // "unknown" (complex/object types) -- accept; the contract can't model it.
             _ => {}
         }
     }
@@ -294,7 +276,7 @@ mod validate_tests {
     #[test]
     fn validate_flags_a_wrong_kind() {
         let mut props = valid_props();
-        props["count"] = Value::String("3".into()); // number declared, string given
+        props["count"] = Value::String("3".into());
         let problem = validate_event(&fixture(), "thing_clicked", &props);
         assert!(
             problem
@@ -357,7 +339,6 @@ mod validate_tests {
 
     #[test]
     fn validate_optional_prop_may_be_absent() {
-        // "note" is optional and omitted in valid_props; still valid.
         assert_eq!(
             validate_event(&fixture(), "thing_clicked", &valid_props()),
             None
@@ -367,7 +348,7 @@ mod validate_tests {
     #[test]
     fn validate_number_int_float_enum_equivalence() {
         let mut props = valid_props();
-        props["level"] = serde_json::json!(2.0); // 2.0 must match declared 2
+        props["level"] = serde_json::json!(2.0);
         assert_eq!(validate_event(&fixture(), "thing_clicked", &props), None);
     }
 }

@@ -82,12 +82,11 @@ async fn still_accepts_a_legacy_signed_request() {
     assert_eq!(signer.to_lowercase(), wallet.address().to_lowercase());
 }
 
-/// The folded payload leaves metadata key casing outside the signature, so a
-/// re-spelled key would share the signature and read as absent. Which guard
-/// answers differs on purpose: a key that folds to `signer` is refused by the
-/// scene gate ahead of any signature check, on both payload shapes; the other
-/// three are read by this surface but not by the gate, so the declared-key
-/// guard refuses them, and only on this path.
+/// The folded payload leaves metadata key casing outside the signature, so a re-spelled
+/// key would share the signature and read as absent. Which guard answers differs on
+/// purpose: a key folding to `signer` is refused by the scene gate ahead of any
+/// signature check, on both payload shapes; the other three are read by this surface
+/// but not the gate, so the declared-key guard refuses them, on this path only.
 #[tokio::test]
 async fn refuses_a_legacy_request_that_respells_an_authorized_key() {
     for (declared, respelled, from_the_gate) in [

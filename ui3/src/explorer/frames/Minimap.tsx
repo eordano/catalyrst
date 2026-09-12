@@ -36,8 +36,6 @@ function parcelToTeleport(coords: string): TeleportPayload | null {
 const MINIMAP_PX = 472;
 const MINIMAP_PARCEL_PX = 24;
 const MINIMAP_PCT_PER_PARCEL = (MINIMAP_PARCEL_PX / MINIMAP_PX) * 100;
-// The mm__map circle mask reaches 50% from center; stop short so a dot never
-// straddles the rim.
 const MINIMAP_VIEW_RADIUS_PCT = 44;
 
 function minimapSrc(parcel: { x: number; y: number }): string {

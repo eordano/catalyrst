@@ -24,9 +24,6 @@ const CONTENTS_STYLE: CSSProperties = { display: "contents" };
 
 function getRecent(): PlaceView[] {
   if (typeof localStorage === "undefined") return [];
-  // The try covers the read and the parse, the two things that throw on their
-  // own. `check` throws in dev on a drifted entry, and a catch wide enough to
-  // cover it would turn that into a silently empty Recent tab.
   let parsed: unknown;
   try {
     parsed = JSON.parse(localStorage.getItem(RECENT_KEY) ?? "[]");
@@ -35,9 +32,6 @@ function getRecent(): PlaceView[] {
   }
   if (!Array.isArray(parsed)) return [];
   const recents = check(RecentPlacesSchema, parsed, "persisted/recent-places");
-  // A JSON round trip drops undefined values, so `image` comes back absent
-  // rather than present-and-undefined. Restoring it is what makes these
-  // `PlaceView`s again.
   return recents.map((p) => ({ ...p, image: p.image }));
 }
 
@@ -134,8 +128,6 @@ export default function PlacesPanel() {
     beginJump(place.title || place.name || "destination");
   }, [selected, beginJump]);
 
-  // A world is a full realm change (leaves the current server), so confirm before
-  // ChangeRealm -- a Genesis City parcel teleport stays on the same realm and needs none.
   const requestJumpIn = useCallback(() => {
     if (selected?.world && selected.worldName) {
       setConfirmWorld({ realm: selected.worldName, title: selected.title });

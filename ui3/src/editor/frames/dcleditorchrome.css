@@ -55,15 +55,9 @@
   --shadow-float: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 0 0 1px rgba(0, 0, 0, 0.4),
     0 12px 32px rgba(0, 0, 0, 0.55), 0 2px 6px rgba(0, 0, 0, 0.35);
 }
-/* The band only reserves space when a ribbon is mounted, so hosts that render
-   none keep the bare 12px inset. This is the single source of truth for the
-   band height: deribbon.css consumes --eui-ribbon-h rather than restating it. */
 .eui-root:has(> .rb) {
   --eui-ribbon-h: 152px;
 }
-/* An in-flow block paints below every positioned descendant, so the one child
-   that must sit above the engine iframe needs its own layer AND its own
-   hit-testing -- z-index alone makes it visible but still unclickable. */
 .eui-root > .rb {
   position: absolute;
   top: var(--eui-appbar-h, 0px);

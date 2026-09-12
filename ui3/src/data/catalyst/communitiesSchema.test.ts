@@ -5,8 +5,6 @@ import { serviceBase } from "./client";
 
 const ID = "e99471aa-31c4-4952-abf6-99905445f43b";
 
-// The fields catalyrst-social-service always serializes; the schema now
-// requires them, so a fixture that omits them is not a community at all.
 const base = {
   id: ID,
   name: "Winterfest Crew",
@@ -17,9 +15,6 @@ const base = {
   isLive: false,
 };
 
-// What a reader hands the UI: the shape check, then the normalization. Asserted
-// through both because the rewrite has to survive the perf build, where only the
-// second half still runs.
 function parseCommunity(wire: unknown) {
   return normalizeCommunity(CommunitySchema.parse(wire));
 }

@@ -146,7 +146,6 @@ export class Contract extends ContractBase {
     }
 }
 
-/// Event types
 export type ContractSignatureIndexIncreasedEventArgs = EParams<typeof events.ContractSignatureIndexIncreased>
 export type CouponManagerUpdatedEventArgs = EParams<typeof events.CouponManagerUpdated>
 export type FeeCollectorUpdatedEventArgs = EParams<typeof events.FeeCollectorUpdated>
@@ -162,7 +161,6 @@ export type SignerSignatureIndexIncreasedEventArgs = EParams<typeof events.Signe
 export type TradedEventArgs = EParams<typeof events.Traded>
 export type UnpausedEventArgs = EParams<typeof events.Unpaused>
 
-/// Function types
 export type ASSET_TYPE_COLLECTION_ITEMParams = FunctionArguments<typeof functions.ASSET_TYPE_COLLECTION_ITEM>
 export type ASSET_TYPE_COLLECTION_ITEMReturn = FunctionReturn<typeof functions.ASSET_TYPE_COLLECTION_ITEM>
 

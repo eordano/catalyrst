@@ -8,25 +8,22 @@ mod tests;
 
 /// A cursor over every id a store actually holds, pulled one at a time.
 ///
-/// NOT a `Vec`: where the ids pile up is the caller's decision, not this crate's. A list built here
-/// is one string per id of the WHOLE corpus resident before the consumer sees the first one -- linear
-/// in the node's content, on a walk whose only in-flight state need be the two directory handles it
-/// is reading. A GC or sync consumer that wants a set can still build one; one that wants to act on
-/// each id as it arrives, or to stop early, no longer pays for the rest.
+/// NOT a `Vec`: a list built here would hold one string per id of the WHOLE corpus before the
+/// consumer sees the first one, where this walk's only in-flight state is the two directory handles
+/// it is reading. A consumer that wants a set can still build one.
 ///
 /// AT LEAST ONCE, and only ids the point lookups accept. Every id present for the whole enumeration
-/// is yielded, and nothing is yielded that `exist()` would then deny -- a consumer that syncs or GCs
-/// from this list acting on a phantom deletes real content elsewhere. It is NOT guaranteed to be a
-/// set: a store committing during the walk renames its staging file onto the id's name inside a
-/// directory this walk is reading, and `readdir(2)` may report an entry renamed under it twice, so a
-/// consumer acting on the output must be idempotent. The direction is deliberate -- enumerating an id
-/// twice costs an idempotent repeat, while missing one under-reports what the node holds.
+/// is yielded, and nothing is yielded that `exist()` would then deny -- a sync or GC consumer acting
+/// on a phantom deletes real content elsewhere. It is NOT a set: a store committing during the walk
+/// renames its staging file onto the id's name inside a directory this walk is reading, and
+/// `readdir(2)` may report an entry renamed under it twice, so consumers must be idempotent. The
+/// direction is deliberate -- a repeat is idempotent, a miss under-reports what the node holds.
 ///
-/// A FAULT IS NEVER AN ENDING. A directory this walk cannot read is reported as an error, never as
-/// the `None` that means "there is nothing more here" and never as a quietly shorter list: a
-/// consumer diffing a list short by one shard against a peer reads live content as absent from this
-/// node. Once a fault is reported the cursor stays failed, so a caller that keeps pulling is told
-/// again rather than handed an ending it would take for a complete answer.
+/// A FAULT IS NEVER AN ENDING. An unreadable directory is reported as an error, never as the `None`
+/// that means "there is nothing more here" and never as a quietly shorter list: a consumer diffing a
+/// list short by one shard against a peer reads live content as absent from this node. Once a fault
+/// is reported the cursor stays failed, so a caller that keeps pulling is told again rather than
+/// handed an ending it would take for a complete answer.
 pub struct FileIds<'a> {
     root: &'a Path,
     known: &'a KnownShards,
@@ -61,8 +58,6 @@ impl<'a> FileIds<'a> {
         }
     }
 
-    /// The next id, or `None` once the walk is exhausted.
-    ///
     /// The root listing is opened on the first call, so an unreadable root is reported here rather
     /// than at construction -- and a caller that never pulls opens nothing at all.
     pub async fn next(&mut self) -> Result<Option<String>, StorageError> {
@@ -118,14 +113,7 @@ impl<'a> FileIds<'a> {
             let listed = shard.file_type().await.ok();
             let proven_directory = listed.is_some_and(|ft| ft.is_dir());
             let shard_path = shard.path();
-            // Only a name a hashed id resolves into can cost the listing an id, so damage to
-            // anything else at the root is not this walk's to report -- and reporting it would let
-            // one operator scratch file cost the whole corpus its listing.
             let shardable = KnownShards::names_a_shard(&shard_path);
-            // Only a directory can hold ids, and the listing is asked to PROVE the entry is not one
-            // rather than to prove it is: a symlinked shard reads back as the link and an entry
-            // whose type the listing does not report reads back as nothing at all, and dropping
-            // either loses every id underneath it while all their point lookups keep working.
             if listed.is_some_and(|ft| !ft.is_dir() && !ft.is_symlink()) {
                 if shardable {
                     return Err(self.fail(occupied_shard(&shard_path)));
@@ -134,9 +122,6 @@ impl<'a> FileIds<'a> {
             }
             match tokio::fs::read_dir(&shard_path).await {
                 Ok(entries) => {
-                    // Opening it proves it is a directory, and enumeration is part of the same read
-                    // contract as a point lookup: a shard this walk listed must not read as
-                    // never-having-existed if it disappears afterwards.
                     self.known.remember(&shard_path);
                     self.shard_name = shard.file_name().to_string_lossy().to_string();
                     self.entries = Some(entries);
@@ -150,17 +135,14 @@ impl<'a> FileIds<'a> {
         }
     }
 
-    /// The id an entry stands for, or `None` when it is not one.
-    ///
     /// Three conditions, and the third is the round trip: a canonical id, an occupant a read can
-    /// serve, and sitting in the shard its own hash selects. A file moved (or restored) into the
-    /// wrong shard is unreachable by id -- every read hashes the id to the OTHER shard -- so yielding
-    /// it hands a sweep a name whose lookup resolves somewhere else entirely.
+    /// serve, and sitting in the shard its own hash selects. A file in the wrong shard is unreachable
+    /// by id -- every read hashes the id to the OTHER shard -- so yielding it hands a sweep a name
+    /// whose lookup resolves somewhere else entirely.
     ///
-    /// The occupant is judged POSITIVELY, by what it is rather than by what it is not: a directory,
-    /// fifo, socket or device node is skipped because every read of it faults, while a regular file,
-    /// a symlink to one, and an entry whose type the listing does not report all stay enumerable,
-    /// because that is exactly what the point lookups serve.
+    /// The occupant is judged POSITIVELY: a directory, fifo, socket or device node is skipped because
+    /// every read of it faults, while a regular file, a symlink to one, and an entry whose type the
+    /// listing does not report all stay enumerable, because that is what the point lookups serve.
     async fn id_of(&mut self, entry: tokio::fs::DirEntry) -> Option<String> {
         let name = entry.file_name().to_string_lossy().to_string();
 
@@ -183,7 +165,6 @@ impl<'a> FileIds<'a> {
 
     fn finish(&mut self) {
         self.done = true;
-        // The walk is over; a caller holding the cursor should not also be holding the root's handle.
         self.shards = None;
         if self.misplaced > 0 {
             warn!(
@@ -196,7 +177,7 @@ impl<'a> FileIds<'a> {
     }
 
     /// Ends the walk for good. Everything already yielded stands; what follows is unknown, and the
-    /// cursor says so on every later pull rather than offering the ending that reads as completeness.
+    /// cursor says so on every later pull rather than offering an ending that reads as completeness.
     fn fail(&mut self, err: std::io::Error) -> StorageError {
         self.failed = true;
         self.shards = None;
@@ -225,17 +206,14 @@ fn is_foreign_node(ft: std::fs::FileType) -> bool {
     false
 }
 
-/// The fault a point read of any id in this shard already reports: something occupies the shard path
-/// and it is not a directory, so every id that hashes there is unreachable.
+/// The fault a point read of any id in this shard already reports: the shard path is occupied by a
+/// non-directory, so every id that hashes there is unreachable.
 fn occupied_shard(path: &Path) -> std::io::Error {
     std::io::Error::other(format!("shard path is not a directory: {}", path.display()))
 }
 
-/// Whether a shard the root listing did not prove to be a directory is simply not there, which is
-/// the one thing that makes passing it over a complete answer rather than a hidden gap.
-///
-/// "Nothing is there" is the whole truth for a name this instance never saw be a shard -- a dangling
-/// symlink, or an entry removed since the listing -- but for one it did observe it is the same
+/// Absence is the whole truth only for a name this instance never saw be a shard -- a dangling
+/// symlink, or an entry removed since the listing. For one it did observe, this is the same
 /// destruction a point read reports, so that is raised rather than passed over.
 fn vanished_unobserved(known: &KnownShards, path: &Path, err: &std::io::Error) -> bool {
     err.kind() == std::io::ErrorKind::NotFound && !known.contains(path)

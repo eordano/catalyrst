@@ -10,11 +10,6 @@ export { OrderSchema };
 
 export type MarketEnvelope<T> = { data: T; total: number };
 
-/**
- * The wire row, straight from catalyrst-market's `Order`. Every field it sends
- * is required there, so a row missing a price or a chain is not an order with
- * blanks -- it is not an order, and `parseOrder` drops it.
- */
 export type Order = z.infer<typeof OrderSchema>;
 
 export function parseOrder(raw: unknown): Order | null {
@@ -66,10 +61,6 @@ export async function fetchOrders(
 
 const WEI = 1e18;
 
-/**
- * `null` when the wei string cannot be read. "0" would render as **Free** in
- * the asset view, which is what an unreadable price must never be mistaken for.
- */
 export function formatOrderMana(wei: string | null | undefined): string | null {
   if (!wei) return null;
   let n: number;

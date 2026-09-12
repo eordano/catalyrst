@@ -102,7 +102,6 @@ fn parse_positive(name: &str, value: Option<&str>, default: u64) -> u64 {
     }
     match trimmed.parse::<u64>() {
         Ok(n) if n > 0 => n,
-        // Never floor a 0 to 1: that is a one-request-per-window outage that looks configured.
         _ => panic!("invalid {name}: expected a positive integer but got {raw:?}"),
     }
 }
@@ -126,9 +125,6 @@ fn now_ms() -> u64 {
         .unwrap_or(0)
 }
 
-// Phases each identity's fixed window by a stable per-identity offset, so one Retry-After
-// discloses only that caller's own boundary and counters don't all reset at the same instant. The
-// bucket is folded in so one caller does not meet every limit's boundary at the same instant either.
 fn phase_offset(bucket: &str, identity: &str, window_ms: u64) -> u64 {
     use std::hash::{Hash, Hasher};
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
@@ -154,8 +150,6 @@ fn parse_client_ip(value: &str) -> Option<IpAddr> {
     value.strip_prefix('[')?.strip_suffix(']')?.parse().ok()
 }
 
-// Rightmost non-empty entry: every proxy appends, so the rightmost hop was written by our own
-// infrastructure while the leftmost is whatever the client chose to send.
 fn client_ip_from_forwarded(value: &str) -> Option<String> {
     let hop = value
         .rsplit(',')
@@ -194,7 +188,6 @@ impl PostEntitiesLimiters {
             "TRUSTED_CLIENT_IP_HEADER",
             std::env::var("TRUSTED_CLIENT_IP_HEADER").ok().as_deref(),
         );
-        // Config-time only: a request-driven warning would fire on a header any client can forge.
         if trusted_client_ip_header.is_none() {
             tracing::warn!(
                 "TRUSTED_CLIENT_IP_HEADER is unset, so POST /entities is rate limited by socket address. \
@@ -234,9 +227,6 @@ impl PostEntitiesLimiters {
         }
     }
 
-    // Burst outermost so it is counted first and a burst rejection never spends daily quota. Both
-    // must wrap the whole route: a throttled client has to be refused before the multipart handler
-    // buffers its multi-MB upload into memory.
     pub fn guard<S>(&self, route: MethodRouter<S>) -> MethodRouter<S>
     where
         S: Clone + Send + Sync + 'static,
@@ -272,8 +262,6 @@ impl PostEntitiesRateLimiter {
 
     fn identity(&self, request: &Request) -> (String, KeySource) {
         if let Some(name) = &self.trusted_client_ip_header {
-            // Joined across repeated lines before the rightmost-hop walk, matching upstream's
-            // Headers.get: a front that appends its own line after a client-supplied one must win.
             let mut present = false;
             let mut joined = String::new();
             for value in request.headers().get_all(name) {
@@ -315,7 +303,6 @@ impl PostEntitiesRateLimiter {
         let offset = phase_offset(self.bucket, identity, self.window_ms);
         let window_id = (now_ms + offset) / self.window_ms;
         let reset_at_ms = (window_id + 1) * self.window_ms - offset;
-        // Never 0: some clients read Retry-After: 0 as "retry immediately".
         let retry_after_seconds = ((reset_at_ms - now_ms).div_ceil(1000)).max(1);
         Decision {
             allowed: self.count_in_window(identity, window_id) <= max,
@@ -323,10 +310,6 @@ impl PostEntitiesRateLimiter {
         }
     }
 
-    // A full table rotates generations instead of sweeping or failing open: the active map becomes
-    // the previous one -- still consulted, so a tracked client keeps its spent budget -- and new
-    // identities land in a fresh map. Limiting never switches off, per-request work stays O(1),
-    // and memory is bounded by two generations.
     fn count_in_window(&self, identity: &str, window_id: u64) -> u64 {
         loop {
             let generations = self.generations.read();
@@ -357,8 +340,6 @@ impl PostEntitiesRateLimiter {
     }
 }
 
-// The route template, never the request path: a label per distinct path is unbounded and would carry
-// entity ids. Empty for a non-route mount, like upstream.
 fn handler_label(request: &Request) -> String {
     request
         .extensions()
@@ -379,8 +360,6 @@ pub async fn post_entities_rate_limit(
     };
     let decision = limiter.decide(&identity, max);
     let handler = handler_label(&request);
-    // Metrics, never a log line: a throttled client retries, so a line per rejection is write
-    // amplification driven by the abuse being blocked.
     metrics::counter!(
         "rate_limiter_requests_total",
         "bucket" => limiter.bucket,

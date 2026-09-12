@@ -1,8 +1,3 @@
-// The mv_trades migration chain, pinned at both ends: 0011 is applied and
-// immutable, 0012 is the definition a database ends up on. Every assertion on
-// 0012 is on the FINAL view; the 0011 block only guards the applied file
-// against edits.
-
 const APPLIED_0011: &str = include_str!("../migrations/0011_squid_trades_v3_contract_scope.sql");
 const FINAL_0012: &str = include_str!("../migrations/0012_mv_trades_v3_cancellation_semantics.sql");
 

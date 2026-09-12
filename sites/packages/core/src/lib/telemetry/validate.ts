@@ -1,8 +1,3 @@
-// Pure runtime validator for a telemetry event's props against the generated
-// contract. Used dev-only from track() (see dev-validate.ts) to surface shapes
-// that defeated the compile-time types (forwarded-param wrappers, casts,
-// Record<string, unknown> props). Returns a list of human-readable problems;
-// empty means valid. Never throws.
 
 type ContractProp = { kind: string; values?: (string | number)[]; optional?: boolean };
 type ContractEvent = { loose: boolean; props: Record<string, ContractProp> };
@@ -49,12 +44,9 @@ export function validateEventAgainst(
         else if (spec.values && !spec.values.includes(val as number))
           problems.push(`prop "${name}" = ${String(val)} is not one of {${spec.values.join(", ")}}`);
         break;
-      // "unknown" (complex/object types) -- accept; the contract can't model it.
       default:
         break;
     }
   }
-  // Extra props (not in the contract) are allowed -- the wire body also carries
-  // the injected context fields, and forward-compat additions should not warn.
   return problems;
 }

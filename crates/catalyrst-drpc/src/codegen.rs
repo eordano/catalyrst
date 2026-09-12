@@ -1,10 +1,3 @@
-//! Generate service code from a service definition in a `.proto` file.
-
-// Guidelines for generated code:
-//
-// Use fully-qualified paths, to reduce the chance of clashing with
-// user provided names.
-
 use proc_macro2::TokenStream;
 use prost_build::{Method, Service, ServiceGenerator};
 use quote::{format_ident, quote};
@@ -68,7 +61,6 @@ impl RPCServiceGenerator {
 
     fn extract_output_token(&self, method: &Method, is_client: bool) -> TokenStream {
         if method.output_type.to_string().eq("()") {
-            // The unit type can not be casted to an Ident, so the empty token is needed
             if is_client {
                 quote! { -> ClientResult<()> }
             } else {
@@ -108,8 +100,6 @@ impl RPCServiceGenerator {
 
     #[cfg(feature = "client")]
     fn generate_client_trait(&self, service: &Service, buf: &mut String) {
-        // This is done with strings rather than tokens because Prost provides functions that
-        // return doc comments as strings.
         buf.push_str("use catalyrst_drpc::client::ClientResult;\n");
         buf.push('\n');
         service.comments.append_with_indent(0, buf);
@@ -145,8 +135,6 @@ impl RPCServiceGenerator {
     fn generate_server_trait(&self, service: &Service, buf: &mut String) {
         buf.push_str("use std::sync::Arc;\n");
         buf.push_str("use catalyrst_drpc::{rpc_protocol::{RemoteErrorResponse}, service_module_definition::ProcedureContext};\n");
-        // This is done with strings rather than tokens because Prost provides functions that
-        // return doc comments as strings.
         buf.push('\n');
         service.comments.append_with_indent(0, buf);
 
@@ -411,7 +399,6 @@ impl RPCServiceGenerator {
                 Box::pin(async move {
                     #decode
                     match #service_stream {
-                        // Transforming and filling the new generator is spawned so the response is quick
                         Ok(server_streams_generator) => Ok(Generator::from_generator(server_streams_generator, |item| Some(item.encode_to_vec()))),
                         Err(err) => Err(err.into())
                     }
@@ -430,8 +417,6 @@ impl RPCServiceGenerator {
         let input;
         let request;
         if extracted_input_type.is_some() {
-            // A peer that streams one malformed frame drops that frame; it does
-            // not panic the generator task and silently strand the whole stream.
             input = quote! {
                 #input_type::decode(item.as_slice()).ok()
             };
@@ -468,8 +453,6 @@ impl RPCServiceGenerator {
         let input;
         let request;
         if extracted_input_type.is_some() {
-            // A peer that streams one malformed frame drops that frame; it does
-            // not panic the generator task and silently strand the whole stream.
             input = quote! {
                 #input_type::decode(item.as_slice()).ok()
             };

@@ -5,7 +5,6 @@ import { baseItemUrn } from "./backpack";
 
 const ADDR = "0xe2b6024873d218b2e83b462d3658d8d7c3f55a18";
 
-/** The production path: the schema decides acceptance, the normalizer decides shape. */
 const readAvatar = (raw: unknown) => normalizeAvatar(AvatarSchema.parse(raw));
 
 const TOKEN_URN =

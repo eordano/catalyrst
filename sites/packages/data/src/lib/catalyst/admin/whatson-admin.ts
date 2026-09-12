@@ -35,12 +35,6 @@ export type PatchEventBody = {
   description?: string;
 };
 
-/**
- * The wire truth after the typed-response refactor: the events service
- * answers every write with `ApiOk<EventRecord>` (event_writes.rs), so a
- * moderation write whose response cannot be read fails the parse instead of
- * reporting that nothing changed.
- */
 export const PatchResultSchema = ApiOkSchema(EventRecordSchema);
 export type PatchResult = z.infer<typeof PatchResultSchema>;
 
@@ -78,13 +72,6 @@ export const REJECT_REASONS: RejectReason[] = [
 
 export type QueueBucket = "pending" | "approved" | "featured";
 
-/**
- * The generated `EventRecordSchema` is the wire truth and already requires
- * `approved` and `rejected` as plain booleans. The old hand copy defaulted
- * `approved: true`: an event whose moderation flags failed to arrive entered
- * the queue already approved, and `bucketOf` filed it under "approved" for a
- * decision nobody made. Rows that lack them are dropped by `keepParsable`.
- */
 export const ModeratableEventSchema = EventRecordSchema;
 export type ModeratableEvent = z.infer<typeof ModeratableEventSchema>;
 
@@ -145,11 +132,6 @@ export async function fetchModerationPending(
   return keepParsable(env.data.data);
 }
 
-/**
- * Rows that do not parse are dropped, not cast. Casting handed the queue an
- * object with no `approved`/`rejected` at all, which `bucketOf` read as
- * "pending" -- an unreadable row became a moderation task.
- */
 function keepParsable(rows: unknown[]): ModeratableEvent[] {
   const out: ModeratableEvent[] = [];
   for (const row of rows) {
@@ -227,8 +209,6 @@ export function bucketOf(e: ModeratableEvent): QueueBucket {
   return "pending";
 }
 
-/** What the demo path returns -- its own shape, marked simulated, never
- *  masquerading as the wire's ApiOk<EventRecord>. */
 export type SimulatedModeration = {
   simulated: true;
   id: string;

@@ -83,9 +83,8 @@ pub struct AppStateInner {
     pub usage_grants: UsageGrantsComponent,
     pub volume: VolumeComponent,
     pub pool: PgPool,
-    /// Serializes every `REFRESH MATERIALIZED VIEW CONCURRENTLY marketplace.mv_trades`
-    /// -- Postgres refuses two concurrent CONCURRENTLY refreshes of the same view -- so
-    /// the periodic ticker and the post-listing forced refresh can never collide.
+    /// Postgres refuses two concurrent CONCURRENTLY refreshes of the same view, so the
+    /// periodic ticker and the post-listing forced refresh serialize through this.
     pub mv_trades_refresh_lock: Arc<tokio::sync::Mutex<()>>,
     pub replay: Arc<Replay>,
     pub limiter: Arc<RateLimiter>,
@@ -415,10 +414,8 @@ pub async fn build_state(cfg: &Config) -> Result<AppState> {
 
 const MV_TRADES_REFRESH_INTERVAL: Duration = Duration::from_secs(30);
 
-/// One `REFRESH MATERIALIZED VIEW CONCURRENTLY`, retried plain if the concurrent
-/// form is refused (e.g. the view has never been populated), then a dirty notify
-/// so listeners re-read. The caller holds the refresh lock, so no two of these run
-/// at once.
+/// Retried plain if the CONCURRENTLY form is refused (e.g. the view has never been
+/// populated), then a dirty notify so listeners re-read. The caller holds the refresh lock.
 async fn run_mv_trades_refresh(pool: &PgPool) {
     let concurrent = sqlx::query("REFRESH MATERIALIZED VIEW CONCURRENTLY marketplace.mv_trades")
         .execute(pool)
@@ -462,16 +459,14 @@ fn spawn_mv_trades_refresh(pool: PgPool, refresh_lock: Arc<tokio::sync::Mutex<()
     );
 }
 
-/// Reflect a just-created listing in `mv_trades` NOW, rather than up to 30s from
-/// now: every price read (`/v1/items`, the catalog) goes through the view, and the
-/// signer's next request is one of those reads. Fire-and-forget -- the trade is
-/// already committed and a ~2s REFRESH must not be charged to the request that
-/// created it.
+/// Reflects a just-created listing in `mv_trades` NOW rather than up to 30s from now: every
+/// price read (`/v1/items`, the catalog) goes through the view, and the signer's next request
+/// is one of those reads. Fire-and-forget -- the trade is already committed and a ~2s REFRESH
+/// must not be charged to the request that created it.
 ///
-/// `try_lock` mirrors upstream's `FOR UPDATE SKIP LOCKED`: if a refresh already
-/// holds the lock this SKIPS rather than queuing a second refresh, and losing that
-/// race is harmless -- the periodic ticker unconditionally refreshes on its next
-/// tick, so this can only ever make staleness shorter, never longer.
+/// `try_lock` mirrors upstream's `FOR UPDATE SKIP LOCKED`: an in-flight refresh makes this
+/// SKIP rather than queue a second one. Losing that race is harmless -- the periodic ticker
+/// refreshes unconditionally on its next tick, so this can only shorten staleness.
 pub(crate) fn spawn_forced_mv_trades_refresh(
     pool: PgPool,
     refresh_lock: Arc<tokio::sync::Mutex<()>>,

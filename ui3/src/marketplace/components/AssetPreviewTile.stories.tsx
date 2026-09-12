@@ -20,13 +20,11 @@ const RARITIES = Object.keys(ITEMS) as ItemKey[];
 const img = (r: ItemKey) => THUMB(ITEMS[r].urn);
 const alt = (r: ItemKey) => ITEMS[r].name;
 
-/** `image` is picked by rarity name; `none` is a first-class option. */
 const IMAGE = {
   none: null,
   ...Object.fromEntries(RARITIES.map((r) => [r, img(r)])),
 } as Record<"none" | ItemKey, string | null>;
 
-/** `label === undefined` falls back to the rarity chip; `null` hides the chip entirely. */
 const LABEL = {
   rarity: undefined,
   none: null,
@@ -83,10 +81,6 @@ export const Default: Story = {};
 
 const cell = { font: "600 13px var(--font-sans)", opacity: 0.7, margin: "0 0 8px" };
 
-/**
- * Every rarity plus each figure / chip / label variant. `Default` flips between them from the
- * Controls panel; this keeps all of them in the render + a11y + visual-diff gates.
- */
 export const Catalog: Story = {
   name: "Catalog (every rarity + figure)",
   parameters: { controls: { disable: true } },

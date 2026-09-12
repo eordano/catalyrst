@@ -25,11 +25,6 @@ if (typeof window !== "undefined") {
 }
 
 const MIN_LOADING_MS = 2200;
-// Last-resort anti-strand bound once the engine is alive: the engine's own
-// out-of-world hatch gives up at 60s and places the player regardless, so the
-// curtain must not outlive that decision by much. Reveal-on-ready is the only
-// other path -- there is deliberately no shorter grace period: a curtain that
-// lifts on a timer shows a half-loaded world (the 2026-08-25 defect).
 const ANTI_STRAND_MS = 75000;
 const LOADING_TIMEOUT_MS = 20000;
 const PARCEL_SIZE = 16;
@@ -91,10 +86,6 @@ export function buildJumpInAvatarPayload(pending: PendingAvatar): {
   return payload;
 }
 
-// Every jump URL the product hands out is a deep link: buildJumpUrl,
-// worldJumpUrl and landJumpUrl all emit /play/?realm=<name> or /play/?position=x,y.
-// Landing in the destination picker instead of the named destination would make
-// each of those links a dead end.
 export function destinationFromSearch(search: string): PickedDestination {
   let params: URLSearchParams;
   try {
@@ -103,12 +94,6 @@ export function destinationFromSearch(search: string): PickedDestination {
     return null;
   }
   const realm = params.get("realm")?.trim();
-  // A single-leading-slash realm is THIS ORIGIN's path (the editor's
-  // /_project), not a world name. Sending it raw made the engine map it as a
-  // name -- ChangeRealm to <world-base>//_project, a realm that does not
-  // exist -- so the editor viewport sat in a purge loop forever. Mirrors
-  // url-params.ts: only a single leading slash is a path; protocol-relative
-  // "//host" stays untouched.
   if (realm && realm.startsWith("/") && !realm.startsWith("//")) {
     return { kind: "world", realm: window.location.origin + realm };
   }
@@ -119,10 +104,6 @@ export function destinationFromSearch(search: string): PickedDestination {
   return null;
 }
 
-// The engine glue's start() reads the host page's #position input as the boot
-// spawn. Booting directly at a picked parcel skips the default Genesis Plaza
-// spawn -- a multi-MB entities/active discovery pass the post-boot Teleport
-// would immediately redo at the destination.
 export function primeBootPosition(dest: PickedDestination): boolean {
   if (dest?.kind !== "parcel") return false;
   const input =
@@ -135,8 +116,6 @@ export function primeBootPosition(dest: PickedDestination): boolean {
 type BootGateProps = { children: ReactNode };
 
 export default function BootGate({ children }: BootGateProps) {
-  // the flag lives here, not in the component: ui3 stays presentational and the
-  // consumer decides when to mount. Same opt-in upstream bevy-explorer uses.
   const [showFps] = useState(() => {
     try {
       return new URLSearchParams(window.location.search).get("fps") === "1";
@@ -154,9 +133,6 @@ export default function BootGate({ children }: BootGateProps) {
 
 function BootPhases({ children }: BootGateProps) {
   const [autoJump] = useState(() => {
-    // Only the storage read is guarded. `shouldAutoJumpIn` parses the blob and
-    // validates it, and that validation throws in dev by design -- catching it
-    // here would silently turn a drifted identity into "show the lobby".
     let raw: string | null = null;
     try {
       raw = localStorage.getItem(IDENTITY_STORAGE_KEY);
@@ -172,9 +148,6 @@ function BootPhases({ children }: BootGateProps) {
   const [phase, setPhase] = useState<"lobby" | "picking" | "loading" | "world" | "stalled">(
     autoJump ? "loading" : "lobby",
   );
-  // Prod-safe observability: testids are stripped from production bundles, so
-  // external validators (the proving ground's curtain gate) read the boot
-  // phase off the document root instead of the DOM tree.
   useEffect(() => {
     document.documentElement.dataset.dclBootPhase = phase;
   }, [phase]);
@@ -211,12 +184,6 @@ function BootPhases({ children }: BootGateProps) {
     }
   };
 
-  // A completing login replaces the whole profile, and with none deployed for
-  // the address the replacement is the engine default ("Bevy_User") -- so a
-  // wallet sign-in landing after JUMP IN discards the name picked in the lobby,
-  // and every scene reading AvatarBase.name shows the default instead. Re-send
-  // the exact payload whenever the engine reports a different name; the cap
-  // stops a name the engine refuses from looping.
   const reassertChosenName = (reported: string) => {
     const payload = appliedAvatarRef.current;
     const chosen = payload?.base.name;
@@ -329,9 +296,6 @@ function BootPhases({ children }: BootGateProps) {
 
   useEffect(() => {
     if (phase !== "loading") return undefined;
-    // Anchor both deadlines to the jump so a churning push stream cannot keep
-    // resetting them. Engine alive but never ready -> anti-strand reveal;
-    // engine never alive -> stalled.
     const deadline =
       engineAliveAt.current > 0
         ? jumpedAt.current + ANTI_STRAND_MS
@@ -342,10 +306,6 @@ function BootPhases({ children }: BootGateProps) {
     );
     let revealT: ReturnType<typeof setTimeout> | undefined;
     const avatarGateSatisfied = !avatarSignalSeenRef.current || avatarReady;
-    // The curtain lifts only on the engine's own word: placed (`ready`) AND the
-    // parcel scene's asset containers settled. `engineAlive` alone must never
-    // reveal -- the first Loading push arrives while the player is still out of
-    // world, long before assets exist.
     if (ready && pendingAssets === 0 && avatarGateSatisfied) {
       const minDone = jumpedAt.current + MIN_LOADING_MS;
       revealT = setTimeout(() => setPhase("world"), Math.max(0, minDone - Date.now()));

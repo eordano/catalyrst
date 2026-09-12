@@ -13,8 +13,6 @@
 //! code -- `@dcl/ecs` also stops at the first unframeable record -- so the test
 //! asserts the oracle's rule instead. Nothing here is `#[ignore]`d.
 //!
-//! Run: `cargo test -p catalyrst-scene-state --test formal_refutations`
-//!
 //! The oracle for every A-vs-B disagreement is upstream `@dcl/ecs`
 //! (`js-sdk-toolchain/packages/@dcl/ecs`); the relevant citations are inline.
 
@@ -79,13 +77,6 @@ fn pack(number: u16, generation: u16) -> u32 {
     pack_entity(number, generation)
 }
 
-// D-NEW-1  is_append is order dependent
-// FIXED: `ComponentCell::is_append` no longer exists. PUT_COMPONENT and
-//       APPEND_VALUE are routed by message type into two disjoint stores
-//       (crdt.rs `lww` / `appends`), so there is no per-cell kind flag left to
-//       depend on arrival order -- SDK7 component ids belong to exactly one
-//       kind (`lww-element-set-` vs `grow-only-value-set-component-definition.ts`).
-
 /// Two servers fed the **same multiset** of messages must serve the same
 /// snapshot. They used not to: the tie at (timestamp 0, identical payload) was
 /// `Ignored`, so the cell kept whichever of PUT/APPEND arrived *first*, and
@@ -112,11 +103,6 @@ fn refuted_is_append_must_not_depend_on_arrival_order() {
     );
 }
 
-// D1  APPEND_VALUE routed through LWW
-// FIXED: crdt.rs `CrdtEngine::append` pushes onto a per-(entity, component)
-//       grow-only channel and always accepts, mirroring upstream's
-//       `grow-only-value-set-component-definition.ts` (`row.raw.push(...)`).
-
 /// APPEND_VALUE is a grow-only event channel: PointerEventsResult,
 /// AvatarEmoteCommand, VideoEvent. Every append carries timestamp 0, so when
 /// appends went through LWW the second and later appends to one
@@ -141,7 +127,6 @@ fn refuted_appends_must_not_be_swallowed_at_equal_timestamp() {
          below [2], so an LWW Equal arm drops it. Every emote / pointer result\n\
          after the first with a lesser payload is silently swallowed AND never relayed."
     );
-    // both values are retained, in arrival order -- a list, not a cell
     assert_eq!(e.appended(1, 1), vec![vec![2u8], vec![1u8]]);
 }
 
@@ -162,15 +147,6 @@ fn refuted_every_append_must_be_relayed() {
     );
 }
 
-// D3  tombstone FIFO cap
-// FIXED: crdt.rs no longer keeps a FIFO of packed ids with a 4096 cap. Removal
-//       is a version G-Set (entity NUMBER -> highest generation removed), which
-//       is upstream's own `createVersionGSet` (`@dcl/ecs systems/crdt/gset.ts`)
-//       and is read exactly as `getEntityState` reads it (`removedVersion >= v`).
-//       `max` is commutative and idempotent, so the removal set is a function of
-//       the message multiset; and the u16 number space bounds it structurally, so
-//       nothing is ever evicted.
-
 /// The surviving tombstone set used to be a function of the *arrival order*,
 /// not of the message multiset, so commutativity and convergence both broke:
 /// the same 4097 deletes plus one PUT resurrected the entity in one order and
@@ -181,13 +157,10 @@ fn refuted_every_append_must_be_relayed() {
 /// `tombstones_never_expire_under_delete_flood`.
 #[test]
 fn refuted_tombstone_cap_must_not_break_convergence() {
-    // 4097 = the old MAX_DELETED_ENTITIES + 1, i.e. one more than the FIFO held.
     let n = 4097u32;
     let victim = 1u32;
 
-    // order 1: victim deleted FIRST -> evicted by the flood
     let mut order1: Vec<CrdtMessage> = (1..=n).map(del_entity).collect();
-    // order 2: same multiset, victim deleted LAST -> tombstone survives
     let mut order2: Vec<CrdtMessage> = (2..=n).map(del_entity).collect();
     order2.push(del_entity(victim));
 
@@ -209,7 +182,6 @@ fn refuted_tombstone_cap_must_not_break_convergence() {
         s1.len(),
         s2.len()
     );
-    // and the victim really is still dead in both
     assert!(!s1
         .iter()
         .any(|m| matches!(m, CrdtMessage::Put { entity, .. } if *entity == victim)));
@@ -225,7 +197,6 @@ fn refuted_resent_delete_entity_must_not_be_rebroadcast() {
     let victim = 1u32;
     assert_eq!(e.apply(&del_entity(victim)), ApplyResult::Applied);
 
-    // flood past the old FIFO cap (4096) so an evicting engine forgets the victim
     for entity in 2..=4097u32 {
         e.apply(&del_entity(entity));
     }
@@ -237,16 +208,6 @@ fn refuted_resent_delete_entity_must_not_be_rebroadcast() {
          the engine must not be able to forget a delete it has already seen."
     );
 }
-
-// D5  component cap
-// FIXED: crdt.rs `enforce_cell_cap` inserts first and then evicts the LARGEST
-//       key, so the surviving set is exactly the `max_components` smallest keys
-//       ever presented -- a function of the key multiset, never of arrival order
-//       (a key among the N smallest can never be the largest of N+1 residents,
-//       so once inserted it is never evicted, and every message for it merges).
-//       Wired to production at jsruntime/handle.rs
-//       (`CrdtEngine::with_cap(limits.crdt_max_components)`), default 100_000
-//       (config.rs CRDT_MAX_COMPONENTS).
 
 /// At `max_components`, *which* components exist must not become a function of
 /// arrival order, or a busy scene at the ceiling gets a different world after a
@@ -274,14 +235,6 @@ fn refuted_component_cap_must_not_break_convergence() {
          at the cap, eviction must be by key order, not by arrival order."
     );
 }
-
-// D6  snapshot() is lossy
-// FIXED: crdt.rs snapshot() emits one DELETE_ENTITY per removed entity number
-//       (at the G-Set high-water generation, which masks every earlier one on
-//       replay) and DELETE_COMPONENT for every component tombstone -- the latter
-//       is what upstream's `createDumpLwwFunctionFromCrdt` does, walking the
-//       *timestamps* map and writing `DeleteComponent` whenever the data is
-//       absent (`lww-element-set-component-definition.ts`).
 
 fn replay(e: &CrdtEngine) -> CrdtEngine {
     let mut r = CrdtEngine::new();
@@ -376,19 +329,8 @@ fn refuted_snapshot_must_not_replay_events() {
         "snapshot() re-emits {} APPEND_VALUE record(s): {events:?}",
         events.len()
     );
-    // the value is still in the engine's grow-only channel, it just is not
-    // re-broadcast as a fresh event to joiners
     assert_eq!(e.appended(1, 1), vec![vec![5u8]]);
 }
-
-// D4  client range filter vs packed entity ids   (highest ranked finding)
-// FIXED: crdt.rs decode_client_batch / reclaim_range compare
-//       `entity_number(id)` -- the low 16 bits -- against the number range, which
-//       is what both references mean by a range: upstream hands out
-//       `reservedLocalEntities + serverLimit + index * clientLimit`
-//       (scene-state-server/src/adapters/scene.ts) and bevy allocates from a
-//       `RangeInclusive<u16>` (`CrdtContext::new_in_range`). Ranges come from
-//       runtime.rs ServerTransportConfig::range_for_client.
 
 /// Pins the range arithmetic the two tests below depend on. Note this
 /// corrects the input semantics used for the model: client **0** is
@@ -409,7 +351,7 @@ fn client_zero_range_is_1024_512() {
 #[test]
 fn refuted_client_range_must_accept_recycled_entities() {
     let (start, size) = ServerTransportConfig::default().range_for_client(0);
-    let recycled = pack(start as u16, 1); // same NUMBER, generation 1
+    let recycled = pack(start as u16, 1);
     let batch = encode_batch(&[put(recycled, 1, 1, b"x")]);
 
     let kept = decode_client_batch(&batch, start, size);
@@ -445,13 +387,6 @@ fn refuted_reclaim_range_must_free_recycled_entities() {
     );
 }
 
-// D2  entity masking granularity
-// FIXED: crdt.rs `is_dead` reads the version G-Set by entity NUMBER and returns
-//       true iff `removed_generation >= generation` -- `getEntityState` in
-//       `@dcl/ecs engine/entity.ts`, and equivalently bevy-explorer
-//       `CrdtContext::is_dead` (which stores killed+1 and compares `>`).
-//       Bevy already conformed; this engine did not.
-
 /// Killing entity number 7 at generation 2 must also mask a stale in-flight
 /// message for generation 0 of the same entity -- that is what `is_dead` does
 /// in bevy-explorer and what `@dcl/ecs` means by recycling. Masking only the
@@ -472,16 +407,12 @@ fn refuted_entity_mask_must_cover_older_generations() {
         pack(7, 0)
     );
 
-    // ...and the recycled entity (generation 3) is a live, different entity
     assert_eq!(
         e.apply(&put(pack(7, 3), 1, 5, &[9])),
         ApplyResult::Applied,
         "recycling entity number 7 at generation 3 must produce a live entity"
     );
 }
-
-// D8  framing: one malformed record discards the rest of the batch
-// Code: crdt.rs decode_batch -- `if len < HEADER_LEN || off + len > buf.len() { break }`
 
 /// RESOLVED AGAINST THE ORACLE -- the property was the wrong one, so this test
 /// now asserts the opposite of what it originally did.
@@ -505,8 +436,8 @@ fn refuted_entity_mask_must_cover_older_generations() {
 #[test]
 fn malformed_record_discards_the_rest_of_the_batch() {
     let mut buf = Vec::new();
-    buf.extend_from_slice(&0u32.to_le_bytes()); // declared length 0  (< HEADER_LEN)
-    buf.extend_from_slice(&1u32.to_le_bytes()); // type PUT_COMPONENT
+    buf.extend_from_slice(&0u32.to_le_bytes());
+    buf.extend_from_slice(&1u32.to_le_bytes());
     let good = del_entity(5);
     buf.extend_from_slice(&encode_batch(std::slice::from_ref(&good)));
 
@@ -516,7 +447,6 @@ fn malformed_record_discards_the_rest_of_the_batch() {
         "an unframeable record must abort the batch, as @dcl/ecs does: {decoded:?}"
     );
 
-    // control: without the bad record ahead of it, the same record parses
     assert_eq!(
         decode_batch(&encode_batch(std::slice::from_ref(&good))),
         vec![good]
@@ -533,14 +463,13 @@ fn malformed_record_discards_the_rest_of_the_batch() {
 fn record_must_carry_exactly_the_payload_it_declares() {
     let good = del_entity(5);
 
-    // a PUT record: 8 header + 16 fields + 4 payload bytes, but data_len says 0
     let mut buf = Vec::new();
     buf.extend_from_slice(&(8u32 + 16 + 4).to_le_bytes());
-    buf.extend_from_slice(&1u32.to_le_bytes()); // PUT_COMPONENT
-    buf.extend_from_slice(&1000u32.to_le_bytes()); // entity
-    buf.extend_from_slice(&7u32.to_le_bytes()); // component
-    buf.extend_from_slice(&1u32.to_le_bytes()); // timestamp
-    buf.extend_from_slice(&0u32.to_le_bytes()); // data_len -- understates by 4
+    buf.extend_from_slice(&1u32.to_le_bytes());
+    buf.extend_from_slice(&1000u32.to_le_bytes());
+    buf.extend_from_slice(&7u32.to_le_bytes());
+    buf.extend_from_slice(&1u32.to_le_bytes());
+    buf.extend_from_slice(&0u32.to_le_bytes());
     buf.extend_from_slice(&[9, 9, 9, 9]);
     buf.extend_from_slice(&encode_batch(std::slice::from_ref(&good)));
 

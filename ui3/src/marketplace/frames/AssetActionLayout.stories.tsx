@@ -97,7 +97,6 @@ type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {};
 
-/** A different component: the compact tile used inside modals, not a layout at all. */
 export const SmallTile: Story = {
   parameters: { controls: { disable: true } },
   render: () => (
@@ -161,11 +160,6 @@ const CASES: { label: string; args: Partial<LayoutProps> }[] = [
   },
 ];
 
-/**
- * Every layout at once. `Default` flips between them from the Controls panel; this keeps all four
- * in the render + a11y + visual-diff gates, since the `status` variant and the icon-back header
- * are structurally different subtrees.
- */
 export const Catalog: Story = {
   name: "Catalog (every layout)",
   parameters: { controls: { disable: true } },

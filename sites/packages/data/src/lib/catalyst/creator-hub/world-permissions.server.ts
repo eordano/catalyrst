@@ -24,16 +24,6 @@ export type LoadWorldPermissionsResult = {
   fallback: boolean;
 };
 
-/**
- * `type` is written unconditionally on all three legs by
- * `catalyrst-worlds/src/handlers/permissions.rs` ("allow-list" for deployment
- * and streaming, `access.to_public_json()` for access), so it is required.
- *
- * Defaulting it was the worst lie on this surface in both directions: a leg
- * that lost its `type` read back as `unrestricted`, which the panel draws as
- * "anyone can access this world" for a world whose ACL we simply failed to
- * read. The three legs are required for the same reason.
- */
 const BackendAllowList = z.object({
   type: z.string(),
   wallets: z.array(z.string()).nullish().transform((v) => v ?? []),
@@ -45,10 +35,6 @@ const BackendAccess = z.object({
   communities: z.array(z.string()).nullish().transform((v) => v ?? []),
 });
 
-// Composed on the generated wire schemas (the zod-dedup rule); the extends
-// reinstate the tolerant legs the wire type leaves loose -- access is typed
-// here (generated leaves it unknown) and absent lists parse to [] rather
-// than failing a world whose ACL we merely failed to read.
 const BackendPermissionsSchema = PermissionsResponseSchema.extend({
   permissions: WorldPermissionsBlockSchema.extend({
     access: BackendAccess,

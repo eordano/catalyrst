@@ -15,55 +15,46 @@ use super::{SnapshotMetadata, SyncDeployment, SyncError, TimeRange, Timestamp};
 
 const MAX_BODY_BYTES: usize = 2 * 1024 * 1024 * 1024;
 
-/// Upstream MAX_REPLACED_SNAPSHOT_HASHES: ceiling on the snapshots one entry may claim to
-/// replace. Every entry lands in the batched processed-snapshots lookup, so a pathological list
-/// sizes that query; real snapshots replace tens.
+/// Upstream MAX_REPLACED_SNAPSHOT_HASHES. Every entry lands in the batched processed-snapshots
+/// lookup, so a pathological list sizes that query; real snapshots replace tens.
 const MAX_REPLACED_SNAPSHOT_HASHES: usize = 1000;
 
 /// How many invalid /snapshots entries are logged in detail per response before the rest
 /// collapse into one summary line -- the body is attacker-sized.
 const MAX_INVALID_SNAPSHOT_LOGS: usize = 5;
 
-/// A server's snapshot list together with whether anything had to be discarded from it -- the
-/// port of upstream 53e9c07's `SnapshotsFromServer`. The count matters as much as the list:
-/// each snapshot stands for a whole time range, so a discarded entry is a range nothing else
-/// covers, and treating the surviving subset as the server's complete history would advance the
-/// frontier past those entities forever. Callers that record sync progress must check
-/// `discarded`, not just read `snapshots`.
+/// Port of upstream 53e9c07's `SnapshotsFromServer`. Each snapshot stands for a whole time range, so
+/// a discarded entry is a range nothing else covers, and treating the surviving subset as the
+/// server's complete history would advance the frontier past those entities forever: callers that
+/// record sync progress must check `discarded`, not just read `snapshots`.
 #[derive(Debug, Clone)]
 pub struct SnapshotsFromServer {
     pub snapshots: Vec<SnapshotMetadata>,
     pub discarded: usize,
 }
 
-/// Validates one raw /snapshots entry (upstream `isValidSnapshotMetadata`). Snapshot metadata
-/// comes from untrusted servers, and `time_range.end_timestamp` is exactly what bootstrap
-/// installs as the server's last-snapshot timestamp and, one poll boundary later, the durable
-/// GREATEST-monotonic frontier -- the same hazard the pointer-changes timestamps are checked
-/// for. Returns None for an entry whose load-bearing fields are unusable.
+/// Upstream `isValidSnapshotMetadata`. Snapshot metadata comes from untrusted servers, and
+/// `time_range.end_timestamp` is what bootstrap installs as the server's last-snapshot timestamp and,
+/// one poll boundary later, the durable GREATEST-monotonic frontier -- the same hazard the
+/// pointer-changes timestamps are checked for.
 ///
-/// `number_of_entities` and `generation_timestamp` are deliberately NOT validated (they default
-/// to 0 when missing or wrong-typed): nothing downstream reads them, and rejecting an entry
-/// over an unread field would silently stop syncing from a server that, say, reports
-/// `numberOfEntities: "5"`.
+/// `number_of_entities` and `generation_timestamp` are deliberately NOT validated (they default to 0
+/// when missing or wrong-typed): nothing downstream reads them, and rejecting an entry over an unread
+/// field would silently stop syncing from a server that reports, say, `numberOfEntities: "5"`.
 pub(crate) fn parse_snapshot_metadata(
     value: &serde_json::Value,
     now_ms: Timestamp,
 ) -> Option<SnapshotMetadata> {
     let hash = value.get("hash")?.as_str()?;
-    // The storage layer's own key check: a hash it would reject fails at download time anyway.
     if !catalyrst_storage::is_canonical_content_id(hash) {
         return None;
     }
 
     let time_range = value.get("timeRange")?;
-    // as_i64 (not the lenient float path): epoch milliseconds are integers, and a fractional or
-    // out-of-range value only ever indicates a malformed server.
     let init_timestamp = time_range.get("initTimestamp")?.as_i64()?;
     let end_timestamp = time_range.get("endTimestamp")?.as_i64()?;
     if !is_usable_timestamp(init_timestamp, now_ms)
         || !is_usable_timestamp(end_timestamp, now_ms)
-        // An inverted range is malformed, and it is handed straight to the deployer's warm-up.
         || init_timestamp > end_timestamp
     {
         return None;
@@ -106,7 +97,6 @@ pub(crate) fn parse_snapshot_metadata(
     })
 }
 
-/// Filters a raw /snapshots body down to the usable entries, counting what was discarded.
 pub(crate) fn parse_snapshots_response(
     items: &[serde_json::Value],
     now_ms: Timestamp,
@@ -134,7 +124,6 @@ pub(crate) fn parse_snapshots_response(
             "Ignored additional invalid snapshot metadata entries"
         );
     }
-    // Newest first, as upstream returns them.
     snapshots.sort_by_key(|s| std::cmp::Reverse(s.time_range.end_timestamp));
     SnapshotsFromServer {
         snapshots,
@@ -230,11 +219,10 @@ pub async fn download_snapshot_files(
     }
 }
 
-/// What the pure decision concluded about one snapshot in a pass.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SnapshotDecision {
-    /// Deploy -- unless the node's own snapshot store already has it (the one async check the
-    /// caller still owns; its result never changes within a pass).
+    /// Unless the node's own snapshot store already has it -- the one async check the caller still
+    /// owns; its result never changes within a pass.
     Deploy,
     /// Some advertised replacement group is fully processed, so this snapshot's content is
     /// already covered: persist a processed mark for it and skip.
@@ -243,17 +231,16 @@ pub(crate) enum SnapshotDecision {
     Skip,
 }
 
-/// The pure core of upstream's `decideSnapshotDeploymentFromProcessedSet`, operating on an
-/// already-fetched set of processed hashes so a whole pass costs as few storage round trips as
-/// `filter_processed_in_chunks` needs, rather than one per snapshot.
+/// Pure core of upstream's `decideSnapshotDeploymentFromProcessedSet`, taking an already-fetched set
+/// of processed hashes so a pass costs as few storage round trips as `filter_processed_in_chunks`
+/// needs rather than one per snapshot.
 ///
 /// `replaced_groups` carries one group per advertising server, and `.any()` over them matches
 /// upstream's `.some()`: two peers advertising the same content hash with different replacement
-/// histories must reach the same verdict regardless of which one was fetched first.
+/// histories must reach the same verdict regardless of which was fetched first.
 ///
-/// On MarkProcessed the hash is added to `processed` -- mutating the caller's set is what makes
-/// the snapshot that replaces THIS one skippable in a later evaluation of the same pass; see
-/// the fixed-point loop in [`decide_snapshot_pass`].
+/// On MarkProcessed the hash is added to `processed` -- mutating the caller's set is what makes the
+/// snapshot that replaces THIS one skippable later in the same pass; see [`decide_snapshot_pass`].
 pub(crate) fn decide_snapshot_deployment_from_processed_set(
     processed: &mut HashSet<String>,
     genesis_timestamp: Timestamp,
@@ -279,20 +266,16 @@ pub(crate) fn decide_snapshot_deployment_from_processed_set(
     SnapshotDecision::Skip
 }
 
-/// Runs the deployment decision over one pass's candidates to a fixed point (upstream 53e9c07's
-/// pass loop in `syncFromSnapshotsExclusively`). A decision can mark a snapshot processed
-/// because a group it replaces already is -- and that mark is exactly what makes the snapshot
-/// replacing IT skippable in turn, so a single pass over a replacement chain (h2 replaces h1
-/// replaces a processed h0) collapses only one link and deploys the tail for nothing. Re-run
-/// over the still-deployable candidates until a pass marks nothing new: "already processed" and
-/// "older than genesis" don't depend on what else got marked, so those drop out for good the
-/// first time, and every other pass either marks at least one snapshot (shrinking the pool) or
-/// ends the loop.
+/// Fixed point of the deployment decision over one pass's candidates (upstream 53e9c07's pass loop in
+/// `syncFromSnapshotsExclusively`). A mark is exactly what makes the snapshot replacing IT skippable
+/// in turn, so a single pass over a replacement chain (h2 replaces h1 replaces a processed h0)
+/// collapses only one link and deploys the tail for nothing. The loop terminates because "already
+/// processed" and "older than genesis" drop out for good the first time, and every other pass either
+/// marks at least one snapshot or ends it.
 ///
 /// `candidates` is `(hash, greatest_end_timestamp_across_advertisers, replaced-group-per-advertiser)`.
-/// Returns `(to_deploy, newly_marked)`; the caller persists the marks and applies its own
-/// snapshot-store check to `to_deploy`. Iteration order follows `candidates`, so callers pass a
-/// deterministic order.
+/// The caller persists `newly_marked` and applies its own snapshot-store check to `to_deploy`.
+/// Iteration order follows `candidates`, so callers pass a deterministic order.
 pub(crate) fn decide_snapshot_pass(
     candidates: &[(String, Timestamp, Vec<Vec<String>>)],
     processed: &mut HashSet<String>,
@@ -328,16 +311,8 @@ pub(crate) fn decide_snapshot_pass(
     }
 }
 
-/// Streams a snapshot's entities into the deployer. Returns Err when the snapshot could not be
-/// fully handed off -- download failure, unreadable lines, or scheduling errors -- so the caller
-/// keeps the advertising servers in snapshot bootstrap with their timestamps held back, instead
-/// of advancing past entities that were never deployed. Entities that were readable are still
-/// scheduled first: that work is real either way.
-///
-/// `report` accumulates scheduled-vs-acknowledged counts; the caller re-checks it after the
-/// deployer drains, since an Ok return only proves everything was SCHEDULED.
-/// A snapshot file line gets the same timestamp-plausibility gate as /pointer-changes deltas
-/// (upstream applies `isUsableTimestamp` at both ingestion points plus /snapshots metadata).
+/// The same timestamp-plausibility gate /pointer-changes deltas get (upstream applies
+/// `isUsableTimestamp` at both ingestion points plus /snapshots metadata).
 fn usable_snapshot_line(deployment: &SyncDeployment, now_ms: Timestamp) -> bool {
     is_usable_timestamp(deployment.entity_timestamp, now_ms)
         && deployment
@@ -345,6 +320,13 @@ fn usable_snapshot_line(deployment: &SyncDeployment, now_ms: Timestamp) -> bool 
             .is_none_or(|ts| is_usable_timestamp(ts, now_ms))
 }
 
+/// Err when the snapshot could not be fully handed off -- download failure, unreadable lines, or
+/// scheduling errors -- so the caller keeps the advertising servers in snapshot bootstrap with their
+/// timestamps held back instead of advancing past entities that were never deployed. Readable
+/// entities are still scheduled first.
+///
+/// `report` accumulates scheduled-vs-acknowledged counts; the caller re-checks it after the deployer
+/// drains, since an Ok return only proves everything was SCHEDULED.
 pub async fn deploy_entities_from_snapshot(
     client: &Client,
     storage: &catalyrst_storage::ContentStorage,
@@ -404,10 +386,6 @@ pub async fn deploy_entities_from_snapshot(
     let parse = |line: &str| -> Option<SyncDeployment> {
         let trimmed = line.trim();
         if !(trimmed.starts_with('{') && trimmed.ends_with('}')) {
-            // Only the `### ...` header and blank padding are framing. Anything else that is
-            // not a brace-delimited document stood for an entity we cannot read -- most likely
-            // a truncated final line -- and skipping it silently would retire the snapshot with
-            // entities missing. Count it so the deployment fails and the snapshot is retried.
             if !(trimmed.is_empty() || trimmed.starts_with("###"))
                 && num_parse_errors.fetch_add(1, Ordering::Relaxed) < 5
             {
@@ -426,10 +404,6 @@ pub async fn deploy_entities_from_snapshot(
             }
         };
         if !usable_snapshot_line(&deployment, now_ms) {
-            // Same plausibility gate as /pointer-changes deltas: an implausible
-            // entity_timestamp wins overwrite ordering permanently and shadows every later
-            // legitimate deployment at those pointers. Counted as a parse error so the
-            // snapshot fails and its advertising servers stay held.
             if num_parse_errors.fetch_add(1, Ordering::Relaxed) < 5 {
                 warn!(
                     snapshot_hash,
@@ -538,11 +512,6 @@ pub async fn deploy_entities_from_snapshot(
         "Snapshot scheduled"
     );
 
-    // Entities behind unreadable lines or failed schedule calls were never handed to the
-    // deployer and never reached failed_deployments -- resolving Ok here would let the caller
-    // retire the snapshot and advance its servers past them, losing them until the next full
-    // snapshot regeneration. Fail instead: the caller keeps those servers in snapshot
-    // bootstrap and the snapshot (still unmarked) is retried.
     if num_parse_errors > 0 || num_schedule_errors > 0 {
         return Err(SyncError::Other(format!(
             "snapshot {} was not fully deployable: {} unreadable lines, {} schedule errors \
@@ -720,17 +689,11 @@ mod tests {
         })
     }
 
-    // The upstream-53e9c07 poisoning scenario for /snapshots: a type-valid but semantically
-    // bogus entry (year-9999 endTimestamp -- a plain integer serde accepts) must be discarded,
-    // and the discard must be COUNTED, because the caller uses the count to keep the server in
-    // snapshot bootstrap instead of installing max(endTimestamp) as its resume point.
     #[test]
     fn far_future_and_inverted_entries_are_discarded_and_counted() {
         let items = vec![
             entry(GOOD_HASH, 0, 1_700_000_000_000),
-            // Year 9999: would fast-forward the server past its entire backlog.
             entry(GOOD_HASH_2, 0, 253_402_300_799_000),
-            // Inverted range: handed straight to the deployer's warm-up otherwise.
             entry(GOOD_HASH_3, 1_700_000_000_000, 1_600_000_000_000),
         ];
         let result = parse_snapshots_response(&items, NOW_MS, "https://peer.test");
@@ -753,8 +716,6 @@ mod tests {
         );
     }
 
-    // Upstream deliberately does not validate fields nothing reads: rejecting an entry over a
-    // wrong-typed numberOfEntities would silently stop syncing from that server.
     #[test]
     fn unread_fields_never_reject_an_entry() {
         let mut e = entry(GOOD_HASH, 0, 1_700_000_000_000);
@@ -814,9 +775,6 @@ mod tests {
         );
     }
 
-    // Upstream 53e9c07's fixed-point rationale verbatim: a replacement chain h2 -> h1 -> h0
-    // (with h0 processed) must fully collapse in ONE call -- the single-pass version deployed
-    // h2 for nothing, and walking a HashMap made even that outcome order-dependent.
     #[test]
     fn replacement_chain_collapses_in_a_single_call() {
         let h0 = "h0".to_string();
@@ -824,7 +782,6 @@ mod tests {
         let h2 = "h2".to_string();
         let genesis = 0;
         let end_ts = 1_700_000_000_000;
-        // Deliberately ordered h2 before h1 so a single pass CANNOT resolve h2 first.
         let candidates = vec![
             (h2.clone(), end_ts, vec![vec![h1.clone()]]),
             (h1.clone(), end_ts, vec![vec![h0.clone()]]),
@@ -854,9 +811,6 @@ mod tests {
         assert!(marked.is_empty());
     }
 
-    // Same live failure mode as the content path: peers serve snapshot blobs with
-    // `Content-Encoding: gzip` regardless of Accept-Encoding, and the CID is over the DECODED
-    // bytes -- the snapshot download must decode before hashing and store the decoded file.
     #[tokio::test]
     async fn gzip_labeled_snapshot_decodes_then_hashes_and_stores_decoded() {
         const PAYLOAD: &[u8] = b"### Decentraland json snapshot\n{\"entityId\":\"Qm1\"}\n";
@@ -903,13 +857,10 @@ mod tests {
         let _ = tokio::fs::remove_dir_all(&tmp).await;
     }
 
-    // One group per advertising server, matching upstream's `.some()` over groups: the verdict
-    // must not depend on which advertiser's metadata was fetched first.
     #[test]
     fn any_advertisers_processed_group_suffices() {
         let mut processed: HashSet<String> =
             ["a".to_string(), "b".to_string()].into_iter().collect();
-        // Advertiser 1 claims it replaces {a, x} (x unprocessed); advertiser 2 claims {a, b}.
         let decision = decide_snapshot_deployment_from_processed_set(
             &mut processed,
             0,
@@ -926,7 +877,6 @@ mod tests {
             "mark must mutate the caller's set"
         );
 
-        // An empty group is not evidence of replacement.
         let mut processed = HashSet::new();
         let decision = decide_snapshot_deployment_from_processed_set(
             &mut processed,

@@ -365,7 +365,6 @@ describe("whatson-admin-moderate \u{2014} the default actor fails closed", () =>
       },
     }).start();
 
-    // Whatever the wizard's happy path is, the default write must not succeed.
     await expect(
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (actor.getSnapshot().context.moderate as ModerateFn)({

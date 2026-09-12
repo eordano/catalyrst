@@ -4,12 +4,6 @@ use sqlx::PgPool;
 use crate::http::errors::ApiError;
 use crate::MARKETPLACE_SQUID_SCHEMA;
 
-// All the `*Out` structs in this module replace `json!({...})` payloads. The
-// `wire_bytes_match_the_old_json_macro` tests below assert each one carries the
-// same wire shape as the payload it replaced, compared as parsed JSON so object
-// key order (which flips with serde_json's preserve_order feature) is not part
-// of the contract.
-
 /// Collection/item sync status served on curation and on-chain rows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[cfg_attr(
@@ -556,10 +550,8 @@ mod tests {
         }
     }
 
-    /// Each `*Out` struct must carry the same wire shape the retired
-    /// `json!({...})` payload produced. Compared as parsed JSON -- object key
-    /// order is not part of the contract and flips with serde_json's
-    /// preserve_order feature under workspace-wide unification.
+    /// Compared as parsed JSON: object key order is not part of the contract and flips
+    /// with serde_json's preserve_order feature.
     #[test]
     fn collection_wire_bytes_match_the_old_json_macro() {
         let c = db_collection();

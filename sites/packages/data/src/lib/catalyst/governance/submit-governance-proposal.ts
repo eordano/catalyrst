@@ -37,13 +37,6 @@ export type LinkedDraft = {
   finish_at?: string;
 };
 
-/**
- * Both built from the generated governance schemas: the row is a `.pick` of
- * `ProposalRowSchema` (only the fields this drafts list reads), the envelope
- * is `ProposalsEnvelopeSchema` with its rows narrowed to that pick -- the
- * ts-rs image of catalyrst-governance's `GET /proposals`. The wire always
- * carries `user`, `status`, `finish_at`, `limit` and `offset`.
- */
 const ApiProposalSchema = ProposalRowSchema.pick({
   id: true,
   title: true,

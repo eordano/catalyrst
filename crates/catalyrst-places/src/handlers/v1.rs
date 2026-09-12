@@ -41,9 +41,6 @@ impl From<&PlaceRow> for InteractionSummary {
     }
 }
 
-// Two targets, two row shapes (destination categories carry counts, event
-// categories carry timestamps), so the envelope is typed as a JSON list here
-// and each row type keeps its own schema.
 #[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct ApiJsonList {
     pub ok: bool,
@@ -116,10 +113,6 @@ pub async fn get_v1_destinations_list(
     list_destinations(&state, &headers, method.as_str(), uri.path(), &pairs).await
 }
 
-// The by-id read applies the same row filters as the list: a place must be
-// enabled and not a world row, a world must be enabled and listed in the
-// places directory. A world resolves by its name or its row id, which is
-// what the list hands out as `id`.
 pub async fn find_destination(
     places: &PlacesComponent,
     id: &str,
@@ -179,9 +172,6 @@ pub async fn get_v1_destination(
     Ok(Json(ApiData::ok(destination)))
 }
 
-// The events service owns this read (live first, then soonest upcoming) and
-// verifies the caller's signed fetch itself: the route path is the same on
-// both services, so the caller's headers are forwarded verbatim.
 #[utoipa::path(
     get,
     path = "/destinations/{id}/events",
@@ -221,8 +211,6 @@ async fn resolve_destination_entity(
 ) -> Result<(PlaceRow, EntityType), ApiError> {
     let entity_type = resolve_entity_type(entity_id);
     let is_world = entity_type == EntityType::World;
-    // Place ids are stored lowercase, so a UUID resolves whatever its case,
-    // the same way the read side looks it up.
     let lookup_id = if is_world {
         entity_id.to_string()
     } else {
@@ -368,8 +356,6 @@ pub async fn delete_v1_destination_favorites(
     Ok(Json(ApiData::ok(summary)))
 }
 
-// `{ like: boolean }` and nothing else: true likes, false dislikes, and a
-// clear is the DELETE, so null is not a value here.
 pub fn parse_like_body(body: Option<&Value>) -> Result<bool, ApiError> {
     let invalid = || ApiError::bad_request("Invalid likes body. Expected { like: boolean }.");
     let object = body.and_then(Value::as_object).ok_or_else(invalid)?;

@@ -63,9 +63,6 @@ pub async fn send_transaction(
     Ok(Json(json!({ "ok": true, "txHash": tx_hash })).into_response())
 }
 
-/// Relays the validated body to the upstream transactions server and passes its
-/// response (status + body) through verbatim: the client sees exactly what it
-/// would see talking to the upstream directly.
 async fn forward_upstream(
     state: &AppState,
     upstream: &UpstreamForwarder,
@@ -93,8 +90,6 @@ async fn forward_upstream(
 
     if forwarded.is_success() {
         match forwarded.tx_hash() {
-            // The upstream already broadcast: a local bookkeeping failure must
-            // not hide the upstream response from the client.
             Some(hash) => {
                 if let Err(e) = state
                     .transaction
@@ -125,13 +120,11 @@ async fn forward_upstream(
 /// Whether a non-2xx upstream status proves the transaction was never
 /// broadcast, so the quota slot can be refunded. A 4xx is a validation or
 /// rate-limit rejection issued before any broadcast. Every 5xx is
-/// indeterminate: the upstream sits behind Cloudflare, so 502/504 gateway
-/// failures and Cloudflare's own 522/524 arrive after the request reached the
-/// intermediary, and even a 500/503 can be emitted by the origin after it
-/// already submitted the transaction -- none of them proves the broadcast
-/// never happened. A kept slot merely ages out of the 24h quota window; a
-/// false refund breaks the daily-quota invariant, so every 5xx keeps the
-/// slot.
+/// indeterminate: the upstream sits behind Cloudflare, so 502/504 and
+/// Cloudflare's own 522/524 arrive after the request reached the intermediary,
+/// and even a 500/503 can be emitted by the origin after it already submitted
+/// the transaction. A kept slot merely ages out of the 24h quota window; a
+/// false refund breaks the daily-quota invariant, so every 5xx keeps the slot.
 fn refunds_quota_slot(status: u16) -> bool {
     (400..500).contains(&status)
 }

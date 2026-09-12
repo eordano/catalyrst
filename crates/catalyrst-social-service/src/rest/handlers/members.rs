@@ -10,9 +10,8 @@ use crate::rest::http::{get_first, get_pagination_params, Paginated};
 use crate::rest::ports::members::{CommunityMember, CommunityMemberV2Wire, CommunityMemberWire};
 use crate::rest::AppState;
 
-/// Comms presence for `onlyOnline` filtering, from the archipelago stats
-/// `/peers` source. Fail-open: an unreachable source means an empty online set
-/// (members render offline), never an error.
+/// Fail-open: an unreachable presence source means an empty online set (members render
+/// offline), never an error.
 async fn connected_peers(state: &AppState) -> Vec<String> {
     state.peers_stats.connected_peers().await
 }
@@ -21,8 +20,6 @@ fn admin_bearer(state: &AppState, headers: &HeaderMap) -> bool {
     let Some(expected) = state.admin_token.as_deref() else {
         return false;
     };
-    // Constant-time compare so the byPassPrivacy gate cannot be probed byte-by-byte through
-    // response timing (upstream #461), matching writes/members.rs and rpc/admin.rs.
     let got = headers
         .get(header::AUTHORIZATION)
         .and_then(|v| v.to_str().ok())

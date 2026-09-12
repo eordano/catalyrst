@@ -34,7 +34,6 @@ pub const TRANSFORM_COMPONENT_ID: u32 = 1;
 /// `dcl_component/src/transform_and_parent.rs` `FromDclReader`/`ToDclWriter`),
 /// so the parent is a little-endian `u32` at byte 40 of a 44-byte payload.
 pub const TRANSFORM_PARENT_OFFSET: usize = 40;
-/// Serialized length of `DclTransformAndParent`.
 pub const TRANSFORM_PAYLOAD_LEN: usize = 44;
 
 /// The range handed to a client for which no representable slot is free: it
@@ -116,8 +115,6 @@ impl ServerTransportConfig {
     }
 }
 
-/// Who is authoring a batch of CRDT messages.
-///
 /// This is the authority model the server actually enforces. It is checked at
 /// **every** boundary where messages reach the engine, not only where they are
 /// queued for the scene.
@@ -173,9 +170,8 @@ impl Authority {
     }
 }
 
-/// Reads `DclTransformAndParent::parent` out of an opaque component payload.
-/// Returns `None` for any component that is not a transform, or for a payload
-/// too short to contain one.
+/// `None` for any component that is not a transform, or for a payload too
+/// short to contain one.
 pub fn transform_parent(component_id: u32, data: &[u8]) -> Option<u32> {
     if component_id != TRANSFORM_COMPONENT_ID || data.len() < TRANSFORM_PAYLOAD_LEN {
         return None;
@@ -232,8 +228,6 @@ impl AuthorityGuard<'_> {
             _ => return true,
         };
         match transform_parent(component_id, data) {
-            // Ranges are expressed in entity *numbers*; a packed parent carries
-            // its generation in the high 16 bits, so compare on the number.
             Some(parent) => !self.in_foreign_range(parent & 0xFFFF),
             None => true,
         }
@@ -244,8 +238,6 @@ impl AuthorityGuard<'_> {
     }
 }
 
-/// Hands out client slot indices and takes them back on disconnect.
-///
 /// Indices are a bounded resource: only
 /// [`ServerTransportConfig::max_client_slots`] of them have a representable
 /// entity range. The previous `AtomicU32::fetch_add` never freed one, so 127
@@ -546,10 +538,6 @@ impl SceneRuntime for JsRuntime {
         });
         self.handle.shared.outbound.remove(&client_index);
 
-        // The slot is normally released by the scene thread *after* it has
-        // reclaimed the range, so a reconnect cannot be handed the departing
-        // client's range while its entities are still live. If the thread is
-        // gone nobody would ever release it, so do it here.
         if !self
             .handle
             .shared
@@ -559,8 +547,6 @@ impl SceneRuntime for JsRuntime {
             self.handle.shared.slots.release(client_index);
         }
 
-        // The JS thread broadcasts its own reclaim through each remaining
-        // client's outbound queue (`scene_thread.rs::deliver_client_events`).
         vec![]
     }
 
@@ -629,9 +615,6 @@ mod tests {
         assert_eq!(cfg.try_range_for_client(126), None);
         assert_eq!(cfg.range_for_client(126), EMPTY_RANGE);
 
-        // The far-out cases from the model -- index 8388605 used to get a short
-        // 511-wide range and >= 8388606 a silently muted one. Every index past
-        // the last slot is now explicitly, loudly the empty range.
         assert_eq!(cfg.try_range_for_client(8_388_605), None);
         assert_eq!(cfg.try_range_for_client(8_388_606), None);
         assert_eq!(cfg.try_range_for_client(u32::MAX), None);
@@ -812,10 +795,10 @@ mod tests {
         assert_eq!(rt.assigned.lock().get(&b).copied(), Some((1536, 512)));
 
         let graft = encode_batch(&[CrdtMessage::Put {
-            entity: 1100, // client a's own entity: in range
+            entity: 1100,
             component_id: TRANSFORM_COMPONENT_ID,
             timestamp: 1,
-            data: transform_with_parent(1600), // ...parented into client b's range
+            data: transform_with_parent(1600),
         }]);
         assert!(
             rt.on_client_crdt(a, &graft).is_empty(),
@@ -823,8 +806,6 @@ mod tests {
         );
         assert!(live(&rt).is_empty());
 
-        // ROOT, renderer-local entities, the server band and the client's own
-        // range all stay legal parents.
         for parent in [0u32, 1, 5, 600, 1100] {
             let ok = encode_batch(&[CrdtMessage::Put {
                 entity: 1101,
@@ -869,8 +850,6 @@ mod tests {
             );
         }
 
-        // ...and a number OUTSIDE the range is still refused at every generation,
-        // so the relaxation did not turn into a hole.
         for generation in [0u16, 1, u16::MAX] {
             let packed = crate::crdt::pack_entity(1600, generation);
             let body = encode_batch(&[CrdtMessage::Put {
@@ -943,9 +922,7 @@ mod tests {
             transform_parent(TRANSFORM_COMPONENT_ID, &transform_with_parent(2048)),
             Some(2048)
         );
-        // not a transform
         assert_eq!(transform_parent(2, &transform_with_parent(2048)), None);
-        // too short to carry a parent
         assert_eq!(transform_parent(TRANSFORM_COMPONENT_ID, &[0u8; 40]), None);
     }
 }

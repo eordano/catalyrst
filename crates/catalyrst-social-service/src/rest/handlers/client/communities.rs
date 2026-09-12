@@ -17,9 +17,6 @@ use super::{
     validate_places_ownership, validate_thumbnail_field, ClientCommunityWriteAuthority,
 };
 
-// Cast-then-compare resolved any value the enum does not name to the permissive side -- on update
-// a typo could flip a private community public (upstream #487). Refusing is the only reading that
-// cannot silently widen access.
 fn parse_enum_field(value: String, allowed: [&str; 2], field: &str) -> Result<String, Response> {
     let trimmed = value.trim().to_string();
     if allowed.contains(&trimmed.as_str()) {
@@ -85,8 +82,6 @@ pub async fn create_community(
     let thumbnail = fields.thumbnail;
     let has_thumbnail = thumbnail.is_some();
 
-    // Validate the thumbnail bytes (size bounds + magic-byte signature) before any DB write, so
-    // an arbitrary blob is rejected with a 400 rather than stored and served as a fake image.
     if let Some(bytes) = thumbnail.as_deref() {
         if let Err(e) = validate_thumbnail_field(bytes) {
             return e;
@@ -262,7 +257,6 @@ pub async fn update_community(
     };
     let thumbnail = fields.thumbnail;
 
-    // Reject a non-image / out-of-bounds thumbnail before the DB write (port of #444).
     if let Some(bytes) = thumbnail.as_deref() {
         if let Err(e) = validate_thumbnail_field(bytes) {
             return e;
@@ -418,8 +412,6 @@ mod tests {
         }
     }
 
-    // Anchored above the parser: the multipart layer used to lowercase these two fields, so the
-    // validator saw `private`/`all` and the miscased originals could never be refused.
     #[tokio::test]
     async fn multipart_hands_the_validator_the_raw_case_so_miscased_values_are_refused() {
         let boundary = "XBOUNDARY";

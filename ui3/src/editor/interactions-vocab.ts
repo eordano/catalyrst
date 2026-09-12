@@ -1,8 +1,3 @@
-// The trigger/action ID VOCABULARY, declared once. The composer
-// (DeInteractionsPanel) owns which of these it can build forms for; the ribbon
-// chips (RibbonWiring) own the short phrasing; hosts wire commands to the ids.
-// A new id lands here first so no surface can fall back to showing a raw id --
-// the vocab test pins that the composer's set stays a subset of this one.
 export const TRIGGER_CHIP: Record<string, string> = {
   on_click: "when clicked",
   on_input_action: "when E is pressed",

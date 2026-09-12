@@ -13,8 +13,6 @@ use catalyrst_pulse::transport::webtransport::framing::{parse_datagram, StreamFr
 fuzz_target!(|data: &[u8]| {
     let _ = parse_datagram(data);
 
-    // Stream reassembly: split the input into chunks (first byte of the remainder picks the next
-    // chunk size) so the fuzzer explores frame boundaries that straddle the length prefix.
     let mut reader = StreamFrameReader::new(4096);
     let mut rest = data;
     while !rest.is_empty() {
@@ -25,7 +23,7 @@ fuzz_target!(|data: &[u8]| {
             match reader.try_read() {
                 Ok(Some(msg)) => assert!(msg.len() <= 4096),
                 Ok(None) => break,
-                Err(_) => break, // overrun: buffer dropped, keep feeding
+                Err(_) => break,
             }
         }
         rest = tail;

@@ -59,9 +59,6 @@ pub(crate) fn token_matches(state: &AppState, presented: &str) -> bool {
     token_ok(state.admin_token.as_deref(), Some(presented))
 }
 
-// Reads and SSR pages accept the browser session cookie set by /login as well as
-// the bearer; mutations stay bearer-only so a cookie-bearing browser can never be
-// cross-site-driven into flipping operator state.
 pub(crate) fn authorize_read(
     state: &AppState,
     headers: &HeaderMap,
@@ -95,46 +92,30 @@ pub(crate) fn authorize(state: &AppState, headers: &HeaderMap) -> Result<(), (St
     }
 }
 
-/// The environment variable that names telemetry's admin bearer secret. Server-chosen; it is
-/// the same string the legacy `authorize` refusal printed, and the shared chokepoint uses it
-/// to build its audit label and 503 detail.
+/// Server-chosen; the shared chokepoint uses it to build its audit label and 503 detail.
 const ADMIN_TOKEN_ENV: &str = "CATALYRST_TELEMETRY_ADMIN_TOKEN";
 
-/// Telemetry's admin gate, expressed as an unforgeable extractor rather than a forgettable
-/// `authorize(&st, &headers)?` at the top of a handler body.
+/// The admin gate as an unforgeable extractor rather than a forgettable `authorize(&st,
+/// &headers)?` in a handler body: the only way the argument resolves at request time is
+/// [`TelemetryAdmin::from_request_parts`], which runs the shared
+/// [`AuthenticatedAdminIdentity`] chokepoint, and there is no other constructor (private
+/// field, no derives).
 ///
-/// Naming `TelemetryAdmin` in a handler signature makes the bearer check a term in the type
-/// the router demands: axum refuses the handler unless the argument resolves, and the only
-/// way it resolves at request time is [`TelemetryAdmin::from_request_parts`], which runs the
-/// shared [`AuthenticatedAdminIdentity`] chokepoint. There is no other constructor -- the
-/// field is private and the type derives nothing -- so the check can no longer be deleted from
-/// a body.
-///
-/// Wire behaviour is preserved byte-for-byte. The shared extractor answers **401** for a
-/// missing or mismatched secret and **503** for an unconfigured one; telemetry has always
-/// answered **403** for both, and the `/dash` route-layer middleware (`require_telemetry_admin`,
-/// left as a documented follow-on) still does, so [`TelemetryAdmin::from_request_parts`] maps
-/// the refusal back onto this crate's exact 403 responses.
+/// The shared extractor answers **401** for a missing or mismatched secret and **503** for an
+/// unconfigured one; telemetry has always answered **403** for both, and the `/dash`
+/// route-layer middleware (`require_telemetry_admin`, left as a documented follow-on) still
+/// does, so `from_request_parts` maps the refusal back onto this crate's exact 403 responses.
 pub struct TelemetryAdmin {
-    // Held only as evidence that the chokepoint ran; deliberately unread. The audit actor is
-    // still taken from the request (`actor_of`) rather than from this verified identity, so the
-    // `admin_audit` rows and the /dash/admin/audit response stay byte-identical.
     #[allow(dead_code)]
     identity: AuthenticatedAdminIdentity,
 }
 
-/// Map the shared extractor's refusal back onto telemetry's historical wire responses, so the
-/// migration changes no status code or body a client can observe.
 fn admin_rejection_as_legacy_forbidden(rejection: &AdminAuthRejection) -> (StatusCode, String) {
     match rejection.refusal().http_status() {
-        // Unconfigured secret <=> `admin_token` is `None` (lib.rs filters empty to `None`, so the
-        // chokepoint's empty-as-unconfigured case cannot arise here). Legacy: the unset branch.
         503 => (
             StatusCode::FORBIDDEN,
             "admin disabled (CATALYRST_TELEMETRY_ADMIN_TOKEN unset)".into(),
         ),
-        // Missing or mismatched bearer (401), collapsed to the legacy 403 like the old
-        // `authorize`.
         _ => (StatusCode::FORBIDDEN, "invalid admin bearer".into()),
     }
 }
@@ -150,8 +131,6 @@ impl FromRequestParts<AppState> for TelemetryAdmin {
             environment_variable: ADMIN_TOKEN_ENV,
             configured: state.admin_token.clone(),
         };
-        // `ConfiguredAdminBearerSecret` stands in as the extractor's state via axum's blanket
-        // `impl<T: Clone> FromRef<T> for T`; the secret is the whole state the extractor reads.
         match AuthenticatedAdminIdentity::from_request_parts(parts, &secret).await {
             Ok(identity) => Ok(Self { identity }),
             Err(rejection) => Err(admin_rejection_as_legacy_forbidden(&rejection)),
@@ -252,9 +231,6 @@ mod tests {
 
     #[test]
     fn timing_safe_eq_examines_every_byte_not_just_the_first_difference() {
-        // XOR-accumulate, not early-return: a first-byte and a last-byte mismatch on
-        // equal-length inputs both reject, so the loop cannot be short-circuiting on the
-        // first differing byte.
         assert!(!timing_safe_eq("aaaaaa", "baaaaa"));
         assert!(!timing_safe_eq("aaaaaa", "aaaaab"));
         assert!(timing_safe_eq("aaaaaa", "aaaaaa"));
@@ -269,10 +245,6 @@ mod tests {
         parts
     }
 
-    // The live gate `TelemetryAdmin::from_request_parts` needs an `AppState` (a pg pool) that
-    // cannot be built in a unit test, so these drive the exact two operations its body runs:
-    // the shared chokepoint over `ConfiguredAdminBearerSecret`, then telemetry's own
-    // `admin_rejection_as_legacy_forbidden` mapping.
     #[tokio::test]
     async fn telemetry_admin_extractor_fails_closed_when_token_unset() {
         let secret = ConfiguredAdminBearerSecret {

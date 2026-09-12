@@ -383,9 +383,6 @@ pub async fn page(State(st): State<AppState>, OriginalUri(uri): OriginalUri) -> 
     }
 
     let boot = json!({ "cache": Value::Object(cache) });
-    // Escape the three characters that can break out of an inline <script> so
-    // stored, attacker-controlled event data cannot inject markup/JS (stored XSS).
-    // These \u escapes are valid JSON and parse back to the identical string.
     let boot_json = boot
         .to_string()
         .replace('<', "\\u003c")
@@ -1097,8 +1094,6 @@ fn normalize_base(raw: &str) -> String {
     }
 }
 
-// nginx strips the /telemetry/ prefix, so the page must re-declare its base for
-// the SPA's fetch/nav to resolve; window.__BASE__ is always defined (empty=root).
 fn base_head(base: &str) -> String {
     if base.is_empty() {
         "<script>window.__BASE__=\"\";</script>".to_string()

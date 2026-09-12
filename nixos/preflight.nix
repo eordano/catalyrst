@@ -4,15 +4,6 @@ let
   cfg = config.services.catalyrst;
   pf = cfg.preflight;
 
-  # Floors to START a node, not sizing guidance. They exist to catch the one
-  # failure an operator cannot diagnose from inside the box -- a machine too
-  # small to ever reach a walk-in -- at the moment it is still cheap to move.
-  #
-  # What actually grows is the blob store, and it is unbounded: this node's
-  # content mirror is ~331 GB against a ~10 GB database. A fresh node does NOT
-  # start there, because SYNC_ENABLED defaults to false and it then holds only
-  # what is deployed to it -- which is why a modest VPS is a reasonable place to
-  # begin and a bad place to enable sync.
   defaultFloors = {
     content-node = { diskGiB = 20; ramGiB = 2; cpus = 2; };
     full-realm = { diskGiB = 40; ramGiB = 4; cpus = 2; };
@@ -143,10 +134,6 @@ in
       };
     };
 
-    # Gate the content core on it, so an undersized host is refused at the unit
-    # that makes the node a node rather than surfacing later as unexplained
-    # failures. `requires` is unconditional because strictness is decided by the
-    # script's exit code: a non-strict run reports the shortfall and exits 0.
     systemd.services.catalyrst-sync = {
       after = [ "catalyrst-preflight.service" ];
       requires = [ "catalyrst-preflight.service" ];

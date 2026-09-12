@@ -29,13 +29,6 @@ export function parseVariantOverride(
   return variant;
 }
 
-// One HTTP request mints one sid. React-router runs a layout loader and its leaf
-// loader in parallel against the same request, so without this memo a cookieless
-// visitor gets a different sid per loader: two Set-Cookie headers race for the
-// browser, exposure is recorded against a sid the visitor never keeps, and their
-// later events land in the other arm. Keyed on the request's AbortSignal, which
-// is shared by every clone of one incoming request; the request object itself is
-// the fallback.
 const mintedSid = new WeakMap<object, { sid: string; created: boolean }>();
 
 function requestKey(request: Request): object {
@@ -58,14 +51,8 @@ export function sidLoader(request: Request) {
   const domain = sharedSidDomain(request);
   let headers: Headers | undefined;
   if (created) {
-    // Under the shared parent the FIRST mint is already wide-scope, so one sid
-    // serves every *.catalyst.example.com surface and no host-scope twin ever exists to
-    // shadow it later.
     headers = new Headers({ "Set-Cookie": serializeSidCookie(sid, { domain }) });
   } else if (domain && hasSplitSidCookie(request)) {
-    // A legacy narrow+wide pair: converge on this request's winner -- re-issued
-    // wide -- and expire the host-scope twin, so the next request has exactly
-    // one sid and attribution stops flipping with the browser's send order.
     headers = new Headers();
     headers.append("Set-Cookie", serializeSidCookie(sid, { domain }));
     headers.append("Set-Cookie", expireSidCookie());
@@ -88,9 +75,6 @@ export async function storyLoader(
 ) {
   const base = sidLoader(request);
   let assignment = fallback;
-  // A `?variant=` session is QA or tooling driving the surface, not a sample of
-  // it: it never counts as an exposure, so a preview or a screen-tour capture
-  // cannot move the readout it exists to inspect.
   let previewOverride = false;
   try {
     const story = parseStory(

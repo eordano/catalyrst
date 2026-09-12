@@ -36,9 +36,6 @@ pub struct AppStateInner {
     pub backend_label: &'static str,
     pub fetch_client: reqwest::Client,
 
-    // Abuse bounds for the unauthenticated public /translate (see config.rs).
-    // Carried on the state, not read in main.rs, so the deployed :5145 social
-    // bundle (which builds via build_state) enforces them too.
     pub translate_char_limit: usize,
     pub translate_batch_limit: usize,
     pub translate_timeout: Duration,

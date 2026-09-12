@@ -1,13 +1,5 @@
 import "./sceneadmins.css";
 
-/**
- * The list this picker renders comes from `GET /places/api/places?owner=`,
- * which is public and unauthenticated
- * (`catalyrst-places/src/handlers/places.rs:66-73`, `auth_address_optional`,
- * no gate). `owner` is a filter over public data, so the copy here talks about
- * "places registered to this address", never "your places" -- the address in
- * the URL is not a claim about who the viewer is and confers no authority.
- */
 export type OpPickablePlace = {
   id: string;
   title?: string | null;

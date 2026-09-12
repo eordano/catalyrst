@@ -134,11 +134,6 @@ pub async fn remove_member(
             Ok(s) => s,
             Err(e) => return e,
         };
-        // An absent target ranks as the lowest actionable tier (upstream #477): nothing can act on
-        // a non-member, so ranking against the real tier refused every caller and turned the
-        // always-204 no-op kick into a 401 -- and 204-vs-401 is what reveals who is in the
-        // community. An owner or moderator passes and the kick stays the no-op it was; anyone else
-        // gets the same refusal they would get for a member.
         let target_tier = target_standing.tier();
         let effective_target_tier = if is_member(target_tier) {
             target_tier
@@ -168,8 +163,6 @@ pub async fn remove_member(
     };
     if removed {
         crate::rest::events::note_member_left(&uuid.to_string(), &target);
-        // Kick branch only: upstream's leaveCommunity never touches the voice room, its
-        // kickMember does.
         if target != signer.as_str() {
             state
                 .evict_from_private_community_voice(uuid, &target)
@@ -343,8 +336,6 @@ pub async fn ban_member(
     if let Err(e) = map_db(tx.commit().await) {
         return e;
     }
-    // Outside the membership guard, exactly as upstream: a pre-emptive ban of a non-member can
-    // still be holding a seat in the room.
     state
         .evict_from_private_community_voice(uuid, &target)
         .await;

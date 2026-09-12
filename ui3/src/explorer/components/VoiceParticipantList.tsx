@@ -8,9 +8,6 @@ export default function VoiceParticipantList() {
   const { participants: roster, setVolume } = useVoiceParticipants();
   const blocked = useBridgeState((s) => s.friends.blocked);
 
-  // Backstop behind the engine-side filter in push_voice_participants: a roster push
-  // already replayed by the loader when the block landed must not name the blocked
-  // user either.
   const participants = useMemo(() => {
     const blockedSet = new Set(blocked.map((a) => a.toLowerCase()));
     return roster.filter((p) => !blockedSet.has(p.address.toLowerCase()));

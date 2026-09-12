@@ -111,7 +111,6 @@ export interface DeHierarchyPanelProps {
   contextMenu?: DeContextMenuProps | null;
   live?: boolean;
   onSelect?: (id: string | number) => void;
-  /** Double-click: swing the camera to a satellite view of the entity. */
   onFocus?: (id: string | number) => void;
   activeId?: string | number | null;
   onAddEntity?: () => void;

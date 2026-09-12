@@ -12,21 +12,13 @@ export function isEthAddress(addr: string): boolean {
   return ETH_ADDRESS_RE.test(addr.trim());
 }
 
-/** The generated {r,g,b} triple, softened: profile entities may omit channels. */
 const Color3Schema = NameColorSchema.partial().passthrough();
 
-/** `title` and `url` are both required on a profile `Link` (`@dcl/schemas`
- *  `platform/profile`), and a link with an empty href is not a link -- it was a
- *  row the parse never read, rendered as one the user could click. */
 const LinkSchema = z.object({
   title: z.string(),
   url: z.string(),
 });
 
-/** `wearables` is optional rather than defaulted: `passport.server.ts` counts
- *  it to decide whether a profile is empty, and `[]` would answer "this player
- *  wears nothing" for an `avatar` block that simply did not list any. Absent
- *  reaches the caller as `undefined`, which its `?? 0` reads as unknown. */
 const AvatarInfoSchema = z
   .object({
     wearables: z.array(z.string()).optional(),
@@ -37,13 +29,6 @@ const AvatarInfoSchema = z
   })
   .passthrough();
 
-/**
- * `name`, `description` and `hasClaimedName` are required on every `Avatar`
- * (`@dcl/schemas` `platform/profile`, `required: [... 'hasClaimedName']`).
- * `hasClaimedName` is the one that mattered: defaulted to `false` it told the
- * passport that a NAME holder had never claimed one, from a payload the parse
- * had not actually read.
- */
 export const AvatarSchema = z
   .object({
     name: z.string(),
@@ -68,9 +53,6 @@ export const AvatarSchema = z
   .passthrough();
 export type Avatar = z.infer<typeof AvatarSchema>;
 
-/** `avatars` is required on a `Profile`; a body without it is not a profile
- *  answer, and defaulting it to `[]` turned every broken read into "this
- *  wallet has no avatar". */
 export const ProfileEnvelopeSchema = z
   .object({
     avatars: z.array(AvatarSchema),

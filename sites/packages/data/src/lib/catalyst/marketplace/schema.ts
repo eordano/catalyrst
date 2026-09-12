@@ -11,8 +11,6 @@ import {
 } from "../generated-schemas/market";
 import { warnInvalid } from "../warn";
 
-// The generated schemas are the wire truth; everything below them here is
-// explicit post-parse normalization into the UI-facing shapes.
 export {
   CatalogItemSchema,
   CollectionSchema,
@@ -83,7 +81,6 @@ export function normalizeCatalogItem(w: WireCatalogItem): CatalogItem {
   };
 }
 
-/** An `/items` row carries no listing aggregates; those keys stay absent. */
 export function normalizeItem(w: WireItem): CatalogItem {
   return {
     id: w.id,
@@ -193,7 +190,6 @@ export type NftResult = {
   rental: unknown;
 };
 
-/** `/nfts` rows are one wire shape; these views differ only in what the UI reads. */
 export type EnsResult = NftResult;
 export type OwnedAsset = NftResult;
 
@@ -253,11 +249,6 @@ export function parseMarketEnvelope(raw: unknown): MarketEnvelope<unknown[]> {
   };
 }
 
-/**
- * `null` means the row failed validation against the wire schema; callers must
- * drop it (and decide whether "everything dropped" is an error), never render
- * an unvalidated row as if it were real.
- */
 export function parseCatalogItem(raw: unknown): CatalogItem | null {
   const cat = CatalogItemSchema.safeParse(raw);
   if (cat.success) return normalizeCatalogItem(cat.data);

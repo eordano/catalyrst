@@ -60,7 +60,6 @@ const UPDATE: GvProjectUpdate = {
   discourse_topic_id: 81422,
 };
 
-/** The update blobs the stories used to differ by, now pickable by name. */
 const UPDATES = {
   onTrack: UPDATE,
   atRisk: { ...UPDATE, health: "atRisk" },
@@ -89,11 +88,6 @@ const COMMENTS: GvUpdateComment[] = [
 
 type UpdateDetailProps = ComponentProps<typeof GvProjectUpdateDetail>;
 
-/**
- * The story args: the update blob is picked by name, everything else is a real prop.
- * The synthetic key must not shadow a real prop name -- `component:` is type-checked against
- * `ComponentType<UpdateStoryArgs>`, so these args have to stay assignable to the real props.
- */
 type UpdateStoryArgs = Omit<UpdateDetailProps, "update"> & { updateFixture: UpdateKey };
 
 const meta = {
@@ -130,12 +124,6 @@ const CATALOG_STATES: { label: string; props: UpdateDetailProps }[] = [
   { label: "Not found", props: { state: "error" } },
 ];
 
-/**
- * Every state rendered at once. `Default` flips between them with the `updateFixture` and `state`
- * controls; this story keeps all four in the render + a11y + visual-diff gates, since each is a
- * structurally different page (on-track health banner, at-risk health banner, loading spinner,
- * not-found panel).
- */
 export const Catalog: Story = {
   name: "Catalog (every state)",
   parameters: {
@@ -145,7 +133,6 @@ export const Catalog: Story = {
     <div className="gv" style={{ display: "flex", flexDirection: "column", gap: 48 }}>
       {CATALOG_STATES.map(({ label, props }) => (
         // <section> demotes each page's unnamed header/footer/aside to `generic`
-        // (HTML-AAM scoped mapping) so the stack does not invent extra landmarks.
         <section key={label}>
           <div style={{ padding: "8px 16px", opacity: 0.7 }}>{label}</div>
           <GvProjectUpdateDetail {...props} chrome={false} />

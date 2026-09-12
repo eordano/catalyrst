@@ -18,10 +18,6 @@ pub async fn require_signer(
     signed_fetch::verify_signed_fetch(headers, method, path, FIVE_MINUTES).await
 }
 
-// An unsigned read is anonymous, and so is a signed one that fails to verify:
-// a hand-written auth chain naming another wallet must not read as that
-// wallet. The gateway prefix keeps working because verification honours
-// x-original-path.
 pub async fn optional_signer(headers: &HeaderMap, method: &str, path: &str) -> Option<Signer> {
     headers.get(format!("{AUTH_CHAIN_HEADER_PREFIX}0"))?;
     match signed_fetch::verify_signed_fetch(headers, method, path, FIVE_MINUTES).await {

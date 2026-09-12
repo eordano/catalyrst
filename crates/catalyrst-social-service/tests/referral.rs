@@ -1,6 +1,3 @@
-//! Route tests for /v1/referral-progress: the zero-activity stats shape, the
-//! unauthenticated gate, and the POST/PATCH attribution flow.
-
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -130,8 +127,6 @@ async fn get_reports_zero_activity_shape() {
     assert_eq!(status, 200);
     assert_eq!(body, expected);
 
-    // The viewed write-back stores the accepted count (0), so a second read
-    // reports the same zero-activity shape.
     let (status, body) = hit(&app, "GET", Some(&user), None).await;
     assert_eq!(status, 200);
     assert_eq!(body, expected);
@@ -179,13 +174,11 @@ async fn create_and_signed_up_flow() {
 
     let refer = json!({ "referrer": addr(&referrer) });
 
-    // Create, then a same-referrer duplicate: both 204 (retry-safe attribution).
     let (status, _) = hit(&app, "POST", Some(&invited), Some(refer.clone())).await;
     assert_eq!(status, 204);
     let (status, _) = hit(&app, "POST", Some(&invited), Some(refer.clone())).await;
     assert_eq!(status, 204);
 
-    // A different referrer for the same invited user: first-wins conflict.
     let (status, v) = hit(
         &app,
         "POST",
@@ -218,7 +211,6 @@ async fn create_and_signed_up_flow() {
     .await;
     assert_eq!(status, 400);
 
-    // PATCH walks pending -> signed_up once; the repeat reports the invalid status.
     let (status, _) = hit(&app, "PATCH", Some(&invited), None).await;
     assert_eq!(status, 204);
     let (status, v) = hit(&app, "PATCH", Some(&invited), None).await;
@@ -235,7 +227,6 @@ async fn create_and_signed_up_flow() {
     assert_eq!(status, 404);
     assert!(v["message"].as_str().unwrap().contains("not found"), "{v}");
 
-    // signed_up is not accepted: the referrer's stats stay at zero.
     let (status, v) = hit(&app, "GET", Some(&referrer), None).await;
     assert_eq!(status, 200);
     assert_eq!(v["invitedUsersAccepted"], 0);

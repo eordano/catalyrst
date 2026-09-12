@@ -32,8 +32,6 @@ const WORLD: &str = "gate.dcl.eth";
 const LIVEKIT_KEY: &str = "devkey";
 const LIVEKIT_SECRET: &str = "devsecret";
 
-// `ens.owner_id` deliberately holds the registrar caller rather than `owner`:
-// that is what the squid records, so ownership must resolve through `nft`.
 async fn squid_fixture(pool: &PgPool, owner: &str) {
     sqlx::query("CREATE SCHEMA squid_marketplace")
         .execute(pool)
@@ -178,13 +176,10 @@ fn deploy_multipart_with_thumbnail(
 }
 
 /// Mints what LiveKit actually sends: an HS256 JWT over the body digest, bounded by
-/// `exp`/`nbf`.
-///
-/// The lifetime claims are not decoration. `catalyrst_livekit::verify_webhook_token`
-/// requires `exp` and refuses a token without one, because an unexpirable webhook
-/// credential is replayable forever -- so a fixture that omits `exp` is not a valid
-/// webhook, and a 401 for it is the correct answer. Sign with `secret` so a caller
-/// can also mint the wrong-key token the 401 case needs.
+/// `exp`/`nbf`. The lifetime claims are load-bearing --
+/// `catalyrst_livekit::verify_webhook_token` refuses a token without `exp`, since an
+/// unexpirable webhook credential is replayable forever -- so a fixture omitting `exp`
+/// is not a valid webhook. Sign with `secret` to mint the wrong-key token a 401 needs.
 fn webhook_jwt(body: &[u8], secret: &str) -> String {
     let now = chrono::Utc::now().timestamp() as u64;
     let header = URL_SAFE_NO_PAD.encode(br#"{"alg":"HS256","typ":"JWT"}"#);
@@ -202,26 +197,11 @@ fn webhook_jwt(body: &[u8], secret: &str) -> String {
     format!("{}.{}", signing_input, sig)
 }
 
-// The federated half of the surface.
-//
-// With federation off -- the state the rest of this file runs in, and the state most
-// deployments run in -- all four /federation/worlds/* routes answer 503 before they
-// read anything. A gate that only ever saw the 503 would leave every 200 body (the
-// peer list, the mirror listing, the refresh report, the veto ack) unvalidated
-// against its spec schema, which is coverage in the tally and nothing on the wire.
-// So the suite raises a second app, federated against a stub peer on loopback, and
-// drives both halves into the same Gate.
-//
-// The stub peer is only ever a source of *content* claims. It is never consulted for
-// authority, and nothing below reads an owner out of its payload.
-
 const FED_PEER_ID: &str = "gate-peer.dclone.org";
 const FED_PEER_WORLD: &str = "mirrored.dcl.eth";
 
 fn fed_config() -> WorldsFedConfig {
     WorldsFedConfig {
-        // Never opened: the peer set below is constructed directly, so admission is
-        // exercised without making this suite depend on a file on disk.
         peers_file: Some(std::path::PathBuf::from("/nonexistent/gate-peers.toml")),
         poll_interval_secs: 300,
         max_response_bytes: 4 * 1024 * 1024,
@@ -230,9 +210,8 @@ fn fed_config() -> WorldsFedConfig {
     }
 }
 
-/// A peer publishing one world, with the ownership claim a real peer sends on every
-/// entry -- present precisely so the mirror's refusal to propagate it is exercised by
-/// the schema check rather than assumed.
+/// A peer publishing one world, carrying the ownership claim a real peer sends on every
+/// entry, so the mirror's refusal to propagate it is exercised rather than assumed.
 async fn start_stub_peer() -> String {
     let body = json!({
         "worlds": [{
@@ -335,9 +314,6 @@ async fn every_spec_route_answers_its_contract() {
     let state = build_state(
         scratch.pool.clone(),
         contents_dir.clone(),
-        // Federation off. These suites assert the *unfederated* behaviour of every
-        // route they touch, and that behaviour must be identical with the mirror
-        // compiled in -- which is exactly what leaving this at the default proves.
         WorldsFedConfig::default(),
         WorldsFederationPeers::NotConfigured,
     );
@@ -353,9 +329,6 @@ async fn every_spec_route_answers_its_contract() {
         gate.waive_error(m, p, "added 2026-08-19; contract coverage owed");
     }
 
-    // The same spec, served by a second app that *is* federated. Both routers come
-    // from `api_router_with_spec`, so every case below is checked against the one
-    // spec this gate was built from.
     let stub_peer_url = start_stub_peer().await;
     let fed_cfg = fed_config();
     let fed_peers = WorldsFederationPeers::Admitted {
@@ -852,10 +825,6 @@ async fn every_spec_route_answers_its_contract() {
             .expect(400),
     )
     .await;
-    // A well-formed token signed with the wrong secret. Pinned separately from the
-    // missing-header 400 because it is the branch that decides whether anything that
-    // reaches this route is LiveKit, and an unpinned 401 is how a fixture drifts into
-    // asserting nothing.
     let forged = webhook_jwt(&join_body, "not-the-livekit-secret");
     gate.hit(
         &app,
@@ -1073,14 +1042,6 @@ async fn every_spec_route_answers_its_contract() {
     )
     .await;
 
-    // --- federation ---------------------------------------------------------
-    //
-    // Ordered: refresh first, because it is what puts a row in the mirror, and the
-    // mirror listing and the veto both need one to answer 200 over a non-empty body.
-
-    // Unauthenticated first, so the 403 is recorded before the fixture ever holds a
-    // populated mirror -- an admin route whose refusal is only ever observed after the
-    // happy path has run is a refusal nobody watched.
     gate.hit(
         &fed_app,
         Case::new("post", "/admin/federation/worlds/refresh").expect(403),
@@ -1175,8 +1136,6 @@ async fn every_spec_route_answers_its_contract() {
         .expect(404),
     )
     .await;
-    // `~` is a legal URI character, so this reaches the handler unmangled and is
-    // refused on its shape rather than by the router.
     gate.hit(
         &fed_app,
         Case::new(

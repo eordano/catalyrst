@@ -44,17 +44,14 @@ describe("clampHistoryLimit", () => {
 describe("bucketize \u{2014} a gap is not a zero", () => {
   it("emits null buckets across a deliberate 40-minute hole and exactly one gap band", () => {
     const before = rowsEvery5Min("2026-07-20T00:00:00.000Z", [2, 3, 1]);
-    // ...40 minutes of nothing (8 cadence buckets)...
     const after = rowsEvery5Min("2026-07-20T00:50:00.000Z", [4, 5]);
-    const h = bucketize([...after, ...before], CADENCE); // deliberately unsorted
+    const h = bucketize([...after, ...before], CADENCE);
 
-    // samples at 00:00 / 00:05 / 00:10, then nothing until 00:50 / 00:55
     expect(h.points).toHaveLength(12);
     const nulls = h.points.filter((p) => p.value === null);
     expect(nulls).toHaveLength(7);
     expect(h.gapBands).toEqual([{ fromIndex: 3, toIndex: 9 }]);
 
-    // no interpolation and no zero-filling
     expect(h.points.map((p) => p.value)).toEqual([
       2, 3, 1, null, null, null, null, null, null, null, 4, 5,
     ]);

@@ -1,9 +1,7 @@
-//! Regression guard for item 2: get_identity consumption must be atomic.
-//! Two concurrent GETs for the same identity id must yield exactly one 200
-//! (the winner) and one 404 (the loser). Pre-change (clone-then-consume) both
-//! could observe the record and both succeed; post-change DashMap::remove picks
-//! exactly one winner. Deterministic post-change; a probabilistic falsifier
-//! pre-change.
+//! get_identity consumption must be atomic: two concurrent GETs for the same
+//! identity id must yield exactly one 200 (the winner) and one 404 (the loser).
+//! DashMap::remove picks exactly one winner; a clone-then-consume would let both
+//! observe the record and both succeed.
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
@@ -22,7 +20,6 @@ async fn concurrent_get_identity_consumes_exactly_once() {
     let id = "3fa85f64-5717-4562-b3fc-2c963f66afa6".to_string();
 
     for _round in 0..500u32 {
-        // Wide chain widens the pre-change clone window between observe and consume.
         let chain: Vec<serde_json::Value> = (0..200)
             .map(|i| serde_json::json!({"type":"ECDSA_SIGNED_ENTITY","payload":format!("p-{i}")}))
             .collect();

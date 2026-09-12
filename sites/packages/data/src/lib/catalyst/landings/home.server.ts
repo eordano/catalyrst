@@ -76,14 +76,6 @@ export function loadHomeContent(): HomeContent {
   return parseHomeContent(HOME_CONTENT);
 }
 
-/**
- * A rail whose read failed is REMOVED from `content.rails`, not left empty.
- * Each loader below answers `null` for "we could not ask" and a list for "we
- * asked" -- collapsing the two would render the "Jump Into What's Happening"
- * rail with nothing under it when the events service is merely unreachable,
- * which reads as nothing happening. `unreadable` names the dropped rails so a
- * caller can say so.
- */
 export async function loadHome(
   opts: GetOptions = {},
 ): Promise<{ content: HomeContent; live: boolean; unreadable: string[] }> {
@@ -116,7 +108,6 @@ export async function loadHome(
   return { content, live, unreadable };
 }
 
-/** `null` when every list read failed, so we know nothing about what is on. */
 async function loadRailEvents(opts: GetOptions): Promise<Event[] | null> {
   const results = await Promise.all(
     EVENT_LISTS.map((list) =>

@@ -8,11 +8,6 @@
 let
   cfg = config.services.catalyrst;
   d = import ./helpers.nix cfg;
-  # contentPackage is the one package option every profile sets (content-node
-  # needs nothing else); bundlesPackage is null under content-node, so it
-  # can't be the migrations source here even though colmena's single-host
-  # config always had both. Falls back to the same inputs.catalyrst.packages
-  # path catalyrst-sync.nix uses when a host leaves contentPackage unset.
   contentPkg =
     if cfg.contentPackage != null then
       cfg.contentPackage

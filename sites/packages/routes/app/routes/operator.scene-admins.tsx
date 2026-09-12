@@ -23,28 +23,6 @@ const FALLBACK: Assignment = {
   experimentKey: "operator_scene_admins_wizard",
 };
 
-/**
- * Scene admins -- BLOCK for the grants, public read for the place list.
- *
- * The grant/list/revoke checks in `catalyrst-comms` are real and correct
- * (`handlers/scene_admin.rs:56-62`, `:123-131`, `:145-157` ->
- * `ports/scene_perms.rs:16-114`, denying on pool failure at `:27-34`), but they
- * are not reachable from this node: nginx has no `location` for
- * `/scene-admin`, and the correct public path `/comms/scene-admin` is used
- * nowhere. Adding that edge route is a deployment change and is deliberately
- * not part of this UI change.
- *
- * So the wizard is not rendered at all. `scene-admins.server.ts` used to
- * hardcode `grants: []`, which displayed as "this place has no scene admins"
- * next to Add and Revoke buttons that could never work. The page now shows the
- * server-side check it is subject to, why it cannot be reached, and disabled
- * controls carrying that reason.
- *
- * `?owner=` survives as what it actually is: a filter over the public places
- * list (`catalyrst-places/src/handlers/places.rs:66-73`, `auth_address_optional`,
- * no gate). It is labelled as such, and the `DEMO_OWNER` fallback is surfaced
- * as a demo address rather than as the viewer.
- */
 export async function loader({ request }: Route.LoaderArgs) {
   const url = new URL(request.url);
   const address =

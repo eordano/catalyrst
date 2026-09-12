@@ -35,15 +35,10 @@ function psqlJson(sql) {
   });
 }
 
-// The systemd sandbox must ALLOW localhost (else nginx cannot reach this
-// listener), which re-permits loopback egress, so the SSRF guard against an
-// attacker-influenced tokenURI lives here: refuse any hop whose host is a
-// loopback/private/link-local literal or resolves to `localhost`. link-local
-// and RFC1918 are still denied at the network layer too (defense in depth).
 function hostIsInternal(rawHost) {
   const h = rawHost.replace(/^\[|\]$/g, '').toLowerCase();
   if (h === 'localhost' || h.endsWith('.localhost') || h === '') return true;
-  if (isIP(h) === 0) return false; // a name we won't pre-resolve; net layer guards it
+  if (isIP(h) === 0) return false;
   return (
     /^127\./.test(h) ||
     h === '::1' ||

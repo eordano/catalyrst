@@ -55,8 +55,6 @@ const RARITY_RANK: Record<string, number> = {
   unique: 7, mythic: 6, legendary: 5, exotic: 4, epic: 3, rare: 2, uncommon: 1, common: 0, base: 0,
 };
 
-// Windows the page numbers around the current page (first, last, current  1) so a
-// large catalog doesn't spam the pager with dozens of buttons.
 function pageWindow(current: number, total: number): (number | "\u{2026}")[] {
   if (total <= 7) return Array.from({ length: total }, (_, i) => i);
   const set = new Set(
@@ -155,8 +153,6 @@ export default function Backpack({
     return map;
   }, [equippedWearables, catalog]);
 
-  // Only the categories actually present in the catalog get a rail tile (plus the
-  // always-on body attributes) -- once the catalog is loaded, hide the rest.
   const visibleSlots = useMemo(() => {
     if (loading || catalog.length === 0) return SLOTS;
     const present = new Set(catalog.map((w) => w.category));
@@ -405,8 +401,6 @@ export default function Backpack({
     }
   }
 
-  // Hover/focus preview: shows the swap on the live avatar without persisting it, so
-  // browsing the grid never commits -- only an explicit Equip action does.
   function previewSetFor(w: Wearable): string[] {
     if (kind !== "wearables" || w.category === "body_shape" || equippedSet.has(w.urn))
       return equippedWearables;

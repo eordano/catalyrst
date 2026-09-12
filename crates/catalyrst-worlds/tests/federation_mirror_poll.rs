@@ -1,17 +1,11 @@
 //! The poll path, driven end to end against a real HTTP peer and a real database.
+//! Each test points a genuinely admitted peer at a stub that lies the way a compromised
+//! or broken peer would: claiming ownership, naming worlds `../../etc/passwd`, sending
+//! ten megabytes, answering 500, going away mid-run, publishing a name we hold locally.
 //!
-//! Every test here points a genuinely admitted peer at a stub server we control and
-//! asserts what the mirror did with what came back. The stubs lie in the ways a
-//! compromised or merely broken peer would: they claim ownership, they name worlds
-//! `../../etc/passwd`, they send ten megabytes, they answer 500, they go away
-//! mid-run, and they publish a name we hold locally.
-//!
-//! **Reporting discipline.** `ScratchSchema::create` returns `None` when
-//! `CATALYRST_WORLDS_TEST_PG` is unset, and a fully skipped run of this file is
-//! textually identical to a real one -- same "N passed", same "ok". Every test that
-//! needs the database therefore calls [`skipped`] on the way out, which names on
-//! stderr the property that went unverified. A pass tally from this file is not
-//! evidence; the stderr is.
+//! `ScratchSchema::create` returns `None` when `CATALYRST_WORLDS_TEST_PG` is unset, and
+//! a fully skipped run is textually identical to a real one, so every DB-dependent test
+//! calls [`skipped`] on the way out. The pass tally is not evidence; the stderr is.
 
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -28,8 +22,6 @@ use catalyrst_worlds::fed::config::WorldsFedConfig;
 use catalyrst_worlds::fed::peers::{AdmissionOutcome, AdmittedPeer, WorldsFederationPeers};
 use catalyrst_worlds::fed::poll::WorldsMirror;
 use serde_json::json;
-
-// Harness
 
 async fn setup_db() -> Option<ScratchSchema> {
     let scratch = ScratchSchema::create("CATALYRST_WORLDS_TEST_PG", "cg_worlds_fed_poll").await?;
@@ -49,8 +41,7 @@ async fn setup_db() -> Option<ScratchSchema> {
     Some(scratch)
 }
 
-/// Say, on stderr, which property went unchecked. A skip is not a pass, and this is
-/// the line that makes the difference legible in a log.
+/// Say, on stderr, which property went unchecked: a skip is not a pass.
 fn skipped(property: &str) {
     eprintln!(
         "SKIPPED (no CATALYRST_WORLDS_TEST_PG): unverified \u{2014} {property}. \
@@ -62,20 +53,17 @@ fn skipped(property: &str) {
 /// could lie.
 #[derive(Clone)]
 enum PeerBehaviour {
-    /// A well-formed listing, verbatim.
     Body(String),
-    /// A well-formed listing, but only on the Nth request onward. Before that: 500.
-    /// Used to prove that a failure retains prior rows and a later success replaces
-    /// them.
+    /// A well-formed listing, but only from the Nth request onward; 500 before that.
+    /// Proves a failure retains prior rows and a later success replaces them.
     FailsThenServes {
         after: usize,
         body: String,
     },
     Status(u16),
-    /// 200 with a non-JSON content type. The listing bytes are valid JSON, so this
-    /// isolates the content-type gate from the parser.
+    /// 200 with a non-JSON content type. The bytes are valid JSON, so this isolates the
+    /// content-type gate from the parser.
     WrongContentType(String),
-    /// A body far larger than the configured cap.
     Oversized(usize),
     NotJson,
 }
@@ -171,10 +159,6 @@ fn fed_config(max_response_bytes: u64) -> WorldsFedConfig {
         poll_interval_secs: 300,
         max_response_bytes,
         max_worlds_per_peer: 10_000,
-        // Required: this crate serves plain HTTP with no local TLS terminator, so a
-        // two-node functional test cannot otherwise run. It does NOT exercise the
-        // pinning path -- tests/federation_peer_admission.rs covers that separately
-        // against a self-signed root.
         allow_insecure_loopback_peers: true,
     }
 }
@@ -239,14 +223,9 @@ async fn mirrored_names(pool: &sqlx::PgPool, peer: &str) -> Vec<String> {
 const PEER_A: &str = "peer-a.dclone.org";
 const PEER_B: &str = "peer-b.dclone.org";
 
-// The collision path
-
-/// The headline collision case: one ENS name, held locally and claimed by a peer.
-///
-/// Local wins, and it wins *structurally* rather than by a comparison somebody has to
-/// remember to write. The local row keeps its owner, the mirrored row is a separate
-/// row in a separate table, `/worlds` is unchanged, and the collision is reported so
-/// an operator can see it happened.
+/// One ENS name, held locally and claimed by a peer. Local wins *structurally* rather
+/// than by a comparison someone has to remember: the local row keeps its owner, the
+/// mirrored row is separate, `/worlds` is unchanged, and the collision is reported.
 #[tokio::test]
 async fn a_name_held_locally_and_claimed_by_a_peer_resolves_local_wins_and_is_reported() {
     let Some(scratch) = setup_db().await else {
@@ -281,7 +260,6 @@ async fn a_name_held_locally_and_claimed_by_a_peer_resolves_local_wins_and_is_re
         "the probe ran, so there is no reason it could not"
     );
 
-    // The LOCAL row is untouched: same owner, still exactly one row.
     let local_owner: Option<String> =
         sqlx::query_scalar("SELECT owner FROM worlds WHERE lower(name) = 'collide.dcl.eth'")
             .fetch_one(&scratch.pool)
@@ -294,7 +272,6 @@ async fn a_name_held_locally_and_claimed_by_a_peer_resolves_local_wins_and_is_re
         .unwrap();
     assert_eq!(local_rows, 1, "the mirror did not add a row to `worlds`");
 
-    // The REMOTE row exists, separately, under the peer.
     assert_eq!(
         mirrored_names(&scratch.pool, PEER_A).await,
         vec![
@@ -303,7 +280,6 @@ async fn a_name_held_locally_and_claimed_by_a_peer_resolves_local_wins_and_is_re
         ]
     );
 
-    // And the mirrored row carries no ownership claim, because there is no column.
     let has_owner_column: bool = sqlx::query_scalar(
         "SELECT EXISTS (SELECT 1 FROM information_schema.columns \
          WHERE table_name = 'remote_worlds' AND column_name = 'owner')",
@@ -317,21 +293,17 @@ async fn a_name_held_locally_and_claimed_by_a_peer_resolves_local_wins_and_is_re
 }
 
 /// The other half of the collision path: what a poll says when it **could not look**.
+/// The probe decides nothing, so its failure does not fail the poll -- but it used to
+/// be swallowed into `Vec::new()`, the identical value a clean probe produces, and that
+/// reached the operator as "no collisions": a query failure rendered as a measurement.
 ///
-/// The probe reads the local `worlds` table after the mirror rows are already written,
-/// and it decides nothing -- so its failure correctly does not fail the poll. It used to
-/// be swallowed into `Vec::new()`, which is the identical value a clean probe produces
-/// on a server with no collisions, and that empty list then travelled all the way to the
-/// operator as "no collisions". A query failure rendered as a measurement.
-///
-/// Three layers are asserted here because the lie had to be stopped at all three:
-/// the in-process report, the stored status row, and (in
+/// Three layers are asserted because the lie had to be stopped at all three: the
+/// in-process report, the stored status row, and (in
 /// `tests/federation_mirror_routes.rs`) the JSON.
 ///
-/// The probe is broken by dropping the table it reads. That is heavy-handed on purpose:
-/// it produces a genuine `sqlx::Error` from the real query rather than a stub of one,
-/// and it leaves `remote_worlds` -- the table the poll writes -- untouched, so the poll
-/// itself still succeeds exactly as it would in production.
+/// The probe is broken by dropping the table it reads, deliberately: that yields a
+/// genuine `sqlx::Error` from the real query and leaves `remote_worlds` untouched, so
+/// the poll itself still succeeds as it would in production.
 #[tokio::test]
 async fn a_probe_that_could_not_run_reports_unknown_rather_than_no_collisions() {
     let Some(scratch) = setup_db().await else {
@@ -345,7 +317,6 @@ async fn a_probe_that_could_not_run_reports_unknown_rather_than_no_collisions() 
     let peer = admit(PEER_A, &stub.url(), &cfg);
     let mirror = WorldsMirror::new(scratch.pool.clone(), cfg, &registry(vec![peer.clone()]));
 
-    // A clean poll first, so the two states can be compared rather than described.
     let clean = mirror.poll_peer(&peer).await.expect("the clean poll");
     assert_eq!(
         clean.collisions.checked(),
@@ -363,7 +334,6 @@ async fn a_probe_that_could_not_run_reports_unknown_rather_than_no_collisions() 
     assert!(clean_success.is_some());
     assert_eq!(clean_error, None, "a clean poll records no error");
 
-    // Now break the one table the probe reads.
     sqlx::query("DROP TABLE worlds CASCADE")
         .execute(&scratch.pool)
         .await
@@ -374,7 +344,6 @@ async fn a_probe_that_could_not_run_reports_unknown_rather_than_no_collisions() 
         .await
         .expect("a probe failure must not fail a poll that already wrote its rows");
 
-    // 1. The report. Absence of knowledge, with the reason attached.
     assert_eq!(
         report.collisions.checked(),
         None,
@@ -394,16 +363,12 @@ async fn a_probe_that_could_not_run_reports_unknown_rather_than_no_collisions() 
         report.collisions
     );
 
-    // The poll itself still did its job: the rows are fresh.
     assert_eq!(report.worlds_observed, 1);
     assert_eq!(
         mirrored_names(&scratch.pool, PEER_A).await,
         vec!["probe.dcl.eth".to_string()]
     );
 
-    // 2. The stored status. `last_success_at` advances, because the fetch and the write
-    //    succeeded -- and `last_error` is set anyway, because one thing about those rows
-    //    went unchecked. Neither field alone can say that.
     let (success, last_error): (Option<chrono::DateTime<chrono::Utc>>, Option<String>) =
         sqlx::query_as(
             "SELECT last_success_at, last_error FROM remote_peer_status WHERE peer_id = $1",
@@ -464,7 +429,6 @@ async fn two_peers_claiming_one_name_are_two_rows_and_a_poll_touches_only_its_ow
         vec!["b-only.dcl.eth".to_string(), "shared.dcl.eth".to_string()]
     );
 
-    // Re-poll A with a shorter listing: A shrinks, B is untouched.
     let mut stub_a2 = StubPeer::start(PeerBehaviour::Body(listing(&["a-only.dcl.eth"]))).await;
     let cfg2 = fed_config(4 * 1024 * 1024);
     let peer_a2 = admit(PEER_A, &stub_a2.url(), &cfg2);
@@ -484,11 +448,8 @@ async fn two_peers_claiming_one_name_are_two_rows_and_a_poll_touches_only_its_ow
     scratch.drop().await;
 }
 
-// The lying peer
-
-/// One stub, every lie at once. Ownership claims are dropped because there is nowhere
-/// for them to land; a name shaped like a path traversal is refused and counted; the
-/// good rows survive both.
+/// One stub, every lie at once: ownership claims have nowhere to land, a name shaped
+/// like a path traversal is refused and counted, and the good rows survive both.
 #[tokio::test]
 async fn a_lying_peer_loses_its_claims_and_its_bad_rows_without_losing_its_good_ones() {
     let Some(scratch) = setup_db().await else {
@@ -532,7 +493,6 @@ async fn a_lying_peer_loses_its_claims_and_its_bad_rows_without_losing_its_good_
         ]
     );
 
-    // Nothing anywhere in the mirrored row mentions the wallet the peer named.
     let dumped: String =
         sqlx::query_scalar("SELECT coalesce(string_agg(r::text, ' '), '') FROM remote_worlds r")
             .fetch_one(&scratch.pool)
@@ -570,12 +530,8 @@ async fn a_duplicate_name_in_one_listing_does_not_abort_the_poll() {
     scratch.drop().await;
 }
 
-// Every failure mode: stale, never empty
-
-/// The property this whole file exists for. For each way a peer can fail, the previous
-/// rows survive and the peer is recorded as failed -- because an empty listing is
-/// indistinguishable from "this peer holds no worlds", and the mirror must never make
-/// those two look the same.
+/// For each way a peer can fail, the previous rows survive and the peer is recorded as
+/// failed: an empty listing is indistinguishable from "this peer holds no worlds".
 #[tokio::test]
 async fn every_peer_failure_retains_the_previous_rows_and_is_recorded_as_stale() {
     let Some(scratch) = setup_db().await else {
@@ -585,7 +541,6 @@ async fn every_peer_failure_retains_the_previous_rows_and_is_recorded_as_stale()
         );
     };
 
-    // A good poll first, so there is something to lose.
     let good = StubPeer::start(PeerBehaviour::Body(listing(&["kept.dcl.eth"]))).await;
     let cfg = fed_config(4 * 1024 * 1024);
     let peer = admit(PEER_A, &good.url(), &cfg);
@@ -603,7 +558,6 @@ async fn every_peer_failure_retains_the_previous_rows_and_is_recorded_as_stale()
             .unwrap();
     assert!(first_success.is_some());
 
-    // Each failure mode, against the same peer id, with the good rows already stored.
     let cases: Vec<(&str, PeerBehaviour, &str)> = vec![
         (
             "HTTP 500",
@@ -634,7 +588,6 @@ async fn every_peer_failure_retains_the_previous_rows_and_is_recorded_as_stale()
 
     for (label, behaviour, expected_fragment) in cases {
         let mut stub = StubPeer::start(behaviour).await;
-        // A deliberately small cap so the oversized case is cheap to produce.
         let cfg = fed_config(64 * 1024);
         let peer = admit(PEER_A, &stub.url(), &cfg);
         let mirror = WorldsMirror::new(scratch.pool.clone(), cfg, &registry(vec![peer.clone()]));
@@ -674,7 +627,6 @@ async fn every_peer_failure_retains_the_previous_rows_and_is_recorded_as_stale()
         stub.stop();
     }
 
-    // And an unreachable peer: the stub is gone entirely.
     let mut dead = StubPeer::start(PeerBehaviour::Body(listing(&["gone.dcl.eth"]))).await;
     let dead_url = dead.url();
     dead.stop();
@@ -696,8 +648,8 @@ async fn every_peer_failure_retains_the_previous_rows_and_is_recorded_as_stale()
     scratch.drop().await;
 }
 
-/// A peer that has never answered has no rows *and* no `last_success_at`. The two
-/// facts together are what stop a consumer reading "no worlds" out of "no contact".
+/// A peer that has never answered has no rows *and* no `last_success_at`. Together the
+/// two stop a consumer reading "no worlds" out of "no contact".
 #[tokio::test]
 async fn a_peer_that_never_answered_is_distinguishable_from_a_peer_with_no_worlds() {
     let Some(scratch) = setup_db().await else {
@@ -708,14 +660,12 @@ async fn a_peer_that_never_answered_is_distinguishable_from_a_peer_with_no_world
     };
     let cfg = fed_config(4 * 1024 * 1024);
 
-    // Peer A: never answers.
     let mut dead = StubPeer::start(PeerBehaviour::Body(String::new())).await;
     let dead_url = dead.url();
     dead.stop();
     tokio::time::sleep(std::time::Duration::from_millis(150)).await;
     let peer_a = admit(PEER_A, &dead_url, &cfg);
 
-    // Peer B: answers, honestly, that it holds nothing.
     let empty = StubPeer::start(PeerBehaviour::Body(
         json!({ "worlds": [], "total": 0 }).to_string(),
     ))
@@ -733,11 +683,9 @@ async fn a_peer_that_never_answered_is_distinguishable_from_a_peer_with_no_world
         .await
         .expect("the empty peer polls fine");
 
-    // Both have zero rows...
     assert!(mirrored_names(&scratch.pool, PEER_A).await.is_empty());
     assert!(mirrored_names(&scratch.pool, PEER_B).await.is_empty());
 
-    // ...and are not the same state.
     let rows: Vec<(
         String,
         Option<chrono::DateTime<chrono::Utc>>,
@@ -803,8 +751,6 @@ async fn a_recovered_peer_replaces_its_stale_rows() {
     scratch.drop().await;
 }
 
-// The local operator veto
-
 /// `hidden_since` is ours. The poller's DELETE spares vetoed rows and its UPDATE arm
 /// does not name the column, so a peer cannot un-hide itself by re-listing.
 #[tokio::test]
@@ -823,8 +769,6 @@ async fn a_vetoed_row_survives_a_poll_and_stays_out_of_the_published_listing() {
     let mirror = WorldsMirror::new(scratch.pool.clone(), cfg, &peers);
     mirror.poll_peer(&peer).await.expect("first poll");
 
-    // The operator-facing constructor: the same shape rules, and no way to reach
-    // `resolve_world_owner` with the result.
     let name =
         catalyrst_worlds::fed::names::RemoteWorldName::from_operator_veto_path("hidden.dcl.eth")
             .expect("a plain name");
@@ -837,7 +781,6 @@ async fn a_vetoed_row_survives_a_poll_and_stays_out_of_the_published_listing() {
         "the row exists, so the veto reports that it landed"
     );
 
-    // Re-poll: the peer re-lists both, and cannot revoke the veto.
     mirror.poll_peer(&peer).await.expect("second poll");
     let still_hidden: Option<chrono::DateTime<chrono::Utc>> = sqlx::query_scalar(
         "SELECT hidden_since FROM remote_worlds WHERE peer_id = $1 AND world_name = $2",
@@ -861,7 +804,6 @@ async fn a_vetoed_row_survives_a_poll_and_stays_out_of_the_published_listing() {
     assert_eq!(published.len(), 1);
     assert_eq!(published[0].name.as_peer_reported_str(), "shown.dcl.eth");
 
-    // And the veto is reversible by us.
     assert!(mirror
         .store()
         .set_hidden(peer.peer_id(), &name, false)
@@ -877,10 +819,8 @@ async fn a_vetoed_row_survives_a_poll_and_stays_out_of_the_published_listing() {
     scratch.drop().await;
 }
 
-// Caps
-
-/// The row cap truncates and *says so*. A shorter list presented as complete would be
-/// the same lie as an empty list presented as "no worlds".
+/// The row cap truncates and *says so*: a shorter list presented as complete is the
+/// same lie as an empty list presented as "no worlds".
 #[tokio::test]
 async fn the_row_cap_marks_the_peer_truncated_rather_than_silently_shortening() {
     let Some(scratch) = setup_db().await else {
@@ -913,9 +853,8 @@ async fn the_row_cap_marks_the_peer_truncated_rather_than_silently_shortening() 
     scratch.drop().await;
 }
 
-/// The URL the poller builds comes from the registry and nothing else. A peer response
-/// cannot steer an outbound request because no response value reaches a URL
-/// constructor -- there is no parameter that could carry one.
+/// The URL the poller builds comes from the registry and nothing else: no peer response
+/// value reaches a URL constructor, because no parameter could carry one.
 #[tokio::test]
 async fn the_listing_url_is_built_from_the_registry_and_hits_only_the_registered_host() {
     let cfg = fed_config(4 * 1024 * 1024);

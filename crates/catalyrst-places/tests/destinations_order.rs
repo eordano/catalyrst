@@ -113,8 +113,6 @@ async fn destinations_float_highlighted_then_ranking_above_order_by() {
     scratch.drop().await;
 }
 
-// Upstream places #878: the feed's tail ties on every sort column, so an untied
-// ORDER BY let the plan -- which changes with the LIMIT -- pick the page.
 #[tokio::test]
 async fn a_page_carries_the_same_rows_whatever_the_limit_is() {
     let Some(scratch) = setup("cg_places_destorder_total").await else {

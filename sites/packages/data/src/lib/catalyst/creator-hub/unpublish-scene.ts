@@ -5,15 +5,6 @@ import type { AuthIdentity } from "../../auth/types";
 
 export type ParcelsPermission = { parcels: string[]; total: number };
 
-/**
- * null when the parcel allow-list could not be read.
- *
- * `{ parcels: [], total: 0 }` is a real answer with a specific meaning: the
- * wallet holds the permission world-wide rather than per parcel, which
- * `creator-hub.world-settings` reads as "may unpublish every scene". A failed
- * read used to arrive as exactly that, handing a collaborator the widest reading
- * of a permission nobody looked up.
- */
 export async function fetchParcelsPermission(
   worldName: string,
   address: string,

@@ -96,9 +96,6 @@ export const Decision: Story = { args: { initialStep: "decision" } };
 
 export const Moderated: Story = { args: { initialStep: "moderated" } };
 
-// The wizard opens straight into the queue: the "Open moderation console"
-// auth-gate click was removed as frontend-authorization theatre (access is
-// decided server-side; see the note above STATE_TO_SLUG in machine.ts).
 export const HappyPath: Story = {
   play: async ({ canvas, canvasElement }) => {
     const reviews = await canvas.findAllByRole("button", { name: "Review" });

@@ -13,7 +13,6 @@ const SAMPLE_NFT: NonNullable<Props["nft"]> = {
   network: "ethereum",
 };
 
-/** `listed` is the order the page is normally shown with; `none` is "not for sale". */
 const ORDERS = {
   listed: { price: "1,000", owner: "self" },
   none: null,
@@ -25,7 +24,6 @@ const ORDER_KEYS = Object.keys(ORDERS) as OrderKey[];
 const STATUSES = ["confirmation", "authorize", "pending", "success"] satisfies CancelStatus[];
 const OWNERSHIPS = ["self", "other", "none"] satisfies Ownership[];
 
-/** `orderKind` names a fixture; `status` and `ownership` stay real props. */
 type CancelStoryArgs = { status: CancelStatus; ownership: Ownership; orderKind: OrderKey };
 
 const meta = {
@@ -48,13 +46,6 @@ type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {};
 
-/**
- * Every state at once. `Default` flips between them from the Controls panel; this story keeps
- * all six in the render + a11y + visual-diff gates, since `pending` and `success` return
- * entirely different status cards while `none`/`other` ownership swap the confirmation copy and
- * disable the CTA. `chrome={false}` because stacking N copies of `MarketplaceChrome` would emit
- * N `<main>` landmarks and fail axe's landmark-unique.
- */
 export const Catalog: Story = {
   name: "Catalog (every state)",
   parameters: { controls: { disable: true } },

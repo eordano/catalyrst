@@ -397,10 +397,6 @@ async fn fed_ban_member(
         )
         .await
     {
-        // The three refusals this used to spell separately -- "banned from this
-        // community", "signer role X below required mod", and "cannot ban a peer or
-        // superior" -- merge into the authority's own detail, which names whichever one
-        // actually fired. The status is unchanged at 403; only the body text moves.
         return map_refusal_using_its_own_detail(&refusal, StatusCode::FORBIDDEN);
     }
     match apply::apply_ban(&state.pool, &signed, signer.as_str()).await {
@@ -489,7 +485,6 @@ async fn fed_unban_member(
         )
         .await
     {
-        // Same merge as the ban path above; status unchanged at 403.
         return map_refusal_using_its_own_detail(&refusal, StatusCode::FORBIDDEN);
     }
     match apply::apply_unban(&state.pool, &signed, signer.as_str()).await {

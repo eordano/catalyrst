@@ -20,8 +20,6 @@ function makeIdentity() {
   };
 }
 
-// the label is sentence case in the DOM and uppercased by CSS, so the accessible
-// name stays readable to assistive tech
 const jumpIn = () => screen.getByRole("button", { name: "Continue as guest" });
 const signIn = () => screen.getByRole("button", { name: "Sign in" });
 
@@ -86,8 +84,6 @@ describe("LobbyNew call-to-action weighting", () => {
     expect(signIn().className).toContain("is-secondary");
   });
 
-  // reading the terms is not investment in the guest identity, and must not
-  // reorder the two offers under the pointer
   test("agreeing to the terms leaves the lead alone", async () => {
     render(<LobbyNew />);
     await userEvent.click(screen.getByRole("checkbox"));

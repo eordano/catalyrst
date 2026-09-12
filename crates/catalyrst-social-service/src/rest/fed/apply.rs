@@ -600,8 +600,6 @@ pub async fn apply_place_remove(
     .bind(now)
     .execute(&mut *tx)
     .await?;
-    // Keep this removal idempotent: replicas replay the signed log out of order, so a place
-    // that is already detached must still settle 200. The client surface answers 404 there.
     sqlx::query("DELETE FROM community_places WHERE id = $1 AND community_id = $2")
         .bind(&signed.message.place_id)
         .bind(uuid)

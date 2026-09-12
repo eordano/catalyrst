@@ -83,10 +83,6 @@ async fn auth_handshake(state: &AppState, path: &str, socket: &mut WebSocket) ->
         _ => return Err(anyhow!("expected text/binary frame for auth")),
     };
 
-    // ADR-44: a scene must not authenticate as a user on this surface, matching the HTTP routes
-    // (upstream #440). The metadata gate answers before verification (upstream #492), so a refused
-    // frame costs no crypto; either way `handle_connection` closes with the same 3003, so there is
-    // no weaker check for it to fall back to.
     if frame_declares_refused_signer(&text) {
         return Err(anyhow!("handshake: requests from scenes are not allowed"));
     }

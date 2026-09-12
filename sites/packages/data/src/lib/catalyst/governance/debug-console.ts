@@ -49,35 +49,15 @@ export type BudgetSummary = {
   categories: { name: string; pct: number }[];
 };
 
-/**
- * Both reads behind this page are PUBLIC. Read this session:
- *   catalyrst-governance/src/handlers/health.rs:3  `health()` -- no extractor
- *   catalyrst-governance/src/handlers/read.rs:220  `budgets()` -- no extractor
- *
- * Neither takes an auth extractor of any kind, so the page renders them
- * unconditionally and must label them "public data -- no authorization
- * required". There is no privileged read here to gate.
- *
- * The "tools" section always renders a permanent unavailable state
- * (`control-availability.ts` -> `debug.tools`): no privileged tooling is
- * wired on this node, and nothing here makes an HTTP call for it.
- */
 export type DebugConsoleData = {
-  /**
-   * Per-section provenance. `health` and `budgets` are independent: the node
-   * can be up while holding no budget rows.
-   */
   provenance: "public";
   version: string;
-  /** null when the health probe could not be completed. Never a fixture. */
   health: HealthInfo | null;
   healthReason: string | null;
   env: EnvVar[];
   snapshot: SnapshotInfo;
-  /** null when budgets could not be read. Never a fixture. */
   budgets: BudgetSummary[] | null;
   budgetsReason: string | null;
-  /** Always unavailable. See the comment above. */
   tools: Unavailable;
 };
 
@@ -96,12 +76,6 @@ function toSummary(row: BudgetRow): BudgetSummary {
   };
 }
 
-/**
- * Static page chrome only: build version, the env-var *names* the page
- * documents, and the Snapshot space identifiers. These are descriptive labels,
- * not measurements -- no count, status or budget figure is taken from here any
- * more.
- */
 function staticChrome(): {
   version: string;
   env: EnvVar[];
@@ -191,12 +165,6 @@ async function fetchBudgets(
   return { value: parsed.data.data.map(toSummary), reason: null };
 }
 
-/**
- * Reads two public endpoints and reports exactly what they said. A failed
- * probe surfaces via its `reason` field and is never replaced with fixture
- * data -- a dead governance service must not render as a healthy status with
- * a full budget table.
- */
 export async function loadDebugConsole(
   opts: GetOptions = {},
 ): Promise<DebugConsoleData> {

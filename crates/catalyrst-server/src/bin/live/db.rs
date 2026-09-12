@@ -915,9 +915,6 @@ impl Database for LiveDatabase {
 mod tests {
     use super::POINTER_CHANGES_SELECT;
 
-    // Upstream catalyst (#1947) passes includeMetadata=false for /pointer-changes: deltas
-    // never read entity_metadata, so the large TOAST JSON must not be fetched per row on
-    // this continuously cluster-polled endpoint. Pin that the column stays off the query.
     #[test]
     fn pointer_changes_does_not_select_entity_metadata() {
         assert!(!POINTER_CHANGES_SELECT.contains("entity_metadata"));

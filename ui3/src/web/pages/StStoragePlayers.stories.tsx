@@ -23,14 +23,12 @@ const PROFILE_NAMES = new Map<string, string>([
 
 const NO_PROFILE_NAMES = new Map<string, string>();
 
-/** The roster (addresses + their profile names) is picked by name. */
 const ROSTERS = {
   populated: { players: PLAYERS, profileNames: PROFILE_NAMES },
   empty: { players: [] as string[], profileNames: NO_PROFILE_NAMES },
 };
 type RosterName = keyof typeof ROSTERS;
 
-/** The page is scoped either to a realm or to a parcel position, never both. */
 const SCOPES = {
   realm: { realm: "magma.dcl.eth", position: null },
   position: { realm: null, position: "-50,72" },
@@ -39,7 +37,6 @@ type ScopeName = keyof typeof SCOPES;
 
 type PlayersProps = ComponentProps<typeof StStoragePlayers>;
 
-/** Story args: roster and scope are picked by name, everything else is a real prop. */
 type PlayersStoryArgs = Omit<PlayersProps, "players" | "profileNames" | "realm" | "position"> & {
   roster: RosterName;
   scope: ScopeName;
@@ -74,11 +71,6 @@ type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {};
 
-/**
- * Every state rendered at once. `Default` flips between them with the `roster` / `scope` /
- * `isLoading` controls; this story keeps the populated roster, the loading skeleton, the
- * empty state and the position-scoped header in the render + a11y + visual-diff gates.
- */
 export const Catalog: Story = {
   name: "Catalog (every state)",
   parameters: {

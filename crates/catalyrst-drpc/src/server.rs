@@ -1,4 +1,3 @@
-//! This module contains all the types needed to have a running [`RpcServer`].
 use crate::{
     messages_handlers::ServerMessagesHandler,
     rpc_protocol::{
@@ -22,10 +21,8 @@ type PortHandlerFn<Context> = dyn Fn(&mut RpcServerPort<Context>) + Send + Sync 
 
 type TransportHandler<Transport> = dyn Fn(Arc<Transport>, TransportID) + Send + Sync + 'static;
 
-/// Handler that runs each time that a transport was closed
 type OnTransportClosesHandler<Transport> = TransportHandler<Transport>;
 
-/// Handler that run each time that a transport is put to run
 type OnTransportConnected<Transport> = TransportHandler<Transport>;
 
 /// Either an error safe to expose to the client, or an internal one.
@@ -35,25 +32,17 @@ pub enum ServerResultError {
     Internal(ServerInternalError),
 }
 
-/// Result type for all [`RpcServer`] functions
 pub type ServerResult<T> = Result<T, ServerResultError>;
 
-/// Enum of errors which should be exposed to the client and turned into a [`crate::rpc_protocol::RemoteError`]
+/// Reaches the client, as a [`crate::rpc_protocol::RemoteError`].
 #[derive(Debug)]
 pub enum ServerError {
-    /// Error on decoding bytes (`Vec<u8>`) into a given type using [`crate::rpc_protocol::parse::parse_protocol_message`] or using the [`Message::decode`]
     ProtocolError,
-    /// Port was not found in the server state, possibly not created
     PortNotFound(u32),
-    /// Error on loading a Module, unlikely to happen
     LoadModuleError,
-    /// Module was not found, not registered in the server
     ModuleNotFound(String),
-    /// Given procedure's ID was not found
     ProcedureNotFound(u32),
-    /// Unexpexted Error while responding back or Error on sending the original procedure response
-    ///
-    /// This error should be use as a "re-try" when a [`Transport::send`] failed.
+    /// A [`Transport::send`] failed; the send is worth retrying.
     UnexpectedErrorOnTransport,
 }
 
@@ -81,7 +70,7 @@ impl RemoteErrorResponse for ServerError {
     }
 }
 
-/// Enum of errors which are internal or have no sense to be exposed to the client
+/// Never reaches the client.
 #[derive(Debug)]
 pub enum ServerInternalError {
     UnableToNofifyServer,
@@ -96,19 +85,14 @@ type PortID = u32;
 
 type TransportEvent<T, M> = (T, M);
 
-/// Events that the [`RpcServer`] has to react to
 enum ServerEvents<T: Transport + ?Sized> {
     AttachTransport(Arc<T>),
     NewTransport(TransportID, Arc<T>),
 }
 
-/// Notifications about Transports connected to the [`RpcServer`]
 enum TransportNotification<T: Transport + ?Sized> {
-    /// New message received from a transport
     NewMessage(TransportEvent<(Arc<T>, TransportID), TransportMessage>),
-    /// Sent when a `ServerEvents::AttachTransport` arrives, to attach a transport to the server [`RpcServer`](#method.RpcServer.attach_transport) and make it run to receive messages
     MustAttachTransport(Arc<T>),
-    /// Removes a transport from the [`RpcServer`] state
     CloseTransport(TransportID),
 }
 
@@ -116,11 +100,8 @@ enum TransportNotification<T: Transport + ?Sized> {
 pub struct ServerEventsSender<T: Transport + ?Sized>(UnboundedSender<ServerEvents<T>>);
 
 impl<T: Transport + ?Sized> ServerEventsSender<T> {
-    /// Sends a [`ServerEvents::AttachTransport`] to the [`RpcServer`], notifying it to
-    /// attach a new transport and run it to listen for messages. Equivalent to
-    /// `RpcServer::attach_transport`, but callable from another thread/background task
-    /// (e.g. a listener accepting external connections). `Transport` is wrapped in `Arc`
-    /// so it can be shared.
+    /// `RpcServer::attach_transport` from another thread or background task, e.g. a listener
+    /// accepting external connections.
     pub fn send_attach_transport(&self, transport: Arc<T>) -> ServerResult<()> {
         if self
             .0
@@ -134,8 +115,6 @@ impl<T: Transport + ?Sized> ServerEventsSender<T> {
         Ok(())
     }
 
-    /// Sends a [`ServerEvents::NewTransport`] to the [`RpcServer`], notifying it to run
-    /// a new transport. `Transport` is wrapped in `Arc` so it can be shared.
     fn send_new_transport(&self, id: TransportID, transport: Arc<T>) -> ServerResult<()> {
         if self
             .0
@@ -157,38 +136,21 @@ impl<T: Transport + ?Sized> Clone for ServerEventsSender<T> {
     }
 }
 
-/// RpcServer receives and process different requests from the RpcClient
-///
-/// Once a RpcServer is inited, you should attach a transport and handler
-/// for the port creation.
+/// A new server needs a transport attached and a port-creation handler set before it can
+/// serve anything.
 pub struct RpcServer<Context, T: Transport + ?Sized> {
-    /// The Transport used for the communication between `RpcClient` and [`RpcServer`]
     transports: HashMap<TransportID, Arc<T>>,
-    /// The handler executed when a new port is created
     port_creation_handler: Option<Box<PortHandlerFn<Context>>>,
-    /// Executed when a transport is closed, for cleaning up resources tied to
-    /// that transport's connection.
     on_transport_closes_handler: Option<Box<OnTransportClosesHandler<T>>>,
-    /// Executed when a transport is put to run, receiving the Transport ID
-    /// the server assigned to it.
     on_transport_connected_handler: Option<Box<OnTransportConnected<T>>>,
-    /// Ports registered in the [`RpcServer`]
     ports: HashMap<PortID, RpcServerPort<Context>>,
     ports_by_transport_id: HashMap<TransportID, Vec<PortID>>,
-    /// RpcServer Context
     context: Arc<Context>,
-    /// Handles every request<>response; behind an `Arc` so it can be shared
-    /// between threads.
     messages_handler: Arc<ServerMessagesHandler>,
-    /// Sender half of the channel that delivers `ServerEvents` to the [`RpcServer`].
     server_events_sender: ServerEventsSender<T>,
-    /// Receiver half of the channel that delivers `ServerEvents` to the [`RpcServer`].
-    ///
-    /// An `Option` so it can be taken and moved into a background task.
+    /// An `Option` so it can be taken and moved into the background task.
     server_events_receiver: Option<UnboundedReceiver<ServerEvents<T>>>,
-    /// ID assigned to the next attached transport.
     next_transport_id: u32,
-    /// ID assigned to the next created port.
     next_port_id: u32,
 }
 impl<Context: Send + Sync + 'static, T: Transport + ?Sized + 'static> RpcServer<Context, T> {
@@ -210,23 +172,16 @@ impl<Context: Send + Sync + 'static, T: Transport + ?Sized + 'static> RpcServer<
         }
     }
 
-    /// Get a `ServerEventsSender` to send allowed server events from outside
     pub fn get_server_events_sender(&self) -> ServerEventsSender<T> {
         self.server_events_sender.clone()
     }
 
-    /// Attaches the server half of the transport for Client<>Server communication.
-    ///
-    /// Unlike `ServerEvents::AttachTransport`, this can only be called from the thread
-    /// that owns the [`RpcServer`] (it takes `&mut self`). `Transport` is wrapped in
-    /// `Arc` so it can be shared.
+    /// Takes `&mut self`, so only the thread owning the [`RpcServer`] can call it; from
+    /// anywhere else use [`ServerEventsSender::send_attach_transport`].
     pub async fn attach_transport(&mut self, transport: Arc<T>) -> ServerResult<()> {
         self.new_transport_attached(transport).await
     }
 
-    /// Sends `ServerEvents::NewTransport` so the transport starts receiving messages in
-    /// the background. Called from `attach_transport` / `send_attach_transport`.
-    /// `Transport` is wrapped in `Arc` so it can be shared.
     async fn new_transport_attached(&mut self, transport: Arc<T>) -> ServerResult<()> {
         let current_id = self.next_transport_id;
         if let Err(error) = transport.send(server_ready_message().encode_to_vec()).await {
@@ -252,14 +207,11 @@ impl<Context: Send + Sync + 'static, T: Transport + ?Sized + 'static> RpcServer<
         Ok(())
     }
 
-    /// Start processing `ServerEvent`s and listen on a channel for
-    /// `TransportNotification`s sent by the attached transports' background tasks.
     pub async fn run(&mut self) {
         let (transports_notifier, mut transports_notification_receiver) =
             unbounded_channel::<TransportNotification<T>>();
         self.process_server_events(transports_notifier);
         loop {
-            // A transport here is the equivalent to a new connection in a common HTTP server
             match transports_notification_receiver.recv().await {
                 Some(notification) => match notification {
                     TransportNotification::NewMessage(((transport, transport_id), event)) => {
@@ -333,23 +285,8 @@ impl<Context: Send + Sync + 'static, T: Transport + ?Sized + 'static> RpcServer<
         }
     }
 
-    /// Process `ServerEvent`s sent through the events channel.
-    ///
-    /// Spawns a background task that listens on the channel and dispatches on
-    /// the event kind.
-    ///
-    /// # Events
-    /// - `ServerEvent::NewTransport`: spawns a background task listening on the
-    ///   transport for new `TransportEvent`s and forwards them to the [`RpcServer`]
-    /// - `ServerEvent::TransportFinished`: counts finished transports; once all
-    ///   running transports have finished, emits `ServerEvents::Terminated`
-    /// - `ServerEvent::Terminated`: closes the [`RpcServer`] transports notifier
-    ///   (channel) and the events channel
-    ///
-    /// # Arguments
-    /// * `transports_notifier` - notifier for events on each transport; cloned
-    ///   for every newly spawned transport
-    ///
+    /// Once every running transport has finished, this emits `ServerEvents::Terminated`,
+    /// which closes both the transports notifier and the events channel.
     fn process_server_events(
         &mut self,
         transports_notifier: UnboundedSender<TransportNotification<T>>,
@@ -415,10 +352,7 @@ impl<Context: Send + Sync + 'static, T: Transport + ?Sized + 'static> RpcServer<
         });
     }
 
-    /// Set a handler for the port creation
-    ///
-    /// When a port is created, a service should be registered
-    /// for the port.
+    /// The handler is expected to register the port's services; a port with none is useless.
     pub fn set_module_registrator_handler<H>(&mut self, handler: H)
     where
         H: Fn(&mut RpcServerPort<Context>) + Send + Sync + 'static,
@@ -426,11 +360,6 @@ impl<Context: Send + Sync + 'static, T: Transport + ?Sized + 'static> RpcServer<
         self.port_creation_handler = Some(Box::new(handler));
     }
 
-    /// Set a handler to be executed when a transport was closed
-    ///
-    /// When a transport closes its connection, the closure will be executed.
-    ///
-    /// This could be useful when there are resources that may be tied to or depends on a transport's connection
     pub fn set_on_transport_closes_handler<H>(&mut self, handler: H)
     where
         H: Fn(Arc<T>, TransportID) + Send + Sync + 'static,
@@ -438,9 +367,7 @@ impl<Context: Send + Sync + 'static, T: Transport + ?Sized + 'static> RpcServer<
         self.on_transport_closes_handler = Some(Box::new(handler));
     }
 
-    /// Set a handler is executed when a transport is put to run.
-    ///
-    /// It works for executing a function which receives the Transport ID assigned by the server to a new running transport
+    /// The handler receives the transport ID the server assigned.
     pub fn set_on_transport_connected_handler<H>(&mut self, handler: H)
     where
         H: Fn(Arc<T>, TransportID) + Send + Sync + 'static,
@@ -448,13 +375,6 @@ impl<Context: Send + Sync + 'static, T: Transport + ?Sized + 'static> RpcServer<
         self.on_transport_connected_handler = Some(Box::new(handler));
     }
 
-    /// Handle the requests for a procedure call
-    ///
-    /// # Arguments
-    ///
-    /// * `transport` - The transport which sent the procedure request
-    /// * `message_number` - A 32-bit unsigned number created by `build_message_identifier` in `protocol/parse.rs`
-    /// * `payload` - Slice of bytes containing the request payload encoded with protobuf
     async fn handle_request(
         &self,
         transport: Arc<T>,
@@ -572,13 +492,6 @@ impl<Context: Send + Sync + 'static, T: Transport + ?Sized + 'static> RpcServer<
         }
     }
 
-    /// Handle the requests when a client wants to load a specific registered module and then starts calling the procedures
-    ///
-    /// # Arguments
-    ///
-    /// * `transport` - The transport which is requesting the module
-    /// * `message_number` - A 32-bit unsigned number created by `build_message_identifier` in `protocol/parse.rs`
-    /// * `payload` - Slice of bytes containing the request payload encoded with protobuf
     async fn handle_request_module(
         &mut self,
         transport: Arc<T>,
@@ -623,15 +536,8 @@ impl<Context: Send + Sync + 'static, T: Transport + ?Sized + 'static> RpcServer<
         Ok(())
     }
 
-    /// Handle the requests when a client wants to create a port.
-    ///
-    /// The `handler` registered with `set_handler` function is called here.
-    ///
-    /// # Arguments
-    ///
-    /// * `transport` - The transport which sent the request to create a port
-    /// * `message_number` - A 32-bit unsigned number created by `build_message_identifier` in `protocol/parse.rs`
-    /// * `payload` - Slice of bytes containing the request payload encoded with protobuf
+    /// Calls the handler registered with
+    /// [`RpcServer::set_module_registrator_handler`](#method.set_module_registrator_handler).
     async fn handle_create_port(
         &mut self,
         transport: Arc<T>,
@@ -673,11 +579,6 @@ impl<Context: Send + Sync + 'static, T: Transport + ?Sized + 'static> RpcServer<
         Ok(())
     }
 
-    /// Handle the requests when a client wants to destroy a port because no longer needed
-    ///
-    /// # Arguments
-    ///
-    /// * `payload` - Vec of bytes containing the request payload encoded with protobuf
     fn handle_destroy_port(&mut self, payload: Vec<u8>) -> ServerResult<()> {
         let destroy_port = DestroyPort::decode(payload.as_slice())
             .map_err(|_| ServerResultError::External(ServerError::ProtocolError))?;
@@ -686,15 +587,6 @@ impl<Context: Send + Sync + 'static, T: Transport + ?Sized + 'static> RpcServer<
         Ok(())
     }
 
-    /// Handle every request from the client, dispatching on the parsed header's
-    /// `message_type` and `message_identifier` to the right handler below.
-    ///
-    /// # Arguments
-    ///
-    /// * `transport_id` - The transport ID which sent a new message to be processed
-    /// * `payload` - Vec of bytes containing the request payload encoded with protobuf
-    /// * `message_type` - [`RpcMessageTypes`] the protocol type of the message
-    /// * `message_number` - the number of the message derivided from the `message_identifier` in the [`crate::rpc_protocol::RpcMessageHeader`]
     async fn handle_message(
         &mut self,
         transport_id: TransportID,
@@ -741,21 +633,13 @@ impl<Context: Send + Sync + 'static, T: Transport + ?Sized + 'static> RpcServer<
     }
 }
 
-/// RpcServerPort is what a RpcServer contains to handle different services/modules
 pub struct RpcServerPort<Context> {
-    /// RpcServer name
     pub name: String,
-    /// Registered modules contains the name and module/service definition
-    ///
-    /// A module can be registered but not loaded
+    /// Registered but not necessarily loaded.
     registered_modules: HashMap<String, ServiceModuleDefinition<Context>>,
-    /// Loaded modules contains the name and a collection of procedures with id and the name for each one
-    ///
-    /// A module is loaded when the client requests to.
+    /// A module lands here only once a client asks for it.
     loaded_modules: HashMap<String, ServerModuleDeclaration>,
-    /// Procedures contains the id and the handler for each procedure
     procedures: HashMap<u32, ProcedureDefinition<Context>>,
-    /// Global Procedure ID
     next_procedure_id: u32,
 }
 
@@ -770,7 +654,6 @@ impl<Context> RpcServerPort<Context> {
         }
     }
 
-    /// Just register the module in the port
     pub fn register_module(
         &mut self,
         module_name: String,
@@ -826,7 +709,6 @@ impl<Context> RpcServerPort<Context> {
         }
     }
 
-    /// Looks up the procedure id in the port's `procedures` and returns its handler.
     fn get_procedure(&self, procedure_id: u32) -> ServerResult<ProcedureDefinition<Context>> {
         match self.procedures.get(&procedure_id) {
             Some(procedure_definition) => Ok(procedure_definition.clone()),
@@ -843,8 +725,6 @@ pub struct ServerModuleProcedure {
     pub procedure_id: u32,
 }
 
-/// Used to store all the procedures in the `loaded_modules` fields inside [`RpcServerPort`]
 pub struct ServerModuleDeclaration {
-    /// Array with all the module's (service) procedures
     pub procedures: Vec<ServerModuleProcedure>,
 }

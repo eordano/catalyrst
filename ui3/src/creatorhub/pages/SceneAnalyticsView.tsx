@@ -186,11 +186,6 @@ export type SceneAnalyticsViewProps = {
   creatorHref?: string;
   operatorHref?: string;
   thumbnails?: Record<string, string>;
-  /**
-   * Public base URL of the realm serving these scenes. Given one, jump-in
-   * becomes a `decentraland://` deep link that reaches this node; without it
-   * the only link available is decentraland.org's, which drops a custom realm.
-   */
   realmBaseUrl?: string;
   worldAccess?: Record<string, "public" | "private">;
   editHrefFor?: (scene: SceneStats) => string | null;
@@ -726,9 +721,8 @@ function RetentionSection({ scene }: { scene: SceneStats }) {
         style={{ position: "absolute" }}
       >
         <defs>
-          {/* userSpaceOnUse spans the chart viewBox (0..720) so the gradient
-              still renders for flat series, whose zero-height bounding box
-              would make an objectBoundingBox gradient paint nothing. */}
+          {
+}
           <linearGradient
             id="sa-retention-gradient"
             gradientUnits="userSpaceOnUse"

@@ -456,11 +456,6 @@ export default function SignInModalView({
                   </div>
                 ) : null}
                 {qr.libreUri ? (
-                  // Tucked away: mainstream wallets (MetaMask & co.) can't
-                  // parse libre: URIs -- surfacing the raw URI invites pasting
-                  // it into wallet scanners, which fails. The https QR/link
-                  // above is the compatible path; this stays for
-                  // LibreConnect-aware wallets only.
                   <details className="signin__advanced">
                     <summary>Advanced: LibreConnect URI</summary>
                     <p

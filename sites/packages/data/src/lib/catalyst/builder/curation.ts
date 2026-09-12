@@ -12,12 +12,6 @@ export const CollectionCurationSchema = z.object({
   updated_at: z.string(),
 });
 
-/**
- * `is_programmatic` is required on catalyrst-builder's `ReviewRowOut`
- * (generated-schemas/builder.ts), and `thumbs` is the collection's own image
- * set. Both are facts a curator decides on, so a row that carries neither is
- * dropped rather than reviewed as a hand-made collection with no images.
- */
 export const CurationRowSchema = z.object({
   id: z.string(),
   name: z.string(),

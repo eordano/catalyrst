@@ -120,7 +120,6 @@ export interface DeWorkspaceProps {
   onEngineStatus?: ((status: EditorEngineStatus) => void) | null;
   onSaveToDisk?: (() => void) | null;
   onPublish?: (() => void) | null;
-  /** Real save phase from the host. Absent means nothing has saved this scene. */
   saveState?: "idle" | "saving" | "saved" | "error";
 }
 
@@ -149,12 +148,6 @@ export default function DeWorkspace({
   playStateRef.current = { playing, paused: runPaused };
   const [playEditWarn, setPlayEditWarn] = useState(false);
   const playEditNotedRef = useRef(false);
-  // The save chip is only honest once an edit exists: a fresh, untouched
-  // scene is not "Unsaved". Every mutation path funnels through this (bus
-  // drag-ends via notePlayEdit, plus the transform writer and every
-  // add/delete/replace/duplicate below), so one boolean covers them all.
-  // Deliberately never reset in this session: once edited, it stays edited.
-  // The ref does the work; the state is only for re-rendering.
   const hasEditedRef = useRef(false);
   const [hasEdited, setHasEdited] = useState(false);
   const noteEdit = () => {
@@ -240,11 +233,6 @@ export default function DeWorkspace({
     ? {
         playing: playing && !runPaused,
         onPlay: () => {
-          // Already running and not paused: re-exporting here would overwrite
-          // prePlayRef with the runtime scene, and Stop promises to restore the
-          // scene as it was BEFORE play. Three surfaces reach this handler
-          // (chrome Preview, Test > In editor, Interact > Try it), so the guard
-          // belongs here rather than at any one of them.
           if (playing && !runPaused) return;
           if (playing && runPaused) {
             if (debugOpenRef.current) exitDebug();
@@ -322,8 +310,6 @@ export default function DeWorkspace({
   const [camPrefs, setCamPrefs] = useState<CameraPrefs>(() => loadCameraPrefs());
   const [camSettingsOpen, setCamSettingsOpen] = useState(false);
   const [renderTuningOpen, setRenderTuningOpen] = useState(false);
-  // Dismissal survives across sessions by design: the gesture map does not
-  // change, so showing it again would just re-annoy returning users.
   const [cameraHintDismissed, setCameraHintDismissed] = useState<boolean>(() => {
     try {
       return window.localStorage?.getItem("eui-camera-hint-dismissed") === "1";
@@ -519,9 +505,6 @@ export default function DeWorkspace({
     return placeAssetOnBus(busRef, asset, drop ?? null);
   };
 
-  // HTML5 drag from a catalog card. While an asset is in flight we raise a
-  // transparent overlay above the viewport iframe: cross-origin iframes
-  // swallow dragover/drop, so without it the drop dies on the engine canvas.
   const [dragAsset, setDragAsset] = useState<DeCatalogItem | null>(null);
   const handleViewportDrop = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
@@ -579,8 +562,6 @@ export default function DeWorkspace({
   const showScene = busLive ? () => setAssetsOverride(false) : undefined;
 
   const effTree = live && liveTree != null ? liveTree : tree;
-  // One walk for the two consumers (inspector title and selection label); the
-  // unmemoized duplicate re-walked the whole live tree on every render.
   const activeName = useMemo(
     () => (activeId != null ? findNodeName(effTree, activeId) : null),
     [effTree, activeId],
@@ -595,11 +576,6 @@ export default function DeWorkspace({
     busLive && selectedIds.length > 0
       ? () => {
           notePlayEdit();
-          // Record before destroying: the history engine replays a component map
-          // per entity, so the cached components ARE the restore. Without this
-          // Delete was the one edit in the editor that could not be taken back,
-          // while the Undo beside it stayed enabled and would undo something
-          // else entirely.
           const batch: HistoryEntry[] = [];
           for (const id of selectedIds) {
             const comps = compValuesRef.current[String(id)];
@@ -720,8 +696,6 @@ export default function DeWorkspace({
   const nudgeTransform: NudgeFieldFn = (field, axis, delta) =>
     writeTransform(field, axis, (cur) => cur + delta);
 
-  // Typed values are the escape hatch from the grid, so they are never
-  // quantised. Snap still supplies the arrow-key increment for these fields.
   const setTransformAxis = (
     field: "position" | "rotation",
     axis: "x" | "y" | "z",
@@ -750,8 +724,6 @@ export default function DeWorkspace({
 
   const meters = useSceneMeters({ busRef, busLive, scene: liveScene });
 
-  // Only the active entity is cached, because `components` arrives on the
-  // selection message. A per-row badge across the tree needs a scene-wide read.
   const wiring = useMemo(() => {
     if (!busLive) return undefined;
     const vals = activeId == null ? {} : (compValuesRef.current[String(activeId)] ?? {});
@@ -835,10 +807,6 @@ export default function DeWorkspace({
   };
 
   const saveChip = SAVE_CHIP[saveState] ?? SAVE_CHIP.idle!;
-  // Honest chip: an idle scene with zero edits has nothing unsaved, so claim
-  // nothing. DeRibbon renders the save slot whenever a label is given; an
-  // empty label leaves no chip text (an untouched scene is not "Unsaved").
-  // playing keeps its "Runtime" override, which is about the mode, not dirt.
   const chipHidden = saveState === "idle" && !hasEdited && !playing;
   const answerMcpConsent = (approved: boolean) => {
     mcpConsent?.resolve(approved);
@@ -854,16 +822,10 @@ export default function DeWorkspace({
       loadError={realmStatus === "error"}
       onEngineStatus={handleEngineStatus}
     >
-      {/* The ribbon carries the information architecture from the observation
-          study (see editor/ribbon-spec.ts). The floating gizmo strip below stays:
-          the study is explicit that the ribbon mirrors gizmo state but never owns
-          it -- the working set belongs to the viewport and its hotkeys. */}
+      {
+}
       <DeRibbon
         onTab={(t) => {
-          // Insert swaps the left panel to the catalog. Nothing used to swap it
-          // back, so browsing assets cost you the entity tree -- and the only
-          // Search-entities box -- for the rest of the session. Leaving the tab
-          // is the return path, so no new button has to earn its place.
           if (t !== "insert") showScene?.();
         }}
         hasSelection={selectedIds.length > 0}
@@ -982,11 +944,6 @@ export default function DeWorkspace({
         <div className="eui-play-frame" aria-hidden="true" />
       )}
       {effViewportSrc && engineStatus === "online" && !cameraHintDismissed && (
-        // First-run gesture hint inside the viewport band. The pill itself is
-        // pointer-transparent so every gesture the text describes still reaches
-        // the engine iframe; only the X claims the pointer. The left inset
-        // tracks the side panels the way eui-drop-target above does, so it
-        // never hides behind an open panel.
         <span
           style={{
             position: "absolute",
@@ -1027,10 +984,6 @@ export default function DeWorkspace({
         </span>
       )}
       {dragAsset && effViewportSrc && (
-        // Raised only while a catalog card is in flight: the viewport iframe is
-        // cross-origin and swallows dragover/drop, so the drop must land on
-        // this same-document overlay. Insets mirror DeDebugPanel so a drop on
-        // the side panels does not place anything.
         <div
           className="eui-drop-target"
           style={{
@@ -1063,17 +1016,10 @@ export default function DeWorkspace({
       {renderTuningOpen && effViewportSrc && (
         <DeRenderPanel
           onCommand={(line) => {
-            // Same path the tick debugger uses: engine_console_command on the
-            // same-origin viewport iframe. Resolved per call because the
-            // engine installs it only after wasm boot.
             const run = engineConsoleRunner(viewportRef.current);
             void run?.(line);
           }}
           onQueryState={() => {
-            // Read-back sync for the pane: the same channel onCommand uses,
-            // asking for the engine's live render state. The /renderstate
-            // command may not exist on the deployed engine yet; the panel's
-            // try/catch keeps its seeds on any unknown-command reply.
             return engineConsoleRunner(viewportRef.current)?.("/renderstate") ?? Promise.reject();
           }}
           onClose={() => setRenderTuningOpen(false)}

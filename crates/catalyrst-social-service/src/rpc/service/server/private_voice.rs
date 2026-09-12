@@ -114,9 +114,6 @@ impl SocialServiceImpl {
             )));
         }
 
-        // Atomic check+insert (upstream #450): the pre-check above is an early-out, but two starts
-        // sharing a participant can both pass it before either inserts. This serialises them and
-        // re-checks under the lock, returning a conflict rather than a duplicate overlapping call.
         match db
             .start_private_voice_chat_if_free(
                 &me,

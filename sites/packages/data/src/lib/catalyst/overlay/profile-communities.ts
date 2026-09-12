@@ -9,7 +9,6 @@ const PATH = "/v1/communities";
 export type ProfileCommunity = {
   id: string;
   name: string;
-  /** null when the API did not report a size */
   membersCount: number | null;
   role: "owner" | "admin" | "member";
   thumb: string | null;
@@ -20,9 +19,6 @@ function unwrapData<T = unknown>(env: unknown): T {
   return (e?.data ?? env) as T;
 }
 
-/** null when the response carried no role. Every row here comes from
- *  `?onlyMemberOf=true` on a signed request, so plain membership is the floor
- *  this list already established -- it is not a rank read off a missing key. */
 function mapRole(role: string | null): ProfileCommunity["role"] {
   if (role === "owner") return "owner";
   if (role === "moderator" || role === "admin") return "admin";

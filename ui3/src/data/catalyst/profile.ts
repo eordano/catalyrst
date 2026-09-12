@@ -30,15 +30,6 @@ export function isEthAddress(addr?: string | null): boolean {
   return /^0x[0-9a-fA-F]{40}$/.test((addr ?? "").trim());
 }
 
-// The wire -> `Avatar` normalization, which the schema module cannot carry: a
-// perf build replaces it with an accepting stub, and a stub reproduces no
-// transform. Here it runs whether or not validation did, so a profile that has
-// never been edited reads as null rather than undefined in both builds.
-//
-// Every field a schema marks nullish is restated, so `Avatar` is exactly what a
-// caller gets and a field added to the schema shows up as its honest
-// `| undefined` until it is normalized here too.
-
 export type ProfileLink = { title: string | null; url: string | null };
 
 export type AvatarInfo = AvatarInfoWire & { wearables: string[] | null };
@@ -61,12 +52,6 @@ function normalizeAvatarInfo(a: AvatarInfoWire): AvatarInfo {
   return { ...a, wearables: a.wearables ?? null };
 }
 
-/**
- * `links` and `avatar` are lifted out of the spread and written back only when
- * present: both are optional on the wire, and a schema omits an absent optional
- * key rather than setting it to undefined, so writing one in unconditionally
- * would itself be a difference between the two modes.
- */
 export function normalizeAvatar(a: AvatarWire): Avatar {
   const { links, avatar, ...rest } = a;
   const out: Avatar = {
@@ -79,19 +64,6 @@ export function normalizeAvatar(a: AvatarWire): Avatar {
   if (avatar) out.avatar = normalizeAvatarInfo(avatar);
   return out;
 }
-
-// Profile is the one reader family that uses `.parse` rather than `.safeParse`,
-// so it drops nothing: a payload the shape rejects throws, and the caller's query
-// shows an error. Perf mode does not remove that failure, it MOVES it -- `.parse`
-// becomes the identity and the throw reappears a line later as
-// `Cannot read properties of undefined (reading 'map')` inside a normalizer, or
-// worse, does not appear at all: `fetchUserPhotos` handed back `undefined` typed
-// as `GalleryImage[]`, and the gallery crashed on it instead.
-//
-// So the four places these readers walk into the parsed envelope are made total.
-// In the checking build the schema already proved every one of them and none of
-// this fires; in perf a malformed envelope now reads as empty, which is what the
-// callers already handle, rather than as a TypeError somewhere else.
 
 export function normalizeProfileEnvelope(env: ProfileEnvelopeWire): ProfileEnvelope {
   return {

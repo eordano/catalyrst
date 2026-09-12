@@ -4,10 +4,6 @@ import { sendBridge, useBridgeState } from "../../overlay/bridge";
 import ProfileCard from "../components/ProfileCard";
 import { ChatView, type ChatIo } from "./Chat";
 
-// The explorer's chat: ChatView wired to the overlay bridge. Split from
-// Chat.tsx so hosts that bring their own transport (their own page rooms)
-// can import the view without pulling the bridge -- and its validate/zod
-// dependency chain -- into their bundle.
 export default function Chat(props: {
   open: boolean;
   onToggle: () => void;

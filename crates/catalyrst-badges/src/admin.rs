@@ -1,30 +1,11 @@
 //! Compile-forced admin authentication for the badges mutation endpoints.
 //!
-//! The old gate here was a hand-rolled `authorize_admin(&state, &headers)?` -- a forgettable
-//! function call made inside each handler body. Delete the line and the handler still
-//! compiled and served a production mutation to a stranger. This module replaces that with
-//! [`RequireAdmin`], a value a handler must *name in its signature*: axum refuses a handler
-//! into `Router::route` unless every argument is a valid extractor, and `RequireAdmin`'s only
-//! constructor is the [`FromRequestParts`] impl below, which delegates to the shared, verified
-//! [`AuthenticatedAdminIdentity`] mint. The check stops being a deletable statement and
-//! becomes a term in the type the router demands. `tests/admin_routes_are_gated.rs` pins that.
-//!
-//! # Why a badges-local wrapper rather than `AuthenticatedAdminIdentity` directly
-//!
-//! Two reasons, both structural:
-//!
-//! 1. **Wire preservation.** The shared extractor rejects unconfigured/missing/mismatched
-//!    secrets with the principal crate's 503/401 statuses and a plain-text body. Badges must
-//!    keep its pre-migration contract byte-for-byte: **403** carrying the
-//!    `{ok:false,error,message}` envelope for *every* auth failure, exactly as the deleted
-//!    `authorize_admin` returned. [`to_api_error`] maps the shared rejection back onto that
-//!    contract. Adopting the 401/503 distinction is a deliberate, separate follow-on.
-//! 2. **The orphan rule.** The shared extractor's bound is
-//!    `ConfiguredAdminBearerSecret: FromRef<S>`. Badges' router state is
-//!    `Arc<AppStateInner>`; implementing `FromRef` for the *foreign*
-//!    `ConfiguredAdminBearerSecret` over that foreign `Arc` state is orphan-forbidden. A
-//!    badges-local carrier ([`AdminSecretState`]) is the legal bridge, and the wrapper builds
-//!    it from `state.admin_token` on each request.
+//! [`RequireAdmin`] is a value a handler must *name in its signature*: axum refuses a
+//! handler unless every argument is a valid extractor, and `RequireAdmin`'s only
+//! constructor is the [`FromRequestParts`] impl below, which delegates to the shared,
+//! verified [`AuthenticatedAdminIdentity`] mint. Unlike the `authorize_admin(&state,
+//! &headers)?` call it replaced, the check cannot be deleted from a handler body.
+//! `tests/admin_routes_are_gated.rs` pins that.
 
 use axum::extract::{FromRef, FromRequestParts};
 use axum::http::request::Parts;
@@ -37,15 +18,13 @@ use catalyrst_authenticated_principal::AuthorityNotEstablished;
 use crate::http::errors::ApiError;
 use crate::AppState;
 
-/// The environment variable that names the badges admin bearer secret. Server-chosen; it
-/// becomes the verified audit actor (`service-token:CATALYRST_BADGES_ADMIN_TOKEN`).
+/// Server-chosen, never client-supplied; becomes the verified audit actor
+/// (`service-token:CATALYRST_BADGES_ADMIN_TOKEN`).
 const ADMIN_TOKEN_ENV: &str = "CATALYRST_BADGES_ADMIN_TOKEN";
 
-/// A badges-local carrier for the configured admin secret, so the shared extractor's
-/// `ConfiguredAdminBearerSecret: FromRef<S>` bound is satisfied by a *local* concrete state
-/// type. Implementing `FromRef` for the foreign [`ConfiguredAdminBearerSecret`] over the
-/// foreign `Arc<AppStateInner>` router state directly is forbidden by the orphan rule; this
-/// local type is the legal seam.
+/// Local carrier satisfying the shared extractor's `ConfiguredAdminBearerSecret: FromRef<S>`
+/// bound: implementing `FromRef` for the foreign [`ConfiguredAdminBearerSecret`] over the
+/// foreign `Arc<AppStateInner>` router state is orphan-forbidden.
 #[derive(Clone)]
 struct AdminSecretState(ConfiguredAdminBearerSecret);
 
@@ -58,29 +37,22 @@ impl FromRef<AdminSecretState> for ConfiguredAdminBearerSecret {
 /// Proof, wired into a handler's *signature*, that this request carried the badges admin
 /// bearer secret.
 ///
-/// The inner [`AuthenticatedAdminIdentity`] is a private tuple field: only this module can
-/// mint a `RequireAdmin`, and only via [`establish_admin`], which runs the shared verified
-/// extractor. A sibling module (e.g. the handlers) cannot construct one, and no external crate
-/// can. It derives nothing -- no `Deserialize` (a request body must never become an admin
-/// identity), no `Clone`/`Default` -- the same discipline as the shared type and
-/// `catalyrst-server`'s `AdminSession`.
+/// The private inner field means only this module can mint one, and only via
+/// [`establish_admin`]. It deliberately derives nothing -- no `Deserialize` (a request body
+/// must never become an admin identity), no `Clone`/`Default`.
 pub struct RequireAdmin(AuthenticatedAdminIdentity);
 
 impl RequireAdmin {
-    /// The server-verified audit actor, `service-token:CATALYRST_BADGES_ADMIN_TOKEN`. Built by
-    /// the principal crate from the `&'static str` the operator configured -- it replaces the
-    /// old client-supplied `x-catalyrst-admin` header value, which the server never verified.
+    /// The server-verified audit actor, `service-token:CATALYRST_BADGES_ADMIN_TOKEN`, built
+    /// from the operator-configured env var -- not from any client-supplied header.
     pub fn audit_actor_description(&self) -> String {
         self.0.audit_actor_description()
     }
 }
 
-/// Preserve the pre-migration badges wire contract: every admin-auth failure renders as a
-/// **403** carrying the badges JSON error envelope, with the same messages the deleted
-/// `check_admin` produced -- `"admin token not configured"` when the secret is unset,
-/// `"missing or invalid bearer token"` for a missing or mismatched bearer. This deliberately
-/// collapses the shared extractor's 503-vs-401 distinction back to 403; adopting 401/503 is a
-/// separate follow-on.
+/// Preserves the pre-migration badges wire contract: *every* admin-auth failure renders as a
+/// **403** carrying the `{ok:false,error,message}` envelope. This deliberately collapses the
+/// shared extractor's 503-vs-401 distinction; adopting 401/503 is a separate follow-on.
 fn to_api_error(rejection: AdminAuthRejection) -> ApiError {
     match rejection.refusal() {
         AuthorityNotEstablished::CredentialNotConfigured { .. } => {
@@ -90,10 +62,8 @@ fn to_api_error(rejection: AdminAuthRejection) -> ApiError {
     }
 }
 
-/// The single mint for [`RequireAdmin`]: build the local secret carrier from the configured
-/// token, run the shared verified extractor over the request parts, and map its rejection onto
-/// the badges wire contract. Split out from the trait impl only so it is unit-testable without
-/// a full `AppState` (which would require a live database).
+/// The single mint for [`RequireAdmin`]. Split out from the trait impl only so it is
+/// unit-testable without a full `AppState` (which would require a live database).
 async fn establish_admin(
     configured: Option<String>,
     parts: &mut Parts,
@@ -164,8 +134,6 @@ mod tests {
         );
     }
 
-    // The pre-migration wire contract: 403 + the badges error envelope, same messages, for
-    // every failure mode. These lock the behaviour the deleted `check_admin` had.
     #[tokio::test]
     async fn an_unset_token_fails_closed_as_403_not_configured() {
         for presented in [Some("Bearer anything"), None] {

@@ -31,17 +31,6 @@ export function isExpired(stored: StoredAuthIdentity, now = Date.now()): boolean
   return !Number.isFinite(exp) || exp <= now;
 }
 
-/**
- * The one place a stored identity becomes a usable one.
- *
- * Only `JSON.parse` sits inside the try: `check` throws in dev on purpose, and
- * a catch wide enough to cover it would turn that throw back into a silent
- * `null` -- detection wired in and never firing.
- *
- * `isStoredIdentity` stays as the production fallback. `check` returns the
- * ORIGINAL value when it rejects outside dev, so dropping the guard would hand
- * a drifted blob to the signing path instead of treating it as signed-out.
- */
 export function parseStoredIdentity(
   raw: string | null,
   now = Date.now(),
@@ -161,8 +150,6 @@ export function createEngineAuth(deps: EngineAuthDeps = {}) {
     }
   }
 
-  // The storage calls are guarded one at a time so that `parseStoredIdentity`,
-  // which validates and therefore throws in dev, is not inside either try.
   function loadPersisted(): StoredAuthIdentity | null {
     let raw: string | null = null;
     try {

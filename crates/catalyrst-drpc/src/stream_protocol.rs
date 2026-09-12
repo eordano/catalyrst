@@ -1,7 +1,3 @@
-//! This contains all the types and logic needed when a stream procedure is opened in whatever of the two sides (client or server).
-//!
-//! It contains the [`Generator`] type used when a server or a client wants to consume the stream opened and its messages.
-//!
 use std::{future::Future, sync::Arc};
 
 use prost::Message;
@@ -22,31 +18,16 @@ use crate::{
     CommonError,
 };
 
-/// It knows how to process all the stream messages for client streams, server streams and bidirectional streams.
-///
-/// And it should be used to consume the stream messages when a stream procedure is executed
-///
 pub struct StreamProtocol<T: Transport + ?Sized> {
-    /// the ID of Port
     port_id: u32,
-    /// ID of the message that inited the streaming
+    /// Number of the message that opened the stream.
     message_number: u32,
-    /// The last sequence id received in a [`StreamMessage`]
     last_received_sequence_id: u32,
-    /// Flag to know if the remote half is closed or closed the stream
     is_remote_closed: bool,
-    /// Flag to know if the remote half was open in the last message
+    /// Whether the remote half was still open as of the last message.
     was_open: bool,
-    /// Generator field in charge of both half of a generator
-    ///
-    /// [`Generator`] in charge of waiting for the next stream message
-    ///
-    /// [`GeneratorYielder`] in charge of sending the next stream message to the [`Generator`]
-    ///
     generator: (Generator<Vec<u8>>, GeneratorYielder<Vec<u8>>),
-    /// The transport used for the communications
     transport: Arc<T>,
-    /// Cancellation token to cancel the background task listening for new messages
     process_cancellation_token: CancellationToken,
 }
 
@@ -64,12 +45,6 @@ impl<T: Transport + ?Sized + 'static> StreamProtocol<T> {
         }
     }
 
-    /// Get the next received stream message
-    ///
-    /// It'll be sent by the [`GeneratorYielder`] but actually the message comes from the other half ([`RpcServer`](crate::server::RpcServer)  or [`RpcClient`](crate::client::RpcClient) )
-    ///
-    /// You won't use this function direcly, you should turn the [`StreamProtocol`] into a [`Generator`] using [`to_generator`](#method.to_generator)
-    ///
     async fn next(&mut self) -> Option<Vec<u8>> {
         select! {
             _ = self.process_cancellation_token.cancelled() =>  {
@@ -82,7 +57,6 @@ impl<T: Transport + ?Sized + 'static> StreamProtocol<T> {
                     Some(msg) => {
                         self.last_received_sequence_id += 1;
                         self.was_open = true;
-                        // Ack Message to let know the peer that we are ready to receive another message
                         let stream_message = StreamMessage {
                             port_id: self.port_id,
                             sequence_id: self.last_received_sequence_id,
@@ -114,14 +88,7 @@ impl<T: Transport + ?Sized + 'static> StreamProtocol<T> {
         }
     }
 
-    /// It consumes the [`StreamProtocol`] and returns a [`Generator`].
-    ///
-    /// It allows to pass a closure to transform the values that the internal [`Generator`] has.
-    ///
-    /// The transform closure has to return an Option, this allows the user to return None if something failed in the closure or it depends on some condition.
-    ///
-    /// It transforms the values and sends it to the returned [`Generator`] in a background task for a immediate response.
-    ///
+    /// The transform runs in a background task; an item it maps to `None` is dropped.
     pub fn to_generator<
         O: Send + Sync + 'static,
         F: Fn(Vec<u8>) -> Option<O> + Send + Sync + 'static,
@@ -145,7 +112,6 @@ impl<T: Transport + ?Sized + 'static> StreamProtocol<T> {
         generator
     }
 
-    /// It sends an ACK stream message through the transport given to [`StreamProtocol`] to let the other half know that the strem is opened
     async fn acknowledge_open(&self) -> Result<(), TransportError> {
         let stream_message = StreamMessage {
             port_id: self.port_id,
@@ -162,20 +128,15 @@ impl<T: Transport + ?Sized + 'static> StreamProtocol<T> {
         self.transport.send(stream_message.encode_to_vec()).await
     }
 
-    /// Finishs the stream processing, closes all generators and cancels all background tasks
     pub fn close(&mut self) {
         self.generator.0.close();
         self.process_cancellation_token.cancel();
     }
 
-    /// Spawns a background task to start processing the stream messages and returns a listener ([`AsyncChannelSender`])
-    ///
-    /// The returned listener will be registered in [`crate::messages_handlers::ServerMessagesHandler`] or [`crate::messages_handlers::ClientMessagesHandler`] that the [`RpcServer`](crate::server::RpcServer)  and [`RpcClient`](crate::client::RpcClient) contains
-    ///
-    /// Each new message that either of both structs receives will be handled by the messages handler and sent to the returned listener if it corresponds
-    ///
-    /// The callback expected in params, it should be to remove the listener from the messages handler when the the processing finishes
-    ///
+    /// The returned listener is meant to be registered in
+    /// [`crate::messages_handlers::ServerMessagesHandler`] or
+    /// [`crate::messages_handlers::ClientMessagesHandler`], and the callback is what
+    /// unregisters it once processing finishes.
     pub(crate) async fn start_processing<
         F: Future + Send,
         Callback: FnOnce() -> F + Send + 'static,
@@ -205,10 +166,6 @@ impl<T: Transport + ?Sized + 'static> StreamProtocol<T> {
         Ok(messages_listener)
     }
 
-    /// Processes stream messages, it's called by the background task spawned in [`start_processing`](#method.start_processing)
-    ///
-    /// It receives each [`StreamMessage`] and decides what to do with the stream messages processing, if it has to continue yielding messages or close the stream processing
-    ///
     async fn process_messages(
         messages_processor: AsyncChannelReceiver<(RpcMessageTypes, u32, StreamMessage)>,
         internal_channel_sender: GeneratorYielder<Vec<u8>>,
@@ -234,37 +191,21 @@ impl<T: Transport + ?Sized + 'static> StreamProtocol<T> {
     }
 }
 
-/// Errors related with [`Generator`] and [`GeneratorYielder`]
 #[derive(Debug)]
 pub enum GeneratorError {
-    /// The underlying channel is closed, if it was unable to insert.
-    ///
-    /// So if this error appears, it's due to a closed channel. We must stop doing [`GeneratorYielder::r#yield`]
-    ///
+    /// The receiving half is gone; stop yielding.
     UnableToInsert,
 }
 
-/// Generator struct contains only one field which it's an unbounded receiver from unounded channel from [`tokio`] crate
-///
-/// The other half of the unbounded channel is given to the [`GeneratorYielder`]
-///
 pub struct Generator<M>(UnboundedReceiver<M>);
 
 impl<M: Send + Sync + 'static> Generator<M> {
-    /// Creates an unbounded channel and returns a [`Generator`] and [`GeneratorYielder`]
     pub fn create() -> (Self, GeneratorYielder<M>) {
         let channel = unbounded_channel();
         (Self(channel.1), GeneratorYielder::new(channel.0))
     }
 
-    /// This functions takes a owned [`Generator`] to turn the items in that generator into another ones
-    /// but keeping the items in a generator.
-    ///
-    /// It allows to pass a closure to transform the values in the old [`Generator`].
-    ///
-    /// The transform closure has to return an Option, this allows the user to return None if something failed in the closure or it depends on some condition.
-    ///
-    /// It transforms the values and sends it to the returned [`Generator`] in a background task for a immediate response.
+    /// The transform runs in a background task; an item it maps to `None` is dropped.
     pub fn from_generator<
         O: Send + Sync + 'static,
         F: Fn(M) -> Option<O> + Send + Sync + 'static,
@@ -297,10 +238,6 @@ impl<M: Send + Sync + 'static> Generator<M> {
     }
 }
 
-/// The other half for a [`Generator`]. It contains an only one field which it's an unbounded sender from a unbounded channel from [`tokio`] crate
-///
-/// It's in charge of sendin the values to the [`Generator`]
-///
 pub struct GeneratorYielder<M>(UnboundedSender<M>);
 
 impl<M> GeneratorYielder<M> {

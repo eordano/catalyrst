@@ -34,10 +34,6 @@ export function PlayEditWarningModal({ onDismiss }: { onDismiss: (dontShowAgain:
   );
 }
 
-
-// The MCP pairing consent surface. mcp-bridge owns the trust decision (loopback
-// silent, remote refused without consent); this owns only its presentation, so
-// it themes and traps focus like every other dialog.
 export function McpPairingConsentModal({
   host,
   onAnswer,

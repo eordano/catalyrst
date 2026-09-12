@@ -163,7 +163,6 @@ async fn fed_remove_place(
         return err_json(StatusCode::BAD_REQUEST, "place_id mismatch");
     }
 
-    // Authorize before any ownership probe: a caller without standing must never reach the outbound places-API call.
     if let Err(e) = require_permission(
         &state,
         &signed.message.community_id,

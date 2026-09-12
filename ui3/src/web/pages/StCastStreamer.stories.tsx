@@ -12,13 +12,11 @@ const DEMO_TOASTS: Toast[] = [
   },
 ];
 
-/** The toast stack is picked by name; `none` is the clean page. */
 const TOASTS = { none: [] as Toast[], screenShareFailed: DEMO_TOASTS };
 type ToastName = keyof typeof TOASTS;
 
 type StreamerProps = ComponentProps<typeof StCastStreamer>;
 
-/** Story args: the toast stack is picked by name, everything else is a real prop. */
 type StreamerStoryArgs = Omit<StreamerProps, "toasts"> & { toastPreset: ToastName };
 
 const meta = {
@@ -58,12 +56,6 @@ type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {};
 
-/**
- * Every state rendered at once. `Default` flips between them with the `state` /
- * `toastPreset` controls; this story keeps the live page with and without a toast,
- * the onboarding card, the joining spinner and the connection-error screen in the
- * render + a11y + visual-diff gates.
- */
 export const Catalog: Story = {
   name: "Catalog (every state)",
   parameters: {

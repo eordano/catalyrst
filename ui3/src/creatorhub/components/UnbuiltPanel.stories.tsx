@@ -65,7 +65,6 @@ type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {};
 
-/** Nothing helps yet, and the panel says so rather than inventing a workaround. */
 export const NoWorkaround: Story = {
   args: {
     title: "Live 2-D scene state",

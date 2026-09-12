@@ -124,16 +124,13 @@ pub async fn get_permissions(
 
 /// Resolve who owns a world: the stored column first, then the live squid ENS answer.
 ///
-/// **The one chokepoint for ownership in this crate, and the reason it takes a
-/// [`LocalWorldName`] rather than a `&str`.** A world name reported by a federated peer
-/// is a [`crate::fed::names::RemoteWorldName`], there is no conversion between the two
-/// types in either direction, and no constructor of `LocalWorldName` accepts one. So a
-/// peer-reported name cannot reach this function without somebody writing a line that
-/// names the lie -- and the grep gate in `fed::wire` fails the build if they do.
+/// **The one chokepoint for ownership in this crate**, which is why it takes a
+/// [`LocalWorldName`] rather than a `&str`: a peer-reported name is a
+/// [`crate::fed::names::RemoteWorldName`], no conversion exists in either direction, and
+/// the grep gate in `fed::wire` fails the build on any line that launders one.
 ///
-/// The precedence (`stored_owner` first) is unchanged by this branch, and it is exactly
-/// why the mirror path writes no column of `worlds`: a row written there would outrank
-/// the chain permanently.
+/// `stored_owner` first is why the mirror path writes no column of `worlds`: a row
+/// written there would outrank the chain permanently.
 pub(crate) async fn resolve_world_owner(
     state: &AppState,
     world_name: &LocalWorldName,
@@ -155,10 +152,6 @@ pub(crate) async fn resolve_world_owner(
     }
 }
 
-// Ownership comes from the NFT entity, never from `ens.owner_id`: the squid's
-// ENS handler seeds the owner from the registrar *caller* and never updates it,
-// so a DCLControllerV2 registration records the controller contract rather than
-// the buyer. `nft.owner_id` is the ERC-721 owner and tracks later transfers.
 async fn resolve_name_owner_id(
     pool: &sqlx::PgPool,
     label: &str,

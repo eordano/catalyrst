@@ -11,12 +11,9 @@ pub(crate) struct CachedEntity {
 pub(crate) struct EntityCache {
     pub(crate) by_id: HashMap<String, CachedEntity>,
     pub(crate) pointer_to_id: HashMap<String, String>,
-    /// A set, not a Vec: the membership check this needs ran as a linear scan of
-    /// a growing Vec on every insert, so a bulk load of one type was quadratic
-    /// in that type's size -- ~45k wearables meant ~1e9 string comparisons, and
-    /// that, not the queries, was the bulk of the cache-load wall time. Nothing
-    /// reads this index today; keeping it as a set means whoever adds the first
-    /// reader inherits an O(1) structure rather than that trap.
+    /// A set, not a Vec: as a Vec the membership check made a bulk load quadratic in the type's size
+    /// -- ~45k wearables meant ~1e9 string comparisons, the bulk of cache-load wall time. Nothing
+    /// reads this index today; keeping it a set means the first reader inherits O(1).
     by_type: HashMap<&'static str, HashSet<String>>,
 }
 

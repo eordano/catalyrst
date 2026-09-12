@@ -19,7 +19,6 @@ import {
 import { Context } from "./processor";
 import { PolygonInMemoryState, PolygonStoredData } from "./types";
 
-// Index a list of entities by their id into a Map for O(1) lookups.
 const toMapById = <T extends { id: string }>(entities: T[]): Map<string, T> =>
   new Map(entities.map((entity) => [entity.id, entity]));
 
@@ -63,9 +62,6 @@ export const getStoredData = async (
       .flat(),
   ];
 
-  // Independent read queries, issued together. Note these all run on the batch's
-  // single Postgres connection, so Promise.all pipelines rather than truly
-  // parallelizes them; it is still a small win over awaiting each in turn.
   const [
     nfts,
     analytics,
@@ -175,12 +171,9 @@ export const getStoredData = async (
       .then(toMapById),
   ]);
 
-  // These queries depend on NFTs result
   const nftItemIds = Array.from(nfts.values()).map((nft) => nft.item?.id);
 
-  // Second round of reads, which depend on the NFT result above.
   const [orders, items] = await Promise.all([
-    // Orders (depends on nftIds)
     ctx.store
       .findBy(Order, {
         nft: In([...Array.from(nftIds.values())]),
@@ -188,7 +181,6 @@ export const getStoredData = async (
       })
       .then(toMapById),
 
-    // Items (depends on nftItemIds)
     ctx.store
       .find(Item, {
         relations: {
@@ -213,7 +205,6 @@ export const getStoredData = async (
       .then(toMapById),
   ]);
 
-  // Accounts query depends on items
   const itemRelatedAccounts = [
     ...Array.from(items.values()).map((item) => item.creator),
     ...Array.from(items.values()).map((item) => item.beneficiary),

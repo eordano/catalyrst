@@ -1,4 +1,3 @@
-/* Provenance badge. Glyph + word always; colour is never the only signal. */
 
 .dv-badge {
   display: inline-flex;
@@ -21,7 +20,6 @@
   line-height: 1;
 }
 
-/* Live is deliberately the loudest and the scarcest thing on the page. */
 .dv-badge--live {
   color: var(--online);
   background: color-mix(in srgb, var(--online) 14%, transparent);
@@ -30,7 +28,6 @@
   animation: dv-badge-pulse 2s ease-in-out infinite;
 }
 
-/* Sampled is hollow so a page of 5-minute data never reads as a live feed. */
 .dv-badge--sampled {
   color: var(--ink-85);
   background: transparent;
@@ -49,8 +46,6 @@
   border-color: var(--line);
 }
 
-/* Mixed toward --text rather than raw --error: on the tinted background the
-   pure token lands at 4.47:1, just under the 4.5 the a11y gate enforces. */
 .dv-badge--unavailable {
   color: color-mix(in srgb, var(--error) 62%, var(--text));
   background: color-mix(in srgb, var(--error) 12%, transparent);
@@ -63,7 +58,6 @@
   border-color: var(--line);
 }
 
-/* Stale is a skin over sampled/snapshot, never a state of its own. */
 .dv-badge--stale {
   color: var(--warning);
   background: color-mix(in srgb, var(--warning) 12%, transparent);
@@ -74,9 +68,6 @@
   animation: none;
 }
 
-/* The status tokens are tuned for a dark surface; on white they fall under the
-   4.5:1 the a11y gate enforces. Mix them toward --text rather than hard-coding
-   a second palette -- a raw hex would break one theme or the other. */
 html.theme-light .dv-badge--live {
   color: color-mix(in srgb, var(--online) 45%, var(--text));
 }
@@ -104,7 +95,6 @@ html.theme-light .dv-badge--unbuilt {
   }
 }
 
-/* The header strip -- also the legend that keeps "--" from ever standing alone. */
 .dv-tally {
   display: flex;
   flex-wrap: wrap;

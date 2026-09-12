@@ -32,8 +32,6 @@ pub fn ephemeral_message(ephemeral_address: &str, expiration: DateTime<Utc>) -> 
     )
 }
 
-// The persisted @dcl/crypto identity the auth dapp posts: the wallet delegates
-// to the ephemeral key through an EIP-191 signature over the login message.
 pub fn mint_identity(signer_key: &str, ephemeral_key: &str, expiration: DateTime<Utc>) -> Value {
     let signer = wallet(signer_key);
     let ephemeral = wallet(ephemeral_key);
@@ -57,8 +55,6 @@ pub fn mint_identity(signer_key: &str, ephemeral_key: &str, expiration: DateTime
 
 pub type Headers = Vec<(HeaderName, HeaderValue)>;
 
-// ADR-44 headers for one request: the identity's chain plus an
-// ECDSA_SIGNED_ENTITY link the ephemeral key signs over method:path:ts:{}.
 pub fn signed_fetch_headers(
     identity: &Value,
     ephemeral_key: &str,

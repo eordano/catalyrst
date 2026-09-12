@@ -32,8 +32,6 @@ import { isMint } from "../../common/utils";
 import { StoreContractData } from "../state";
 import type { CollectionData } from "../utils/collectionMulticall";
 
-// Pre-fetched collection data from multicall (the multicall keys results by
-// address, so the per-collection payload is CollectionData without its `address`).
 export type PrefetchedCollectionData = Omit<CollectionData, "address">;
 
 export const handleCollectionCreation = async (
@@ -44,7 +42,7 @@ export const handleCollectionCreation = async (
   usedCredits: boolean = false,
   creditValue?: bigint,
   txHash?: string,
-  prefetchedData?: PrefetchedCollectionData // ALL pre-fetched data from multicall
+  prefetchedData?: PrefetchedCollectionData
 ) => {
   const { collections, counts } = storedData;
   const timestamp = BigInt(block.timestamp / 1000);
@@ -53,7 +51,6 @@ export const handleCollectionCreation = async (
   let isCompleted: boolean, isApproved: boolean, isEditable: boolean;
   let baseURI: string, chainId: bigint;
 
-  //  Use prefetched data if available (from multicall), otherwise fallback to RPC
   if (prefetchedData) {
     name = prefetchedData.name;
     symbol = prefetchedData.symbol;
@@ -65,7 +62,6 @@ export const handleCollectionCreation = async (
     baseURI = prefetchedData.baseURI;
     chainId = prefetchedData.chainId;
   } else {
-    // Fallback: 9 RPC calls (only if multicall failed)
     const collectionContract = new CollectionV2ABI.Contract(ctx, block, address);
     const rpcStart = performance.now();
     const results = await Promise.all([
@@ -389,8 +385,6 @@ export async function handleAddItem(
   const collection = collections.get(collectionAddress);
 
   if (!collection) {
-    // Skip it, collection will be set up once the proxy event is created
-    // The ProxyCreated event is emitted right after the collection's event
     console.log(
       `ERROR: Collection not found in handleAddItem: ${collectionAddress}`
     );
@@ -432,7 +426,6 @@ export async function handleAddItem(
         block,
         addresses.RaritiesWithOracle
       );
-      // ! RPC CALL: getRarityByName - called per AddItem when rarity is USD
       const result = await raritiesWithOracle.getRarityByName(rarity.name);
 
       creationFee = result.price;
@@ -489,7 +482,6 @@ export async function handleAddItem(
   const count = buildCountFromItem(counts);
   count.daoEarningsManaTotal = count.daoEarningsManaTotal + creationFee;
 
-  // tracks the number of items created by the creator and fees to DAO
   const analyticsDayData = getOrCreateAnalyticsDayData(
     timestamp,
     analytics,
@@ -553,7 +545,6 @@ export function handleRescueItem(
   const blockWhereRescueItemsStarted = getBlockWhereRescueItemsStarted();
   if (isNewContent && BigInt(block.height) >= blockWhereRescueItemsStarted) {
     const txInput = transaction.input;
-    // forwardMetaTx(address _target, bytes calldata _data) or manageCollection(address,address,address,bytes[]) selector
     if (txInput.startsWith("0x07bd3522") || txInput.startsWith("0x81c9308e")) {
       let curationId = getCurationId(
         collectionAddress,
@@ -564,13 +555,10 @@ export function handleRescueItem(
       const curation = new Curation({ id: curationId });
       let curator = "";
       if (txInput.startsWith("0x81c9308e")) {
-        // manageCollection(address,address,address,bytes[]) selector
         curator = transaction.from;
       } else {
-        // executeMetaTransaction(address,bytes,bytes32,bytes32,uint8) selector
         const index = txInput.indexOf("0c53c51c");
 
-        // Sender is the first parameter of the executeMetaTransaction
         curator = "0x" + txInput.substr(index + 32, 40);
       }
 
@@ -594,7 +582,6 @@ export function handleRescueItem(
         account.totalCurations !== undefined &&
         account.totalCurations !== null
       ) {
-        // hack since in ETH we dont have this field
         account.totalCurations += 1;
       }
     }
@@ -630,10 +617,10 @@ export function handleUpdateItemData(
 }
 
 export function encodeTokenId(itemId: number, issuedId: number): bigint {
-  const MAX_ITEM_ID = BigInt("0xFFFFFFFFFF"); // 40 bits max value
+  const MAX_ITEM_ID = BigInt("0xFFFFFFFFFF");
   const MAX_ISSUED_ID = BigInt(
     "0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
-  ); // 216 bits max value
+  );
 
   if (BigInt(itemId) > MAX_ITEM_ID) {
     throw new Error("encodeTokenId: INVALID_ITEM_ID");
@@ -643,7 +630,6 @@ export function encodeTokenId(itemId: number, issuedId: number): bigint {
     throw new Error("encodeTokenId: INVALID_ISSUED_ID");
   }
 
-  // Shift the itemId left by 216 bits and OR it with issuedId
   return (BigInt(itemId) << BigInt(216)) | BigInt(issuedId);
 }
 
@@ -721,13 +707,12 @@ export function handleSetApproved(
     }
   }
 
-  collection.updatedAt = timestamp; // to support old collections
-  collection.reviewedAt = timestamp; // to support old collections
+  collection.updatedAt = timestamp;
+  collection.reviewedAt = timestamp;
 
   const rescueBlock = getBlockWhereRescueItemsStarted();
   if (block.height > rescueBlock) {
     let txInput = transaction.input;
-    // forwardMetaTx(address _target, bytes calldata _data) or manageCollection(address,address,address,bytes[]) selector
     if (txInput.startsWith("0x07bd3522") || txInput.startsWith("0x81c9308e")) {
       const curationId = getCurationId(
         collectionAddress,
@@ -737,13 +722,10 @@ export function handleSetApproved(
       const curation = new Curation({ id: curationId });
       let curator = "";
       if (txInput.startsWith("0x81c9308e")) {
-        // manageCollection(address,address,address,bytes[]) selector
         curator = transaction.from;
       } else {
-        // executeMetaTransaction(address,bytes,bytes32,bytes32,uint8) selector
         const index = BigInt(txInput.indexOf("0c53c51c"));
 
-        // Sender is the first parameter of the executeMetaTransaction
         curator = "0x" + txInput.substr(+(index + BigInt(32)).toString(), 40);
       }
 
@@ -759,7 +741,6 @@ export function handleSetApproved(
       curation.txHash = Buffer.from(transaction.hash.slice(2), "hex");
       curation.timestamp = timestamp;
 
-      // hack since in ETH we dont have this field
       if (
         curatorAccount.totalCurations !== undefined &&
         curatorAccount.totalCurations !== null

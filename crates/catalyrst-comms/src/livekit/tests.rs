@@ -97,8 +97,6 @@ fn private_voice_grants_match_upstream_generate_credentials() {
     assert_eq!(v["canSubscribe"], true);
     assert_eq!(v["canPublishData"], true);
     assert_eq!(v["canUpdateOwnMetadata"], false);
-    // LiveKit compares canPublishSources case-sensitively against the
-    // lower-cased proto source names, so the grant must carry "microphone".
     assert_eq!(v["canPublishSources"], serde_json::json!(["microphone"]));
 
     assert!(p["exp"].as_i64().unwrap() > p["nbf"].as_i64().unwrap());
@@ -438,8 +436,6 @@ async fn capture_seq(
 
 #[tokio::test]
 async fn merge_metadata_read_modify_writes_merged_blob() {
-    // First response is a single-participant GetParticipant reply (the whole
-    // body IS the ParticipantInfo), not a ListParticipants roster.
     let (host, rx) = capture_seq(vec![
         r#"{"identity":"0xabc","metadata":"{\"role\":\"owner\",\"muted\":false}"}"#,
         "{}",
@@ -461,7 +457,6 @@ async fn merge_metadata_read_modify_writes_merged_blob() {
         serde_json::json!({ "room": "voice-chat-community-c1", "identity": "0xabc" })
     );
     assert!(caps[1].line.contains("UpdateParticipant"));
-    // The merge must NEVER fetch the whole roster.
     assert!(
         caps.iter().all(|c| !c.line.contains("ListParticipants")),
         "merge must never fetch the whole roster"
@@ -730,8 +725,6 @@ async fn ban_kick_fans_out_bounded_not_sequential() {
         .unwrap();
     let elapsed = t0.elapsed();
 
-    // Sequential would be >=18 delayed calls (~450ms); bounded fan-out is
-    // ~25 + ceil(16/8)*25 + 25 ~= 100ms. The 250ms bound cleanly separates them.
     assert!(
         elapsed < std::time::Duration::from_millis(250),
         "kick must fan out concurrently, took {elapsed:?}"

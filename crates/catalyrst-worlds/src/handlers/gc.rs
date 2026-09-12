@@ -323,8 +323,6 @@ async fn run_gc(
         .max(floor);
     let dry_run = q.dry_run.unwrap_or(false);
 
-    // The listing is taken before the active set so that a deployment committing mid-run protects
-    // its own files; the reverse order would let a just-committed scene lose its content.
     let scan = scan_collectable(&state.cfg.contents_dir, min_age)
         .await
         .map_err(|e| {

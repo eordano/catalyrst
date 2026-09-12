@@ -58,8 +58,7 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-/// `RUST_LOG` via `EnvFilter` with a per-service default filter, target names
-/// off: the same bootstrap the catalyrst service bins share, kept local so the
+/// The same bootstrap the catalyrst service bins share, kept local so the
 /// standalone dcl-one-sdk workspace does not carry catalyrst-envcfg for it.
 fn init_tracing(default_filter: &str) {
     tracing_subscriber::fmt()

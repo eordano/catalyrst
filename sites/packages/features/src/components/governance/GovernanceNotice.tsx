@@ -6,18 +6,6 @@ type Props = {
   detail?: string;
 };
 
-/**
- * Inline banner for the two honest states a governance page can be in:
- *
- * - "unavailable" -- this node cannot serve the data or cannot perform the
- *   action. Say so. Never substitute a fixture, a zero, or a stub id.
- * - "stale" -- the data is real but mirrored, and the mirror is only as fresh
- *   as the last sync. Say when.
- *
- * Deliberately not a full-page takeover (see UpstreamUnavailable for that):
- * these sit next to the thing they describe so the claim is attached to the
- * data it is about.
- */
 export default function GovernanceNotice({ tone, title, detail }: Props) {
   return (
     <div

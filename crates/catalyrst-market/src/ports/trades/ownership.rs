@@ -32,8 +32,6 @@ pub struct RpcEndpoints {
 }
 
 impl RpcEndpoints {
-    // TRADE_RPC_URLS is "<chainId>=<url>" pairs, comma separated, so a deployment
-    // can verify ownership on exactly the chains it trusts and no others.
     pub fn from_env(raw: Option<&str>) -> Self {
         let endpoints = raw
             .unwrap_or("")

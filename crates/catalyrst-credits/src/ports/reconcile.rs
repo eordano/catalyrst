@@ -104,7 +104,6 @@ const REALIGN_BATCH: i64 = 500;
 /// the adjustments are greppable and separable from real money movement.
 pub const REALIGN_TX_REF: &str = "migration:0018-ledger-realign";
 
-/// One adjustment row written to make the ledger reproduce a stored balance.
 #[derive(Debug, Serialize)]
 pub struct LedgerRealignment {
     pub address: String,
@@ -297,9 +296,6 @@ impl CreditsComponent {
         Ok(out)
     }
 
-    /// Make the ledger reproduce the stored balances by writing an explicit
-    /// adjustment row for every wallet whose signed ledger sum disagrees.
-    ///
     /// `reconcile_earned_balance` assumes a ledger-faithful origin, which
     /// migration 0012 does not provide: it seeded `earned_available` with
     /// `GREATEST(0, LEAST(available, earned_sum))`, and for any pre-existing
@@ -307,44 +303,36 @@ impl CreditsComponent {
     /// wrote a balance no ledger replay can reproduce. Those wallets would trip
     /// the reconcile alarm forever, through no fault of any later write.
     ///
-    /// DECISION: record the clamp, do not tolerate it. Teaching reconcile to
-    /// forgive a "clamped origin" turns an equality invariant into an equality
-    /// with a permanent carve-out -- it stops being an invariant, it has to
-    /// carry knowledge of a one-time migration forever, and the same tolerance
-    /// would mask genuine divergence (the f64-vs-NUMERIC ledger-row drop fixed
-    /// alongside this produced exactly the kind of gap it would swallow). An
-    /// adjustment row is self-describing, auditable, and leaves reconcile a
-    /// pure equality.
+    /// DECISION: record the clamp, do not tolerate it. A "clamped origin"
+    /// carve-out stops reconcile being an equality invariant, has to carry
+    /// knowledge of a one-time migration forever, and would mask genuine
+    /// divergence (the f64-vs-NUMERIC ledger-row drop fixed alongside this
+    /// produced exactly the kind of gap it would swallow).
     ///
     /// Idempotent: a second call finds no divergence and writes nothing.
     /// Migration 0018 applies this once to historical data; this entry point
     /// exists so the same operation is testable and available to operators.
     ///
-    /// BATCHED, and that is load-bearing. An earlier revision ran the whole
-    /// thing as ONE transaction that took `FOR UPDATE` over the ENTIRE
-    /// `user_credits` table -- twice -- with a correlated per-wallet aggregate
-    /// over `credit_ledger` and no LIMIT. On a real wallet count that is a long
-    /// exclusive lock across every wallet on the money path: `spend`, `refund`,
-    /// `revoke` and checkout all block on the same rows. This walks the primary
-    /// key in ordered keyset chunks of [`REALIGN_BATCH`] wallets, each chunk in
-    /// its OWN transaction, so the widest lock it ever holds is one chunk and
-    /// the operation is resumable: a chunk either commits or is retried, and a
-    /// rerun simply finds no divergence in the chunks that already landed.
+    /// BATCHED, and that is load-bearing. An earlier revision ran the whole thing
+    /// as ONE transaction that took `FOR UPDATE` over the ENTIRE `user_credits`
+    /// table -- twice -- with no LIMIT, blocking `spend`, `refund`, `revoke` and
+    /// checkout on the same rows. This walks the primary key in ordered keyset
+    /// chunks of [`REALIGN_BATCH`] wallets, each chunk in its OWN transaction, so
+    /// the widest lock it ever holds is one chunk and the operation is resumable.
     ///
-    /// Wallets created below the cursor while the walk is in flight are not
-    /// seen by that run. That is safe (a newly created wallet is
-    /// ledger-faithful by construction) and, since the operation is idempotent,
-    /// a rerun picks up anything a run missed.
+    /// Wallets created below the cursor while the walk is in flight are not seen
+    /// by that run. That is safe (a newly created wallet is ledger-faithful by
+    /// construction) and, since the operation is idempotent, a rerun picks up
+    /// anything a run missed.
     ///
     /// TODO(owner-decision): scope. This realigns EVERY divergent wallet, not
     /// only those the 0012 clamp touched -- the two are indistinguishable after
-    /// the fact, since neither leaves a marker. That is the safe direction (the
-    /// balance is authoritative, and the adjustment rows name themselves), but
-    /// it means migration 0018 also absorbs any divergence the f64-vs-NUMERIC
+    /// the fact, since neither leaves a marker. That is the safe direction, but it
+    /// means migration 0018 also absorbs any divergence the f64-vs-NUMERIC
     /// ledger-row drop had already caused in production. Review the
     /// `credits.ledger_realign` audit rows after deploying and confirm the
-    /// per-wallet deltas are the expected magnitude before treating the
-    /// reconcile report as clean.
+    /// per-wallet deltas are the expected magnitude before treating the reconcile
+    /// report as clean.
     pub async fn realign_ledger_to_balances(
         &self,
         reason: &str,
@@ -362,8 +350,6 @@ impl CreditsComponent {
         batch: i64,
     ) -> Result<Vec<LedgerRealignment>, ApiError> {
         let batch = batch.max(1);
-        // The empty string precedes every address under every collation, so it
-        // is the natural "before the first row" cursor for the keyset walk.
         let mut cursor = String::new();
         let mut out: Vec<LedgerRealignment> = Vec::new();
         let mut wallets_scanned: u64 = 0;
@@ -372,10 +358,6 @@ impl CreditsComponent {
         loop {
             let mut tx = self.pool.begin().await?;
 
-            // One bounded chunk of the PRIMARY KEY, locked for the duration of
-            // this chunk's transaction only. `ORDER BY ... LIMIT ... FOR
-            // UPDATE` locks after the limit, so exactly `batch` wallet rows are
-            // held, never the whole table.
             let addresses: Vec<String> = sqlx::query_scalar(
                 "SELECT address FROM user_credits \
                  WHERE address > $1 ORDER BY address LIMIT $2 FOR UPDATE",
@@ -393,11 +375,6 @@ impl CreditsComponent {
             wallets_scanned += addresses.len() as u64;
             chunks += 1;
 
-            // Earned bucket first, then the total, so the second adjustment
-            // sees the first and the two compose instead of fighting. Both are
-            // restricted to this chunk's already-locked addresses, so the
-            // correlated per-wallet aggregate over `credit_ledger` runs `batch`
-            // times rather than once per wallet in the table.
             let earned = sqlx::query(
                 "WITH e AS ( \
                      SELECT u.address, \
@@ -479,8 +456,6 @@ impl CreditsComponent {
                 }
             }
 
-            // Commit per chunk: the adjustments so far are durable, and a
-            // failure later resumes from here rather than redoing everything.
             tx.commit().await?;
 
             tracing::info!(

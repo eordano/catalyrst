@@ -56,9 +56,6 @@ fn parse_args() -> Args {
         }
         i += 1;
     }
-    // Overwriting a world someone deployed here destroys signed content, so it is
-    // only ever done to a world named on the command line: an index-wide run with
-    // --force would silently replace every local publish on the node.
     if force && names.is_empty() {
         eprintln!(
             "--force requires at least one --name: it overwrites a world published to this node, \
@@ -243,10 +240,9 @@ struct WorldStats {
     new_blobs: usize,
 }
 
-/// A world this run did not mirror is not automatically a failure, and the two
-/// must not read alike: refusing to overwrite a local publish is the tool
-/// working, while an unreachable upstream is the tool broken. Collapsing both
-/// into one `skipped` counter is what makes a correct refusal look like a bug.
+/// A world this run did not mirror is not automatically a failure: refusing to
+/// overwrite a local publish is the tool working, an unreachable upstream is the tool
+/// broken, and one `skipped` counter for both makes a correct refusal look like a bug.
 enum Outcome {
     Synced(WorldStats),
     RefusedLocalPublish { deployer: String },
@@ -296,10 +292,6 @@ async fn mirror_world(
     let skybox_time = about["configurations"]["skybox"]["fixedHour"].as_i64();
     let single_player = about["comms"]["adapter"].as_str() == Some("fixed-adapter:offline:offline");
 
-    // Where the origin server drops arrivals, which is not always the first
-    // scene's base parcel -- an operator can move it, and the entity never
-    // learns. Reading it from the entity instead is why a mirrored world used to
-    // keep the wrong spawn no matter how often the mirror was re-run.
     let upstream_spawn = about["spawnCoordinates"]
         .as_str()
         .filter(|s| !s.trim().is_empty())
@@ -341,10 +333,6 @@ async fn mirror_world(
 
     let _db = db_lock.lock().await;
     let mut tx = pool.begin().await.context("begin tx")?;
-    // Upstream's spawn wins when it publishes one -- that is what mirroring
-    // means. With none, a spawn an operator set here is preserved and the
-    // scene's base parcel is only the last resort, so re-running the mirror
-    // stops reverting a deliberate local choice.
     sqlx::query(
         r#"INSERT INTO worlds (name, spawn_coordinates, skybox_time, single_player, blocked_since, updated_at)
            VALUES ($1, COALESCE($2, $5), $3, $4, NULL, now())

@@ -8,13 +8,6 @@ import {
   unavailable,
 } from "../catalyst/admin/availability";
 
-/**
- * File-backed operator env vars, in systemd EnvironmentFile syntax so the
- * exact file this page edits is the one units load at start. Lines this store
- * does not own (comments, hand-added entries with unusual syntax) are
- * preserved verbatim; only `NAME=` lines it manages are rewritten.
- */
-
 export type OperatorEnvEntry = { name: string; value: string };
 
 export type OperatorEnvFile = {

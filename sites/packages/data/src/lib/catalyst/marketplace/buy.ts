@@ -18,22 +18,10 @@ function message(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-/**
- * The wire order is the generated `OrderSchema` (catalyrst-market's ts-rs
- * image), narrowed once: `tokenId` is nullable on the wire, but every
- * consumer here signs it into a buy meta-tx, so an order without a concrete
- * tokenId is not buyable and is dropped at the parse.
- */
 export const BuyOrderSchema = OrderSchema.extend({ tokenId: z.string() });
 
 export type BuyOrder = z.infer<typeof BuyOrderSchema>;
 
-/**
- * null means "this row is not a checked order". Every field below funds a real
- * on-chain purchase -- price, tokenId, contractAddress are signed into a meta-tx
- * -- so a row that failed validation must never be cast through as if it had
- * passed. Callers drop it and say so rather than quoting an unverified price.
- */
 export function parseBuyOrder(raw: unknown): BuyOrder | null {
   const r = BuyOrderSchema.safeParse(raw);
   if (r.success) return r.data;
@@ -54,11 +42,6 @@ export type FetchOrdersParams = {
 export type FetchedOrders = {
   data: BuyOrder[];
   total: number;
-  /**
-   * Rows the node returned that failed validation and were dropped. Non-zero
-   * means "we cannot see all the listings", which is not the same claim as
-   * "there are none" -- callers must not report an empty result as empty.
-   */
   invalid: number;
 };
 
@@ -90,13 +73,6 @@ export async function fetchOrders(
   return { data, total: env.total, invalid };
 }
 
-/**
- * "catalyst" -- `order` is a validated listing.
- * "empty" -- the node answered and holds no open listing to buy.
- * "unavailable" -- the read failed or returned rows we could not validate;
- *   `reason` says which. Never render this as "not for sale": the item may
- *   well be on sale, we just could not see it.
- */
 export type OrderLookup = {
   order: BuyOrder | null;
   source: "catalyst" | "empty" | "unavailable";
@@ -219,11 +195,6 @@ export function toBuyableListing(
   };
 }
 
-/**
- * Same three states as `OrderLookup`. The catalog item is decoration (name,
- * thumbnail) and a failure to load it only degrades the display, so it does not
- * make the listing unavailable -- a missing *order* does.
- */
 export type ListingLookup = {
   listing: BuyableListing | null;
   source: "catalyst" | "empty" | "unavailable";

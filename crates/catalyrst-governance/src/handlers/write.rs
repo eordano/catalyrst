@@ -50,8 +50,6 @@ pub async fn submit_proposal(
     };
 
     let path = format!("/proposals/{}", kind.as_path());
-    // Authenticate before the credential gate: an anonymous caller must not be able to
-    // probe which Snapshot secrets this deployment is missing.
     let author = match catalyrst_crypto::signed_fetch::verify_signed_fetch(
         &headers,
         "post",

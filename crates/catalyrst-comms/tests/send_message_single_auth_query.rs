@@ -19,7 +19,6 @@ use catalyrst_contract_gate::pg::ScratchSchema;
 use catalyrst_crypto::Wallet;
 use serde_json::json;
 
-// Well-known hardhat account #1 / #2 private keys -- valid secp256k1 keys.
 const CREATOR_KEY: &str = "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d";
 const OUTSIDER_KEY: &str = "0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a";
 
@@ -64,10 +63,8 @@ async fn send_message_pre_write_phase_is_one_select() {
 
     let path = format!("/mls/groups/{gid}/messages");
 
-    // Install AFTER seeding so create_group's statements are outside the window.
     let cap = catalyrst_testgate::sql_capture::sql_capture();
 
-    // (a) member + garbage body: passes auth + membership, 400 at ciphertext parse.
     let err = send_message(
         State(state.clone()),
         support::signed_headers(&creator, "post", &path),
@@ -83,7 +80,6 @@ async fn send_message_pre_write_phase_is_one_select() {
         "auth+epoch phase must be exactly one SELECT"
     );
 
-    // (b) non-member: 403, still one statement.
     cap.reset();
     let err = send_message(
         State(state.clone()),
@@ -100,7 +96,6 @@ async fn send_message_pre_write_phase_is_one_select() {
         "non-member path is still one SELECT"
     );
 
-    // (c) missing group: 404 wins even though the signer is a member of nothing.
     cap.reset();
     let missing = fresh_group_id();
     let mpath = format!("/mls/groups/{missing}/messages");

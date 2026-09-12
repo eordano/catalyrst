@@ -37,9 +37,7 @@ export type WorldHistory = {
 };
 
 export type StorageReading = {
-  /** Preformatted by the data layer -- the byte strings are BigInt, not Number. */
   label: string;
-  /** 0...1, or `null` when the quota is unknown. Drives the bar only. */
   ratio: number | null;
 };
 
@@ -66,43 +64,31 @@ export type ChWorldActivityPageProps = {
   jumpUrl?: string | null;
   readAt?: string | null;
 
-  /** Right now */
   inThisWorld: Datum<number>;
   commsRoom: Datum<number>;
   realm: Datum<string>;
 
-  /** Who was here */
   history: Datum<WorldHistory>;
   peak: Datum<number>;
   occupiedSnapshots: Datum<string>;
   historyBegins: Datum<string>;
   onRetryHistory?: () => void;
 
-  /** What is deployed */
   sceneUrn: Datum<string>;
   spawnCoordinates: Datum<string>;
   storage: Datum<StorageReading>;
-  /**
-   * The scene key-value store. This panel has no value slot at all: the
-   * endpoint needs an ADR-44 signed fetch made by the scene runtime, and it
-   * would be a different number from deployed bytes even if it answered.
-   */
   sceneKvStorage: Datum<unknown>;
 
-  /** Who can get in -- read-only, always */
   access: Datum<readonly FactRow[]>;
   permissionsCli?: CliEscapeProps;
   permissionsHref?: string;
 
-  /** Reception */
   reception: Datum<readonly FactRow[]>;
 
   notBuilt: readonly NotBuiltSpec[];
   sources: readonly SourceLedgerGroup[];
 
-  /** Full-page states */
   notFound?: boolean;
-  /** False renders the neutral "not yours, still public" line. Never a lock. */
   deployedByCaller?: boolean;
 
   backTo?: string;
@@ -111,7 +97,6 @@ export type ChWorldActivityPageProps = {
   worldsHref?: string;
   onRefresh?: () => void;
   refreshing?: boolean;
-  /** Pinned clock, for deterministic stories and tests. */
   now?: number;
 };
 
@@ -155,14 +140,6 @@ function FactList({
   );
 }
 
-/**
- * `/creator-hub/activity/:world` -- one world, on one scrolling page.
- *
- * The gaps are deliberately adjacent to the data rather than filed behind a
- * tab: what this page cannot tell you is as load-bearing as what it can.
- * Degradation is partial by design -- a dead presence collector empties the
- * right-now and history sections and leaves deploy, access and reception alone.
- */
 export default function ChWorldActivityPage({
   world,
   worldMeta,
@@ -490,7 +467,7 @@ export default function ChWorldActivityPage({
           <DatumNote datum={storage} now={now} />
         </div>
 
-        {/* No value slot on purpose -- this panel can only ever explain itself. */}
+        {}
         <div className="wa__kv">
           <div className="wa__storagehead">
             <span className="wa__storagelabel">Scene key&#x2013;value storage</span>

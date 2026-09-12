@@ -21,10 +21,6 @@ const WORLD_NAME: &str = "gate-world.dcl.eth";
 const WORLD_EVENT_ID: &str = "ev-world-1";
 const DEAD_EVENTS_URL: &str = "http://127.0.0.1:9";
 
-// The events service the proxy and the decorations talk to: it hosts one
-// live, upcoming event at the world, named the way upstream names a world
-// event (its world in `server`, an upstream place uuid on the wire), and
-// answers the destination proxy with an empty list.
 async fn events_service() -> String {
     let world_event = json!({
         "id": WORLD_EVENT_ID,

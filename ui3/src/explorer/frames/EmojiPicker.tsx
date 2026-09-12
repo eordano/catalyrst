@@ -1,6 +1,3 @@
-// Emoji picker -- category tabs + search + "Frequently used" + per-category grid,
-// matching the Explorer 2.0 emoji panel. Clicking inserts the Unicode glyph and
-// records it in recents. Ported/expanded from the SDK7 scene's emoji button.
 
 import { useEffect, useMemo, useState } from 'react'
 import {

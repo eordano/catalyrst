@@ -178,8 +178,6 @@ export default function AssetDetailView({
     );
   }
 
-  // The table cell is typed `string`; a listing whose wei price could not be
-  // read says so rather than borrowing the "0" that renders as Free.
   const listingRows = listings.map((l) => ({ ...l, price: l.price ?? "unknown" }));
 
   return (

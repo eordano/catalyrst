@@ -6,7 +6,6 @@ export const THIRDWEB_API_BASE = "https://api.thirdweb.com";
 
 export const LOGIN_CHAIN_ID = 1;
 
-
 function viteEnv(name: string): string {
   try {
     const v = (import.meta.env as Record<string, unknown> | undefined)?.[name];
@@ -35,7 +34,6 @@ export function thirdwebSignProxyUrl(): string {
 export function hasThirdwebClientId(): boolean {
   return thirdwebClientId().length > 0;
 }
-
 
 export class ThirdwebError extends Error {
   readonly status: number;
@@ -79,11 +77,6 @@ type FetchOpts = {
   signal?: AbortSignal;
 };
 
-/**
- * Returns the decoded body as `unknown`. Each caller validates its own shape:
- * a generic would have this function assert a type it never looked at, which is
- * the claim the schemas exist to stop making.
- */
 async function twFetch(path: string, opts: FetchOpts): Promise<unknown> {
   const clientId = thirdwebClientId();
   if (!clientId) {
@@ -124,9 +117,6 @@ async function twFetch(path: string, opts: FetchOpts): Promise<unknown> {
     }
   }
 
-  // Read loosely and left unvalidated on purpose: an error body is a courtesy,
-  // not a contract, and validating it would replace a real 401 with a complaint
-  // about the shape of its explanation.
   if (!res.ok) {
     const obj = (parsed ?? {}) as { message?: string; correlationId?: string };
     throw new ThirdwebError(
@@ -139,7 +129,6 @@ async function twFetch(path: string, opts: FetchOpts): Promise<unknown> {
   return parsed;
 }
 
-/** Nothing to validate: this endpoint answers 200 with an empty body. */
 export async function initiateEmailLogin(
   email: string,
   signal?: AbortSignal,
@@ -198,9 +187,6 @@ async function proxySign(body: Record<string, unknown>): Promise<string> {
     } catch {
     }
   }
-  // The failure test runs first and stays loose. A 503 carries `{error}`, and
-  // validating the success shape ahead of the status would answer "the server
-  // is not configured for signing" with a complaint about a missing signature.
   const loose = (parsed ?? {}) as { signature?: unknown; error?: string };
   if (!res.ok || !loose.signature) {
     throw new ThirdwebError(
@@ -239,17 +225,6 @@ export function makeInAppSigner(
   };
 }
 
-/**
- * Reads the `?authResult=` parameter thirdweb's social redirect appends.
- *
- * Deliberately NOT a `check` boundary, and not an omission to be tidied up
- * later: this string arrives in a URL anyone can compose, so it is untrusted
- * input rather than a contract with a service. Throwing on a shape that does
- * not match -- which is the right answer for a service that changed under us --
- * would make a crafted link a dev-mode denial of service and a production
- * console flood. Returning null keeps a bad link indistinguishable from no
- * link, which is what the caller already does with it.
- */
 export function parseAuthResult(
   raw: string,
 ): Pick<ThirdwebAuthResult, "token" | "walletAddress"> | null {

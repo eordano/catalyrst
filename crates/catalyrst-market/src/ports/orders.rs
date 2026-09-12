@@ -206,12 +206,10 @@ impl OrdersComponent {
     }
 }
 
-/// A bare item id resolves through the item table (upstream dfc17f9): an L1
-/// order's item_id is `<collection>-<name_key>`, not
-/// `<collection>-<blockchain_id>`, so composing the id from the request only
-/// ever matched L2 items. The arm is gated on the input carrying no dash so a
-/// composite input keeps the three direct arms and nothing else, and the
-/// collection scope reuses the contract placeholder the caller already bound.
+/// A bare item id resolves through the item table (upstream dfc17f9): an L1 order's item_id
+/// is `<collection>-<name_key>`, not `<collection>-<blockchain_id>`, so composing the id from
+/// the request only ever matched L2 items. The arm is gated on the input carrying no dash so
+/// a composite input keeps the three direct arms and nothing else.
 pub(crate) fn item_id_predicate_sql(param: &str, contract_param: Option<&str>) -> String {
     let collection_scope = contract_param
         .map(|c| format!(" AND LOWER(resolved_item.collection_id) = LOWER({c})"))
@@ -566,8 +564,7 @@ mod query_tests {
         );
     }
 
-    /// Upstream dfc17f9: `GET /v1/orders?itemId=7&contractAddress=0x..` must
-    /// find an L1 order whose item_id is `<collection>-<name_key>`, which no
+    /// Upstream dfc17f9: an L1 order's item_id is `<collection>-<name_key>`, which no
     /// composite built from the request ever equals.
     #[test]
     fn a_bare_item_id_resolves_through_the_item_table() {

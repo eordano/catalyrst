@@ -1,11 +1,8 @@
-//! Removing a community place authorizes before it reads.
-//!
-//! `rest::handlers::client::places::remove_place` gates on `Permission::RemovePlaces`
-//! ahead of the place-ownership probe, so a caller with no standing in a private
-//! community gets one answer whether or not the named place is attached -- the place list
-//! `get_places` refuses to non-members stays closed. Upstream fixed the same shape in
-//! social-service-ea#496 alongside the create-request ordering pinned in
-//! `tests/join_and_ban_integrity.rs`.
+//! `rest::handlers::client::places::remove_place` gates on `Permission::RemovePlaces` ahead
+//! of the place-ownership probe, so a caller with no standing in a private community gets
+//! one answer whether or not the named place is attached -- the place list `get_places`
+//! refuses to non-members stays closed. Upstream social-service-ea#496, alongside the
+//! create-request ordering pinned in `tests/join_and_ban_integrity.rs`.
 
 use std::path::PathBuf;
 use std::sync::Arc;

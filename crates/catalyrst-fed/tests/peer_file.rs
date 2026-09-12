@@ -139,13 +139,10 @@ dao_proposal   = "https://snapshot.org/#/snapshot.dcl.eth/proposal/0xfoo"
     assert!(format!("{err}").contains("added_at"));
 }
 
-/// Two entries naming the same peer are a refusal, not a merge.
-///
-/// `HashMap::insert` returns the displaced value, and this loop used to discard it, so
-/// a file could carry two complete entries -- two DAO proposals, two pinned roots, two
-/// hosts -- and boot a registry holding exactly one of them, chosen by document order.
-/// In `catalyrst-worlds` that made two admitted peers share one mirror namespace, and
-/// whichever polled second wiped the first's rows.
+/// Regression: the parse loop used to discard `HashMap::insert`'s displaced value, so a file
+/// carrying two complete entries booted a registry holding one of them, chosen by document
+/// order. In `catalyrst-worlds` the two peers then shared one mirror namespace and whichever
+/// polled second wiped the first's rows.
 #[test]
 fn peer_file_naming_one_peer_twice_is_refused_naming_both_entries() {
     let body = r#"
@@ -180,8 +177,7 @@ added_at       = "2026-06-02"
     );
 }
 
-/// An *exact* duplicate is the same defect without the case variance, and was equally
-/// silent. It is refused for the same reason.
+/// The same defect without the case variance, and equally silent.
 #[test]
 fn peer_file_with_a_verbatim_duplicate_entry_is_refused() {
     let one = r#"
@@ -200,9 +196,6 @@ added_at       = "2026-06-03"
     assert!(format!("{err}").contains("dupe.peer"));
 }
 
-/// Ids are canonicalised once, at parse time. After that the registry holds no raw
-/// spelling at all, and lookups fold the needle the same way -- so a caller cannot miss
-/// a peer it does hold by writing the id in a different case.
 #[test]
 fn peer_ids_are_canonicalised_at_parse_time_and_lookups_fold_to_match() {
     let body = r#"

@@ -9,14 +9,13 @@ use super::{
     DeploymentContext, FailedDeployment, FailureReason, SyncDeployment, SyncError, TimeRange,
 };
 
-/// Per-stream accounting of what was handed to the deployer against what the deployer
-/// confirmed. Draining (`on_idle`) only proves the queue emptied, not that every entity in it
-/// was deployed, so callers create one of these per snapshot or per pointer-changes run and
-/// refuse to advance their sync cursor while `acknowledged < scheduled`.
+/// Draining (`on_idle`) only proves the queue emptied, not that every entity in it was deployed, so
+/// callers create one of these per snapshot or per pointer-changes run and refuse to advance their
+/// sync cursor while `acknowledged < scheduled`.
 ///
-/// "Acknowledged" means the entity is durably accounted for: either deployed, or recorded in
-/// `failed_deployments` where the retry loop owns it. An entity that fails BOTH is never
-/// acknowledged -- that is the silent-loss case the sync frontier must not advance past.
+/// "Acknowledged" means durably accounted for: deployed, or recorded in `failed_deployments` where
+/// the retry loop owns it. An entity that fails BOTH is never acknowledged -- the silent-loss case
+/// the sync frontier must not advance past.
 #[derive(Debug, Default)]
 pub struct DeploymentReport {
     scheduled: std::sync::atomic::AtomicU64,
@@ -33,12 +32,10 @@ impl DeploymentReport {
         self.acknowledged.load(std::sync::atomic::Ordering::SeqCst)
     }
 
-    /// Entities of THIS report dropped with no durable record anywhere -- neither deployed nor
-    /// recorded in failed_deployments. Attributed per report (the batch flush carries each
-    /// entity's report) so a loss in one stream does not force every concurrent pass to hold
-    /// back, the way comparing the deployer's global counter did: during the straggler retry
-    /// that global check ran concurrently with live steady-state streams, and any loss anywhere
-    /// marked every snapshot in the straggler pass as failed forever.
+    /// Entities of THIS report dropped with no durable record anywhere. Attributed per report so a
+    /// loss in one stream does not force every concurrent pass to hold back, the way comparing the
+    /// deployer's global counter did: during the straggler retry that global check ran concurrently
+    /// with live streams, and any loss anywhere marked every snapshot in the pass failed forever.
     pub fn lost(&self) -> u64 {
         self.lost.load(std::sync::atomic::Ordering::SeqCst)
     }
@@ -57,15 +54,12 @@ impl DeploymentReport {
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     }
 
-    /// Counted once the entity is durably accounted for: deployed, or recorded in
-    /// failed_deployments where the retry loop owns it.
     pub fn record_acknowledged(&self) {
         self.acknowledged
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     }
 
-    /// True when everything scheduled through this report came back acknowledged. Only
-    /// meaningful after the deployer has drained (`on_idle`), like upstream's post-drain
+    /// Only meaningful after the deployer has drained (`on_idle`), like upstream's post-drain
     /// processed-marker re-check.
     pub fn is_complete(&self) -> bool {
         self.acknowledged() >= self.scheduled()
@@ -153,11 +147,10 @@ impl BatchDeployer {
         }
     }
 
-    /// Cumulative count of entities dropped with no durable record anywhere: neither deployed
-    /// nor recorded in failed_deployments (both writes failed), including entities lost by a
-    /// failed batch flush inside the underlying deployer. Callers snapshot this before a phase
-    /// and compare after draining -- any growth means the sync frontier must not advance,
-    /// because nothing will re-deliver those entities.
+    /// Entities dropped with no durable record anywhere (both writes failed), including those lost
+    /// by a failed batch flush inside the underlying deployer. Callers snapshot this before a phase
+    /// and compare after draining -- any growth means the sync frontier must not advance, because
+    /// nothing will re-deliver those entities.
     pub fn lost_count(&self) -> u64 {
         self.lost.load(std::sync::atomic::Ordering::SeqCst) + self.deployer.lost_count()
     }
@@ -200,13 +193,6 @@ impl BatchDeployer {
         while self.in_flight.load(std::sync::atomic::Ordering::Acquire)
             >= self.config.max_queue_depth
         {
-            // Enroll in the notify queue BEFORE the re-check: a `notified()`
-            // future only registers on first poll, so without `enable()` a
-            // completion's notify_waiters() landing between the re-check and
-            // the await is simply lost -- and when that completion was the
-            // last one in flight, this await sleeps forever. That lost
-            // wakeup is the silent post-catch-up ingest wedge (unit active,
-            // zero logs, frontier frozen, restart cures).
             let notified = self.idle_notify.notified();
             tokio::pin!(notified);
             notified.as_mut().enable();
@@ -266,10 +252,6 @@ impl BatchDeployer {
                         error = %e,
                         "Entity deployment failed"
                     );
-                    // A failure only counts as handled once it is durably recorded, so the
-                    // retry loop owns it. If even that fails, the entity is acknowledged to
-                    // nobody -- leave it unacknowledged and count it as lost, which holds the
-                    // sync frontier back so the entity is re-delivered after a restart.
                     match failed_store
                         .report_failure(FailedDeployment {
                             entity_type: entity.entity_type.clone(),
@@ -315,11 +297,6 @@ impl BatchDeployer {
 
     pub async fn on_idle(&self) -> Result<(), SyncError> {
         loop {
-            // Same lost-wakeup hazard as the schedule gate above: enable()
-            // enrolls before the in_flight check, so the final completion's
-            // notify_waiters() cannot slip through the gap. This is the path
-            // the long-poll loop parks in every poll boundary -- the exact
-            // spot the ingest wedged.
             let notified = self.idle_notify.notified();
             tokio::pin!(notified);
             notified.as_mut().enable();

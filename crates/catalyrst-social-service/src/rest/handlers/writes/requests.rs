@@ -98,10 +98,6 @@ pub async fn create_request(
         }
     };
 
-    // Authorization must stay ahead of every read of the target: the ban check answers 401
-    // naming the ban, the membership check 400, and an unauthorized caller 401, so deciding
-    // them first lets any wallet holding a private community id walk its roster one address
-    // at a time. Keep this block first.
     if kind == "invite" {
         let caller_standing = match load_standing_from_community_members(
             &state.pool,

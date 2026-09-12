@@ -203,12 +203,6 @@ export type ProposalsResult = {
   source: "live" | "error";
   fallback: boolean;
   addressById: Record<string, string>;
-  /**
-   * created_at of the newest proposal this node holds, ISO, or null. The node
-   * serves a mirror whose sync loop is off by default
-   * (catalyrst-governance/src/config.rs:133), so a list with no date on it
-   * reads as current when it can be a year old. Callers should surface it.
-   */
   asOf: string | null;
 };
 
@@ -405,12 +399,6 @@ async function findLiveProposalById(
   }
 }
 
-/**
- * Rows validate against the generated `ProjectRowSchema` -- the ts-rs image of
- * what catalyrst-governance's `GET /projects` serialises (`rows.rs`
- * `ProjectRow`). On the real wire `proposal_id`, `author`,
- * `configuration.category` and `created_at` are always present.
- */
 type ProposalLiveProject = z.infer<typeof ProjectRowSchema>;
 
 const ProposalProjectsListSchema = z.object({

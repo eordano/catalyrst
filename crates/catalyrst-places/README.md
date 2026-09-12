@@ -3,8 +3,8 @@
 Rust port of `places.decentraland.org`'s REST API (upstream: `decentraland/places`). Reads on the
 `places_events` archive; favorites / likes / reports route through the federation write path.
 Runs on **:5134**. Routes + parity status: [`ROUTES.md`](./ROUTES.md); stubbed surface:
-[`TODO.md`](./TODO.md); stack-wide cutover: [`DEPLOYMENT.md`](../../DEPLOYMENT.md). This file
-documents the env this crate reads, with emphasis on the report S3 upload path (audit #18).
+[`TODO.md`](./TODO.md); stack-wide cutover: [`DEPLOYMENT.md`](../../DEPLOYMENT.md). Below: the
+env this crate reads, with emphasis on the report S3 upload path (audit #18).
 
 ## Migrations
 
@@ -50,7 +50,7 @@ This crate keeps that fail-closed posture by default while allowing a no-S3 loca
 The local-upload route is never a silent default: an operator must opt in explicitly with
 `PLACES_REPORT_LOCAL_FALLBACK`. Do not set that flag in production - configure `AWS_*` instead.
 
-Local dev (MinIO/localstack) - to exercise the real SigV4/SigV2 wire against a local
+Local dev (MinIO/localstack) - exercises the real SigV4/SigV2 wire against a local
 S3-compatible store rather than the dev fallback (presigns path-style against the endpoint, so
 `POST /api/report` returns a genuine presigned PUT the client can upload to):
 

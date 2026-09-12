@@ -12,8 +12,6 @@ export type PermissionDialogRequest = {
   additional?: string | null;
 };
 
-// PermissionType (serde enum name) -> the "wants permission to {...}" clause. Mirrors the engine's
-// PermissionStrings::passive (bridge_protocol). Unknown types get a generic fallback.
 const PASSIVE: Record<string, string> = {
   MovePlayer: "move your avatar within the scene bounds",
   ForceCamera: "temporarily change the camera view",

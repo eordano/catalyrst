@@ -1,15 +1,4 @@
 #!/usr/bin/env bash
-# Design export: capture the preview server's pages as standalone HTML.
-#
-# Every page inlines its CSS and JS already; this script fetches each state,
-# rewrites image srcs to data URLs, and copies the editable CSS/JS sources
-# alongside. Point it at a running preview server.
-#
-#   scripts/export-ui.sh <output-dir> [server-url]
-#
-# The publish-flow states (inline wallet panel, published) exist only while a
-# publish is in flight, so they are captured when present and skipped quietly
-# when not.
 set -euo pipefail
 
 out="${1:?usage: export-ui.sh <output-dir> [server-url]}"

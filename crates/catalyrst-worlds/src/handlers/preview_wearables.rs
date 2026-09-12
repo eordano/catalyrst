@@ -51,10 +51,9 @@ pub async fn get_preview_wearables(
     Ok(Json(json!({ "ok": true, "data": data })))
 }
 
-/// A failure here is not the visitor's problem: the realm is still enterable and
-/// the client's own contract is that an empty list means "nothing previewed", so
-/// an unreachable content server degrades to that rather than to a 500 in the
-/// middle of someone's entry.
+/// A failure here is not the visitor's problem: the realm is still enterable, and the
+/// client's contract is that an empty list means "nothing previewed", so an unreachable
+/// content server degrades to that rather than a 500 mid-entry.
 async fn fetch_active_entities(state: &AppState, pointers: &[String]) -> Vec<Value> {
     let url = format!(
         "{}/entities/active",
@@ -83,10 +82,9 @@ async fn fetch_active_entities(state: &AppState, pointers: &[String]) -> Vec<Val
     }
 }
 
-/// Reshapes a wearable entity into what the client parses. The `hash` alongside
-/// each `url` is what makes this usable rather than decorative: the client turns
-/// it into the previewed scene's content mapping, so without it the scene loads
-/// with no files.
+/// Reshapes a wearable entity into what the client parses. The `hash` alongside each
+/// `url` is load-bearing: the client turns it into the previewed scene's content
+/// mapping, so without it the scene loads with no files.
 fn preview_wearable(entity: &Value, content_base: &str) -> Option<Value> {
     let id = entity
         .get("pointers")
@@ -137,8 +135,6 @@ fn preview_wearable(entity: &Value, content_base: &str) -> Option<Value> {
         })
         .unwrap_or_default();
 
-    // A representation with no scene.json is a plain wearable, not a smart one;
-    // the client logs an error and gives up on it, so it is dropped here instead.
     let runnable = representations.iter().any(|rep| {
         rep["contents"]
             .as_array()
@@ -198,8 +194,6 @@ mod tests {
             contents[0]["url"],
             json!("https://node/content/contents/QmScene")
         );
-        // The client builds the previewed scene's content mapping out of these
-        // hashes; a url alone would load a scene that can reach none of its files.
         assert_eq!(contents[0]["hash"], json!("QmScene"));
         assert_eq!(contents[1]["hash"], json!("QmHat"));
     }

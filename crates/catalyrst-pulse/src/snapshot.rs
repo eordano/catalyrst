@@ -375,9 +375,6 @@ impl IdentityBoard {
 
     pub fn remove(&mut self, id: u32) {
         if let Some(w) = self.wallets_by_peer[id as usize].take() {
-            // Value-checked: after a duplicate-session eviction rebinds the wallet to the
-            // replacement peer, a delayed cleanup of the evicted peer must not delete that live
-            // forward mapping.
             let key = w.to_lowercase();
             if self.peers_by_wallet.get(&key) == Some(&id) {
                 self.peers_by_wallet.remove(&key);
@@ -639,8 +636,8 @@ mod tests {
     fn identity_board_remove_preserves_live_rebound_wallet() {
         let mut b = IdentityBoard::new(8);
         b.set(2, "0xW".into());
-        b.set(5, "0xW".into()); // duplicate-session rebind to the replacement peer
-        b.remove(2); // delayed cleanup of the evicted peer must not clobber the live binding
+        b.set(5, "0xW".into());
+        b.remove(2);
         assert_eq!(b.peer_by_wallet("0xw"), Some(5));
         assert_eq!(b.wallet_by_peer(2), None);
         b.remove(5);

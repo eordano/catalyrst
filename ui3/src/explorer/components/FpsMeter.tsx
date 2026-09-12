@@ -13,7 +13,6 @@ export function fpsTone(page: number): FpsTone {
 }
 
 type FpsMeterProps = {
-  /** Injectable for stories and tests; defaults to live measurement. */
   stats?: { page: number; engine: number | null; ms: number };
 };
 

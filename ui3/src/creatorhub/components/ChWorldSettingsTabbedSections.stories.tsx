@@ -40,7 +40,6 @@ const meta = {
     isLoading: false,
     hasChanges: false,
   },
-  // `tab` seeds internal state, so remount when the control changes it.
   render: (args) => <ChWorldSettingsTabbedSections key={args.tab} {...args} />,
 } satisfies Meta<typeof ChWorldSettingsTabbedSections>;
 
@@ -51,8 +50,6 @@ export const Default: Story = {};
 
 type WsProps = ComponentProps<typeof ChWorldSettingsTabbedSections>;
 
-// The dialog exposes `role="region"` named `World Settings - {worldName}`, so every entry needs
-// its own world name or axe's landmark-unique fires once per repeat.
 const CASES: { label: string; args: Partial<WsProps> }[] = [
   { label: "Details tab", args: { tab: "details", worldName: "details.dcl.eth" } },
   { label: "Layout tab \u{B7} scenes", args: { tab: "layout", worldName: "layout.dcl.eth" } },

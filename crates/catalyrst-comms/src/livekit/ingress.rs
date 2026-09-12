@@ -2,8 +2,6 @@ use thiserror::Error;
 
 use super::{ingress_admin_token, room_service_base, LivekitError};
 
-// RTMP is the only ingress input Cast 2.0 / OBS streaming uses; kept as a constant so the
-// protojson enum name stays in one place if WHIP/URL inputs are ever added.
 pub const INGRESS_INPUT_RTMP: &str = "RTMP_INPUT";
 
 #[derive(Debug, Error)]
@@ -102,8 +100,6 @@ impl<'a> IngressClient<'a> {
         Ok(parse_ingress(&body))
     }
 
-    // Mirrors comms-gatekeeper: one ingress per scene room. Reuse an existing one so the OBS
-    // stream key stays stable across repeated PUTs rather than orphaning ingresses in LiveKit.
     pub async fn get_or_create_ingress(
         &self,
         room: &str,
@@ -124,8 +120,6 @@ impl<'a> IngressClient<'a> {
             .await
         {
             Ok(_) => Ok(()),
-            // Already gone in LiveKit is success from the caller's view; the DB row is what
-            // scene-stream-access DELETE really needs to retire.
             Err(IngressError::Status(404, _)) => Ok(()),
             Err(IngressError::Status(_, txt)) if txt.contains("not_found") => Ok(()),
             Err(e) => Err(e),

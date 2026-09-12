@@ -20,15 +20,11 @@ export interface RibbonMeter {
 }
 
 export interface DeRibbonProps {
-  /** id -> handler. A command with no entry is not rendered at all. */
   commands?: Record<string, (() => void) | undefined>;
-  /** id -> pressed, for `toggle` commands and the active gizmo tool. */
   pressed?: Record<string, boolean>;
-  /** id -> live label, for the commands whose text is their current value. */
   labels?: Record<string, string>;
   hasSelection?: boolean;
   selectionLabel?: string;
-  /** False while the engine has not handshaken, which is what `requires: engine` reads. */
   busLive?: boolean;
   showDeveloper?: boolean;
   onToggleDeveloper?: (next: boolean) => void;
@@ -37,12 +33,9 @@ export interface DeRibbonProps {
   playing?: boolean;
   canUndo?: boolean;
   canRedo?: boolean;
-  /** Status-bar meters. Empty renders the honest "not measured here" note. */
   meters?: RibbonMeter[];
   snapLabel?: string;
-  /** Absent means the editor cannot set an absolute transform, so the group is omitted. */
   numeric?: RibbonNumericProps;
-  /** Shown in the numeric slot while nothing is selected: where the camera is. */
   cameraPose?: { x: number; y: number; z: number; yaw: number; pitch: number };
   wiring?: RibbonWiringState;
   onOpenWiring?: () => void;
@@ -122,8 +115,6 @@ export default function DeRibbon({
   const tablistRef = useRef<HTMLDivElement | null>(null);
   const chip = saveChip(playing, saveLabel, saveClass);
 
-  // The strip is the same five buttons in every state. Nothing appears, nothing
-  // disappears, so a tab never moves out from under the pointer.
   const tabs: readonly RibbonTab[] = RIBBON_TABS;
 
   const current = tabs.find((t) => t.id === active) ?? tabs[0];
@@ -192,9 +183,6 @@ export default function DeRibbon({
     if (g.optIn === true && !showDeveloper) return null;
 
     if (g.slot === "numeric" || g.slot === "wiring") {
-      // Both widget slots share the group chrome; only the capability guard,
-      // the widget and the no-selection fallback differ. The numeric slot never
-      // sits empty: with nothing selected it reads out the camera instead.
       const slot =
         g.slot === "numeric"
           ? numeric === undefined
@@ -224,8 +212,6 @@ export default function DeRibbon({
       );
     }
 
-    // The selection group is the contextual surface, so it is the only group
-    // whose presence changes -- and it is last, so nothing before it shifts.
     if (g.slot === "selection" && !hasSelection) return null;
     const cmds = g.cmds.map(renderCmd).filter((el): el is ReactElement => el !== null);
     if (cmds.length === 0) return null;
@@ -267,9 +253,8 @@ export default function DeRibbon({
   return (
     <div className="rb" role="region" aria-label="Editor ribbon">
       <div className="rb-chrome">
-        {/* T0: never behind a tab. Undo/redo, save state, preview and publish
-            stay reachable from every tab, because the study's three loudest
-            complaints are about exactly these being modal or hidden. */}
+        {
+}
         <div className="rb-qat" role="group" aria-label="Quick access">
           {chromeButton("undo", "Undo", "\u{21B6}", "rb-icon", "Undo", "Nothing to undo", canUndo)}
           {chromeButton("redo", "Redo", "\u{21B7}", "rb-icon", "Redo", "Nothing to redo", canRedo)}

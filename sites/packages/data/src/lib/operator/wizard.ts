@@ -1,11 +1,3 @@
-/**
- * First-boot wizard logic for /server/setup: pure functions from operator
- * answers to a ready-to-paste NixOS host module, the secrets files the units
- * fail-closed without, and a first-boot checklist. Everything emitted is
- * domain-neutral -- the operator's own domain is the only host name that ever
- * appears. Shapes mirror nixos/module-example.nix (the consumer authority)
- * and docs/self-host.md (the secrets table).
- */
 
 export type WizardProfile = "content-node" | "full-realm" | "public-gateway";
 export type WizardTls = "acme-http01" | "acme-dns01" | "none";
@@ -54,11 +46,6 @@ export type WizardOutput = {
 
 const SECRETS_DIR = "/var/lib/secrets";
 
-/**
- * Subdomains an acme-http01 public-gateway certificate must cover, mirrored
- * from the vhost gates in nixos/web.nix + nixos/web-gateway.nix so the DNS
- * checklist is concrete. Treat a disagreement with those files as a bug here.
- */
 const BASE_SUBDOMAINS = ["www", "abgen", "livekit"];
 const GATEWAY_SUBDOMAINS = [
   "gateway",

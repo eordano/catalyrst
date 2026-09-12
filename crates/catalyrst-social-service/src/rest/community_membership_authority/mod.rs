@@ -1,20 +1,9 @@
 //! Community membership standings and the moderation authorities derived from them.
 //!
-//! This module is the single typed path that replaces the five separate role
-//! implementations this crate used to carry. It is deliberately crate-local: nothing here
-//! is re-exported past `catalyrst-social-service`, because "may X do Y to Z" is a
-//! per-domain question and `docs/authz-confusion-defense.md` is explicit that scope types
-//! stay crate-local. Only the *principal* vocabulary is shared, and that lives in
-//! `catalyrst-authenticated-principal`.
-//!
-//! # What is here
-//!
-//! - [`standing`] -- the tier, the table it came from, and the one parse of a stored role
-//!   string.
-//! - [`ban_authority`] -- the community-scoped ban and unban authorities, with one shared
-//!   predicate behind three constructors each.
-//!
-//! # Rendering a refusal
+//! Deliberately crate-local: nothing here is re-exported past
+//! `catalyrst-social-service`, because "may X do Y to Z" is a per-domain question and
+//! `docs/authz-confusion-defense.md` requires scope types to stay crate-local. Only the
+//! *principal* vocabulary is shared, in `catalyrst-authenticated-principal`.
 //!
 //! [`AuthorityNotEstablished`] draws a distinction the old code could not: *we could not
 //! tell* is not *no*. [`status_and_message_for_refusal`] is the one place this crate turns
@@ -32,25 +21,15 @@ pub use standing::{
     CommunityMembershipStanding, CommunityMembershipTier, CommunityMembershipTierSourceTable,
 };
 
-/// Turn a refusal into the status and body message one call site should answer with.
+/// The caller supplies the refusal status and message because the same logical refusal
+/// renders three ways in this crate: 401 from the client write paths, 403 from the
+/// federation write paths, a bare string from the gossip consumer. Unifying those is a
+/// client-visible API change and deliberately out of scope.
 ///
-/// # Why the caller supplies the refusal status and message
-///
-/// The same logical refusal renders three different ways in this crate today: 401 from
-/// the client write paths, 403 from the federation write paths, and a bare string from
-/// the gossip consumer. Unifying *that* is a client-visible change to a shipped API and
-/// is deliberately **not** part of this migration; each call site keeps the status and the
-/// wording it has always sent. What is unified is the thing that mattered: which of the
-/// five arms was reached, and the guarantee that an outage never reaches the refusal arm.
-///
-/// # Why `Undetermined` renders 500 here and not the 503 `http_status()` reports
-///
-/// Both paths answer 500 for a database fault today --
-/// `writes::mod::map_apply_err`'s `ApiError::Database` arm and
-/// `client::mod::map_db` both do. `AuthorityNotEstablished::http_status()` argues for 503
-/// and is right, but changing it is a separate, client-visible commit. The property that
-/// matters is preserved either way: a backing-store failure is not a 403, so it can never
-/// be mistaken for a decision.
+/// `Undetermined` renders 500 here rather than the 503 `http_status()` reports, matching
+/// what `writes::mod::map_apply_err` and `client::mod::map_db` already answer for a
+/// database fault. Either way it is not a 403, so an outage can never be mistaken for a
+/// decision.
 pub fn status_and_message_for_refusal(
     refusal: &AuthorityNotEstablished,
     status_when_the_principal_lacks_the_authority: StatusCode,
@@ -100,10 +79,8 @@ pub fn status_and_message_for_refusal(
     }
 }
 
-/// [`status_and_message_for_refusal`] for the call sites whose refusal message was
-/// already the authority's own explanation rather than a site-specific sentence -- the
-/// federation write gates, whose `"Forbidden: signer role X below required Y"` text is
-/// produced by the authority itself.
+/// For the call sites whose refusal message is the authority's own explanation rather
+/// than a site-specific sentence -- the federation write gates.
 pub fn status_and_message_for_refusal_using_its_own_detail(
     refusal: &AuthorityNotEstablished,
     status_when_the_principal_lacks_the_authority: StatusCode,

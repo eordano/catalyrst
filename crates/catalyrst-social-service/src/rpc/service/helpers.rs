@@ -5,27 +5,14 @@ use catalyrst_drpc::rpc_protocol::RemoteErrorResponse;
 use catalyrst_drpc::stream_protocol::Generator;
 use tokio::sync::broadcast::error::RecvError;
 
-// Per-endpoint pagination bounds, mirroring upstream `src/utils/friendship-pagination.ts` (#455).
-// Each maximum is set at or above the largest page a shipping client actually requests: clients
-// derive their next offset from the page size they ASKED for, not the rows returned, so a cap
-// below that would silently truncate their list rather than make them re-page.
-//
-// Unity Explorer pages friendship requests at 100; 200 leaves headroom for a client bump.
 const FRIENDSHIP_REQUESTS_DEFAULT_LIMIT: i64 = 100;
 const FRIENDSHIP_REQUESTS_MAX_LIMIT: i64 = 200;
-// Unity Explorer's friends-cache prewarm asks for 1000 in one shot; godot-explorer asks for 1000
-// mutual friends. Capping either lower truncates those lists silently, so friends and mutual must
-// NOT share the generic 100 cap the other reads used.
 const FRIENDS_DEFAULT_LIMIT: i64 = 1000;
 const FRIENDS_MAX_LIMIT: i64 = 1000;
-// Only Unity Explorer reads the blocklist, at a page size of 50.
 const BLOCKED_USERS_DEFAULT_LIMIT: i64 = 200;
 const BLOCKED_USERS_MAX_LIMIT: i64 = 200;
-// No client can reach this: every one bounds its offset by the total the server reports.
 const MAX_PAGINATION_OFFSET: i64 = 100_000;
 
-// Client-visible exhaustion message for the friendship/block mutation throttle, matching upstream
-// FriendshipRateLimitError (#456).
 pub(super) const FRIENDSHIP_RATE_LIMIT_MESSAGE: &str =
     "Too many friendship or block actions. Please try again later";
 
@@ -59,16 +46,13 @@ pub(super) fn normalize(addr: &str) -> String {
     addr.trim().to_lowercase()
 }
 
-/// Bounded `(limit, offset)` for a list read, mirroring upstream `normalizePagination(bounds)`.
+/// Mirrors upstream `normalizePagination(bounds)`. A missing, zero or negative page size
+/// falls back to `default_limit`; a larger one is clamped to `max_limit`; the offset is
+/// clamped to [`MAX_PAGINATION_OFFSET`].
 ///
-/// A missing, zero or negative page size falls back to `default_limit`; a larger one is clamped to
-/// `max_limit`; the offset is clamped to [`MAX_PAGINATION_OFFSET`]. The proto carries `limit`/
-/// `offset` as `i32`, so there are no fractional cases to floor (unlike the TS original).
-///
-/// The caps are silent: `PaginatedResponse` carries only `total` and `page`, so a capped caller
-/// cannot tell. That is why each maximum is set at or above the largest page a shipping client
-/// requests -- see the bounds constants above. A client raising its page size past a cap needs the
-/// constant raised in the same change.
+/// The caps are silent -- `PaginatedResponse` carries only `total` and `page` -- so each
+/// maximum is set at or above the largest page a shipping client requests. A client raising
+/// its page size past a cap needs the constant raised in the same change.
 pub(super) fn page_bounded(
     p: &Option<Pagination>,
     default_limit: i64,
@@ -92,12 +76,10 @@ pub(super) fn page_bounded(
     }
 }
 
-/// Bounded pagination for the friends and mutual-friends reads (default = max = 1000).
 pub(super) fn page_friends(p: &Option<Pagination>) -> (i64, i64) {
     page_bounded(p, FRIENDS_DEFAULT_LIMIT, FRIENDS_MAX_LIMIT)
 }
 
-/// Bounded pagination for the pending/sent friendship-request reads (default 100, max 200).
 pub(super) fn page_friendship_requests(p: &Option<Pagination>) -> (i64, i64) {
     page_bounded(
         p,
@@ -106,14 +88,12 @@ pub(super) fn page_friendship_requests(p: &Option<Pagination>) -> (i64, i64) {
     )
 }
 
-/// Bounded pagination for the blocked-users read (default = max = 200).
 pub(super) fn page_blocked_users(p: &Option<Pagination>) -> (i64, i64) {
     page_bounded(p, BLOCKED_USERS_DEFAULT_LIMIT, BLOCKED_USERS_MAX_LIMIT)
 }
 
-/// The 1-based page number for an already-bounded `(limit, offset)`, mirroring upstream `getPage`.
-/// Callers pass the same bounded values they handed to the query, so the reported page matches the
-/// page actually fetched.
+/// The 1-based page number for an **already-bounded** `(limit, offset)`, mirroring upstream
+/// `getPage`. Callers must pass the same bounded values they handed to the query.
 pub(super) fn page_of(limit: i64, offset: i64) -> i32 {
     if limit <= 0 {
         return 1;
@@ -209,8 +189,6 @@ where
     tokio::spawn(async move {
         loop {
             match rx.recv().await {
-                // `event` is an `Arc<SocialEvent>`, so the picker borrows and clones only the
-                // matched inner variant.
                 Ok(event) => {
                     if let Some(item) = pick(&event) {
                         if yielder.r#yield(item).await.is_err() {
@@ -238,7 +216,6 @@ mod pubsub_routing_tests {
     async fn one_publish_reaches_only_the_matching_stream_in_order() {
         let ps = PubSub::new();
 
-        // The exact pickers used in subscriptions.rs.
         let mut cm = stream_for(&ps, "0xme", |e| match e {
             SocialEvent::CommunityMember(u) => Some(u.clone()),
             _ => None,
@@ -259,7 +236,6 @@ mod pubsub_routing_tests {
             SocialEvent::CommunityVoice(u) => Some(u.clone()),
             _ => None,
         });
-        // One raw subscribe for the FriendConnectivity path (the manual loop's shape).
         let mut fc_rx = ps.subscribe("0xme");
 
         ps.publish(
@@ -280,14 +256,11 @@ mod pubsub_routing_tests {
         );
         ps.publish("0xme", SocialEvent::Friendship(FriendshipUpdate::default()));
 
-        // Community-member stream: both events, in order.
         assert_eq!(cm.next().await.unwrap().community_id, "a");
         assert_eq!(cm.next().await.unwrap().community_id, "b");
 
-        // Friendship stream: exactly the friendship update.
         assert_eq!(fr.next().await.unwrap(), FriendshipUpdate::default());
 
-        // Raw receiver sees all three Arcs, in order, undiscriminated.
         assert!(
             matches!(&*fc_rx.recv().await.unwrap(), SocialEvent::CommunityMember(u) if u.community_id == "a")
         );
@@ -299,7 +272,6 @@ mod pubsub_routing_tests {
             SocialEvent::Friendship(_)
         ));
 
-        // The non-matching streams yield nothing.
         assert!(timeout(Duration::from_millis(50), blk.next())
             .await
             .is_err());
@@ -318,14 +290,10 @@ mod tests {
 
     #[test]
     fn friends_and_mutual_allow_up_to_1000_and_do_not_share_the_100_cap() {
-        // The Unity/godot prewarm asks for 1000 in one shot; it must reach the query uncapped.
         assert_eq!(page_friends(&pg(1000, 0)), (1000, 0));
-        // A larger ask is clamped to the friends max, still far above the old 100.
         assert_eq!(page_friends(&pg(5000, 0)), (1000, 0));
-        // An unset/zero page size defaults to 1000, not 20.
         assert_eq!(page_friends(&pg(0, 0)), (1000, 0));
         assert_eq!(page_friends(&None), (1000, 0));
-        // Regression guard: friends/mutual must never be capped at 100.
         assert_ne!(page_friends(&pg(1000, 0)).0, 100);
     }
 

@@ -1,5 +1,3 @@
-// Minimal structural shape of a subsquid Log needed to pair Issue logs with
-// Traded events. Kept dependency-free so it can be unit tested in isolation.
 export type IssueLogLike = {
   transactionIndex: number;
   address: string;
@@ -7,23 +5,6 @@ export type IssueLogLike = {
   logIndex: number;
 };
 
-/**
- * Selects the Issue log that corresponds to a given OffChainMarketplace `Traded`
- * event when minting an item as a primary sale.
- *
- * A single transaction can mint the same `itemId` more than once (e.g. buying
- * several units of the same item at once). Each mint emits its own `Issue` log
- * that differs only by `issuedId`/`tokenId`, and the marketplace emits one
- * `Traded` event per unit. Because `Traded` events are processed in log order,
- * we consume the matching `Issue` logs in ascending `logIndex` order and skip
- * any already matched to a previous `Traded` event in the same batch. Using
- * `Array.find` on its own would return the first matching `Issue` log every
- * time and silently drop every mint after the first for that item.
- *
- * The chosen log is recorded in `consumedIssueLogs` (keyed by
- * `${blockHeight}-${logIndex}`) so the next `Traded` event for the same item
- * picks the following issuance.
- */
 export function selectIssueLogForTrade<T extends IssueLogLike>(
   logs: T[],
   params: {

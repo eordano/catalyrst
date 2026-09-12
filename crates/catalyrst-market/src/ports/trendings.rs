@@ -13,12 +13,10 @@ const SALES_CUT: f64 = 0.6;
 const VOLUME_CUT: f64 = 0.4;
 const TRENDING_SALES_LIMIT: i64 = 1000;
 
-/// Days of sales the row is computed over (marketplace-server e2d45d5). A
-/// week, the same width as the shop rail's TRENDING_DEFAULT_DAYS: a day held
-/// four distinct sold items marketplace-wide on production, and only the ones
-/// still on sale survive the filter below, so the row rendered empty on a
-/// quiet day. Widen only with a fallback in hand -- below a week's worth of
-/// sales there is no trend left to show.
+/// marketplace-server e2d45d5. Same width as the shop rail's TRENDING_DEFAULT_DAYS: a day
+/// held four distinct sold items marketplace-wide on production, and only the ones still on
+/// sale survive the filter below, so the row rendered empty on a quiet day. Narrow only with
+/// a fallback in hand.
 pub const TRENDING_WINDOW_DAYS: i64 = 7;
 
 #[derive(Debug, Clone)]
@@ -199,9 +197,9 @@ fn parse_u128_saturating(s: &str) -> u128 {
     s.parse::<u128>().unwrap_or(0)
 }
 
-/// Midnight (UTC) `days` days ago, as a unix SECONDS timestamp -- the same window
-/// anchor upstream derives with `Math.floor(getDateXDaysAgo(days).getTime()/1000)`.
-/// `sale.timestamp` is stored in seconds, so this is compared directly.
+/// Midnight UTC, as unix SECONDS -- the anchor upstream derives with
+/// `Math.floor(getDateXDaysAgo(days).getTime()/1000)`. `sale.timestamp` is stored in seconds,
+/// so this is compared directly.
 pub(crate) fn midnight_days_ago(days: i64) -> i64 {
     let date = Utc::now() - Duration::days(days);
     let naive = date.date_naive().and_hms_opt(0, 0, 0).unwrap();

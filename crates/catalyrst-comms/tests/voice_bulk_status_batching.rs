@@ -40,8 +40,6 @@ fn room_name(r: usize) -> String {
 /// Hand-computed expectation for room `r` from the seed below.
 fn expected(r: usize) -> serde_json::Value {
     let has_mod = r < MOD_ROOMS;
-    // connected non-mods (2) + interrupted-active (1) + not_connected-active (1)
-    // + (moderator when present).
     let participant_count = if has_mod { 5 } else { 4 };
     let moderator_count = if has_mod { 1 } else { 0 };
     serde_json::json!({
@@ -98,7 +96,6 @@ async fn seed(pool: &sqlx::PgPool) {
             "now()",
             "now()",
         );
-        // connection_interrupted with a fresh update = active.
         push(
             format!("0xr{r:02}intA"),
             &room,
@@ -107,7 +104,6 @@ async fn seed(pool: &sqlx::PgPool) {
             "now()",
             "now()",
         );
-        // connection_interrupted stale by an hour = inactive (TTL is 300s).
         push(
             format!("0xr{r:02}intB"),
             &room,
@@ -116,7 +112,6 @@ async fn seed(pool: &sqlx::PgPool) {
             "now()",
             "now() - interval '1 hour'",
         );
-        // not_connected joined just now = active.
         push(
             format!("0xr{r:02}nc"),
             &room,
@@ -147,7 +142,6 @@ async fn bulk_status_is_one_query_and_matches_per_id_semantics() {
 
     let state = support::test_state(pool.clone(), None, None, "squid_marketplace");
 
-    // Install AFTER seeding so the seed INSERT is outside the counting window.
     let cap = catalyrst_testgate::sql_capture::sql_capture();
 
     let resp = community_voice_chat_bulk_status(
@@ -172,15 +166,11 @@ async fn bulk_status_is_one_query_and_matches_per_id_semantics() {
         "bulk result must equal the hand-computed per-id result (order preserved)"
     );
 
-    // Pin the no-zeroing bulk semantics: a room with participants but no active
-    // moderator reports active=false AND participant_count>0.
     let no_mod = &resp.0["data"][MOD_ROOMS];
     assert_eq!(no_mod["active"], serde_json::json!(false));
     assert_eq!(no_mod["participant_count"], serde_json::json!(4));
     assert_eq!(no_mod["moderator_count"], serde_json::json!(0));
 
-    // Duplicate + unknown ids: request order preserved, duplicates each emitted,
-    // absent room defaults to (false, 0, 0). Still one query.
     cap.reset();
     let resp2 = community_voice_chat_bulk_status(
         State(state),
